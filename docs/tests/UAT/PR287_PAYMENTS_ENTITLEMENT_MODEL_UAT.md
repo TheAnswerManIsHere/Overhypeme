@@ -44,7 +44,7 @@ before.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe test-mode subscription checkout
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe test-mode subscription checkout
 
 ### 2. The purchase shows up as Legendary everywhere
 
@@ -56,7 +56,7 @@ Legendary for that user.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a completed Stripe purchase
+**Deferred:** #695 — the Stripe fake's event channel — needs a completed Stripe purchase
 
 ### 3. The Membership screen records the purchase
 
@@ -66,7 +66,7 @@ Legendary for that user.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a completed Stripe purchase
+**Deferred:** #695 — the Stripe fake's event channel — needs a completed Stripe purchase
 
 ### 4. A Legendary-for-Life one-time purchase works the same way
 
@@ -165,7 +165,7 @@ dashboard.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe refund webhook
 
 ### 12. A refunded purchase stays on record, marked refunded
 
@@ -177,7 +177,7 @@ kept, the entitlement is not.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe refund webhook
 
 ### 13. A full refund sends the access-revoked email once
 
@@ -188,7 +188,7 @@ full refund.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook and a delivered email
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe refund webhook and a delivered email
 
 ### 14. A partial refund does not revoke access
 
@@ -202,7 +202,7 @@ against was not even passed to it.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe partial-refund webhook
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe partial-refund webhook
 
 ### 15. Cancelling one of two memberships keeps the other
 
@@ -216,7 +216,7 @@ entitles them.
 
 **Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
 
-**Deferred:** #566 — the Stripe fake — the subscription-cancel path marking the source canceled
+**Deferred:** #695 — the Stripe fake's event channel — the subscription-cancel path marking the source canceled
 
 ### 16. Removing the last membership finally drops the user
 
@@ -227,7 +227,7 @@ previous step.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe refund webhook
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe refund webhook
 
 ### 17. An admin grant holds a user up through a cancelled subscription
 
@@ -241,7 +241,7 @@ them up.
 
 **Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
 
-**Deferred:** #631 — 7b — a cancelled subscription beside an active admin grant derives legendary on the grant alone, the cited test shows a lifetime holding the tier — `artifacts/api-server/src/__tests__/membershipState.test.ts`; #566 — the Stripe fake — the subscription-cancel path marking the source canceled
+**Deferred:** #631 — 7b — a cancelled subscription beside an active admin grant derives legendary on the grant alone, the cited test shows a lifetime holding the tier — `artifacts/api-server/src/__tests__/membershipState.test.ts`; #695 — the Stripe fake's event channel — the subscription-cancel path marking the source canceled
 
 ### 18. A dispute revokes access immediately
 
@@ -255,7 +255,7 @@ charging back.
 
 **Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:holds access while a non-terminal dispute exists, on any source type`
 
-**Deferred:** #566 — the Stripe fake — a dispute-opened webhook putting the source on hold so the user drops to registered straight away
+**Deferred:** #695 — the Stripe fake's event channel — a dispute-opened webhook putting the source on hold so the user drops to registered straight away
 
 ### 19. A dispute sends the admin alert
 
@@ -266,7 +266,7 @@ previous step.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe dispute webhook
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe dispute webhook
 
 ### 20. Winning a dispute restores access
 
@@ -277,7 +277,7 @@ purchase was always fine.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe dispute-won webhook
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe dispute-won webhook
 
 ### 21. Losing a dispute is permanent
 
@@ -291,7 +291,7 @@ is permanent.
 
 **Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:disqualifies permanently on a lost chargeback, even when the provider says active`
 
-**Deferred:** #566 — the Stripe fake — a lost-dispute webhook revoking the source, then a subscription refresh reporting active that leaves the user registered
+**Deferred:** #695 — the Stripe fake's event channel — a lost-dispute webhook revoking the source, then a subscription refresh reporting active that leaves the user registered
 
 ### 22. Your own profile shows the correct tier
 
@@ -381,7 +381,7 @@ chased for payment was the one person unable to stop it.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe subscription in a failing-payment state
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe subscription in a failing-payment state
 
 ### 30. The convergence strip reads healthy under normal conditions
 
@@ -451,7 +451,7 @@ remove the member's access — only a full refund does.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe partial-refund webhook
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe partial-refund webhook
 
 ## Regression
 
@@ -477,7 +477,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — the checkout route creates a customer first, and the fake neither holds one to retrieve nor creates one
+**Deferred:** #695 — the Stripe fake's event channel — the checkout route creates a customer first, and the fake neither holds one to retrieve nor creates one
 
 ### R3. Cancelling a subscription still shows the period-end message
 
@@ -487,7 +487,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe cancel
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe cancel
 
 ### R4. Reactivating a cancelling subscription is unchanged
 
@@ -497,7 +497,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe reactivate
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe reactivate
 
 ### R5. Switching monthly to annual keeps the user Legendary
 
@@ -532,7 +532,7 @@ them would have handed Legendary back based on a stale local row.
 
 **Lane:** scripted
 
-**Deferred:** #631 — 7b — deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #566 — the Stripe fake — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve
+**Deferred:** #631 — 7b — deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #695 — the Stripe fake's event channel — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve
 
 ### R8. Creating a user with Legendary records an admin grant
 
@@ -542,7 +542,7 @@ them would have handed Legendary back based on a stale local row.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — POST admin users with membershipTier legendary answers 201, and the user has an active admin_grant row with a reason and an admin_grant history event — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #631 — 7b — POST admin users with membershipTier legendary answers 201, and the user has an active admin_grant row with a reason and an admin_grant history event — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — on /admin/users, the create-user form submits and the new user appears in the list — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ## Not bugs
 - **Two race conditions are watch-for-if-you-see-it, not required steps**

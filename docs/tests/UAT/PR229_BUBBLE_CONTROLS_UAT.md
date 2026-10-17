@@ -211,9 +211,9 @@ sits on the subject is step 19's, yours.
 **Expect:** ideas come back with no bubbles — the AI shouldn't invent
 speech where the fact has none.
 
-**Lane:** live
+**Lane:** scripted
 
-**Deferred:** #631 — 7b — the AI proposing no bubbles for a dialogue-free fact is unasserted, journey 3 picks a candidate but never checks bubbles are empty — acceptance journey 3
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: the baseline fact has no dialogue, and no Visual Ideas candidate proposes a bubble
 
 ### 15. Picking an idea is blocked while other Advanced edits are unsaved
 

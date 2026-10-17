@@ -151,9 +151,7 @@ and a new, uncalled backend client.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 2 and 4: an ordinary account signs in and saves a public photo meme whose composed image anyone can read
-
-**Deferred:** #631 — 7b — browsing the facts list shows the approved fact — acceptance journey 3
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 2 and 4: an ordinary account signs in and saves a public photo meme whose composed image anyone can read; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: anyone reading the facts list, newest first, finds the approved fact
 
 ## Not bugs
 

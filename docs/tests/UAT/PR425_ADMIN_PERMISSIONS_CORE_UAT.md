@@ -266,11 +266,9 @@ onboarding and upload a photo.
 upload is also the identity photo the meme and video generators use, so
 gating the upload would break free onboarding.)
 
-**Lane:** ci
+**Lane:** scripted
 
-**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user`
-
-**Deferred:** #631 — 7b — the free account uploads a JPEG via POST /api/storage/upload-avatar then sets it via POST /api/users/me/profile-image, both 200 with the photo stored — acceptance journey 7
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 7: the free account uploads the photo through the avatar route and sets it as its profile photo, and its profile photo URL serves the same bytes
 
 ### 16. The public avatar stays generic until upgraded
 

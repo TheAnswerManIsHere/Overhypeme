@@ -43,9 +43,9 @@ photo is step 7's, yours.
 
 **Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-reference`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-result`
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-reference`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-result`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: the free account saves the same split twice, once tokenised and once typed by hand with its display name, and the two served images are byte-identical, while a different typed name serves a different image
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — a legendary reference-photo generate completing is undriven, journey 6 sends no photo, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17); #631 — 7b — the saved meme's served image draws the creator's full display name exactly as stored, equal to the hand-typed twin, the served-caption assertion PR398 already owes — acceptance journey 4
+**Deferred:** #628 — Phase 4 (Cut and prune) — a legendary reference-photo generate completing is undriven, journey 6 sends no photo, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
 
 ### 2. Generate without a reference photo
 

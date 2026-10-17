@@ -73,7 +73,7 @@ leave it carrying two subscriptions, only one of which the UI can reach.
 
 **Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers Switch to Annual and Cancel while the Stripe mirror has not synced the subscription yet`
 
-**Deferred:** #631 — 7b — the renewal date on the card while the Stripe mirror is still empty — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`; #628 — Phase 10 (Membership and money) — the Switch to Annual button goes with the monthly-only rebuild (F6); #566 — the Stripe fake — a monthly checkout from /pricing completing, so GET /api/stripe/subscription returns the active monthly appSubscription while the mirror row is still null
+**Deferred:** #631 — 7b — the renewal date on the card while the Stripe mirror is still empty — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`; #628 — Phase 10 (Membership and money) — the Switch to Annual button goes with the monthly-only rebuild (F6); #695 — the Stripe fake's event channel — a monthly checkout from /pricing completing, so GET /api/stripe/subscription returns the active monthly appSubscription while the mirror row is still null
 
 ### 2. The savings figure is right
 
@@ -202,7 +202,7 @@ are both gone. Click Reactivate and confirm both controls come back.
 
 **Lane:** scripted
 
-**Deferred:** #631 — 7b — clicking Cancel Subscription and confirming, then Reactivate, with the routes stubbed: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`; #566 — the Stripe fake — cancel and reactivate are executed against Stripe; #628 — Phase 10 (Membership and money) — the Switch to Annual button goes with the monthly-only rebuild (F6)
+**Deferred:** #631 — 7b — clicking Cancel Subscription and confirming, then Reactivate, with the routes stubbed: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`; #695 — the Stripe fake's event channel — cancel and reactivate are executed against Stripe; #628 — Phase 10 (Membership and money) — the Switch to Annual button goes with the monthly-only rebuild (F6)
 
 ### R4. Purchase still works from the pricing page
 

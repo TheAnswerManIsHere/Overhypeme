@@ -171,9 +171,7 @@ pre-existing limit.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/src/__tests__/phase5.og.routes.test.ts:returns 200 with full og:* tags and 1h cache`
-
-**Deferred:** #631 — 7b — the unfurl page's og:image URL for a saved public meme serves a decoded image — acceptance journey 4
+**Check:** `artifacts/api-server/src/__tests__/phase5.og.routes.test.ts:returns 200 with full og:* tags and 1h cache`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: the unfurl page for the saved public meme names that meme's own image route as og:image, and the image it names decodes
 
 ## Not bugs
 

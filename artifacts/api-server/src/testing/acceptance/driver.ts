@@ -38,6 +38,7 @@
  * generation path records no spend (#651; David, 2026-10-12, "next"). It is
  * reported as a deferral, never as a pass.
  */
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -252,6 +253,9 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       (c) => c.tokenValid && (c.bubbles ?? []).every((b: any) => b.tokenValid),
     );
     if (!candidate) throw new JourneyError("3", "pick a Visual Concept", "no token-valid candidate");
+    // The baseline fact has no dialogue, so no proposed idea carries a speech or thought bubble (PR229 step 14).
+    const withBubbles = (prepared.visualConcepts.candidates as any[]).filter((c) => (c.bubbles ?? []).length > 0).length;
+    if (withBubbles > 0) throw new JourneyError("3", "Visual Ideas for a dialogue-free fact", `${withBubbles} candidate(s) propose a bubble`);
 
     const fact = await admin.json<any>("3", "GET", `/api/admin/facts/${stagingFactId}`);
     const enrichment = structuredClone(fact.enrichment);
@@ -329,7 +333,10 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     factId = approved.factId;
     const active = await free.json<any>("3", "GET", `/api/facts/${factId}`);
     if (active?.isActive === false) throw new JourneyError("3", "active fact", "the approved fact is not active");
-    Object.assign(ev, { reviewId, factId, renderImages });
+    // Anyone browsing the facts list, newest first, finds it (PR293 step R5).
+    const listed = await anonymous.json<{ facts: Array<{ id: number }> }>("3", "GET", "/api/facts?sort=newest&limit=50");
+    if (!listed.facts.some((f) => f.id === factId)) throw new JourneyError("3", "the public facts list", `fact ${factId} is not among the ${listed.facts.length} newest`);
+    Object.assign(ev, { reviewId, factId, renderImages, candidatesWithBubbles: withBubbles, listedInFacts: true });
   });
   const control = controlFrom(outcomes);
   if (options.expectRenderFailure) {
@@ -408,7 +415,16 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     if (!own.bytes.equals(photo)) throw new JourneyError("7", "the owner reads the photo", `${own.bytes.length} bytes differ from the ${photo.length} uploaded`);
     const otherStatus = (await paid.request("GET", `/api/storage${objectPath}`)).status;
     if (otherStatus !== 403) throw new JourneyError("7", "another user reads the photo", `expected 403, got ${otherStatus}`);
-    Object.assign(ev, { objectPath, ownerBytesEqual: true, otherUserStatus: otherStatus });
+    // The same photo as a profile picture: uploaded through the avatar route and set (PR425 step 15).
+    const avatar = await free.request("POST", "/api/storage/upload-avatar", photo, "image/jpeg");
+    const avatarBody = (await avatar.json()) as { objectPath?: string };
+    if (avatar.status !== 200 || !avatarBody.objectPath) throw new JourneyError("7", "upload a profile photo", `${avatar.status} ${JSON.stringify(avatarBody)}`);
+    await free.json("7", "POST", "/api/users/me/profile-image", { objectPath: avatarBody.objectPath });
+    const me = await free.json<{ profileImageUrl: string | null }>("7", "GET", "/api/users/me");
+    if (me.profileImageUrl !== `/api/storage${avatarBody.objectPath}`) throw new JourneyError("7", "the profile photo is set", `profileImageUrl is ${me.profileImageUrl}`);
+    const stored = await readImage(free, "7", "the profile photo is stored", me.profileImageUrl);
+    if (!stored.bytes.equals(photo)) throw new JourneyError("7", "the profile photo is stored", `${stored.bytes.length} bytes differ from the ${photo.length} uploaded`);
+    Object.assign(ev, { objectPath, ownerBytesEqual: true, otherUserStatus: otherStatus, avatarObjectPath: avatarBody.objectPath, avatarBytesEqual: true });
   });
 
   // --- journey 4: the free user's public photo meme --------------------------
@@ -425,7 +441,59 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     const permalinkStatus = (await anonymous.request("GET", `/api/memes/${slug}`)).status;
     if (permalinkStatus !== 200) throw new JourneyError("4", "anyone reads the public meme's permalink", String(permalinkStatus));
     const meme = await readImage(anonymous, "4", "anyone reads the public meme image", `/api/memes/${slug}/image`, "landscape");
-    Object.assign(ev, { memeSlug: slug, permalinkStatus, meme: { format: meme.format, width: meme.width, height: meme.height } });
+
+    // The unfurl page a crawler reads names this meme's own image, and that image serves (PR308 step R8).
+    const og = await anonymous.request("GET", `/api/og/m/${slug}?noredirect=1`);
+    const ogImage = /<meta property="og:image" content="([^"]+)"/.exec(await og.text())?.[1];
+    if (og.status !== 200 || !ogImage) throw new JourneyError("4", "the unfurl page", `${og.status}, og:image ${ogImage ?? "absent"}`);
+    const ogPath = new URL(ogImage, "http://unfurl.invalid").pathname;
+    if (ogPath !== `/api/memes/${slug}/image`) throw new JourneyError("4", "the unfurl page's og:image", `names ${ogImage}, not this meme's image`);
+    const unfurled = await readImage(anonymous, "4", "the unfurl page's og:image", ogPath, "landscape");
+
+    // The served caption draws the creator's identity exactly as a hand-typed
+    // twin of the same split does (PR398 steps 1, 3–8; PR223 step 1). Equal
+    // bytes are the proof: a surviving token, a brace, a shortened name or a
+    // wrong conjugation could not render identically to the typed words.
+    const me = await free.json<{ displayName: string | null }>("4", "GET", "/api/users/me");
+    const name = me.displayName;
+    if (!name) throw new JourneyError("4", "the creator's display name", "the free account has none");
+    const served = async (what: string, topText: string, bottomText: string) => {
+      const res = await free.request("POST", "/api/memes", { factId, imageSource: { type: "upload", uploadKey: objectPath }, textOptions: { topText, bottomText }, isPublic: true, aspectRatio: "landscape" });
+      const saved = (await res.json().catch(() => ({}))) as { permalinkSlug?: string };
+      if (res.status !== 201 || !saved.permalinkSlug) throw new JourneyError("4", `save ${what}`, `${res.status} ${JSON.stringify(saved).slice(0, 300)}`);
+      const img = await readImage(anonymous, "4", what, `/api/memes/${saved.permalinkSlug}/image`, "landscape");
+      return createHash("sha256").update(img.bytes).digest("hex");
+    };
+    const twin = async (what: string, tokenised: [string, string], typed: [string, string]) => {
+      const [a, b] = [await served(`${what}, tokenised`, ...tokenised), await served(`${what}, typed by hand`, ...typed)];
+      if (a !== b) throw new JourneyError("4", what, "the served image differs from its hand-typed twin");
+      return a;
+    };
+    const setPronouns = (pronouns: string) => free.json("4", "PATCH", "/api/users/me", { pronouns });
+    const captions: Record<string, string> = {};
+    captions.nameInTop = await twin("the name in the top half", ["{NAME} counted to infinity", "twice."], [`${name} counted to infinity`, "twice."]);
+    captions.nameInBottom = await twin("the name in the bottom half", ["Infinity was counted", "by {NAME}, twice."], ["Infinity was counted", `by ${name}, twice.`]);
+    // The guard: a different typed name must not match, or equality proves nothing.
+    if ((await served("a different name, typed by hand", "Someone Else counted to infinity", "twice.")) === captions.nameInTop) {
+      throw new JourneyError("4", "the caption guard", "a different name served the same image");
+    }
+    await setPronouns("they/them");
+    captions.theyKeep = await twin("they/them agreement", ["{Subj} {keeps|keep} counting", "to infinity."], ["They keep counting", "to infinity."]);
+    // Its own bottom line: the save route treats a repeated body as the same meme.
+    await setPronouns("he/him");
+    captions.heKeeps = await twin("he/him agreement", ["{Subj} {keeps|keep} counting", "to infinity, twice."], ["He keeps counting", "to infinity, twice."]);
+    if ((await served("they/them wording, typed by hand", "They keep counting", "to infinity, twice.")) === captions.heKeeps) {
+      throw new JourneyError("4", "the pronoun guard", "they/them wording served the he/him image");
+    }
+
+    Object.assign(ev, {
+      memeSlug: slug,
+      permalinkStatus,
+      meme: { format: meme.format, width: meme.width, height: meme.height },
+      unfurl: { ogImage, format: unfurled.format, width: unfurled.width, height: unfurled.height },
+      creatorName: name,
+      captionTwinsEqual: Object.keys(captions),
+    });
   });
 
   return result();

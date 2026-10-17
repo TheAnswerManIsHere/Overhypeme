@@ -1146,10 +1146,26 @@
     },
     {
      "text": "the finished meme's caption reads the full display name exactly as stored",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the saved meme's served image draws the creator's full display name exactly as stored, equal to the hand-typed twin, the served-caption assertion PR398 already owes — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 474,
+       "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 478,
+       "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
+      }
+     ],
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "gap_clause": null
     }
    ]
   },
@@ -1165,12 +1181,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 362,
+       "line": 369,
        "quote": "(r) => r.status === \"image_ready\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 367,
+       "line": 374,
        "quote": "const generated = await readImage(paid, \"6\", \"the owner reads the generated image\""
       }
      ],
@@ -1500,22 +1516,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 314,
+       "line": 318,
        "quote": "const notDone = required.filter((c) => c.status !== \"done\" || c.stale);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 322,
+       "line": 326,
        "quote": "const img = await readImage(admin, \"3\", `the ${card.key} render image`, card.imageUrl);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 362,
+       "line": 369,
        "quote": "(r) => r.status === \"image_ready\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 367,
+       "line": 374,
        "quote": "const generated = await readImage(paid, \"6\", \"the owner reads the generated image\""
       }
      ],
@@ -1682,7 +1698,7 @@
    "lane": "ci",
    "clauses": [
     {
-     "text": "with the exact phrase and a reason of 10 or more characters the Change the text button enables",
+     "text": "with the product's phrase and a reason of 10 or more characters the Change the text button enables",
      "status": "asserted",
      "evidence": [
       {
@@ -1698,6 +1714,13 @@
      ],
      "fails_because": "if the button stayed disabled with a valid phrase and reason, toBe(false) fails",
      "gap_clause": null
+    },
+    {
+     "text": "the phrase is exactly CHANGE APPROVED FACT TEXT",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — the phrase the modal requires is exactly CHANGE APPROVED FACT TEXT, pinned as a literal and not read from the production export APPROVED_FACT_TEXT_EDIT_PHRASE — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`"
     }
    ]
   },
@@ -2311,10 +2334,16 @@
    "clauses": [
     {
      "text": "ideas come back with no bubbles for a dialogue-free fact",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the AI proposing no bubbles for a dialogue-free fact is unasserted, journey 3 picks a candidate but never checks bubbles are empty — acceptance journey 3"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 258,
+       "quote": "if (withBubbles > 0) throw new JourneyError(\"3\", \"Visual Ideas for a dialogue-free fact\", `${withBubbles} candidate(s) propose a bubble`);"
+      }
+     ],
+     "fails_because": "a candidate proposing a bubble for the dialogue-free baseline fact makes withBubbles positive, so line 258 throws",
+     "gap_clause": null
     }
    ]
   },
@@ -2352,12 +2381,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
-       "line": 1878,
+       "line": 1895,
        "quote": "assert.ok(!out.imagePrompt.includes(\"SPEECH & THOUGHT BUBBLES\"));"
       },
       {
        "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
-       "line": 1879,
+       "line": 1896,
        "quote": "assert.ok(!out.imagePrompt.includes(\"not overlay captions\"));"
       }
      ],
@@ -2468,6 +2497,13 @@
      "evidence": [],
      "fails_because": null,
      "gap_clause": "#631 — 7b — the red * required marker in the Visual Concept card header — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
+    },
+    {
+     "text": "GET /api/admin/reviews/:id returns the visual concept the card shows; the browser check reads a stub, so nothing yet asserts the server still sends it",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — GET /api/admin/reviews/:id returns the visual concept the card shows; the browser check reads a stub, so nothing yet asserts the server still sends it — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`"
     }
    ]
   },
@@ -2786,22 +2822,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 203,
+       "line": 204,
        "quote": "await free.json(\"2\", \"POST\", \"/api/auth/local-login\", { email: accounts.free.email, password: accounts.password });"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 219,
+       "line": 220,
        "quote": "const submitted = await free.json<{ reviewId: number }>("
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 222,
+       "line": 223,
        "quote": "\"/api/facts/submit-review\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 114,
+       "line": 115,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       }
      ],
@@ -2814,12 +2850,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 233,
+       "line": 234,
        "quote": "if (!listed) throw new JourneyError(\"2\", \"the moderation queue\", `review ${reviewId} is not listed`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 234,
+       "line": 235,
        "quote": "if (listed.workflowStage !== \"triage_pending\") throw new JourneyError(\"2\", \"the moderation queue\", `review ${reviewId} is at ${listed.workflowStage}, expected triage_pending`);"
       }
      ],
@@ -3402,32 +3438,32 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 241,
+       "line": 242,
        "quote": "await admin.json(\"3\", \"POST\", `/api/admin/reviews/${reviewId}/provisional-approve`, { adminNote: \"AI baseline\" });"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 246,
+       "line": 247,
        "quote": "(r) => r.workflowStage === \"concept_review\" && r.visualConcepts?.status === \"ok\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 294,
+       "line": 298,
        "quote": "await admin.json(\"3\", \"POST\", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 325,
+       "line": 329,
        "quote": "const approved = await admin.json<{ factId: number }>(\"3\", \"POST\", `/api/admin/reviews/${reviewId}/approve-for-production`, {"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 330,
+       "line": 334,
        "quote": "const active = await free.json<any>(\"3\", \"GET\", `/api/facts/${factId}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 114,
+       "line": 115,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       },
       {
@@ -3760,6 +3796,16 @@
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
        "line": 94,
        "quote": "expect(calls.some((c) => c.method === \"POST\" && c.url.includes(\"/admin/facts/backfill-images\"))).toBe(true),"
+      },
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
+       "line": 124,
+       "quote": "const confirmSpy = vi.spyOn(window, \"confirm\").mockReturnValue(false);"
+      },
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
+       "line": 130,
+       "quote": "expect(calls.some((c) => c.method === \"POST\" && c.url.includes(\"backfill-images\"))).toBe(false);"
       }
      ],
      "fails_because": "if the button posted without calling window.confirm, the confirmSpy assertion fails",
@@ -4023,7 +4069,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 246,
+       "line": 247,
        "quote": "(r) => r.workflowStage === \"concept_review\" && r.visualConcepts?.status === \"ok\","
       }
      ],
@@ -4036,12 +4082,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 362,
+       "line": 369,
        "quote": "(r) => r.status === \"image_ready\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 367,
+       "line": 374,
        "quote": "const generated = await readImage(paid, \"6\", \"the owner reads the generated image\","
       }
      ],
@@ -4054,12 +4100,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 377,
+       "line": 384,
        "quote": "const meme = await readImage(paid, \"6\", \"the owner reads the private meme image\", `/api/memes/${memeSlug}/image`, \"landscape\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 427,
+       "line": 443,
        "quote": "const meme = await readImage(anonymous, \"4\", \"anyone reads the public meme image\", `/api/memes/${slug}/image`, \"landscape\");"
       }
      ],
@@ -4175,6 +4221,13 @@
      "evidence": [],
      "fails_because": null,
      "gap_clause": "#631 — increment 8 (capture and read) — the Facts editor opened on a root fact shows its usual panels and fields with no error"
+    },
+    {
+     "text": "GET /api/admin/facts/:id for a root fact returns the fields and enrichment the Facts editor reads; the browser check above reads a stub, so nothing yet asserts the server still sends them",
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#631 — 7b — GET /api/admin/facts/:id for a root fact returns the fields and enrichment the Facts editor reads; the browser check above reads a stub, so nothing yet asserts the server still sends them — `artifacts/api-server/src/__tests__/routes.adminFacts.test.ts`"
     }
    ]
   },
@@ -4957,7 +5010,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — the subscription-cancel path marking the source canceled"
+     "gap_clause": "#695 — the Stripe fake's event channel — the subscription-cancel path marking the source canceled"
     }
    ]
   },
@@ -4979,7 +5032,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — the subscription-cancel path marking the source canceled"
+     "gap_clause": "#695 — the Stripe fake's event channel — the subscription-cancel path marking the source canceled"
     }
    ]
   },
@@ -5017,7 +5070,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — a dispute-opened webhook putting the source on hold so the user drops to registered straight away"
+     "gap_clause": "#695 — the Stripe fake's event channel — a dispute-opened webhook putting the source on hold so the user drops to registered straight away"
     }
    ]
   },
@@ -5055,14 +5108,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — a lost-dispute webhook revoking the source, then a subscription refresh reporting active that leaves the user registered"
+     "gap_clause": "#695 — the Stripe fake's event channel — a lost-dispute webhook revoking the source, then a subscription refresh reporting active that leaves the user registered"
     },
     {
      "text": "they stay Registered when Stripe later reports the subscription active (the refresh keeps the dispute loss)",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — a lost-dispute webhook revoking the source, then a subscription refresh reporting active that leaves the user registered"
+     "gap_clause": "#695 — the Stripe fake's event channel — a lost-dispute webhook revoking the source, then a subscription refresh reporting active that leaves the user registered"
     }
    ]
   },
@@ -5441,14 +5494,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve"
+     "gap_clause": "#695 — the Stripe fake's event channel — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve"
     },
     {
      "text": "a subscription cancelled while its webhook went missing does not hand Legendary back from the stale local row",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve"
+     "gap_clause": "#695 — the Stripe fake's event channel — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve"
     }
    ]
   },
@@ -5463,7 +5516,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — POST admin users with membershipTier legendary answers 201, and the user has an active admin_grant row with a reason and an admin_grant history event — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "gap_clause": "#631 — 7b — on /admin/users, the create-user form submits and the new user appears in the list — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
     },
     {
      "text": "picking Legendary gives them a recorded admin grant",
@@ -5841,17 +5894,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 357,
+       "line": 364,
        "quote": "`/api/memes/ai/${factId}/generate`, { aspectRatio: \"landscape\" }, [202]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 362,
+       "line": 369,
        "quote": "(r) => r.status === \"image_ready\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 377,
+       "line": 384,
        "quote": "the owner reads the private meme image"
       }
      ],
@@ -5879,12 +5932,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 241,
+       "line": 242,
        "quote": "/api/admin/reviews/${reviewId}/provisional-approve"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 246,
+       "line": 247,
        "quote": "(r) => r.workflowStage === \"concept_review\" && r.visualConcepts?.status === \"ok\","
       }
      ],
@@ -6554,7 +6607,7 @@
       },
       {
        "path": "artifacts/api-server/src/lib/moderation/ncmecConfig.ts",
-       "line": 91,
+       "line": 94,
        "quote": "\"This key controls NCMEC CyberTipline filing and cannot be written through the generic config route."
       }
      ],
@@ -6777,17 +6830,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 203,
+       "line": 204,
        "quote": "await free.json(\"2\", \"POST\", \"/api/auth/local-login\", { email: accounts.free.email, password: accounts.password });"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 208,
+       "line": 209,
        "quote": "return { ...result(), setupError: (err as Error).message };"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/verdict.ts",
-       "line": 26,
+       "line": 27,
        "quote": "if (v.setupError) red.push(`setup: ${v.setupError}`);"
       }
      ],
@@ -6796,10 +6849,16 @@
     },
     {
      "text": "browsing facts is unaffected",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — browsing the facts list shows the approved fact — acceptance journey 3"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 338,
+       "quote": "if (!listed.facts.some((f) => f.id === factId)) throw new JourneyError(\"3\", \"the public facts list\", `fact ${factId} is not among the ${listed.facts.length} newest`);"
+      }
+     ],
+     "fails_because": "if the approved fact were missing from the newest facts list, line 338 throws",
+     "gap_clause": null
     },
     {
      "text": "making a meme is unaffected",
@@ -6807,22 +6866,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 420,
+       "line": 436,
        "quote": "\"/api/memes\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 421,
+       "line": 437,
        "quote": "{ factId, imageSource: { type: \"upload\", uploadKey: objectPath }, isPublic: true, aspectRatio: \"landscape\" },"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 114,
+       "line": 115,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 426,
+       "line": 442,
        "quote": "if (permalinkStatus !== 200) throw new JourneyError(\"4\", \"anyone reads the public meme's permalink\", String(permalinkStatus));"
       }
      ],
@@ -7003,27 +7062,27 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 420,
+       "line": 436,
        "quote": "\"/api/memes\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 421,
+       "line": 437,
        "quote": "{ factId, imageSource: { type: \"upload\", uploadKey: objectPath }, isPublic: true, aspectRatio: \"landscape\" },"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 114,
+       "line": 115,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 426,
+       "line": 442,
        "quote": "if (permalinkStatus !== 200) throw new JourneyError(\"4\", \"anyone reads the public meme's permalink\", String(permalinkStatus));"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 427,
+       "line": 443,
        "quote": "const meme = await readImage(anonymous, \"4\", \"anyone reads the public meme image\", `/api/memes/${slug}/image`, \"landscape\");"
       }
      ],
@@ -7044,22 +7103,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 222,
+       "line": 223,
        "quote": "\"/api/facts/submit-review\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 219,
+       "line": 220,
        "quote": "const submitted = await free.json<{ reviewId: number }>("
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 114,
+       "line": 115,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 233,
+       "line": 234,
        "quote": "if (!listed) throw new JourneyError(\"2\", \"the moderation queue\", `review ${reviewId} is not listed`);"
       }
      ],
@@ -7157,10 +7216,21 @@
    "clauses": [
     {
      "text": "the unfurl preview image renders",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the unfurl page's og:image URL for a saved public meme serves a decoded image — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 450,
+       "quote": "if (ogPath !== `/api/memes/${slug}/image`) throw new JourneyError(\"4\", \"the unfurl page's og:image\", `names ${ogImage}, not this meme's image`);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 451,
+       "quote": "const unfurled = await readImage(anonymous, \"4\", \"the unfurl page's og:image\", ogPath, \"landscape\");"
+      }
+     ],
+     "fails_because": "an og:image naming anything but this meme's image route throws at line 450; an image there that does not serve or decode throws inside readImage at line 451",
+     "gap_clause": null
     }
    ]
   },
@@ -7172,17 +7242,49 @@
    "clauses": [
     {
      "text": "the picture reads NICK BARON MAKES / ONIONS CRY.",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 474,
+       "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 478,
+       "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
+      }
+     ],
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "gap_clause": null
     },
     {
      "text": "the picture does not read {NAME} MAKES",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 474,
+       "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 478,
+       "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
+      }
+     ],
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "gap_clause": null
     }
    ]
   },
@@ -7223,17 +7325,49 @@
     },
     {
      "text": "the saved picture has your name spelled out",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the saved meme's served image carries the spelled-out name and no brace, equal to the hand-typed twin — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 474,
+       "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 478,
+       "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
+      }
+     ],
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "gap_clause": null
     },
     {
      "text": "no { or } anywhere on the picture",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the saved meme's served image carries the spelled-out name and no brace, equal to the hand-typed twin — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 474,
+       "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 478,
+       "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
+      }
+     ],
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "gap_clause": null
     }
    ]
   },
@@ -7252,10 +7386,21 @@
     },
     {
      "text": "the saved picture shows the name landing in the bottom half",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a saved meme whose split puts the creator's name in the bottom half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 475,
+       "quote": "captions.nameInBottom = await twin(\"the name in the bottom half\", [\"Infinity was counted\", \"by {NAME}, twice.\"], [\"Infinity was counted\", `by ${name}, twice.`]);"
+      }
+     ],
+     "fails_because": "a bottom-half name that is not substituted exactly serves an image unequal to its typed twin, so line 469 throws for the pair at line 475",
+     "gap_clause": null
     },
     {
      "text": "the saved picture matches the preview",
@@ -7281,10 +7426,21 @@
     },
     {
      "text": "the saved picture shows the name landing in the top half",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a saved meme whose split puts the creator's name in the top half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 474,
+       "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
+      }
+     ],
+     "fails_because": "a top-half name that is not substituted exactly serves an image unequal to its typed twin, so line 469 throws for the pair at line 474",
+     "gap_clause": null
     },
     {
      "text": "the saved picture matches the preview",
@@ -7303,17 +7459,39 @@
    "clauses": [
     {
      "text": "with they/them set in the profile, the picture reads They keep",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a creator whose profile pronouns are they/them saves a {Subj} {keeps|keep} split and the served image equals the same split typed by hand as They keep — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 481,
+       "quote": "captions.theyKeep = await twin(\"they/them agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity.\"], [\"They keep counting\", \"to infinity.\"]);"
+      }
+     ],
+     "fails_because": "a they/them split drawn as They keeps or as the raw tokens is unequal to They keep typed by hand, so line 469 throws for the pair at line 481",
+     "gap_clause": null
     },
     {
      "text": "it does not read They keeps and not {Subj} {keeps|keep}",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a creator whose profile pronouns are they/them saves a {Subj} {keeps|keep} split and the served image equals the same split typed by hand as They keep — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 481,
+       "quote": "captions.theyKeep = await twin(\"they/them agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity.\"], [\"They keep counting\", \"to infinity.\"]);"
+      }
+     ],
+     "fails_because": "a they/them split drawn as They keeps or as the raw tokens is unequal to They keep typed by hand, so line 469 throws for the pair at line 481",
+     "gap_clause": null
     }
    ]
   },
@@ -7325,10 +7503,26 @@
    "clauses": [
     {
      "text": "after switching the profile to he/him, the picture reads He keeps",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a creator whose profile pronouns are he/him saves the same {Subj} {keeps|keep} split and the served image equals the same split typed by hand as He keeps — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 484,
+       "quote": "captions.heKeeps = await twin(\"he/him agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity, twice.\"], [\"He keeps counting\", \"to infinity, twice.\"]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 486,
+       "quote": "throw new JourneyError(\"4\", \"the pronoun guard\", \"they/them wording served the he/him image\");"
+      }
+     ],
+     "fails_because": "a he/him split drawn as He keep or as the raw tokens is unequal to He keeps typed by hand, so line 469 throws for the pair at line 484; line 486 throws if the pronoun made no difference",
+     "gap_clause": null
     }
    ]
   },
@@ -7340,10 +7534,26 @@
    "clauses": [
     {
      "text": "the downloaded file has the name on it (the meme's served image carries the name)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 469,
+       "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 474,
+       "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 478,
+       "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
+      }
+     ],
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "gap_clause": null
     },
     {
      "text": "the file the Download button saves matches what's on the page",
@@ -7935,17 +8145,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 421,
+       "line": 437,
        "quote": "{ factId, imageSource: { type: \"upload\", uploadKey: objectPath }, isPublic: true, aspectRatio: \"landscape\" },"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 417,
+       "line": 433,
        "quote": "const photoMeme = await free.json<{ permalinkSlug: string }>("
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 114,
+       "line": 115,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       }
      ],
@@ -7958,12 +8168,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 426,
+       "line": 442,
        "quote": "if (permalinkStatus !== 200) throw new JourneyError(\"4\", \"anyone reads the public meme's permalink\", String(permalinkStatus));"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 427,
+       "line": 443,
        "quote": "const meme = await readImage(anonymous, \"4\", \"anyone reads the public meme image\", `/api/memes/${slug}/image`, \"landscape\");"
       }
      ],
@@ -8612,10 +8822,26 @@
     },
     {
      "text": "the photo upload itself succeeds during onboarding, no error, no block",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the free account uploads a JPEG via POST /api/storage/upload-avatar then sets it via POST /api/users/me/profile-image, both 200 with the photo stored — acceptance journey 7"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 421,
+       "quote": "if (avatar.status !== 200 || !avatarBody.objectPath) throw new JourneyError(\"7\", \"upload a profile photo\", `${avatar.status} ${JSON.stringify(avatarBody)}`);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 424,
+       "quote": "if (me.profileImageUrl !== `/api/storage${avatarBody.objectPath}`) throw new JourneyError(\"7\", \"the profile photo is set\", `profileImageUrl is ${me.profileImageUrl}`);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 426,
+       "quote": "if (!stored.bytes.equals(photo)) throw new JourneyError(\"7\", \"the profile photo is stored\", `${stored.bytes.length} bytes differ from the ${photo.length} uploaded`);"
+      }
+     ],
+     "fails_because": "a refused avatar upload throws at line 421; a profile photo not set throws at line 424; stored bytes that differ throw at line 426",
+     "gap_clause": null
     }
    ]
   },
@@ -8880,17 +9106,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 357,
+       "line": 364,
        "quote": "const { renderJobId } = await paid.json<{ renderJobId: string }>(\"6\", \"POST\", `/api/memes/ai/${factId}/generate`, { aspectRatio: \"landscape\" }, [202]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 362,
+       "line": 369,
        "quote": "(r) => r.status === \"image_ready\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 367,
+       "line": 374,
        "quote": "const generated = await readImage(paid, \"6\", \"the owner reads the generated image\", `/api/memes/ai-user/image?storagePath=${encodeURIComponent(generatedImageObjectPath)}`);"
       }
      ],
@@ -9008,12 +9234,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 357,
+       "line": 364,
        "quote": "{ aspectRatio: \"landscape\" }, [202]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 362,
+       "line": 369,
        "quote": "(r) => r.status === \"image_ready\","
       }
      ],
@@ -9026,7 +9252,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 363,
+       "line": 370,
        "quote": "(r) => (r.status === \"failed\" || r.status === \"blocked\" ?"
       }
      ],
@@ -9122,7 +9348,7 @@
      "gap_clause": null
     },
     {
-     "text": "a chapter list naming every chapter",
+     "text": "a chapter list, every chapter linked",
      "status": "asserted",
      "evidence": [
       {
@@ -10149,17 +10375,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 222,
+       "line": 223,
        "quote": "\"/api/facts/submit-review\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 246,
+       "line": 247,
        "quote": "(r) => r.workflowStage === \"concept_review\" && r.visualConcepts?.status === \"ok\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 247,
+       "line": 248,
        "quote": "(r) => (r.workflowStage === \"prep_failed\" ? \"prep_failed\""
       }
      ],
@@ -10495,7 +10721,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — a monthly checkout from /pricing completing, so GET /api/stripe/subscription returns the active monthly appSubscription while the mirror row is still null"
+     "gap_clause": "#695 — the Stripe fake's event channel — a monthly checkout from /pricing completing, so GET /api/stripe/subscription returns the active monthly appSubscription while the mirror row is still null"
     },
     {
      "text": "the card shows the renewal date",
@@ -10748,7 +10974,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#566 — the Stripe fake — cancel and reactivate are executed against Stripe"
+     "gap_clause": "#695 — the Stripe fake's event channel — cancel and reactivate are executed against Stripe"
     }
    ]
   },
@@ -11037,8 +11263,8 @@
  ],
  "counts": {
   "steps": 324,
-  "asserted": 265,
-  "gap": 494,
+  "asserted": 280,
+  "gap": 482,
   "live": 1
  }
 }
