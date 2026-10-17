@@ -72,7 +72,7 @@ generate an **AI meme image** (the standard, no-reference path).
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the seeded paid user POSTs the standard generate request, gets 202, and the render reaches image_ready with no gate refusal
 
-**Deferred:** #631 — 7b — the standard generate reaching image_ready within an asserted time bound that measures the budget gate's own overhead, not the vendor — acceptance journey 6
+**Deferred:** #628 — Phase 4 (Cut and prune) — the standard generate reaching image_ready within an asserted time bound that measures the budget gate's own overhead, not the vendor, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
 
 ### 2. Reference-photo (PuLID) generation still works
 

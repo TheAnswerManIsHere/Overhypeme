@@ -214,7 +214,7 @@ Nothing from the Queue Health page appears on it.
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: paid user POSTs /api/memes/ai/:factId/generate, polls the render job to image_ready, saves the meme and reads its image
 
-**Deferred:** #631 — 7b — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion — acceptance journey 6
+**Deferred:** #628 — Phase 4 (Cut and prune) — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
 
 ### R3. Enrichment / send-back / Taxonomy Health actions still run
 

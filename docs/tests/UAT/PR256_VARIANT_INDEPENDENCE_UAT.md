@@ -65,7 +65,7 @@ generation only supported on root facts."
 
 **Check:** `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts:a variant (parentId set) is accepted — AI image generation is no longer root-only (variant independence)`
 
-**Deferred:** #631 — 7b — the paid user's POST /memes/ai/:id/generate on a variant fact reaches image_ready and the owner reads its generated image back — acceptance journey 6
+**Deferred:** #628 — Phase 4 (Cut and prune) — the paid user's POST /memes/ai/:id/generate on a variant fact reaches image_ready and the owner reads its generated image back, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
 
 ### 5. Editing a root's text no longer blocks on its variants
 
