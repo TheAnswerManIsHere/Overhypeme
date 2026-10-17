@@ -70,47 +70,55 @@ The meme's API record carries that sentence as its factText.
 
 ### 3. A brand-new meme's picture matches its own preview
 
-**Do:** Build a meme from any fact that has your name in it (a photo of
-yourself or a stock photo, whichever is quicker); before saving, read the
-preview carefully and note the exact words top and bottom; then save it.
+**Do:** The capture set, signed in as the free test account (display name
+Free Tester), builds an image meme from the fixture fact "Firearms carry
+{NAME} for protection." with the framing-chart photo, captures the
+builder preview at the default split, saves the meme, and captures the saved
+picture the meme's image route serves.
 
 **Expect:** On the finished meme page, the saved picture says the same
 words as the preview did, in the same two places, with your name spelled
 out, and no `{` or `}` anywhere on the picture.
 
-**Lane:** human
+**Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the default split: preview and saved picture (step 3)`
 
-**Deferred:** #631 — 7b — the saved meme's served image carries the spelled-out name and no brace, equal to the hand-typed twin — acceptance journey 4; increment 8 (capture and read) — the builder preview and the finished meme picture show the same top and bottom words with the name spelled out
+**Deferred:** #631 — 7b — the saved meme's served image carries the spelled-out name and no brace, equal to the hand-typed twin — acceptance journey 4
 
 ### 4. Splitting with the name on the bottom half
 
-**Do:** Build another meme from a fact where your name is in the **middle
-or the end** of the sentence, not the start (e.g. something like "Onions
-cry because of …"), and drag the split slider so the name lands on the
-**bottom** half.
+**Do:** The capture set, signed in as the free test account (display name
+Free Tester), builds an image meme from the fixture fact "Firearms carry
+{NAME} for protection." with the framing-chart photo, moves the split
+slider to 2 of 5 so the name falls in the bottom line, captures the
+preview, saves, and captures the saved picture.
 
-**Expect:** The preview shows your name, and the saved picture matches it.
+**Expect:** The preview reads FIREARMS CARRY over FREE TESTER FOR
+PROTECTION., with the name in the bottom line, and the saved picture shows
+the same words in the same two lines, with no `{` or `}`.
 
-**Lane:** human
+**Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:name in the bottom line, saved (step 4)`
 
-**Deferred:** #631 — 7b — a saved meme whose split puts the creator's name in the bottom half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4; increment 8 (capture and read) — the builder preview shows the name in the bottom line and the saved picture matches it
+**Deferred:** #631 — 7b — a saved meme whose split puts the creator's name in the bottom half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4
 
 ### 5. Splitting with the name on the top half
 
-**Do:** On the same meme, drag the split slider again so the name lands on
-the **top** half.
+**Do:** On the same builder, the capture set moves the split slider on to 3
+of 5 so the name falls in the top line, captures the preview, saves, and
+captures the saved picture.
 
-**Expect:** The preview shows your name, and the saved picture matches it.
+**Expect:** The preview reads FIREARMS CARRY FREE TESTER over FOR
+PROTECTION., with the name in the top line, and the saved picture shows the
+same words in the same two lines.
 
-**Lane:** human
+**Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes {NAME} in both split halves`
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes {NAME} in both split halves`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:name in the bottom line, then moved to the top line (steps 4 and 5)`
 
-**Deferred:** #631 — 7b — a saved meme whose split puts the creator's name in the top half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4; increment 8 (capture and read) — the builder preview shows the name in the top line and the saved picture matches it
+**Deferred:** #631 — 7b — a saved meme whose split puts the creator's name in the top half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4
 
 ### 6. Pronoun and verb agreement — they/them
 
@@ -141,14 +149,18 @@ meme from a fact that uses a pronoun and a verb — anything phrased like
 
 ### 8. The downloaded file matches the page
 
-**Do:** On a finished meme, tap **Download**.
+**Do:** The capture set saves a meme as in step 3 and presses Download on
+the meme page.
 
-**Expect:** The downloaded file has the name on it, matching what's on the
-page.
+**Expect:** The downloaded file is byte-for-byte the picture the page
+serves (asserted by the check), and it shows the name spelled out as FREE
+TESTER, with no `{` or `}`.
 
-**Lane:** human
+**Lane:** capture
 
-**Deferred:** #631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4; #631 — increment 8 (capture and read) — the file the meme page's Download button saves shows the creator's spelled-out name and is the same picture the page shows
+**Check:** `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the downloaded file is the page's picture (step 8)`
+
+**Deferred:** #631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4
 
 ### 9. The share preview matches
 
@@ -175,48 +187,66 @@ to see the product preview image.
 
 ### R1. Text styling is unchanged
 
-**Do:** Compare text size, font, outline/shadow, and ALL-CAPS treatment on
-a meme picture.
+**Do:** The capture set, signed in as the free test account (display name
+Free Tester), builds an image meme from the fixture fact "Firearms carry
+{NAME} for protection." with the framing-chart photo, saves it once at
+each aspect ratio (landscape, square and portrait), and captures each saved
+picture.
 
-**Expect:** Same as before this PR.
+**Expect:** On every saved picture each caption line is drawn in a heavy,
+condensed, all-caps typeface, white with a thick black outline, centred
+across the picture, and large enough to read at a glance.
 
-**Lane:** human
+**Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:preserves every other text option and does not mutate the input`
-
-**Deferred:** #631 — increment 8 (capture and read) — a finished meme picture shows the usual text size, font, outline or shadow and all-caps treatment, as before the fix
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:preserves every other text option and does not mutate the input`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:a finished meme at`
 
 ### R2. Line positioning is unchanged
 
-**Do:** Check where the top and bottom lines sit vertically, and try the
-split slider and the position sliders.
+**Do:** The capture set, signed in as the free test account (display name
+Free Tester), builds an image meme from the fixture fact "Firearms carry
+{NAME} for protection." with the framing-chart photo, captures the
+preview with the top line at its default position, moves the top-position
+slider to about 45%, captures the preview again, saves, and captures the
+saved picture.
 
-**Expect:** Unchanged — they behave as they always did.
+**Expect:** In the first preview the top line sits near the top edge and the
+bottom line near the bottom edge; after the move the top line sits visibly
+lower, near the middle, while the bottom line stays put; and the saved
+picture shows the top line at that lower position. The check asserts the
+slider's reported value rose.
 
-**Lane:** human
+**Lane:** capture
 
-**Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/step2-image/__tests__/splitLogic.test.ts:clamps maxTopY below the bottom-block boundary`
-
-**Deferred:** #631 — increment 8 (capture and read) — the top and bottom lines of a finished meme sit where they always did and the split and position sliders still move them
+**Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/step2-image/__tests__/splitLogic.test.ts:clamps maxTopY below the bottom-block boundary`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the caption at two position-slider settings (R2)`
 
 ### R3. Photo framing and image quality are unchanged
 
-**Do:** Check photo framing/cropping, the aspect-ratio choice
-(landscape/square/portrait), and image sharpness.
+**Do:** The capture set, signed in as the free test account (display name
+Free Tester), builds an image meme from the fixture fact "Firearms carry
+{NAME} for protection." with the framing-chart photo, saves it once at
+each aspect ratio (landscape, square and portrait), and captures each saved
+picture.
 
-**Expect:** Unchanged from before this PR.
+**Expect:** Each saved picture has the chosen aspect ratio (16:9, 1:1 or
+9:16, asserted from its dimensions by the check); the chart fills the frame,
+cropped about its centre, with the crosshair circle centred and round, not
+stretched; and the chart's fine black line pairs read as separate lines, not
+a smear.
 
-**Lane:** human
+**Lane:** capture
 
-**Deferred:** #631 — increment 8 (capture and read) — a finished photo meme shows the usual framing and crop, the chosen aspect ratio and the usual sharpness
+**Check:** `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:a finished meme at`
 
 ### R4. Gradient-template memes are unaffected
 
 **Do:** Look at a meme made from a gradient template (not a photo).
 
-**Expect:** Looks the same as before.
+**Expect:** the finished gradient-template meme shows its gradient background
+edge to edge, with the caption drawn in the same font, outline and all-caps
+treatment as a photo meme.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 4 (Cut and prune) — gradient templates are on the cut list and are deleted, so there is nothing left to compare
 

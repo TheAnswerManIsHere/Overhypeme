@@ -54,7 +54,8 @@ automation lives*).
 | `ci` | an automated test in the per-PR gate | every PR | `**Check:**` citing the test file (optionally `file:test name`) |
 | `scripted` | a scripted proof, re-runnable on demand — an acceptance journey, a script with recorded evidence | on demand, and before the run is accepted | `**Check:**` citing the spec, script or command |
 | `live` | a **read-only** check against the deployed environment or a real vendor, through the live-environment connector | at run time | `**Check:**` citing the command or procedure; any state it needs is a Setup `[claude]` line with its `[restore]` |
-| `human` | David's judgement: taste, legibility, whether it reads right, or something only his own account or device can do | in the `/uat` session | nothing extra |
+| `capture` | Claude, reading an image a script captured at the commit under test — the step's result is that reading, never the script's exit status | at run time, before David starts | `**Check:**` citing the capture script, optionally `file:shot name`; an `Expect` describing the screen so it can be answered yes or no from the image alone |
+| `human` | David's judgement: taste, legibility, whether it reads right, or something only his own account or device can do | in the `/uat` session | `**Judgement:**` saying what only he can judge or do, and why no machine can |
 
 **A machine-lane check is self-contained.** It never depends on state a
 human step produces, so every machine step can be resolved before David
@@ -62,6 +63,19 @@ starts. A check that can only be answered after his own action belongs to
 that human step's record (read after his "yes", before recording Pass), or
 the step is `human`. The rule below about one step needing what an earlier
 step created is a rule for human steps.
+
+**A step is `capture` when its answer is only in pixels** (David,
+2026-10-16, Overhype.me #631 increment 8): text, placement, typography or
+framing the product's own code draws into an image, a canvas preview, or the
+content of a real AI render. No DOM assertion can read those, and they are
+not taste, so they are neither `ci` nor `human`. The capture script proves
+only that the image exists; the step passes or fails on Claude's reading of
+it, clause by clause. There is no baseline image to compare against: an
+`Expect` that would say "looks as it did before" is written as the screen it
+should show. A capture that needs a paid vendor runs only under the spending
+cap the consumer declares, and is never the `live` lane, which stays
+read-only. (The run-time mechanics are the `uat` skill's, *Where the browser
+automation lives*.)
 
 **A step is `human` only when no machine can answer it.** "The banner reads
 '4 of 4 done'" is not judgement; it is an assertion a test can make.
@@ -82,6 +96,15 @@ puts a screen check in front of David (Overhype.me PR #687, steps 4 and 5,
 commit under test, and records the doc as wrong. The rule's home, with the
 run-time mechanics, is the `uat` skill, *Where the browser automation
 lives*; this paragraph is the authoring half.
+
+**A `human` step says why, in one `**Judgement:**` line** (David,
+2026-10-16): what only David can judge or do, and why no machine can — "his
+own Google account on his own iPad", "whether the message is readable".
+Only a `human` step carries the line. It records a claim review can test;
+the guard checks it is there, never that it is true. A step whose honest
+`Judgement` would be empty is not `human`: it moves to the machine lane its
+`Expect` belongs to, rather than gaining a line written to satisfy the
+guard.
 
 **`**Deferred:** #N — <why>`** marks a step that cannot run in its lane yet
 — its feature is being rebuilt, or the double its check needs does not exist
@@ -126,6 +149,8 @@ his decision rather than a gap.>
 
 **Lane:** human
 
+**Judgement:** <what only he can judge or do, and why no machine can>
+
 ### 2. <…>
 
 **Do:** <…>
@@ -137,6 +162,16 @@ his decision rather than a gap.>
 **Check:** `<path/to/the.test.ts>`
 
 ### 3. <…>
+
+**Do:** <…>
+
+**Expect:** <the screen described, answerable from the image alone — the words drawn on the picture, where they sit>
+
+**Lane:** capture
+
+**Check:** `<path/to/capture.spec.ts:shot name>`
+
+### 4. <…>
 
 ## Regression
 
@@ -186,8 +221,8 @@ first line, optionally followed by a sentence saying why.
 
 **`## Steps`** — the feature under test. One `### <n>. <title>` per step,
 numbered from 1, each with exactly one **Do:**, one **Expect:** and one
-**Lane:**, plus a **Check:** for a machine lane and at most one
-**Deferred:**. For a machine-lane step, **Do:** and **Expect:** still say
+**Lane:**, plus a **Check:** for a machine lane, exactly one **Judgement:**
+for a `human` step and none on any other, and at most one **Deferred:**. For a machine-lane step, **Do:** and **Expect:** still say
 what the check does and asserts, in words, so the doc reads the same for a
 human and the check's coverage can be reviewed against it.
 
@@ -248,10 +283,11 @@ in that same PR. See [`pr-docs`](../../.claude/skills/pr-docs/SKILL.md).
 `node scripts/check-uat-format.mjs` enforces the structure and the lanes: a
 lane per step, a backticked check for every non-deferred machine-lane step,
 every supplied check non-empty and backticked with any cited file existing,
-deferred or not, and an owner on every deferral. It checks formatting and
-file existence only — not that a named test exists in the file, and not
-whether a cited check really asserts what the step expects; that stays with
-review.
+deferred or not, an owner on every deferral, and exactly one non-empty
+`**Judgement:**` on every `human` step and none on any other lane. It checks formatting and
+file existence only — not that a named test exists in the file, not
+whether a cited check really asserts what the step expects, and not whether
+a `Judgement` is true; that stays with review.
 
 **A UAT doc is deleted when David confirms its run is complete** (David,
 2026-08-22) — by `/uat`, in the same close-out, unless it carries behavior

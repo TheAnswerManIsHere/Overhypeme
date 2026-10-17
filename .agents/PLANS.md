@@ -148,7 +148,8 @@ schemas, and audit needs.
 
 ## Testing Plan
 Automated tests, plus a UAT doc for the judgement residue only — a screen fact
-is an assertion in the same PR, never a manual step
+is an assertion in the same PR, or a `capture` step when only pixels hold it,
+never a manual step
 ([`uat-doc-format.md`](../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)).
 Tests must prove the **general invariant**, not only
 the reported example, with negative cases. Name the runner commands (see

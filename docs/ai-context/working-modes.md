@@ -784,7 +784,7 @@ David a list of manual steps to click through: *"Here's a good example of
 what I want to avoid. I want as much testing as is required to prove that
 what we're building works to be automated. Same lanes as we'll have in
 production, but scaled to be appropriate for prototyping."* So a prototype
-version carries the three machine lanes
+version carries three of the machine lanes
 [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)
 defines — `ci`, `scripted` and `live` — at a prototype's depth: the happy
 path and the states the design question turns on, not edge cases, security
@@ -1552,8 +1552,8 @@ Everything in Tier A, plus:
 - **A real UAT doc** (`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`) — the
   acceptance script, written to the lane rules
   ([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07):
-  a screen fact is a machine-lane assertion, David's share is the judgement
-  residue), so his product-verification net is restored for exactly the
+  a screen fact is a machine-lane step — an assertion, or a `capture` read
+  when only pixels hold it — and David's share is the judgement residue), so his product-verification net is restored for exactly the
   fixes that can reach past the reported symptom.
 - **A Post-merge verification section in the PR body only when the fix
   genuinely needs one** — i.e. when something can only be verified in

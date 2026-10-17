@@ -139,6 +139,50 @@ run).
 
 ---
 
+## UAT capture
+
+What the `uat` skill's `capture` lane runs here, where the shots are kept,
+and what a paid render may spend (#631 increment 8; plan
+`docs/plans/PLAN_PHASE2_INC8_CAPTURE.md`, D5–D7). A `capture` step's
+`**Check:**` names which shot answers it; this section says how the shot is
+produced.
+
+- **Local capture** (the product's own pixels, AI doubles, no vendor key).
+  From `artifacts/api-server`, the acceptance server in serve mode on a
+  marked test database:
+  `pnpm exec tsx scripts/acceptance-run.ts --mode serve --variant fixture --port 8090 --origin http://localhost:5180`.
+  From `artifacts/overhype-me`, its own Vite:
+  `PORT=5180 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8090 pnpm exec vite --port 5180`.
+  Then the capture set, into a fresh directory:
+  `E2E_BASE_URL=http://localhost:5180 UAT_CAPTURE_DIR=<fresh dir> pnpm --filter @workspace/overhype-me run e2e:capture`.
+  CI's E2E Smoke job runs the same set on every PR, which proves each shot
+  can still be produced; the reading is Claude's at run time.
+- **Real-render capture** (a real AI render; on the Repl only, never in CI),
+  from `artifacts/api-server`, through the connector as an ops run:
+  `node --import tsx/esm scripts/acceptance-run.ts --mode capture --doc <UAT doc stem> --allowance 3 --out <empty dir>`,
+  one UAT doc per run, as `/uat` runs one doc; the doc's shots are the
+  ones its steps cite.
+- **Paid-render cap: $3.00 per UAT run** (David, 2026-10-16: the plan's
+  $2.00, raised by its amendment 1 once PR229's real render was measured).
+  The recorder holds four attempts' price for each fal render, so the cap
+  is a worst-case ceiling; a run's actual spend is in its ledger. The
+  recorder refuses any call that would exceed the cap; a higher allowance
+  needs `--allowance-raised-by-david <YYYY-MM-DD>`.
+- **Evidence store: the `uat-evidence` branch**, never merged and only
+  appended to, one directory per run, `<UAT doc stem>/<commit under test>/<run date>/`,
+  holding the shots and their `manifest.jsonl` (one record per file: shot,
+  doc, step, commit, sha256). The run record links each image at the
+  evidence commit. Shots show a throwaway test database and committed
+  fixtures only.
+- **How a shot reaches the store.** A local shot: Claude reads it and runs
+  the disclosure check, then commits it from the container. A real-render
+  shot: the Repl commits and pushes it, authenticated with its
+  `GITHUB_PAT` secret, and Claude fetches and reads it, so it is published
+  before Claude reads it. That is allowed only while this repo's disclosure
+  gating is off (pre-launch, David, 2026-10-12). When gating comes back on,
+  a real-render shot reaches Claude first as base64 text through the
+  connector's file reader, is read and checked, and only then is committed.
+
 ## Adding a further declaration
 
 **A new question gets a new section here, never a new file**, and a matching row

@@ -180,6 +180,30 @@ the doc-wrong case below, never a check to run early:
   commit under test, and quote what it printed. State a check needs is a
   Setup `[claude]` line with its `[restore]` (section 2); a probe whose
   refusal is the thing tested writes nothing and is not a write.
+- **`capture`** — I produce the shot each step's `**Check:**` cites
+  **at the commit under test**: the citation says which shot answers the
+  step, and the capture command the consumer declares (its
+  `overlay-declarations.md`, *UAT capture*) says how to bring up the stack
+  and run the set that contains it. **I read each image before it is
+  published anywhere**, and the disclosure check (section 4, step 3) runs
+  on it first, whether or not its clauses pass: a shot it rejects goes to
+  *The private path* (section 4), never to the evidence store. Only then is
+  the shot committed to the evidence store the declaration names, which
+  holds test data alone — a throwaway test database and publishable
+  fixtures — on a dedicated branch that is only appended to. I record, on
+  the step's own row, the shot name, the commit, the evidence link pinned
+  to the evidence commit, and my reading clause by clause. A shot another
+  host has to publish before I can read it — a paid render made where the
+  vendor keys are — is published that way only while the consumer's
+  disclosure check is off; with it on, the shot reaches me privately first.
+  The step's result is
+  that reading: a shot that was not produced, or that I cannot read, is
+  Blocked, never Pass; a reading that contradicts the `Expect` is a Fail,
+  filed before he sees anything (section 4). A capture that needs a paid
+  vendor runs only within the cap the declaration names, and its spend goes
+  on the run's spend line. A consumer with no such declaration has no
+  capture run, and its `capture` steps are Blocked on that, never handed to
+  him.
 - **`Deferred:`** — not run; listed as outstanding with its owner. Never a
   pass, never a skip he can wave through. When it is the only evidence for a
   claimed behaviour, the run is Blocked on its owner: `Blocked by: #N` on
@@ -415,14 +439,15 @@ have no reliable way to tell which is current.
 | 3 · Search results read as the right answers (human) | Pass | |
 | 4 · Nothing feels missing from the chapter list (human) | — | not yet run |
 | R1 · Sidebar unchanged (ci) | Pass | `adminHelp.spec.ts` green on the commit under test |
-| R2 · Readable on his own phone (human, his device) | — | not yet run |
+| R2 · Chapter diagram drawn in the Manual (capture) | Pass | shot `manual-diagram` at the commit under test, evidence `<link at the evidence commit>`; read: every box labelled, arrows run left to right |
+| R3 · Readable on his own phone (human, his device) | — | not yet run |
 
 **Setup owed on resume:** `budget_limit_legendary_usd` → 0.01 (real value
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
 **Spend so far:** 23 min · 41,200 tokens (Opus, $6/M proxy, $0.25) over 5 walkthrough turns
-**Resume at:** step 4 (2 judgement steps remaining, 4 and R2; step 2's screen fact was mine and is recorded; the 2 machine-lane checks are resolved at this commit)
+**Resume at:** step 4 (2 judgement steps remaining, 4 and R3; step 2's screen fact was mine and is recorded; the 3 machine-lane checks are resolved at this commit)
 ```
 
 **Write it on the moments that matter, not every turn:** once after setup
@@ -576,10 +601,12 @@ that is three places:
   (`pr-docs`): it runs on every change forever instead of once.
 - **A screen fact that reached a run as a `human` step is run by me at run
   time**, in the machine block above, and the step's lane is corrected.
-- **A capture run that writes the named screens for me to read** covers a
-  backlog's "look at the screen, no judgement" steps at once; it is a
-  consumer's increment to build (Overhype.me #631, increment 8), and until it
-  lands the run-time rule covers each run by hand.
+- **An answer only pixels hold is the `capture` lane** (David,
+  2026-10-16): a script captures the named image at the commit under test,
+  I read it, and the consumer's evidence store keeps it once the disclosure
+  check has passed it — section 3's machine block says how. The consumer declares the command, the evidence
+  store and any paid-render cap in its `overlay-declarations.md`
+  (Overhype.me #631, increment 8, built the first).
 
 **Once a step is fully scriptable, UAT is usually the wrong home for it.** It
 belongs in CI or in the PR's post-merge verification, where it runs on every

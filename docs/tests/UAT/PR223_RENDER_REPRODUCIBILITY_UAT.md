@@ -28,18 +28,24 @@ pick a disabled style instead of a silent plain render.
 
 ### 1. Generate with a reference photo
 
-**Do:** Upload a reference photo for a fact and generate a meme.
+**Do:** The real-render capture run (`acceptance-run.ts --mode capture`, on the
+Repl under the $3.00 cap), signed in as the paid test account, uploads the
+reference face photo `artifacts/api-server/src/assets/test-face.jpg`,
+generates an AI image for a fixture fact through the meme builder's
+reference-photo path (`POST /api/memes/pulid-jobs`), and captures the
+reference and the full-size result.
 
-**Expect:** the render completes as before, the image looks right for your
-subject, and the finished meme's caption reads your full display name
-exactly as stored. Nothing about the visible result should feel different
-from `main`.
+**Expect:** the render completes; the result shows the same person as the
+reference photo, recognisably the same face and not a stranger or a garbled
+face, placed in a scene that fits the fact; and the finished meme's caption
+reads the account's full display name exactly as stored (the caption clause
+is the unit test's, cited below).
 
-**Lane:** human
+**Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-reference`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-result`
 
-**Deferred:** #631 — 7b — a legendary reference-photo generate completing is undriven, journey 6 sends no photo — acceptance journey 6; #631 — 7b — the saved meme's served image draws the creator's full display name exactly as stored, equal to the hand-typed twin, the served-caption assertion PR398 already owes — acceptance journey 4; increment 8 (capture and read) — the generated image shows the user's subject from their photo — needs a real render
+**Deferred:** #631 — 7b — a legendary reference-photo generate completing is undriven, journey 6 sends no photo — acceptance journey 6; #631 — 7b — the saved meme's served image draws the creator's full display name exactly as stored, equal to the hand-typed twin, the served-caption assertion PR398 already owes — acceptance journey 4
 
 ### 2. Generate without a reference photo
 

@@ -19,10 +19,17 @@
 // human. It catches the one class that is regular: a doc `/uat` cannot drive.
 //
 // It also checks LANES: every step names where it is verified (ci, scripted,
-// live, human), and a machine-lane step cites the check that runs it, unless
-// it is Deferred to a named owner. It cannot tell whether the cited check
-// really asserts what the step expects -- that stays with review -- but it
-// does refuse a citation that points at a file that is not there.
+// live, capture, human), and a machine-lane step cites the check that runs
+// it, unless it is Deferred to a named owner. It cannot tell whether the
+// cited check really asserts what the step expects -- that stays with review
+// -- but it does refuse a citation that points at a file that is not there.
+//
+// And it checks the JUDGEMENT line: a `human` step states, in one
+// `**Judgement:**` line, what only David can judge or do and why no machine
+// can; no other lane carries one. It cannot tell whether the statement is
+// true. It turns an invisible lane choice into a written claim that review
+// can test -- a `human` label over a screen fact is the failure the lanes
+// exist to end, and until this line it left no trace to review.
 //
 // Dependency-free, like the other docs guards.
 //
@@ -38,11 +45,13 @@ export const UAT_DIR = "docs/tests/UAT";
 const SETUP_TAGS = ["[claude]", "[david]", "[restore]"];
 
 /**
- * The four verification lanes (uat-doc-format.md, *Lanes*). Every step names
- * exactly one. Only `human` reaches David; the other three are run by a
- * machine, so each must say which check runs it.
+ * The five verification lanes (uat-doc-format.md, *Lanes*). Every step names
+ * exactly one. Only `human` reaches David; the other four are run by a
+ * machine, so each must say which check runs it. `capture` is a machine
+ * lane whose result is Claude's reading of the captured image, not the
+ * script's exit status.
  */
-export const LANES = ["ci", "scripted", "live", "human"];
+export const LANES = ["ci", "scripted", "live", "capture", "human"];
 
 /**
  * A `**Check:**` must cite something a reader can go and run: a backticked
@@ -219,6 +228,19 @@ export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT
     if (!LANES.includes(lane)) {
       say(`${startLine}: step "${heading}" has lane "${lanes[0]}", must be one of ${LANES.join(" / ")}`);
       return;
+    }
+    // A human step says why it is human; no other step claims a judgement.
+    const judgements = field("**Judgement:**");
+    if (lane === "human") {
+      if (judgements.length === 0) {
+        say(`${startLine}: step "${heading}" is lane "human" with no **Judgement:** — say what only David can judge or do, and why no machine can; a step with no such judgement belongs in a machine lane`);
+      } else if (judgements.length > 1) {
+        say(`${startLine}: step "${heading}" has ${judgements.length} **Judgement:** lines, needs exactly 1`);
+      } else if (!judgements[0]) {
+        say(`${startLine}: step "${heading}" has an empty **Judgement:** line`);
+      }
+    } else if (judgements.length > 0) {
+      say(`${startLine}: step "${heading}" is lane "${lane}" but carries a **Judgement:** line — only a human step states a judgement`);
     }
     if (checks.length > 1) say(`${startLine}: step "${heading}" has ${checks.length} **Check:** lines, needs at most 1`);
     if (deferred.length > 1) say(`${startLine}: step "${heading}" has ${deferred.length} **Deferred:** lines, needs at most 1`);

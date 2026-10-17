@@ -32,7 +32,7 @@ speech bubbles and visual ideas below it, and a red `*` in its header.
 
 **Check:** `artifacts/overhype-me/e2e/adminScreens.spec.ts:Moderation Step 2 shows the Visual Concept card near the top with a red * in its header`
 
-**Deferred:** #631 — 7b — the red * required marker in the Visual Concept card header — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`
+**Deferred:** #631 — 7b — the red * required marker in the Visual Concept card header — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`; #631 — 7b — GET /api/admin/reviews/:id returns the visual concept the card shows; the browser check reads a stub, so nothing yet asserts the server still sends it — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`
 
 ### 2. A blank Visual Concept blocks Save
 

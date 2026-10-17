@@ -289,6 +289,8 @@ Back to Review and Delete Fact buttons. No error shows.
 
 **Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` — the Admin · Facts route loads without a crash or reload loop (list page only, no fact opened); `artifacts/overhype-me/e2e/adminScreens.spec.ts:the Facts editor opened on a root fact shows its usual panels and fields with no error`
 
+**Deferred:** #631 — 7b — GET /api/admin/facts/:id for a root fact returns the fields and enrichment the Facts editor reads; the browser check above reads a stub, so nothing yet asserts the server still sends them — `artifacts/api-server/src/__tests__/routes.adminFacts.test.ts`
+
 ## Not bugs
 
 - **A variant may show no images until you (or a bulk backfill) explicitly

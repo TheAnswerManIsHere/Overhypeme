@@ -286,7 +286,7 @@ export function recordingFal(
   real: FalLike,
   allowance: Allowance,
   ctx: RecorderContext,
-  falUnitPrice: (endpoint: string) => Promise<number | null>,
+  falUnitPrice: (endpoint: string, input?: unknown) => Promise<number | null>,
 ): FalLike {
   return {
     async subscribe(endpoint, opts) {
@@ -296,7 +296,7 @@ export function recordingFal(
         allowance.noteReused("fal.subscribe", endpoint, fingerprint("fal.subscribe", substituteUrls(request)));
         return prior;
       }
-      const unit = await falUnitPrice(endpoint);
+      const unit = await falUnitPrice(endpoint, (opts as { input?: unknown } | undefined)?.input);
       const line = allowance.reserve(
         "fal.subscribe",
         endpoint,

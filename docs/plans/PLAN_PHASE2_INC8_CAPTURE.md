@@ -172,3 +172,8 @@ On `main` after consumer PR B merges:
 - Every non-deferred `capture` step cites an existing capture script. The checker refuses a missing file.
 - E2E Smoke runs the local capture set green on the merge commit.
 - PR B's body records one full-path run at its head: every shot linked on `uat-evidence` and read clause by clause, including the two real renders.
+
+## Amendment 1 — the real-render allowance is $3.00 per UAT run (approved by David 2026-10-16)
+
+D7 proposed $2.00 per UAT run on the premise of "one generation per real-render step". The first real run (Repl, 2026-10-16) measured more for PR229 step 6: approving a concept starts the product's three-render review grid, and the moderation test render runs only after approval (`reviews.ts`, the `production_review` stage), so the step makes four renders. The recorder reserves four attempts per fal render (`FAL_SUBMISSION_ATTEMPTS`) and releases none, so the step needs about $2.20 committed against roughly $1.25 billed. David chose to raise the cap to **$3.00 per UAT run** (answer 1a, 2026-10-16), keeping the recorder's worst-case reservation, over counting a completed render once or leaving PR229 step 6 to him. A run is one UAT doc (`--doc`, #708 round 1). Everything else in D7 stands.
+

@@ -49,7 +49,7 @@ lettered with exactly `You're the man of the house now.` — not the text
 baked in as a caption across the image, and not a second/duplicate
 speaker.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; lettering and tail placement are a judgement on a real render
 
@@ -76,7 +76,7 @@ trail "leading to the head of the bartender", text `Not again.`
 **Expect:** the thought cloud attributes to the bartender, not the
 subject.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; attribution is a judgement on a real render
 
@@ -89,26 +89,31 @@ thought) and render 2–3 times at 2K.
 character across attempts. This is the highest-risk case — note any
 attempt where attribution slips.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; attribution across repeats is a judgement on real renders
 
 ### 6. An unmatched entity gets a soft warning, not a block
 
-**Do:** Add a bubble whose entity is a character not in the scene (e.g.
-`the mailman` when no mailman is described).
+**Do:** The real-render capture run (`acceptance-run.ts --mode capture`, on the
+Repl under the $3.00 cap), as the dev admin, takes a fixture fact to concept
+review, saves one speech bubble whose entity is `the mailman` (a character
+not in the scene) through the enrichment save, approves the concept, runs
+the moderation test render, and captures the full-size result.
 
 **Expect:** a soft amber warning in the editor ("doesn't match subject or
 any Scene Role Assignment…") and, in the preview, an unresolved-entity
-note. The bubble still compiles — the warning doesn't block saving. The
-model may add, ignore, or misattribute that character; confirm on the
-render.
+note. The bubble still compiles — the warning doesn't block saving. The test
+render completes with a speech balloon carrying the bubble's text; whether
+the model added a mailman, ignored him or gave the line to someone else is
+recorded from the picture, and any of the three is a pass. A render that
+fails or is blocked is a Fail.
 
-**Lane:** human
+**Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones` `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns on an entity matching neither subject nor any role binding — but not on matches`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones` `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns on an entity matching neither subject nor any role binding — but not on matches`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr229-s6-render`
 
-**Deferred:** #631 — 7b — the preview listing the unresolved-entity note is unasserted, the preview test covers other warning codes only — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`; #631 — 7b — the unmatched-entity warning rendered in the amber warning style, the text-amber-700 class, the test checks only its text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`; #631 — 7b — the fact enrichment PATCH saving with 200 an override whose bubble entity, the mailman, matches no subject or role binding — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; increment 8 (capture and read) — the render with an unmatched character shows what the model added or ignored — needs a real render
+**Deferred:** #631 — 7b — the preview listing the unresolved-entity note is unasserted, the preview test covers other warning codes only — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`; #631 — 7b — the unmatched-entity warning rendered in the amber warning style, the text-amber-700 class, the test checks only its text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`; #631 — 7b — the fact enrichment PATCH saving with 200 an override whose bubble entity, the mailman, matches no subject or role binding — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
 
 ### 7. Bubble text over 60 characters shows a soft warning
 
@@ -194,7 +199,7 @@ Speech & Thought Bubbles editor — the same rows the card showed.
 
 **Expect:** the quote renders in a balloon on the subject.
 
-**Lane:** human
+**Lane:** capture
 
 **Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; the balloon on a real render is a judgement
 
