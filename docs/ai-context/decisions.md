@@ -13,6 +13,29 @@
 
 ---
 
+### 2026-10-17 · No paid AI run happens without David's go-ahead for that run
+- **Decision:** every run that spends real money on an AI vendor (the UAT
+  capture lane's real renders, `acceptance-run.ts --mode live` and
+  `--mode record`, or any other) starts only when David says go for that
+  run, in words, after an ask naming what it runs, how many paid calls and
+  the worst-case cost. No approval covers a series of runs, and nothing runs
+  one automatically. Each mode's per-run cap still bounds the run it covers;
+  it authorizes none. This supersedes plan `PLAN_PHASE2_INC8_CAPTURE.md`
+  D7's "runs within that bound with no per-run ask". David, 2026-10-17:
+  *"There's no point in capping the cost to a few dollars if you're going to
+  be running the tests hundreds of times. I don't think there's any need for
+  you to automatically be rendering anything else … I foresee an accidental
+  unbounded expense potential here that we must control."*
+- **Why:** a per-run cap bounds one run, not the number of runs. CI holds
+  no vendor keys and every paid mode refuses `CI`, so the only remaining
+  route to repeated spend is an agent starting runs; a per-run go-ahead
+  closes it. A flag the agent types on the command line would not, since it
+  could type it every time. The hard backstop for a mistake anywhere is a
+  monthly spend limit at each vendor (fal, OpenAI), which only David can
+  set.
+- **Reference:** #708 (the real-render runner), #712.
+- **Revisit if:** David says so.
+
 ### 2026-10-17 · The default reference faces are David's and his wife's, kept on purpose
 - **Decision:** the male reference images
   (`artifacts/api-server/src/assets/test-face.jpg`, the bundled default

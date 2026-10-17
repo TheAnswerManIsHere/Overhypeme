@@ -610,7 +610,7 @@ library is upgraded. Same-run reuse is off, so no recording stands in for a
 current answer, and the report must show a usable current answer for every
 expected operation, plus, over the fixture, one Pexels-only legacy meme read.
 Its cap is $5 per invocation (David, 2026-10-14), separate from the recording
-ceiling; more needs `--allowance-raised-by-david <YYYY-MM-DD>`.
+ceiling; more needs `--allowance-raised-by-david <YYYY-MM-DD>`. Like every paid AI run, it starts only on David's go-ahead in words for that run (`decisions.md`, 2026-10-17).
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
@@ -814,7 +814,7 @@ ask for (only `AI_DOUBLE_FAIL` asks).
 
 **Re-recording** (after a change to a prompt, a schema, the baseline, or a
 vendor client upgrade) runs on the Repl, never in CI, under a spending
-ceiling the recorder enforces before every vendor call:
+ceiling the recorder enforces before every vendor call. Like every paid AI run, it starts only on David's go-ahead in words for that run (`decisions.md`, 2026-10-17).:
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \

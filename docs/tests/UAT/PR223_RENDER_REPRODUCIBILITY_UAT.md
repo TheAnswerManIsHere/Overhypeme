@@ -29,7 +29,7 @@ pick a disabled style instead of a silent plain render.
 ### 1. Generate with a reference photo
 
 **Do:** The real-render capture run (`acceptance-run.ts --mode capture`, on the
-Repl under the $3.00 cap), signed in as the paid test account, uploads the
+Repl under the $3.00 cap, only on your go-ahead for that run), signed in as the paid test account, uploads the
 reference face photo `artifacts/api-server/src/assets/test-face.jpg`,
 generates an AI image for a fixture fact through the meme builder's
 reference-photo path (`POST /api/memes/pulid-jobs`), and captures the
@@ -122,7 +122,9 @@ generate.
 ### 7. The reference-photo result shows you, in a scene that fits
 
 **Do:** Look at step 1's two shots side by side, the reference photo and the
-result (`/uat` shows them with their evidence links).
+result (`/uat` shows them with their evidence links). Without a capture run,
+generate one yourself in the app instead: AI styling with your own photo as
+the reference, on a fact with your name in it.
 
 **Expect:** the result shows the same person as the reference photo,
 recognisably the same face and not a stranger or a garbled face, placed in a
