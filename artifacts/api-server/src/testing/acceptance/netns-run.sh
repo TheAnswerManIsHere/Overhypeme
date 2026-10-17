@@ -20,6 +20,13 @@
 # Writes <workdir>/sink.log, <workdir>/strace.log and <workdir>/netns.json.
 # Any failure to build the boundary exits 90, an environment failure: the run
 # never proceeds with less coverage than this describes.
+#
+# No exit leaves a sink behind (plan D5): a `fail` after the sink started, a
+# normal return, and INT, TERM or HUP at any point all stop the sink, and a
+# signal is forwarded to the payload's process group, then re-raised so the
+# wrapper's own status is the signal's. The payload runs in the background
+# under `wait` for that reason: a trap waits for a foreground command, so a
+# signal sent during a long run would otherwise go unanswered until it ended.
 set -uo pipefail
 
 work="$1"; drop="$2"; node="$3"; api_root="$4"; shift 4
@@ -27,7 +34,30 @@ work="$1"; drop="$2"; node="$3"; api_root="$4"; shift 4
 
 TCP_PORT=40443
 UDP_PORT=40053
-fail() { printf '{"ok":false,"error":%s}\n' "\"$1\"" > "$work/netns.json"; echo "[netns] $1" >&2; exit 90; }
+# Tenths of a second to wait for the sink's ready file; a test shortens it.
+SINK_READY_TENTHS="${NETNS_SINK_READY_TENTHS:-100}"
+sink_pid=""
+payload_pid=""
+
+cleanup() {
+  if [ -n "$payload_pid" ]; then
+    for _ in $(seq 1 50); do kill -0 "$payload_pid" 2>/dev/null || break; sleep 0.1; done
+    kill -KILL -- "-$payload_pid" 2>/dev/null
+  fi
+  if [ -n "$sink_pid" ]; then kill "$sink_pid" 2>/dev/null; wait "$sink_pid" 2>/dev/null; fi
+}
+on_signal() {
+  trap - INT TERM HUP
+  [ -n "$payload_pid" ] && kill -s "$1" -- "-$payload_pid" 2>/dev/null
+  cleanup
+  kill -s "$1" "$$"
+  exit "$2"
+}
+trap 'on_signal INT 130' INT
+trap 'on_signal TERM 143' TERM
+trap 'on_signal HUP 129' HUP
+
+fail() { printf '{"ok":false,"error":%s}\n' "\"$1\"" > "$work/netns.json"; echo "[netns] $1" >&2; cleanup; exit 90; }
 
 for tool in ip iptables strace mount; do command -v "$tool" >/dev/null || fail "$tool is not installed"; done
 ip link set lo up || fail "could not bring up loopback"
@@ -59,7 +89,7 @@ fi
 cd "$api_root" || fail "no api-server directory"
 "$node" --import tsx/esm src/testing/acceptance/sink.ts "$work/sink.log" "$TCP_PORT" "$UDP_PORT" "$work/sink.ready" "$( [ "$ipv6" = yes ] && echo ipv6 )" 2> "$work/sink.err" &
 sink_pid=$!
-for _ in $(seq 1 100); do [ -s "$work/sink.ready" ] && break; sleep 0.1; done
+for _ in $(seq 1 "$SINK_READY_TENTHS"); do [ -s "$work/sink.ready" ] && break; sleep 0.1; done
 [ -s "$work/sink.ready" ] || fail "the sink did not start: $(tr -d '"\n' < "$work/sink.err" | cut -c1-200)"
 
 privilege="user-namespace"
@@ -70,7 +100,12 @@ if [ -n "$drop" ]; then
 fi
 printf '{"ok":true,"ipv6":%s,"privilege":"%s"}\n' "$( [ "$ipv6" = yes ] && echo true || echo false )" "$privilege" > "$work/netns.json"
 
-strace -f -ttt --seccomp-bpf -e trace=socket,connect,sendto,sendmsg,sendmmsg -o "$work/strace.log" -- "${runner[@]}" "$node" "$@"
+# setsid gives the payload its own process group (a background child of this
+# shell is not a group leader, so setsid does not fork and $! is that group).
+setsid strace -f -ttt --seccomp-bpf -e trace=socket,connect,sendto,sendmsg,sendmmsg -o "$work/strace.log" -- "${runner[@]}" "$node" "$@" &
+payload_pid=$!
+wait "$payload_pid"
 rc=$?
-kill "$sink_pid" 2>/dev/null; wait "$sink_pid" 2>/dev/null
+payload_pid=""
+cleanup
 exit "$rc"

@@ -8,7 +8,7 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -416,5 +416,75 @@ describe("the live check's cap", () => {
     });
     assert.doesNotMatch(raised.stderr, /cap is \$5 per run/);
     assert.match(raised.stderr, /never runs in CI/);
+  });
+});
+
+describe("the namespace wrapper leaves no sink on any exit (plan D5)", () => {
+  // The wrapper runs outside a namespace here: ip, iptables, mount and strace
+  // are shims, so what is under test is its process handling, which those
+  // tools do not touch. The real sink starts; the payload sleeps a minute.
+  const WRAPPER = path.join(API_ROOT, "src/testing/acceptance/netns-run.sh");
+  let shims: string;
+  before(() => {
+    shims = fs.mkdtempSync(path.join(os.tmpdir(), "netns-shims-"));
+    const shim = (name: string, body: string) => fs.writeFileSync(path.join(shims, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+    shim("ip", '[ "$1" = "-6" ] && exit 1; exit 0'); // no IPv6, so no ip6tables
+    shim("iptables", "exit 0");
+    shim("mount", "exit 0");
+    shim("strace", 'while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done; shift; exec "$@"');
+  });
+  after(() => fs.rmSync(shims, { recursive: true, force: true }));
+
+  const alive = (pid: number) => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  };
+  const waitFor = async (file: string, ms: number) => {
+    for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 50))) {
+      if (fs.existsSync(file) && fs.readFileSync(file, "utf8").trim()) return Number(fs.readFileSync(file, "utf8").trim());
+    }
+    throw new Error(`${file} never appeared`);
+  };
+  const start = (work: string, node: string, payload: string[], env: Record<string, string> = {}) =>
+    spawn("bash", [WRAPPER, work, "", node, API_ROOT, "--", ...payload], {
+      env: { ...process.env, PATH: `${shims}:${process.env.PATH}`, ...env },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  const exited = (child: ChildProcess) =>
+    new Promise<{ code: number | null; signal: NodeJS.Signals | null; at: number }>((resolve) =>
+      child.on("exit", (code, signal) => resolve({ code, signal, at: Date.now() })));
+
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    it(`on ${signal} during a long payload, exits promptly with that signal and stops the sink and the payload`, async () => {
+      const work = fs.mkdtempSync(path.join(os.tmpdir(), "netns-work-"));
+      const payloadPid = path.join(work, "payload.pid");
+      const child = start(work, process.execPath, ["-e", "require('fs').writeFileSync(process.argv[1], String(process.pid)); setTimeout(() => {}, 60000)", payloadPid]);
+      const done = exited(child);
+      const sink = await waitFor(path.join(work, "sink.ready"), 20000);
+      const payload = await waitFor(payloadPid, 20000);
+      assert.ok(alive(sink) && alive(payload));
+      const sent = Date.now();
+      child.kill(signal);
+      const { code, signal: got, at } = await done;
+      assert.equal(got, signal, `wrapper exited with code ${code}, not the signal`);
+      assert.ok(at - sent < 10000, `took ${at - sent} ms, the payload sleeps 60000`);
+      assert.equal(alive(sink), false, "the sink outlived the wrapper");
+      assert.equal(alive(payload), false, "the payload outlived the wrapper");
+      fs.rmSync(work, { recursive: true, force: true });
+    });
+  }
+
+  it("a fail after the sink started exits 90 and stops the sink", async () => {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "netns-work-"));
+    // A sink that starts and never becomes ready, so the wrapper fails after it.
+    const hung = path.join(shims, "hung-node");
+    fs.writeFileSync(hung, `#!/usr/bin/env bash\necho $$ > "${work}/hung.pid"\nexec sleep 60\n`, { mode: 0o755 });
+    const child = start(work, hung, ["-e", "0"], { NETNS_SINK_READY_TENTHS: "10" });
+    const done = exited(child);
+    const sink = await waitFor(path.join(work, "hung.pid"), 20000);
+    const { code } = await done;
+    assert.equal(code, 90);
+    assert.match(fs.readFileSync(path.join(work, "netns.json"), "utf8"), /"ok":false,"error":"the sink did not start/);
+    assert.equal(alive(sink), false, "the sink outlived the failed wrapper");
+    fs.rmSync(work, { recursive: true, force: true });
   });
 });
