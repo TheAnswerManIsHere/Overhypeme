@@ -13,6 +13,66 @@
 
 ---
 
+### 2026-10-17 · No paid AI run happens without David's go-ahead for that run
+- **Decision:** every run that spends real money on an AI vendor (the UAT
+  capture lane's real renders, `acceptance-run.ts --mode live` and
+  `--mode record`, or any other) starts only when David says go for that
+  run, in words, after an ask naming what it runs, how many paid calls and
+  the worst-case cost. No approval covers a series of runs, and nothing runs
+  one automatically. Each mode's per-run cap still bounds the run it covers;
+  it authorizes none. This supersedes plan `PLAN_PHASE2_INC8_CAPTURE.md`
+  D7's "runs within that bound with no per-run ask". David, 2026-10-17:
+  *"There's no point in capping the cost to a few dollars if you're going to
+  be running the tests hundreds of times. I don't think there's any need for
+  you to automatically be rendering anything else … I foresee an accidental
+  unbounded expense potential here that we must control."*
+- **Why:** a per-run cap bounds one run, not the number of runs. CI holds
+  no vendor keys and every paid mode refuses `CI`, so the only remaining
+  route to repeated spend is an agent starting runs; a per-run go-ahead
+  closes it. A flag the agent types on the command line would not, since it
+  could type it every time. The hard backstop for a mistake anywhere is a
+  monthly spend limit at each vendor (fal, OpenAI), which only David can
+  set.
+- **Reference:** #708 (the real-render runner), #712.
+- **Revisit if:** David says so.
+
+### 2026-10-17 · The default reference faces are David's and his wife's, kept on purpose
+- **Decision:** the male reference images
+  (`artifacts/api-server/src/assets/test-face.jpg`, the bundled default
+  male face, and `src/assets/render-references/male.jpg`) are photos of
+  David, and `src/assets/render-references/female.jpg` is of his wife. They stay as the default
+  faces for the "stock" renders, as an homage, and may be used for any
+  testing, the UAT capture lane's real renders included. David, 2026-10-17:
+  *"I used a picture of myself as the male image and my wife as the female
+  image. I intend to keep those as the default faces … Feel free to use
+  those photos for any testing that we need to do."*
+- **Why:** plan `PLAN_PHASE2_INC8_CAPTURE.md` D6/D7 asked for a reference
+  photo that is "never a person's own photo"; these are the owners' own
+  photos, used with their consent, which answers that requirement's
+  concern.
+- **Reference:** #708 (the first real-render capture, PR223 step 1).
+- **Revisit if:** the default faces change, or someone else's photo would be
+  needed.
+
+### 2026-10-17 · AI-generated images are checked by David; Claude reads them only for verifiable facts
+- **Decision:** a test or UAT reading of an image an AI model generated is
+  limited to what anyone would verify the same way (the render completed,
+  the image decodes at the size asked for, a speech bubble appears and reads
+  a given text). Likeness, scene fit, humour, quality, whether it shows a
+  person or any particular thing, and whether the content is acceptable are
+  David's to judge, as `human` steps, unless the answer is as plain and
+  checkable as a bubble's text. David, 2026-10-17: *"You should only do fully deterministic
+  testing such as 'does a speech bubble appear and does it say "hello
+  world"' … I'll do all of the checking of generated imagery to make sure
+  it matches my desired outcomes."*
+- **Why:** interpretive judgement of generated content is where Claude's
+  reading is unreliable. The fleet rule lives in the handbook's
+  `uat-doc-format.md`, *An image an AI model generated* (AI-Handbook #219,
+  arriving here by the sync).
+- **Reference:** #708 (PR223 step 1 and PR229 step 6), the split of PR223
+  step 1 and PR229 steps 2, 4, 5, 6 and 13.
+- **Revisit if:** David says so.
+
 ### 2026-10-15 · An oversized CSV import's generic error is accepted
 - **Decision:** a CSV import whose body exceeds the server's 2 MiB request
   limit gets a generic 500 "Internal server error", not the clear "too many /

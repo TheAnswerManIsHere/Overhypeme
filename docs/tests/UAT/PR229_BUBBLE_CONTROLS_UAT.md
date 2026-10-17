@@ -44,10 +44,10 @@ with your exact text in quotes and a tail "pointing to" the subject's name.
 
 **Do:** Save the bubble from step 1, then run a 2K test render.
 
-**Expect:** a clean speech balloon whose tail points at the subject,
-lettered with exactly `You're the man of the house now.` — not the text
-baked in as a caption across the image, and not a second/duplicate
-speaker.
+**Expect:** a speech balloon appears lettered with exactly `You're the man
+of the house now.`, and that text does not also appear outside a balloon as
+a caption across the image. Which speaker the balloon belongs to is step
+16's, yours.
 
 **Lane:** capture
 
@@ -73,8 +73,8 @@ trail "leading to the head of the bartender", text `Not again.`
 
 **Do:** Render at 2K.
 
-**Expect:** the thought cloud attributes to the bartender, not the
-subject.
+**Expect:** a thought cloud appears carrying the bubble's text exactly.
+Which character it belongs to is step 17's, yours.
 
 **Lane:** capture
 
@@ -85,9 +85,8 @@ subject.
 **Do:** Keep both bubbles from steps 1–4 (subject speech + bartender
 thought) and render 2–3 times at 2K.
 
-**Expect:** each balloon carries the right text and attaches to the right
-character across attempts. This is the highest-risk case — note any
-attempt where attribution slips.
+**Expect:** on every attempt each balloon appears carrying its own text
+exactly. Which character each one attaches to is step 18's, yours.
 
 **Lane:** capture
 
@@ -96,18 +95,19 @@ attempt where attribution slips.
 ### 6. An unmatched entity gets a soft warning, not a block
 
 **Do:** The real-render capture run (`acceptance-run.ts --mode capture`, on the
-Repl under the $3.00 cap), as the dev admin, takes a fixture fact to concept
+Repl under the $3.00 cap, only on your go-ahead for that run), as the dev admin, takes a fixture fact to concept
 review, saves one speech bubble whose entity is `the mailman` (a character
-not in the scene) through the enrichment save, approves the concept, runs
+not in the scene) and one Scene Role Assignment for the subject alone, so
+no planned character can match him, through the enrichment save, approves the concept, runs
 the moderation test render, and captures the full-size result.
 
 **Expect:** a soft amber warning in the editor ("doesn't match subject or
 any Scene Role Assignment…") and, in the preview, an unresolved-entity
 note. The bubble still compiles — the warning doesn't block saving. The test
-render completes with a speech balloon carrying the bubble's text; whether
-the model added a mailman, ignored him or gave the line to someone else is
-recorded from the picture, and any of the three is a pass. A render that
-fails or is blocked is a Fail.
+render completes and a speech balloon appears reading exactly `Special
+delivery!`. Who speaks the line is not a criterion: the model may add a
+mailman, ignore him or give the line to someone else. A render that fails
+or is blocked is a Fail.
 
 **Lane:** capture
 
@@ -197,7 +197,8 @@ Speech & Thought Bubbles editor — the same rows the card showed.
 
 **Do:** Save and render at 2K.
 
-**Expect:** the quote renders in a balloon on the subject.
+**Expect:** a balloon appears carrying the quote's text exactly. Whether it
+sits on the subject is step 19's, yours.
 
 **Lane:** capture
 
@@ -228,6 +229,54 @@ bubbles themselves does not block picking — only unrelated fields do.)
 **Check:** `artifacts/overhype-me/src/components/admin/candidatePickGate.test.ts:BLOCKS when an unrelated field (e.g. requiredVisualDetails) is unsaved relative to a real persisted base`; `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:pickBlockedReason disables picking with the reason but keeps the cards rendered`; `artifacts/overhype-me/src/components/admin/candidatePickGate.test.ts:does NOT block on scene/bubble-only dirtiness relative to a real persisted base — a pick replaces exactly those fields`
 
 **Deferred:** #628 — Phase 13 (Admin console) — the moderation review pane that computes the pick gate and passes its reason to the idea cards is rebuilt there
+
+### 16. The step 2 balloon belongs to the subject
+
+**Do:** Look at step 2's render (`/uat` shows it with its evidence link).
+
+**Expect:** the balloon's tail points at the subject, and there is no second or duplicate speaker.
+
+**Lane:** human
+
+**Judgement:** which character a generated speech balloon belongs to is a judgement about AI-generated content, which is yours alone (David, 2026-10-17); step 2 proves only what the picture verifiably carries.
+
+**Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; the real render this reads is made there
+
+### 17. The step 4 thought cloud belongs to the bartender
+
+**Do:** Look at step 4's render (`/uat` shows it with its evidence link).
+
+**Expect:** the thought cloud attributes to the bartender, not the subject.
+
+**Lane:** human
+
+**Judgement:** which character a generated thought cloud belongs to is a judgement about AI-generated content, which is yours alone (David, 2026-10-17); step 4 proves only what the picture verifiably carries.
+
+**Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; the real render this reads is made there
+
+### 18. The step 5 balloons keep their characters across repeats
+
+**Do:** Look at step 5's renders (`/uat` shows them with their evidence links).
+
+**Expect:** each balloon attaches to the right character on every attempt. This is the highest-risk case — note any attempt where attribution slips.
+
+**Lane:** human
+
+**Judgement:** which character each generated balloon attaches to is a judgement about AI-generated content, which is yours alone (David, 2026-10-17); step 5 proves only what the picture verifiably carries.
+
+**Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; the real renders this reads are made there
+
+### 19. The step 13 balloon sits on the subject
+
+**Do:** Look at step 13's render (`/uat` shows it with its evidence link).
+
+**Expect:** the balloon sits on the subject.
+
+**Lane:** human
+
+**Judgement:** where a generated balloon sits is a judgement about AI-generated content, which is yours alone (David, 2026-10-17); step 13 proves only what the picture verifiably carries.
+
+**Deferred:** #628 — Phase 7 (image offering) — speech bubbles are finished in that phase; the real render this reads is made there
 
 ## Regression
 
