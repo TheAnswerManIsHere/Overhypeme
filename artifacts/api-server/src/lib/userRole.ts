@@ -25,6 +25,9 @@
  * copy (e.g. "Free Plan" badge, "Create a free account" prompt), but any
  * internal name, DB row, log string, or admin label uses the canonical
  * vocabulary above.
+ *
+ * @purpose deriveUserRole: collapses membership tier and an admin flag into one UserRole (admin, then legendary, registered, else unregistered), with at-least-Legendary and at-least-registered checks; it decides privilege, not feature entitlements.
+ * @subsystem accounts-auth
  */
 export type UserRole = "unregistered" | "registered" | "legendary" | "admin";
 

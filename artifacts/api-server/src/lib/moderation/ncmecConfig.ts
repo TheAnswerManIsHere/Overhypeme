@@ -16,6 +16,9 @@
  * check) arrives with the rest of the admin surface. Until then the reserved
  * keys are writable by nothing at all, which is the right posture for a period
  * when the worker is being built.
+ *
+ * @purpose The NCMEC admin_config keys: the five reserved keys that routes/admin.ts's generic config PATCH refuses with a 403, the seeded keys left writable, and the refusal message.
+ * @subsystem legal-safety
  */
 
 /**

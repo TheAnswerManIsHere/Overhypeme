@@ -1,3 +1,7 @@
+/**
+ * @purpose The /users/me routes: profile read and update, notification settings, search history, uploads, own memes and AI images, upload deletion, setting the profile image, onboarding captcha completion, and spend.
+ * @subsystem accounts-auth
+ */
 import { can, principalFromRequest } from "../lib/featureAccess";
 import { isRealAdminRequest } from "../lib/adminIdentity";
 import { Router, type IRouter, type Request, type Response } from "express";

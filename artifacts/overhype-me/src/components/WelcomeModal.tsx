@@ -1,3 +1,7 @@
+/**
+ * @purpose Name-and-pronoun bottom sheet for signed-out visitors, mounted by Layout, which never opens in this tree: its suppressed-path list contains "/" and is matched by prefix, so every route is suppressed (#705). As written it would open once per browser session unless a name is stored or was set explicitly or a share link is active, suggest pronouns from the name until the visitor picks, and save to usePersonName.
+ * @subsystem public-site
+ */
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";

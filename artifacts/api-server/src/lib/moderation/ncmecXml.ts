@@ -26,6 +26,9 @@
  * assert exact documents rather than element presence.
  *
  * Verified 2026-07-30 against <https://report.cybertip.org/ispws/documentation/>.
+ *
+ * @purpose Pure builders for the CyberTipline report and file-details XML, from a frozen reporter snapshot and persisted provenance: an absent value's element is omitted, and the report builder throws NcmecMappingError when the incident type or the reporter contact email cannot be resolved; only tests call them so far.
+ * @subsystem legal-safety
  */
 
 import { XMLBuilder } from "fast-xml-parser";

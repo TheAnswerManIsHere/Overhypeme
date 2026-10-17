@@ -8,6 +8,9 @@
  * Runs *before* the moderation pipeline so we do not burn Arachnid /
  * NSFW classifier calls on rate-limited users. Counter is shared with
  * the rest of the rate-limit infrastructure via `checkSharedRateLimit`.
+ *
+ * @purpose Per-user daily image-upload cap on the shared rate limiter, with separate admin_config limits for Legendary and for everyone else and admins effectively uncapped; returns the counter result and leaves the 429 to the caller.
+ * @subsystem legal-safety
  */
 
 import type { Request } from "express";

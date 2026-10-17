@@ -12,6 +12,9 @@
  * lowercase keyword sets to bucket them into SourceSubjectKind. This is
  * intentionally lossy — Tier-2 only needs to be GOOD ENOUGH for routing;
  * Tier-3 rescues low-confidence cases.
+ *
+ * @purpose Tier-2 heuristics: buckets detector labels into subject kinds, picks the dominant detection by confidence, box area and centrality, suggests a render mode, and decides whether to escalate to Tier 3.
+ * @subsystem visual-pipeline
  */
 
 import {

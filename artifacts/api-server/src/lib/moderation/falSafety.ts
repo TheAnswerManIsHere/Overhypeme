@@ -13,6 +13,9 @@
  * therefore only set it on FLUX text-to-image variants where the field
  * is documented. The whitelist below is conservative — better to skip a
  * field than 422 fal.ai's input validator.
+ *
+ * @purpose fal.ai's built-in safety controls: sets safety_tolerance from admin_config on the allowlisted FLUX Pro models unless the caller already set it, and throws FalSafetyTriggeredError when a result reports has_nsfw_concepts.
+ * @subsystem legal-safety
  */
 
 import { getConfigString } from "../adminConfig";

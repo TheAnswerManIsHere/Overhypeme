@@ -30,6 +30,9 @@
  * `restricted/` guard, so reaching for it would mint a time-limited, credential-free bearer
  * URL to suspected CSAM. Signed URLs and proxy routes are forbidden for evidence,
  * categorically.
+ *
+ * @purpose Stateless NCMEC CyberTipline ISPWS HTTP client (submit, upload, fileinfo, finish, retract, status) that classifies each failure as retryable or not; built and tested but unwired, imported only by ncmecWorker.ts and tests.
+ * @subsystem legal-safety
  */
 
 import { XMLParser, XMLValidator } from "fast-xml-parser";

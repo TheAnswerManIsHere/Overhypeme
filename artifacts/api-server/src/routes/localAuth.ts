@@ -1,3 +1,7 @@
+/**
+ * @purpose Local-account routes: register, email/password login, forgot and reset password, email verification and resend, email status, set-password, unlinking an OAuth provider, and dev-admin-login (404 unless isDevAdminLoginEnabled).
+ * @subsystem accounts-auth
+ */
 import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";

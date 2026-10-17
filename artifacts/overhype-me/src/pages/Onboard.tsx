@@ -1,3 +1,7 @@
+/**
+ * @purpose Onboarding page for signed-in users (others are sent to /): an hCaptcha step posting to /api/users/me/complete-onboarding, which can instead be skipped to / in browse-only mode, then an optional square-cropped photo uploaded as an avatar and set via /api/users/me/profile-image, after which, or on skipping the photo, it goes to the safe returnTo.
+ * @subsystem accounts-auth
+ */
 import { useEffect, useRef, useState } from "react";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useLocation } from "wouter";
