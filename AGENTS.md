@@ -77,8 +77,10 @@ For **the meme/video studio, AI image/video generation entry points, or
 media storage** work, also read:
 
 - [`docs/ai-context/meme-and-video-studio.md`](docs/ai-context/meme-and-video-studio.md) —
-  the three meme-building paths, the shared recipe/`imageSource` model,
-  the two live video-generation systems, tier gates, and where media lives
+  the live builder wizard and the switched-off legacy studio (its
+  verification is killed: [`decisions.md`](docs/ai-context/decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)),
+  the shared recipe/`imageSource` model, the video-generation systems,
+  tier gates, and where media lives
 
 For **home, search, hashtags, the leaderboard, profiles/library, OG cards,
 merch, or sharing** work, also read:

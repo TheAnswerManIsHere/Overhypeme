@@ -690,6 +690,7 @@ The render identity (name + pronouns, reduced to a short prompt-safe form)
 resolved ONCE at attempt-construction and frozen on `render_controls`, so the
 async worker never re-queries the live user. Distinct from the profile's own
 stored name and the meme caption, which are untouched.
+Only the legacy studio's generate routes build it; not verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 → [visual-pipeline](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
 
 ### Resolved-style snapshot
@@ -697,6 +698,7 @@ stored name and the meme caption, which are untouched.
 The selected look-style's suffix, frozen at attempt-construction alongside the
 prompt-identity snapshot, so a style edited or deactivated after a user clicks
 generate can't change the pending render.
+Only the legacy studio's generate routes build it; not verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 → [visual-pipeline](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
 
 ### Engine

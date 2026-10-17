@@ -138,7 +138,9 @@ quarantines rather than saving (`createMemeRecord.ts:318-371`).
 
 ## AI image memes
 
-**Every route in this section is called only by the legacy studio** (see
+**Every route in this section is called only by the legacy studio** (the
+shared data it writes, `facts.aiMemeImages`, which the live wizard's AI gallery
+reads, and the image cap, which also counts uploads, stay live; see
 *Frontend entry points* above): pinned off in every build, deleted in #628
 Phase 4, and not verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)). The live wizard's AI image
 path is `POST /api/memes/pulid-jobs`. What follows is a map of the code
@@ -185,6 +187,9 @@ tokenize-fact, admin enrichment tokenization), not a meme-creation surface.
 ## AI video memes — two systems (A is legacy-only)
 
 ### A. Legacy synchronous single-shot: `POST /videos/generate`
+
+Called only by the legacy studio and deleted with it in #628 Phase 4; not
+verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 
 `routes/videos.ts:354-796`. Used by the legacy `MemeStudioVideoTab.tsx`
 (both Magic and Manual paths). Gated by one

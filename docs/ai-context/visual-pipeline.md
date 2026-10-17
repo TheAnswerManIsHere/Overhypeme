@@ -61,7 +61,10 @@ model receives.** Enrichment is an input, not the prompt (see
 ## Frozen render inputs: identity + style (reproducibility)
 
 **A render's identity and style are frozen ONCE, at the moment the user clicks
-generate — never re-resolved live by the async worker (PR #223).**
+generate — never re-resolved live by the async worker (PR #223).** Only the
+user generate routes, which only the legacy studio calls, run this step
+(`routes/memes.ts:1520`, `:1878`); it is not verified, and goes with that
+studio in #628 Phase 4 ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 `prepareImagePromptAttemptInputs()` (`imagePrompt/prepareAttemptInputs.ts`)
 resolves a `PromptIdentitySnapshot` (`promptIdentity.ts`) and a
 `ResolvedRenderStyleSnapshot` (`styleResolution.ts`), renders the fact text
