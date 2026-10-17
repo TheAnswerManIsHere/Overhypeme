@@ -655,3 +655,23 @@ The text above, with the 2026-10-14 amendments, is sha256
    - The same ceremony as 7a: internal tier, standard loop, two-review limit.
 7. **7b's scripting is part 2**, planned from the ledger's counts, and its
    split by target file comes to David with those counts.
+
+
+## Amendments approved by David during 7b part 2 (2026-10-17)
+
+The text above is sha256 `cb8b199a06bb3d092930164d0a6e73df8911291e9f45fee5e929736d64b9fd7b`.
+
+8. **Verification tied to the legacy meme studio is killed** (David,
+   2026-10-17: *"Everything that is tied to the legacy builder that we're no
+   longer using should be killed."*). Its 7b clauses and wholly legacy steps
+   name #628 Phase 4; the rule is `docs/ai-context/decisions.md`,
+   *Verification work tied to the legacy meme studio is killed*.
+9. **Acceptance journeys 5 and 6 are removed** (David, 2026-10-17: *"Kill
+   them now."*). Wherever this plan or the parent's Definition of Done says
+   journeys 2–7, the baseline is journeys 2, 3, 4 and 7; the acceptance
+   clause of Phase 2's close is read against those. Claude's dissent is in
+   `decisions.md`, *Acceptance journeys 5 and 6 are removed with the legacy
+   studio*.
+10. **7b part 2 runs as four PRs by target family**, in the order journeys,
+    api, frontend, e2e, and **#692 is fixed before the e2e PR** so PR582's
+    Queue Health clause closes inside Phase 2 (David, 2026-10-17).

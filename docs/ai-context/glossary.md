@@ -690,6 +690,7 @@ The render identity (name + pronouns, reduced to a short prompt-safe form)
 resolved ONCE at attempt-construction and frozen on `render_controls`, so the
 async worker never re-queries the live user. Distinct from the profile's own
 stored name and the meme caption, which are untouched.
+Only the legacy studio's generate routes build it; not verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 → [visual-pipeline](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
 
 ### Resolved-style snapshot
@@ -697,6 +698,7 @@ stored name and the meme caption, which are untouched.
 The selected look-style's suffix, frozen at attempt-construction alongside the
 prompt-identity snapshot, so a style edited or deactivated after a user clicks
 generate can't change the pending render.
+Only the legacy studio's generate routes build it; not verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 → [visual-pipeline](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
 
 ### Engine
@@ -719,9 +721,10 @@ Free tier = photo memes; Legendary = AI image and video memes.
 ### Studio
 
 Where a user actually builds a meme from a fact — choosing a background,
-composing it with the fact's text, and saving it. Two studio interfaces
-currently coexist during an unfinished migration to a newer guided builder;
-which one you land in depends on the product version, not your account.
+composing it with the fact's text, and saving it. The live studio is the
+guided builder wizard, in every build. An older studio, the legacy studio,
+is still in the code but pinned off in every build; it is deleted in #628
+Phase 4, and verification tied to it is killed ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ### Recipe
@@ -763,20 +766,13 @@ costs nothing extra per meme to produce.
 
 ### AI image meme
 
-A Legendary-gated meme whose background is AI-generated — from a source photo
-when one is provided, or from description alone when it isn't; a source photo
-is not required. **Which pipeline runs, and whether the result is shared,
-splits by studio route — not by whether a photo was involved.** The [two
-studio interfaces](#studio) migration means a source-photo generation can go
-either way: through the new guided builder's `/generate-v2` route, it shares
-the moderation pipeline ([visual planner](#visual-planner), compiler, durable
-worker) exactly like a no-reference generation does, and joins that fact's
-shared gallery the same way. Through the older builder's legacy `/generate`
-route, a source-photo generation instead calls a separate, synchronous
-function straight to the engine with its own scene-prompt generation — no
-`generateImagePromptPlan`, no compiler, and the result is stored privately
-against your own account, never added to the shared gallery. A no-reference
-generation on either route runs the shared pipeline and joins the gallery.
+A Legendary-gated meme whose background is AI-generated. In the live wizard
+that means a source photo styled into the scene; the shared per-fact gallery
+of moderation renders is the other AI source a user picks from. The user
+generate routes `/generate` and `/generate-v2`, and the description-only
+images they produce, are called only by the legacy studio: pinned off in
+every build, deleted in #628 Phase 4, and nothing is verified on them
+([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 An AI *video* meme runs its own separate system (PuLID-based, not this
 pipeline) and is never added to any shared gallery — tied to the one meme
 you made with it. That's a storage fact, not an access-control one: like any

@@ -135,9 +135,9 @@ Save.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journeys 3 and 6: a valid fact's review renders reach done with decodable images, and the paid user's render reaches image_ready
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: a valid fact's review renders reach done with decodable images
 
-**Deferred:** #631 — 7b — a paid generate with a selected look style polling to image_ready with a decodable image, every journey renders with no style selected — acceptance journey 6
+**Deferred:** #628 — Phase 4 (Cut and prune) — a paid generate with a selected look style polling to image_ready with a decodable image, every journey renders with no style selected. Killed: the route it runs through is called only by the legacy meme studio, which is deleted for launch (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
 
 ## Not bugs
 

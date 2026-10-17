@@ -266,11 +266,9 @@ onboarding and upload a photo.
 upload is also the identity photo the meme and video generators use, so
 gating the upload would break free onboarding.)
 
-**Lane:** ci
+**Lane:** scripted
 
-**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user`
-
-**Deferred:** #631 — 7b — the free account uploads a JPEG via POST /api/storage/upload-avatar then sets it via POST /api/users/me/profile-image, both 200 with the photo stored — acceptance journey 7
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 7: the free account uploads the photo through the avatar route and sets it as its profile photo, and its profile photo URL serves the same bytes
 
 ### 16. The public avatar stays generic until upgraded
 
@@ -431,9 +429,9 @@ one.
 
 **Expect:** Generate works.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the paid account's AI image generation reaches image_ready, reads back as a decodable image, and saves as a private meme
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
 
 ### R6. Ad slots still follow tier
 

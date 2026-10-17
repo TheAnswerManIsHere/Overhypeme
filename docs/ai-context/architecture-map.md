@@ -52,7 +52,10 @@ docs/                this documentation
   `ActivityFeed.tsx`, fact detail + comments, merch (`WearIt.tsx`). The
   meme/video builders live under
   `artifacts/overhype-me/src/components/` (not `pages/`): `components/meme-builder/`,
-  `MemeStudio.tsx`, `MemeBuilder.tsx`, `VideoBuilder.tsx`, `MemeMagicVideo.tsx`.
+  `MemeStudio.tsx`, `MemeBuilder.tsx`, `VideoBuilder.tsx`, `MemeMagicVideo.tsx`. The live
+  builder is `components/meme-builder/wizard/`; the other four make up the legacy
+  studio, pinned off and deleted in #628 Phase 4, and not verified
+  ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
   Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
   Affiliate, Video Styles, Engines, Taxonomy Health, Email Queue, Features,

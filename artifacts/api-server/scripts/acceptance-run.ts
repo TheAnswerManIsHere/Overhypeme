@@ -5,7 +5,7 @@
  * migrations), then the inner program (`src/testing/acceptance/inner.ts`) —
  * the committed legacy fixture and the prompt pins for the fixture variant,
  * the account seed, the server booted from a constructed environment through
- * its launcher, journeys 2–7 — then the evidence report, and the database and
+ * its launcher, journeys 2, 3, 4 and 7 — then the evidence report, and the database and
  * scratch directory dropped.
  *
  *   --mode acceptance  The acceptance run. The AI double answers from the
@@ -33,7 +33,7 @@
  *                      --allowance-raised-by-david <YYYY-MM-DD>), and the
  *                      capture journeys for the one UAT doc --doc names
  *                      (`src/testing/acceptance/captureJourneys.ts`, its
- *                      CAPTURE_DOCS) instead of 2–7: full-size images, `manifest.jsonl` and
+ *                      CAPTURE_DOCS) instead of the baseline: full-size images, `manifest.jsonl` and
  *                      the recorder's spend ledger written to an empty --out.
  *                      Red when a shot was not produced.
  *   --mode serve       The acceptance server, left running on --port for a
@@ -60,7 +60,7 @@ import { fileURLToPath } from "node:url";
 import { markTestDatabaseSql, testDatabaseRefusal } from "@workspace/db/test-database";
 
 import { falSubscribeRequest } from "../src/lib/aiDouble/doubles";
-import { evaluateCoverage, readCallRecords, unattributedCalls, type CallRecord, type Mode, type Row, type Variant } from "../src/testing/acceptance/coverage";
+import { evaluateCoverage, failedLiveCalls, liveRecordingsDir, readCallRecords, recordingsIdentity, recordingsUnionCount, unattributedCalls, type CallRecord, type Mode, type RecordingsIdentity, type Row, type Variant } from "../src/testing/acceptance/coverage";
 import type { CaptureResult } from "../src/testing/acceptance/captureJourneys";
 import { captureRefusals, type CaptureDoc } from "../src/testing/acceptance/captureShots";
 import { controlVerdict } from "../src/testing/acceptance/controls";
@@ -227,11 +227,6 @@ function sha256(file: string): string {
 function redact(text: string): string {
   return text.replace(/\/\/[^\s/@]+@/g, "//***@");
 }
-function recordingsIdentity(dir: string, source: string): { source: string; files: number; listingSha256: string } {
-  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort() : [];
-  const listing = files.map((f) => `${f}:${sha256(path.join(dir, f))}`).join("\n");
-  return { source, files: files.length, listingSha256: createHash("sha256").update(listing).digest("hex") };
-}
 function pexelsOnlyMemes(): number {
   return fs
     .readFileSync(path.join(FIXTURE_DIR, "memes.ndjson"), "utf8")
@@ -295,7 +290,12 @@ async function recordVendorErrors(): Promise<string[]> {
  * visible. fal's pricing warm-up is excluded by design (inc 4, D2), and the
  * recording's failure controls are the one exception.
  */
-async function uncoveredCalls(missLog: string, priorLedgerLines: number): Promise<string[]> {
+async function uncoveredCalls(missLog: string, priorLedgerLines: number, callRecord: string): Promise<string[]> {
+  if (mode === "live") {
+    if (!fs.existsSync(callRecord)) return [];
+    const ledger = JSON.parse(fs.readFileSync(callRecord, "utf8")) as { lines: Array<{ kind: string; target: string; outcome: string; fingerprint?: string }> };
+    return failedLiveCalls(ledger.lines.slice(priorLedgerLines));
+  }
   const rows: Array<{ kind: string; target: string; fingerprint?: string; recordedErrorStatus?: number }> = [];
   if ((mode === "replay" || mode === "acceptance") && fs.existsSync(missLog)) {
     rows.push(...fs.readFileSync(missLog, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)));
@@ -343,6 +343,8 @@ interface VariantReport {
   pexelsMeme?: unknown;
   corrupted?: string;
   red: string[];
+  /** A live run's own answers for this variant (plan D4); other modes name one corpus at the top. */
+  recordings?: RecordingsIdentity;
   serverLogTail?: string[];
   capture?: CaptureResult;
 }
@@ -381,7 +383,11 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
   fs.mkdirSync(work, { recursive: true });
   fs.chmodSync(work, 0o777);
   const missLog = path.join(work, "ai-double-misses.jsonl");
-  const recordingsDir = mode === "record" ? out : mode === "live" || mode === "capture" ? liveRecordings : COMMITTED_RECORDINGS;
+  const recordingsDir =
+    mode === "record" ? out
+    : mode === "live" ? liveRecordingsDir(liveRecordings, variant)
+    : mode === "capture" ? liveRecordings
+    : COMMITTED_RECORDINGS;
   const callRecord = mode === "record" ? recordLedger : mode === "live" ? liveLedger : mode === "capture" ? captureLedger : path.join(work, "ai-calls.jsonl");
   const ledgerLines = (f: string) => (fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, "utf8")) as { lines: unknown[] }).lines.length : 0);
   const priorLedgerLines = mode === "record" || mode === "live" ? ledgerLines(callRecord) : 0;
@@ -442,7 +448,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     variant,
     database: url.pathname.slice(1),
     journeys: drive?.outcomes ?? [],
-    uncovered: mode === "probe" ? [] : await uncoveredCalls(missLog, priorLedgerLines),
+    uncovered: mode === "probe" ? [] : await uncoveredCalls(missLog, priorLedgerLines, callRecord),
     coverage: [],
     unattributed: [],
     red: [],
@@ -478,6 +484,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     const calls = readCallRecords(callRecord).slice(priorLedgerLines);
     report.coverage = evaluateCoverage({ mode: mode as Mode, variant, calls, recordingsDir, photoSha256: photoSha });
     report.unattributed = unattributedCalls({ calls, recordingsDir });
+    if (mode === "live") report.recordings = recordingsIdentity(recordingsDir, `captured by this live run for the ${variant} variant, discarded after it`);
     report.red.push(
       ...redReasons({
         journeys: report.journeys,
@@ -503,10 +510,12 @@ function cell(text: string): string {
 }
 
 function renderMarkdown(report: Record<string, any>): string {
-  const lines = [`# Acceptance report — ${report.mode}${report.control ? `, control ${report.control}` : ""}`, "", `**Result: ${report.verdict}**`, "", `Commit \`${report.commit}\` · recordings (${report.recordings.source}) ${report.recordings.files} files, listing sha256 \`${report.recordings.listingSha256.slice(0, 16)}…\`${report.fixtureManifestSha256 ? ` · fixture manifest \`${report.fixtureManifestSha256.slice(0, 16)}…\`` : ""}`, ""];
+  const lines = [`# Acceptance report — ${report.mode}${report.control ? `, control ${report.control}` : ""}`, "", `**Result: ${report.verdict}**`, "", `Commit \`${report.commit}\` · recordings (${report.recordings.source}) ${report.recordings.files} files${report.recordings.listingSha256 ? `, listing sha256 \`${report.recordings.listingSha256.slice(0, 16)}…\`` : ""}${report.fixtureManifestSha256 ? ` · fixture manifest \`${report.fixtureManifestSha256.slice(0, 16)}…\`` : ""}`, ""];
   if (report.controlVerdict) lines.push(`Control: ${report.controlVerdict.behaved ? "behaved" : "did NOT behave"} — ${report.controlVerdict.why}`, "");
   for (const v of report.variants as VariantReport[]) {
-    lines.push(`## Variant: ${v.variant}`, "", "| Journey | Outcome | Note |", "|---|---|---|");
+    lines.push(`## Variant: ${v.variant}`, "");
+    if (v.recordings) lines.push(`Recordings (${v.recordings.source}) ${v.recordings.files} files, listing sha256 \`${v.recordings.listingSha256.slice(0, 16)}…\``, "");
+    lines.push("| Journey | Outcome | Note |", "|---|---|---|");
     for (const j of v.journeys) lines.push(`| ${j.journey} | ${j.status} | ${cell((j.error ?? (j.deferred ?? []).join("; ")).slice(0, 200))} |`);
     if (v.coverage.length) {
       lines.push("", "| Operation | Journey | Evidence | Detail |", "|---|---|---|---|");
@@ -556,14 +565,16 @@ try {
     verdict: control ? (controlResult!.behaved ? "control behaved" : "control did NOT behave") : green ? "green" : "red",
     // The corpus the coverage was evaluated against: a live run's own captures
     // (discarded with the scratch directory), --out for a recording, else the committed set.
+    // Live mode records per variant (plan D4): each variant's report names its
+    // own set, and this names the union only as a count.
     recordings:
-      mode === "live" || mode === "capture" ? recordingsIdentity(path.join(scratch, "live-recordings"), `captured by this ${mode} run, discarded after it`)
+      mode === "live" ? { source: "captured by this live run, one set per variant (see each variant), discarded after it", files: recordingsUnionCount(variants.map((v) => liveRecordingsDir(liveRecordings, v))) }
+      : mode === "capture" ? recordingsIdentity(liveRecordings, `captured by this ${mode} run, discarded after it`)
       : mode === "record" ? recordingsIdentity(out, `--out ${out}`)
       : recordingsIdentity(COMMITTED_RECORDINGS, "committed"),
     fixtureManifestSha256: variants.includes("fixture") ? sha256(path.join(FIXTURE_DIR, "manifest.json")) : null,
     ...(ledger ? { spend: { capUsd: ledger.limitUsd, committedUsd: Number(ledger.committedUsd.toFixed(4)), vendorCalls: ledger.lines.length, reused: ledger.reused ?? 0, ...(mode === "capture" ? { ledger: captureLedger } : {}) } } : {}),
     deferrals: mode === "capture" ? [] : [
-      "journey 6: spend recorded against the user — deferred to #651 (David, 2026-10-12)",
       ...(variants.includes("fixture") && mode !== "live" ? [`the fixture's ${pexelsOnlyMemes()} Pexels-only stock memes: read by no acceptance journey; the live check reads one (David, 2026-10-14)`] : []),
     ],
     ...(controlResult ? { controlVerdict: controlResult } : {}),

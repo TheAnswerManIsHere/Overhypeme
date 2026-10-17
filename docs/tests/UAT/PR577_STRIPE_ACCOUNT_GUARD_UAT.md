@@ -102,7 +102,7 @@ change — same screens, same wording, no new message anywhere in the flow.
 
 **Lane:** scripted
 
-**Deferred:** #566 — the Stripe fake — needs a Stripe test-card checkout
+**Deferred:** #695 — the Stripe fake's event channel — needs a Stripe test-card checkout
 
 ## Regression
 

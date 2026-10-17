@@ -8,14 +8,14 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { evaluateCoverage, readCallRecords, unattributedCalls } from "../testing/acceptance/coverage.js";
+import { evaluateCoverage, failedLiveCalls, liveRecordingsDir, readCallRecords, recordingsIdentity, recordingsUnionCount, unattributedCalls } from "../testing/acceptance/coverage.js";
 import { sanitizeHashtagsForPersistence } from "../lib/hashtags.js";
 import { controlVerdict } from "../testing/acceptance/controls.js";
 import { evaluateDetector } from "../testing/acceptance/detector.js";
@@ -336,16 +336,133 @@ describe("the recorder in the live check", () => {
   });
 });
 
+describe("the live check's evidence is per variant (plan D4)", () => {
+  const saved: Record<string, string | undefined> = {};
+  before(() => {
+    for (const k of ["AI_RECORDINGS_DIR", "AI_RECORDER_LIVE"]) saved[k] = process.env[k];
+    process.env.AI_RECORDER_LIVE = "1";
+  });
+  after(() => {
+    for (const [k, v] of Object.entries(saved)) (v === undefined ? delete process.env[k] : (process.env[k] = v));
+  });
+
+  it("keeps each variant's answer in its own set, so a second variant's failed call is missing with no file of the first's", async () => {
+    const { Allowance, recordingFal } = await import("../lib/aiDouble/recorder.js");
+    // The photo classifier's committed request: both variants send exactly this, so one fingerprint.
+    const nsfw = fs.readdirSync(COMMITTED).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(fs.readFileSync(path.join(COMMITTED, f), "utf8")))
+      .find((r) => r.kind === "fal.subscribe" && /nsfw/.test(r.target) && r.request.input.image_url.endsWith(PHOTO_SHA))!;
+    const root = tmp();
+    const ledger = path.join(tmp(), "ledger.json");
+    const allowance = new Allowance(1, ledger); // one allowance and one ledger span both variants
+    let transportDown = false;
+    const real = {
+      subscribe: async () => { if (transportDown) throw new Error("fetch failed: ECONNRESET"); return nsfw.response; },
+      storage: { upload: async () => "u" },
+      queue: { submit: async () => ({}), status: async () => ({}), result: async () => ({}) },
+      config: () => {},
+    };
+    const fal = recordingFal(real as never, allowance, { clients: {} }, async () => 0.001);
+    const lines = () => readCallRecords(ledger);
+
+    process.env.AI_RECORDINGS_DIR = liveRecordingsDir(root, "fresh");
+    await fal.subscribe(nsfw.target, nsfw.request);
+    const freshCalls = lines();
+    process.env.AI_RECORDINGS_DIR = liveRecordingsDir(root, "fixture");
+    transportDown = true;
+    await assert.rejects(fal.subscribe(nsfw.target, nsfw.request), /ECONNRESET/);
+    const fixtureCalls = lines().slice(freshCalls.length);
+
+    assert.equal(freshCalls[0]!.fingerprint, nsfw.fingerprint);
+    assert.equal(fixtureCalls[0]!.fingerprint, nsfw.fingerprint, "the second variant sent the same request");
+    const file = `fal.subscribe--${nsfw.fingerprint}.json`;
+    assert.ok(fs.existsSync(path.join(liveRecordingsDir(root, "fresh"), file)), "the first variant's answer stays in its own set");
+    assert.equal(fs.existsSync(path.join(liveRecordingsDir(root, "fixture"), file)), false, "and is never filed as the second's");
+
+    const row = (variant: "fresh" | "fixture", calls: typeof freshCalls) =>
+      evaluateCoverage({ mode: "live", variant, calls, recordingsDir: liveRecordingsDir(root, variant), photoSha256: PHOTO_SHA }).find((r) => r.key === "photo-classifier")!;
+    assert.equal(row("fresh", freshCalls).status, "satisfied");
+    assert.equal(row("fixture", fixtureCalls).status, "missing");
+    assert.deepEqual(unattributedCalls({ calls: fixtureCalls, recordingsDir: liveRecordingsDir(root, "fixture") }).map((c) => c.fingerprint), [nsfw.fingerprint],
+      "no file is attributed to the failed call");
+
+    const fresh = recordingsIdentity(liveRecordingsDir(root, "fresh"), "fresh");
+    const fixture = recordingsIdentity(liveRecordingsDir(root, "fixture"), "fixture");
+    assert.equal(fresh.files, 1);
+    assert.equal(fixture.files, 0);
+    assert.notEqual(fresh.listingSha256, fixture.listingSha256, "each variant's report carries its own identity");
+    assert.equal(recordingsUnionCount(["fresh", "fixture"].map((v) => liveRecordingsDir(root, v as "fresh"))), 1);
+  });
+});
+
+describe("a failed live call is red even when an identical call answers (#720 round 1)", () => {
+  const saved: Record<string, string | undefined> = {};
+  before(() => {
+    for (const k of ["AI_RECORDINGS_DIR", "AI_RECORDER_LIVE"]) saved[k] = process.env[k];
+    process.env.AI_RECORDER_LIVE = "1";
+  });
+  after(() => {
+    for (const [k, v] of Object.entries(saved)) (v === undefined ? delete process.env[k] : (process.env[k] = v));
+  });
+
+  // Journey 7 sends the same photo through two upload routes: one fingerprint, one recording.
+  const run = async (failures: boolean[]) => {
+    const { Allowance, recordingFal } = await import("../lib/aiDouble/recorder.js");
+    process.env.AI_RECORDINGS_DIR = tmp();
+    const ledger = path.join(tmp(), "ledger.json");
+    const allowance = new Allowance(1, ledger);
+    let call = 0;
+    const real = {
+      subscribe: async () => ({}),
+      storage: { upload: async () => { if (failures[call++]) throw new Error("fetch failed: ECONNRESET"); return "https://v3.fal.media/files/x.jpg"; } },
+      queue: { submit: async () => ({}), status: async () => ({}), result: async () => ({}) },
+      config: () => {},
+    };
+    const fal = recordingFal(real as never, allowance, { clients: {} }, async () => 0);
+    for (const _ of failures) await fal.storage.upload(new Blob([new Uint8Array(PHOTO)], { type: "image/jpeg" })).catch(() => {});
+    const calls = readCallRecords(ledger);
+    const lines = (JSON.parse(fs.readFileSync(ledger, "utf8")) as { lines: Array<{ kind: string; target: string; outcome: string; fingerprint?: string }> }).lines;
+    const row = evaluateCoverage({ mode: "live", variant: "fresh", calls, recordingsDir: process.env.AI_RECORDINGS_DIR!, photoSha256: PHOTO_SHA }).find((r) => r.key === "photo-upload")!;
+    const failed = failedLiveCalls(lines);
+    return { row, failed, red: redReasons({ journeys: [], coverage: [], uncovered: failed }).filter((r) => r.startsWith("uncovered")) };
+  };
+
+  it("names a failure followed by an identical success, which coverage alone would pass", async () => {
+    const { row, failed, red } = await run([true, false]);
+    assert.equal(row.status, "satisfied", "the later success covers the operation");
+    assert.equal(new Set(failed.map((f) => f.split(" (")[0])).size, 1);
+    assert.match(failed[0]!, /^fal\.storage\.upload .*: the live call ended error$/);
+    assert.equal(red.length, 1, "and the verdict is red");
+  });
+
+  it("names a success followed by an identical failure", async () => {
+    const { failed, red } = await run([false, true]);
+    assert.equal(failed.length, 1);
+    assert.equal(red.length, 1);
+  });
+
+  it("stays green when every identical call answers", async () => {
+    const { row, failed, red } = await run([false, false]);
+    assert.equal(row.status, "satisfied");
+    assert.deepEqual(failed, []);
+    assert.deepEqual(red, []);
+  });
+
+  it("leaves pricing calls out and names a refused call", () => {
+    assert.deepEqual(failedLiveCalls([{ kind: "fal.pricing", target: "p", outcome: "error" }, { kind: "openai.chat", target: "m", outcome: "ok" }]), []);
+    assert.deepEqual(failedLiveCalls([{ kind: "openai.chat", target: "m", outcome: "refused", fingerprint: "abcdef0123456789" }]), ["openai.chat m (fingerprint abcdef012345): the live call ended refused"]);
+  });
+});
+
 describe("the completion rule", () => {
   const passed = (j: string) => ({ journey: j as never, status: "passed" as const, evidence: {} });
-  const all = () => ["2", "3", "4", "5", "6", "7"].map(passed);
+  const all = () => ["2", "3", "4", "7"].map(passed);
 
-  it("is green only with six passed journeys and nothing else wrong", () => {
+  it("is green only with every baseline journey passed and nothing else wrong", () => {
     assert.deepEqual(redReasons({ journeys: all(), coverage: [], uncovered: [] }), []);
   });
 
   it("names every non-pass, a missing journey, a missing operation, an uncovered call and an outbound attempt", () => {
-    const journeys = all().filter((j) => j.journey !== "4").map((j) => (j.journey === "6" ? { ...j, status: "not-run" as const, error: "journey 3 did not pass" } : j));
+    const journeys = all().filter((j) => j.journey !== "4").map((j) => (j.journey === "7" ? { ...j, status: "not-run" as const, error: "journey 3 did not pass" } : j));
     const red = redReasons({
       journeys,
       coverage: [{ key: "photo-upload", journey: "7", description: "", status: "missing", calls: 1, detail: "0 usable" }],
@@ -356,21 +473,21 @@ describe("the completion rule", () => {
     });
     assert.deepEqual(
       red.map((r) => r.split(":")[0]),
-      ["journey 4 was never reported", "journey 6 not-run", "operation photo-upload (journey 7)", "uncovered AI call", "detector", "the Pexels-only meme read"],
+      ["journey 4 was never reported", "journey 7 not-run", "operation photo-upload (journey 7)", "uncovered AI call", "detector", "the Pexels-only meme read"],
     );
   });
 });
 
 describe("a negative control's verdict", () => {
   const passed = (j: string) => ({ journey: j as never, status: "passed" as const, evidence: {} });
-  const all = () => ["2", "3", "4", "5", "6", "7"].map(passed);
+  const all = () => ["2", "3", "4", "7"].map(passed);
   const outbound = "detector: 4 outbound attempt(s) recorded after the self-test";
   const forbidden = (red: string[]) =>
     controlVerdict("forbidden-request", { journeys: all(), coverage: [], red, detector: { violations: { sink: [{ name: "api.openai.com" }], syscall: [{}] } } });
 
   it("forbidden-request behaves on its own violation alone, and not beside an unrelated failure", () => {
     assert.equal(forbidden([outbound]).behaved, true);
-    for (const extra of ["journey 5 failed: 500", "operation hashtags (journey 2): 0 usable", "setup: host-side: boom", "detector: the sink did not record the ipv4 self-test attempt", "uncovered AI call: openai.chat x"]) {
+    for (const extra of ["journey 7 failed: 500", "operation hashtags (journey 2): 0 usable", "setup: host-side: boom", "detector: the sink did not record the ipv4 self-test attempt", "uncovered AI call: openai.chat x"]) {
       const v = forbidden([outbound, extra]);
       assert.equal(v.behaved, false, extra);
       assert.match(v.why, /other red reasons/);
@@ -379,7 +496,7 @@ describe("a negative control's verdict", () => {
 
   it("render-failure accepts only what stopping at journey 3 explains", () => {
     const stopped = [
-      "operation image-prompts (journey 3, 6): 3 usable of 3 attributed call(s), 4 needed",
+      "operation image-prompts (journey 3): 2 usable of 2 attributed call(s), 3 needed",
       "operation photo-upload (journey 7): 0 usable of 0 attributed call(s), 1 needed",
       "journey 3 not-run: the render-failure control stops the run here",
       "journey 7 not-run: not reached",
@@ -416,5 +533,75 @@ describe("the live check's cap", () => {
     });
     assert.doesNotMatch(raised.stderr, /cap is \$5 per run/);
     assert.match(raised.stderr, /never runs in CI/);
+  });
+});
+
+describe("the namespace wrapper leaves no sink on any exit (plan D5)", () => {
+  // The wrapper runs outside a namespace here: ip, iptables, mount and strace
+  // are shims, so what is under test is its process handling, which those
+  // tools do not touch. The real sink starts; the payload sleeps a minute.
+  const WRAPPER = path.join(API_ROOT, "src/testing/acceptance/netns-run.sh");
+  let shims: string;
+  before(() => {
+    shims = fs.mkdtempSync(path.join(os.tmpdir(), "netns-shims-"));
+    const shim = (name: string, body: string) => fs.writeFileSync(path.join(shims, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+    shim("ip", '[ "$1" = "-6" ] && exit 1; exit 0'); // no IPv6, so no ip6tables
+    shim("iptables", "exit 0");
+    shim("mount", "exit 0");
+    shim("strace", 'while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done; shift; exec "$@"');
+  });
+  after(() => fs.rmSync(shims, { recursive: true, force: true }));
+
+  const alive = (pid: number) => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  };
+  const waitFor = async (file: string, ms: number) => {
+    for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 50))) {
+      if (fs.existsSync(file) && fs.readFileSync(file, "utf8").trim()) return Number(fs.readFileSync(file, "utf8").trim());
+    }
+    throw new Error(`${file} never appeared`);
+  };
+  const start = (work: string, node: string, payload: string[], env: Record<string, string> = {}) =>
+    spawn("bash", [WRAPPER, work, "", node, API_ROOT, "--", ...payload], {
+      env: { ...process.env, PATH: `${shims}:${process.env.PATH}`, ...env },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  const exited = (child: ChildProcess) =>
+    new Promise<{ code: number | null; signal: NodeJS.Signals | null; at: number }>((resolve) =>
+      child.on("exit", (code, signal) => resolve({ code, signal, at: Date.now() })));
+
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    it(`on ${signal} during a long payload, exits promptly with that signal and stops the sink and the payload`, async () => {
+      const work = fs.mkdtempSync(path.join(os.tmpdir(), "netns-work-"));
+      const payloadPid = path.join(work, "payload.pid");
+      const child = start(work, process.execPath, ["-e", "require('fs').writeFileSync(process.argv[1], String(process.pid)); setTimeout(() => {}, 60000)", payloadPid]);
+      const done = exited(child);
+      const sink = await waitFor(path.join(work, "sink.ready"), 20000);
+      const payload = await waitFor(payloadPid, 20000);
+      assert.ok(alive(sink) && alive(payload));
+      const sent = Date.now();
+      child.kill(signal);
+      const { code, signal: got, at } = await done;
+      assert.equal(got, signal, `wrapper exited with code ${code}, not the signal`);
+      assert.ok(at - sent < 10000, `took ${at - sent} ms, the payload sleeps 60000`);
+      assert.equal(alive(sink), false, "the sink outlived the wrapper");
+      assert.equal(alive(payload), false, "the payload outlived the wrapper");
+      fs.rmSync(work, { recursive: true, force: true });
+    });
+  }
+
+  it("a fail after the sink started exits 90 and stops the sink", async () => {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "netns-work-"));
+    // A sink that starts and never becomes ready, so the wrapper fails after it.
+    const hung = path.join(shims, "hung-node");
+    fs.writeFileSync(hung, `#!/usr/bin/env bash\necho $$ > "${work}/hung.pid"\nexec sleep 60\n`, { mode: 0o755 });
+    const child = start(work, hung, ["-e", "0"], { NETNS_SINK_READY_TENTHS: "10" });
+    const done = exited(child);
+    const sink = await waitFor(path.join(work, "hung.pid"), 20000);
+    const { code } = await done;
+    assert.equal(code, 90);
+    assert.match(fs.readFileSync(path.join(work, "netns.json"), "utf8"), /"ok":false,"error":"the sink did not start/);
+    assert.equal(alive(sink), false, "the sink outlived the failed wrapper");
+    fs.rmSync(work, { recursive: true, force: true });
   });
 });

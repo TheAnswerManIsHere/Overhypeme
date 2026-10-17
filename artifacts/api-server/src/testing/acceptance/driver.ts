@@ -3,7 +3,7 @@
  * `PLAN_PHASE2_INC4_AI_DOUBLES.md` D6/D7 and `PLAN_PHASE2_INC6_ACCEPTANCE.md`
  * D2).
  *
- * Walks baseline journeys 2–7 over HTTP, making the calls the frontend makes,
+ * Walks baseline journeys 2, 3, 4 and 7 over HTTP, making the calls the frontend makes,
  * as the seeded ordinary accounts and the bootstrap admin:
  *
  * - journey 2 — the free user completes onboarding and submits a fact
@@ -12,10 +12,6 @@
  * - journey 3 — the admin takes it through triage, preparation, the saved
  *   Visual Concept and the required review renders to an active fact; each
  *   render's image decodes;
- * - journey 5 — the free user is refused paid generation, with no AI call;
- * - journey 6 — the paid user generates an AI image, reads it back as its
- *   owner, and saves a private meme composed from it; another user is
- *   refused both;
  * - journey 7 — the free user uploads a photo; the owner reads back the same
  *   bytes, another user is refused;
  * - journey 4 — the free user saves a public meme composed from that photo;
@@ -34,10 +30,12 @@
  * by the runner's inner program (`./inner.ts`). Every input is
  * fixed — the fact text, the account data, the committed fixture images.
  *
- * Journey 6's "spend recorded against that user" is not asserted: the live
- * generation path records no spend (#651; David, 2026-10-12, "next"). It is
- * reported as a deferral, never as a pass.
+ * Journeys 5 and 6 (the paid-generation refusal and the paid AI image) ran
+ * the user AI generate route, which only the legacy meme studio calls; they
+ * are removed with it (David, 2026-10-17, `docs/ai-context/decisions.md`,
+ * *Verification work tied to the legacy meme studio is killed*).
  */
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,8 +126,8 @@ export async function poll<T>(journey: string, what: string, read: () => Promise
   }
 }
 
-export type JourneyKey = "2" | "3" | "4" | "5" | "6" | "7";
-export const JOURNEYS: readonly JourneyKey[] = ["2", "3", "4", "5", "6", "7"];
+export type JourneyKey = "2" | "3" | "4" | "7";
+export const JOURNEYS: readonly JourneyKey[] = ["2", "3", "4", "7"];
 
 export interface JourneyOutcome {
   journey: JourneyKey;
@@ -156,8 +154,6 @@ export interface DriveOptions {
    * an acceptance pass.
    */
   expectRenderFailure?: boolean;
-  /** How many AI calls the run has made so far, when the runner can count them (journey 5 asserts none). */
-  aiCallCount?: () => number;
   /** Called with journey 7's object path before journey 4 composes from it (the corrupt-source control). */
   beforeJourney4?: (objectPath: string) => void;
 }
@@ -201,7 +197,7 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
   // --- sign in -------------------------------------------------------------
   try {
     await free.json("2", "POST", "/api/auth/local-login", { email: accounts.free.email, password: accounts.password });
-    await paid.json("6", "POST", "/api/auth/local-login", { email: accounts.paid.email, password: accounts.password });
+    await paid.json("7", "POST", "/api/auth/local-login", { email: accounts.paid.email, password: accounts.password });
     await admin.json("3", "POST", "/api/auth/dev-admin-login");
     log("signed in: free, paid, admin");
   } catch (err) {
@@ -252,6 +248,9 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       (c) => c.tokenValid && (c.bubbles ?? []).every((b: any) => b.tokenValid),
     );
     if (!candidate) throw new JourneyError("3", "pick a Visual Concept", "no token-valid candidate");
+    // The baseline fact has no dialogue, so no proposed idea carries a speech or thought bubble (PR229 step 14).
+    const withBubbles = (prepared.visualConcepts.candidates as any[]).filter((c) => (c.bubbles ?? []).length > 0).length;
+    if (withBubbles > 0) throw new JourneyError("3", "Visual Ideas for a dialogue-free fact", `${withBubbles} candidate(s) propose a bubble`);
 
     const fact = await admin.json<any>("3", "GET", `/api/admin/facts/${stagingFactId}`);
     const enrichment = structuredClone(fact.enrichment);
@@ -329,72 +328,15 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     factId = approved.factId;
     const active = await free.json<any>("3", "GET", `/api/facts/${factId}`);
     if (active?.isActive === false) throw new JourneyError("3", "active fact", "the approved fact is not active");
-    Object.assign(ev, { reviewId, factId, renderImages });
+    // Anyone browsing the facts list, newest first, finds it (PR293 step R5).
+    const listed = await anonymous.json<{ facts: Array<{ id: number }> }>("3", "GET", "/api/facts?sort=newest&limit=50");
+    if (!listed.facts.some((f) => f.id === factId)) throw new JourneyError("3", "the public facts list", `fact ${factId} is not among the ${listed.facts.length} newest`);
+    Object.assign(ev, { reviewId, factId, renderImages, candidatesWithBubbles: withBubbles, listedInFacts: true });
   });
   const control = controlFrom(outcomes);
   if (options.expectRenderFailure) {
     return { ...result(), control: control ?? { ok: false, renders: [], detail: "journey 3 never reached its renders" } };
   }
-
-  // --- journey 5: the free user is refused paid generation ------------------
-  await run("5", ["3"], async (ev) => {
-    const before = options.aiCallCount?.();
-    const res = await free.request("POST", `/api/memes/ai/${factId}/generate`, { aspectRatio: "landscape" });
-    const body = (await res.json().catch(() => null)) as { error?: string; feature?: string; message?: string } | null;
-    if (res.status !== 403 || body?.error !== "legendary_required" || body?.feature !== "meme_ai_background") {
-      throw new JourneyError("5", "the paid-generation gate", `expected 403 legendary_required for meme_ai_background, got ${res.status} ${JSON.stringify(body)}`);
-    }
-    const after = options.aiCallCount?.();
-    if (before !== undefined && after !== before) throw new JourneyError("5", "the paid-generation gate", `${after! - before} AI call(s) were made for a refused request`);
-    Object.assign(ev, { status: res.status, body, aiCalls: before === undefined ? "not counted in this mode" : after! - before });
-  });
-
-  // --- journey 6: the paid user's AI image meme ----------------------------
-  await run(
-    "6",
-    ["3"],
-    async (ev) => {
-      const { renderJobId } = await paid.json<{ renderJobId: string }>("6", "POST", `/api/memes/ai/${factId}/generate`, { aspectRatio: "landscape" }, [202]);
-      const render = await poll(
-        "6",
-        "AI image generation",
-        () => paid.json<any>("6", "GET", `/api/memes/ai/renders/${renderJobId}`),
-        (r) => r.status === "image_ready",
-        (r) => (r.status === "failed" || r.status === "blocked" ? `${r.status}: ${r.errorCode ?? r.error ?? r.blockReason}` : null),
-        10 * 60_000,
-      );
-      const generatedImageObjectPath: string = render.generatedImageObjectPath;
-      const generated = await readImage(paid, "6", "the owner reads the generated image", `/api/memes/ai-user/image?storagePath=${encodeURIComponent(generatedImageObjectPath)}`);
-      const saved = await paid.json<{ permalinkSlug: string }>(
-        "6",
-        "POST",
-        "/api/memes",
-        { factId, imageSource: { type: "upload", uploadKey: generatedImageObjectPath }, isPublic: false, aspectRatio: "landscape" },
-        [201],
-      );
-      const memeSlug = saved.permalinkSlug;
-      await paid.json("6", "GET", `/api/memes/${memeSlug}`);
-      const meme = await readImage(paid, "6", "the owner reads the private meme image", `/api/memes/${memeSlug}/image`, "landscape");
-      // The permalink and the image are separate routes; another user is refused both, and the generated image too.
-      const otherUserPermalinkStatus = (await free.request("GET", `/api/memes/${memeSlug}`)).status;
-      if (otherUserPermalinkStatus !== 404) throw new JourneyError("6", "another user reads the private meme's permalink", `expected 404, got ${otherUserPermalinkStatus}`);
-      const otherUserImageStatus = (await free.request("GET", `/api/memes/${memeSlug}/image`)).status;
-      if (otherUserImageStatus !== 404) throw new JourneyError("6", "another user reads the private meme's image", `expected 404, got ${otherUserImageStatus}`);
-      const otherUserGeneratedStatus = (await free.request("GET", `/api/memes/ai-user/image?storagePath=${encodeURIComponent(generatedImageObjectPath)}`)).status;
-      if (otherUserGeneratedStatus !== 403) throw new JourneyError("6", "another user reads the generated image", `expected 403, got ${otherUserGeneratedStatus}`);
-      Object.assign(ev, {
-        renderJobId,
-        generatedImageObjectPath,
-        generated: { format: generated.format, width: generated.width, height: generated.height },
-        memeSlug,
-        meme: { format: meme.format, width: meme.width, height: meme.height },
-        otherUserPermalinkStatus,
-        otherUserImageStatus,
-        otherUserGeneratedStatus,
-      });
-    },
-    ["spend recorded against the user: deferred to #651 (David, 2026-10-12)"],
-  );
 
   // --- journey 7: photo upload ----------------------------------------------
   let objectPath = "";
@@ -408,7 +350,16 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     if (!own.bytes.equals(photo)) throw new JourneyError("7", "the owner reads the photo", `${own.bytes.length} bytes differ from the ${photo.length} uploaded`);
     const otherStatus = (await paid.request("GET", `/api/storage${objectPath}`)).status;
     if (otherStatus !== 403) throw new JourneyError("7", "another user reads the photo", `expected 403, got ${otherStatus}`);
-    Object.assign(ev, { objectPath, ownerBytesEqual: true, otherUserStatus: otherStatus });
+    // The same photo as a profile picture: uploaded through the avatar route and set (PR425 step 15).
+    const avatar = await free.request("POST", "/api/storage/upload-avatar", photo, "image/jpeg");
+    const avatarBody = (await avatar.json()) as { objectPath?: string };
+    if (avatar.status !== 200 || !avatarBody.objectPath) throw new JourneyError("7", "upload a profile photo", `${avatar.status} ${JSON.stringify(avatarBody)}`);
+    await free.json("7", "POST", "/api/users/me/profile-image", { objectPath: avatarBody.objectPath });
+    const me = await free.json<{ profileImageUrl: string | null }>("7", "GET", "/api/users/me");
+    if (me.profileImageUrl !== `/api/storage${avatarBody.objectPath}`) throw new JourneyError("7", "the profile photo is set", `profileImageUrl is ${me.profileImageUrl}`);
+    const stored = await readImage(free, "7", "the profile photo is stored", me.profileImageUrl);
+    if (!stored.bytes.equals(photo)) throw new JourneyError("7", "the profile photo is stored", `${stored.bytes.length} bytes differ from the ${photo.length} uploaded`);
+    Object.assign(ev, { objectPath, ownerBytesEqual: true, otherUserStatus: otherStatus, avatarObjectPath: avatarBody.objectPath, avatarBytesEqual: true });
   });
 
   // --- journey 4: the free user's public photo meme --------------------------
@@ -425,7 +376,63 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     const permalinkStatus = (await anonymous.request("GET", `/api/memes/${slug}`)).status;
     if (permalinkStatus !== 200) throw new JourneyError("4", "anyone reads the public meme's permalink", String(permalinkStatus));
     const meme = await readImage(anonymous, "4", "anyone reads the public meme image", `/api/memes/${slug}/image`, "landscape");
-    Object.assign(ev, { memeSlug: slug, permalinkStatus, meme: { format: meme.format, width: meme.width, height: meme.height } });
+
+    // The unfurl page a crawler reads names this meme's own image, and that image serves (PR308 step R8).
+    const og = await anonymous.request("GET", `/api/og/m/${slug}?noredirect=1`);
+    const ogImage = /<meta property="og:image" content="([^"]+)"/.exec(await og.text())?.[1];
+    if (og.status !== 200 || !ogImage) throw new JourneyError("4", "the unfurl page", `${og.status}, og:image ${ogImage ?? "absent"}`);
+    const ogPath = new URL(ogImage, "http://unfurl.invalid").pathname;
+    if (ogPath !== `/api/memes/${slug}/image`) throw new JourneyError("4", "the unfurl page's og:image", `names ${ogImage}, not this meme's image`);
+    const unfurled = await readImage(anonymous, "4", "the unfurl page's og:image", ogPath, "landscape");
+
+    // The served caption draws the creator's identity exactly as a hand-typed
+    // twin of the same split does (PR398 steps 1, 3–8; PR223 step 1). Equal
+    // bytes are the proof: a surviving token, a brace, a shortened name or a
+    // wrong conjugation could not render identically to the typed words.
+    const me = await free.json<{ displayName: string | null }>("4", "GET", "/api/users/me");
+    const name = me.displayName;
+    if (!name) throw new JourneyError("4", "the creator's display name", "the free account has none");
+    const served = async (what: string, topText: string, bottomText: string) => {
+      const res = await free.request("POST", "/api/memes", { factId, imageSource: { type: "upload", uploadKey: objectPath }, textOptions: { topText, bottomText }, isPublic: true, aspectRatio: "landscape" });
+      const saved = (await res.json().catch(() => ({}))) as { permalinkSlug?: string };
+      if (res.status !== 201 || !saved.permalinkSlug) throw new JourneyError("4", `save ${what}`, `${res.status} ${JSON.stringify(saved).slice(0, 300)}`);
+      const img = await readImage(anonymous, "4", what, `/api/memes/${saved.permalinkSlug}/image`, "landscape");
+      return createHash("sha256").update(img.bytes).digest("hex");
+    };
+    const twin = async (what: string, tokenised: [string, string], typed: [string, string]) => {
+      const [a, b] = [await served(`${what}, tokenised`, ...tokenised), await served(`${what}, typed by hand`, ...typed)];
+      if (a !== b) throw new JourneyError("4", what, "the served image differs from its hand-typed twin");
+      return a;
+    };
+    const setPronouns = (pronouns: string) => free.json("4", "PATCH", "/api/users/me", { pronouns });
+    const captions: Record<string, string> = {};
+    captions.nameInTop = await twin("the name in the top half", ["{NAME} counted to infinity", "twice."], [`${name} counted to infinity`, "twice."]);
+    captions.nameInBottom = await twin("the name in the bottom half", ["Infinity was counted", "by {NAME}, twice."], ["Infinity was counted", `by ${name}, twice.`]);
+    // The bottom line's guard: a different typed bottom line must change the picture, or the bottom twin proves nothing.
+    if ((await served("a different bottom line, typed by hand", "Infinity was counted", "by Someone Else, twice.")) === captions.nameInBottom) {
+      throw new JourneyError("4", "the bottom-line guard", "a different bottom line served the same image");
+    }
+    // The guard: a different typed name must not match, or equality proves nothing.
+    if ((await served("a different name, typed by hand", "Someone Else counted to infinity", "twice.")) === captions.nameInTop) {
+      throw new JourneyError("4", "the caption guard", "a different name served the same image");
+    }
+    await setPronouns("they/them");
+    captions.theyKeep = await twin("they/them agreement", ["{Subj} {keeps|keep} counting", "to infinity."], ["They keep counting", "to infinity."]);
+    // Its own bottom line: the save route treats a repeated body as the same meme.
+    await setPronouns("he/him");
+    captions.heKeeps = await twin("he/him agreement", ["{Subj} {keeps|keep} counting", "to infinity, twice."], ["He keeps counting", "to infinity, twice."]);
+    if ((await served("they/them wording, typed by hand", "They keep counting", "to infinity, twice.")) === captions.heKeeps) {
+      throw new JourneyError("4", "the pronoun guard", "they/them wording served the he/him image");
+    }
+
+    Object.assign(ev, {
+      memeSlug: slug,
+      permalinkStatus,
+      meme: { format: meme.format, width: meme.width, height: meme.height },
+      unfurl: { ogImage, format: unfurled.format, width: unfurled.width, height: unfurled.height },
+      creatorName: name,
+      captionTwinsEqual: Object.keys(captions),
+    });
   });
 
   return result();

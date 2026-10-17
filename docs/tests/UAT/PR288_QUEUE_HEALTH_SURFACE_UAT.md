@@ -212,9 +212,9 @@ Nothing from the Queue Health page appears on it.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: paid user POSTs /api/memes/ai/:factId/generate, polls the render job to image_ready, saves the meme and reads its image
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: the baseline fact's review renders run through the image-prompt and image-generation queues to done with decodable images
 
-**Deferred:** #631 — 7b — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion — acceptance journey 6
+**Deferred:** #628 — Phase 4 (Cut and prune) — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion. Killed: the route it runs through is called only by the legacy meme studio, which is deleted for launch (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*); #628 — Phase 4 (Cut and prune) — the paid user's render job reaching image_ready and the meme saving from it. Killed: journey 6 ran the user generate route, which only the legacy meme studio calls, and is removed with it (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
 
 ### R3. Enrichment / send-back / Taxonomy Health actions still run
 

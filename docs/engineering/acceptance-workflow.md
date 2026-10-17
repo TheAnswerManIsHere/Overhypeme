@@ -155,7 +155,7 @@ readers; its launch lists; and, where its architecture needs them, its own
 harness pieces.
 
 *Overhype.me:* one web process; doubles for storage, AI and Stripe; journeys
-2–7 over a fresh database and over a scrubbed legacy fixture.
+2, 3, 4 and 7 over a fresh database and over a scrubbed legacy fixture.
 
 *A two-process product (DojoOS, read 2026-10-14 against its `architecture.md`):*
 §2 and §3 serve it unchanged — a namespace wraps a supervisor's whole process

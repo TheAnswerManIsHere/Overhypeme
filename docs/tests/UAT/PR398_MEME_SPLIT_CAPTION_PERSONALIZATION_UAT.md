@@ -50,9 +50,7 @@ does **not** read "{NAME} MAKES".
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`
-
-**Deferred:** #631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: the free account saves the same split twice, once tokenised and once typed by hand with its display name, and the two served images are byte-identical, while a different typed name serves a different image
 
 ### 2. The caption underneath was never broken and still isn't
 
@@ -82,9 +80,7 @@ out, and no `{` or `}` anywhere on the picture.
 
 **Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the default split: preview and saved picture (step 3)`
-
-**Deferred:** #631 — 7b — the saved meme's served image carries the spelled-out name and no brace, equal to the hand-typed twin — acceptance journey 4
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:renders a tokenized split identically to the same split typed out by hand`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the default split: preview and saved picture (step 3)`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: the free account saves the same split twice, once tokenised and once typed by hand with its display name, and the two served images are byte-identical, while a different typed name serves a different image
 
 ### 4. Splitting with the name on the bottom half
 
@@ -100,9 +96,7 @@ the same words in the same two lines, with no `{` or `}`.
 
 **Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:name in the bottom line, saved (step 4)`
-
-**Deferred:** #631 — 7b — a saved meme whose split puts the creator's name in the bottom half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:name in the bottom line, saved (step 4)`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: a split with the name in the bottom half, saved tokenised and typed by hand, serves byte-identical images, and a different typed bottom line serves a different image
 
 ### 5. Splitting with the name on the top half
 
@@ -116,9 +110,7 @@ same words in the same two lines.
 
 **Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes {NAME} in both split halves`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:name in the bottom line, then moved to the top line (steps 4 and 5)`
-
-**Deferred:** #631 — 7b — a saved meme whose split puts the creator's name in the top half serves an image equal to the same split typed out by hand, through the image route — acceptance journey 4
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes {NAME} in both split halves`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:name in the bottom line, then moved to the top line (steps 4 and 5)`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: a split with the name in the top half, saved tokenised and typed by hand, serves byte-identical images
 
 ### 6. Pronoun and verb agreement — they/them
 
@@ -131,9 +123,7 @@ meme from a fact that uses a pronoun and a verb — anything phrased like
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:conjugates plural for they/them and singular for he/him inside a half`
-
-**Deferred:** #631 — 7b — a creator whose profile pronouns are they/them saves a {Subj} {keeps|keep} split and the served image equals the same split typed by hand as They keep — acceptance journey 4
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:conjugates plural for they/them and singular for he/him inside a half`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: with the profile pronouns set to they/them, a {Subj} {keeps|keep} split serves the same image as They keep typed by hand
 
 ### 7. Pronoun and verb agreement — he/him
 
@@ -143,9 +133,7 @@ meme from a fact that uses a pronoun and a verb — anything phrased like
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:conjugates plural for they/them and singular for he/him inside a half`
-
-**Deferred:** #631 — 7b — a creator whose profile pronouns are he/him saves the same {Subj} {keeps|keep} split and the served image equals the same split typed by hand as He keeps — acceptance journey 4
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:conjugates plural for they/them and singular for he/him inside a half`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: with the profile pronouns set to he/him, the split serves the same image as He keeps typed by hand, and They keep typed by hand does not
 
 ### 8. The downloaded file matches the page
 
@@ -158,9 +146,7 @@ TESTER, with no `{` or `}`.
 
 **Lane:** capture
 
-**Check:** `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the downloaded file is the page's picture (step 8)`
-
-**Deferred:** #631 — 7b — the saved meme's served image draws the creator's spelled-out name, equal to the same meme with the words typed by hand, through the image route and not only composeMeme — acceptance journey 4
+**Check:** `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:the downloaded file is the page's picture (step 8)`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: the free account saves the same split twice, once tokenised and once typed by hand with its display name, and the two served images are byte-identical, while a different typed name serves a different image
 
 ### 9. The share preview matches
 

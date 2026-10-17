@@ -15,6 +15,7 @@
  * from the calls that happened: an expected call that is absent is a missing
  * row.
  */
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -121,16 +122,16 @@ export function operations(photoSha256: string): Operation[] {
     { key: "keywords", journey: "3", description: "the stock-photo keyword extractor", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You extract Pexels stock photo search keywords"), usable: parsesAsObject, min: 1, required: always },
     { key: "enrichment", journey: "3", description: "the fact enrichment classifier", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You are the fact enrichment classifier"), usable: parsesAsObject, min: 1, required: always },
     { key: "visual-concepts", journey: "3", description: "the Visual Concept ideator", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("Visual-concept ideator"), usable: parsesAsObject, min: 1, required: always },
-    { key: "image-prompts", journey: "3, 6", description: "the image-prompt generator (three review renders and one generation)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 4, required: always },
+    { key: "image-prompts", journey: "3", description: "the image-prompt generator (three review renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 3, required: always },
     {
       key: "image-renders",
-      journey: "3, 6",
-      description: "image generation (three review renders and one generation)",
+      journey: "3",
+      description: "image generation (three review renders)",
       kind: "fal.subscribe",
       target: /^fal-ai\/nano-banana-2(\/edit)?$/,
       matches: (r) => typeof r?.input?.prompt === "string" && r.input.prompt.length > 0,
       usable: (r) => typeof (r?.data?.images?.[0]?.url ?? r?.data?.image?.url) === "string",
-      min: 4,
+      min: 3,
       required: always,
     },
     { key: "reference-uploads", journey: "3", description: "reference images uploaded for the image-to-image renders", kind: "fal.storage.upload", target: /./, matches: (r) => r?.sha256 !== photoSha256, usable: always, min: 1, required: always },
@@ -165,6 +166,33 @@ export function readCallRecords(file: string): CallRecord[] {
     .map((l) => ({ kind: l.kind, target: l.target, fingerprint: l.fingerprint, ok: l.outcome === "replayed", outcome: l.outcome }));
 }
 
+/**
+ * Where a live run's variant records its answers (plan D4): a directory of
+ * its own, so the same request sent in both variants never lands on one file
+ * and one variant's answer is never read as the other's.
+ */
+export function liveRecordingsDir(root: string, variant: Variant): string {
+  return path.join(root, variant);
+}
+
+export interface RecordingsIdentity {
+  source: string;
+  files: number;
+  listingSha256: string;
+}
+
+/** The recordings a report was evaluated against: how many, and a digest of the listing with each file's content. */
+export function recordingsIdentity(dir: string, source: string): RecordingsIdentity {
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort() : [];
+  const listing = files.map((f) => `${f}:${createHash("sha256").update(fs.readFileSync(path.join(dir, f))).digest("hex")}`).join("\n");
+  return { source, files: files.length, listingSha256: createHash("sha256").update(listing).digest("hex") };
+}
+
+/** How many distinct recordings a set of directories holds between them, by file name. */
+export function recordingsUnionCount(dirs: string[]): number {
+  return new Set(dirs.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith(".json")) : []))).size;
+}
+
 function recorded(dir: string, call: CallRecord): Recorded | null {
   if (!call.fingerprint) return null;
   const file = path.join(dir, `${call.kind}--${call.fingerprint}.json`);
@@ -183,6 +211,20 @@ function recorded(dir: string, call: CallRecord): Recorded | null {
  * before the recorder could write it. Reported once, beside the rows; such a
  * call can never satisfy one.
  */
+/**
+ * A live run's vendor calls that did not end with an answer (#720 round 1):
+ * every `error` or `refused` ledger line except pricing, named for the
+ * verdict. Coverage credits an operation with any one usable call, and two
+ * identical requests share one recording, so a failed attempt followed by a
+ * successful identical one would otherwise pass unseen; in a live run any
+ * failure is red, whatever answered after it.
+ */
+export function failedLiveCalls(lines: Array<{ kind: string; target: string; outcome: string; fingerprint?: string }>): string[] {
+  return lines
+    .filter((l) => l.kind !== "fal.pricing" && (l.outcome === "error" || l.outcome === "refused"))
+    .map((l) => `${l.kind} ${l.target}${l.fingerprint ? ` (fingerprint ${l.fingerprint.slice(0, 12)})` : ""}: the live call ended ${l.outcome}`);
+}
+
 export function unattributedCalls(opts: { calls: CallRecord[]; recordingsDir: string }): CallRecord[] {
   return opts.calls.filter((c) => c.kind !== "fal.pricing" && recorded(opts.recordingsDir, c) === null);
 }

@@ -73,6 +73,8 @@ reason blank (or under 10 characters).
 
 **Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:disables Confirm until the exact phrase AND a ≥10-char reason are present`
 
+**Deferred:** #631 — 7b — the phrase the modal requires is exactly CHANGE APPROVED FACT TEXT, pinned as a literal and not read from the production export APPROVED_FACT_TEXT_EDIT_PHRASE — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`
+
 ### 6. Confirming the change saves it and shows the new wording
 
 **Do:** Click "Change the text".
