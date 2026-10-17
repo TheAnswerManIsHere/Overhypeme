@@ -52,7 +52,7 @@ the right thing to the person reading them.
   through the budget gate at all — a separate, pre-existing gap this PR
   didn't touch (found while building this UAT, tracked separately) — so it
   won't respond to the tiny limit set above. (Step 1, its "nothing regressed"
-  check, is killed with the legacy meme studio: `docs/ai-context/decisions.md`, 2026-10-17.)
+  check, is killed with the legacy meme studio: `docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*.)
 - [restore] `budget_limit_legendary_usd` — restore to the value noted in
   the setup step above. This is the **real** Legendary spend limit, so
   that captured number is the only correct one; do not restore to a
@@ -70,7 +70,7 @@ generate an **AI meme image** (the standard, no-reference path).
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
 
 ### 2. Reference-photo (PuLID) generation still works
 
@@ -138,7 +138,7 @@ are.
 None. Steps 1 and 2 are the regression sweep for this PR — they exercise the
 two generation paths at a normal limit before anything is lowered, which is
 exactly what a budget-gate change could break. Both now name #628 Phase 4: step 1
-with the legacy meme studio (`docs/ai-context/decisions.md`, 2026-10-17), step 2 with the
+with the legacy meme studio (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*), step 2 with the
 PuLID cut, so no runnable regression step remains here.
 
 ## Not bugs
@@ -148,5 +148,5 @@ PuLID cut, so no runnable regression step remains here.
   original scope — it's a separate, live, unlimited-spend gap, not another
   instance of the fail-open bug this PR fixes, so fixing it belongs to its
   own issue rather than growing this one. That route is called only by the legacy meme studio and
-  is deleted in #628 Phase 4 (`docs/ai-context/decisions.md`, 2026-10-17); until then a signed-in
+  is deleted in #628 Phase 4 (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*); until then a signed-in
   Legendary account can still call it directly.

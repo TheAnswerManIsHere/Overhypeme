@@ -198,6 +198,7 @@ routes, delete, git keeps it) · **your call**.
 - **D16** → **engine evaluation** item (latest image models compared on the same facts via the eval dashboard), then presets reviewed/tuned against the winner. Planner/compiler split is settled; the engine is not; compiler is engine-specific.
 - **D17/D18** **PuLID removed everywhere** (image stylise toggle, video stage one, engine catalogue, docs, Manual) — prose-sweep, not a patch. "We're going to be using a much stronger model."
 - **D24** Upgrade messaging written after Journey F defines the tier.
+- **D7, D8 (the user render poll) and D10**: their routes are called only by the legacy studio, which D1 deletes; no verification is done on them (David, 2026-10-17; [`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 - **D27** **"My content"**: one place showing every upload/generation with per-item delete; B24 builds on it. Launch.
 - **D14** Speech bubbles: "crucial … never finished building and testing." Scope pending: moderation-side only (recommended) vs end-user editing too.
 - **D21** Option (b): anonymous preview only; download/save/share need a verified account ("part of the upsell").

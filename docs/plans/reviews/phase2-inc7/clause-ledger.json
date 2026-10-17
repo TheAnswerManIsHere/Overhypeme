@@ -1135,7 +1135,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — driving a reference-photo generate through acceptance journey 6. Killed: journey 6 runs the user generate route, which only the legacy meme studio calls and which is deleted for launch (`docs/ai-context/decisions.md`, 2026-10-17); the reference-photo render itself is this step's capture"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — driving a reference-photo generate through acceptance journey 6. Killed: journey 6 runs the user generate route, which only the legacy meme studio calls and which is deleted for launch (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*); the reference-photo render itself is this step's capture"
     },
     {
      "text": "the image looks right for the user's subject, nothing visibly different from main",
@@ -1198,7 +1198,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -1213,14 +1213,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "the caption shows the full name exactly, David Franklin The Third",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -1250,14 +1250,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "the rejection is a clear 'style unavailable' message to the user",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -1272,14 +1272,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "the style is applied as normal",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -1294,14 +1294,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "the style is applied as before in the render",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -1316,14 +1316,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "it still renders",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -1338,7 +1338,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -1543,7 +1543,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — a paid generate with a selected look style polling to image_ready with a decodable image, every journey renders with no style selected. Killed: the route it runs through is called only by the legacy meme studio, which is deleted for launch (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — a paid generate with a selected look style polling to image_ready with a decodable image, every journey renders with no style selected. Killed: the route it runs through is called only by the legacy meme studio, which is deleted for launch (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -3694,7 +3694,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -5916,7 +5916,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion. Killed: the route it runs through is called only by the legacy meme studio, which is deleted for launch (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion. Killed: the route it runs through is called only by the legacy meme studio, which is deleted for launch (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -9264,7 +9264,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },

@@ -63,7 +63,7 @@ generation only supported on root facts."
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
 
 ### 5. Editing a root's text no longer blocks on its variants
 

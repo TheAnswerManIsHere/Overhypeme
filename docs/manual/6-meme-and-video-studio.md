@@ -25,26 +25,18 @@ saves it as your meme.
 - **Your own photo or a built-in background.** Upload a photo, or pick a
   [stock image](../ai-context/glossary.md#stock-image) or one of the built-in templates. This is available to
   anyone signed in — no paid plan required.
-- **An AI-generated image.** Legendary members can generate a new
-  background image, with a source photo or from description alone. Which
-  pipeline runs depends on which of the two studio builders you land in, not
-  on whether you provided a photo: the newer guided builder shares the
-  moderation pipeline's machinery for both cases (see
-  [`5-visual-pipeline.md`](./5-visual-pipeline.md)); the older builder's
-  source-photo path instead runs a separate, legacy route straight to the
-  image engine, with its own scene-prompt generation.
+- **An AI-generated image.** Legendary members can style a source photo
+  into the fact's scene, or pick from the fact's shared gallery of AI
+  images. Generating from description alone, and the older builder's own
+  AI routes, exist only in the older builder, which is switched off (below).
 - **An AI-generated video.** Legendary members can also generate a short
   video meme, built the same way — starting from a source photo, styling
   it, then animating it. This runs as a background job with real progress
   you can watch, rather than something that finishes instantly.
 
-Two different studio interfaces currently exist side by side while
-Overhype.me finishes migrating from an older builder to a newer, guided
-one — which one you land in depends on which version of the product
-you're using, not on anything about your account. Both end up saving the
-meme the same way underneath. In every build today you land in the guided
-builder: the older one is switched off, is deleted before launch, and is
-no longer tested ([decisions](../ai-context/decisions.md), 2026-10-17).
+You build memes in the guided builder, in every build. An older builder is
+still in the code but switched off; it is deleted before launch and is no
+longer tested ([decisions](../ai-context/decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 
 ### What actually gets saved
 
@@ -56,16 +48,11 @@ An AI-generated image or video, by contrast, *is* a real file, since
 generating it is the expensive part — the meme recipe just points at that
 already-generated file.
 
-Whether an AI-generated image is private to you depends on which studio
-builder generated it, not on whether you used a source photo. Through the
-newer guided builder, an image joins that fact's shared gallery of AI images
-— whether or not it started from a source photo — visible to anyone who
-later makes a meme from the same fact, the same way a
+The fact's shared gallery of AI images is visible to anyone who makes a meme
+from the same fact, the same way a
 [Visual Concept](../ai-context/glossary.md#visual-concept) a moderator
 authors is shared by everyone who sees that fact
-(see [`5-visual-pipeline.md`](./5-visual-pipeline.md)). Through the older
-builder's source-photo path, the opposite: it's yours, stored only against
-your account, never shared. An AI-generated video is never pooled into a
+(see [`5-visual-pipeline.md`](./5-visual-pipeline.md)). An AI-generated video is never pooled into a
 shared gallery either way — it's tied to the meme you made with it — but
 that's a storage fact, not a privacy one: like any other meme, it's public
 unless you turn the privacy option on yourself.
@@ -91,20 +78,11 @@ already-existing stock photo or template.
   signed in. Generating a new AI image or video does cost something every
   time, which is why that's the part gated to a paid membership rather
   than the studio as a whole.
-- **The guided studio builder deliberately shares moderation's image
-  machinery, with or without a source photo.** Building a Visual Concept
-  for moderation and generating a background from the newer studio builder
-  both need the same identity-preserving, policy-respecting image
-  generation — routing both through one shared pipeline means an
-  improvement to one path is automatically true for the other. The older
-  builder's source-photo path and AI video are separate, purpose-built
-  routes instead, not (yet) folded into that shared pipeline.
 
 ## Boundaries & known limitations
 
-- **Two studio interfaces currently coexist** during an in-progress
-  migration to a newer, guided builder — this isn't a deliberate permanent
-  design, just a transition David hasn't finished yet.
+- **An older, switched-off builder is still in the code** until it is
+  deleted before launch; nothing about it is tested ([decisions](../ai-context/decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 - **Uploading your own photo to build a meme isn't currently paywalled**,
   even though the product has machinery elsewhere that suggests it might
   once have been intended to be. **Needs David confirmation** on whether
@@ -114,13 +92,6 @@ already-existing stock photo or template.
   removed; the video files behind an AI video meme currently are not.
   **Needs David confirmation** on whether that's accepted, known debt or
   an oversight to fix.
-- **An AI-generated image's visibility depends on which studio builder made
-  it, not on who made it or whether a source photo was involved.** One
-  generated through the newer guided builder follows the fact — expect
-  other people making memes from the same fact to be able to use it too,
-  the same way a moderator's Visual Concept is shared. One generated
-  through the older builder's source-photo path is yours alone; it never
-  joins the shared gallery.
 
 ## Going deeper
 
