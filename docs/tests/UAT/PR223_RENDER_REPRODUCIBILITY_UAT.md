@@ -35,11 +35,11 @@ generates an AI image for a fixture fact through the meme builder's
 reference-photo path (`POST /api/memes/pulid-jobs`), and captures the
 reference and the full-size result.
 
-**Expect:** the render completes; the result shows the same person as the
-reference photo, recognisably the same face and not a stranger or a garbled
-face, placed in a scene that fits the fact; and the finished meme's caption
-reads the account's full display name exactly as stored (the caption clause
-is the unit test's, cited below).
+**Expect:** the render completes and the served result decodes as an image
+at the size the request asked for; and the finished meme's caption reads the
+account's full display name exactly as stored (the caption clause is the unit
+test's, cited below). Whether the result shows the person in the reference
+photo is step 7's, yours.
 
 **Lane:** capture
 
@@ -118,6 +118,19 @@ generate.
 **Check:** `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, t2i uses promptSuffix`
 
 **Deferred:** #631 — 7b — the generate route, as the legendary account, answering 202 for a re-enabled styleId and freezing a selected-style snapshot with that style's prompt on the attempt — `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts`; #631 — 7b — the image-prompt job compiling an attempt whose frozen style snapshot is selected into a RENDER STYLE line carrying that snapshot's prompt, resolveStylePrompt is untested — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
+
+### 7. The reference-photo result shows you, in a scene that fits
+
+**Do:** Look at step 1's two shots side by side, the reference photo and the
+result (`/uat` shows them with their evidence links).
+
+**Expect:** the result shows the same person as the reference photo,
+recognisably the same face and not a stranger or a garbled face, placed in a
+scene that fits the fact.
+
+**Lane:** human
+
+**Judgement:** whether a generated image shows the right person in a fitting scene is a judgement about AI-generated content, which is yours alone (David, 2026-10-17); step 1 proves only that the render completed and decodes.
 
 ## Regression
 
