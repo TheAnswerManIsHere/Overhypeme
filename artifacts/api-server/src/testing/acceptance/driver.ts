@@ -3,7 +3,7 @@
  * `PLAN_PHASE2_INC4_AI_DOUBLES.md` D6/D7 and `PLAN_PHASE2_INC6_ACCEPTANCE.md`
  * D2).
  *
- * Walks baseline journeys 2–7 over HTTP, making the calls the frontend makes,
+ * Walks baseline journeys 2, 3, 4 and 7 over HTTP, making the calls the frontend makes,
  * as the seeded ordinary accounts and the bootstrap admin:
  *
  * - journey 2 — the free user completes onboarding and submits a fact
@@ -12,10 +12,6 @@
  * - journey 3 — the admin takes it through triage, preparation, the saved
  *   Visual Concept and the required review renders to an active fact; each
  *   render's image decodes;
- * - journey 5 — the free user is refused paid generation, with no AI call;
- * - journey 6 — the paid user generates an AI image, reads it back as its
- *   owner, and saves a private meme composed from it; another user is
- *   refused both;
  * - journey 7 — the free user uploads a photo; the owner reads back the same
  *   bytes, another user is refused;
  * - journey 4 — the free user saves a public meme composed from that photo;
@@ -34,9 +30,10 @@
  * by the runner's inner program (`./inner.ts`). Every input is
  * fixed — the fact text, the account data, the committed fixture images.
  *
- * Journey 6's "spend recorded against that user" is not asserted: the live
- * generation path records no spend (#651; David, 2026-10-12, "next"). It is
- * reported as a deferral, never as a pass.
+ * Journeys 5 and 6 (the paid-generation refusal and the paid AI image) ran
+ * the user AI generate route, which only the legacy meme studio calls; they
+ * are removed with it (David, 2026-10-17, `docs/ai-context/decisions.md`,
+ * *Verification work tied to the legacy meme studio is killed*).
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -129,8 +126,8 @@ export async function poll<T>(journey: string, what: string, read: () => Promise
   }
 }
 
-export type JourneyKey = "2" | "3" | "4" | "5" | "6" | "7";
-export const JOURNEYS: readonly JourneyKey[] = ["2", "3", "4", "5", "6", "7"];
+export type JourneyKey = "2" | "3" | "4" | "7";
+export const JOURNEYS: readonly JourneyKey[] = ["2", "3", "4", "7"];
 
 export interface JourneyOutcome {
   journey: JourneyKey;
@@ -157,8 +154,6 @@ export interface DriveOptions {
    * an acceptance pass.
    */
   expectRenderFailure?: boolean;
-  /** How many AI calls the run has made so far, when the runner can count them (journey 5 asserts none). */
-  aiCallCount?: () => number;
   /** Called with journey 7's object path before journey 4 composes from it (the corrupt-source control). */
   beforeJourney4?: (objectPath: string) => void;
 }
@@ -202,7 +197,7 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
   // --- sign in -------------------------------------------------------------
   try {
     await free.json("2", "POST", "/api/auth/local-login", { email: accounts.free.email, password: accounts.password });
-    await paid.json("6", "POST", "/api/auth/local-login", { email: accounts.paid.email, password: accounts.password });
+    await paid.json("7", "POST", "/api/auth/local-login", { email: accounts.paid.email, password: accounts.password });
     await admin.json("3", "POST", "/api/auth/dev-admin-login");
     log("signed in: free, paid, admin");
   } catch (err) {
@@ -342,66 +337,6 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
   if (options.expectRenderFailure) {
     return { ...result(), control: control ?? { ok: false, renders: [], detail: "journey 3 never reached its renders" } };
   }
-
-  // --- journey 5: the free user is refused paid generation ------------------
-  await run("5", ["3"], async (ev) => {
-    const before = options.aiCallCount?.();
-    const res = await free.request("POST", `/api/memes/ai/${factId}/generate`, { aspectRatio: "landscape" });
-    const body = (await res.json().catch(() => null)) as { error?: string; feature?: string; message?: string } | null;
-    if (res.status !== 403 || body?.error !== "legendary_required" || body?.feature !== "meme_ai_background") {
-      throw new JourneyError("5", "the paid-generation gate", `expected 403 legendary_required for meme_ai_background, got ${res.status} ${JSON.stringify(body)}`);
-    }
-    const after = options.aiCallCount?.();
-    if (before !== undefined && after !== before) throw new JourneyError("5", "the paid-generation gate", `${after! - before} AI call(s) were made for a refused request`);
-    Object.assign(ev, { status: res.status, body, aiCalls: before === undefined ? "not counted in this mode" : after! - before });
-  });
-
-  // --- journey 6: the paid user's AI image meme ----------------------------
-  await run(
-    "6",
-    ["3"],
-    async (ev) => {
-      const { renderJobId } = await paid.json<{ renderJobId: string }>("6", "POST", `/api/memes/ai/${factId}/generate`, { aspectRatio: "landscape" }, [202]);
-      const render = await poll(
-        "6",
-        "AI image generation",
-        () => paid.json<any>("6", "GET", `/api/memes/ai/renders/${renderJobId}`),
-        (r) => r.status === "image_ready",
-        (r) => (r.status === "failed" || r.status === "blocked" ? `${r.status}: ${r.errorCode ?? r.error ?? r.blockReason}` : null),
-        10 * 60_000,
-      );
-      const generatedImageObjectPath: string = render.generatedImageObjectPath;
-      const generated = await readImage(paid, "6", "the owner reads the generated image", `/api/memes/ai-user/image?storagePath=${encodeURIComponent(generatedImageObjectPath)}`);
-      const saved = await paid.json<{ permalinkSlug: string }>(
-        "6",
-        "POST",
-        "/api/memes",
-        { factId, imageSource: { type: "upload", uploadKey: generatedImageObjectPath }, isPublic: false, aspectRatio: "landscape" },
-        [201],
-      );
-      const memeSlug = saved.permalinkSlug;
-      await paid.json("6", "GET", `/api/memes/${memeSlug}`);
-      const meme = await readImage(paid, "6", "the owner reads the private meme image", `/api/memes/${memeSlug}/image`, "landscape");
-      // The permalink and the image are separate routes; another user is refused both, and the generated image too.
-      const otherUserPermalinkStatus = (await free.request("GET", `/api/memes/${memeSlug}`)).status;
-      if (otherUserPermalinkStatus !== 404) throw new JourneyError("6", "another user reads the private meme's permalink", `expected 404, got ${otherUserPermalinkStatus}`);
-      const otherUserImageStatus = (await free.request("GET", `/api/memes/${memeSlug}/image`)).status;
-      if (otherUserImageStatus !== 404) throw new JourneyError("6", "another user reads the private meme's image", `expected 404, got ${otherUserImageStatus}`);
-      const otherUserGeneratedStatus = (await free.request("GET", `/api/memes/ai-user/image?storagePath=${encodeURIComponent(generatedImageObjectPath)}`)).status;
-      if (otherUserGeneratedStatus !== 403) throw new JourneyError("6", "another user reads the generated image", `expected 403, got ${otherUserGeneratedStatus}`);
-      Object.assign(ev, {
-        renderJobId,
-        generatedImageObjectPath,
-        generated: { format: generated.format, width: generated.width, height: generated.height },
-        memeSlug,
-        meme: { format: meme.format, width: meme.width, height: meme.height },
-        otherUserPermalinkStatus,
-        otherUserImageStatus,
-        otherUserGeneratedStatus,
-      });
-    },
-    ["spend recorded against the user: deferred to #651 (David, 2026-10-12)"],
-  );
 
   // --- journey 7: photo upload ----------------------------------------------
   let objectPath = "";

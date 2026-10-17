@@ -19,7 +19,7 @@ export interface VerdictInput {
   requirePexelsMeme?: boolean;
 }
 
-export const EXPECTED_JOURNEYS = ["2", "3", "4", "5", "6", "7"] as const;
+export const EXPECTED_JOURNEYS = ["2", "3", "4", "7"] as const;
 
 /** Why a run failed before or outside its journeys: shared by every mode. */
 export function setupReasons(v: Pick<VerdictInput, "setupError" | "innerError">): string[] {
@@ -31,7 +31,7 @@ export function setupReasons(v: Pick<VerdictInput, "setupError" | "innerError">)
 
 /**
  * A capture run's verdict (#631 increment 8, D7). It drives its doc's capture
- * journey and never journeys 2–7, so setup and its own shots decide it; the
+ * journey and never the baseline journeys, so setup and its own shots decide it; the
  * full verdict would call every capture run red for the journeys it never
  * runs, and the evidence would never be published.
  */

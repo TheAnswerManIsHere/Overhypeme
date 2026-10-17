@@ -39,6 +39,22 @@
 - **Revisit if:** the legacy studio is revived, or the wizard is wired to
   one of those routes.
 
+### 2026-10-17 · Acceptance journeys 5 and 6 are removed with the legacy studio
+- **Decision:** journeys 5 (a free account refused paid generation) and 6 (a
+  paid AI image saved as a private meme) are removed from the acceptance run
+  now, with `memesGenerateGeneric.test.ts`; both drove the user AI generate
+  route, which only the legacy meme studio calls. The baseline is journeys 2,
+  3, 4 and 7, and Phase 2's close reads its acceptance clause against them.
+  David, 2026-10-17: *"Kill them now. No point in continuing to confuse
+  yourself over old, dead code. Nobody is using them."*
+- **Dissent (Claude), recorded:** the route stays deployed until Phase 4
+  deletes it, and any signed-in account can call it directly; its no-photo
+  path has no budget gate (PR443's notes). Journey 5 and that test were the
+  only checks that its paid gate holds. The recommendation was to keep them
+  until the route goes. Overridden; not to be re-raised.
+- **Reference:** #631, #720 (Codex `4304829031`).
+- **Revisit if:** the route is still deployed when Phase 4 closes.
+
 ### 2026-10-17 · No paid AI run happens without David's go-ahead for that run
 - **Decision:** every run that spends real money on an AI vendor (the UAT
   capture lane's real renders, `acceptance-run.ts --mode live` and

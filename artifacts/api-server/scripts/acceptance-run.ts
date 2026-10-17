@@ -5,7 +5,7 @@
  * migrations), then the inner program (`src/testing/acceptance/inner.ts`) —
  * the committed legacy fixture and the prompt pins for the fixture variant,
  * the account seed, the server booted from a constructed environment through
- * its launcher, journeys 2–7 — then the evidence report, and the database and
+ * its launcher, journeys 2, 3, 4 and 7 — then the evidence report, and the database and
  * scratch directory dropped.
  *
  *   --mode acceptance  The acceptance run. The AI double answers from the
@@ -33,7 +33,7 @@
  *                      --allowance-raised-by-david <YYYY-MM-DD>), and the
  *                      capture journeys for the one UAT doc --doc names
  *                      (`src/testing/acceptance/captureJourneys.ts`, its
- *                      CAPTURE_DOCS) instead of 2–7: full-size images, `manifest.jsonl` and
+ *                      CAPTURE_DOCS) instead of the baseline: full-size images, `manifest.jsonl` and
  *                      the recorder's spend ledger written to an empty --out.
  *                      Red when a shot was not produced.
  *   --mode serve       The acceptance server, left running on --port for a
@@ -570,7 +570,6 @@ try {
     fixtureManifestSha256: variants.includes("fixture") ? sha256(path.join(FIXTURE_DIR, "manifest.json")) : null,
     ...(ledger ? { spend: { capUsd: ledger.limitUsd, committedUsd: Number(ledger.committedUsd.toFixed(4)), vendorCalls: ledger.lines.length, reused: ledger.reused ?? 0, ...(mode === "capture" ? { ledger: captureLedger } : {}) } } : {}),
     deferrals: mode === "capture" ? [] : [
-      "journey 6: spend recorded against the user — deferred to #651 (David, 2026-10-12)",
       ...(variants.includes("fixture") && mode !== "live" ? [`the fixture's ${pexelsOnlyMemes()} Pexels-only stock memes: read by no acceptance journey; the live check reads one (David, 2026-10-14)`] : []),
     ],
     ...(controlResult ? { controlVerdict: controlResult } : {}),

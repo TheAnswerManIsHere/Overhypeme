@@ -396,14 +396,14 @@ describe("the live check's evidence is per variant (plan D4)", () => {
 
 describe("the completion rule", () => {
   const passed = (j: string) => ({ journey: j as never, status: "passed" as const, evidence: {} });
-  const all = () => ["2", "3", "4", "5", "6", "7"].map(passed);
+  const all = () => ["2", "3", "4", "7"].map(passed);
 
-  it("is green only with six passed journeys and nothing else wrong", () => {
+  it("is green only with every baseline journey passed and nothing else wrong", () => {
     assert.deepEqual(redReasons({ journeys: all(), coverage: [], uncovered: [] }), []);
   });
 
   it("names every non-pass, a missing journey, a missing operation, an uncovered call and an outbound attempt", () => {
-    const journeys = all().filter((j) => j.journey !== "4").map((j) => (j.journey === "6" ? { ...j, status: "not-run" as const, error: "journey 3 did not pass" } : j));
+    const journeys = all().filter((j) => j.journey !== "4").map((j) => (j.journey === "7" ? { ...j, status: "not-run" as const, error: "journey 3 did not pass" } : j));
     const red = redReasons({
       journeys,
       coverage: [{ key: "photo-upload", journey: "7", description: "", status: "missing", calls: 1, detail: "0 usable" }],
@@ -414,21 +414,21 @@ describe("the completion rule", () => {
     });
     assert.deepEqual(
       red.map((r) => r.split(":")[0]),
-      ["journey 4 was never reported", "journey 6 not-run", "operation photo-upload (journey 7)", "uncovered AI call", "detector", "the Pexels-only meme read"],
+      ["journey 4 was never reported", "journey 7 not-run", "operation photo-upload (journey 7)", "uncovered AI call", "detector", "the Pexels-only meme read"],
     );
   });
 });
 
 describe("a negative control's verdict", () => {
   const passed = (j: string) => ({ journey: j as never, status: "passed" as const, evidence: {} });
-  const all = () => ["2", "3", "4", "5", "6", "7"].map(passed);
+  const all = () => ["2", "3", "4", "7"].map(passed);
   const outbound = "detector: 4 outbound attempt(s) recorded after the self-test";
   const forbidden = (red: string[]) =>
     controlVerdict("forbidden-request", { journeys: all(), coverage: [], red, detector: { violations: { sink: [{ name: "api.openai.com" }], syscall: [{}] } } });
 
   it("forbidden-request behaves on its own violation alone, and not beside an unrelated failure", () => {
     assert.equal(forbidden([outbound]).behaved, true);
-    for (const extra of ["journey 5 failed: 500", "operation hashtags (journey 2): 0 usable", "setup: host-side: boom", "detector: the sink did not record the ipv4 self-test attempt", "uncovered AI call: openai.chat x"]) {
+    for (const extra of ["journey 7 failed: 500", "operation hashtags (journey 2): 0 usable", "setup: host-side: boom", "detector: the sink did not record the ipv4 self-test attempt", "uncovered AI call: openai.chat x"]) {
       const v = forbidden([outbound, extra]);
       assert.equal(v.behaved, false, extra);
       assert.match(v.why, /other red reasons/);
@@ -437,7 +437,7 @@ describe("a negative control's verdict", () => {
 
   it("render-failure accepts only what stopping at journey 3 explains", () => {
     const stopped = [
-      "operation image-prompts (journey 3, 6): 3 usable of 3 attributed call(s), 4 needed",
+      "operation image-prompts (journey 3): 2 usable of 2 attributed call(s), 3 needed",
       "operation photo-upload (journey 7): 0 usable of 0 attributed call(s), 1 needed",
       "journey 3 not-run: the render-failure control stops the run here",
       "journey 7 not-run: not reached",

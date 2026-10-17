@@ -1150,17 +1150,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 474,
+       "line": 409,
        "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 478,
+       "line": 413,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -1177,21 +1177,10 @@
    "clauses": [
     {
      "text": "the no-photo render completes as before",
-     "status": "asserted",
-     "evidence": [
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 369,
-       "quote": "(r) => r.status === \"image_ready\","
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 374,
-       "quote": "const generated = await readImage(paid, \"6\", \"the owner reads the generated image\""
-      }
-     ],
-     "fails_because": "if the t2i generate stopped reaching image_ready (failed, blocked or stuck), journey 6's poll throws; an undecodable image fails readImage",
-     "gap_clause": null
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "the caption reads the full display name exactly as stored",
@@ -1511,28 +1500,18 @@
    "lane": "scripted",
    "clauses": [
     {
-     "text": "a valid fact's render completes end to end with a decodable image (review renders and the paid user's generate)",
+     "text": "a valid fact's render completes end to end with a decodable image (the review renders; the paid user's generate went with journey 6)",
      "status": "asserted",
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 318,
+       "line": 313,
        "quote": "const notDone = required.filter((c) => c.status !== \"done\" || c.stale);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 326,
+       "line": 321,
        "quote": "const img = await readImage(admin, \"3\", `the ${card.key} render image`, card.imageUrl);"
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 369,
-       "quote": "(r) => r.status === \"image_ready\","
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 374,
-       "quote": "const generated = await readImage(paid, \"6\", \"the owner reads the generated image\""
       }
      ],
      "fails_because": "if the hardening failed or rejected a valid fact's render, the review card would not be done (notDone non-empty throws) and journey 6's poll would hit failed/blocked or time out; an undecodable image fails readImage",
@@ -2338,7 +2317,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 258,
+       "line": 253,
        "quote": "if (withBubbles > 0) throw new JourneyError(\"3\", \"Visual Ideas for a dialogue-free fact\", `${withBubbles} candidate(s) propose a bubble`);"
       }
      ],
@@ -2822,22 +2801,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 204,
+       "line": 199,
        "quote": "await free.json(\"2\", \"POST\", \"/api/auth/local-login\", { email: accounts.free.email, password: accounts.password });"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 220,
+       "line": 215,
        "quote": "const submitted = await free.json<{ reviewId: number }>("
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 223,
+       "line": 218,
        "quote": "\"/api/facts/submit-review\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 115,
+       "line": 112,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       }
      ],
@@ -2850,12 +2829,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 234,
+       "line": 229,
        "quote": "if (!listed) throw new JourneyError(\"2\", \"the moderation queue\", `review ${reviewId} is not listed`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 235,
+       "line": 230,
        "quote": "if (listed.workflowStage !== \"triage_pending\") throw new JourneyError(\"2\", \"the moderation queue\", `review ${reviewId} is at ${listed.workflowStage}, expected triage_pending`);"
       }
      ],
@@ -3438,32 +3417,32 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 242,
+       "line": 237,
        "quote": "await admin.json(\"3\", \"POST\", `/api/admin/reviews/${reviewId}/provisional-approve`, { adminNote: \"AI baseline\" });"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 247,
+       "line": 242,
        "quote": "(r) => r.workflowStage === \"concept_review\" && r.visualConcepts?.status === \"ok\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 298,
+       "line": 293,
        "quote": "await admin.json(\"3\", \"POST\", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 329,
+       "line": 324,
        "quote": "const approved = await admin.json<{ factId: number }>(\"3\", \"POST\", `/api/admin/reviews/${reviewId}/approve-for-production`, {"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 334,
+       "line": 329,
        "quote": "const active = await free.json<any>(\"3\", \"GET\", `/api/facts/${factId}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 115,
+       "line": 112,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       },
       {
@@ -3668,26 +3647,10 @@
    "clauses": [
     {
      "text": "a legendary user's AI meme generation for a variant fact is accepted, not rejected as root-only",
-     "status": "asserted",
-     "evidence": [
-      {
-       "path": "artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts",
-       "line": 150,
-       "quote": "parentId: rootId,"
-      },
-      {
-       "path": "artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts",
-       "line": 157,
-       "quote": ".post(`/memes/ai/${variant!.id}/generate`)"
-      },
-      {
-       "path": "artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts",
-       "line": 161,
-       "quote": "assert.equal(res.status, 202, JSON.stringify(res.body));"
-      }
-     ],
-     "fails_because": "if generate refused a fact with parentId set (the old root-only rule), the 202 equality fails",
-     "gap_clause": null
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "the generation for the variant completes and produces an image",
@@ -4069,7 +4032,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 247,
+       "line": 242,
        "quote": "(r) => r.workflowStage === \"concept_review\" && r.visualConcepts?.status === \"ok\","
       }
      ],
@@ -4082,16 +4045,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 369,
-       "quote": "(r) => r.status === \"image_ready\","
+       "line": 313,
+       "quote": "const notDone = required.filter((c) => c.status !== \"done\" || c.stale);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 374,
-       "quote": "const generated = await readImage(paid, \"6\", \"the owner reads the generated image\","
+       "line": 321,
+       "quote": "const img = await readImage(admin, \"3\", `the ${card.key} render image`, card.imageUrl);"
       }
      ],
-     "fails_because": "if generation for the root stopped reaching image_ready or its image failed to decode, journey 6 throws",
+     "fails_because": "if a root fact's review renders stopped completing or their images stopped decoding, line 313 throws on a render not done and readImage at line 321 throws on an image that does not serve or decode",
      "gap_clause": null
     },
     {
@@ -4100,12 +4063,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 384,
-       "quote": "const meme = await readImage(paid, \"6\", \"the owner reads the private meme image\", `/api/memes/${memeSlug}/image`, \"landscape\");"
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 443,
+       "line": 378,
        "quote": "const meme = await readImage(anonymous, \"4\", \"anyone reads the public meme image\", `/api/memes/${slug}/image`, \"landscape\");"
       }
      ],
@@ -5890,26 +5848,10 @@
    "clauses": [
     {
      "text": "generating a meme end to end still works through the queue: the paid user's render job reaches image_ready, the meme saves and its image reads back",
-     "status": "asserted",
-     "evidence": [
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 364,
-       "quote": "`/api/memes/ai/${factId}/generate`, { aspectRatio: \"landscape\" }, [202]);"
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 369,
-       "quote": "(r) => r.status === \"image_ready\","
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 384,
-       "quote": "the owner reads the private meme image"
-      }
-     ],
-     "fails_because": "if the render lane stopped claiming the queued prompt/image jobs, the poll never sees image_ready and journey 6 fails at its deadline; a broken save or image read throws on the 201 or the decode",
-     "gap_clause": null
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — the paid user's render job reaching image_ready and the meme saving from it. Killed: journey 6 ran the user generate route, which only the legacy meme studio calls, and is removed with it (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "the queue's behaviour is unchanged, i.e. the render completes in its usual time, not merely eventually within the 10-minute poll",
@@ -5932,12 +5874,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 242,
+       "line": 237,
        "quote": "/api/admin/reviews/${reviewId}/provisional-approve"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 247,
+       "line": 242,
        "quote": "(r) => r.workflowStage === \"concept_review\" && r.visualConcepts?.status === \"ok\","
       }
      ],
@@ -6830,12 +6772,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 204,
+       "line": 199,
        "quote": "await free.json(\"2\", \"POST\", \"/api/auth/local-login\", { email: accounts.free.email, password: accounts.password });"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 209,
+       "line": 204,
        "quote": "return { ...result(), setupError: (err as Error).message };"
       },
       {
@@ -6853,7 +6795,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 338,
+       "line": 333,
        "quote": "if (!listed.facts.some((f) => f.id === factId)) throw new JourneyError(\"3\", \"the public facts list\", `fact ${factId} is not among the ${listed.facts.length} newest`);"
       }
      ],
@@ -6866,22 +6808,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 436,
+       "line": 371,
        "quote": "\"/api/memes\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 437,
+       "line": 372,
        "quote": "{ factId, imageSource: { type: \"upload\", uploadKey: objectPath }, isPublic: true, aspectRatio: \"landscape\" },"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 115,
+       "line": 112,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 442,
+       "line": 377,
        "quote": "if (permalinkStatus !== 200) throw new JourneyError(\"4\", \"anyone reads the public meme's permalink\", String(permalinkStatus));"
       }
      ],
@@ -7062,27 +7004,27 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 436,
+       "line": 371,
        "quote": "\"/api/memes\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 437,
+       "line": 372,
        "quote": "{ factId, imageSource: { type: \"upload\", uploadKey: objectPath }, isPublic: true, aspectRatio: \"landscape\" },"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 115,
+       "line": 112,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 442,
+       "line": 377,
        "quote": "if (permalinkStatus !== 200) throw new JourneyError(\"4\", \"anyone reads the public meme's permalink\", String(permalinkStatus));"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 443,
+       "line": 378,
        "quote": "const meme = await readImage(anonymous, \"4\", \"anyone reads the public meme image\", `/api/memes/${slug}/image`, \"landscape\");"
       }
      ],
@@ -7103,22 +7045,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 223,
+       "line": 218,
        "quote": "\"/api/facts/submit-review\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 220,
+       "line": 215,
        "quote": "const submitted = await free.json<{ reviewId: number }>("
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 115,
+       "line": 112,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 234,
+       "line": 229,
        "quote": "if (!listed) throw new JourneyError(\"2\", \"the moderation queue\", `review ${reviewId} is not listed`);"
       }
      ],
@@ -7220,12 +7162,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 450,
+       "line": 385,
        "quote": "if (ogPath !== `/api/memes/${slug}/image`) throw new JourneyError(\"4\", \"the unfurl page's og:image\", `names ${ogImage}, not this meme's image`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 451,
+       "line": 386,
        "quote": "const unfurled = await readImage(anonymous, \"4\", \"the unfurl page's og:image\", ogPath, \"landscape\");"
       }
      ],
@@ -7246,17 +7188,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 474,
+       "line": 409,
        "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 478,
+       "line": 413,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7269,17 +7211,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 474,
+       "line": 409,
        "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 478,
+       "line": 413,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7329,17 +7271,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 474,
+       "line": 409,
        "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 478,
+       "line": 413,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7352,17 +7294,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 474,
+       "line": 409,
        "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 478,
+       "line": 413,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7390,12 +7332,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 475,
+       "line": 410,
        "quote": "captions.nameInBottom = await twin(\"the name in the bottom half\", [\"Infinity was counted\", \"by {NAME}, twice.\"], [\"Infinity was counted\", `by ${name}, twice.`]);"
       }
      ],
@@ -7430,12 +7372,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 474,
+       "line": 409,
        "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
       }
      ],
@@ -7463,12 +7405,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 481,
+       "line": 416,
        "quote": "captions.theyKeep = await twin(\"they/them agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity.\"], [\"They keep counting\", \"to infinity.\"]);"
       }
      ],
@@ -7481,12 +7423,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 481,
+       "line": 416,
        "quote": "captions.theyKeep = await twin(\"they/them agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity.\"], [\"They keep counting\", \"to infinity.\"]);"
       }
      ],
@@ -7507,17 +7449,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 484,
+       "line": 419,
        "quote": "captions.heKeeps = await twin(\"he/him agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity, twice.\"], [\"He keeps counting\", \"to infinity, twice.\"]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 486,
+       "line": 421,
        "quote": "throw new JourneyError(\"4\", \"the pronoun guard\", \"they/them wording served the he/him image\");"
       }
      ],
@@ -7538,17 +7480,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 469,
+       "line": 404,
        "quote": "if (a !== b) throw new JourneyError(\"4\", what, \"the served image differs from its hand-typed twin\");"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 474,
+       "line": 409,
        "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 478,
+       "line": 413,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -8145,17 +8087,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 437,
+       "line": 372,
        "quote": "{ factId, imageSource: { type: \"upload\", uploadKey: objectPath }, isPublic: true, aspectRatio: \"landscape\" },"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 433,
+       "line": 368,
        "quote": "const photoMeme = await free.json<{ permalinkSlug: string }>("
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 115,
+       "line": 112,
        "quote": "if (!expect.includes(res.status)) throw new JourneyError(journey, `${method} ${url}`, `${res.status} ${text.slice(0, 500)}`);"
       }
      ],
@@ -8168,12 +8110,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 442,
+       "line": 377,
        "quote": "if (permalinkStatus !== 200) throw new JourneyError(\"4\", \"anyone reads the public meme's permalink\", String(permalinkStatus));"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 443,
+       "line": 378,
        "quote": "const meme = await readImage(anonymous, \"4\", \"anyone reads the public meme image\", `/api/memes/${slug}/image`, \"landscape\");"
       }
      ],
@@ -8826,17 +8768,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 421,
+       "line": 356,
        "quote": "if (avatar.status !== 200 || !avatarBody.objectPath) throw new JourneyError(\"7\", \"upload a profile photo\", `${avatar.status} ${JSON.stringify(avatarBody)}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 424,
+       "line": 359,
        "quote": "if (me.profileImageUrl !== `/api/storage${avatarBody.objectPath}`) throw new JourneyError(\"7\", \"the profile photo is set\", `profileImageUrl is ${me.profileImageUrl}`);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 426,
+       "line": 361,
        "quote": "if (!stored.bytes.equals(photo)) throw new JourneyError(\"7\", \"the profile photo is stored\", `${stored.bytes.length} bytes differ from the ${photo.length} uploaded`);"
       }
      ],
@@ -9102,26 +9044,10 @@
    "clauses": [
     {
      "text": "AI background generation works for a paid account: the generate request reaches image_ready and the generated image reads back",
-     "status": "asserted",
-     "evidence": [
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 364,
-       "quote": "const { renderJobId } = await paid.json<{ renderJobId: string }>(\"6\", \"POST\", `/api/memes/ai/${factId}/generate`, { aspectRatio: \"landscape\" }, [202]);"
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 369,
-       "quote": "(r) => r.status === \"image_ready\","
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 374,
-       "quote": "const generated = await readImage(paid, \"6\", \"the owner reads the generated image\", `/api/memes/ai-user/image?storagePath=${encodeURIComponent(generatedImageObjectPath)}`);"
-      }
-     ],
-     "fails_because": "if generation for the paid account were refused or never reached image_ready, the poll throws a JourneyError; an undecodable image fails readImage",
-     "gap_clause": null
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     }
    ]
   },
@@ -9230,34 +9156,17 @@
    "clauses": [
     {
      "text": "the Legendary account's standard AI meme image generates",
-     "status": "asserted",
-     "evidence": [
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 364,
-       "quote": "{ aspectRatio: \"landscape\" }, [202]);"
-      },
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 369,
-       "quote": "(r) => r.status === \"image_ready\","
-      }
-     ],
-     "fails_because": "if the budget gate refused the paid user, the generate POST would not return 202 and the journey throws; if the render never reached image_ready the poll times out",
-     "gap_clause": null
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "no new error",
-     "status": "asserted",
-     "evidence": [
-      {
-       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 370,
-       "quote": "(r) => (r.status === \"failed\" || r.status === \"blocked\" ?"
-      }
-     ],
-     "fails_because": "if the gate or the pipeline marked the render failed or blocked, the poll's failure check throws a JourneyError",
-     "gap_clause": null
+     "status": "gap",
+     "evidence": [],
+     "fails_because": null,
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)"
     },
     {
      "text": "no new delay",
@@ -10375,17 +10284,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 223,
+       "line": 218,
        "quote": "\"/api/facts/submit-review\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 247,
+       "line": 242,
        "quote": "(r) => r.workflowStage === \"concept_review\" && r.visualConcepts?.status === \"ok\","
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 248,
+       "line": 243,
        "quote": "(r) => (r.workflowStage === \"prep_failed\" ? \"prep_failed\""
       }
      ],
@@ -11263,8 +11172,8 @@
  ],
  "counts": {
   "steps": 324,
-  "asserted": 280,
-  "gap": 482,
+  "asserted": 274,
+  "gap": 488,
   "live": 1
  }
 }

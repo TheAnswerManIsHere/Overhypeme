@@ -548,11 +548,13 @@ the scrub rules is reviewed:
 
 ## The acceptance run
 
-Baseline journeys 2–7 (Phase 2, increment 6; plan
+Baseline journeys 2, 3, 4 and 7 (Phase 2, increment 6; plan
 `docs/plans/PLAN_PHASE2_INC6_ACCEPTANCE.md`), on demand, never in the per-PR
 gate: the **Acceptance** workflow (`.github/workflows/acceptance.yml`,
 dispatched by hand, and run on a pull request that changes the acceptance
-tooling) and this command run the same thing:
+tooling) and this command run the same thing. Journeys 5 and 6 ran the user AI
+generate route, which only the legacy meme studio calls, and were removed
+with it (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*):
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<a marked test database> \
@@ -601,8 +603,8 @@ missing).
 the workflow uploads) names the commit, the recordings' listing hash, the
 fixture manifest digest, each journey's outcome and evidence, each expected
 operation's evidence, the detector's verdict, the prompt pins, and the
-deferrals: journey 6's spend clause (#651) and the fixture's Pexels-only
-stock memes, which no acceptance journey reads.
+deferrals: the fixture's Pexels-only stock memes, which no acceptance journey
+reads.
 
 **The live check** runs the same journeys against the real vendors, on the
 Repl only, never in CI: before each launch stage and whenever a vendor client
@@ -792,7 +794,7 @@ the real download, probe and storage path runs with no network.
 error recorded for it.
 
 The recordings cover the baseline the driver walks
-(`src/testing/acceptance/driver.ts`: journeys 2–7, over a fresh database and
+(`src/testing/acceptance/driver.ts`: journeys 2, 3, 4 and 7, over a fresh database and
 over the legacy fixture). Replaying them proves the doubles carry the real
 consumers through:
 

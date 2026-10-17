@@ -10,7 +10,7 @@
  *
  * Order: the detector's self-test (when asked) → for the fixture variant, the
  * committed fixture and the prompt pins → the account seed → the server, from
- * a constructed environment through its launcher → journeys 2–7 → in live mode
+ * a constructed environment through its launcher → journeys 2, 3, 4 and 7 → in live mode
  * over the fixture, one Pexels-only legacy meme read → the server stopped, so
  * its teardown is observed too.
  */
@@ -51,7 +51,7 @@ export interface InnerConfig {
   aiDoubleFail?: string;
   /** Keep the server running after the journeys until SIGTERM (serve mode). */
   serve?: { port: number; origin: string };
-  /** Capture mode (increment 8, D7): run the capture journeys instead of 2–7, writing images to `out`. */
+  /** Capture mode (increment 8, D7): run the capture journeys instead of the baseline, writing images to `out`. */
   capture?: { doc: CaptureDoc; out: string; commit: string };
 }
 
@@ -257,12 +257,6 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
       await new Promise<void>((r) => process.once("SIGINT", () => r()).once("SIGTERM", () => r()));
       return out;
     }
-    const callRecordLines = () => {
-      if (!cfg.callRecord || !fs.existsSync(cfg.callRecord)) return 0;
-      const text = fs.readFileSync(cfg.callRecord, "utf8").trim();
-      if (!text) return 0;
-      return text.startsWith("{") && text.includes('"lines"') ? (JSON.parse(text) as { lines: unknown[] }).lines.length : text.split("\n").length;
-    };
     if (cfg.capture) {
       const { driveCaptures } = await import("./captureJourneys");
       out.capture = await driveCaptures(baseUrl, {
@@ -277,7 +271,6 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
     const { driveBaseline } = await import("./driver");
     out.drive = await driveBaseline(baseUrl, (l) => process.stdout.write(`[journeys] ${l}\n`), {
       expectRenderFailure: cfg.control === "render-failure",
-      aiCallCount: callRecordLines,
       ...(cfg.control === "corrupt-source" ? { beforeJourney4: (objectPath: string) => { out.corrupted = corruptStoredObject(cfg.work, objectPath); } } : {}),
     });
     if (mode === "live" && cfg.variant === "fixture") out.pexelsMeme = await readPexelsMeme(cfg.databaseUrl, baseUrl);
