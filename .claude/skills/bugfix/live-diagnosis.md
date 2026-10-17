@@ -116,7 +116,9 @@ constraints*), and that PR takes its review like any other. Replit's own
 internal review/testing loop is real and is simply not ours. Routing my own unreviewed patch through Replit is laundering, not
 shipping — a sanctioned live repair has to be David-originated.
 
-Ephemeral probes are fine and are reverted in the same session. **Never commit or
+Ephemeral probes are fine and are reverted in the same session, except a
+probe or a reproduction that would start a paid AI run (a real render, a real model call), which
+waits for David's go-ahead for that run (`uat-doc-format.md`, *Lanes*). **Never commit or
 push one**: Publish snapshots uncommitted files, so a forgotten probe is a
 production hazard sitting in the worktree.
 

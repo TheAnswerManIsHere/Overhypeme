@@ -49,7 +49,9 @@
 - **Why:** plan `PLAN_PHASE2_INC8_CAPTURE.md` D6/D7 asked for a reference
   photo that is "never a person's own photo"; these are the owners' own
   photos, used with their consent, which answers that requirement's
-  concern.
+  concern. The phone metadata `test-face.jpg` carries (device, software,
+  lens, capture time, a face region; no location) stays: David chose to keep
+  it when asked, 2026-10-17 (#712).
 - **Reference:** #708 (the first real-render capture, PR223 step 1).
 - **Revisit if:** the default faces change, or someone else's photo would be
   needed.
@@ -67,8 +69,7 @@
   it matches my desired outcomes."*
 - **Why:** interpretive judgement of generated content is where Claude's
   reading is unreliable. The fleet rule lives in the handbook's
-  `uat-doc-format.md`, *An image an AI model generated* (AI-Handbook #219,
-  arriving here by the sync).
+  `uat-doc-format.md`, *An image an AI model generated* (AI-Handbook #219).
 - **Reference:** #708 (PR223 step 1 and PR229 step 6), the split of PR223
   step 1 and PR229 steps 2, 4, 5, 6 and 13.
 - **Revisit if:** David says so.

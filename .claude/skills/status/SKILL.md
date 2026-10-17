@@ -29,7 +29,7 @@ GitHub. Applied top-down; first match wins:
 | --- | --- |
 | `DONE` | `stage:done` — terminal, wins over everything else |
 | `WAITING ON YOU` | `waiting:david` |
-| `STALLED` | `waiting` is `claude`/`codex`/`ci`/`replit` and nothing has happened in > 48h (`waiting:replit` moved here from WAITING ON YOU on 2026-08-15 — the post-merge verification run is driven by the agent through the connector now, so a lingering `waiting:replit` means a close-out an agent needs to finish, not something David runs) |
+| `STALLED` | `waiting` is `claude`/`codex`/`ci`/`replit` and nothing has happened in > 48h (`waiting:replit` moved here from WAITING ON YOU on 2026-08-15 — the post-merge verification run is driven by the agent through the connector now, so a lingering `waiting:replit` means a close-out an agent needs to finish, not something David runs; a step waiting for his go-ahead for a paid AI run is `waiting:david` instead, (`uat-doc-format.md`, *Lanes*)) |
 | `WATCHING` | `waiting:codex`/`waiting:ci` **and** a live check *this invocation* shows an open PR with CI running, an unanswered thread, or a requested review that hasn't landed |
 | `WORKING` | everything else — the residual, so the table is always total |
 

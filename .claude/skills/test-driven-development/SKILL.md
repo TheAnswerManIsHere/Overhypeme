@@ -13,7 +13,8 @@ description: Use when implementing any feature or bugfix, before writing impleme
 > version still carries the machine lanes — `ci`, `scripted`, and `live` where
 > its claim needs the deployed environment — scaled to a prototype, timed per
 > regime in `working-modes.md`'s *What prototype phase keeps of verification*
-> (David, 2026-10-10) — and the `prototype`
+> (David, 2026-10-10), a check that would start a paid AI run only on his
+> go-ahead for that run (`uat-doc-format.md`, *Lanes*) — and the `prototype`
 > skill is the entry point
 > ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 > The other "ask your human partner" rows below, and the closing "no

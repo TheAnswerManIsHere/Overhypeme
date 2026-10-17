@@ -16,7 +16,8 @@
 > prototype-phase feature keeps the machine lanes — `ci`, `scripted` and a
 > read-only `live` check where the claim needs the deployed environment —
 > scaled, with the timing per regime in *What prototype phase keeps of
-> verification* in the same home (David, 2026-10-10).
+> verification* in the same home (David, 2026-10-10); a check that would start
+> a paid AI run waits for David's go-ahead for that run (`uat-doc-format.md`, *Lanes*).
 
 Generate **several radically different UI variations** on a single route, switchable from a floating bottom bar. The user flips between variants in the browser, picks one (or steals bits from each), then throws the rest away.
 

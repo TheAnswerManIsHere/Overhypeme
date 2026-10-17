@@ -172,6 +172,10 @@ Modification status:
   calibration block for its implementer prompt's escalations;
   `systematic-debugging`'s three-failed-fixes stop was left as an ask, and
   its note now says so, since a design flaw after three fixes is Tier C.
+  The 2026-10-17 paid-run sweep (AI-Handbook #219) added one clause to the
+  existing notes of `prototype/LOGIC.md`, `prototype/UI.md` and
+  `test-driven-development/SKILL.md`: a check that would start a paid AI run
+  waits for David's go-ahead for that run.
 - `grill-me/SKILL.md` — **no longer verbatim as of PR #545**: body changed
   from `Run a `/grilling` session.` to upstream's exact delegation form,
   `Call the Skill tool with "grilling".` (it had pointed at a skill that was

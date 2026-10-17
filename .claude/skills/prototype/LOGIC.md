@@ -16,7 +16,8 @@
 > prototype-phase feature keeps the machine lanes — `ci`, `scripted` and a
 > read-only `live` check where the claim needs the deployed environment —
 > scaled, with the timing per regime in *What prototype phase keeps of
-> verification* in the same home (David, 2026-10-10).
+> verification* in the same home (David, 2026-10-10); a check that would start
+> a paid AI run waits for David's go-ahead for that run (`uat-doc-format.md`, *Lanes*).
 
 A single, self-contained HTML file (a **shareable demo**) that lets anyone drive a state model by clicking buttons. Use this when the question is about **business logic, state transitions, or data shape**: the kind of thing that looks reasonable on paper but only feels wrong once you push it through real cases.
 

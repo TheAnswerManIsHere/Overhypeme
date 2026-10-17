@@ -224,7 +224,8 @@ once, for its first version — a short plan, Astra's review, David's
 approval — and is outside it for later versions unless he asks; no version
 gets a code review, and after the first the only reviewer is the product
 owner using it — after the version's scaled machine lanes have passed, any
-failing one repaired by the agent first
+failing one repaired by the agent first, and any that would start a paid AI
+run only on David's go-ahead for that run (`uat-doc-format.md`, *Lanes*)
 ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 
 **Planning (not code review).** A planning loop does not run on a pull request
