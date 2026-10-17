@@ -156,4 +156,47 @@ describe("useUploadModeration", () => {
     expect(result.current.error).toBe("invalid-format");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  // #714 round 1 (4304456527): the thumbnail must show what is stored, so a
+  // converted PNG's preview comes from the JPEG that was sent, not the original.
+  it("builds the preview from the converted JPEG for a PNG, and from the file itself for a JPEG", async () => {
+    const jpeg = new Blob([new Uint8Array(256)], { type: "image/jpeg" });
+    preProcessImageFile.mockResolvedValueOnce({ blob: jpeg, width: 10, height: 10 });
+    const ok = () =>
+      new Response(
+        JSON.stringify({ objectPath: "/objects/uploads/x.jpg", width: 10, height: 10, isLowRes: true, fileSizeBytes: 256 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(ok()).mockResolvedValueOnce(ok());
+    const { result } = renderHook(() => useUploadModeration());
+
+    const png = new File([new Uint8Array(1024)], "p.png", { type: "image/png" });
+    await act(async () => {
+      await result.current.upload(png);
+    });
+    expect(URL.createObjectURL).toHaveBeenLastCalledWith(jpeg);
+
+    const original = validFile(512);
+    await act(async () => {
+      await result.current.upload(original);
+    });
+    expect(URL.createObjectURL).toHaveBeenLastCalledWith(original);
+  });
+
+  // #714 round 1 (4304456538): the converter can hand back a JPEG still over
+  // the limit; that must be refused locally, never uploaded to meet a 413.
+  it("refuses a converted file still over 15 MB without hitting the network", async () => {
+    const tooBig = new Blob([new Uint8Array(15 * 1024 * 1024 + 1)], { type: "image/jpeg" });
+    preProcessImageFile.mockResolvedValueOnce({ blob: tooBig, width: 6000, height: 6000 });
+    const fetchSpy = vi.spyOn(global, "fetch");
+    const { result } = renderHook(() => useUploadModeration());
+
+    await act(async () => {
+      await result.current.upload(new File([new Uint8Array(2048)], "big.webp", { type: "image/webp" }));
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(result.current.error).toBe("too-large");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

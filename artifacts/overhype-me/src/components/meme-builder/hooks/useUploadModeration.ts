@@ -1,5 +1,5 @@
 /**
- * @purpose Meme-builder upload hook: accepts JPEG, PNG or WebP up to 15 MB client-side, re-encodes a PNG or WebP to JPEG in the browser (a JPEG goes up unchanged) because /api/storage/upload-meme takes JPEG only (#702), POSTs the bytes, and maps 413, 415, 422, a failed conversion and other failures to the too-large, invalid-format, rejected and network states.
+ * @purpose Meme-builder upload hook: accepts JPEG, PNG or WebP up to 15 MB client-side, re-encodes a PNG or WebP to JPEG in the browser (a JPEG goes up unchanged) because /api/storage/upload-meme takes JPEG only (#702), refuses a converted file still over 15 MB, previews the bytes it sends, POSTs them, and maps 413, 415, 422, a failed conversion and other failures to the too-large, invalid-format, rejected and network states.
  * @subsystem studio
  */
 import { useCallback, useState } from "react";
@@ -55,7 +55,6 @@ export function useUploadModeration() {
       return null;
     }
 
-    const previewBlobUrl = URL.createObjectURL(file);
     setState({ status: "uploading", error: null, image: null, progress: 0 });
 
     // upload-meme accepts JPEG only (userImageUpload.ts), so a PNG or WebP is
@@ -65,11 +64,19 @@ export function useUploadModeration() {
       try {
         body = (await preProcessImageFile(file)).blob;
       } catch {
-        URL.revokeObjectURL(previewBlobUrl);
         setState({ status: "error", error: "invalid-format", image: null, progress: 0 });
         return null;
       }
+      // The converter stops after a fixed number of attempts, so its output can
+      // still be over the limit; refuse it here rather than upload into a 413.
+      if (body.size > MAX_BYTES) {
+        setState({ status: "error", error: "too-large", image: null, progress: 0 });
+        return null;
+      }
     }
+
+    // The thumbnail shows what is stored: the converted JPEG, not the original.
+    const previewBlobUrl = URL.createObjectURL(body);
 
     try {
       const buffer = await body.arrayBuffer();
