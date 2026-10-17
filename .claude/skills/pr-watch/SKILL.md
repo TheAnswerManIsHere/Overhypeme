@@ -859,7 +859,9 @@ tracking*), so it has no labels to keep):
   review loop still carrying findings after its second review, and an
   ask-to-reopen.
 - **The PR merges with a Post-merge verification section that has real
-  content** → `stage:test-run`, `waiting:replit` — the lifecycle's own
+  content** → `stage:test-run`, `waiting:replit` — or `waiting:david` while
+  a step in it that would start a paid AI run waits for his go-ahead for
+  that run (`uat-doc-format.md`, *Lanes*) — the lifecycle's own
   Test-run stage, between Merge and UAT, not a step to skip past. Per the
   `pr-docs` contract this stage is now **executed inside close-out**: I
   drive the section through the connector, read the results, and on a

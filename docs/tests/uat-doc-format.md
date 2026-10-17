@@ -115,8 +115,9 @@ review loop's own assessors are not checks and keep their own rules.
 Nothing starts one by itself, no approval covers a series of runs, a re-run
 needs its own, and the ask names the paid calls and the worst-case cost. A
 spending cap the consumer declares bounds a run and authorizes none, and a
-check that would start a paid run is never read-only. Checks that start no
-paid run carry on as their lane says.
+check that would start a paid run is never read-only. It is never a `ci`
+check either: CI runs on every push, so no per-run go-ahead can reach it.
+Checks that start no paid run carry on as their lane says.
 
 **A step is `human` only when no machine can answer it** — or when it
 judges what an image an AI model generated shows, which is always David's
@@ -191,7 +192,7 @@ his decision rather than a gap.>
 
 **Do:** <the exact action — where to click, what to type>
 
-**Expect:** <the judgement only he can make — taste, legibility, whether it reads right, what an AI-generated image shows>
+**Expect:** <the judgement only he can make — taste, legibility, whether it reads right, what an AI-generated image shows beyond what anyone would verify the same way>
 
 **Lane:** human
 

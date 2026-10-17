@@ -1544,7 +1544,10 @@ Authorization boundaries — the mechanics live in
   which can be confidently wrong.
 - **A post-merge verification run is a two-call sequence**: kick it off with
   `update_app_using_prompt` carrying the checks and an explicit read-only
-  instruction, wait a few minutes, then `ask_question` for the results.
+  instruction, wait a few minutes, then `ask_question` for the results. A
+  paid AI step David gave his go-ahead for, for that run, goes in a separate
+  request of its own that names its paid calls and worst-case cost as the
+  only thing it may do beyond reading (`uat-doc-format.md`, *Lanes*).
 
 ### Astra (Codex CLI)
 
