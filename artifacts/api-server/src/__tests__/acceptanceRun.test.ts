@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { evaluateCoverage, readCallRecords, unattributedCalls } from "../testing/acceptance/coverage.js";
+import { evaluateCoverage, liveRecordingsDir, readCallRecords, recordingsIdentity, recordingsUnionCount, unattributedCalls } from "../testing/acceptance/coverage.js";
 import { sanitizeHashtagsForPersistence } from "../lib/hashtags.js";
 import { controlVerdict } from "../testing/acceptance/controls.js";
 import { evaluateDetector } from "../testing/acceptance/detector.js";
@@ -333,6 +333,64 @@ describe("the recorder in the live check", () => {
     process.env.AI_RECORDER_LIVE = "1";
     await fal.subscribe("fal-ai/imageutils/nsfw", opts);
     assert.equal(sent, 2, "the live check never does");
+  });
+});
+
+describe("the live check's evidence is per variant (plan D4)", () => {
+  const saved: Record<string, string | undefined> = {};
+  before(() => {
+    for (const k of ["AI_RECORDINGS_DIR", "AI_RECORDER_LIVE"]) saved[k] = process.env[k];
+    process.env.AI_RECORDER_LIVE = "1";
+  });
+  after(() => {
+    for (const [k, v] of Object.entries(saved)) (v === undefined ? delete process.env[k] : (process.env[k] = v));
+  });
+
+  it("keeps each variant's answer in its own set, so a second variant's failed call is missing with no file of the first's", async () => {
+    const { Allowance, recordingFal } = await import("../lib/aiDouble/recorder.js");
+    // The photo classifier's committed request: both variants send exactly this, so one fingerprint.
+    const nsfw = fs.readdirSync(COMMITTED).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(fs.readFileSync(path.join(COMMITTED, f), "utf8")))
+      .find((r) => r.kind === "fal.subscribe" && /nsfw/.test(r.target) && r.request.input.image_url.endsWith(PHOTO_SHA))!;
+    const root = tmp();
+    const ledger = path.join(tmp(), "ledger.json");
+    const allowance = new Allowance(1, ledger); // one allowance and one ledger span both variants
+    let transportDown = false;
+    const real = {
+      subscribe: async () => { if (transportDown) throw new Error("fetch failed: ECONNRESET"); return nsfw.response; },
+      storage: { upload: async () => "u" },
+      queue: { submit: async () => ({}), status: async () => ({}), result: async () => ({}) },
+      config: () => {},
+    };
+    const fal = recordingFal(real as never, allowance, { clients: {} }, async () => 0.001);
+    const lines = () => readCallRecords(ledger);
+
+    process.env.AI_RECORDINGS_DIR = liveRecordingsDir(root, "fresh");
+    await fal.subscribe(nsfw.target, nsfw.request);
+    const freshCalls = lines();
+    process.env.AI_RECORDINGS_DIR = liveRecordingsDir(root, "fixture");
+    transportDown = true;
+    await assert.rejects(fal.subscribe(nsfw.target, nsfw.request), /ECONNRESET/);
+    const fixtureCalls = lines().slice(freshCalls.length);
+
+    assert.equal(freshCalls[0]!.fingerprint, nsfw.fingerprint);
+    assert.equal(fixtureCalls[0]!.fingerprint, nsfw.fingerprint, "the second variant sent the same request");
+    const file = `fal.subscribe--${nsfw.fingerprint}.json`;
+    assert.ok(fs.existsSync(path.join(liveRecordingsDir(root, "fresh"), file)), "the first variant's answer stays in its own set");
+    assert.equal(fs.existsSync(path.join(liveRecordingsDir(root, "fixture"), file)), false, "and is never filed as the second's");
+
+    const row = (variant: "fresh" | "fixture", calls: typeof freshCalls) =>
+      evaluateCoverage({ mode: "live", variant, calls, recordingsDir: liveRecordingsDir(root, variant), photoSha256: PHOTO_SHA }).find((r) => r.key === "photo-classifier")!;
+    assert.equal(row("fresh", freshCalls).status, "satisfied");
+    assert.equal(row("fixture", fixtureCalls).status, "missing");
+    assert.deepEqual(unattributedCalls({ calls: fixtureCalls, recordingsDir: liveRecordingsDir(root, "fixture") }).map((c) => c.fingerprint), [nsfw.fingerprint],
+      "no file is attributed to the failed call");
+
+    const fresh = recordingsIdentity(liveRecordingsDir(root, "fresh"), "fresh");
+    const fixture = recordingsIdentity(liveRecordingsDir(root, "fixture"), "fixture");
+    assert.equal(fresh.files, 1);
+    assert.equal(fixture.files, 0);
+    assert.notEqual(fresh.listingSha256, fixture.listingSha256, "each variant's report carries its own identity");
+    assert.equal(recordingsUnionCount(["fresh", "fixture"].map((v) => liveRecordingsDir(root, v as "fresh"))), 1);
   });
 });
 

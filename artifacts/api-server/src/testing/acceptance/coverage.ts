@@ -15,6 +15,7 @@
  * from the calls that happened: an expected call that is absent is a missing
  * row.
  */
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -163,6 +164,33 @@ export function readCallRecords(file: string): CallRecord[] {
     .filter(Boolean)
     .map((l) => JSON.parse(l) as { kind: string; target: string; fingerprint?: string; outcome: string })
     .map((l) => ({ kind: l.kind, target: l.target, fingerprint: l.fingerprint, ok: l.outcome === "replayed", outcome: l.outcome }));
+}
+
+/**
+ * Where a live run's variant records its answers (plan D4): a directory of
+ * its own, so the same request sent in both variants never lands on one file
+ * and one variant's answer is never read as the other's.
+ */
+export function liveRecordingsDir(root: string, variant: Variant): string {
+  return path.join(root, variant);
+}
+
+export interface RecordingsIdentity {
+  source: string;
+  files: number;
+  listingSha256: string;
+}
+
+/** The recordings a report was evaluated against: how many, and a digest of the listing with each file's content. */
+export function recordingsIdentity(dir: string, source: string): RecordingsIdentity {
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort() : [];
+  const listing = files.map((f) => `${f}:${createHash("sha256").update(fs.readFileSync(path.join(dir, f))).digest("hex")}`).join("\n");
+  return { source, files: files.length, listingSha256: createHash("sha256").update(listing).digest("hex") };
+}
+
+/** How many distinct recordings a set of directories holds between them, by file name. */
+export function recordingsUnionCount(dirs: string[]): number {
+  return new Set(dirs.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith(".json")) : []))).size;
 }
 
 function recorded(dir: string, call: CallRecord): Recorded | null {
