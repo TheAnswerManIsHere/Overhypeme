@@ -18,10 +18,11 @@ pick a disabled style instead of a silent plain render.
 
 ## Setup
 
-- [david] Sign in with a **legendary** account (AI meme generation is
+- [david] Sign in with a **legendary** account (reference-photo styling is
   legendary-gated).
-- [claude] Confirm a fact exists that supports generating a meme both with a
-  reference photo upload and without one.
+- [claude] Confirm a fact exists that supports generating a meme with a
+  reference photo upload. (The no-photo steps are killed with the legacy
+  meme studio: `docs/ai-context/decisions.md`, 2026-10-17.)
 - [david] Confirm you have admin access, for step 4's prompt preview.
 
 ## Steps
@@ -45,7 +46,7 @@ photo is step 7's, yours.
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-reference`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-result`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: the free account saves the same split twice, once tokenised and once typed by hand with its display name, and the two served images are byte-identical, while a different typed name serves a different image
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — a legendary reference-photo generate completing is undriven, journey 6 sends no photo, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — driving a reference-photo generate through acceptance journey 6. Killed: journey 6 runs the user generate route, which only the legacy meme studio calls and which is deleted for launch (`docs/ai-context/decisions.md`, 2026-10-17); the reference-photo render itself is this step's capture
 
 ### 2. Generate without a reference photo
 
@@ -55,11 +56,9 @@ uploaded (the text-to-image path).
 **Expect:** the render completes as before, and the caption reads your full
 display name exactly as stored.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the paid user's no-photo generate polls to image_ready, the generated image decodes and is saved as a private meme `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the saved meme's served image draws the creator's full display name exactly as stored, equal to the hand-typed twin, the served-caption assertion PR398 already owes, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### 3. A long display name doesn't leak into the caption
 
@@ -71,11 +70,9 @@ name you set, exactly ("David Franklin The Third"). The caption is
 independent of what the image model receives either way, so this alone
 does not prove the split — step 3b is what actually checks it.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the paid user's generate reaches image_ready and the saved meme decodes `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity` `artifacts/api-server/src/__tests__/promptIdentity.test.ts:reduces a multi-word displayName to only its first token, not a truncated fragment of the whole string`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — after the paid account's display name is set to David Franklin The Third, its generate reaching image_ready and the saved meme's served image drawing that name whole, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### 4. The compiled prompt itself only carries the first name
 
@@ -102,9 +99,7 @@ of the old behavior where it quietly rendered with no style at all.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:returns a typed style_invalid error for an inactive style (never silently 'no style')`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the generate route, as the legendary account, answering 400 style_invalid with reason inactive and inserting no attempt for a deactivated styleId, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17); #628 — Phase 4 (Cut and prune) — the generate route's refusal of a deactivated style carrying a style-unavailable message the builder shows, not only the code style_invalid, with amendment 3's bugfix, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### 6. Re-enabling the style lets the same generate succeed
 
@@ -115,9 +110,7 @@ generate.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, t2i uses promptSuffix`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the generate route, as the legendary account, answering 202 for a re-enabled styleId and freezing a selected-style snapshot with that style's prompt on the attempt, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17); #628 — Phase 4 (Cut and prune) — the image-prompt job compiling an attempt whose frozen style snapshot is selected into a RENDER STYLE line carrying that snapshot's prompt, resolveStylePrompt is untested, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### 7. The reference-photo result shows you, in a scene that fits
 
@@ -145,9 +138,7 @@ scene that fits the fact.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:renders fact text from the SAME reduced identity the snapshot carries (user path)`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the generate route, as the legendary account, answering 202 for an active styleId and freezing a selected-style snapshot with that style's prompt on the attempt, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17); #628 — Phase 4 (Cut and prune) — the image-prompt job compiling an attempt whose frozen style snapshot is selected into a RENDER STYLE line carrying that snapshot's prompt, resolveStylePrompt is untested, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### R2. An anonymous / no-profile render still falls back
 
@@ -158,9 +149,7 @@ no display name set).
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:falls back to canonical identity when there is no user`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — a generate by an account with no display name enqueuing with the canonical fallback snapshot is unasserted, only the prepare helper is, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17); #631 — 7b — the image-prompt job for an attempt carrying the canonical fallback identity snapshot compiling with the canonical name and enqueuing image_generation — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### R3. Older renders still display correctly
 
@@ -171,7 +160,7 @@ this PR).
 
 **Lane:** ci
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — a completed attempt with no frozen identity or style snapshot, polled through GET /memes/ai/renders/:renderJobId, answering image_ready with its image path, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ## Not bugs
 

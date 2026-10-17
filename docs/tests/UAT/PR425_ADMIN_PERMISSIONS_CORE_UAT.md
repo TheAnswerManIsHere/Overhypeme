@@ -429,9 +429,9 @@ one.
 
 **Expect:** Generate works.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the paid account's AI image generation reaches image_ready, reads back as a decodable image, and saves as a private meme
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### R6. Ad slots still follow tier
 

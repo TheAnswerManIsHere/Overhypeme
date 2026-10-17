@@ -51,8 +51,8 @@ the right thing to the person reading them.
   standard no-reference "AI meme image" flow. The standard flow doesn't go
   through the budget gate at all — a separate, pre-existing gap this PR
   didn't touch (found while building this UAT, tracked separately) — so it
-  won't respond to the tiny limit set above, and step 1 already covers it
-  for the "nothing regressed" check.
+  won't respond to the tiny limit set above. (Step 1, its "nothing regressed"
+  check, is killed with the legacy meme studio: `docs/ai-context/decisions.md`, 2026-10-17.)
 - [restore] `budget_limit_legendary_usd` — restore to the value noted in
   the setup step above. This is the **real** Legendary spend limit, so
   that captured number is the only correct one; do not restore to a
@@ -68,11 +68,9 @@ generate an **AI meme image** (the standard, no-reference path).
 
 **Expect:** It generates exactly as before — no new error, no new delay.
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 6: the seeded paid user POSTs the standard generate request, gets 202, and the render reaches image_ready with no gate refusal
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the standard generate reaching image_ready within an asserted time bound that measures the budget gate's own overhead, not the vendor, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### 2. Reference-photo (PuLID) generation still works
 
@@ -139,7 +137,9 @@ are.
 
 None. Steps 1 and 2 are the regression sweep for this PR — they exercise the
 two generation paths at a normal limit before anything is lowered, which is
-exactly what a budget-gate change could break.
+exactly what a budget-gate change could break. Both now name #628 Phase 4: step 1
+with the legacy meme studio (`docs/ai-context/decisions.md`, 2026-10-17), step 2 with the
+PuLID cut, so no runnable regression step remains here.
 
 ## Not bugs
 
@@ -147,4 +147,6 @@ exactly what a budget-gate change could break.
   to fail closed.** Found while writing this doc, not by this PR's
   original scope — it's a separate, live, unlimited-spend gap, not another
   instance of the fail-open bug this PR fixes, so fixing it belongs to its
-  own issue rather than growing this one.
+  own issue rather than growing this one. That route is called only by the legacy meme studio and
+  is deleted in #628 Phase 4 (`docs/ai-context/decisions.md`, 2026-10-17); until then a signed-in
+  Legendary account can still call it directly.

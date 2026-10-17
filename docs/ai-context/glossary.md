@@ -722,6 +722,8 @@ Where a user actually builds a meme from a fact — choosing a background,
 composing it with the fact's text, and saving it. Two studio interfaces
 currently coexist during an unfinished migration to a newer guided builder;
 which one you land in depends on the product version, not your account.
+The older one, the legacy studio, is pinned off in every build and is deleted
+in #628 Phase 4; verification tied to it is killed ([`decisions.md`](./decisions.md), 2026-10-17).
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ### Recipe
@@ -777,6 +779,9 @@ function straight to the engine with its own scene-prompt generation — no
 `generateImagePromptPlan`, no compiler, and the result is stored privately
 against your own account, never added to the shared gallery. A no-reference
 generation on either route runs the shared pipeline and joins the gallery.
+Both routes named here are called only by the legacy studio, which is pinned
+off in every build and deleted in #628 Phase 4; the live wizard reaches
+neither, so nothing is verified on them ([`decisions.md`](./decisions.md), 2026-10-17).
 An AI *video* meme runs its own separate system (PuLID-based, not this
 pipeline) and is never added to any shared gallery — tied to the one meme
 you made with it. That's a storage fact, not an access-control one: like any

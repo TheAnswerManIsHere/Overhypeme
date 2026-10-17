@@ -1135,7 +1135,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — a legendary reference-photo generate completing is undriven, journey 6 sends no photo, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — driving a reference-photo generate through acceptance journey 6. Killed: journey 6 runs the user generate route, which only the legacy meme studio calls and which is deleted for launch (`docs/ai-context/decisions.md`, 2026-10-17); the reference-photo render itself is this step's capture"
     },
     {
      "text": "the image looks right for the user's subject, nothing visibly different from main",
@@ -1198,7 +1198,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the saved meme's served image draws the creator's full display name exactly as stored, equal to the hand-typed twin, the served-caption assertion PR398 already owes, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -1213,14 +1213,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — after the paid account's display name is set to David Franklin The Third, its generate reaching image_ready and the saved meme's served image drawing that name whole, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     },
     {
      "text": "the caption shows the full name exactly, David Franklin The Third",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — after the paid account's display name is set to David Franklin The Third, its generate reaching image_ready and the saved meme's served image drawing that name whole, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -1250,14 +1250,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the generate route, as the legendary account, answering 400 style_invalid with reason inactive and inserting no attempt for a deactivated styleId, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     },
     {
      "text": "the rejection is a clear 'style unavailable' message to the user",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the generate route's refusal of a deactivated style carrying a style-unavailable message the builder shows, not only the code style_invalid, with amendment 3's bugfix, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -1272,14 +1272,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the generate route, as the legendary account, answering 202 for a re-enabled styleId and freezing a selected-style snapshot with that style's prompt on the attempt, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     },
     {
      "text": "the style is applied as normal",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the image-prompt job compiling an attempt whose frozen style snapshot is selected into a RENDER STYLE line carrying that snapshot's prompt, resolveStylePrompt is untested, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -1294,14 +1294,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the generate route, as the legendary account, answering 202 for an active styleId and freezing a selected-style snapshot with that style's prompt on the attempt, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     },
     {
      "text": "the style is applied as before in the render",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the image-prompt job compiling an attempt whose frozen style snapshot is selected into a RENDER STYLE line carrying that snapshot's prompt, resolveStylePrompt is untested, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -1316,14 +1316,14 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — a generate by an account with no display name enqueuing with the canonical fallback snapshot is unasserted, only the prepare helper is, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     },
     {
      "text": "it still renders",
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the image-prompt job for an attempt carrying the canonical fallback identity snapshot compiling with the canonical name and enqueuing image_generation — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -1338,7 +1338,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — a completed attempt with no frozen identity or style snapshot, polled through GET /memes/ai/renders/:renderJobId, answering image_ready with its image path, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -1543,7 +1543,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — a paid generate with a selected look style polling to image_ready with a decodable image, every journey renders with no style selected, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — a paid generate with a selected look style polling to image_ready with a decodable image, every journey renders with no style selected. Killed: the route it runs through is called only by the legacy meme studio, which is deleted for launch (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -3694,7 +3694,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the paid user's POST /memes/ai/:id/generate on a variant fact reaches image_ready and the owner reads its generated image back, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -5916,7 +5916,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — journey 6 recording the generate-to-image_ready duration in its evidence and failing over a stated bound, as the 10-minute poll proves only eventual completion. Killed: the route it runs through is called only by the legacy meme studio, which is deleted for launch (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },
@@ -9264,7 +9264,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#628 — Phase 4 (Cut and prune) — the standard generate reaching image_ready within an asserted time bound that measures the budget gate's own overhead, not the vendor, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)"
+     "gap_clause": "#628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)"
     }
    ]
   },

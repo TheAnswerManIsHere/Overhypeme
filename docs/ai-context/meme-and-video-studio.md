@@ -46,7 +46,10 @@ that one committed line is all it would take to change this.
   `wizard/step2-video/Step2Video.tsx`.
 
 Both flows converge on the same backend, so this only matters for *frontend*
-work — a backend/route change still needs to consider both callers. A
+work — a backend/route change still needs to consider both callers. No test,
+journey or UAT step is written or kept for the legacy caller or for a route
+only it calls: that verification is killed and the legacy studio is deleted in
+#628 Phase 4 ([`decisions.md`](./decisions.md), 2026-10-17). A
 frontend change (like the visibility control below) only needs the wizard.
 
 **Where the visibility (Public/Private) choice lives.** `VisibilityToggle`

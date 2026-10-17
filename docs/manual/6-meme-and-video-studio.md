@@ -42,7 +42,9 @@ Two different studio interfaces currently exist side by side while
 Overhype.me finishes migrating from an older builder to a newer, guided
 one — which one you land in depends on which version of the product
 you're using, not on anything about your account. Both end up saving the
-meme the same way underneath.
+meme the same way underneath. In every build today you land in the guided
+builder: the older one is switched off, is deleted before launch, and is
+no longer tested ([decisions](../ai-context/decisions.md), 2026-10-17).
 
 ### What actually gets saved
 

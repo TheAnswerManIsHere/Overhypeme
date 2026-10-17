@@ -61,11 +61,9 @@ variant fact.
 **Expect:** It's accepted and generates — previously rejected with "AI meme
 generation only supported on root facts."
 
-**Lane:** scripted
+**Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/memesGenerateGeneric.test.ts:a variant (parentId set) is accepted — AI image generation is no longer root-only (variant independence)`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the paid user's POST /memes/ai/:id/generate on a variant fact reaches image_ready and the owner reads its generated image back, as the user generate route it runs through is called only by the legacy meme studio, which is deleted for launch (David, 2026-10-17)
+**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, 2026-10-17)
 
 ### 5. Editing a root's text no longer blocks on its variants
 
@@ -231,7 +229,7 @@ complete") so it's never silently missed.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: the baseline fact is tokenised, enriched, given a saved Visual Concept and review renders, then approved to an active fact; journey 6: its AI image generates and a private meme saves from it; journey 4: a public photo meme saves from it
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: the baseline fact is tokenised, enriched, given a saved Visual Concept and review renders, then approved to an active fact; journey 4: a public photo meme saves from it
 
 **Deferred:** #628 — Phase 4 (Cut and prune) — a root fact's Pexels stock images are removed with Pexels, while enrichment and memes are the journeys cited
 
