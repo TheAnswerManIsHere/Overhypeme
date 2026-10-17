@@ -49,7 +49,9 @@
 - **Why:** plan `PLAN_PHASE2_INC8_CAPTURE.md` D6/D7 asked for a reference
   photo that is "never a person's own photo"; these are the owners' own
   photos, used with their consent, which answers that requirement's
-  concern.
+  concern. The phone metadata `test-face.jpg` carries (device, software,
+  lens, capture time, a face region; no location) stays: David chose to keep
+  it when asked, 2026-10-17 (#712).
 - **Reference:** #708 (the first real-render capture, PR223 step 1).
 - **Revisit if:** the default faces change, or someone else's photo would be
   needed.

@@ -63,6 +63,13 @@ harmless to follow:
   confirm the origin is already live before deploying an edge Worker that
   depends on it — see PR #398's `cloudflare/og-router` deploy for the
   worked example).
+- **Never instruct a paid AI run** (a real render, a real model call) as a
+  routine check. It is not read-only, so the read-only connector prompt
+  cannot carry it. A check that genuinely needs one is stated as a paid
+  step, like the third write shape above. It runs only after David's
+  go-ahead in words for that run, and its connector prompt names the paid
+  call and the worst-case cost in place of the read-only line
+  (`uat-doc-format.md`, *Lanes*; David, 2026-10-17).
 - **Read-only SQL is the workhorse.** Schema/catalog checks, count queries,
   backfill-outcome verification — all safe to run any number of times, and
   they cover what CI genuinely cannot see.
@@ -75,7 +82,10 @@ by Codex in the same pass as the diff it verifies, so a check that would
 touch live state is caught before the code it rides with ever merges. The
 connector prompt that executes the section restates the scoping every
 time ("read-only: execute and report; do not write or edit anything, even
-if a step fails"), per `CLAUDE.md`'s connector policy.
+if a step fails"), per `CLAUDE.md`'s connector policy. An approved paid AI
+step goes in a separate request of its own, after David's go-ahead for that
+run. That request names the paid calls and their worst-case cost as the only
+thing it may do beyond reading, and it authorizes no other edit or repair.
 
 ## What earns a section (always include, when applicable)
 
@@ -216,7 +226,9 @@ guard), but they run in CI, not here.
   does. A mutating one-time deploy step (the third permitted write shape
   above) is executed by the driving agent through the connector at
   close-out, clearly labeled in the section as a mutating action with its
-  credential and ordering prerequisites named.
+  credential and ordering prerequisites named. A paid AI step is labeled the
+  same way, with its paid calls and worst-case cost. It runs only after
+  David's go-ahead for that run, and until then the workstream waits on him.
 - **Keep "what's deliberately NOT shipped" to terse bullets.** It exists so
   Replit does not diagnose a deliberate absence as a defect — not as a design
   essay. Anything longer belongs in the plan or in
@@ -256,7 +268,8 @@ restates it.
 ## Post-merge verification (live environment)
 
 Executed by Replit Agent post-merge via the connector; read-only unless a
-step is explicitly labeled as a mutating deploy action. Replit owns the DB
+step is explicitly labeled as a mutating deploy action, or as a paid AI step
+David gave his go-ahead for, for that run. Replit owns the DB
 connection — no DATABASE_URL / test-DB env is set here. Write "none needed"
 and delete the rest if nothing below applies (pure-docs/infra PRs).
 
