@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { evaluateCoverage, liveRecordingsDir, readCallRecords, recordingsIdentity, recordingsUnionCount, unattributedCalls } from "../testing/acceptance/coverage.js";
+import { evaluateCoverage, failedLiveCalls, liveRecordingsDir, readCallRecords, recordingsIdentity, recordingsUnionCount, unattributedCalls } from "../testing/acceptance/coverage.js";
 import { sanitizeHashtagsForPersistence } from "../lib/hashtags.js";
 import { controlVerdict } from "../testing/acceptance/controls.js";
 import { evaluateDetector } from "../testing/acceptance/detector.js";
@@ -391,6 +391,65 @@ describe("the live check's evidence is per variant (plan D4)", () => {
     assert.equal(fixture.files, 0);
     assert.notEqual(fresh.listingSha256, fixture.listingSha256, "each variant's report carries its own identity");
     assert.equal(recordingsUnionCount(["fresh", "fixture"].map((v) => liveRecordingsDir(root, v as "fresh"))), 1);
+  });
+});
+
+describe("a failed live call is red even when an identical call answers (#720 round 1)", () => {
+  const saved: Record<string, string | undefined> = {};
+  before(() => {
+    for (const k of ["AI_RECORDINGS_DIR", "AI_RECORDER_LIVE"]) saved[k] = process.env[k];
+    process.env.AI_RECORDER_LIVE = "1";
+  });
+  after(() => {
+    for (const [k, v] of Object.entries(saved)) (v === undefined ? delete process.env[k] : (process.env[k] = v));
+  });
+
+  // Journey 7 sends the same photo through two upload routes: one fingerprint, one recording.
+  const run = async (failures: boolean[]) => {
+    const { Allowance, recordingFal } = await import("../lib/aiDouble/recorder.js");
+    process.env.AI_RECORDINGS_DIR = tmp();
+    const ledger = path.join(tmp(), "ledger.json");
+    const allowance = new Allowance(1, ledger);
+    let call = 0;
+    const real = {
+      subscribe: async () => ({}),
+      storage: { upload: async () => { if (failures[call++]) throw new Error("fetch failed: ECONNRESET"); return "https://v3.fal.media/files/x.jpg"; } },
+      queue: { submit: async () => ({}), status: async () => ({}), result: async () => ({}) },
+      config: () => {},
+    };
+    const fal = recordingFal(real as never, allowance, { clients: {} }, async () => 0);
+    for (const _ of failures) await fal.storage.upload(new Blob([new Uint8Array(PHOTO)], { type: "image/jpeg" })).catch(() => {});
+    const calls = readCallRecords(ledger);
+    const lines = (JSON.parse(fs.readFileSync(ledger, "utf8")) as { lines: Array<{ kind: string; target: string; outcome: string; fingerprint?: string }> }).lines;
+    const row = evaluateCoverage({ mode: "live", variant: "fresh", calls, recordingsDir: process.env.AI_RECORDINGS_DIR!, photoSha256: PHOTO_SHA }).find((r) => r.key === "photo-upload")!;
+    const failed = failedLiveCalls(lines);
+    return { row, failed, red: redReasons({ journeys: [], coverage: [], uncovered: failed }).filter((r) => r.startsWith("uncovered")) };
+  };
+
+  it("names a failure followed by an identical success, which coverage alone would pass", async () => {
+    const { row, failed, red } = await run([true, false]);
+    assert.equal(row.status, "satisfied", "the later success covers the operation");
+    assert.equal(new Set(failed.map((f) => f.split(" (")[0])).size, 1);
+    assert.match(failed[0]!, /^fal\.storage\.upload .*: the live call ended error$/);
+    assert.equal(red.length, 1, "and the verdict is red");
+  });
+
+  it("names a success followed by an identical failure", async () => {
+    const { failed, red } = await run([false, true]);
+    assert.equal(failed.length, 1);
+    assert.equal(red.length, 1);
+  });
+
+  it("stays green when every identical call answers", async () => {
+    const { row, failed, red } = await run([false, false]);
+    assert.equal(row.status, "satisfied");
+    assert.deepEqual(failed, []);
+    assert.deepEqual(red, []);
+  });
+
+  it("leaves pricing calls out and names a refused call", () => {
+    assert.deepEqual(failedLiveCalls([{ kind: "fal.pricing", target: "p", outcome: "error" }, { kind: "openai.chat", target: "m", outcome: "ok" }]), []);
+    assert.deepEqual(failedLiveCalls([{ kind: "openai.chat", target: "m", outcome: "refused", fingerprint: "abcdef0123456789" }]), ["openai.chat m (fingerprint abcdef012345): the live call ended refused"]);
   });
 });
 

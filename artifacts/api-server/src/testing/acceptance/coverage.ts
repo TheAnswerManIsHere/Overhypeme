@@ -211,6 +211,20 @@ function recorded(dir: string, call: CallRecord): Recorded | null {
  * before the recorder could write it. Reported once, beside the rows; such a
  * call can never satisfy one.
  */
+/**
+ * A live run's vendor calls that did not end with an answer (#720 round 1):
+ * every `error` or `refused` ledger line except pricing, named for the
+ * verdict. Coverage credits an operation with any one usable call, and two
+ * identical requests share one recording, so a failed attempt followed by a
+ * successful identical one would otherwise pass unseen; in a live run any
+ * failure is red, whatever answered after it.
+ */
+export function failedLiveCalls(lines: Array<{ kind: string; target: string; outcome: string; fingerprint?: string }>): string[] {
+  return lines
+    .filter((l) => l.kind !== "fal.pricing" && (l.outcome === "error" || l.outcome === "refused"))
+    .map((l) => `${l.kind} ${l.target}${l.fingerprint ? ` (fingerprint ${l.fingerprint.slice(0, 12)})` : ""}: the live call ended ${l.outcome}`);
+}
+
 export function unattributedCalls(opts: { calls: CallRecord[]; recordingsDir: string }): CallRecord[] {
   return opts.calls.filter((c) => c.kind !== "fal.pricing" && recorded(opts.recordingsDir, c) === null);
 }

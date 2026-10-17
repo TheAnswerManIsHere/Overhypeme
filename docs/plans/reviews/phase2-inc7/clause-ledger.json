@@ -1160,7 +1160,7 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 413,
+       "line": 417,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7198,7 +7198,7 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 413,
+       "line": 417,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7221,7 +7221,7 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 413,
+       "line": 417,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7281,7 +7281,7 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 413,
+       "line": 417,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7304,7 +7304,7 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 413,
+       "line": 417,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
@@ -7339,9 +7339,14 @@
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
        "line": 410,
        "quote": "captions.nameInBottom = await twin(\"the name in the bottom half\", [\"Infinity was counted\", \"by {NAME}, twice.\"], [\"Infinity was counted\", `by ${name}, twice.`]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 413,
+       "quote": "throw new JourneyError(\"4\", \"the bottom-line guard\", \"a different bottom line served the same image\");"
       }
      ],
-     "fails_because": "a bottom-half name that is not substituted exactly serves an image unequal to its typed twin, so line 469 throws for the pair at line 475",
+     "fails_because": "a bottom-half name that is not substituted exactly serves an image unequal to its typed twin, so line 404 throws for the pair at line 410; a bottom line that made no difference to the picture would leave the twin equal, and line 413 throws when a different typed bottom line serves the same image. This proves the bottom line's words reach the pixels; where they sit on the picture is the capture reading's, memeCaption.capture.spec.ts",
      "gap_clause": null
     },
     {
@@ -7410,7 +7415,7 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 416,
+       "line": 420,
        "quote": "captions.theyKeep = await twin(\"they/them agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity.\"], [\"They keep counting\", \"to infinity.\"]);"
       }
      ],
@@ -7428,7 +7433,7 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 416,
+       "line": 420,
        "quote": "captions.theyKeep = await twin(\"they/them agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity.\"], [\"They keep counting\", \"to infinity.\"]);"
       }
      ],
@@ -7454,12 +7459,12 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 419,
+       "line": 423,
        "quote": "captions.heKeeps = await twin(\"he/him agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity, twice.\"], [\"He keeps counting\", \"to infinity, twice.\"]);"
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 421,
+       "line": 425,
        "quote": "throw new JourneyError(\"4\", \"the pronoun guard\", \"they/them wording served the he/him image\");"
       }
      ],
@@ -7490,7 +7495,7 @@
       },
       {
        "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
-       "line": 413,
+       "line": 417,
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],

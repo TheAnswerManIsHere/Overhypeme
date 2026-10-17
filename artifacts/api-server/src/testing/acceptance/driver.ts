@@ -408,6 +408,10 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     const captions: Record<string, string> = {};
     captions.nameInTop = await twin("the name in the top half", ["{NAME} counted to infinity", "twice."], [`${name} counted to infinity`, "twice."]);
     captions.nameInBottom = await twin("the name in the bottom half", ["Infinity was counted", "by {NAME}, twice."], ["Infinity was counted", `by ${name}, twice.`]);
+    // The bottom line's guard: a different typed bottom line must change the picture, or the bottom twin proves nothing.
+    if ((await served("a different bottom line, typed by hand", "Infinity was counted", "by Someone Else, twice.")) === captions.nameInBottom) {
+      throw new JourneyError("4", "the bottom-line guard", "a different bottom line served the same image");
+    }
     // The guard: a different typed name must not match, or equality proves nothing.
     if ((await served("a different name, typed by hand", "Someone Else counted to infinity", "twice.")) === captions.nameInTop) {
       throw new JourneyError("4", "the caption guard", "a different name served the same image");

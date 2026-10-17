@@ -60,7 +60,7 @@ import { fileURLToPath } from "node:url";
 import { markTestDatabaseSql, testDatabaseRefusal } from "@workspace/db/test-database";
 
 import { falSubscribeRequest } from "../src/lib/aiDouble/doubles";
-import { evaluateCoverage, liveRecordingsDir, readCallRecords, recordingsIdentity, recordingsUnionCount, unattributedCalls, type CallRecord, type Mode, type RecordingsIdentity, type Row, type Variant } from "../src/testing/acceptance/coverage";
+import { evaluateCoverage, failedLiveCalls, liveRecordingsDir, readCallRecords, recordingsIdentity, recordingsUnionCount, unattributedCalls, type CallRecord, type Mode, type RecordingsIdentity, type Row, type Variant } from "../src/testing/acceptance/coverage";
 import type { CaptureResult } from "../src/testing/acceptance/captureJourneys";
 import { captureRefusals, type CaptureDoc } from "../src/testing/acceptance/captureShots";
 import { controlVerdict } from "../src/testing/acceptance/controls";
@@ -290,7 +290,12 @@ async function recordVendorErrors(): Promise<string[]> {
  * visible. fal's pricing warm-up is excluded by design (inc 4, D2), and the
  * recording's failure controls are the one exception.
  */
-async function uncoveredCalls(missLog: string, priorLedgerLines: number): Promise<string[]> {
+async function uncoveredCalls(missLog: string, priorLedgerLines: number, callRecord: string): Promise<string[]> {
+  if (mode === "live") {
+    if (!fs.existsSync(callRecord)) return [];
+    const ledger = JSON.parse(fs.readFileSync(callRecord, "utf8")) as { lines: Array<{ kind: string; target: string; outcome: string; fingerprint?: string }> };
+    return failedLiveCalls(ledger.lines.slice(priorLedgerLines));
+  }
   const rows: Array<{ kind: string; target: string; fingerprint?: string; recordedErrorStatus?: number }> = [];
   if ((mode === "replay" || mode === "acceptance") && fs.existsSync(missLog)) {
     rows.push(...fs.readFileSync(missLog, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)));
@@ -443,7 +448,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     variant,
     database: url.pathname.slice(1),
     journeys: drive?.outcomes ?? [],
-    uncovered: mode === "probe" ? [] : await uncoveredCalls(missLog, priorLedgerLines),
+    uncovered: mode === "probe" ? [] : await uncoveredCalls(missLog, priorLedgerLines, callRecord),
     coverage: [],
     unattributed: [],
     red: [],

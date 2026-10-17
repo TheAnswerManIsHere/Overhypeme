@@ -96,7 +96,7 @@ the same words in the same two lines, with no `{` or `}`.
 
 **Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:name in the bottom line, saved (step 4)`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: a split with the name in the bottom half, saved tokenised and typed by hand, serves byte-identical images
+**Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:substitutes a token that lands in the BOTTOM half (not just the top)`; `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:name in the bottom line, saved (step 4)`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: a split with the name in the bottom half, saved tokenised and typed by hand, serves byte-identical images, and a different typed bottom line serves a different image
 
 ### 5. Splitting with the name on the top half
 
