@@ -795,7 +795,10 @@ in the branch regime, after the push, against the prototype environment that
 tracks the branch; in the `main` regime, after the merge's sync, in the
 close-out slot post-merge verification already holds — in both, **before the
 owner is asked for feedback**, so a failing one is a version that is not yet
-ready, said so in the report, and the owner is not yet asked. **A failing
+ready, said so in the report, and the owner is not yet asked. A check in any
+of the three lanes that would start a paid AI run is not read-only and runs
+only on David's go-ahead for that run, never automatically at a version's
+close-out ([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)). **A failing
 machine check is repaired by the agent, before the owner is asked**: a
 further commit of the same version at prototype depth — a `ci` or `scripted`
 failure before the merge on the same PR, since that PR merges only on green;
@@ -810,7 +813,10 @@ agent's proof that the version works; they are not a review bar, and no
 failing check starts a hardening fix — the repair is to the prototype, at
 its depth, never a production-bar fix. **The human lane is the owner's feedback through the rail,
 never a UAT script**: a prototype ships no UAT doc, and David's time goes to
-the question the prototype asks and to nothing a machine could answer
+the question the prototype asks and to nothing a machine could answer — and
+what an AI-generated image shows, beyond what anyone would verify the same
+way, is his, never a machine lane's
+([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07), David, 2026-10-17)
 (*"minimize my testing time while giving you as much autonomy as
 possible"*). The checks are throwaway with the prototype — the flip's
 hardening PR keeps or rewrites them under the standard loop — and *"no

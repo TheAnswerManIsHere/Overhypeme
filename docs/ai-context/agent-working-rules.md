@@ -43,8 +43,11 @@ declaring complete; if you can't write it against the UI, the feature isn't buil
 infra/refactor/perf/security changes with no visible behavior ship as code + a
 written verification note ("run X, observe Y"). A prototype-phase feature
 keeps this rule — its surface is the thing the owner uses — with the machine
-lanes proving what a machine can check and the owner's feedback, not a note,
-standing as the acceptance script for the rest
+lanes proving what a machine can check (never what an AI-generated image
+shows beyond what anyone would verify the same way, which is his, and never
+a paid AI run without his go-ahead for that run: [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
+and the owner's feedback, not a note, standing as the acceptance script for
+the rest
 ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 
 ## Pre-launch: no legacy burden — bias to clean, bold changes

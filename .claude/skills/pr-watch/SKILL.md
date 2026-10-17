@@ -806,7 +806,8 @@ requires it.
 8. **Merge, sync, report**, per `claude-core.md`'s *Close-out is mine, end to
    end*: re-verify live state with a fresh `pull_request_read` — not cached
    green — then squash-merge, check the Repl for its own commits and then sync and verify it (close-out step 3), execute the
-   Post-merge verification section, post the harvest-notes comment, and send
+   Post-merge verification section (a step that would start a paid AI run
+   only on David's go-ahead for that run (`uat-doc-format.md`, *Lanes*)), post the harvest-notes comment, and send
    the merge report with both SHAs, the latitude line, the PR's **Decisions
    taken on my recommendation** entries, the UAT handoff and, as its last
    line, the turn's spend (`claude-core.md`, *A reversible choice proceeds,

@@ -111,7 +111,8 @@ where I put it and treat it as binding.
    the PR's Post-merge verification section and runs through the Replit
    connector at close-out — never a chat instruction to him. A prototype-phase
    PR's section carries only its version's `live` check, run through the
-   connector after the merge's sync, under the same rule.
+   connector after the merge's sync, under the same rule — one that would
+   start a paid AI run only on his go-ahead for that run (`uat-doc-format.md`, *Lanes*).
 2. **David never reads diffs or commits.** Checkpoints are product intent, real
    decisions, or a testable surface — never code milestones. I never offer or
    pause for code review by him.
@@ -556,7 +557,8 @@ rule 4's "any changed head gets its review", translation and the close-out bar
   a later version only when he asks in words; it gets no code-review loop, no
   UAT doc and no hardening bar until David declares it production — and it
   keeps the machine lanes, scaled to a prototype, as my proof that a version
-  works before the owner is asked (David, 2026-10-10;
+  works before the owner is asked — a check that would start a paid AI run only
+  on his go-ahead for that run (`uat-doc-format.md`, *Lanes*) (David, 2026-10-10;
   [`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26),
   *What prototype phase keeps of verification*)
   (David, 2026-09-28: *"What we're cutting out is the code review loop once
@@ -1161,6 +1163,8 @@ conversation resolution, so the Merge button is inert while a thread is open.
    settings-only merge to a paused repo and told him why.)
 4. **Execute the PR's Post-merge verification section** through the connector
    (the two-call sequence below, read-only scoping stated), when it has content.
+   A step that would start a paid AI run is not read-only and runs only on
+   David's go-ahead for that run (`uat-doc-format.md`, *Lanes*).
 5. **Post the harvest-notes comment** on the workstream issue (production-phase
    product PRs; a prototype-phase PR posts none — its decisions are not made
    yet).

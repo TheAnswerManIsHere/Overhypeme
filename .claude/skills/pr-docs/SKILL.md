@@ -25,8 +25,10 @@ ships no UAT doc — that is the documentation bar the phase removes — and its
 *Post-merge verification* section carries exactly one thing: the version's
 `live` check, when its claim depends on the deployed environment or a real
 vendor, as the command and pass criterion I run after the merge's sync and
-before the owner is asked; otherwise "none needed". Its scaled `ci` and
-`scripted` lanes run before the merge and its feedback rail is the only human
+before the owner is asked — one that would start a paid AI run waits for
+David's go-ahead for that run (`uat-doc-format.md`, *Lanes*); otherwise
+"none needed". Its scaled `ci` and
+`scripted` lanes run before the merge (a paid one on his go-ahead, as above) and its feedback rail is the only human
 lane (working-modes.md, *The prototype phase, per feature*, and *What
 prototype phase keeps of verification*; Codex, DojoOS #8: without that record
 the mandatory live check had no recorded command for close-out to run).
@@ -53,7 +55,9 @@ the mandatory live check had no recorded command for close-out to run).
    merge + sync, I drive the section through the Replit connector (the
    two-call sequence in `CLAUDE.md`'s connector policy, read-only scoping
    stated in the prompt), read the results back with `ask_question`, and
-   report them — pass or fail — in the close-out merge report. A failure
+   report them — pass or fail — in the close-out merge report. A step that
+   would start a paid AI run is not read-only: it waits for David's go-ahead
+   for that run (`uat-doc-format.md`, *Lanes*). A failure
    routes through the normal channel and the workstream stays at its
    verification stage until clean. A clearly-labeled mutating deploy step
    in the section (the contract's third permitted write shape) is mine to
@@ -103,14 +107,23 @@ the mandatory live check had no recorded command for close-out to run).
    2026-10-07; the lanes are defined in
    [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)).
    A step is `human` only when no machine can answer it — taste, legibility,
-   whether a result reads right, or something only his own account or device
-   can do — and it says which, in its `**Judgement:**` line. Everything else
+   whether a result reads right, what an AI-generated image shows beyond what
+   anyone would verify the same way, or something only his own account or
+   device can do — and it says which, in its `**Judgement:**` line. Everything else
    is `ci`, `scripted`, `live` or `capture`, and **the check it cites is
    written in this same PR**, so the UAT he runs is the human residue and
    nothing more. `capture` is for an answer only pixels hold — the words
-   the product draws onto an image, a canvas preview, a real AI render's
-   content — with its `Expect` written as the screen it should show, never
-   "as before" (`uat-doc-format.md`, *Lanes*). **The lane is read from the `Expect`'s clauses and
+   the product draws onto an image, a canvas preview, the verifiable facts
+   of a real AI render (a bubble appears and reads a given text; never
+   likeness, scene, humour, quality, whether it shows a person or any
+   particular thing, or whether it is acceptable, unless as plain and
+   checkable as a bubble's text — those are a `human` step's:
+   `uat-doc-format.md`, *Lanes*, *An image an AI model generated*) — with
+   its `Expect` written as the screen it should show, never "as before"
+   (`uat-doc-format.md`, *Lanes*). A step whose check would start a paid AI
+   run, in any lane, runs only on David's go-ahead for that run (the same
+   section), so a clause the product's own code draws cites a local
+   capture where the consumer declares one. **The lane is read from the `Expect`'s clauses and
    from who can perform the `Do`, never from the heading or the verb**
    (David, 2026-10-15; the rule's home is the `uat` skill, *Where the
    browser automation lives*, which also says what `/uat` does with a step
