@@ -1,5 +1,5 @@
 /**
- * @purpose Name-and-pronoun bottom sheet for signed-out visitors, mounted by Layout, which never opens in this tree: its suppressed-path list contains "/" and is matched by prefix, so every route is suppressed (#705). As written it would open once per browser session unless a name is stored or was set explicitly or a share link is active, suggest pronouns from the name until the visitor picks, and save to usePersonName.
+ * @purpose Name-and-pronoun bottom sheet, mounted by Layout, that opens on any page when the visitor has no personalization name yet (not on the account pages, not from a share link, not for a signed-in user whose account has a display name) and closes only on save, suggesting pronouns from the name until the visitor picks and saving to usePersonName.
  * @subsystem public-site
  */
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -15,13 +15,10 @@ import {
   parseCustom,
 } from "@/lib/pronouns";
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
+import { shouldOpenWelcomeModal } from "@/lib/welcome-modal-gate";
 
 const TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
 
-// Home now has an inline name input baked into the cold-visitor hero, so the
-// auto-popping bottom-sheet would just duplicate that interaction.  We also
-// suppress on auth/admin paths where it has always been intrusive.
-const SUPPRESSED_PATHS = ["/", "/login", "/onboard", "/forgot-password", "/reset-password", "/verify-email", "/admin"];
 
 async function fetchSuggestedPronouns(name: string, signal: AbortSignal): Promise<string | null> {
   try {
@@ -50,17 +47,6 @@ function canSave(draftPronouns: string): boolean {
   return !!(p.subj.trim() && p.obj.trim() && p.poss.trim() && p.possPro.trim() && p.refl.trim());
 }
 
-function shouldShowModal(): boolean {
-  if (SHARE_LINK_ACTIVE) return false;
-  try {
-    if (localStorage.getItem("fact_db_name_explicit") === "1") return false;
-    const storedName = localStorage.getItem("fact_db_name");
-    if (storedName) return false;
-  } catch {
-    return false;
-  }
-  return true;
-}
 
 function FlameMark() {
   return (
@@ -71,7 +57,7 @@ function FlameMark() {
 }
 
 export function WelcomeModal() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
   const { name, pronouns, setName, setPronouns } = usePersonName();
   const [location] = useLocation();
 
@@ -86,25 +72,21 @@ export function WelcomeModal() {
   const debounceTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const nameInputRef       = useRef<HTMLInputElement>(null);
-  const hasOpenedRef       = useRef(false);
+
+  const shouldOpen = shouldOpenWelcomeModal({
+    authLoading,
+    isAuthenticated,
+    accountDisplayName: user?.displayName,
+    name,
+    shareLinkActive: SHARE_LINK_ACTIVE,
+    path: location,
+  });
 
   useEffect(() => {
-    if (authLoading) return;
-    if (isAuthenticated) return;
-    if (hasOpenedRef.current) return;
-    if (SUPPRESSED_PATHS.some((p) => location.startsWith(p))) return;
-    if (!shouldShowModal()) return;
-    try {
-      if (sessionStorage.getItem("welcome_modal_opened") === "1") return;
-    } catch { /* ignore */ }
-    const t = setTimeout(() => {
-      hasOpenedRef.current = true;
-      try { sessionStorage.setItem("welcome_modal_opened", "1"); } catch { /* ignore */ }
-      setOpen(true);
-    }, 600);
+    if (open || !shouldOpen) return;
+    const t = setTimeout(() => setOpen(true), 600);
     return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, isAuthenticated, location]);
+  }, [open, shouldOpen]);
 
   const triggerSuggestion = useCallback((nameValue: string) => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
