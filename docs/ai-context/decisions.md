@@ -13,6 +13,32 @@
 
 ---
 
+### 2026-10-17 · Verification work tied to the legacy meme studio is killed
+- **Decision:** no test, journey assertion or UAT step is written, kept open
+  or run for the legacy meme studio, or for a route only it calls. Its
+  remaining UAT clauses and steps name #628 Phase 4 (Cut and prune), where
+  the studio is deleted. The legacy studio is `MemeStudio.tsx` and
+  everything only it mounts: `components/MemeBuilder.tsx`,
+  `components/meme-builder/MemeBuilder.tsx` through `NewBuilderAdapter`,
+  `AiBgPicker`, `SourceImageConfirmModal`, `MemeStudioVideoTab`,
+  `MemeMagicVideo` and `VideoBuilder`. The routes only it calls include the
+  user AI generate route `POST /api/memes/ai/:factId/generate`, its
+  `generate-v2` and `analyze-source`, the render poll
+  `GET /api/memes/ai/renders/:renderJobId`, the scene-prompt routes, and a
+  look style picked on generate. Behaviour the live wizard
+  (`components/meme-builder/wizard/`) or an admin screen also reaches stays
+  in scope, even where a legacy component reaches it too. David, 2026-10-17:
+  *"If we're deleting the legacy builder, cancel any work associated with
+  it,"* then *"Everything that is tied to the legacy builder that we're no
+  longer using should be killed."*
+- **Why:** the flag that selects the legacy studio is pinned off in every
+  build (`meme-and-video-studio.md`), so a check on its paths protects no
+  user and spends effort on code Phase 4 deletes.
+- **Reference:** #631 (7b part 2), #720; #686, closed not planned on the
+  same ground.
+- **Revisit if:** the legacy studio is revived, or the wizard is wired to
+  one of those routes.
+
 ### 2026-10-17 · No paid AI run happens without David's go-ahead for that run
 - **Decision:** every run that spends real money on an AI vendor (the UAT
   capture lane's real renders, `acceptance-run.ts --mode live` and
