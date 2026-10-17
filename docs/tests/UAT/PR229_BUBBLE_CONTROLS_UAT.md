@@ -97,7 +97,8 @@ exactly. Which character each one attaches to is step 18's, yours.
 **Do:** The real-render capture run (`acceptance-run.ts --mode capture`, on the
 Repl under the $3.00 cap, only on your go-ahead for that run), as the dev admin, takes a fixture fact to concept
 review, saves one speech bubble whose entity is `the mailman` (a character
-not in the scene) through the enrichment save, approves the concept, runs
+not in the scene) and one Scene Role Assignment for the subject alone, so
+no planned character can match him, through the enrichment save, approves the concept, runs
 the moderation test render, and captures the full-size result.
 
 **Expect:** a soft amber warning in the editor ("doesn't match subject or

@@ -1852,6 +1852,23 @@ describe("nanoBanana2 — speech & thought bubbles", () => {
     assert.ok(out.imagePrompt.includes("the mailman"));
   });
 
+  it("a subject-only role binding leaves a planned character unmatched (the PR229 step 6 capture's premise)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { secondaryCharacters: [{ label: "the mailman", visualRole: "holding a parcel at the door" }] },
+      override: bubbleOverride([speech("Special delivery!", "the mailman")], {
+        roleBindings: [{ entity: "subject", visualRole: "the person the fact is about" }],
+      }),
+    }));
+    const warnings = out.diagnostics?.warnings ?? [];
+    assert.ok(
+      warnings.some((w) => w.code === "bubble_entity_unresolved" && w.context?.entity === "the mailman"),
+      "the moderator's bindings replace the planner's characters, so the mailman matches nothing",
+    );
+  });
+
   it("emits bubble_entity_ambiguous when two effective characters share the label", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",

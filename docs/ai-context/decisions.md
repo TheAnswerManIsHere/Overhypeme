@@ -49,7 +49,7 @@
 - **Why:** plan `PLAN_PHASE2_INC8_CAPTURE.md` D6/D7 asked for a reference
   photo that is "never a person's own photo"; these are the owners' own
   photos, used with their consent, which answers that requirement's
-  concern. The phone metadata they carry stays.
+  concern.
 - **Reference:** #708 (the first real-render capture, PR223 step 1).
 - **Revisit if:** the default faces change, or someone else's photo would be
   needed.
@@ -58,15 +58,17 @@
 - **Decision:** a test or UAT reading of an image an AI model generated is
   limited to what anyone would verify the same way (the render completed,
   the image decodes at the size asked for, a speech bubble appears and reads
-  a given text). Likeness, scene fit, humour, quality, whether something is
-  shown and whether the content is acceptable are David's to judge, as
-  `human` steps. David, 2026-10-17: *"You should only do fully deterministic
+  a given text). Likeness, scene fit, humour, quality, whether it shows a
+  person or any particular thing, and whether the content is acceptable are
+  David's to judge, as `human` steps, unless the answer is as plain and
+  checkable as a bubble's text. David, 2026-10-17: *"You should only do fully deterministic
   testing such as 'does a speech bubble appear and does it say "hello
   world"' … I'll do all of the checking of generated imagery to make sure
   it matches my desired outcomes."*
 - **Why:** interpretive judgement of generated content is where Claude's
   reading is unreliable. The fleet rule lives in the handbook's
-  `uat-doc-format.md`, *An image an AI model generated*.
+  `uat-doc-format.md`, *An image an AI model generated* (AI-Handbook #219,
+  arriving here by the sync).
 - **Reference:** #708 (PR223 step 1 and PR229 step 6), the split of PR223
   step 1 and PR229 steps 2, 4, 5, 6 and 13.
 - **Revisit if:** David says so.

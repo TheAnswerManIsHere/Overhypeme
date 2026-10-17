@@ -36,7 +36,7 @@ reference-photo path (`POST /api/memes/pulid-jobs`), and captures the
 reference and the full-size result.
 
 **Expect:** the render completes and the served result decodes as an image
-at the size the request asked for; and the finished meme's caption reads the
+(its dimensions are in the shot's caption); and the finished meme's caption reads the
 account's full display name exactly as stored (the caption clause is the unit
 test's, cited below). Whether the result shows the person in the reference
 photo is step 7's, yours.
@@ -122,8 +122,9 @@ generate.
 ### 7. The reference-photo result shows you, in a scene that fits
 
 **Do:** Look at step 1's two shots side by side, the reference photo and the
-result (`/uat` shows them with their evidence links). Without a capture run,
-generate one yourself in the app instead: AI styling with your own photo as
+result (`/uat` shows them with their evidence links). Step 1 is deferred, so
+its shots exist only after a capture run you gave the go-ahead for; without
+one, generate the image yourself in the app instead: AI styling with your own photo as
 the reference, on a fact with your name in it.
 
 **Expect:** the result shows the same person as the reference photo,

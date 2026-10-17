@@ -34,10 +34,17 @@ import { CAPTURE_DOCS, writeShot, type CaptureDoc, type ManifestLine } from "./c
 import { settledBaselineRenders } from "../aiBaselineCoverage";
 
 const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-/** The repository's publishable reference photo (plan D6, D7: a committed fixture, never a person's own photo). */
+/** The committed reference photo: David's own face, kept on purpose and cleared for any testing (decisions.md, 2026-10-17, superseding plan D6/D7's "never a person's own photo"). */
 export const REFERENCE_PHOTO = path.join(API_ROOT, "src/assets/test-face.jpg");
 
 export const MAILMAN_BUBBLE = { type: "speech" as const, entity: "the mailman", text: "Special delivery!" };
+/**
+ * A moderator role binding for the subject alone. Moderator role bindings take
+ * precedence over the planner's characters, so with this one saved the scene
+ * has no secondary character at all and the mailman matches nothing, on every
+ * run, whatever the planner wrote.
+ */
+export const SUBJECT_ONLY_ROLE = { entity: "subject", visualRole: "the person the fact is about" };
 
 const accounts = JSON.parse(fs.readFileSync(path.join(API_ROOT, "scripts/e2e-test-accounts.json"), "utf8")) as {
   password: string;
@@ -149,6 +156,7 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
           negativePromptAdditions: [],
         }),
         coreSceneOverride: candidate.sceneDescription,
+        roleBindings: [{ ...SUBJECT_ONLY_ROLE }],
         bubbles: [{ ...MAILMAN_BUBBLE }],
       };
       // Tokenise the saved prose, as the editor does before it saves.
@@ -202,16 +210,16 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
       const warnings = ((render.compiledPrompt?.diagnostics?.warnings ?? []) as Array<{ code: string; context?: { entity?: string } }>);
       const unresolved = warnings.some((w) => w.code === "bubble_entity_unresolved" && (w.context?.entity ?? "").toLowerCase() === MAILMAN_BUBBLE.entity);
       pr229.warnings = warnings.map((w) => w.code);
-      // Recorded, never a red: the real planner may write the mailman into the
-      // scene, and then the compiler rightly finds nothing unmatched. The
-      // warning itself is the unit tests' to prove (PR229 step 6's Check).
       pr229.unresolvedReported = unresolved;
+      // The subject-only role binding leaves the mailman nothing to match, so a
+      // missing warning means the run did not exercise step 6's premise.
+      if (!unresolved) result.problems.push(`pr229-s6-render: the compiler did not report "${MAILMAN_BUBBLE.entity}" unresolved despite the subject-only role binding (warnings: ${warnings.map((w) => w.code).join(", ") || "none"})`);
 
       const image = await readImage(admin, "pr229", "the test render's image", `/api/admin/reviews/${reviewId}/renders/${renderJobId}/image`);
       shot("pr229-s6-render", image.bytes, image.format, {
         doc: "PR229_BUBBLE_CONTROLS_UAT",
         step: "6",
-        shows: `The full-size moderation test render (${image.width}×${image.height}, POST /api/admin/reviews/${reviewId}/render) of a Visual Concept whose one speech bubble reads "${vso.bubbles[0]!.text}" and is attributed to "${vso.bubbles[0]!.entity}", a character not in the scene. ${unresolved ? `The compiler reported bubble_entity_unresolved for it: the entity matched no subject or role binding (role bindings saved: ${(vso.roleBindings ?? []).length}).` : `The compiler did not report the entity unresolved (warnings: ${warnings.map((w) => w.code).join(", ") || "none"}): the planner may have written him into the scene.`} Read only for what anyone would verify the same way: the render completed and a balloon reads "${vso.bubbles[0]!.text}". Who speaks the line is not a criterion.`,
+        shows: `The full-size moderation test render (${image.width}×${image.height}, POST /api/admin/reviews/${reviewId}/render) of a Visual Concept whose one speech bubble reads "${vso.bubbles[0]!.text}" and is attributed to "${vso.bubbles[0]!.entity}", a character not in the scene: the one role binding saved is the subject's. ${unresolved ? "The compiler reported bubble_entity_unresolved for it." : `The compiler did not report the entity unresolved (warnings: ${warnings.map((w) => w.code).join(", ") || "none"}), so this run did not exercise the premise.`} Read only for what anyone would verify the same way: the render completed and a balloon reads "${vso.bubbles[0]!.text}". Who speaks the line is not a criterion.`,
       });
     } catch (err) {
       pr229.error = (err as Error).message;
