@@ -1,8 +1,9 @@
 /**
- * @purpose Meme-builder upload hook: accepts JPEG, PNG or WebP up to 15 MB client-side, POSTs the bytes unchanged to /api/storage/upload-meme (which takes JPEG only, #702), and maps 413, 415, 422 and other failures to the too-large, invalid-format, rejected and network states.
+ * @purpose Meme-builder upload hook: accepts JPEG, PNG or WebP up to 15 MB client-side, re-encodes a PNG or WebP to JPEG in the browser (a JPEG goes up unchanged) because /api/storage/upload-meme takes JPEG only (#702), refuses a converted file still over 15 MB, previews the bytes it sends, POSTs them, and maps 413, 415, 422, a failed conversion and other failures to the too-large, invalid-format, rejected and network states.
  * @subsystem studio
  */
 import { useCallback, useState } from "react";
+import { preProcessImageFile } from "@/lib/image-upload";
 
 export type UploadStatus = "idle" | "previewing" | "uploading" | "moderating" | "ready" | "error";
 
@@ -54,15 +55,35 @@ export function useUploadModeration() {
       return null;
     }
 
-    const previewBlobUrl = URL.createObjectURL(file);
     setState({ status: "uploading", error: null, image: null, progress: 0 });
 
+    // upload-meme accepts JPEG only (userImageUpload.ts), so a PNG or WebP is
+    // re-encoded to JPEG here. A JPEG is sent unchanged, keeping every pixel.
+    let body: Blob = file;
+    if (file.type !== "image/jpeg") {
+      try {
+        body = (await preProcessImageFile(file)).blob;
+      } catch {
+        setState({ status: "error", error: "invalid-format", image: null, progress: 0 });
+        return null;
+      }
+      // The converter stops after a fixed number of attempts, so its output can
+      // still be over the limit; refuse it here rather than upload into a 413.
+      if (body.size > MAX_BYTES) {
+        setState({ status: "error", error: "too-large", image: null, progress: 0 });
+        return null;
+      }
+    }
+
+    // The thumbnail shows what is stored: the converted JPEG, not the original.
+    const previewBlobUrl = URL.createObjectURL(body);
+
     try {
-      const buffer = await file.arrayBuffer();
+      const buffer = await body.arrayBuffer();
       const res = await fetch("/api/storage/upload-meme", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": file.type },
+        headers: { "Content-Type": "image/jpeg" },
         body: buffer,
       });
 
