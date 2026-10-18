@@ -184,9 +184,14 @@ export function WelcomeModal() {
   return (
     <>
       {/* ── Mobile: bottom sheet ───────────────────────────── */}
-      <div className="md:hidden fixed inset-0 z-[100] flex flex-col justify-end" data-testid="identity-sheet">
-        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" />
+      {/* The sheet cannot be dismissed, so it scrolls when taller than the
+          screen (short phones, the keyboard up, custom pronouns open); the
+          inner min-h-full wrapper keeps it bottom-anchored when it fits, and
+          the backdrop is fixed so it never scrolls away. */}
+      <div className="md:hidden fixed inset-0 z-[100] overflow-y-auto overscroll-contain" data-testid="identity-sheet">
+        <div className="fixed inset-0 bg-black/65 backdrop-blur-sm" />
 
+        <div className="relative min-h-full flex flex-col justify-end">
         <div className="relative z-10 px-6 pb-0" style={{ paddingTop: "max(env(safe-area-inset-top, 0px), 2rem)" }}>
           {billboard}
         </div>
@@ -203,17 +208,19 @@ export function WelcomeModal() {
           </div>
           <div className="px-6 pt-4">
             <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-tight mb-1">Your turn.</h2>
-            <p className="text-[13px] text-muted-foreground mb-5">Add your name. Every fact becomes about you.</p>
+            {!knownName && <p className="text-[13px] text-muted-foreground mb-5">Add your name. Every fact becomes about you.</p>}
             {nameForm}
             <div style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 2rem)" }} />
           </div>
         </motion.div>
+        </div>
       </div>
 
       {/* ── Desktop: two-column overlay ────────────────────── */}
-      <div className="hidden md:flex fixed inset-0 z-[100]" data-testid="identity-sheet">
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <div className="hidden md:block fixed inset-0 z-[100] overflow-y-auto overscroll-contain" data-testid="identity-sheet">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
 
+        <div className="relative min-h-full flex p-6">
         <div className="relative z-10 w-full m-auto max-w-[1100px] grid grid-cols-[1.4fr_1fr] shadow-[0_40px_100px_rgba(0,0,0,0.7)] rounded-[28px] overflow-hidden">
           {/* Billboard L */}
           <div className="bg-background px-20 py-24 flex flex-col justify-center">
@@ -238,6 +245,7 @@ export function WelcomeModal() {
             <div className="text-[12px] font-bold tracking-[0.22em] text-primary uppercase font-display mb-3">Your turn</div>
             {nameForm}
           </div>
+        </div>
         </div>
       </div>
     </>

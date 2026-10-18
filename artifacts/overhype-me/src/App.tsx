@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes, flushRouteStatsToServer } from "@/lib/analytics";
 import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
 import { WelcomeModal } from "@/components/WelcomeModal";
+import { ShareLinkAccountGuard } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
@@ -324,6 +325,7 @@ function Router() {
       <RouteStatsFlush />
       <PrefetchCriticalRoutes />
       <AuthProfileSync />
+      <ShareLinkAccountGuard />
       <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
       <Switch>
         <Route path="/" component={Home} />

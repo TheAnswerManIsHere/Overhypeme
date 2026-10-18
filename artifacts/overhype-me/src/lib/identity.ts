@@ -57,14 +57,20 @@ export interface IdentityDecisionInput {
   location: string;
   /** The path this visit landed on (the first page of the page load). */
   landingLocation: string;
+  /**
+   * The visit has left its landing page at least once. The exception lapses
+   * for good then: returning to the landing path (Back, or the app routing
+   * there) does not restore it.
+   */
+  landingLapsed: boolean;
 }
 
 /** Whether the identity sheet should be open right now. */
 export function shouldAskForIdentity(input: IdentityDecisionInput): boolean {
-  const { auth, completeness, accountDisplayName, location, landingLocation } = input;
+  const { auth, completeness, accountDisplayName, location, landingLocation, landingLapsed } = input;
   if (auth === "loading") return false;
   if (isSuppressedPath(location)) return false;
-  if (location === landingLocation && isLandingExceptionPath(landingLocation)) return false;
+  if (!landingLapsed && location === landingLocation && isLandingExceptionPath(landingLocation)) return false;
   if (auth === "signedIn") {
     return !completeness.hasName && !accountDisplayName?.trim();
   }

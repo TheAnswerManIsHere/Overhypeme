@@ -134,6 +134,11 @@ test.describe("Identity flow, Phase 1", () => {
     await page.waitForURL((u) => u.pathname === "/facts/551");
     await expect(sheet(page)).toBeVisible();
 
+    // Back to the landing page: the exception has lapsed for this visit, so it still asks.
+    await page.goBack();
+    await page.waitForURL((u) => u.pathname === "/m/e2e-landing");
+    await expect(sheet(page)).toBeVisible();
+
     // Search submitted with Enter, from a fresh landing.
     await page.goto("/m/e2e-landing");
     await expectNoSheet(page);
@@ -158,6 +163,26 @@ test.describe("Identity flow, Phase 1", () => {
     await phone.locator("header button, nav button").filter({ hasText: /overhype/i }).filter({ visible: true }).first().tap();
     await phone.waitForURL((u) => u.pathname === "/");
     await expect(sheet(phone)).toBeVisible();
+    await context.close();
+  });
+
+  test("on a short phone with custom pronouns open, the whole sheet scrolls into view and saves", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
+    const phone = await context.newPage();
+    await stubPublicFacts(phone, { facts: [] });
+    await phone.goto("/?displayName=Grace");
+    const s = sheet(phone);
+    await expect(s).toBeVisible();
+    await s.getByRole("button", { name: /^custom(\.\.\.|…)$/i }).click();
+    // The billboard's first line can be scrolled to the top of the screen.
+    const headline = s.getByRole("heading", { level: 1 });
+    await headline.scrollIntoViewIfNeeded();
+    expect((await headline.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+    // And the save button below the custom fields can be reached and used.
+    await s.getByRole("button", { name: "they/them" }).click();
+    await s.getByTestId("identity-save").click();
+    await expect(sheet(phone)).toHaveCount(0);
+    expect(await stored(phone)).toEqual({ name: "Grace", pronouns: "they/them" });
     await context.close();
   });
 

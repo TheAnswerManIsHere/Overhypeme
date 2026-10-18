@@ -3,7 +3,7 @@
  * @subsystem public-site
  */
 
-import { createContext, useContext, useState, useEffect, ReactNode, createElement } from "react";
+import { createContext, useCallback, useContext, useRef, useState, useEffect, ReactNode, createElement } from "react";
 import { displayPronouns, DEFAULT_PRONOUNS } from "@/lib/pronouns";
 
 const STORAGE_KEY_NAME     = "fact_db_name";
@@ -48,6 +48,8 @@ export interface ResolvedIdentity {
   pronouns: string;
   /** Pronouns came from the visitor or a link, not the rendering fallback. */
   pronounsSupplied: boolean;
+  /** Which halves this page load's share link filled in (and persisted). */
+  fromLink: { name: boolean; pronouns: boolean };
 }
 
 /**
@@ -77,11 +79,14 @@ export function resolveInitialIdentity(
     }
   }
 
+  const fromLink = { name: false, pronouns: false };
+
   let name = storedName?.trim() || "";
   const linkName = urlName?.trim();
   if (!name && linkName) {
     name = linkName;
     storage.set(STORAGE_KEY_NAME, name);
+    fromLink.name = true;
   }
 
   let pronouns = storedPronouns?.trim() || "";
@@ -89,13 +94,30 @@ export function resolveInitialIdentity(
   if (!pronouns && linkPronouns) {
     pronouns = linkPronouns;
     storage.set(STORAGE_KEY_PRONOUNS, pronouns);
+    fromLink.pronouns = true;
   }
 
   return {
     name,
     pronouns: pronouns || DEFAULT_PRONOUNS,
     pronounsSupplied: !!pronouns,
+    fromLink,
   };
+}
+
+/** Removes from storage exactly the halves a share link filled in. */
+export function discardLinkHalves(storage: SafeStorage, fromLink: ResolvedIdentity["fromLink"]) {
+  if (fromLink.name) storage.remove(STORAGE_KEY_NAME);
+  if (fromLink.pronouns) storage.remove(STORAGE_KEY_PRONOUNS);
+}
+
+/**
+ * What an account's profile means for the browser copy: the name when it has
+ * one, and pronouns only when it has some. An empty profile value is never
+ * stored or counted as supplied; the rendering fallback stays a fallback.
+ */
+export function profileIdentity(name: string, pronouns: string): { name: string; pronouns: string | null } {
+  return { name: name.trim(), pronouns: pronouns.trim() || null };
 }
 
 // ── This page load's share link and landing location ─────────────────────────
@@ -160,6 +182,8 @@ interface PersonNameContextValue {
   reset:          () => void;
   /** Overwrite name+pronouns from an authenticated profile without marking explicit. */
   syncFromProfile: (name: string, pronouns: string) => void;
+  /** Takes back the halves this page load's share link filled in (a signed-in account wins). */
+  discardShareLink: () => void;
 }
 
 const PersonNameContext = createContext<PersonNameContextValue>({
@@ -172,6 +196,7 @@ const PersonNameContext = createContext<PersonNameContextValue>({
   setPronouns:    () => {},
   reset:          () => {},
   syncFromProfile: () => {},
+  discardShareLink: () => {},
 });
 
 function splitSubjectObject(pronouns: string): { subject: string; object: string } {
@@ -191,12 +216,16 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   const [name,     setNameState]     = useState<string>(initial.name);
   const [pronouns, setPronounsState] = useState<string>(initial.pronouns);
   const [pronounsSupplied, setPronounsSupplied] = useState<boolean>(initial.pronounsSupplied);
+  // Cleared once used or once the visitor writes their own identity, so a
+  // later discard can never take back something the visitor chose.
+  const fromLinkRef = useRef(initial.fromLink);
 
   const { subject, object } = splitSubjectObject(pronouns);
 
   useEffect(() => { stripShareParams(); }, []);
 
   function setName(value: string) {
+    fromLinkRef.current = { ...fromLinkRef.current, name: false };
     const n = value.trim();
     if (n) {
       storage.set(STORAGE_KEY_NAME, n);
@@ -212,6 +241,7 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   }
 
   function setPronouns(value: string) {
+    fromLinkRef.current = { ...fromLinkRef.current, pronouns: false };
     const v = value.trim() || DEFAULT_PRONOUNS;
     storage.set(STORAGE_KEY_PRONOUNS, v);
     markExplicit();
@@ -220,6 +250,7 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   }
 
   function reset() {
+    fromLinkRef.current = { name: false, pronouns: false };
     clearStoredIdentity(storage);
     setNameState(DEFAULT_NAME);
     setPronounsState(DEFAULT_PRONOUNS);
@@ -227,17 +258,30 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   }
 
   function syncFromProfile(newName: string, newPronouns: string) {
-    const n = newName.trim();
-    const p = newPronouns.trim() || DEFAULT_PRONOUNS;
+    const { name: n, pronouns: p } = profileIdentity(newName, newPronouns);
+    fromLinkRef.current = { name: false, pronouns: false };
     if (n) {
       storage.set(STORAGE_KEY_NAME, n);
       markExplicit();
     }
-    storage.set(STORAGE_KEY_PRONOUNS, p);
+    if (p) storage.set(STORAGE_KEY_PRONOUNS, p);
+    else storage.remove(STORAGE_KEY_PRONOUNS);
     setNameState(n);
-    setPronounsState(p);
-    setPronounsSupplied(true);
+    setPronounsState(p ?? DEFAULT_PRONOUNS);
+    setPronounsSupplied(!!p);
   }
+
+  const discardShareLink = useCallback(() => {
+    const fromLink = fromLinkRef.current;
+    if (!fromLink.name && !fromLink.pronouns) return;
+    discardLinkHalves(storage, fromLink);
+    if (fromLink.name) setNameState(DEFAULT_NAME);
+    if (fromLink.pronouns) {
+      setPronounsState(DEFAULT_PRONOUNS);
+      setPronounsSupplied(false);
+    }
+    fromLinkRef.current = { name: false, pronouns: false };
+  }, []);
 
   // Another tab's save or clear reaches this tab, so an open sheet can close.
   useEffect(() => {
@@ -265,6 +309,7 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
         setPronouns,
         reset,
         syncFromProfile,
+        discardShareLink,
       },
     },
     children,

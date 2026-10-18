@@ -20,6 +20,7 @@ function ask(over: Partial<IdentityDecisionInput>): boolean {
     completeness: NONE,
     location: "/search",
     landingLocation: "/search",
+    landingLapsed: false,
     ...over,
   });
 }
@@ -84,6 +85,11 @@ describe("shouldAskForIdentity", () => {
   it("asks once the visitor leaves the landing page", () => {
     expect(ask({ location: "/", landingLocation: "/m/abc" })).toBe(true);
     expect(ask({ location: "/facts/8", landingLocation: "/facts/7" })).toBe(true);
+  });
+
+  it("keeps asking after the visit returns to its landing page (Back, or the app routing there)", () => {
+    expect(ask({ location: "/m/abc", landingLocation: "/m/abc", landingLapsed: true })).toBe(true);
+    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", landingLapsed: true })).toBe(true);
   });
 
   it("asks on a builder sub-route even when the visit landed there", () => {
