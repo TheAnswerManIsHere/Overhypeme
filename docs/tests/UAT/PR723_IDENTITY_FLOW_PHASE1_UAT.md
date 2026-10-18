@@ -57,7 +57,7 @@ Everything except how the sheet feels on your phone is checked by a machine.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/identityFlow.spec.ts:a full share link sets both halves, never asks, and leaves the address bar clean` `artifacts/overhype-me/src/hooks/use-person-name.test.ts:applies a full share link to an empty browser and persists exactly that`
+**Check:** `artifacts/overhype-me/e2e/identityFlow.spec.ts:a full share link sets both halves, never asks, and leaves the address bar clean` `artifacts/overhype-me/src/hooks/use-person-name.test.ts:applies a full share link to an empty browser in the identity, holding it unwritten until auth resolves`
 
 ### 5. A half share link asks only for the missing half
 
