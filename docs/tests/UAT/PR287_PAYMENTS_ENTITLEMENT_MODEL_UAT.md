@@ -92,7 +92,7 @@ click "Grant" in the "Legendary for Life" section.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — POST grant-lifetime answers success and the target user's tier becomes legendary, in the response and in the database — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:grant-lifetime answers success and the target user's tier becomes legendary, in the response and in the database`
 
 ### 6. A grant is recorded distinctly from a purchase — the real fix
 
@@ -107,9 +107,9 @@ revenue — could not tell a comp from a real sale.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/entitlementVerification.test.ts:produces a grant that carries actor, label and reason`
+**Check:** `artifacts/api-server/src/__tests__/entitlementVerification.test.ts:produces a grant that carries actor, label and reason`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:after a grant, the membership read returns an admin_grant entry with label and reason, no amount or payment id, and an admin_grant history row`
 
-**Deferred:** #631 — 7b — after POST grant-lifetime, GET admin users :id membership returns an admin_grant entry with granted-by label and reason, null amount and payment id, and an admin_grant history row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — on /admin/users the Legendary for Life panel reads Granted with (admin: <granter label>) and the quoted reason, and shows no amount or payment-intent link — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Deferred:** #631 — 7b — on /admin/users the Legendary for Life panel reads Granted with (admin: <granter label>) and the quoted reason, and shows no amount or payment-intent link — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 7. Revoking a grant drops the user
 
@@ -119,7 +119,7 @@ revenue — could not tell a comp from a real sale.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — POST revoke-lifetime as admin answers 200 with success true, and the user's stored membership tier then reads registered in the database — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:revoke-lifetime as admin answers 200 with success true, and the user's stored tier then reads registered`
 
 ### 8. A revoked grant stays in the history
 
@@ -130,7 +130,9 @@ it. It is not deleted — that history is the point.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — after a revoke the membership read still returns the grant with status revoked, revoker label and an admin_revoke history row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — on /admin/users after Revoke the Legendary for Life panel reads Revoked grant and a Revoked line naming the revoker label — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:after a revoke the membership read still returns the grant, marked revoked with the revoker label, and an admin_revoke history row`
+
+**Deferred:** #631 — 7b — on /admin/users after Revoke the Legendary for Life panel reads Revoked grant and a Revoked line naming the revoker label — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 9. A revoked user can be granted again
 
@@ -140,7 +142,7 @@ it. It is not deleted — that history is the point.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — a second grant after a revoke succeeds and the user is legendary again, with a new active grant row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:a second grant after a revoke succeeds and the user is legendary again, with a new active grant row`
 
 ### 10. A second grant is refused, not silently stacked
 
@@ -154,7 +156,7 @@ anyway.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — a second grant returns 400 with "User already has an active admin grant", leaving one active row so one revoke drops the user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:a second grant returns 400 'User already has an active admin grant', leaving one active row so one revoke drops the user`
 
 ### 11. A full refund drops the user's access
 
@@ -239,9 +241,9 @@ them up.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`
+**Check:** `artifacts/api-server/src/__tests__/membershipState.test.ts:qualifies on any one source, regardless of the others`; `artifacts/api-server/src/__tests__/membershipState.test.ts:keeps a user legendary on an active admin grant alone when their subscription is cancelled`
 
-**Deferred:** #631 — 7b — a cancelled subscription beside an active admin grant derives legendary on the grant alone, the cited test shows a lifetime holding the tier — `artifacts/api-server/src/__tests__/membershipState.test.ts`; #695 — the Stripe fake's event channel — the subscription-cancel path marking the source canceled
+**Deferred:** #695 — the Stripe fake's event channel — the subscription-cancel path marking the source canceled
 
 ### 18. A dispute revokes access immediately
 
@@ -313,7 +315,9 @@ is permanent.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — GET admin users reports the effective tier per user: legendary for a live member, registered for a lapsed one and a free user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — on /admin/users the seeded paid account's row shows the Legendary icon and the free account's row the Registered icon — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:reports legendary for a live member and registered for a lapsed one and a free user`
+
+**Deferred:** #631 — 7b — on /admin/users the seeded paid account's row shows the Legendary icon and the free account's row the Registered icon — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 24. The Stripe summary counts add up
 
@@ -323,9 +327,9 @@ is permanent.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/membershipReadPath.test.ts:moves a lapsed member between the two dashboard counts, not out of both`
+**Check:** `artifacts/api-server/src/__tests__/membershipReadPath.test.ts:moves a lapsed member between the two dashboard counts, not out of both`; `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:the Billing summary counts a lapsed legendary user as a registered member, not an active subscriber, and a live one as an active subscriber`
 
-**Deferred:** #631 — 7b — GET admin stripe summary counts a seeded lapsed legendary user in registeredMembers, not activeSubscribers, and a live one in activeSubscribers — `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts`; #631 — 7b — the Billing page's Active Subscribers and Registered cards show the summary route's counts, both above zero with the seeded accounts — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Deferred:** #631 — 7b — the Billing page's Active Subscribers and Registered cards show the summary route's counts, both above zero with the seeded accounts — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 25. Private memes are still Legendary-only
 
@@ -356,8 +360,6 @@ is permanent.
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/moderation.uploadRateLimit.test.ts:legendary users get the legendary cap`
-
-**Deferred:** #631 — 7b — the legendary daily upload cap is strictly higher than the registered cap, the test asserts only greater-or-equal — `artifacts/api-server/src/__tests__/moderation.uploadRateLimit.test.ts`
 
 ### 28. Fact-of-the-day email still goes to Legendary members
 
@@ -393,7 +395,9 @@ alarming.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — after a successful sweep GET admin membership grace-sweep reports neverRun false, neverSucceeded false, alerting false and a lastSuccessAt — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the Refunds and Disputes strip reads Healthy, last converged N ago, in grey — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:after a successful sweep, reports neverRun false, neverSucceeded false, alerting false and a lastSuccessAt`
+
+**Deferred:** #631 — 7b — the Refunds and Disputes strip reads Healthy, last converged N ago, in grey — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 31. The convergence strip is honest right after a deploy
 
@@ -404,7 +408,9 @@ alarming.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — before any sweep has run the grace-sweep route reports neverRun true and alerting false — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the strip reads Not yet run, waiting Nm since start, never Healthy — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:before any sweep has run, reports neverRun true and alerting false`
+
+**Deferred:** #631 — 7b — the strip reads Not yet run, waiting Nm since start, never Healthy — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 32. The convergence strip refreshes itself
 
@@ -426,7 +432,9 @@ users are lagging.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the grace-sweep route driftedCount counts a seeded lapsed legendary user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the strip reads No users pending convergence on a clean database — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #631 — 7b — with one drifted user the strip reads 1 user pending convergence — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:driftedCount counts a seeded lapsed legendary user`
+
+**Deferred:** #631 — 7b — the strip reads No users pending convergence on a clean database — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #631 — 7b — with one drifted user the strip reads 1 user pending convergence — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 34. An amber convergence strip is a label problem, not an access one
 
@@ -437,9 +445,9 @@ this is a label problem, not an access problem.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/membershipReadPath.test.ts:authMiddleware serves a lapsed user at the non-qualifying tier` — a drifted user is served at the effective tier
+**Check:** `artifacts/api-server/src/__tests__/membershipReadPath.test.ts:authMiddleware serves a lapsed user at the non-qualifying tier` — a drifted user is served at the effective tier; `artifacts/api-server/src/__tests__/routes.admin.test.ts:with the alert threshold exceeded, reports alerting true and lists the drifted user`
 
-**Deferred:** #631 — 7b — with the alert threshold exceeded the route reports alerting true and lists the drifted user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the strip turns amber and says stored tiers are drifting while access is correct — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Deferred:** #631 — 7b — the strip turns amber and says stored tiers are drifting while access is correct — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 35. A partial refund is labelled and does not remove access
 
@@ -517,9 +525,9 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns the user's membership_history rows newest-first`
+**Check:** `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns the user's membership_history rows newest-first`; `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns refund and dispute rows as well as purchases`
 
-**Deferred:** #631 — 7b — payment-history returns refund and dispute rows as well as purchases — `artifacts/api-server/src/__tests__/routes.stripe.test.ts`; #631 — 7b — the profile payment-history card lists purchase, refund and dispute entries with their labels, the test always mocks an empty history — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`
+**Deferred:** #631 — 7b — the profile payment-history card lists purchase, refund and dispute entries with their labels, the test always mocks an empty history — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`
 
 ### R7. Deactivating and reinstating a user restores the right tier
 
@@ -532,7 +540,9 @@ them would have handed Legendary back based on a stale local row.
 
 **Lane:** scripted
 
-**Deferred:** #631 — 7b — deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #695 — the Stripe fake's event channel — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered`
+
+**Deferred:** #695 — the Stripe fake's event channel — reinstatement refreshes a Stripe-backed source, and the fake serves no subscription or payment to retrieve
 
 ### R8. Creating a user with Legendary records an admin grant
 
@@ -542,7 +552,9 @@ them would have handed Legendary back based on a stale local row.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — POST admin users with membershipTier legendary answers 201, and the user has an active admin_grant row with a reason and an admin_grant history event — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — on /admin/users, the create-user form submits and the new user appears in the list — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:answers 201 and records an active admin_grant row with a reason and an admin_grant history event`
+
+**Deferred:** #631 — 7b — on /admin/users, the create-user form submits and the new user appears in the list — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ## Not bugs
 - **Two race conditions are watch-for-if-you-see-it, not required steps**

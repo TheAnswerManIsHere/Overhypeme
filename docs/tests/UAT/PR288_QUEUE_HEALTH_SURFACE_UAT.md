@@ -224,9 +224,7 @@ Nothing from the Queue Health page appears on it.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: provisional-approve runs enrichment then Visual Ideas to concept_review; `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:starts a refresh cycle: candidate + new review, createdBy = the admin, ids echoed`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:Repair projections resolves inline with terminal outcomes`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:Re-enrich with forceOverwriteAdminEdited queues a concrete job` (queued only)
-
-**Deferred:** #631 — 7b — a Re-enrich job queued through /api/admin/taxonomy-health/actions/backfill-enrichment reaching done in /api/admin/taxonomy-health/job-status after the worker runs it — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts`
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: provisional-approve runs enrichment then Visual Ideas to concept_review; `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:starts a refresh cycle: candidate + new review, createdBy = the admin, ids echoed`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:Repair projections resolves inline with terminal outcomes`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:Re-enrich with forceOverwriteAdminEdited queues a concrete job` (queued only); `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:a Re-enrich job queued through backfill-enrichment reaches done in job-status after the worker runs it`
 
 ### R4. The admin sidebar gains only Queue Health
 

@@ -64,9 +64,7 @@ only blocks malformed ids you'd never type by hand.)
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`
-
-**Deferred:** #631 — 7b — after POST /admin/users/set-password returns 200 for a real email, that user's stored password hash verifies the new password, the test only checks status 200 — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`; `artifacts/api-server/src/__tests__/localAuth.security.test.ts:stores a hash that verifies the new password after a 200`
 
 ### 5. A huge paste-list import is refused
 
@@ -77,9 +75,7 @@ grinding through. Splitting into smaller batches still works.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`
-
-**Deferred:** #631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — POST /admin/facts/import as admin with exactly 1000 facts returns 200 with all 1000 processed, not refused or truncated — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects 1001 valid facts with 400 Invalid input and queues none of them`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:accepts exactly 1000 facts and processes all of them — the cap is inclusive`
 
 ### 6. A huge CSV import is refused
 
@@ -90,9 +86,7 @@ grinding through. Splitting into smaller batches still works.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv accepts an import of exactly 2000 rows — the cap is inclusive` — a batch at the cap is accepted and every row processed
-
-**Deferred:** #631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv accepts an import of exactly 2000 rows — the cap is inclusive` — a batch at the cap is accepted and every row processed; `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects a csv over 2,000,000 characters (but under the 2 MiB limit and 2000 rows) with 400 Invalid input and queues nothing`
 
 ### 7. A bad email on set-password is refused
 
@@ -103,7 +97,7 @@ email (e.g. `notanemail`).
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — POST /admin/users/set-password with email notanemail returns 400 with error a valid email is required, only a missing email is tested — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:rejects a malformed email with 400 'a valid email is required'`
 
 ## Regression
 
@@ -135,9 +129,7 @@ email (e.g. `notanemail`).
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`
-
-**Deferred:** #631 — 7b — after POST /admin/users/set-password returns 200 for a real email, that user's stored password hash verifies the new password, the test only checks status 200 — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:C7: admin set-password minimum length`; `artifacts/api-server/src/__tests__/localAuth.security.test.ts:stores a hash that verifies the new password after a 200`
 
 ### R4. Import an oversized batch
 
@@ -147,9 +139,7 @@ email (e.g. `notanemail`).
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`
-
-**Deferred:** #631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/admin.validation.security.test.ts:bulk-import size caps` `artifacts/api-server/src/__tests__/routes.admin.test.ts:POST /admin/facts/import-csv rejects an import of more than 2000 rows, by ROW COUNT and not by byte size`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects 1001 valid facts with 400 Invalid input and queues none of them`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects a csv over 2,000,000 characters (but under the 2 MiB limit and 2000 rows) with 400 Invalid input and queues nothing`
 
 ### R5. Set-password with a malformed email
 
@@ -159,7 +149,7 @@ email (e.g. `notanemail`).
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — POST /admin/users/set-password with email notanemail returns 400 with error a valid email is required, only a missing email is tested — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/localAuth.security.test.ts:rejects a malformed email with 400 'a valid email is required'`
 
 ## Not bugs
 

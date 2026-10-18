@@ -50,9 +50,7 @@ once names are filled in."
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`
-
-**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 with a core_scene_rendered_too_long detail for a Concept of 110 {NAME} tokens under the raw cap — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept whose WORST-CASE rendered length blows the cap even under the raw cap` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:400s a Concept of 110 {NAME} tokens (under the raw cap) with a core_scene_rendered_too_long detail`
 
 ### 3. Trimming an over-budget Concept lets it save
 
@@ -63,9 +61,7 @@ budget and Save again.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: after a budget refusal, trimming the Concept and saving again succeeds`
-
-**Deferred:** #631 — 7b — the fact enrichment PATCH accepting with 200 and storing a token-free Concept just under the cap, about 1,490 characters — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override` `artifacts/api-server/src/__tests__/promptBudget.test.ts:the moderator Concept rendered reserve is at least its raw cap (a token-free Concept must fit)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: after a budget refusal, trimming the Concept and saving again succeeds`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:200s and stores a token-free Concept just under the raw cap (~1,490 characters)`
 
 ### 4. Excessive aggregate visual guidance is rejected
 
@@ -78,9 +74,7 @@ aggregate that's capped.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a single normal required detail saves with 200
-
-**Deferred:** #631 — 7b — the fact enrichment PATCH answering 400 with a moderator_additions_rendered_too_long detail for many role bindings, required details, composition notes and additions together — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — the combined-guidance rejection for an actual mix of role bindings, required details, composition notes and additions measured through the compiler is unasserted, the cited checks inject the emitted length — `artifacts/api-server/src/__tests__/promptBudget.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects when the (compiler-measured) additions emission exceeds the pool` `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:REGRESSION #685: an over-budget save shows the server's budget sentences, not the error code`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a single normal required detail saves with 200; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:400s many role bindings, required details, composition notes and additions together with a moderator_additions_rendered_too_long detail`; `artifacts/api-server/src/__tests__/promptBudget.test.ts:the same guidance combined (role bindings + required details + composition + additions) is rejected on the compiler-measured length`
 
 ### 5. A deterministically-broken render fails fast with a specific reason
 
@@ -93,9 +87,7 @@ forever or shipping a degraded image.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/asyncJobs.test.ts:terminalFailure marks the row failed on the FIRST attempt, ignoring maxAttempts (§12)` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:signals required_budget_overflow instead of silently truncating required content (§10.5)`
-
-**Deferred:** #631 — 7b — the image-prompt job turning a corrupt frozen enrichment, a leaked {NAME} token or a required-budget overflow into a first-attempt terminal failure with its specific code and no image_generation job — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/asyncJobs.test.ts:terminalFailure marks the row failed on the FIRST attempt, ignoring maxAttempts (§12)` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:signals required_budget_overflow instead of silently truncating required content (§10.5)`; `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts:a corrupt frozen enrichment → invalid_persisted_enrichment, before any planner call`
 
 ### 6. Built-in style descriptions are shorter but look the same
 
@@ -123,9 +115,7 @@ Save.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override`
-
-**Deferred:** #631 — 7b — a typical Concept with several role bindings and required details saving through the PATCH route is unasserted, the cited check validates an empty override — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:accepts an empty / small override`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:200s a typical Concept with several role bindings and required details`
 
 ### R2. A valid fact still renders end-to-end
 

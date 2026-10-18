@@ -21,9 +21,9 @@ a silent save, and not a generic "Save failed" error.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:no confirmation → confirmation_required with a populated impact` `artifacts/overhype-me/src/components/admin/patchFactDraft.test.ts:maps REQUIRES_CONFIRMATION → confirmation_required with the impact`
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:no confirmation → confirmation_required with a populated impact` `artifacts/overhype-me/src/components/admin/patchFactDraft.test.ts:maps REQUIRES_CONFIRMATION → confirmation_required with the impact`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:answers 409 REQUIRES_CONFIRMATION with the impact for changed text on a live fact, and 200 once confirmed`
 
-**Deferred:** #631 — 7b — PATCH /admin/facts/:id answering 409 REQUIRES_CONFIRMATION with the impact for changed text on a live fact, and 200 once confirmed — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the Facts page opening the red-bordered Change approved fact text modal, not a silent save or a Save failed banner — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Deferred:** #631 — 7b — the Facts page opening the red-bordered Change approved fact text modal, not a silent save or a Save failed banner — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 2. The modal names the consequences
 
@@ -154,9 +154,9 @@ complete.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)` `artifacts/api-server/src/__tests__/moderationWorkflow.guards.test.ts:canProductionApprove: still production_review-only (never concept_review)`
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)` `artifacts/api-server/src/__tests__/moderationWorkflow.guards.test.ts:canProductionApprove: still production_review-only (never concept_review)`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:restarts prep on an inactive staging fact at concept_review: 200, review to prep_pending, one enrichment job queued`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:refuses a review still at prep_pending with 409 and leaves its staging fact inactive`
 
-**Deferred:** #631 — 7b — PATCH /admin/facts/:id with new text on an inactive staging fact whose review is at concept_review answering 200, the review moving to prep_pending and one enrichment job queued — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — POST /admin/reviews/:id/approve-for-production on a review at prep_pending answering 409 and leaving its staging fact inactive — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`; #628 — Phase 13 (Admin console) — the Moderation screen showing the restarted review at the prep stage is rebuilt in Phase 13; #628 — Phase 4 (Cut and prune) — the images prep it re-runs is the Pexels job that the cut deletes
+**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen showing the restarted review at the prep stage is rebuilt in Phase 13; #628 — Phase 4 (Cut and prune) — the images prep it re-runs is the Pexels job that the cut deletes
 
 ### 12. A variant mid-review does not block the root fact's re-word
 
@@ -172,9 +172,7 @@ expectation would now fail through no fault of the product.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:does NOT block a root edit when a child is mid-review`
-
-**Deferred:** #631 — 7b — a confirmed PATCH /admin/facts/:id text edit on a live root whose variant has a pending concept_review review answering 200 and storing the new text — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #631 — 7b — the unconfirmed PATCH /admin/facts/:id 409 for that root carrying an impact with refreshInFlight false, so the modal shows no in-flight warning — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:does NOT block a root edit when a child is mid-review`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:a confirmed text edit on a live root returns 200 and stores the new text while its variant has a pending concept_review review`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:an unconfirmed edit of that root answers 409 with an impact whose refreshInFlight is false`
 
 ## Regression
 

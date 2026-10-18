@@ -165,9 +165,9 @@ in-memory value that resets on restart.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:preserves syncedCount across a simulated server restart (regression: counts survive process loss)`
+**Check:** `artifacts/api-server/src/__tests__/stripeSyncRunner.test.ts:preserves syncedCount across a simulated server restart (regression: counts survive process loss)`; `artifacts/api-server/src/__tests__/routes.adminStripeSync.test.ts:still returns the seeded products row's lastSyncedAt after the in-process runner state is reset`
 
-**Deferred:** #631 — 7b — the plans-last-synced stamp reading Last synced: from per-resource lastSyncedAt when GET /api/admin/stripe/sync/status is stubbed as after a restart, finishedAt null — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — GET /api/admin/stripe/sync/status, after _resetSyncRunnerForTests, still returning the seeded products row's lastSyncedAt non-null — `artifacts/api-server/src/__tests__/routes.adminStripeSync.test.ts`
+**Deferred:** #631 — 7b — the plans-last-synced stamp reading Last synced: from per-resource lastSyncedAt when GET /api/admin/stripe/sync/status is stubbed as after a restart, finishedAt null — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ## Regression
 

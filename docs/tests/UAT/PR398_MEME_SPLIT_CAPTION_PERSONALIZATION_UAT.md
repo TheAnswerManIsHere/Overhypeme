@@ -62,9 +62,7 @@ The meme's API record carries that sentence as its factText.
 
 **Lane:** ci
 
-**Check:** `curl -s https://overhype.me/api/memes/o1bV9xne49` via the Replit connector; the factText field must read "Nick Baron makes onions cry."; `artifacts/overhype-me/e2e/publicScreens.spec.ts:the meme page shows the creator's personalized sentence as its caption`
-
-**Deferred:** #631 — 7b — GET /api/memes/:slug for a meme whose creator is Nick Baron, he/him, on the fact {NAME} makes onions cry. returns factText Nick Baron makes onions cry. — `artifacts/api-server/src/__tests__/routes.memes.test.ts`
+**Check:** `curl -s https://overhype.me/api/memes/o1bV9xne49` via the Replit connector; the factText field must read "Nick Baron makes onions cry."; `artifacts/overhype-me/e2e/publicScreens.spec.ts:the meme page shows the creator's personalized sentence as its caption`; `artifacts/api-server/src/__tests__/routes.memes.test.ts:renders the fact's {NAME} template with the creator's name and pronouns as factText`
 
 ### 3. A brand-new meme's picture matches its own preview
 

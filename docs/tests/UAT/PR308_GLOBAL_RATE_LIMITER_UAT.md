@@ -54,9 +54,9 @@ is not slowed by the limiter.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:the documented concurrent-poller load receives zero 429s under the default ceiling`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:home, Top Facts and a fact page show their usual layout and content`
+**Check:** `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:the documented concurrent-poller load receives zero 429s under the default ceiling`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:home, Top Facts and a fact page show their usual layout and content`; `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:an ordinary API request spends well under the bound inside the limiter itself`
 
-**Deferred:** #631 — 7b — no API response while ordinary routes load is a 429 and each route stays on its path — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #631 — 7b — an ordinary API request through the global limiter completes within an asserted time bound measuring the limiter's own overhead — `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts`
+**Deferred:** #631 — 7b — no API response while ordinary routes load is a 429 and each route stays on its path — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### 2. A video or image generation completes normally
 
@@ -103,9 +103,9 @@ you'd normally check).
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:an ordinary API request spends well under the bound inside the limiter itself`
 
-**Deferred:** #631 — 7b — no API request made while the feed routes load is answered 429 — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #631 — 7b — an ordinary API request through the global limiter completes within an asserted time bound measuring the limiter's own overhead — `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts`
+**Deferred:** #631 — 7b — no API request made while the feed routes load is answered 429 — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
 
 ### R3. A meme completes — image flow
 
@@ -137,9 +137,7 @@ pre-existing limit.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 2: the ordinary free account's submission is accepted and listed in the admin queue
-
-**Deferred:** #631 — 7b — a non-admin account's sixth POST /facts/submit-review inside the window gets 429 "You're submitting facts too quickly. Please slow down." — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 2: the ordinary free account's submission is accepted and listed in the admin queue; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PER-MINUTE LIMIT: a non-admin account's submission past the fact_submit window max gets 429 with the 'too quickly' message`
 
 ### R6. Admin Taxonomy Health loads
 
