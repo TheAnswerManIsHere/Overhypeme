@@ -41,13 +41,13 @@ Everything except how the sheet feels on your phone is checked by a machine.
 
 ### 3. The name never leaves the browser while signing up anonymously
 
-**Do:** Type "Maria" in the sheet and save.
+**Do:** Type "Maria" in the sheet and save. In a fresh browser, type "Zorblax" instead.
 
-**Expect:** Pronouns are suggested as she/her. No request goes to the AI suggestion service.
+**Expect:** For Maria, she/her is suggested in the visible pronoun choices, and no request goes to the AI suggestion service. For Zorblax, no pronouns are pre-selected and Save stays off until one is picked; nobody is given he/him without choosing it.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/identityFlow.spec.ts:signed-out capture suggests pronouns without sending the name to the server`
+**Check:** `artifacts/overhype-me/e2e/identityFlow.spec.ts:signed-out capture suggests pronouns without sending the name to the server` `artifacts/overhype-me/e2e/identityFlow.spec.ts:a name with no pronoun suggestion cannot be saved until the visitor picks pronouns`
 
 ### 4. A full share link sets both halves and never asks
 

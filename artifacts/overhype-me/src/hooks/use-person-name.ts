@@ -210,6 +210,8 @@ interface PersonNameContextValue {
    * wins). Either way the parameters leave the address bar. Runs once.
    */
   resolveShareLink: (signedIn: boolean) => void;
+  /** This page load's share link has been settled, so the identity is the visitor's, not the link's pending one. */
+  shareLinkResolved: boolean;
 }
 
 const PersonNameContext = createContext<PersonNameContextValue>({
@@ -223,6 +225,7 @@ const PersonNameContext = createContext<PersonNameContextValue>({
   reset:          () => {},
   syncFromProfile: () => {},
   resolveShareLink: () => {},
+  shareLinkResolved: true,
 });
 
 function splitSubjectObject(pronouns: string): { subject: string; object: string } {
@@ -247,6 +250,7 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   // later sign-out never replays the link.
   const pendingRef = useRef<PendingLinkHalves>(initial.pending);
   const shareLinkResolvedRef = useRef(false);
+  const [shareLinkResolved, setShareLinkResolved] = useState(false);
 
   const { subject, object } = splitSubjectObject(pronouns);
 
@@ -313,6 +317,7 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
       }
     }
     stripShareParams();
+    setShareLinkResolved(true);
   }, []);
 
   // Another tab's save or clear reaches this tab, so an open sheet can close.
@@ -343,6 +348,7 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
         reset,
         syncFromProfile,
         resolveShareLink,
+        shareLinkResolved,
       },
     },
     children,

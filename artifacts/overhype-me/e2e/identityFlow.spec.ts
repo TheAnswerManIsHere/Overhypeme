@@ -250,6 +250,34 @@ test.describe("Identity flow, Phase 1", () => {
     await expect(page.getByText(/Grace out-ran the weekend/i).filter({ visible: true }).first()).toBeVisible();
   });
 
+  test("a name with no pronoun suggestion cannot be saved until the visitor picks pronouns", async ({ page }) => {
+    await stubPublicFacts(page, { facts: [] });
+    await page.goto("/");
+    const s = sheet(page);
+    await s.getByTestId("identity-name-input").fill("Zorblax");
+    await expect(s.getByTestId("identity-save")).toBeDisabled();
+    await s.getByRole("button", { name: "they/them" }).click();
+    await s.getByTestId("identity-save").click();
+    await expect(sheet(page)).toHaveCount(0);
+    expect(await stored(page)).toEqual({ name: "Zorblax", pronouns: "they/them" });
+  });
+
+  test("an open sheet takes up a name another tab stores, and saving keeps it", async ({ context, page }) => {
+    await stubPublicFacts(page, { facts: [] });
+    await page.goto("/top-facts");
+    await expect(sheet(page)).toBeVisible();
+    const other = await context.newPage();
+    await stubPublicFacts(other, { facts: [] });
+    await other.goto("/?displayName=Ada");
+    await expect.poll(() => stored(other).then((v) => v.name)).toBe("Ada");
+    const s = sheet(page);
+    await expect(s.getByRole("heading", { name: /pick your pronouns/i })).toBeVisible();
+    await expect(s.getByTestId("identity-name-input")).toHaveValue("Ada");
+    await s.getByRole("button", { name: "they/them" }).click();
+    await s.getByTestId("identity-save").click();
+    expect(await stored(page)).toEqual({ name: "Ada", pronouns: "they/them" });
+  });
+
   test("signing out clears the browser copy, so the next page asks", async ({ page }) => {
     await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
     await page.goto("/profile");

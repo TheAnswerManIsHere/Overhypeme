@@ -11,7 +11,12 @@ import { canStartBuilder, shouldAskForIdentity, type IdentityAuthState } from "@
 export interface IdentityGate {
   /** The identity sheet should be open on this page now. */
   shouldAsk: boolean;
-  /** A builder may initialize its draft from the identity now. */
+  /**
+   * A builder may initialize its draft from the identity now: auth has
+   * resolved, the share link is settled (a builder copies the identity once,
+   * so it must never copy a link's pending halves an account then drops), and
+   * the identity is complete where Phase 1 requires it.
+   */
   builderReady: boolean;
 }
 
@@ -25,7 +30,7 @@ let landingLapsed = false;
 
 export function useIdentityGate(): IdentityGate {
   const { user, isAuthenticated, isLoading } = useAuth();
-  const { name, pronounsSupplied } = usePersonName();
+  const { name, pronounsSupplied, shareLinkResolved } = usePersonName();
   const [location] = useLocation();
   if (location !== LANDING_LOCATION) landingLapsed = true;
   const auth: IdentityAuthState = isLoading ? "loading" : isAuthenticated ? "signedIn" : "signedOut";
@@ -39,7 +44,7 @@ export function useIdentityGate(): IdentityGate {
       landingLocation: LANDING_LOCATION,
       landingLapsed,
     }),
-    builderReady: canStartBuilder(auth, completeness),
+    builderReady: shareLinkResolved && canStartBuilder(auth, completeness),
   };
 }
 

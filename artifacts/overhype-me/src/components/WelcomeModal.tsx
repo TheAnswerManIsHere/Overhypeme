@@ -14,7 +14,9 @@ import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 
 const TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
 
+/** Pronouns are saved only once the visitor can see them: a suggestion shown, or their own pick. Never the fallback. */
 function canSave(draftPronouns: string): boolean {
+  if (!draftPronouns.trim()) return false;
   if (!isCustomPronouns(draftPronouns)) return true;
   const p = parseCustom(draftPronouns);
   if (!p) return false;
@@ -45,6 +47,12 @@ export function WelcomeModal() {
   const [draftPronouns, setDraftPronouns] = useState(pronouns);
   const [pronounsExpanded, setPronounsExpanded] = useState(false);
   const userChosenRef = useRef(false);
+  const nameTouchedRef = useRef(false);
+  // The provider's latest values, so a sheet that opens after a delay, or is
+  // already open, starts from what is stored now rather than from the render
+  // that scheduled it (another tab can change either half meanwhile).
+  const latestRef = useRef({ name, pronouns, pronounsSupplied });
+  latestRef.current = { name, pronouns, pronounsSupplied };
   // One root per responsive layout; only the visible one takes focus.
   const mobileRootRef  = useRef<HTMLDivElement>(null);
   const desktopRootRef = useRef<HTMLDivElement>(null);
@@ -60,17 +68,34 @@ export function WelcomeModal() {
     }
     if (open) return;
     const t = setTimeout(() => {
-      const hasName = !!name.trim();
-      setKnownName(hasName);
+      const { name, pronouns, pronounsSupplied } = latestRef.current;
+      setKnownName(!!name.trim());
       setDraftName(name || "");
+      nameTouchedRef.current = false;
       userChosenRef.current = pronounsSupplied;
-      setDraftPronouns(pronounsSupplied ? pronouns : (inferPronounsFromName(name) ?? DEFAULT_PRONOUNS));
-      setPronounsExpanded(hasName);
+      setDraftPronouns(pronounsSupplied ? pronouns : (inferPronounsFromName(name) ?? ""));
+      // Always shown, so whatever is saved is a value the visitor saw.
+      setPronounsExpanded(true);
       setOpen(true);
     }, 600);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAsk]);
+
+  // While open, a half another tab stores fills any field the visitor has not
+  // touched here, so saving never writes this sheet's stale draft over it.
+  useEffect(() => {
+    if (!open) return;
+    if (name.trim() && !nameTouchedRef.current) {
+      setKnownName(true);
+      setDraftName(name);
+      if (!userChosenRef.current) setDraftPronouns(inferPronounsFromName(name) ?? "");
+    }
+    if (pronounsSupplied && !userChosenRef.current) {
+      userChosenRef.current = true;
+      setDraftPronouns(pronouns);
+    }
+  }, [open, name, pronouns, pronounsSupplied]);
 
   // The sheet is a gate: focus moves into the visible layout when it opens
   // (the name field, or the pronoun choices when the name is known) and Tab
@@ -115,9 +140,11 @@ export function WelcomeModal() {
 
   function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
+    nameTouchedRef.current = true;
     setDraftName(val);
-    // Suggest pronouns from the name, locally, until the visitor picks.
-    if (!userChosenRef.current) setDraftPronouns(inferPronounsFromName(val) ?? DEFAULT_PRONOUNS);
+    // Suggest pronouns from the name, locally, until the visitor picks; no
+    // confident suggestion leaves the choice open rather than defaulting.
+    if (!userChosenRef.current) setDraftPronouns(inferPronounsFromName(val) ?? "");
   }
 
   function handlePronounsChange(val: string) {
@@ -182,7 +209,8 @@ export function WelcomeModal() {
       </button>
 
       <AnimatePresence>
-        {pronounsExpanded && (
+        {/* Never hidden while nothing is chosen, so a disabled Save always has its reason in view. */}
+        {(pronounsExpanded || !draftPronouns) && (
           <motion.div
             data-identity-pronouns
             initial={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
@@ -216,7 +244,7 @@ export function WelcomeModal() {
         <span className="w-5 h-px bg-muted-foreground/40" />
       </div>
       <h1 className="font-display font-bold text-4xl md:text-[88px] uppercase tracking-tight leading-[1.0] md:leading-[0.95] text-foreground" style={{ textWrap: "pretty" } as React.CSSProperties}>
-        <HighlightedFactText template={TEASER_FACT} name={displayName} pronouns={draftPronouns} />
+        <HighlightedFactText template={TEASER_FACT} name={displayName} pronouns={draftPronouns || DEFAULT_PRONOUNS} />
       </h1>
       <p className="mt-4 text-sm md:text-base text-muted-foreground italic flex items-center gap-3">
         <span className="hidden md:inline-block w-9 h-px bg-border flex-shrink-0" />
