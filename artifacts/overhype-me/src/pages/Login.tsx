@@ -12,19 +12,7 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { isMobileDevice } from "@/lib/utils";
 import { getSafeReturnTo } from "@/lib/safe-return-to";
-
-const STORAGE_KEY_NAME    = "fact_db_name";
-const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
-const DEFAULT_NAME        = "David Franklin";
-
-function getStoredName(): string {
-  const v = localStorage.getItem(STORAGE_KEY_NAME);
-  return (!v || v === DEFAULT_NAME) ? "" : v;
-}
-
-function getStoredPronouns(): string {
-  return localStorage.getItem(STORAGE_KEY_PRONOUNS) ?? "";
-}
+import { usePersonName } from "@/hooks/use-person-name";
 
 function getResetSuccess(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -64,9 +52,11 @@ export default function Login() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState(() => getStoredName());
-  const [pronouns, setPronouns] = useState(() => getStoredPronouns());
-  const pronounsExplicit = useRef(!!getStoredPronouns());
+  // Registration pre-fills from the visitor's stored identity, so nothing is retyped.
+  const identity = usePersonName();
+  const [displayName, setDisplayName] = useState(identity.name);
+  const [pronouns, setPronouns] = useState(identity.pronounsSupplied ? identity.pronouns : "");
+  const pronounsExplicit = useRef(identity.pronounsSupplied);
   const [showPassword, setShowPassword] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");

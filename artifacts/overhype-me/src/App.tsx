@@ -6,7 +6,9 @@ import { Sentry } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes, flushRouteStatsToServer } from "@/lib/analytics";
-import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/use-person-name";
+import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
+import { WelcomeModal } from "@/components/WelcomeModal";
+import { ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
@@ -82,34 +84,13 @@ function AdminModerationRedirect() {
 }
 
 /**
- * Strips ?displayName=...&pronouns=... from the address bar after they have
- * been consumed by PersonNameProvider's initial-state logic (which runs at
- * module load time, before any React rendering).
- */
-function ShareParamReader() {
-  useEffect(() => {
-    if (!SHARE_LINK_ACTIVE) return;
-    const params = new URLSearchParams(window.location.search);
-    params.delete("displayName");
-    params.delete("pronouns");
-    const remaining = params.toString();
-    const clean = remaining
-      ? `${window.location.pathname}?${remaining}`
-      : window.location.pathname;
-    window.history.replaceState({}, "", clean);
-  }, []);
-
-  return null;
-}
-
-/**
  * Keeps PersonNameProvider in sync with the authenticated user's server profile.
  * - On login  (unauthenticated → authenticated): loads name + pronouns from API.
- * - On logout (authenticated → unauthenticated): resets to defaults and clears storage.
+ * - On logout (authenticated → unauthenticated): clears meme-builder drafts; the identity is kept, since this transition also follows a mere session expiry.
  */
 function AuthProfileSync() {
   const { isAuthenticated, isLoading, user } = useAuth();
-  const { reset, syncFromProfile } = usePersonName();
+  const { syncFromProfile } = usePersonName();
   const prevAuthRef = useRef<boolean | null>(null);
 
   // Keep Sentry's user scope in sync with the auth state.
@@ -135,9 +116,10 @@ function AuthProfileSync() {
     const prev = prevAuthRef.current;
     prevAuthRef.current = isAuthenticated;
 
-    // Transition: logged in → logged out
+    // Transition: logged in → logged out. This also fires when a session
+    // simply expires, which is not a sign-out, so the visitor's identity is
+    // kept; the sign-out operation (useSignOut) is what clears it (#723).
     if (prev === true && !isAuthenticated) {
-      reset();
       // Drop every in-flight meme-builder draft so a draft started by the
       // previous viewer can't leak into the next session.
       clearAllWizardStates();
@@ -179,27 +161,6 @@ function AuthProfileSync() {
     return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, isLoading]);
-
-  return null;
-}
-
-/**
- * When a share link is opened by a logged-in user, silently log them out
- * so they experience the page as the recipient (unauthenticated visitor).
- * Uses a ref guard so logout is only triggered once per page load.
- */
-function ShareLinkAutoLogout() {
-  const { isAuthenticated, isLoading, logout } = useAuth();
-  const firedRef = useRef(false);
-
-  useEffect(() => {
-    if (!SHARE_LINK_ACTIVE) return;
-    if (isLoading) return;
-    if (!isAuthenticated) return;
-    if (firedRef.current) return;
-    firedRef.current = true;
-    logout();
-  }, [isAuthenticated, isLoading, logout]);
 
   return null;
 }
@@ -365,8 +326,7 @@ function Router() {
       <RouteStatsFlush />
       <PrefetchCriticalRoutes />
       <AuthProfileSync />
-      <ShareParamReader />
-      <ShareLinkAutoLogout />
+      <ShareLinkResolver />
       <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
       <Switch>
         <Route path="/" component={Home} />
@@ -411,6 +371,7 @@ function Router() {
         <Route component={NotFound} />
       </Switch>
       </Suspense>
+      <WelcomeModal />
     </>
   );
 }

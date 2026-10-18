@@ -1,48 +1,21 @@
 /**
- * @purpose Navbar name tag where a visitor views and edits the name and pronouns their facts render with, including the AI pronoun suggestion.
+ * @purpose Navbar name tag where a visitor views and edits the name and pronouns their facts render with, with an in-browser pronoun suggestion; signed in, it opens Profile.
  * @subsystem public-site
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Pencil, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Pencil } from "lucide-react";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import {
   displayPronouns,
-  PRONOUN_PRESETS,
   DEFAULT_PRONOUNS,
   isCustomPronouns,
   parseCustom,
 } from "@/lib/pronouns";
 import { PronounEditor } from "@/components/ui/PronounEditor";
-
-// ── AI pronoun suggestion ─────────────────────────────────────────────────────
-
-async function fetchSuggestedPronouns(
-  name: string,
-  signal: AbortSignal,
-): Promise<string | null> {
-  try {
-    const res = await fetch("/api/ai/suggest-pronouns", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-      signal,
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { subject?: string; object?: string };
-    if (typeof data.subject === "string" && typeof data.object === "string") {
-      const preset = `${data.subject}/${data.object}`;
-      if (PRONOUN_PRESETS.includes(preset as typeof PRONOUN_PRESETS[number])) {
-        return preset;
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+import { inferPronounsFromName } from "@/lib/infer-pronouns";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,13 +36,10 @@ export function NameTag() {
   const [editing,       setEditing]       = useState(false);
   const [draftName,     setDraftName]     = useState(name);
   const [draftPronouns, setDraftPronouns] = useState(pronouns);
-  const [aiLoading,     setAiLoading]     = useState(false);
 
-  const userChosenRef       = useRef(false);   // in-session: abort ongoing suggestion if user clicks
-  const hasOverriddenRef    = useRef(false);   // persistent: user overrode AI; only cleared on name change
+  const userChosenRef       = useRef(false);   // in-session: the user picked pronouns, stop suggesting
+  const hasOverriddenRef    = useRef(false);   // persistent: user overrode the suggestion; only cleared on name change
   const draftPronounsRef    = useRef(draftPronouns);
-  const debounceTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortControllerRef  = useRef<AbortController | null>(null);
   const nameRef             = useRef<HTMLInputElement>(null);
   const panelRef            = useRef<HTMLDivElement>(null);
 
@@ -77,35 +47,15 @@ export function NameTag() {
 
   const applyEnabled = canApply(draftPronouns);
 
-  // ── AI suggestion (defined early so effects below can reference it) ──────────
+  // ── Pronoun suggestion ──────────────────────────────────────────────────────
+  // Local only: this editor is reachable signed out (signed in, the tag opens
+  // Profile), and a signed-out visitor's name never leaves the browser (#719).
 
-  const triggerSuggestion = useCallback((nameValue: string) => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-
-    if (!nameValue.trim()) {
-      abortControllerRef.current?.abort();
-      setAiLoading(false);
-      return;
-    }
-
-    debounceTimerRef.current = setTimeout(async () => {
-      // Don't override pronouns the user has explicitly clicked in this session
-      if (userChosenRef.current) return;
-
-      abortControllerRef.current?.abort();
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      setAiLoading(true);
-      const suggestion = await fetchSuggestedPronouns(nameValue.trim(), controller.signal);
-      if (controller.signal.aborted) return;
-      setAiLoading(false);
-
-      if (suggestion && !userChosenRef.current) {
-        setDraftPronouns(suggestion);
-      }
-    }, 450);
-  }, []);
+  function suggestFor(nameValue: string) {
+    if (userChosenRef.current) return;
+    const suggestion = inferPronounsFromName(nameValue.trim());
+    if (suggestion) setDraftPronouns(suggestion);
+  }
 
   // ── Open / save / cancel ────────────────────────────────────────────────────
 
@@ -123,18 +73,12 @@ export function NameTag() {
 
   function save() {
     if (!applyEnabled) return;
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    abortControllerRef.current?.abort();
-    setAiLoading(false);
     setName(draftName);
     setPronouns(draftPronouns);
     setEditing(false);
   }
 
   function cancel() {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    abortControllerRef.current?.abort();
-    setAiLoading(false);
     setEditing(false);
   }
 
@@ -163,19 +107,13 @@ export function NameTag() {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [editing]);
 
-  // Cleanup on unmount
-  useEffect(() => () => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    abortControllerRef.current?.abort();
-  }, []);
-
-  // On panel open: focus the input and fire AI suggestion for the existing name
-  // (skipped if user has already overridden AI for this name)
+  // On panel open: focus the input and suggest pronouns for the existing name
+  // (skipped if the user has already overridden the suggestion for this name)
   useEffect(() => {
     if (!editing) return;
     nameRef.current?.focus();
     if (!hasOverriddenRef.current) {
-      triggerSuggestion(draftName);
+      suggestFor(draftName);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
@@ -183,19 +121,16 @@ export function NameTag() {
   // ── Event handlers ──────────────────────────────────────────────────────────
 
   function handlePronounsChange(val: string) {
-    userChosenRef.current    = true;  // abort any in-flight suggestion this session
+    userChosenRef.current    = true;  // stop suggesting this session
     hasOverriddenRef.current = true;  // persist: don't re-suggest on next open
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    abortControllerRef.current?.abort();
-    setAiLoading(false);
     setDraftPronouns(val);
   }
 
   function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
     setDraftName(val);
-    hasOverriddenRef.current = false; // name changed → lift override so AI can suggest again
-    triggerSuggestion(val);
+    hasOverriddenRef.current = false; // name changed → lift override so it can suggest again
+    suggestFor(val);
   }
 
   function onNameKeyDown(e: React.KeyboardEvent) {
@@ -276,18 +211,12 @@ export function NameTag() {
               placeholder="Your name"
               className="flex-1 bg-secondary border border-border rounded-sm px-2 py-1 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
             />
-            {aiLoading && (
-              <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />
-            )}
           </div>
 
           {/* Pronouns */}
           <div className="mb-3">
             <div className="flex items-center gap-2 mb-1.5">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Pronouns</p>
-              {aiLoading && (
-                <span className="text-[10px] text-muted-foreground italic">suggesting…</span>
-              )}
             </div>
             <PronounEditor value={draftPronouns} onChange={handlePronounsChange} />
           </div>

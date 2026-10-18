@@ -11,6 +11,7 @@ import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { usePersonName } from "@/hooks/use-person-name";
+import { useSignOut } from "@/hooks/use-sign-out";
 import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
@@ -94,7 +95,8 @@ function ProfilePhotoThumbnailPicker({
 
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
-  const { isAuthenticated, isLoading: authLoading, login, logout, role, realRole, can, refreshUser } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, login, role, realRole, can, refreshUser } = useAuth();
+  const signOut = useSignOut();
   // `realRole` is the toggle-INDEPENDENT admin status; `role` is the
   // preview-aware effective one. Round 6 of PR #425's review found this page
   // aliasing `isRealAdmin` to `role === "admin"`, which meant every admin
@@ -1150,7 +1152,7 @@ export default function Profile() {
                 </div>
               </div>
             ))}
-            <Button variant="ghost" size="sm" onClick={logout} className="gap-2 text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
               <LogOut className="w-4 h-4" /> Sign Out
             </Button>
           </div>
@@ -1301,7 +1303,7 @@ export default function Profile() {
                 </div>
               </div>
             ))}
-            <Button variant="ghost" size="sm" onClick={logout} className="gap-2 text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
               <LogOut className="w-4 h-4" /> Sign Out
             </Button>
           </div>
