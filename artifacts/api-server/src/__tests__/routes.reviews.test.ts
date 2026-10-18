@@ -35,7 +35,7 @@ import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
-import { FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit.js";
+import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { runFactPexelsJob, factPexelsJobHandler } from "../lib/factPexelsJobs.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -336,6 +336,34 @@ describe("POST /facts/submit-review", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({ text: "this should be allowed: only cap-1 are unresolved." });
     assert.equal(res.status, 201);
+  });
+
+  it("PER-MINUTE LIMIT: a non-admin account's submission past the fact_submit window max gets 429 with the 'too quickly' message", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    // The first FACT_SUBMIT_MAX submissions inside the window are accepted (well
+    // under the unresolved cap) …
+    for (let i = 0; i < FACT_SUBMIT_MAX; i++) {
+      const ok = await request(makeApp())
+        .post("/facts/submit-review")
+        .set("authorization", `Bearer ${sid}`)
+        .send({ text: `per-minute limit filler number ${i} ${randomUUID()}` });
+      assert.equal(ok.status, 201, `submission ${i + 1} inside the window must be accepted`);
+    }
+    // … the next one trips the dedicated limiter, not the pending cap.
+    const res = await request(makeApp())
+      .post("/facts/submit-review")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ text: "one submission too many inside the window." });
+    assert.equal(res.status, 429);
+    assert.equal(res.body.error, "You're submitting facts too quickly. Please slow down.");
+    assert.equal(res.body.code, undefined, "this is the rate limiter, not PENDING_CAP_REACHED");
+
+    const [{ value: total }] = await db
+      .select({ value: count() })
+      .from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.submittedById, userId));
+    assert.equal(total, FACT_SUBMIT_MAX, "the throttled submission must not create a review");
   });
 });
 
@@ -701,6 +729,26 @@ describe("GET /admin/reviews/:id", () => {
     assert.equal(res.body.submittedText, "details please");
     assert.equal(res.body.submitter?.id, submitterId);
     assert.equal(res.body.stagingFact, null, "no staging fact before provisional approval");
+  });
+
+  it("returns the staging fact's saved Visual Concept (the text the Step-2 card shows)", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [r] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
+      workflowStage: "concept_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+    }).returning();
+
+    const res = await request(makeApp()).get(`/admin/reviews/${r.id}`).set("authorization", `Bearer ${sid}`);
+    assert.equal(res.status, 200);
+    assert.equal(
+      res.body.stagingFact.enrichment.visualPromptStrategyOverride.coreSceneOverride,
+      "{NAME} bench-presses the Earth overhead in a stadium.",
+    );
   });
 
   it("hydrates the staging fact's prep status (enrichment + pexels) once prep starts", async () => {
@@ -1073,6 +1121,96 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     // The review-row snapshot records what actually shipped (the stored blob).
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal((r.enrichment as FactEnrichment).visualComplexity, "medium");
+  });
+
+  it("refuses a review still at prep_pending with 409 and leaves its staging fact inactive", async () => {
+    const submitterId = await createTestUser();
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
+      workflowStage: "prep_pending", stagingFactId: staging.id,
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ ...WAIVE_ALL_REQUIRED });
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(fact.isActive, false, "a prep_pending review's staging fact must stay inactive");
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "prep_pending");
+    assert.equal(r.status, "pending");
+  });
+
+  it("a variant review's approval activates the staging fact with parentId set to the parent fact (inactive before)", async () => {
+    const submitterId = await createTestUser();
+    const [parent] = await db.insert(factsTable).values({
+      text: "{NAME} parent fact", submittedById: submitterId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false,
+      parentId: parent.id, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
+      workflowStage: "production_review", stagingFactId: staging.id, parentFactId: parent.id,
+      enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const [before] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(before.isActive, false, "the variant is inactive before approval");
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ ...WAIVE_ALL_REQUIRED });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    const [after] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(after.isActive, true);
+    assert.equal(after.parentId, parent.id, "the activated variant must be nested under its parent fact");
+  });
+
+  it("returns 409 CONCEPT_MISSING for a production_review with no Visual Concept, then 200 and an active fact once a concept is saved", async () => {
+    const submitterId = await createTestUser();
+    const { visualPromptStrategyOverride: _concept, ...withoutConcept } = VALID_APPROVAL_ENRICHMENT;
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: withoutConcept,
+    }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
+      workflowStage: "production_review", stagingFactId: staging.id, enrichment: withoutConcept, enrichmentStatus: "ok",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const blocked = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ ...WAIVE_ALL_REQUIRED });
+    assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
+    assert.equal(blocked.body.code, "CONCEPT_MISSING");
+    assert.equal(blocked.body.error, "Save a non-empty Visual Concept before approving for production.");
+    const [stillInactive] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(stillInactive.isActive, false, "a conceptless fact must not go live");
+
+    // The moderator saves a Visual Concept on the staging fact; the same approval now succeeds.
+    await db.update(factsTable).set({ enrichment: VALID_APPROVAL_ENRICHMENT }).where(eq(factsTable.id, staging.id));
+    const ok = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ ...WAIVE_ALL_REQUIRED });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    const [live] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(live.isActive, true);
   });
 });
 

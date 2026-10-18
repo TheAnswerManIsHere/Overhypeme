@@ -84,6 +84,7 @@ function makeOutput(overrides: {
   semanticEntitiesUsed?: Array<{ surfaceText: string; visualReferentUsed: string; effectOnVisualPlan: string }>;
   culturalReferencesUsed?: Array<{ sourcePhrase: string; canonicalReferenceUsed: string; visualImplicationUsed: string; effectOnVisualPlan: string }>;
   keyVisualElements?: string[];
+  secondaryCharacters?: Array<{ label: string; visualRole: string }>;
 } = {}) {
   const mode = overrides.subjectRenderMode ?? "human_identity_i2i";
   const generationMode = mode === "t2i_fallback" ? ("t2i" as const) : ("i2i" as const);
@@ -143,7 +144,7 @@ function makeOutput(overrides: {
           "long explanatory paragraphs",
         ],
       },
-      secondaryCharacters: [],
+      secondaryCharacters: overrides.secondaryCharacters ?? [],
       semanticEntitiesUsed: overrides.semanticEntitiesUsed ?? [],
       culturalReferencesUsed: overrides.culturalReferencesUsed ?? [],
       styleIntegration: "Apply cinematic style",
@@ -429,5 +430,205 @@ describe("image-prompt preview — debug surfacing & non-mutation", () => {
 
     const [after] = await db.select({ enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, factId));
     assert.deepEqual(after!.enrichment, before!.enrichment);
+  });
+});
+
+// ── Stored Visual Concept + bubbles reach the compiled prompt (UAT deferred, #631 7b) ──
+
+function overrideEnrichment(partial: Record<string, unknown>): FactEnrichment {
+  return {
+    ...VALID_ENRICHMENT,
+    visualPromptStrategyOverride: {
+      version: 1,
+      requiredVisualDetails: [],
+      forbiddenVisualDetails: [],
+      roleBindings: [],
+      compositionGuidance: [],
+      styleAgnosticPromptAdditions: [],
+      negativePromptAdditions: [],
+      bubbles: [],
+      ...partial,
+    },
+  } as unknown as FactEnrichment;
+}
+
+/** Text of one labeled section of the compiled prompt, up to the next known label. */
+function promptSection(prompt: string, label: string): string {
+  const labels = [
+    "CORE SCENE", "IDENTITY & REFERENCE", "RENDER TASK", "SUBJECT BINDING", "SUBJECT REALIZATION",
+    "ROLE DETAILS", "SUBJECT DETAILS", "REQUIRED VISUAL DETAILS", "ENVIRONMENT", "ADDITIONAL DETAILS",
+    "SPEECH & THOUGHT BUBBLES", "COMPOSITION", "LIGHTING", "RENDER STYLE", "STRICT CONSTRAINTS",
+  ];
+  const start = prompt.indexOf(`${label}: `);
+  assert.ok(start >= 0, `section ${label} missing from: ${prompt}`);
+  const body = prompt.slice(start + label.length + 2);
+  const next = labels.map((l) => body.indexOf(` ${l}: `)).filter((i) => i >= 0);
+  return (next.length ? body.slice(0, Math.min(...next)) : body).trim();
+}
+
+describe("image-prompt preview — CORE SCENE source", () => {
+  it("uses the planner's coreScene when the fact has no stored Concept", async () => {
+    const factId = await seedFact();
+    __setPlanGeneratorForTest(async () => makeOutput() as never);
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i" });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(
+      promptSection(String(res.body.compiledPrompt.imagePrompt), "CORE SCENE"),
+      "David performs a superhuman feat in the foreground as onlookers react.",
+    );
+  });
+
+  it("uses the fact's saved Visual Concept, token-rendered, instead of the planner's coreScene", async () => {
+    const factId = await seedFact({
+      enrichment: overrideEnrichment({
+        coreSceneOverride: "{NAME} rides a giant rubber duck across a packed stadium.",
+      }),
+    });
+    __setPlanGeneratorForTest(async () => makeOutput() as never);
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i", previewName: "David" });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const prompt = String(res.body.compiledPrompt.imagePrompt);
+    assert.equal(promptSection(prompt, "CORE SCENE"), "David rides a giant rubber duck across a packed stadium.");
+    assert.doesNotMatch(prompt, /superhuman feat in the foreground/);
+  });
+
+  it("carries both CORE SCENE and the fact's required visual detail in one prompt", async () => {
+    const factId = await seedFact({
+      enrichment: overrideEnrichment({
+        coreSceneOverride: "{NAME} rides a giant rubber duck across a packed stadium.",
+        requiredVisualDetails: ["a scoreboard reading 9999"],
+      }),
+    });
+    __setPlanGeneratorForTest(async () => makeOutput() as never);
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i", previewName: "David" });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const prompt = String(res.body.compiledPrompt.imagePrompt);
+    assert.equal(promptSection(prompt, "CORE SCENE"), "David rides a giant rubber duck across a packed stadium.");
+    assert.equal(promptSection(prompt, "REQUIRED VISUAL DETAILS"), "a scoreboard reading 9999.");
+  });
+
+  it("keeps a Concept with compiler-owned language verbatim and returns the rewrite warning", async () => {
+    const owned = "{NAME} rides a T-Rex through the office. Ensure {NAME}'s recognizable face is preserved.";
+    const factId = await seedFact({ enrichment: overrideEnrichment({ coreSceneOverride: owned }) });
+    __setPlanGeneratorForTest(async () => makeOutput() as never);
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i", previewName: "David" });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(
+      promptSection(String(res.body.compiledPrompt.imagePrompt), "CORE SCENE"),
+      "David rides a T-Rex through the office. Ensure David's recognizable face is preserved.",
+    );
+    const warnings: Array<{ code: string; message: string }> = res.body.compiledPrompt.diagnostics?.warnings ?? [];
+    const w = warnings.find((x) => x.code === "moderator_core_scene_owned_language");
+    assert.ok(w, JSON.stringify(warnings));
+    assert.match(w.message, /rewrite it as visible scene description/);
+  });
+});
+
+describe("image-prompt preview — look style copy per generation mode", () => {
+  it("t2i_fallback compiles the style's declarative promptSuffix, not its promptSuffixReference", async () => {
+    const factId = await seedFact();
+    const styleId = await seedStyle();
+    __setPlanGeneratorForTest(
+      async () => makeOutput({ subjectRenderMode: "t2i_fallback", promptText: "A protagonist lifts a mountain." }) as never,
+    );
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({
+        factId,
+        subjectRenderMode: "t2i_fallback",
+        lookStyleId: styleId,
+        renderControls: { fallbackSubjectGender: "female" },
+      });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.inputSummary.styleSource, "selected_look_style");
+    assert.equal(res.body.inputSummary.stylePrompt, ", cinematic test style suffix");
+    const prompt = String(res.body.compiledPrompt.imagePrompt);
+    assert.match(promptSection(prompt, "RENDER STYLE"), /cinematic test style suffix/);
+    assert.doesNotMatch(prompt, /reimagined in cinematic test style/);
+  });
+});
+
+describe("image-prompt preview — stored speech & thought bubbles", () => {
+  it("returns one speech directive quoting the exact text, tail pointing to the preview name", async () => {
+    const factId = await seedFact({
+      enrichment: overrideEnrichment({
+        bubbles: [{ type: "speech", entity: "subject", text: "You're the man of the house now." }],
+      }),
+    });
+    __setPlanGeneratorForTest(async () => makeOutput() as never);
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i", previewName: "David" });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const prompt = String(res.body.compiledPrompt.imagePrompt);
+    assert.equal(prompt.split("SPEECH & THOUGHT BUBBLES:").length - 1, 1, "one bubbles section");
+    assert.equal(prompt.split("speech balloon").length - 1, 1, "one speech directive");
+    assert.ok(
+      promptSection(prompt, "SPEECH & THOUGHT BUBBLES").startsWith(
+        `One clean comic-style speech balloon with its tail pointing to David, containing exactly the text "You're the man of the house now." in clear, legible lettering.`,
+      ),
+      prompt,
+    );
+  });
+
+  it("returns a cloud-shaped thought balloon whose trail leads to the head of the bartender", async () => {
+    const factId = await seedFact({
+      enrichment: overrideEnrichment({
+        bubbles: [{ type: "thought", entity: "the bartender", text: "Not again." }],
+      }),
+    });
+    __setPlanGeneratorForTest(
+      async () =>
+        makeOutput({ secondaryCharacters: [{ label: "the bartender", visualRole: "polishing a glass behind the bar" }] }) as never,
+    );
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i", previewName: "David" });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(
+      promptSection(String(res.body.compiledPrompt.imagePrompt), "SPEECH & THOUGHT BUBBLES").startsWith(
+        'One cloud-shaped thought balloon with a trail of small circles leading to the head of the bartender, containing exactly the text "Not again." in clear, legible lettering.',
+      ),
+    );
+  });
+
+  it("renders a {NAME} token in the stored bubble with the previewName and leaves no raw token", async () => {
+    const factId = await seedFact({
+      enrichment: overrideEnrichment({
+        bubbles: [{ type: "speech", entity: "subject", text: "{NAME} did it again!" }],
+      }),
+    });
+    __setPlanGeneratorForTest(async () => makeOutput() as never);
+
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "human_identity_i2i", previewName: "David" });
+
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const prompt = String(res.body.compiledPrompt.imagePrompt);
+    assert.ok(prompt.includes('containing exactly the text "David did it again!"'), prompt);
+    assert.doesNotMatch(prompt, /\{NAME\}/);
   });
 });

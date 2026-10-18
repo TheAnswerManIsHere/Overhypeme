@@ -22,14 +22,23 @@ import type { Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { factsTable, usersTable, asyncJobsTable } from "@workspace/db/schema";
+import { factsTable, usersTable, asyncJobsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { eq, inArray, like, and } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment, validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import {
+  buildPlaceholderFactEnrichment,
+  validateEnrichment,
+  resolveRenderPolicy,
+  CORE_SCENE_RAW_MAX,
+  type FactEnrichment,
+  type ImagePromptGenerationInput,
+  type VisualPlan,
+} from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { buildFactEnrichmentColumns, EnrichmentError } from "../lib/factEnrichment.js";
+import { compileForSubjectRenderMode } from "../lib/imagePrompt/compilers/nanoBanana2.js";
 
 const USER_PREFIX = "tfactsenrich-";
 const TEXT_PREFIX = "t_factsenrich ";
@@ -76,6 +85,7 @@ async function insertFact(values: Partial<typeof factsTable.$inferInsert> = {}):
 
 async function cleanup(): Promise<void> {
   if (insertedFactIds.length) {
+    await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, insertedFactIds));
     await db.delete(asyncJobsTable).where(
       inArray(asyncJobsTable.dedupeKey, insertedFactIds.map((id) => `enrichment:fact:${id}`)),
     );
@@ -434,5 +444,257 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     assert.equal(enr.visualPromptStrategyOverride!.requiredVisualDetails[0], "adult head on a newborn body");
     assert.equal(enr.visualPromptStrategyOverride!.updatedBy, "tfactsenrich-prior-admin");
     assert.equal(enr.visualPromptStrategyOverride!.updatedAt, "2026-06-13T00:00:00.000Z");
+  });
+});
+
+// ── Visual Concept budget, blank-concept refusal, and per-field persistence ──
+
+type Vso = NonNullable<FactEnrichment["visualPromptStrategyOverride"]>;
+
+/** A complete override carrying a Visual Concept; `extra` populates other fields. */
+function vso(extra: Partial<Vso> = {}, coreSceneOverride = "{NAME} hoists a barbell overhead in an arena."): Vso {
+  return {
+    version: 1, coreSceneOverride,
+    requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [], bubbles: [],
+    compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+    ...extra,
+  } as Vso;
+}
+
+function patchVso(id: number, override: Vso) {
+  return request(adminApp)
+    .patch(`/api/admin/facts/${id}/enrichment`)
+    .send({ enrichment: { ...VALID, visualPromptStrategyOverride: override } });
+}
+
+async function storedVso(id: number): Promise<Vso | undefined> {
+  const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+  return (row.enrichment as FactEnrichment).visualPromptStrategyOverride;
+}
+
+// A plan with no AI content, so every line of the compiled prompt that mentions
+// the override comes from the stored override itself.
+const EMPTY_PLAN = {
+  sceneConcept: "", visualGoal: "", visualApproach: "",
+  archetypeApplication: { primaryArchetype: "superhuman_physical_feat", subtype: "force_scaled_action", selectedFrame: "direct_action", strategyRationale: "" },
+  coreScene: "", subjectDetails: [], environment: [], lightingAndStyle: "", keyVisualElements: [],
+  subjectTreatment: {
+    roleInScene: "protagonist", subjectRenderMode: "human_identity_i2i", identityPreservation: "human_face",
+    nonhumanSubjectTreatment: { applicable: false, subjectKind: "not_applicable", preserveTraits: [], anthropomorphicTreatment: "none", doNotTransformIntoHuman: false },
+    fallbackSubjectGender: "not_applicable", expressionAndPose: "", ageLifeStageTransform: { applies: false, targetState: "" },
+  },
+  secondaryCharacters: [],
+  subjectFactCompatibility: { rating: "strong", reason: "", recommendedFallback: "none" },
+  composition: { subjectFraming: "", negativeSpace: "none", cameraStyle: "", sceneReadability: "readable" },
+  supportingTextPolicy: { allowSupportingText: false, supportingTextElements: [], forbiddenTextTypes: [] },
+  semanticEntitiesUsed: [], culturalReferencesUsed: [], contentNotes: "", debugNotes: "",
+  targetEngine: "nano_banana_2", generationMode: "i2i",
+} as unknown as VisualPlan;
+
+/** The engine prompt compiled from the fact's STORED enrichment, as a render would. */
+async function compiledPromptFor(id: number): Promise<string> {
+  const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+  const enrichment = row.enrichment as FactEnrichment;
+  const input = {
+    subjectRenderMode: "human_identity_i2i",
+    stylePrompt: "",
+    referenceImageUrl: "https://example.com/ref.png",
+    factText: "",
+    enrichment,
+    renderControls: { aspectRatio: "portrait", contentMode: "sfw" },
+    renderPolicy: resolveRenderPolicy(enrichment),
+  } as unknown as ImagePromptGenerationInput;
+  return compileForSubjectRenderMode({
+    visualPlan: EMPTY_PLAN,
+    compiledPrompt: { prompt: "", negativePrompt: "", engineNotes: "" },
+    input,
+    renderedSubject: { name: "David Franklin", pronouns: "he/him" },
+  }).imagePrompt;
+}
+
+/** A fact the way Moderation Step 2 holds it: inactive, staged on a pending review. */
+async function insertStagingFact(): Promise<number> {
+  const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok", isActive: false });
+  const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id));
+  await db.insert(pendingReviewsTable).values({
+    submittedText: fact.text, status: "pending", workflowStage: "concept_review", stagingFactId: id,
+  });
+  return id;
+}
+
+describe("PATCH /admin/facts/:id/enrichment — Visual Concept budget", () => {
+  it("400s a Concept of 110 {NAME} tokens (under the raw cap) with a core_scene_rendered_too_long detail", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const tokenHeavy = "{NAME} ".repeat(110).trim();
+    assert.ok(tokenHeavy.length <= CORE_SCENE_RAW_MAX, "sanity: raw length is within the raw cap");
+
+    const res = await patchVso(id, vso({}, tokenHeavy));
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "visual_strategy_override_over_budget");
+    assert.ok(
+      (res.body.details as Array<{ code: string }>).some((d) => d.code === "core_scene_rendered_too_long"),
+      JSON.stringify(res.body.details),
+    );
+    assert.equal(await storedVso(id), undefined, "a refused save stores nothing");
+  });
+
+  it("200s and stores a token-free Concept just under the raw cap (~1,490 characters)", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const concept = "The hero stands tall in a vast arena. ".repeat(40).slice(0, 1490);
+    assert.equal(concept.length, 1490);
+
+    const res = await patchVso(id, vso({}, concept));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal((await storedVso(id))?.coreSceneOverride, concept);
+  });
+
+  it("400s many role bindings, required details, composition notes and additions together with a moderator_additions_rendered_too_long detail", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const line = "a perfectly ordinary guidance sentence of moderate length";
+    // Every entry is individually normal and the raw lists are inside their schema caps.
+    const res = await patchVso(id, vso({
+      roleBindings: Array.from({ length: 10 }, (_, i) => ({ entity: `onlooker ${i}`, visualRole: line })),
+      requiredVisualDetails: Array.from({ length: 10 }, (_, i) => `${line} ${i}`),
+      compositionGuidance: Array.from({ length: 10 }, (_, i) => `${line} ${i}`),
+      styleAgnosticPromptAdditions: Array.from({ length: 10 }, (_, i) => `${line} ${i}`),
+    }));
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "visual_strategy_override_over_budget");
+    assert.ok(
+      (res.body.details as Array<{ code: string }>).some((d) => d.code === "moderator_additions_rendered_too_long"),
+      JSON.stringify(res.body.details),
+    );
+    assert.equal(await storedVso(id), undefined, "a refused save stores nothing");
+  });
+
+  it("200s a typical Concept with several role bindings and required details", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const override = vso({
+      roleBindings: [
+        { entity: "subject", visualRole: "the hero lifting the barbell" },
+        { entity: "crowd", visualRole: "cheering spectators in the stands" },
+        { entity: "referee", visualRole: "stands nearby holding a clipboard" },
+      ],
+      requiredVisualDetails: ["a glowing aura around the barbell", "chalk dust in the air", "a banner reading the arena name"],
+    }, "{NAME} hoists a barbell overhead in a packed arena while the crowd roars.");
+
+    const res = await patchVso(id, override);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const stored = await storedVso(id);
+    assert.deepEqual(stored?.roleBindings, override.roleBindings);
+    assert.deepEqual(stored?.requiredVisualDetails, override.requiredVisualDetails);
+  });
+});
+
+describe("PATCH /admin/facts/:id/enrichment — saved override content", () => {
+  it("200s a bubble whose entity (the mailman) matches no subject or role binding", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const res = await patchVso(id, vso({ bubbles: [{ type: "speech", entity: "the mailman", text: "Special delivery!" }] }));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual((await storedVso(id))?.bubbles, [{ type: "speech", entity: "the mailman", text: "Special delivery!" }]);
+  });
+
+  it("reads a saved role binding back with its entity and visualRole unchanged", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const binding = { entity: "crowd/victims", visualRole: "gasping onlookers pressed against the barrier" };
+    const res = await patchVso(id, vso({ roleBindings: [binding] }));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    const read = await request(adminApp).get(`/api/admin/facts/${id}`);
+    assert.deepEqual(read.body.enrichment.visualPromptStrategyOverride.roleBindings, [binding]);
+  });
+
+  it("GET /admin/facts/:id returns the edited required visual detail after the PATCH", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    await patchVso(id, vso({ requiredVisualDetails: ["an old detail"] }));
+
+    const res = await patchVso(id, vso({ requiredVisualDetails: ["an edited detail"] }));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const read = await request(adminApp).get(`/api/admin/facts/${id}`);
+    assert.deepEqual(read.body.enrichment.visualPromptStrategyOverride.requiredVisualDetails, ["an edited detail"]);
+  });
+
+  it("stores each override field saved alone and compiles it into the prompt with no enable flag", async () => {
+    const cases: Array<{ name: string; extra: Partial<Vso>; stored: (o: Vso) => unknown; expected: unknown; prompt: RegExp }> = [
+      { name: "required details", extra: { requiredVisualDetails: ["a glowing aura"] }, stored: (o) => o.requiredVisualDetails, expected: ["a glowing aura"], prompt: /REQUIRED VISUAL DETAILS: a glowing aura\./ },
+      { name: "forbidden details", extra: { forbiddenVisualDetails: ["a separate adult version"] }, stored: (o) => o.forbiddenVisualDetails, expected: ["a separate adult version"], prompt: /Do not a separate adult version\./ },
+      { name: "role assignments", extra: { roleBindings: [{ entity: "referee", visualRole: "waves a checkered flag" }] }, stored: (o) => o.roleBindings, expected: [{ entity: "referee", visualRole: "waves a checkered flag" }], prompt: /waves a checkered flag/ },
+      { name: "bubbles", extra: { bubbles: [{ type: "speech", entity: "subject", text: "Special delivery!" }] }, stored: (o) => o.bubbles, expected: [{ type: "speech", entity: "subject", text: "Special delivery!" }], prompt: /Special delivery!/ },
+      { name: "composition guidance", extra: { compositionGuidance: ["low angle wide shot"] }, stored: (o) => o.compositionGuidance, expected: ["low angle wide shot"], prompt: /low angle wide shot/ },
+      { name: "supporting-text policy", extra: { supportingTextPolicyOverride: { mode: "allow", guidance: "a neon sign reading OPEN" } }, stored: (o) => o.supportingTextPolicyOverride, expected: { mode: "allow", guidance: "a neon sign reading OPEN" }, prompt: /a neon sign reading OPEN/ },
+    ];
+    for (const c of cases) {
+      const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+      const res = await patchVso(id, vso(c.extra));
+      assert.equal(res.status, 200, `${c.name}: ${JSON.stringify(res.body)}`);
+      const stored = await storedVso(id);
+      assert.ok(stored, `${c.name}: override stored`);
+      assert.equal("enabled" in stored!, false, `${c.name}: no enable flag stored`);
+      assert.deepEqual(c.stored(stored!), c.expected, `${c.name}: stored`);
+      assert.match(await compiledPromptFor(id), c.prompt, `${c.name}: reaches the compiled prompt`);
+    }
+  });
+
+  it("stores a forbidden detail as a Do not line in the compiled prompt, and clearing it to [] removes the line", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    assert.equal((await patchVso(id, vso({ forbiddenVisualDetails: ["a rubber duck"] }))).status, 200);
+    assert.deepEqual((await storedVso(id))?.forbiddenVisualDetails, ["a rubber duck"]);
+    assert.match(await compiledPromptFor(id), /Do not a rubber duck\./);
+
+    assert.equal((await patchVso(id, vso({ forbiddenVisualDetails: [] }))).status, 200);
+    assert.deepEqual((await storedVso(id))?.forbiddenVisualDetails, []);
+    assert.doesNotMatch(await compiledPromptFor(id), /a rubber duck/);
+  });
+});
+
+describe("PATCH /admin/facts/:id/enrichment — blank Visual Concept and typed scene", () => {
+  it("refuses a blank Visual Concept on a new submission's staging fact with 400 visual_concept_required and stores nothing", async () => {
+    const id = await insertStagingFact();
+    const res = await patchVso(id, vso({ requiredVisualDetails: ["a detail"] }, "   "));
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "visual_concept_required");
+    assert.equal(await storedVso(id), undefined);
+  });
+
+  it("stores the typed scene exactly as coreSceneOverride on the staging fact", async () => {
+    const id = await insertStagingFact();
+    const scene = "David rides a giant rubber duck down a waterfall";
+    const res = await patchVso(id, vso({}, scene));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal((await storedVso(id))?.coreSceneOverride, scene);
+  });
+
+  it("refuses a blank Visual Concept on an existing fact with 400 visual_concept_required and leaves the stored concept unchanged", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const scene = "David hoists a barbell overhead in an arena.";
+    assert.equal((await patchVso(id, vso({}, scene))).status, 200);
+
+    const res = await patchVso(id, vso({}, ""));
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "visual_concept_required");
+    assert.equal((await storedVso(id))?.coreSceneOverride, scene);
+  });
+});
+
+describe("PATCH /admin/facts/:id/enrichment — the Overridden: Visual Strategy badge", () => {
+  const resolvedFlag = async (id: number) =>
+    (await request(adminApp).get(`/api/admin/facts/${id}/enrichment-resolved`)).body.overrideSummary.hasVisualStrategyOverride;
+
+  it("adding required visual detail uat-585-scratch to a Concept-only fact raises hasVisualStrategyOverride", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    assert.equal((await patchVso(id, vso())).status, 200);
+    assert.equal(await resolvedFlag(id), false, "a Visual Concept alone is not an override");
+
+    assert.equal((await patchVso(id, vso({ requiredVisualDetails: ["uat-585-scratch"] }))).status, 200);
+    assert.equal(await resolvedFlag(id), true);
+  });
+
+  it("removing the uat-585-scratch detail lowers hasVisualStrategyOverride again", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    assert.equal((await patchVso(id, vso({ requiredVisualDetails: ["uat-585-scratch"] }))).status, 200);
+    assert.equal(await resolvedFlag(id), true, "precondition: the detail raised the flag");
+
+    assert.equal((await patchVso(id, vso())).status, 200);
+    assert.equal(await resolvedFlag(id), false);
   });
 });

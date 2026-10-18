@@ -21,7 +21,7 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
-import { like } from "drizzle-orm";
+import { like, sql } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
@@ -34,7 +34,9 @@ import {
 } from "../lib/stripeSyncRunner.js";
 import { __resetVerificationStateForTests } from "../lib/stripeAccountGuard.js";
 import { clearStripeEnv, describeStripeEnvRestored, snapshotStripeEnv, stubAccountRetriever } from "./helpers/stripeGuardHarness.js";
-import { invalidateStripeSync } from "../lib/stripeClient.js";
+import { invalidateStripeSync, __endCachedSyncForTests } from "../lib/stripeClient.js";
+import { __setStripeDriverForTests } from "../lib/stripeDriver.js";
+import { realStripeDriver } from "../lib/stripeRealDriver.js";
 
 
 const USER_PREFIX = "tadminstrsync-";
@@ -190,6 +192,88 @@ describe("GET /admin/stripe/sync/status — auth", () => {
       .set("authorization", `Bearer ${userSid}`);
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "admin_required");
+  });
+});
+
+describe("GET /admin/stripe/sync/status — persisted state", () => {
+  const SEEDED_SYNC_AT = "2026-01-02T03:04:05.000Z";
+  let createdStatusTable = false;
+  let createdStripeSchema = false;
+
+  // The `stripe` schema is owned by the sync library's own migrations, so a
+  // bare test database may not have it. Create just the status table when it is
+  // absent (and remove only what this suite created) so the assertion below is
+  // never skipped for want of a table.
+  before(async () => {
+    const [{ schema_exists }] = (await db.execute(
+      sql`SELECT to_regnamespace('stripe') IS NOT NULL AS schema_exists`,
+    )).rows as Array<{ schema_exists: boolean }>;
+    const [{ table_exists }] = (await db.execute(
+      sql`SELECT to_regclass('stripe._sync_status') IS NOT NULL AS table_exists`,
+    )).rows as Array<{ table_exists: boolean }>;
+    if (!table_exists) {
+      if (!schema_exists) {
+        await db.execute(sql`CREATE SCHEMA stripe`);
+        createdStripeSchema = true;
+      }
+      await db.execute(sql`
+        CREATE TABLE stripe._sync_status (
+          resource text NOT NULL, status text, last_synced_at timestamptz,
+          error_message text, account_id text NOT NULL, PRIMARY KEY (resource, account_id)
+        )`);
+      createdStatusTable = true;
+    }
+  });
+
+  after(async () => {
+    if (createdStatusTable) await db.execute(sql`DROP TABLE stripe._sync_status`);
+    else await db.execute(sql`DELETE FROM stripe._sync_status WHERE account_id = ${process.env.STRIPE_ACCOUNT_ID_TEST ?? ""}`);
+    if (createdStripeSchema) await db.execute(sql`DROP SCHEMA stripe`);
+  });
+
+  it("still returns the seeded products row's lastSyncedAt after the in-process runner state is reset", async () => {
+    const accountId = process.env.STRIPE_ACCOUNT_ID_TEST!;
+    try {
+      // A real _sync_status table keys account_id to stripe.accounts.
+      await db.execute(sql.raw(
+        `INSERT INTO stripe.accounts (_raw_data) VALUES ('${JSON.stringify({ id: accountId })}'::jsonb) ON CONFLICT (id) DO NOTHING`,
+      ));
+    } catch { /* minimal table created above has no accounts FK */ }
+    await db.execute(sql`
+      INSERT INTO stripe._sync_status (resource, status, last_synced_at, error_message, account_id)
+      VALUES ('products', 'complete', ${SEEDED_SYNC_AT}::timestamptz, NULL, ${accountId})
+      ON CONFLICT (resource, account_id) DO UPDATE SET status = EXCLUDED.status, last_synced_at = EXCLUDED.last_synced_at
+    `);
+
+    // Simulate a server restart: the in-memory run snapshot is gone.
+    _resetSyncRunnerForTests();
+
+    // The route resolves the account through the sync library, which would ask
+    // Stripe for it. Keep the real driver but answer that one call locally.
+    const restoreDriver = __setStripeDriverForTests({
+      ...realStripeDriver,
+      async buildSync(params) {
+        const sync = await realStripeDriver.buildSync(params);
+        (sync as { getAccountId: () => Promise<string> }).getAccountId = async () => accountId;
+        return sync;
+      },
+    });
+    let res;
+    try {
+      res = await request(makeApp())
+        .get("/admin/stripe/sync/status")
+        .set("authorization", `Bearer ${adminSid}`);
+    } finally {
+      restoreDriver();
+      await __endCachedSyncForTests();
+    }
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.finishedAt, null, "no in-process run has finished since the reset");
+    const products = (res.body.resources as Array<{ resource: string; lastSyncedAt: string | null }>)
+      .find((r) => r.resource === "products");
+    assert.ok(products, "products resource present in the status");
+    assert.notEqual(products.lastSyncedAt, null, "the persisted last-synced stamp must survive the reset");
+    assert.equal(new Date(products.lastSyncedAt!).toISOString(), SEEDED_SYNC_AT);
   });
 });
 });

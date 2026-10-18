@@ -1277,5 +1277,37 @@ describe("a mode change initializes the newly active mode", () => {
     assert.equal(recovered.body.verification.setup?.state, "complete");
     assert.equal(recovered.body.verification.setup.reason, null);
   });
+
+  it("the Billing summary counts a lapsed legendary user as a registered member, not an active subscriber, and a live one as an active subscriber", async () => {
+    configureBothValid();
+    recordInit();
+    await verifyStripeAccount({ liveMode: false, secretKey: "sk_test_correct" });
+
+    const summary = async () => {
+      const res = await request(makeApp()).get("/admin/stripe/summary").set("authorization", `Bearer ${adminSid}`);
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      return res.body as { activeSubscribers: number; registeredMembers: number };
+    };
+    const baseline = await summary();
+
+    // Stored tier still says legendary for both — the expiry sweep never ran.
+    const lapsedId = `${USER_PREFIX}lapsed-${randomUUID()}`;
+    const liveId = `${USER_PREFIX}live-${randomUUID()}`;
+    await db.insert(usersTable).values({
+      id: lapsedId, email: `${lapsedId}@test.local`, membershipTier: "legendary",
+      membershipValidUntil: new Date(Date.now() - 60 * 60 * 1000),
+    });
+    const afterLapsed = await summary();
+    assert.equal(afterLapsed.registeredMembers, baseline.registeredMembers + 1, "the lapsed legendary user is a registered member");
+    assert.equal(afterLapsed.activeSubscribers, baseline.activeSubscribers, "and is not an active subscriber");
+
+    await db.insert(usersTable).values({
+      id: liveId, email: `${liveId}@test.local`, membershipTier: "legendary",
+      membershipValidUntil: new Date(Date.now() + 60 * 60 * 1000),
+    });
+    const afterLive = await summary();
+    assert.equal(afterLive.activeSubscribers, baseline.activeSubscribers + 1, "a live legendary user is an active subscriber");
+    assert.equal(afterLive.registeredMembers, baseline.registeredMembers + 1, "and does not change the registered count");
+  });
 });
 });

@@ -13,8 +13,11 @@
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { db, factsTable } from "@workspace/db";
+import { db, factsTable, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import { eq, inArray, like, sql } from "drizzle-orm";
 
@@ -261,5 +264,93 @@ describe("Migration 0092 orphan sweep — NOT EXISTS(active root parent)", () =>
       .from(factsTable)
       .where(inArray(factsTable.id, [rootId, variantId]));
     for (const r of rows) assert.equal(r.isActive, true);
+  });
+});
+
+describe("Migration 0092 backfill block — the real statements", () => {
+  // Runs the migration's own first DO block (grandfather deactivation, orphan
+  // sweep and sentinel stamp), not a copy of it, so a change to the migration's
+  // SQL is what these tests see. The block is cut at its `END $$;`, which leaves
+  // the CHECK-adding block behind.
+  const dirname = path.dirname(fileURLToPath(import.meta.url));
+  const migrationSql = fs.readFileSync(
+    path.resolve(dirname, "../../../../lib/db/migrations/0092_fact_lifecycle_phase2_backfill_check.sql"),
+    "utf-8",
+  );
+  const blockStart = migrationSql.indexOf("DO $$");
+  const blockEnd = migrationSql.indexOf("END $$;", blockStart) + "END $$;".length;
+  const BACKFILL_BLOCK = migrationSql.slice(blockStart, blockEnd);
+  const SENTINEL = "{NAME} stands there confidently.";
+
+  type FactState = { is_active: boolean; scene: string | null; version: unknown; enrichment: unknown };
+
+  /**
+   * Seeds the pre-0092 world (active facts the CHECK would now refuse), runs the
+   * backfill block, reads the rows back, and rolls everything back — including
+   * the dropped CHECK, since DDL is transactional in PostgreSQL.
+   */
+  async function backfill(seed: Array<{ key: string; active: boolean; archetype: string | null; enrichment: unknown }>) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query('ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_active_requires_concept"');
+      const idByKey = new Map<string, number>();
+      for (const row of seed) {
+        const { rows } = await client.query<{ id: number }>(
+          `INSERT INTO facts (text, is_active, primary_archetype, enrichment) VALUES ($1, $2, $3, $4::jsonb) RETURNING id`,
+          [`${PREFIX}0092-${row.key}`, row.active, row.archetype, row.enrichment == null ? null : JSON.stringify(row.enrichment)],
+        );
+        idByKey.set(row.key, rows[0]!.id);
+      }
+      await client.query(BACKFILL_BLOCK);
+      const out = new Map<string, FactState>();
+      for (const [key, id] of idByKey) {
+        const { rows } = await client.query<FactState>(
+          `SELECT is_active,
+                  enrichment #>> '{visualPromptStrategyOverride,coreSceneOverride}' AS scene,
+                  enrichment #> '{visualPromptStrategyOverride,version}' AS version,
+                  enrichment
+             FROM facts WHERE id = $1`,
+          [id],
+        );
+        out.set(key, rows[0]!);
+      }
+      return out;
+    } finally {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+    }
+  }
+
+  it("leaves an active fact with a projection and a non-empty scene active, with its scene unchanged", async () => {
+    const enrichment = buildPlaceholderFactEnrichment("A hero stands tall.");
+    const result = await backfill([{ key: "has-scene", active: true, archetype: "hero", enrichment }]);
+    const row = result.get("has-scene")!;
+    assert.equal(row.is_active, true);
+    assert.equal(row.scene, "A hero stands tall.", "an existing scene must not be overwritten by the sentinel");
+    assert.deepEqual(row.enrichment, JSON.parse(JSON.stringify(enrichment)), "the whole enrichment is untouched");
+  });
+
+  it("stamps '{NAME} stands there confidently.' on an active fact with a projection and no scene, leaving it active", async () => {
+    const result = await backfill([
+      { key: "no-vso", active: true, archetype: "hero", enrichment: { note: "no override object at all" } },
+      { key: "blank-scene", active: true, archetype: "hero", enrichment: { visualPromptStrategyOverride: { version: 1, coreSceneOverride: "   " } } },
+    ]);
+    for (const key of ["no-vso", "blank-scene"]) {
+      const row = result.get(key)!;
+      assert.equal(row.is_active, true, `${key} must stay live`);
+      assert.equal(row.scene, SENTINEL, `${key} must be stamped with the placeholder scene`);
+      assert.equal(row.version, 1, `${key}: the override object is versioned 1`);
+    }
+  });
+
+  it("sets is_active false on an active fact whose primary_archetype or enrichment is null", async () => {
+    const result = await backfill([
+      { key: "no-archetype", active: true, archetype: null, enrichment: buildPlaceholderFactEnrichment("A hero stands tall.") },
+      { key: "no-enrichment", active: true, archetype: "hero", enrichment: null },
+    ]);
+    assert.equal(result.get("no-archetype")!.is_active, false, "no projection: deactivated, not stamped");
+    assert.equal(result.get("no-enrichment")!.is_active, false, "no enrichment: deactivated, not stamped");
+    assert.equal(result.get("no-archetype")!.scene, "A hero stands tall.", "a deactivated row is not rewritten either");
   });
 });

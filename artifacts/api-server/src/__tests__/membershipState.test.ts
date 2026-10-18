@@ -181,6 +181,16 @@ describe("deriveEffectiveMembership — set union, not priority", () => {
     assert.deepEqual(derived.qualifyingSourceIds, [good.id]);
   });
 
+  it("keeps a user legendary on an active admin grant alone when their subscription is cancelled", () => {
+    const cancelled = source({ lifecycleStatus: "canceled" });
+    const grant = adminGrant();
+    const derived = deriveEffectiveMembership([cancelled, grant], NOW);
+    assert.equal(derived.tier, "legendary");
+    assert.deepEqual(derived.qualifyingSourceIds, [grant.id], "the grant alone carries the tier");
+    assert.equal(derived.reasons.get(cancelled.id), "lifecycle");
+    assert.equal(derived.validUntil, null);
+  });
+
   it("does NOT qualify on an active non-allowlisted subscription, alone", () => {
     const derived = deriveEffectiveMembership(
       [source({ isMembershipProduct: false, lifecycleStatus: "active" })],

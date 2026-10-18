@@ -27,7 +27,7 @@ import {
   passwordResetTokensTable,
   rateLimitCountersTable,
 } from "@workspace/db/schema";
-import { like, sql, inArray } from "drizzle-orm";
+import { like, sql, inArray, eq } from "drizzle-orm";
 
 import localAuthRouter from "../routes/localAuth.js";
 import adminRouter from "../routes/admin.js";
@@ -169,5 +169,38 @@ describe("C7: admin set-password minimum length", () => {
       .set("x-api-key", TEST_KEY)
       .send({ email: `${id}@nope.test`, password: "8char-ok" });
     assert.equal(ok.status, 200);
+  });
+
+  it("stores a hash that verifies the new password after a 200", async () => {
+    const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
+    const id = `${PREFIX}${randomUUID()}`;
+    const email = `${id}@nope.test`;
+    await db.insert(usersTable).values({
+      id,
+      email,
+      passwordHash: await bcrypt.hash("old-password-x", 4),
+      isActive: true,
+    });
+
+    const res = await request(app)
+      .post("/api/admin/users/set-password")
+      .set("x-api-key", TEST_KEY)
+      .send({ email, password: "fresh-password-9" });
+    assert.equal(res.status, 200);
+
+    const [row] = await db.select({ passwordHash: usersTable.passwordHash }).from(usersTable).where(eq(usersTable.id, id));
+    assert.ok(row?.passwordHash, "a password hash must be stored");
+    assert.equal(await bcrypt.compare("fresh-password-9", row.passwordHash), true, "stored hash must verify the new password");
+    assert.equal(await bcrypt.compare("old-password-x", row.passwordHash), false, "old password must no longer verify");
+  });
+
+  it("rejects a malformed email with 400 'a valid email is required'", async () => {
+    const app = buildTestApp({ kind: "unauthenticated" }, adminRouter);
+    const res = await request(app)
+      .post("/api/admin/users/set-password")
+      .set("x-api-key", TEST_KEY)
+      .send({ email: "notanemail", password: "long-enough-pw" });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "a valid email is required");
   });
 });

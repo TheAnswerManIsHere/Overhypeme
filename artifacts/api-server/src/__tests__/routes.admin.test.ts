@@ -29,8 +29,17 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { adminConfigTable, usersTable, factsTable, factTextEditHistoryTable, pendingReviewsTable } from "@workspace/db/schema";
-import { like, eq, inArray } from "drizzle-orm";
+import {
+  adminConfigTable,
+  usersTable,
+  factsTable,
+  factTextEditHistoryTable,
+  pendingReviewsTable,
+  asyncJobsTable,
+  membershipEntitlementsTable,
+  membershipHistoryTable,
+} from "@workspace/db/schema";
+import { like, eq, inArray, or, and } from "drizzle-orm";
 
 import {
   NCMEC_RESERVED_CONFIG_KEYS,
@@ -41,7 +50,14 @@ import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
 import { createSession, type SessionData, BOOTSTRAP_ADMIN_EMAIL } from "../lib/auth.js";
 import { hashFactText } from "../lib/enrichmentVersioning.js";
-import { APPROVED_FACT_TEXT_EDIT_PHRASE, buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import {
+  APPROVED_FACT_TEXT_EDIT_PHRASE,
+  FACT_TEXT_EDIT_CODES,
+  buildPlaceholderFactEnrichment,
+  computeProcessingSignatureStaleness,
+} from "@workspace/api-zod";
+import { currentProcessingSignatureFromConfig } from "../lib/processingSignature.js";
+import { runGraceSweepOnce } from "../lib/membershipSchedules.js";
 
 
 const USER_PREFIX = "troutesadmin-";
@@ -83,7 +99,26 @@ async function sessionFor(userId: string, isAdmin: boolean): Promise<string> {
   return createSession(sessionData, userId);
 }
 
+// Rows these tests create under ids/keys the prefix LIKEs cannot reach: users
+// minted by POST /admin/users (generated ids) and durable jobs keyed by fact id.
+const createdUserIds: string[] = [];
+const jobFactIds: number[] = [];
+
 async function cleanup(): Promise<void> {
+  // membership_history.user_id / performed_by_admin_id are plain FKs (no cascade),
+  // so history goes before the users it points at. Entitlements cascade.
+  await db.delete(membershipHistoryTable).where(or(
+    like(membershipHistoryTable.userId, `${USER_PREFIX}%`),
+    like(membershipHistoryTable.performedByAdminId, `${USER_PREFIX}%`),
+    createdUserIds.length ? inArray(membershipHistoryTable.userId, createdUserIds) : undefined,
+  ));
+  if (createdUserIds.length) await db.delete(usersTable).where(inArray(usersTable.id, createdUserIds));
+  if (jobFactIds.length) {
+    await db.delete(asyncJobsTable).where(inArray(
+      asyncJobsTable.dedupeKey,
+      jobFactIds.flatMap((id) => [`enrichment:fact:${id}`, `fact_pexels:fact:${id}`]),
+    ));
+  }
   // Triage reviews created by the variant/import endpoints reference the test
   // admin via submitted_by_id (no ON DELETE cascade), so they must be removed
   // before the users they point at.
@@ -1134,5 +1169,609 @@ describe("GET /admin/facts/:id/text-edit-history", () => {
       .get("/admin/facts/999999999/text-edit-history")
       .set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 404);
+  });
+});
+
+// ── Bulk import: size caps, dedup, and the inclusive cap ──────────────────────
+
+describe("POST /admin/facts/import — caps and dedup", () => {
+  const validRow = (marker: string, i: number) =>
+    `${FACT_PREFIX}${marker}-${i} {Subj} {keeps|keep} it locked in {POSS} back yard.`;
+
+  it("rejects 1001 valid facts with 400 Invalid input and queues none of them", async () => {
+    const marker = randomUUID();
+    const facts = Array.from({ length: 1001 }, (_, i) => validRow(marker, i));
+    const res = await request(makeApp())
+      .post("/admin/facts/import")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ facts });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "Invalid input");
+
+    // Every row is a valid template, so "queued nothing" can only hold because the
+    // request was refused before any row was processed.
+    const queued = await db
+      .select({ id: pendingReviewsTable.id })
+      .from(pendingReviewsTable)
+      .where(like(pendingReviewsTable.submittedText, `%${marker}%`));
+    assert.equal(queued.length, 0, "an over-cap import must queue nothing at all");
+  });
+
+  it("accepts exactly 1000 facts and processes all of them — the cap is inclusive", async () => {
+    const marker = randomUUID();
+    const facts = Array.from({ length: 1000 }, (_, i) => validRow(marker, i));
+    const res = await request(makeApp())
+      .post("/admin/facts/import")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ facts });
+    assert.equal(res.status, 200, "exactly 1000 is at the cap, not over it");
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.queued, 1000, "all 1000 must be queued, not truncated");
+    assert.equal(res.body.failed.length, 0);
+
+    const queued = await db
+      .select({ id: pendingReviewsTable.id })
+      .from(pendingReviewsTable)
+      .where(like(pendingReviewsTable.submittedText, `%${marker}%`));
+    assert.equal(queued.length, 1000, "every row must have a review");
+  });
+
+  it("skips a text matching an existing fact and one matching an unresolved review, queuing no new review", async () => {
+    const marker = randomUUID();
+    const factText = validRow(marker, 1);
+    const reviewText = validRow(marker, 2);
+    await createTestFact(factText);
+    await db.insert(pendingReviewsTable).values({
+      submittedText: reviewText,
+      status: "pending",
+      workflowStage: "triage_pending",
+      submittedById: adminUserId,
+    } as typeof pendingReviewsTable.$inferInsert);
+
+    for (const text of [factText, reviewText]) {
+      const res = await request(makeApp())
+        .post("/admin/facts/import")
+        .set("authorization", `Bearer ${adminSid}`)
+        .send({ facts: [text] });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.queued, 0, `${text} must not be queued again`);
+      assert.equal(res.body.skipped, 1);
+    }
+
+    // No review was added for the fact-matching text, and the review-matching text
+    // still has exactly the one it started with.
+    const factReviews = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.submittedText, factText));
+    assert.equal(factReviews.length, 0, "a text matching an existing fact must not get a review");
+    const reviewRows = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.submittedText, reviewText));
+    assert.equal(reviewRows.length, 1, "a text matching an unresolved review must not get a second one");
+  });
+});
+
+describe("POST /admin/facts/import-csv — byte cap", () => {
+  it("rejects a csv over 2,000,000 characters (but under the 2 MiB limit and 2000 rows) with 400 Invalid input and queues nothing", async () => {
+    const marker = randomUUID();
+    // 100 valid, ~20 KB lines: >2,000,000 characters, <2 MiB on the wire, <2000 rows —
+    // so neither the request-size limit nor the row cap can be what refuses it.
+    const filler = "x".repeat(20_000);
+    const csv = Array.from(
+      { length: 100 },
+      (_, i) => `${FACT_PREFIX}${marker}-${i} {Subj} {keeps|keep} it locked in {POSS} back yard. ${filler}`,
+    ).join("\n");
+    assert.ok(csv.length > 2_000_000, "precondition: the csv must exceed the 2,000,000-character cap");
+    assert.ok(Buffer.byteLength(csv, "utf8") < 2 * 1024 * 1024, "precondition: it must stay under the 2 MiB request limit");
+
+    const res = await request(makeApp())
+      .post("/admin/facts/import-csv")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ csv });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "Invalid input");
+
+    const queued = await db
+      .select({ id: pendingReviewsTable.id })
+      .from(pendingReviewsTable)
+      .where(like(pendingReviewsTable.submittedText, `%${marker}%`));
+    assert.equal(queued.length, 0, "an over-cap csv must queue nothing at all");
+  });
+});
+
+// ── PATCH /admin/facts/:id — the approved-fact-text lock over HTTP ────────────
+
+describe("PATCH /admin/facts/:id — approved text lock", () => {
+  async function insertReview(stagingFactId: number, workflowStage: string): Promise<number> {
+    const [rev] = await db.insert(pendingReviewsTable).values({
+      submittedText: "x",
+      status: "pending",
+      stagingFactId,
+      workflowStage,
+      candidateVersionId: null,
+      submittedById: adminUserId,
+    } as typeof pendingReviewsTable.$inferInsert).returning({ id: pendingReviewsTable.id });
+    return rev!.id;
+  }
+
+  function confirmFor(oldText: string) {
+    return {
+      phrase: APPROVED_FACT_TEXT_EDIT_PHRASE,
+      reason: "verifying the confirmed edit over HTTP.",
+      expectedOldTextHash: hashFactText(oldText),
+    };
+  }
+
+  it("answers 409 REQUIRES_CONFIRMATION with the impact for changed text on a live fact, and 200 once confirmed", async () => {
+    const original = `${FACT_PREFIX}${randomUUID()} live original`;
+    const factId = await createTestFact(original);
+    const newText = `${FACT_PREFIX}${randomUUID()} live reworded`;
+
+    const unconfirmed = await request(makeApp())
+      .patch(`/admin/facts/${factId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: newText });
+    assert.equal(unconfirmed.status, 409);
+    assert.equal(unconfirmed.body.code, FACT_TEXT_EDIT_CODES.REQUIRES_CONFIRMATION);
+    assert.equal(unconfirmed.body.impact.protected, true);
+    assert.equal(unconfirmed.body.impact.protectionReason, "active");
+    assert.equal(unconfirmed.body.impact.currentStoredText, original);
+    assert.equal(unconfirmed.body.impact.normalizedProposedText, newText);
+    assert.equal(unconfirmed.body.impact.expectedOldTextHash, hashFactText(original));
+    const [untouched] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, factId));
+    assert.equal(untouched?.text, original, "an unconfirmed edit must not write");
+
+    const confirmed = await request(makeApp())
+      .patch(`/admin/facts/${factId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: newText, confirmTextEdit: confirmFor(original) });
+    assert.equal(confirmed.status, 200);
+    const [stored] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, factId));
+    assert.equal(stored?.text, newText, "the confirmed edit must be stored");
+  });
+
+  it("restarts prep on an inactive staging fact at concept_review: 200, review to prep_pending, one enrichment job queued", async () => {
+    const original = `${FACT_PREFIX}${randomUUID()} staging original`;
+    const factId = await createTestFact(original, { isActive: false });
+    jobFactIds.push(factId);
+    const reviewId = await insertReview(factId, "concept_review");
+    const newText = `${FACT_PREFIX}${randomUUID()} staging reworded`;
+
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${factId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: newText });
+    assert.equal(res.status, 200);
+
+    const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, factId));
+    assert.equal(fact?.text, newText);
+    const [review] = await db.select({ stage: pendingReviewsTable.workflowStage })
+      .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(review?.stage, "prep_pending");
+    const jobs = await db.select({ status: asyncJobsTable.status }).from(asyncJobsTable)
+      .where(eq(asyncJobsTable.dedupeKey, `enrichment:fact:${factId}`));
+    assert.equal(jobs.length, 1, "exactly one enrichment job must be queued");
+    assert.ok(["pending", "processing"].includes(jobs[0]!.status), "and it must be nonterminal");
+  });
+
+  async function rootWithReviewingVariant(): Promise<{ rootId: number; variantId: number; original: string }> {
+    const original = `${FACT_PREFIX}${randomUUID()} root original`;
+    const rootId = await createTestFact(original);
+    const variantId = await createTestFact(`${FACT_PREFIX}${randomUUID()} variant staging`, { parentId: rootId, isActive: false });
+    await insertReview(variantId, "concept_review");
+    return { rootId, variantId, original };
+  }
+
+  it("a confirmed text edit on a live root returns 200 and stores the new text while its variant has a pending concept_review review", async () => {
+    const { rootId, original } = await rootWithReviewingVariant();
+    const newText = `${FACT_PREFIX}${randomUUID()} root reworded`;
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${rootId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: newText, confirmTextEdit: confirmFor(original) });
+    assert.equal(res.status, 200);
+    const [stored] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, rootId));
+    assert.equal(stored?.text, newText);
+  });
+
+  it("an unconfirmed edit of that root answers 409 with an impact whose refreshInFlight is false", async () => {
+    const { rootId } = await rootWithReviewingVariant();
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${rootId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: `${FACT_PREFIX}${randomUUID()} root reworded` });
+    assert.equal(res.status, 409);
+    assert.equal(res.body.code, FACT_TEXT_EDIT_CODES.REQUIRES_CONFIRMATION);
+    assert.equal(res.body.impact.refreshInFlight, false, "a variant mid-review is not a refresh in flight on the root");
+  });
+
+  it("a confirmed text edit on a root returns 200 and stores the new text while its variant has a nonterminal enrichment job", async () => {
+    const original = `${FACT_PREFIX}${randomUUID()} root original`;
+    const rootId = await createTestFact(original);
+    const variantId = await createTestFact(`${FACT_PREFIX}${randomUUID()} variant live`, { parentId: rootId });
+    jobFactIds.push(variantId);
+    await db.insert(asyncJobsTable).values({
+      queue: "enrichment",
+      payload: { factId: variantId },
+      dedupeKey: `enrichment:fact:${variantId}`,
+      status: "processing",
+    } as typeof asyncJobsTable.$inferInsert);
+    await insertReview(variantId, "prep_pending");
+
+    const newText = `${FACT_PREFIX}${randomUUID()} root reworded`;
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${rootId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: newText, confirmTextEdit: confirmFor(original) });
+    assert.equal(res.status, 200);
+    const [stored] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, rootId));
+    assert.equal(stored?.text, newText);
+  });
+
+  it("leaves each variant's lastProcessedSignature and enrichment unchanged, and not stale for reprocess, after a confirmed root edit", async () => {
+    const original = `${FACT_PREFIX}${randomUUID()} root original`;
+    const rootId = await createTestFact(original);
+    const signature = await currentProcessingSignatureFromConfig();
+    const variantIds = [
+      await createTestFact(`${FACT_PREFIX}${randomUUID()} variant one`, { parentId: rootId }),
+      await createTestFact(`${FACT_PREFIX}${randomUUID()} variant two`, { parentId: rootId }),
+    ];
+    await db.update(factsTable).set({ lastProcessedSignature: signature as unknown as Record<string, unknown> })
+      .where(inArray(factsTable.id, variantIds));
+    const snapshot = async () => (await db
+      .select({ id: factsTable.id, sig: factsTable.lastProcessedSignature, enrichment: factsTable.enrichment })
+      .from(factsTable).where(inArray(factsTable.id, variantIds)).orderBy(factsTable.id));
+    const before = await snapshot();
+    for (const v of before) {
+      assert.equal(computeProcessingSignatureStaleness(v.sig, signature).stale, false, "precondition: variants start fresh");
+    }
+
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${rootId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ text: `${FACT_PREFIX}${randomUUID()} root reworded`, confirmTextEdit: confirmFor(original) });
+    assert.equal(res.status, 200);
+
+    const after = await snapshot();
+    assert.deepEqual(after, before, "a root edit must not touch any variant's signature or enrichment");
+    for (const v of after) {
+      assert.equal(computeProcessingSignatureStaleness(v.sig, signature).stale, false, "and no variant becomes stale");
+    }
+  });
+});
+
+// ── Membership: admin grants, effective tier, grace-sweep status ──────────────
+
+describe("admin lifetime grants", () => {
+  // adminLabel() falls back to the email when the actor has no display name.
+  const adminLabelText = () => `${adminUserId}@test.local`;
+
+  const grant = (userId: string, reason?: string) =>
+    request(makeApp())
+      .post(`/admin/users/${userId}/grant-lifetime`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send(reason === undefined ? {} : { reason });
+  const revoke = (userId: string, reason?: string) =>
+    request(makeApp())
+      .post(`/admin/users/${userId}/revoke-lifetime`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send(reason === undefined ? {} : { reason });
+  const membership = (userId: string) =>
+    request(makeApp()).get(`/admin/users/${userId}/membership`).set("authorization", `Bearer ${adminSid}`);
+  const storedTier = async (userId: string) =>
+    (await db.select({ tier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, userId)))[0]?.tier;
+  const grantRows = (userId: string) =>
+    db.select().from(membershipEntitlementsTable).where(and(
+      eq(membershipEntitlementsTable.userId, userId),
+      eq(membershipEntitlementsTable.sourceType, "admin_grant"),
+    ));
+
+  it("grant-lifetime answers success and the target user's tier becomes legendary, in the response and in the database", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    const res = await grant(userId, "comped for the UAT run");
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.user.membershipTier, "legendary");
+    assert.equal(await storedTier(userId), "legendary");
+  });
+
+  it("after a grant, the membership read returns an admin_grant entry with label and reason, no amount or payment id, and an admin_grant history row", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    assert.equal((await grant(userId, "comped for the UAT run")).status, 200);
+
+    const res = await membership(userId);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.hasActiveAdminGrant, true);
+    const entry = res.body.lifetimeEntitlement;
+    assert.equal(entry.sourceType, "admin_grant");
+    assert.equal(entry.status, "active");
+    assert.equal(entry.grantedByAdminLabel, adminLabelText());
+    assert.equal(entry.grantReason, "comped for the UAT run");
+    assert.equal(entry.amount, null, "a comp is not a payment: no amount");
+    assert.equal(entry.stripePaymentIntentId, null, "a comp is not a payment: no payment id");
+    assert.ok(
+      (res.body.history as Array<{ event: string }>).some((h) => h.event === "admin_grant"),
+      "an admin_grant history row must exist",
+    );
+  });
+
+  it("revoke-lifetime as admin answers 200 with success true, and the user's stored tier then reads registered", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    assert.equal((await grant(userId)).status, 200);
+    assert.equal(await storedTier(userId), "legendary");
+
+    const res = await revoke(userId, "no longer comped");
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(await storedTier(userId), "registered");
+  });
+
+  it("after a revoke the membership read still returns the grant, marked revoked with the revoker label, and an admin_revoke history row", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    assert.equal((await grant(userId)).status, 200);
+    assert.equal((await revoke(userId, "no longer comped")).status, 200);
+
+    const res = await membership(userId);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.hasActiveAdminGrant, false);
+    const entry = res.body.lifetimeEntitlement;
+    assert.ok(entry, "the revoked grant must not be deleted");
+    assert.equal(entry.sourceType, "admin_grant");
+    assert.equal(entry.status, "revoked");
+    assert.equal(entry.revokedByAdminLabel, adminLabelText());
+    assert.ok(
+      (res.body.history as Array<{ event: string }>).some((h) => h.event === "admin_revoke"),
+      "an admin_revoke history row must exist",
+    );
+  });
+
+  it("a second grant after a revoke succeeds and the user is legendary again, with a new active grant row", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    assert.equal((await grant(userId)).status, 200);
+    assert.equal((await revoke(userId)).status, 200);
+    assert.equal(await storedTier(userId), "registered");
+
+    const again = await grant(userId);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.user.membershipTier, "legendary");
+    assert.equal(await storedTier(userId), "legendary");
+
+    const rows = await grantRows(userId);
+    assert.equal(rows.length, 2, "the revoked grant is kept and a new row is added");
+    assert.deepEqual(rows.map((r) => r.lifecycleStatus).sort(), ["active", "revoked"]);
+  });
+
+  it("a second grant returns 400 'User already has an active admin grant', leaving one active row so one revoke drops the user", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    assert.equal((await grant(userId)).status, 200);
+
+    const second = await grant(userId);
+    assert.equal(second.status, 400);
+    assert.equal(second.body.error, "User already has an active admin grant");
+
+    const rows = await grantRows(userId);
+    assert.equal(rows.filter((r) => r.lifecycleStatus === "active").length, 1, "exactly one active grant row");
+
+    assert.equal((await revoke(userId)).status, 200);
+    assert.equal(await storedTier(userId), "registered", "one revoke must be enough to drop the user");
+  });
+
+  it("deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered", async () => {
+    const granted = await createTestUser({ tier: "registered" });
+    assert.equal((await grant(granted)).status, 200);
+    const plain = await createTestUser({ tier: "registered" });
+
+    for (const userId of [granted, plain]) {
+      const off = await request(makeApp())
+        .patch(`/admin/users/${userId}`)
+        .set("authorization", `Bearer ${adminSid}`)
+        .send({ isActive: false });
+      assert.equal(off.status, 200);
+    }
+    // Stored tiers drift while deactivated (a webhook that landed in the meantime,
+    // say): reinstatement must re-derive from sources, not trust what is stored.
+    await db.update(usersTable).set({ membershipTier: "registered" }).where(eq(usersTable.id, granted));
+    await db.update(usersTable).set({ membershipTier: "legendary" }).where(eq(usersTable.id, plain));
+
+    for (const userId of [granted, plain]) {
+      const on = await request(makeApp())
+        .patch(`/admin/users/${userId}`)
+        .set("authorization", `Bearer ${adminSid}`)
+        .send({ isActive: true });
+      assert.equal(on.status, 200);
+    }
+    assert.equal(await storedTier(granted), "legendary", "an active admin grant survives the round trip");
+    assert.equal(await storedTier(plain), "registered", "no source, no Legendary");
+  });
+});
+
+describe("POST /admin/users — membershipTier legendary", () => {
+  it("answers 201 and records an active admin_grant row with a reason and an admin_grant history event", async () => {
+    const email = `${USER_PREFIX}create-${randomUUID()}@test.local`;
+    const res = await request(makeApp())
+      .post("/admin/users")
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ email, password: "long-enough-pw-1", displayName: "Created Legend", membershipTier: "legendary" });
+    assert.equal(res.status, 201);
+    const userId = res.body.user.id as string;
+    createdUserIds.push(userId);
+    assert.equal(res.body.user.membershipTier, "legendary");
+
+    const grants = await db.select().from(membershipEntitlementsTable).where(and(
+      eq(membershipEntitlementsTable.userId, userId),
+      eq(membershipEntitlementsTable.sourceType, "admin_grant"),
+    ));
+    assert.equal(grants.length, 1);
+    assert.equal(grants[0]!.lifecycleStatus, "active");
+    assert.ok(grants[0]!.grantReason?.trim(), "the grant must carry a reason");
+    const history = await db.select({ event: membershipHistoryTable.event }).from(membershipHistoryTable)
+      .where(eq(membershipHistoryTable.userId, userId));
+    assert.ok(history.some((h) => h.event === "admin_grant"), "an admin_grant history event must be written");
+  });
+});
+
+describe("GET /admin/users — effective tier", () => {
+  it("reports legendary for a live member and registered for a lapsed one and a free user", async () => {
+    const marker = randomUUID().slice(0, 8);
+    const mk = async (tier: "registered" | "legendary", validUntil: Date | null) => {
+      const id = `${USER_PREFIX}tier-${marker}-${randomUUID().slice(0, 6)}`;
+      await db.insert(usersTable).values({
+        id,
+        email: `${id}@test.local`,
+        membershipTier: tier,
+        membershipValidUntil: validUntil,
+      });
+      return id;
+    };
+    const live = await mk("legendary", new Date(Date.now() + 24 * 60 * 60 * 1000));
+    // Stored legendary but past its horizon: authorization already demotes it, so
+    // the list must too.
+    const lapsed = await mk("legendary", new Date(Date.now() - 60 * 60 * 1000));
+    const free = await mk("registered", null);
+
+    const res = await request(makeApp())
+      .get("/admin/users")
+      .query({ search: `tier-${marker}` })
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(res.status, 200);
+    const tierOf = (id: string) =>
+      (res.body.users as Array<{ id: string; membershipTier: string }>).find((u) => u.id === id)?.membershipTier;
+    assert.equal(tierOf(live), "legendary");
+    assert.equal(tierOf(lapsed), "registered");
+    assert.equal(tierOf(free), "registered");
+  });
+});
+
+describe("GET /admin/membership/grace-sweep", () => {
+  const status = () =>
+    request(makeApp()).get("/admin/membership/grace-sweep").set("authorization", `Bearer ${adminSid}`);
+  const seedLapsedLegendary = async (): Promise<string> => {
+    const id = `${USER_PREFIX}lapsed-${randomUUID()}`;
+    await db.insert(usersTable).values({
+      id,
+      email: `${id}@test.local`,
+      membershipTier: "legendary",
+      membershipValidUntil: new Date(Date.now() - 60 * 60 * 1000),
+    });
+    return id;
+  };
+
+  // The sweep's health is in-process state, so these four read it in order:
+  // never run first, then drift counted with no sweep, then an overdue sweep,
+  // and finally a fresh successful one.
+  it("before any sweep has run, reports neverRun true and alerting false", async () => {
+    const res = await status();
+    assert.equal(res.status, 200);
+    assert.equal(res.body.health.neverRun, true);
+    assert.equal(res.body.health.alerting, false);
+  });
+
+  it("driftedCount counts a seeded lapsed legendary user", async () => {
+    const before = (await status()).body.driftedCount as number;
+    const id = await seedLapsedLegendary();
+    const res = await status();
+    assert.equal(res.status, 200);
+    assert.equal(res.body.driftedCount, before + 1);
+    assert.ok(
+      (res.body.drifted as Array<{ id: string }>).some((u) => u.id === id),
+      "the seeded user must be listed as drifted",
+    );
+  });
+
+  it("with the alert threshold exceeded, reports alerting true and lists the drifted user", async () => {
+    const id = await seedLapsedLegendary();
+    // The last successful sweep was 7 hours ago; the default alert threshold is 6.
+    await runGraceSweepOnce({ asOf: new Date(Date.now() - 7 * 60 * 60 * 1000) });
+    const res = await status();
+    assert.equal(res.status, 200);
+    assert.equal(res.body.health.alerting, true);
+    assert.ok(
+      (res.body.drifted as Array<{ id: string }>).some((u) => u.id === id),
+      "the drifted user must be listed alongside the alert",
+    );
+  });
+
+  it("after a successful sweep, reports neverRun false, neverSucceeded false, alerting false and a lastSuccessAt", async () => {
+    await runGraceSweepOnce();
+    const res = await status();
+    assert.equal(res.status, 200);
+    assert.equal(res.body.health.neverRun, false);
+    assert.equal(res.body.health.neverSucceeded, false);
+    assert.equal(res.body.health.alerting, false);
+    assert.equal(typeof res.body.health.lastSuccessAt, "string");
+  });
+});
+
+// ── PATCH /admin/config/:key — NCMEC keys ─────────────────────────────────────
+
+describe("PATCH /admin/config/:key — NCMEC key values", () => {
+  type SeedRow = { key: string; value: string; dataType: "text" | "integer"; label: string; minValue?: number; maxValue?: number };
+  // Mirrors migration 0097's rows. Seeded when absent because the sharded runner
+  // clones schema only, never 0097's seed INSERTs.
+  const UNRESERVED: Array<SeedRow & { newValue: string }> = [
+    { key: "ncmec_safety_alert_email", value: "", dataType: "text", label: "NCMEC Safety Alert Email", newValue: "safety-config@example.test" },
+    { key: "async_job_ncmec_submit_max_attempts", value: "8", dataType: "integer", label: "NCMEC Submit — Max Attempts", minValue: 1, maxValue: 20, newValue: "9" },
+    { key: "async_job_ncmec_submit_retry_delay_4_ms", value: "86400000", dataType: "integer", label: "NCMEC Submit — 4th Retry Delay (ms)", minValue: 60000, maxValue: 604800000, newValue: "90000000" },
+  ];
+  const RESERVED_LITERAL_REFUSAL =
+    "This key controls NCMEC CyberTipline filing and cannot be written through the generic config route. Use the safety admin surface, which validates the resulting configuration before applying it.";
+
+  const rowOf = async (key: string) =>
+    (await db.select().from(adminConfigTable).where(eq(adminConfigTable.key, key)))[0];
+
+  it("writes and stores the new value of each of the three unreserved NCMEC keys", async () => {
+    for (const seed of UNRESERVED) {
+      const existing = await rowOf(seed.key);
+      if (!existing) {
+        await db.insert(adminConfigTable).values({
+          key: seed.key,
+          value: seed.value,
+          dataType: seed.dataType,
+          label: seed.label,
+          minValue: seed.minValue ?? null,
+          maxValue: seed.maxValue ?? null,
+          isPublic: false,
+        }).onConflictDoNothing();
+      }
+      try {
+        const res = await request(makeApp())
+          .patch(`/admin/config/${seed.key}`)
+          .set("authorization", `Bearer ${adminSid}`)
+          .send({ value: seed.newValue });
+        assert.equal(res.status, 200, `${seed.key} was refused: ${JSON.stringify(res.body)}`);
+        assert.equal((await rowOf(seed.key))?.value, seed.newValue, `${seed.key}: a 200 must mean the value is stored`);
+      } finally {
+        if (existing) {
+          await db.update(adminConfigTable).set({ value: existing.value }).where(eq(adminConfigTable.key, seed.key));
+        } else {
+          await db.delete(adminConfigTable).where(eq(adminConfigTable.key, seed.key));
+        }
+      }
+    }
+  });
+
+  it("refuses each reserved key with the literal refusal copy and leaves its stored row unchanged", async () => {
+    for (const key of NCMEC_RESERVED_CONFIG_KEYS) {
+      const existing = await rowOf(key);
+      let seeded = false;
+      if (!existing) {
+        await db.insert(adminConfigTable).values({
+          key, value: "false", dataType: "text", label: key, isPublic: false,
+        }).onConflictDoNothing();
+        seeded = true;
+      }
+      try {
+        const before = await rowOf(key);
+        const res = await request(makeApp())
+          .patch(`/admin/config/${key}`)
+          .set("authorization", `Bearer ${adminSid}`)
+          .send({ value: "attempted-write", debugValue: "attempted-debug-write" });
+        assert.equal(res.status, 403, `${key} was not refused`);
+        // Spelled out here on purpose: asserting against the exported constant
+        // would pass if the copy were reworded, and this copy is what the admin reads.
+        assert.equal(res.body.error, RESERVED_LITERAL_REFUSAL);
+        assert.deepEqual(await rowOf(key), before, `${key}: a refused save must leave the stored row untouched`);
+      } finally {
+        if (seeded) await db.delete(adminConfigTable).where(eq(adminConfigTable.key, key));
+      }
+    }
   });
 });

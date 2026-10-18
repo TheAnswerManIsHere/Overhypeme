@@ -32,6 +32,7 @@ import { eq, like, inArray } from "drizzle-orm";
 import factsRouter from "../routes/facts.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import { generatedIconUrl } from "../lib/effectiveAvatar.js";
 
 
 const USER_PREFIX = "t_routes_f_";
@@ -208,6 +209,22 @@ describe("GET /facts/:factId", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.pexelsImages, null, "must not fall back to the root's pexelsImages");
     assert.equal(res.body.aiMemeImages, null, "must not fall back to the root's aiMemeImages");
+  });
+
+  it("a root fact's detail still returns its own AI meme images unchanged, even when it has a variant", async () => {
+    const userId = await createTestUser();
+    const rootId = await insertFact("root-keeps-ai-memes", { submittedById: userId });
+    const aiMemeImages = { neutral: ["n1.png", "n2.png"], male: ["m1.png"], female: ["f1.png"] };
+    await db.update(factsTable).set({ aiMemeImages }).where(eq(factsTable.id, rootId));
+    const [variant] = await db.insert(factsTable).values({
+      text: "variant-of-ai-root", canonicalText: "variant-of-ai-root", isActive: true,
+      submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
+    }).returning();
+    insertedFactIds.push(variant.id);
+
+    const res = await request(makeApp()).get(`/facts/${rootId}`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.aiMemeImages, aiMemeImages);
   });
 
   it("a variant WITH its own images shows exactly those, not the root's", async () => {
@@ -526,6 +543,34 @@ describe("GET /facts/:factId/comments", () => {
     assert.equal(res.status, 200);
     const ids = (res.body.comments as Array<{ id: number }>).map((c) => c.id);
     assert.deepEqual(ids, [newest.id, popularOld.id]);
+  });
+});
+
+describe("public avatar projection on a fact's author", () => {
+  it("logged out, submittedByImage and comment authorImage are the generated icon for an author with a stored but unselected photo", async () => {
+    const userId = await createTestUser();
+    const photo = "/api/storage/objects/uploads/identity-photo.jpg";
+    // A registered author who uploaded an identity photo but never selected it
+    // as their avatar (avatarSource stays the default, not 'photo').
+    await db.update(usersTable)
+      .set({ profileImageUrl: photo, avatarSource: "avatar", membershipTier: "registered" })
+      .where(eq(usersTable.id, userId));
+    const [author] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    const icon = generatedIconUrl(author.avatarStyle, userId);
+
+    const factId = await insertFact("avatar-fact", { submittedById: userId });
+    await db.insert(commentsTable).values({ factId, authorId: userId, text: "avatar-comment", status: "approved", flagged: false });
+
+    const detail = await request(makeApp()).get(`/facts/${factId}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.submittedByImage, icon);
+    assert.notEqual(detail.body.submittedByImage, photo);
+
+    const comments = await request(makeApp()).get(`/facts/${factId}/comments`);
+    assert.equal(comments.status, 200);
+    assert.equal(comments.body.comments.length, 1);
+    assert.equal(comments.body.comments[0].authorImage, icon);
+    assert.notEqual(comments.body.comments[0].authorImage, photo);
   });
 });
 

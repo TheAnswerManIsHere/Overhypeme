@@ -26,6 +26,7 @@ import {
 } from "@workspace/api-zod";
 
 import reviewsRouter from "../routes/reviews.js";
+import { runVisualConceptsJob, type VisualConceptsJobDeps } from "../lib/visualConceptJobs.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -282,6 +283,57 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 200);
     assert.equal(res.body.workflowStage, "production_review");
+  });
+
+  it("approves with 200 production_review after a Concept or bubble save leaves the stored ideas stale (GET reads current false)", async () => {
+    const generate: VisualConceptsJobDeps["generate"] = async () => ({
+      candidates: [1, 2, 3].map((n) => ({
+        title: `Concept ${n}`, whyItWorks: "It lands.", sceneDescription: `{NAME} lifts the planet, variant ${n}.`,
+        tokenValid: true, bubbles: [],
+      })),
+      provenance: {
+        engineId: "openai-visual-planner", model: "gpt-5.5", reasoningEffort: "high",
+        timeoutMs: 180_000, promptVersion: 1, fallbackReason: null,
+      },
+    });
+    const saved = (partial: Record<string, unknown>): FactEnrichment => {
+      const base = enrichmentWithConcept("A hero hoists the planet overhead.");
+      return {
+        ...base,
+        visualPromptStrategyOverride: {
+          ...base.visualPromptStrategyOverride,
+          bubbles: [{ type: "speech", entity: "subject", text: "Heavy." }],
+          ...partial,
+        },
+      } as FactEnrichment;
+    };
+    const edits: Array<[string, Record<string, unknown>]> = [
+      ["Concept", { coreSceneOverride: "A hero hoists the planet over a crowded stadium." }],
+      ["bubble", { bubbles: [{ type: "speech", entity: "subject", text: "Still got it." }] }],
+    ];
+    for (const [what, edit] of edits) {
+      const { reviewId, stagingFactId } = await seedReview({
+        submittedById: adminId, stage: "concept_review", enrichment: saved({}),
+      });
+      assert.ok(stagingFactId);
+      await runVisualConceptsJob({ reviewId, factId: stagingFactId }, { generate });
+
+      const fresh = await request(makeApp()).get(`/admin/reviews/${reviewId}`).set("authorization", `Bearer ${adminSid}`);
+      assert.equal(fresh.status, 200);
+      assert.equal(fresh.body.visualConcepts.status, "ok");
+      assert.equal(fresh.body.visualConcepts.current, true, `${what}: ideas current before the save`);
+
+      // The save: the staging fact's enrichment changes (Concept / bubble only).
+      await db.update(factsTable).set({ enrichment: saved(edit) }).where(eq(factsTable.id, stagingFactId));
+      const stale = await request(makeApp()).get(`/admin/reviews/${reviewId}`).set("authorization", `Bearer ${adminSid}`);
+      assert.equal(stale.body.visualConcepts.current, false, `${what}: ideas read stale after the save`);
+
+      const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
+      assert.equal(res.status, 200, `${what}: ${JSON.stringify(res.body)}`);
+      assert.equal(res.body.workflowStage, "production_review");
+      const [row] = await db.select({ stage: pendingReviewsTable.workflowStage }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+      assert.equal(row!.stage, "production_review");
+    }
   });
 
   it("two concurrent approvals → exactly one advances, one 409s, exactly one force batch", async () => {

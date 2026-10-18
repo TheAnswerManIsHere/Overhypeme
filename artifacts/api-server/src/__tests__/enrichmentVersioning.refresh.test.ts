@@ -50,7 +50,8 @@ import adminRouter from "../routes/admin.js";
 import adminImagePromptRouter from "../routes/adminImagePrompt.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview.js";
-import { runEnrichmentForCandidateVersion } from "../lib/enrichmentJobs.js";
+import { runEnrichmentForCandidateVersion, enrichmentJobHandler } from "../lib/enrichmentJobs.js";
+import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import {
   advanceReviewForStagingFactEnrichment,
   findUnresolvedReviewForStagingFact,
@@ -491,6 +492,57 @@ describe("runEnrichmentForCandidateVersion", () => {
         eq(asyncJobsTable.dedupeKey, `fact_visual_concepts:review:${reviewId}`),
       ));
     assert.equal(concepts.length, 1, "concepts enqueued at Step 2");
+  });
+
+  it("a fact whose stored visual override lacks its list fields refreshes through the route and the queued job, keeping the override word for word", async () => {
+    // A legacy stored override: Concept + one required detail, every other list absent.
+    const legacyOverride = {
+      version: 1,
+      coreSceneOverride: "{NAME} bench-presses the Earth in a stadium.",
+      requiredVisualDetails: ["a tiny red cape"],
+    };
+    const { columns } = materializeEnrichment({ aiDerived: ACTIVE_AI_BASELINE, overrides: MANUAL_OVERRIDES, visualPromptStrategyOverride: LIVE_FACT_SAVED_CONCEPT });
+    const [fact] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Earth.",
+      submittedById: submitterId,
+      isActive: true,
+      ...columns,
+      enrichment: { ...(columns.enrichment as FactEnrichment), visualPromptStrategyOverride: legacyOverride },
+      enrichmentStatus: "ok",
+    } as unknown as typeof factsTable.$inferInsert).returning();
+    insertedFactIds.push(fact.id);
+
+    const res = await request(makeApp())
+      .post(`/admin/facts/${fact.id}/send-back-to-review`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const { reviewId, candidateVersionId } = res.body as { reviewId: number; candidateVersionId: number };
+
+    // The queued job, run through the real handler; only the OpenAI client is a double.
+    const [job] = await db.select().from(asyncJobsTable).where(and(
+      eq(asyncJobsTable.queue, "enrichment"),
+      eq(asyncJobsTable.dedupeKey, `enrichment:version:${candidateVersionId}`),
+    ));
+    assert.ok(job, "the send-back queued an enrichment job for the candidate");
+    __setUtilityLLMClientForTest({
+      chat: { completions: { create: async () => ({ choices: [{ message: { content: JSON.stringify(REFRESHED_AI_BASELINE) } }] }) } },
+    } as never);
+    try {
+      const result = await enrichmentJobHandler.run(job.payload, job);
+      assert.equal(result.ok, true, JSON.stringify(result));
+    } finally {
+      __setUtilityLLMClientForTest(null);
+    }
+
+    const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(review.workflowStage, "concept_review");
+    const [candidate] = await db.select().from(factEnrichmentVersionsTable)
+      .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+    // The candidate may fill the absent lists with empty defaults; the authored text must be untouched.
+    const kept = (candidate.enrichment as FactEnrichment).visualPromptStrategyOverride;
+    assert.equal(kept?.coreSceneOverride, legacyOverride.coreSceneOverride);
+    assert.deepEqual(kept?.requiredVisualDetails, legacyOverride.requiredVisualDetails);
   });
 
   it("COST GUARD phase 1: skips classification when the cycle was already resolved", async () => {

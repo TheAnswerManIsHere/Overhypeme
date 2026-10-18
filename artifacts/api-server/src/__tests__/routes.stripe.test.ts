@@ -198,6 +198,30 @@ describe("GET /stripe/payment-history", () => {
   });
 });
 
+describe("GET /stripe/payment-history — refunds and disputes", () => {
+  it("returns refund and dispute rows as well as purchases", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+
+    const base = Date.now();
+    await db.insert(membershipHistoryTable).values([
+      { userId, event: "lifetime_purchase", createdAt: new Date(base - 40000) },
+      { userId, event: "refund",            createdAt: new Date(base - 30000) },
+      { userId, event: "dispute_opened",    createdAt: new Date(base - 20000) },
+      { userId, event: "dispute_lost",      createdAt: new Date(base - 10000) },
+    ]);
+
+    const res = await request(makeApp())
+      .get("/stripe/payment-history")
+      .set("authorization", `Bearer ${sid}`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      (res.body.history as Array<{ event: string }>).map((h) => h.event),
+      ["dispute_lost", "dispute_opened", "refund", "lifetime_purchase"],
+    );
+  });
+});
+
 describe("GET /stripe/access-revocation-notice", () => {
 
   it("returns { notice: null } for a user with no revocation history", async () => {

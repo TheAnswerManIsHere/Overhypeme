@@ -248,3 +248,61 @@ describe("resolveRenderStyle (DB-backed)", () => {
     }
   });
 });
+
+// ── Full `none` line + built-in style copy per generation mode (UAT deferred, #631 7b) ──
+
+describe("resolveRenderStyle — the `none` line in full", () => {
+  const NONE_LINE =
+    "Photorealistic rendering: true-to-life materials and textures, realistic optical detail, and the clarity of a high-quality photograph.";
+
+  it("an absent style and the literal 'none' both resolve to the full photorealistic line in either mode", async () => {
+    for (const styleId of [undefined, "none"]) {
+      for (const mode of ["i2i", "t2i"] as const) {
+        const r = await resolveRenderStyle(styleId, mode);
+        assert.equal(r.selection, "default");
+        if (r.selection === "default") {
+          assert.equal(r.prompt, NONE_LINE, `${String(styleId)}/${mode}`);
+          assert.equal(r.copyDigest, computeStyleCopyDigest(NONE_LINE));
+        }
+      }
+    }
+  });
+});
+
+describe("resolveRenderStyle — built-in style copy (i2i Reimagine vs t2i declarative)", () => {
+  const BUILTIN = IMAGE_STYLES.filter((s) => s.id !== "none");
+  const rowId = (id: string) => `__test_builtin_${id}__`;
+
+  before(async () => {
+    // The seeded look_styles rows mirror IMAGE_STYLES; seed that exact copy under
+    // test-prefixed ids so the resolver is exercised on the shipped built-in text.
+    await db.insert(lookStylesTable).values(
+      BUILTIN.map((s) => ({
+        id: rowId(s.id),
+        label: s.label,
+        isActive: true,
+        promptSuffix: s.promptSuffix,
+        promptSuffixReference: s.promptSuffixReference,
+      })),
+    ).onConflictDoNothing();
+  });
+
+  after(async () => {
+    await db.delete(lookStylesTable).where(inArray(lookStylesTable.id, BUILTIN.map((s) => rowId(s.id))));
+  });
+
+  it("i2i resolves each built-in style to its imperative Reimagine/Transform copy, t2i to its declarative copy", async () => {
+    for (const s of BUILTIN) {
+      const i2i = await resolveRenderStyle(rowId(s.id), "i2i");
+      const t2i = await resolveRenderStyle(rowId(s.id), "t2i");
+      assert.equal(i2i.selection, "selected", s.id);
+      assert.equal(t2i.selection, "selected", s.id);
+      if (i2i.selection !== "selected" || t2i.selection !== "selected") continue;
+      assert.equal(i2i.prompt, s.promptSuffixReference, `${s.id} i2i`);
+      assert.equal(t2i.prompt, s.promptSuffix, `${s.id} t2i`);
+      assert.match(i2i.prompt, /^(Reimagine|Transform) this\b/, `${s.id} i2i opens with Reimagine/Transform`);
+      assert.doesNotMatch(t2i.prompt, /^(Reimagine|Transform)\b/, `${s.id} t2i is declarative, not an edit instruction`);
+      assert.notEqual(i2i.prompt, t2i.prompt, s.id);
+    }
+  });
+});

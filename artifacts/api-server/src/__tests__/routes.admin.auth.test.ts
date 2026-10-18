@@ -27,13 +27,23 @@ import type { Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { like } from "drizzle-orm";
+import { usersTable, factsTable, asyncJobsTable } from "@workspace/db/schema";
+import { and, eq, gte, inArray, like } from "drizzle-orm";
+import {
+  buildPlaceholderFactEnrichment,
+  EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  type FactEnrichment,
+} from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
+import { buildFactEnrichmentColumns } from "../lib/factEnrichment.js";
+import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
+import { FACT_AI_MEME_BACKFILL_QUEUE, factAiMemeBackfillDedupeKey } from "../lib/aiMemeBackfillJobs.js";
 
 const USER_PREFIX = "tadminauth-";
+const FACT_TEXT_PREFIX = "tadminauth-fact ";
+const FILE_START = new Date();
 
 type Method = "get" | "post" | "put" | "patch" | "delete";
 
@@ -150,6 +160,13 @@ async function createNonAdmin(): Promise<string> {
 }
 
 async function cleanup(): Promise<void> {
+  await db.delete(factsTable).where(like(factsTable.text, `${FACT_TEXT_PREFIX}%`));
+  // The AI-meme backfill route enqueues for every active fact missing images in
+  // the database, not only this file's, so its jobs are swept by creation time.
+  await db.delete(asyncJobsTable).where(and(
+    eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE),
+    gte(asyncJobsTable.createdAt, FILE_START),
+  ));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
@@ -280,5 +297,124 @@ describe("admin router auth coverage completeness", () => {
       { missing: [], extra: [] },
       "ADMIN_AUTH_ROUTES drifted from adminRouter.stack — update both lists in lockstep",
     );
+  });
+});
+
+// ── Admin-authenticated behaviour of the bulk backfill routes ─────────────────
+
+describe("admin bulk backfill routes", () => {
+  let adminApp: Express;
+
+  before(async () => {
+    const id = `${USER_PREFIX}${randomUUID()}`;
+    await db.insert(usersTable).values({
+      id,
+      email: `${id}@test.local`,
+      membershipTier: "registered",
+      isAdmin: true,
+    });
+    adminApp = buildTestApp({ kind: "authenticated", userId: id }, adminRouter);
+  });
+
+  const CLASSIFIED: FactEnrichment = {
+    primaryArchetype: "superhuman_physical_feat",
+    subtype: "force_scaled_action",
+    modifiers: ["clear_causal_relationship"],
+    visualLiteralness: "literal_dramatization",
+    visualComplexity: "medium",
+    overhypeFit: "strong",
+    adultSuitability: "safe",
+    adultSuitabilityNotes: "",
+    suggestedHashtags: ["strength", "pushups", "earth"],
+    taxonomyConfidence: 0.95,
+    adminReviewNotes: "",
+    culturalReferences: [],
+    semanticEntities: [],
+  };
+
+  it("backfill-enrichment?force=true leaves a moderator Visual Concept unchanged after the background loop", async () => {
+    const concept = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A moderator wrote this exact scene." };
+    // Starts classified as something else, so a re-classification is observable.
+    const seeded = buildFactEnrichmentColumns({
+      ...CLASSIFIED,
+      primaryArchetype: "object_logic_impossibility",
+      subtype: "mechanical_contradiction",
+      visualPromptStrategyOverride: concept,
+    } as FactEnrichment);
+    const [fact] = await db.insert(factsTable).values({
+      text: `${FACT_TEXT_PREFIX}${randomUUID()}`,
+      isActive: true,
+      ...seeded,
+    }).returning({ id: factsTable.id });
+    const factId = fact!.id;
+    const readBack = async () => (await db
+      .select({ enrichment: factsTable.enrichment, primaryArchetype: factsTable.primaryArchetype })
+      .from(factsTable).where(eq(factsTable.id, factId)))[0]!;
+    const before = await readBack();
+    const conceptBefore = (before.enrichment as FactEnrichment).visualPromptStrategyOverride;
+    assert.equal(conceptBefore?.coreSceneOverride, concept.coreSceneOverride, "precondition: the concept is stored");
+
+    // Only the OpenAI client is a double; the route's own background loop runs.
+    __setUtilityLLMClientForTest({
+      chat: { completions: { create: async () => ({ choices: [{ message: { content: JSON.stringify(CLASSIFIED) } }] }) } },
+    } as never);
+    try {
+      const res = await request(adminApp).post("/api/admin/facts/backfill-enrichment?force=true");
+      assert.equal(res.status, 200);
+      assert.equal(res.body.success, true);
+
+      // The loop is fire-and-forget: wait until it has re-enriched THIS fact.
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline && (await readBack()).primaryArchetype === "object_logic_impossibility") {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    } finally {
+      __setUtilityLLMClientForTest(null);
+    }
+
+    const after = await readBack();
+    assert.equal(after.primaryArchetype, "superhuman_physical_feat", "the loop must have re-classified this fact");
+    assert.deepEqual(
+      (after.enrichment as FactEnrichment).visualPromptStrategyOverride,
+      conceptBefore,
+      "the moderator's Visual Concept must survive re-classification",
+    );
+  });
+
+  it("backfill-ai-memes enqueues one durable job per active fact missing AI meme images, root or variant", async () => {
+    const mkFact = async (label: string, over: Partial<typeof factsTable.$inferInsert> = {}) => {
+      const [row] = await db.insert(factsTable).values({
+        text: `${FACT_TEXT_PREFIX}${label} ${randomUUID()}`,
+        isActive: true,
+        enrichment: buildPlaceholderFactEnrichment(),
+        ...over,
+      }).returning({ id: factsTable.id });
+      return row!.id;
+    };
+    const rootId = await mkFact("root");
+    const variantId = await mkFact("variant", { parentId: rootId });
+    const hasImagesId = await mkFact("has-images", { aiMemeImages: { foo: "bar" } });
+
+    const res = await request(adminApp).post("/api/admin/facts/backfill-ai-memes");
+    assert.equal(res.status, 202);
+    assert.equal(res.body.success, true);
+    const queuedFactIds = (res.body.jobs as Array<{ factId: number }>).map((j) => j.factId);
+    assert.ok(queuedFactIds.includes(rootId), "the root must be queued");
+    assert.ok(queuedFactIds.includes(variantId), "the variant must be queued too");
+    assert.ok(!queuedFactIds.includes(hasImagesId), "a fact that already has AI meme images must not be queued");
+
+    const jobs = await db
+      .select({ dedupeKey: asyncJobsTable.dedupeKey, status: asyncJobsTable.status })
+      .from(asyncJobsTable)
+      .where(and(
+        eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE),
+        inArray(asyncJobsTable.dedupeKey, [rootId, variantId, hasImagesId].map(factAiMemeBackfillDedupeKey)),
+      ));
+    assert.deepEqual(
+      jobs.map((j) => j.dedupeKey).sort(),
+      [rootId, variantId].map(factAiMemeBackfillDedupeKey).sort(),
+      "exactly one durable job per missing fact, none for the fact with images",
+    );
+    assert.ok(jobs.every((j) => j.status === "pending"));
   });
 });

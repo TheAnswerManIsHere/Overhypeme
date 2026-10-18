@@ -135,6 +135,46 @@ describe("measureModeratorAdditionsEmission — compiler-measured, wrapping incl
   });
 });
 
+describe("combined moderator guidance — measured through the real compiler (UAT PR224 step 4)", () => {
+  const filler = (n: number, len: number, prefix: string) =>
+    Array.from({ length: n }, (_, i) => `${prefix} ${i} `.padEnd(len, "w"));
+  const roleBindings = Array.from({ length: 6 }, (_, i) => ({
+    entity: `guard ${i}`,
+    visualRole: `stands watch number ${i} `.padEnd(110, "w"),
+  }));
+  const fields: Record<string, Partial<VisualPromptStrategyOverride>> = {
+    roleBindings: { roleBindings },
+    requiredVisualDetails: { requiredVisualDetails: filler(8, 70, "prop") },
+    compositionGuidance: { compositionGuidance: filler(6, 80, "shot") },
+    styleAgnosticPromptAdditions: { styleAgnosticPromptAdditions: filler(6, 80, "extra") },
+  };
+  const ov = (parts: Partial<VisualPromptStrategyOverride>): VisualPromptStrategyOverride =>
+    ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, ...parts }) as VisualPromptStrategyOverride;
+
+  it("each guidance kind alone fits the additions pool and saves", () => {
+    for (const [name, part] of Object.entries(fields)) {
+      const one = ov(part);
+      assert.ok(measureModeratorAdditionsEmission(one) <= MODERATOR_ADDITIONS_RENDERED_MAX, name);
+      assert.equal(validateVisualStrategyOverridePersistence(one).ok, true, name);
+    }
+  });
+
+  it("the same guidance combined (role bindings + required details + composition + additions) is rejected on the compiler-measured length", () => {
+    const combined = ov(Object.assign({}, ...Object.values(fields)));
+    const measured = measureModeratorAdditionsEmission(combined);
+    assert.ok(measured > MODERATOR_ADDITIONS_RENDERED_MAX, `measured ${measured} should exceed the pool`);
+    const res = validateVisualStrategyOverridePersistence(combined);
+    assert.equal(res.ok, false);
+    assert.ok(res.errors.some((e) => e.code === "moderator_additions_rendered_too_long"), JSON.stringify(res.errors));
+    assert.equal(res.usage.moderatorAdditionsRendered, measured);
+    // Every kind genuinely contributes to the measured total.
+    for (const name of Object.keys(fields)) {
+      const without = ov(Object.assign({}, ...Object.entries(fields).filter(([k]) => k !== name).map(([, v]) => v)));
+      assert.ok(measureModeratorAdditionsEmission(without) < measured, `${name} contributes to the combined emission`);
+    }
+  });
+});
+
 // ─── Bubble pool (§B2, PROMPT_BUDGET_VERSION 2) ─────────────────────────────
 
 describe("bubble directives pool", () => {

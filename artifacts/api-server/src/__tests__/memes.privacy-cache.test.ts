@@ -18,11 +18,12 @@ import { randomUUID } from "node:crypto";
 
 import type { Request } from "express";
 import request from "supertest";
+import sharp from "sharp";
 
 import { db } from "@workspace/db";
 import { usersTable, factsTable, memesTable } from "@workspace/db/schema";
 import { like } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, MEME_ASPECT_RATIOS } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
 import { canViewMeme } from "../lib/memeVisibility.js";
@@ -65,6 +66,10 @@ let factId: number;
 const PRIV_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 const PUB_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 const DEL_PRIV_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
+// Recipe-rendered memes (a built-in template background), so the image route
+// produces real bytes without object storage or any external call.
+const PRIV_IMG_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
+const PUB_IMG_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 
 async function cleanup() {
   await db.delete(memesTable).where(like(memesTable.permalinkSlug, `${SLUG_PREFIX}%`));
@@ -98,6 +103,14 @@ before(async () => {
     { ...base, permalinkSlug: PRIV_SLUG, imageUrl: `/api/memes/${PRIV_SLUG}/image`, isPublic: false },
     { ...base, permalinkSlug: PUB_SLUG, imageUrl: `/api/memes/${PUB_SLUG}/image`, isPublic: true },
     { ...base, permalinkSlug: DEL_PRIV_SLUG, imageUrl: `/api/memes/${DEL_PRIV_SLUG}/image`, isPublic: false, deletedAt: new Date() },
+    {
+      ...base, permalinkSlug: PRIV_IMG_SLUG, imageUrl: `/api/memes/${PRIV_IMG_SLUG}/image`, isPublic: false,
+      imageSource: { type: "template", templateId: "action" }, aspectRatio: "landscape",
+    },
+    {
+      ...base, permalinkSlug: PUB_IMG_SLUG, imageUrl: `/api/memes/${PUB_IMG_SLUG}/image`, isPublic: true,
+      imageSource: { type: "template", templateId: "action" }, aspectRatio: "landscape",
+    },
   ]);
 });
 after(cleanup);
@@ -144,5 +157,35 @@ describe("GET /memes/:slug — private-meme owner-only enforcement", () => {
   it("a deleted private meme still returns 410 to its owner", async () => {
     const res = await get(DEL_PRIV_SLUG, { kind: "authenticated", userId: ownerId });
     assert.equal(res.status, 410);
+  });
+});
+
+describe("GET /memes/:slug/image — rendered image delivery", () => {
+  const getImage = (slug: string, auth: Parameters<typeof buildTestApp>[0]) =>
+    request(buildTestApp(auth, memesRouter)).get(`/api/memes/${slug}/image`);
+
+  /** The bytes must decode as a JPEG at the meme's landscape aspect ratio. */
+  async function assertDecodableLandscapeJpeg(body: unknown): Promise<void> {
+    assert.ok(Buffer.isBuffer(body), "the response body is the raw image bytes");
+    const meta = await sharp(body as Buffer).metadata();
+    assert.equal(meta.format, "jpeg");
+    assert.ok(meta.width && meta.height && meta.width > 0 && meta.height > 0, "decoded image has real dimensions");
+    const expected = MEME_ASPECT_RATIOS.landscape.w / MEME_ASPECT_RATIOS.landscape.h;
+    assert.ok(Math.abs(meta.width! / meta.height! - expected) / expected < 0.005, "decoded at the landscape aspect ratio");
+  }
+
+  it("serves a private meme to its non-admin owner as a decodable image", async () => {
+    const res = await getImage(PRIV_IMG_SLUG, { kind: "authenticated", userId: ownerId });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers["content-type"], "image/jpeg");
+    assert.match(String(res.headers["cache-control"] ?? ""), /no-store/);
+    await assertDecodableLandscapeJpeg(res.body);
+  });
+
+  it("serves a public meme to a logged-out caller as a decodable image", async () => {
+    const res = await getImage(PUB_IMG_SLUG, { kind: "unauthenticated" });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers["content-type"], "image/jpeg");
+    await assertDecodableLandscapeJpeg(res.body);
   });
 });

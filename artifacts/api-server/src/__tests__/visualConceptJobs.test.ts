@@ -96,15 +96,19 @@ async function bearer(userId: string, isAdmin: boolean): Promise<string> {
   }, userId);
 }
 
-async function seedReview(submittedById: string, stage = "production_review"): Promise<{ reviewId: number; factId: number }> {
+async function seedReview(
+  submittedById: string,
+  stage = "production_review",
+  enrichment: FactEnrichment = ENRICHMENT,
+): Promise<{ reviewId: number; factId: number }> {
   const [fact] = await db.insert(factsTable).values({
-    text: FACT_TEXT, submittedById, isActive: false, enrichment: ENRICHMENT,
+    text: FACT_TEXT, submittedById, isActive: false, enrichment,
   }).returning({ id: factsTable.id });
   insertedFactIds.push(fact!.id);
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: FACT_TEXT, submittedById, matchingSimilarity: 0,
     status: "pending", workflowStage: stage as never, stagingFactId: fact!.id,
-    enrichment: ENRICHMENT, enrichmentStatus: "ok",
+    enrichment, enrichmentStatus: "ok",
   }).returning({ id: pendingReviewsTable.id });
   return { reviewId: review!.id, factId: fact!.id };
 }
@@ -218,6 +222,52 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
     assert.equal(stale.current, false);
     assert.equal(stale.staleReason, "input_hash_mismatch");
   });
+
+  // Saving the Visual Concept or a bubble (an edit to visualPromptStrategyOverride,
+  // archetype and every other field unchanged) must also stale the stored ideas.
+  const withOverride = (partial: Record<string, unknown>): FactEnrichment => ({
+    ...ENRICHMENT,
+    visualPromptStrategyOverride: {
+      version: 1,
+      requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+      compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+      bubbles: [],
+      coreSceneOverride: "{NAME} hoists the planet overhead.",
+      ...partial,
+    },
+  }) as unknown as FactEnrichment;
+
+  const editCases: Array<{ name: string; edit: Record<string, unknown> }> = [
+    { name: "editing and saving the Concept", edit: { coreSceneOverride: "{NAME} hoists the planet over a crowded stadium." } },
+    {
+      name: "editing and saving a bubble",
+      edit: { bubbles: [{ type: "speech", entity: "subject", text: "Still got it." }] },
+    },
+  ];
+  for (const { name, edit } of editCases) {
+    it(`${name} makes the stored ideas stale (input_hash_mismatch) with the archetype untouched`, async () => {
+      const original = withOverride({ bubbles: [{ type: "speech", entity: "subject", text: "Heavy." }] });
+      const { reviewId, factId } = await seedReview(adminId, "concept_review", original);
+      await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
+      const state = await factConceptState(factId);
+      const review = { id: reviewId, candidateVersionId: null, visualConceptStatus: state.status, visualConceptCandidates: state.blob };
+
+      assert.equal((await buildVisualConceptsResponse(review)).current, true, "fresh ideas are current");
+
+      // A save that rewrites the same enrichment unchanged leaves the ideas current.
+      await db.update(factsTable).set({ enrichment: { ...original } }).where(eq(factsTable.id, factId));
+      assert.equal((await buildVisualConceptsResponse(review)).current, true, "an unchanged re-save does not stale");
+
+      await db.update(factsTable)
+        .set({ enrichment: withOverride({ bubbles: [{ type: "speech", entity: "subject", text: "Heavy." }], ...edit }) })
+        .where(eq(factsTable.id, factId));
+      const stale = await buildVisualConceptsResponse(review);
+      assert.equal(stale.current, false);
+      assert.equal(stale.staleReason, "input_hash_mismatch");
+      // The candidates themselves are still returned — staleness is advisory.
+      assert.equal(stale.candidates.length, 3);
+    });
+  }
 
   it("flags review_mismatch when the stored blob belongs to a different review", async () => {
     const { reviewId, factId } = await seedReview(adminId);
