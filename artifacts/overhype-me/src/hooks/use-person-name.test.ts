@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clearStoredIdentity, commitLinkHalves, profileIdentity, resolveInitialIdentity, type SafeStorage } from "./use-person-name";
+import { clearStoredIdentity, commitLinkHalves, dropPendingForKey, profileIdentity, resolveInitialIdentity, type SafeStorage } from "./use-person-name";
 import { DEFAULT_PRONOUNS } from "@/lib/pronouns";
 
 function memoryStorage(init: Record<string, string> = {}): SafeStorage & { data: Record<string, string> } {
@@ -115,9 +115,36 @@ describe("commitLinkHalves (a signed-out visitor keeps the link's halves, #723)"
     expect(s.data).toEqual({ fact_db_name: "Ada", fact_db_pronouns: "they/them" });
   });
 
+  it("never overwrites a half another tab saved while this one waited on auth", () => {
+    const s = memoryStorage();
+    const r = resolveInitialIdentity(s, "Grace", "they/them");
+    s.data.fact_db_name = "Ada";
+    s.data.fact_db_pronouns = "she/her";
+    commitLinkHalves(s, r.pending);
+    expect(s.data).toEqual({ fact_db_name: "Ada", fact_db_pronouns: "she/her" });
+  });
+
   it("writes nothing when a signed-in visitor's link is dropped instead (nothing was persisted)", () => {
     const s = memoryStorage();
     resolveInitialIdentity(s, "Grace", "they/them");
+    expect(s.data).toEqual({});
+  });
+});
+
+describe("dropPendingForKey (another tab's write or clear settles that half, #723)", () => {
+  const held = { name: "Grace", pronouns: "they/them" };
+  it("drops the half whose key another tab changed, leaving the other", () => {
+    expect(dropPendingForKey(held, "fact_db_name")).toEqual({ name: null, pronouns: "they/them" });
+    expect(dropPendingForKey(held, "fact_db_pronouns")).toEqual({ name: "Grace", pronouns: null });
+  });
+  it("keeps both halves for an unrelated key or a whole-storage clear", () => {
+    expect(dropPendingForKey(held, "unrelated")).toBe(held);
+    expect(dropPendingForKey(held, null)).toBe(held);
+  });
+  it("after another tab clears the name, a signed-out resolve leaves it cleared", () => {
+    const s = memoryStorage();
+    const r = resolveInitialIdentity(s, "Grace", null);
+    commitLinkHalves(s, dropPendingForKey(r.pending, "fact_db_name"));
     expect(s.data).toEqual({});
   });
 });

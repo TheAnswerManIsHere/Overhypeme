@@ -116,10 +116,21 @@ export function resolveInitialIdentity(
   };
 }
 
-/** Writes the held link halves: the visitor turned out to be signed out, so they are theirs. */
+/**
+ * Writes the held link halves: the visitor turned out to be signed out, so they
+ * are theirs. A half the browser holds by now (another tab saved it while this
+ * one waited) is never overwritten, the same rule the link obeyed on load.
+ */
 export function commitLinkHalves(storage: SafeStorage, pending: PendingLinkHalves) {
-  if (pending.name) storage.set(STORAGE_KEY_NAME, pending.name);
-  if (pending.pronouns) storage.set(STORAGE_KEY_PRONOUNS, pending.pronouns);
+  if (pending.name && !storage.get(STORAGE_KEY_NAME)?.trim()) storage.set(STORAGE_KEY_NAME, pending.name);
+  if (pending.pronouns && !storage.get(STORAGE_KEY_PRONOUNS)?.trim()) storage.set(STORAGE_KEY_PRONOUNS, pending.pronouns);
+}
+
+/** The held link halves once another tab has written or cleared `key`: that half is no longer the link's to decide. */
+export function dropPendingForKey(pending: PendingLinkHalves, key: string | null): PendingLinkHalves {
+  if (key === STORAGE_KEY_NAME) return { ...pending, name: null };
+  if (key === STORAGE_KEY_PRONOUNS) return { ...pending, pronouns: null };
+  return pending;
 }
 
 /**
@@ -307,6 +318,7 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   // Another tab's save or clear reaches this tab, so an open sheet can close.
   useEffect(() => {
     function onStorage(e: StorageEvent) {
+      pendingRef.current = dropPendingForKey(pendingRef.current, e.key);
       if (e.key === STORAGE_KEY_NAME) setNameState(e.newValue?.trim() || DEFAULT_NAME);
       if (e.key === STORAGE_KEY_PRONOUNS) {
         setPronounsState(e.newValue || DEFAULT_PRONOUNS);
