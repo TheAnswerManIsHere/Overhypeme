@@ -109,6 +109,44 @@ describe("GET /admin/facts/:id/enrichment-resolved", () => {
     assert.equal((res.body.effective as FactEnrichment).primaryArchetype, "superhuman_physical_feat");
     assert.equal(res.body.overrideSummary.hasOverrides, false);
   });
+
+  // The "Overridden: Visual Strategy" bar is driven by overrideSummary.hasVisualStrategyOverride,
+  // which must track override CONTENT — a saved Visual Concept is the required core, not an override.
+  const hasVisualOverride = async (id: number): Promise<unknown> =>
+    (await request(adminApp).get(`/api/admin/facts/${id}/enrichment-resolved`)).body.overrideSummary.hasVisualStrategyOverride;
+
+  it("reports hasVisualStrategyOverride false for a fact with no visual override and for one storing an empty scaffold", async () => {
+    // Inactive rows: an ACTIVE fact must carry a Visual Concept (facts_active_requires_concept).
+    const seedInactive = async (baseline: FactEnrichment): Promise<number> => {
+      const { columns } = materializeFromBaseline(baseline);
+      const [row] = await db
+        .insert(factsTable)
+        .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: false, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
+        .returning({ id: factsTable.id });
+      insertedFactIds.push(row.id);
+      return row.id;
+    };
+    assert.equal(await hasVisualOverride(await seedInactive(AI)), false, "no visual override at all");
+    const scaffold = { ...SAVED_CONCEPT, coreSceneOverride: "" };
+    assert.equal(
+      await hasVisualOverride(await seedInactive({ ...AI, visualPromptStrategyOverride: scaffold })),
+      false,
+      "empty scaffold",
+    );
+  });
+
+  it("reports hasVisualStrategyOverride false for a fact whose visual override holds only a Visual Concept", async () => {
+    const id = await seedFact();
+    assert.equal(await hasVisualOverride(id), false);
+  });
+
+  it("reports hasVisualStrategyOverride true for a fact with a Visual Concept plus a required visual detail", async () => {
+    const id = await seedFact({
+      ...AI,
+      visualPromptStrategyOverride: { ...SAVED_CONCEPT, requiredVisualDetails: ["uat-585-scratch"] },
+    });
+    assert.equal(await hasVisualOverride(id), true);
+  });
 });
 
 describe("PUT /admin/facts/:id/enrichment-overrides", () => {

@@ -29,9 +29,7 @@ nothing reworded, no sentences dropped.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:token-renders {NAME} BEFORE sanitation so the sentence survives` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:wins over the AI plan's coreScene and is marked required + moderator-authored`
-
-**Deferred:** #631 — 7b — pronoun tokens rendered inside the verbatim moderator scene, the tests render name tokens only — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:token-renders {NAME} BEFORE sanitation so the sentence survives` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:wins over the AI plan's coreScene and is marked required + moderator-authored`; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:renders {SUBJ}/{Subj}/{POSS}/{OBJ}/{POSS_PRO}/{REFL} inside CORE SCENE, leaving no raw token`
 
 ### 2. The concept isn't restated three times
 
@@ -44,9 +42,7 @@ little or nothing) — they no longer re-tell the whole scene.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:drops a tight restatement of the scene but keeps a distinct detail that reuses scene words`
-
-**Deferred:** #631 — 7b — with an authored coreSceneOverride, its restated phrase in SUBJECT DETAILS, ROLE DETAILS or ENVIRONMENT dropped so it counts once, while a distinct detail survives — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:drops a tight restatement of the scene but keeps a distinct detail that reuses scene words`; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:drops a restatement of the Concept from SUBJECT DETAILS, ENVIRONMENT and ROLE DETAILS but keeps distinct details`
 
 ### 3. Style lives in its own section when no style is selected
 
@@ -59,9 +55,7 @@ medium words mixed in.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the photorealistic default RENDER STYLE when no style is selected`
-
-**Deferred:** #631 — 7b — the LIGHTING section holding only light and mood with no style or medium words is unasserted when no style is selected — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the photorealistic default RENDER STYLE when no style is selected`; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:with no style selected, LIGHTING holds only the light text and no style or medium words`
 
 ### 4. Style lives in its own section when a style is selected
 
@@ -74,9 +68,9 @@ the style doesn't appear twice.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`:styleSource=selected_look_style with a non-empty suffix when a look style is chosen — the preview route compiles the chosen style's i2i copy into the prompt
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`:styleSource=selected_look_style with a non-empty suffix when a look style is chosen — the preview route compiles the chosen style's i2i copy into the prompt; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:a selected style phrase appears once, in RENDER STYLE, and never inside LIGHTING`
 
-**Deferred:** #631 — 7b — the style phrase appearing once and not inside the LIGHTING section is unasserted, only the RENDER STYLE line and the light text are — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`; #631 — 7b — choosing a style in the rpp-look-style control sending that style's id as lookStyleId in the preview request body — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
+**Deferred:** #631 — 7b — choosing a style in the rpp-look-style control sending that style's id as lookStyleId in the preview request body — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
 
 ### 5. Readable in-scene text is quoted
 
@@ -114,9 +108,9 @@ you to rewrite it as pure scene description; the render still proceeds.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:keeps a Concept with compiler-owned language verbatim and returns the rewrite warning`; `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts:enqueues image_generation (does not fail) and persists the owned-language warning`
 
-**Deferred:** #631 — 7b — the preview route, for a fact whose stored Concept has compiler-owned language, keeping it verbatim in CORE SCENE and returning moderator_core_scene_owned_language whose message says rewrite it as visible scene description — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`; #631 — 7b — the image-prompt job enqueuing image_generation, not failing, for an attempt whose Concept raises moderator_core_scene_owned_language — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`; #631 — 7b — the Runtime Prompt Preview panel showing the moderator_core_scene_owned_language warning's message when the preview response carries it — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
+**Deferred:** #631 — 7b — the Runtime Prompt Preview panel showing the moderator_core_scene_owned_language warning's message when the preview response carries it — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
 
 ### 8. An empty Concept still uses the AI scene, at full strictness
 
@@ -128,9 +122,7 @@ applies only when a moderator Concept is present.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:keeps the AI path unchanged when the override's scene is empty/blank or absent`
-
-**Deferred:** #631 — 7b — a blank Concept leaving the planner's subject and environment requirement in force is unasserted, expectationsFromInput is never checked for it — `artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts`; #631 — 7b — the preview route for a fact with no stored Concept returning a compiled prompt whose CORE SCENE is the planner's coreScene — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:keeps the AI path unchanged when the override's scene is empty/blank or absent`; `artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts:a blank Concept still requires subjectDetails and environment from the planner`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:uses the planner's coreScene when the fact has no stored Concept`
 
 ### 9. Style phrasing differs between i2i and t2i, with a default for none
 
@@ -144,9 +136,7 @@ optical detail, and the clarity of a high-quality photograph."
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, i2i uses promptSuffixReference` `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, t2i uses promptSuffix` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the photorealistic default RENDER STYLE when no style is selected`
-
-**Deferred:** #631 — 7b — the none-style line asserted in full and the built-in styles' i2i Reimagine versus t2i declarative copy are unasserted, fixture styles only — `artifacts/api-server/src/__tests__/styleResolution.test.ts`; #631 — 7b — the preview route in t2i_fallback mode with a look style compiling that style's declarative promptSuffix, not its promptSuffixReference — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, i2i uses promptSuffixReference` `artifacts/api-server/src/__tests__/styleResolution.test.ts:resolves a valid active style, t2i uses promptSuffix` `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the photorealistic default RENDER STYLE when no style is selected`; `artifacts/api-server/src/__tests__/styleResolution.test.ts:i2i resolves each built-in style to its imperative Reimagine/Transform copy, t2i to its declarative copy`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:t2i_fallback compiles the style's declarative promptSuffix, not its promptSuffixReference`
 
 
 ## Regression
@@ -161,9 +151,7 @@ or logo) is still present.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:STRICT CONSTRAINTS policy guardrails are preserved (overlay-text + incidental-text)`
-
-**Deferred:** #631 — 7b — the STRICT CONSTRAINTS overlay exclusion naming full meme captions, watermarks and real logos, the test matches only its opening words — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:STRICT CONSTRAINTS policy guardrails are preserved (overlay-text + incidental-text)`; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:names full meme captions, watermarks and real logos, not just its opening words`
 
 ### R2. Subject binding / anti-split still holds
 

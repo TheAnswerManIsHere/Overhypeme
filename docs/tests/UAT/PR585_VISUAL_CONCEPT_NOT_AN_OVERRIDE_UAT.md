@@ -57,9 +57,9 @@ and so on) are unchanged and still populated.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:does NOT count coreSceneOverride — it is the required Visual Concept, not an override`
+**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:does NOT count coreSceneOverride — it is the required Visual Concept, not an override`; `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts:reports hasVisualStrategyOverride false for a fact whose visual override holds only a Visual Concept`
 
-**Deferred:** #631 — 7b — the editor showing no Overridden Visual Strategy bar with classification fields still populated, when only the Visual Concept is set, is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`; #631 — 7b — GET /admin/facts/:id/enrichment-resolved returns overrideSummary.hasVisualStrategyOverride false for a fact whose visual override holds only a Visual Concept — `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts`
+**Deferred:** #631 — 7b — the editor showing no Overridden Visual Strategy bar with classification fields still populated, when only the Visual Concept is set, is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### 2. The badge still appears where something really was overridden
 
@@ -72,9 +72,9 @@ the case that must not have been broken by the fix.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:still raises the signal when that same blob carries real override content` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:still counts every other rendered field when a Visual Concept is also present`
+**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:still raises the signal when that same blob carries real override content` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:still counts every other rendered field when a Visual Concept is also present`; `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts:reports hasVisualStrategyOverride true for a fact with a Visual Concept plus a required visual detail`
 
-**Deferred:** #631 — 7b — the editor showing the Overridden Visual Strategy bar when the summary reports real override content is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`; #631 — 7b — GET /admin/facts/:id/enrichment-resolved returns overrideSummary.hasVisualStrategyOverride true for a fact with a Visual Concept plus a required visual detail — `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts`
+**Deferred:** #631 — 7b — the editor showing the Overridden Visual Strategy bar when the summary reports real override content is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### 3. The Visual Concept still reaches the picture prompt
 
@@ -99,9 +99,7 @@ name is set). Match the scene, not the literal characters.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:wins over the AI plan's coreScene and is marked required + moderator-authored` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:leaves coreSceneOverride fully rendered and tokenized (signal ≠ render path)`; `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx:generates a preview and renders the compiled prompt + input summary` — clicking Generate renders the compiled prompt the preview endpoint returned
-
-**Deferred:** #631 — 7b — the preview endpoint returning a compiled prompt whose CORE SCENE is the fact's saved Visual Concept is unasserted — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:wins over the AI plan's coreScene and is marked required + moderator-authored` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:leaves coreSceneOverride fully rendered and tokenized (signal ≠ render path)`; `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx:generates a preview and renders the compiled prompt + input summary` — clicking Generate renders the compiled prompt the preview endpoint returned; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:uses the fact's saved Visual Concept, token-rendered, instead of the planner's coreScene`
 
 ### 4. A bad token in the Visual Concept is still caught
 
@@ -132,7 +130,9 @@ place; step 6 removes it.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — PATCH /admin/facts/:id/enrichment adding required visual detail uat-585-scratch to a Visual-Concept-only fact, then GET /admin/facts/:id/enrichment-resolved returns hasVisualStrategyOverride true — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — reopening the editor after that save shows the orange Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:adding required visual detail uat-585-scratch to a Concept-only fact raises hasVisualStrategyOverride`
+
+**Deferred:** #631 — 7b — reopening the editor after that save shows the orange Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ### 6. Clearing that override lowers the badge again
 
@@ -147,7 +147,9 @@ setup.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — PATCH /admin/facts/:id/enrichment removing that uat-585-scratch detail, then GET /admin/facts/:id/enrichment-resolved returns hasVisualStrategyOverride false — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`; #631 — 7b — reopening the editor after that save shows no Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:removing the uat-585-scratch detail lowers hasVisualStrategyOverride again`
+
+**Deferred:** #631 — 7b — reopening the editor after that save shows no Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
 
 ## Regression
 
@@ -180,9 +182,7 @@ sample identity, so match the scene rather than the literal characters.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:coexists with requiredVisualDetails — both land in the compiled prompt`; `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx:generates a preview and renders the compiled prompt + input summary` — clicking Generate renders the compiled prompt the preview endpoint returned
-
-**Deferred:** #631 — 7b — the preview endpoint returning one prompt carrying both CORE SCENE and the fact's required visual detail is unasserted — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:coexists with requiredVisualDetails — both land in the compiled prompt`; `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx:generates a preview and renders the compiled prompt + input summary` — clicking Generate renders the compiled prompt the preview endpoint returned; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:carries both CORE SCENE and the fact's required visual detail in one prompt`
 
 ## Not bugs
 

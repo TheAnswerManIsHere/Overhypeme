@@ -174,6 +174,59 @@ describe("the effective-avatar projection", () => {
   });
 });
 
+describe("the effective-avatar projection with the Admin custom_avatar cell off", () => {
+  it("still shows the selected photo for a Legendary subject, admin and non-admin", async () => {
+    const adminCell = and(
+      eq(tierFeaturePermissionsTable.tier, "admin"),
+      eq(tierFeaturePermissionsTable.featureKey, "custom_avatar"),
+    );
+    const original = await db
+      .select({ enabled: tierFeaturePermissionsTable.enabled })
+      .from(tierFeaturePermissionsTable)
+      .where(adminCell)
+      .limit(1);
+
+    try {
+      await db
+        .insert(tierFeaturePermissionsTable)
+        .values({ tier: "admin", featureKey: "custom_avatar", enabled: false })
+        .onConflictDoUpdate({
+          target: [tierFeaturePermissionsTable.tier, tierFeaturePermissionsTable.featureKey],
+          set: { enabled: false },
+        });
+      _resetEntitlementCacheForTest();
+
+      // Control: the overlay really is off — an admin with no paid tier loses the photo.
+      assert.equal(
+        await effectiveAvatarUrl(
+          subject({ id: "c0", profileImageUrl: PHOTO, avatarSource: "photo", membershipTier: "registered", isRealAdmin: true }),
+        ),
+        generatedIconUrl("bottts", "c0"),
+        "premise: with the admin cell off, the overlay alone no longer grants the photo",
+      );
+
+      // Legendary grants custom_avatar on its own, with or without the admin overlay.
+      for (const isRealAdmin of [false, true]) {
+        const id = `c-leg-${isRealAdmin ? "admin" : "user"}`;
+        assert.equal(
+          await effectiveAvatarUrl(
+            subject({ id, profileImageUrl: PHOTO, avatarSource: "photo", membershipTier: "legendary", isRealAdmin }),
+          ),
+          PHOTO,
+          `a Legendary ${isRealAdmin ? "admin" : "non-admin"} keeps the selected photo`,
+        );
+      }
+    } finally {
+      if (original.length === 0) {
+        await db.delete(tierFeaturePermissionsTable).where(adminCell);
+      } else {
+        await db.update(tierFeaturePermissionsTable).set({ enabled: original[0]!.enabled }).where(adminCell);
+      }
+      _resetEntitlementCacheForTest();
+    }
+  });
+});
+
 // ── The identity photo stays available to the studio ─────────────────────────
 
 describe("profileImageUrl remains a private field", () => {

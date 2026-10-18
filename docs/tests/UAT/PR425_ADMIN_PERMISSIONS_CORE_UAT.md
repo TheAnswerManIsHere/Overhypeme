@@ -123,9 +123,7 @@ the admin overlay.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants` `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows an entitled user's selected photo`
-
-**Deferred:** #631 — 7b — with the Admin custom_avatar cell off, effectiveAvatarUrl still returns the selected photo for a Legendary subject, admin and non-admin — `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants` `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows an entitled user's selected photo`; `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:still shows the selected photo for a Legendary subject, admin and non-admin`
 
 ### 5. The admin account loses the feature when only its own cell is off
 
@@ -279,9 +277,9 @@ shown.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`; `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user` — the photo is stored
+**Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`; `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 stores the photo but skips the avatarSource flip for an unentitled user` — the photo is stored; `artifacts/api-server/src/__tests__/routes.facts.test.ts:logged out, submittedByImage and comment authorImage are the generated icon for an author with a stored but unselected photo`
 
-**Deferred:** #631 — 7b — logged out, GET /facts/:factId submittedByImage and GET /facts/:factId/comments authorImage are the generated icon for a registered author with a stored unselected photo — `artifacts/api-server/src/__tests__/routes.facts.test.ts`; #628 — Phase 6 (The loop) — the public fact page gets its browser journey there, and the route assertion proves the avatar URL the API returns, not the icon the logged-out page shows
+**Deferred:** #628 — Phase 6 (The loop) — the public fact page gets its browser journey there, and the route assertion proves the avatar URL the API returns, not the icon the logged-out page shows
 
 ### 17. Selecting the photo as avatar is refused with an upgrade prompt
 
@@ -325,9 +323,9 @@ all — a pre-existing bug closed on the way past.)
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`
+**Check:** `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows the generated icon for a stored photo that was never selected`; `artifacts/api-server/src/__tests__/routes.facts.test.ts:logged out, submittedByImage and comment authorImage are the generated icon for an author with a stored but unselected photo`
 
-**Deferred:** #631 — 7b — logged out, GET /facts/:factId submittedByImage and GET /facts/:factId/comments authorImage are the generated icon for a registered author with a stored unselected photo — `artifacts/api-server/src/__tests__/routes.facts.test.ts`; #628 — Phase 6 (The loop) — the public fact page gets its browser journey there, and the route assertion proves the avatar URL the API returns, not the icon the logged-out page shows
+**Deferred:** #628 — Phase 6 (The loop) — the public fact page gets its browser journey there, and the route assertion proves the avatar URL the API returns, not the icon the logged-out page shows
 
 ### 20. The same account's own profile also withholds the photo
 
@@ -418,9 +416,7 @@ out.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users` `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:happy path: inserts a triage_pending review with NO paid prep and returns 201` — a verified registered user still submits
-
-**Deferred:** #631 — 7b — POST /facts/submit-review as a registered user over the per-minute fact_submit limit returns 429 with error You're submitting facts too quickly, only the pending cap is tested — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users` `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:happy path: inserts a triage_pending review with NO paid prep and returns 201` — a verified registered user still submits; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:PER-MINUTE LIMIT: a non-admin account's submission past the fact_submit window max gets 429 with the 'too quickly' message`
 
 ### R5. AI backgrounds still generate
 

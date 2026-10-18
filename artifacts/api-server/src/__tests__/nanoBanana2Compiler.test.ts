@@ -1942,3 +1942,124 @@ describe("nanoBanana2 — speech & thought bubbles", () => {
     }
   });
 });
+
+// ─── Section-level coverage (UAT PR222 clauses deferred in #631 7b) ─────────
+
+/** Text of one labeled prompt section, up to the next known section label. */
+function sectionText(prompt: string, label: string): string {
+  const labels = [
+    "CORE SCENE", "IDENTITY & REFERENCE", "RENDER TASK", "SUBJECT BINDING", "SUBJECT REALIZATION",
+    "ROLE DETAILS", "SUBJECT DETAILS", "REQUIRED VISUAL DETAILS", "ENVIRONMENT", "ADDITIONAL DETAILS",
+    "SPEECH & THOUGHT BUBBLES", "COMPOSITION", "LIGHTING", "RENDER STYLE", "STRICT CONSTRAINTS",
+  ];
+  const start = prompt.indexOf(`${label}: `);
+  assert.ok(start >= 0, `section ${label} missing from: ${prompt}`);
+  const body = prompt.slice(start + label.length + 2);
+  const next = labels
+    .map((l) => body.indexOf(` ${l}: `))
+    .filter((i) => i >= 0);
+  return (next.length ? body.slice(0, Math.min(...next)) : body).trim();
+}
+
+describe("nanoBanana2 — verbatim moderator scene renders pronoun tokens", () => {
+  it("renders {SUBJ}/{Subj}/{POSS}/{OBJ}/{POSS_PRO}/{REFL} inside CORE SCENE, leaving no raw token", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: {
+        version: 1,
+        requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+        compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+        coreSceneOverride:
+          "{NAME} rides a T-Rex while {SUBJ} waves {POSS} hat, the crowd cheers for {OBJ}, and the trophy is {POSS_PRO}. {Subj} grins at {REFL}.",
+      },
+    }));
+    assert.equal(
+      sectionText(out.imagePrompt, "CORE SCENE"),
+      "David rides a T-Rex while he waves his hat, the crowd cheers for him, and the trophy is his. He grins at himself.",
+    );
+    assert.doesNotMatch(out.imagePrompt, /\{[A-Za-z_]+\}/);
+  });
+});
+
+describe("nanoBanana2 — authored Concept counts once across the additive sections", () => {
+  it("drops a restatement of the Concept from SUBJECT DETAILS, ENVIRONMENT and ROLE DETAILS but keeps distinct details", () => {
+    const scene = "David rides a giant rubber duck across a packed stadium while fireworks trace a heart in the sky.";
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        subjectDetails: ["rides a giant rubber duck across a packed stadium", "a velvet cape with gold trim"],
+        environment: ["fireworks trace a heart in the sky", "wet asphalt reflecting the lights"],
+      },
+      override: {
+        version: 1,
+        requiredVisualDetails: [], forbiddenVisualDetails: [],
+        roleBindings: [
+          { entity: "a mascot", visualRole: "a giant rubber duck across a packed stadium" },
+          { entity: "a referee", visualRole: "blowing a whistle near the goalpost" },
+        ],
+        compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+        coreSceneOverride: scene,
+      },
+    }));
+    const p = out.imagePrompt;
+    assert.equal(sectionText(p, "CORE SCENE"), scene);
+    // Each restated phrase appears exactly once — in the Concept.
+    assert.equal(countOccurrences(p, "giant rubber duck across a packed stadium"), 1, p);
+    assert.equal(countOccurrences(p, "fireworks trace a heart in the sky"), 1, p);
+    // Distinct details in the same sections survive.
+    assert.match(sectionText(p, "SUBJECT DETAILS"), /velvet cape with gold trim/);
+    assert.doesNotMatch(sectionText(p, "SUBJECT DETAILS"), /rubber duck/);
+    assert.match(sectionText(p, "ENVIRONMENT"), /wet asphalt reflecting the lights/);
+    assert.doesNotMatch(sectionText(p, "ENVIRONMENT"), /fireworks/);
+    assert.match(sectionText(p, "ROLE DETAILS"), /a referee: blowing a whistle near the goalpost/);
+    assert.doesNotMatch(sectionText(p, "ROLE DETAILS"), /packed stadium/);
+  });
+});
+
+describe("nanoBanana2 — LIGHTING is light and mood only; style has its own single channel", () => {
+  it("with no style selected, LIGHTING holds only the light text and no style or medium words", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David wins.",
+      stylePrompt: "",
+      visualPlan: { lightingAndStyle: "warm golden-hour rim light" },
+    }));
+    assert.equal(sectionText(out.imagePrompt, "LIGHTING"), "warm golden-hour rim light.");
+    assert.doesNotMatch(sectionText(out.imagePrompt, "LIGHTING"), /photorealistic|rendering|style/i);
+    // The medium default lives in RENDER STYLE instead.
+    assert.match(sectionText(out.imagePrompt, "RENDER STYLE"), /^Photorealistic rendering:/);
+  });
+
+  it("a selected style phrase appears once, in RENDER STYLE, and never inside LIGHTING", () => {
+    const style = "in a painterly oil style";
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David wins.",
+      stylePrompt: style,
+      visualPlan: { lightingAndStyle: "warm golden-hour rim light" },
+    }));
+    assert.equal(countOccurrences(out.imagePrompt, style), 1, out.imagePrompt);
+    assert.equal(sectionText(out.imagePrompt, "RENDER STYLE"), style);
+    assert.equal(sectionText(out.imagePrompt, "LIGHTING"), "warm golden-hour rim light.");
+    assert.doesNotMatch(sectionText(out.imagePrompt, "LIGHTING"), /painterly/);
+  });
+});
+
+describe("nanoBanana2 — STRICT CONSTRAINTS overlay-text exclusion (full line)", () => {
+  it("names full meme captions, watermarks and real logos, not just its opening words", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i", prompt: "David stands in a bar.",
+    }));
+    const strict = sectionText(out.imagePrompt, "STRICT CONSTRAINTS");
+    assert.ok(
+      strict.includes(
+        "Do not bake overlay or caption text into the image: no full meme captions, full fact text, hashtags, watermarks, real logos, brand marks, long explanatory paragraphs.",
+      ),
+      strict,
+    );
+  });
+});

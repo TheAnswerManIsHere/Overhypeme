@@ -8,7 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildImagePromptUserMessage, expectationsFromInput, generateImagePromptPlanWithModel } from "../lib/imagePrompt/generator.js";
+import { buildImagePromptUserMessage, expectationsFromInput, generateImagePromptPlanWithModel, ImagePromptError } from "../lib/imagePrompt/generator.js";
 import type { ImagePromptGenerationInput } from "@workspace/api-zod";
 
 function makeInput(overrides: { culturalReferences?: unknown[]; factText?: string; semanticEntities?: unknown[]; primaryArchetype?: string; subtype?: string; modifiers?: string[]; renderPolicy?: unknown } = {}): ImagePromptGenerationInput {
@@ -200,85 +200,86 @@ describe("buildImagePromptUserMessage", () => {
 // in semanticEntitiesUsed, the old code would throw ImagePromptError on the
 // second validation failure. The fix filters template-token surface texts out
 // of expectationsFromInput so they are never required to be echoed back.
-describe("generateImagePromptPlanWithModel — template-token entity filter", () => {
-  const VALID_PLAN = {
-    visualPlan: {
-      sceneConcept: "David stares at books until they surrender their knowledge",
-      visualGoal: "Convey awe-inspiring presence",
-      visualApproach: "Cinematic close-up",
-      archetypeApplication: {
-        primaryArchetype: "presence_induced_reaction_aura",
-        subtype: "awe_deference",
-        selectedFrame: "direct_action",
-        strategyRationale: "Presence causes objects to react.",
+const VALID_PLAN = {
+  visualPlan: {
+    sceneConcept: "David stares at books until they surrender their knowledge",
+    visualGoal: "Convey awe-inspiring presence",
+    visualApproach: "Cinematic close-up",
+    archetypeApplication: {
+      primaryArchetype: "presence_induced_reaction_aura",
+      subtype: "awe_deference",
+      selectedFrame: "direct_action",
+      strategyRationale: "Presence causes objects to react.",
+    },
+    coreScene: "David stands in a library, books glowing around him as he stares them down.",
+    subjectDetails: ["intense focused gaze", "calm commanding posture"],
+    environment: ["library shelves towering overhead", "soft glow from books"],
+    lightingAndStyle: "dramatic chiaroscuro lighting",
+    keyVisualElements: [
+      "David central",
+      "glowing books",
+      "library setting",
+      "dramatic lighting",
+      "subtle shimmer",
+    ],
+    subjectTreatment: {
+      roleInScene: "Legendary protagonist",
+      subjectRenderMode: "human_identity_i2i" as const,
+      identityPreservation: "human_face" as const,
+      nonhumanSubjectTreatment: {
+        applicable: false,
+        subjectKind: "not_applicable" as const,
+        preserveTraits: [],
+        anthropomorphicTreatment: "none" as const,
+        doNotTransformIntoHuman: false,
       },
-      coreScene: "David stands in a library, books glowing around him as he stares them down.",
-      subjectDetails: ["intense focused gaze", "calm commanding posture"],
-      environment: ["library shelves towering overhead", "soft glow from books"],
-      lightingAndStyle: "dramatic chiaroscuro lighting",
-      keyVisualElements: [
-        "David central",
-        "glowing books",
-        "library setting",
-        "dramatic lighting",
-        "subtle shimmer",
+      fallbackSubjectGender: "not_applicable" as const,
+      expressionAndPose: "Confident, intense, unfazed",
+      ageLifeStageTransform: { applies: false, targetState: "" },
+    },
+    subjectFactCompatibility: {
+      rating: "strong" as const,
+      reason: "Human protagonist works well.",
+      recommendedFallback: "none" as const,
+    },
+    composition: {
+      subjectFraming: "Medium close-up",
+      negativeSpace: "top" as const,
+      cameraStyle: "Cinematic 35mm",
+      sceneReadability: "Glowing books and intense gaze readable at a glance",
+    },
+    supportingTextPolicy: {
+      allowSupportingText: false,
+      supportingTextElements: [],
+      forbiddenTextTypes: [
+        "full meme captions",
+        "full fact text",
+        "hashtags",
+        "watermarks",
+        "real logos",
+        "brand marks",
+        "long explanatory paragraphs",
       ],
-      subjectTreatment: {
-        roleInScene: "Legendary protagonist",
-        subjectRenderMode: "human_identity_i2i" as const,
-        identityPreservation: "human_face" as const,
-        nonhumanSubjectTreatment: {
-          applicable: false,
-          subjectKind: "not_applicable" as const,
-          preserveTraits: [],
-          anthropomorphicTreatment: "none" as const,
-          doNotTransformIntoHuman: false,
-        },
-        fallbackSubjectGender: "not_applicable" as const,
-        expressionAndPose: "Confident, intense, unfazed",
-        ageLifeStageTransform: { applies: false, targetState: "" },
-      },
-      subjectFactCompatibility: {
-        rating: "strong" as const,
-        reason: "Human protagonist works well.",
-        recommendedFallback: "none" as const,
-      },
-      composition: {
-        subjectFraming: "Medium close-up",
-        negativeSpace: "top" as const,
-        cameraStyle: "Cinematic 35mm",
-        sceneReadability: "Glowing books and intense gaze readable at a glance",
-      },
-      supportingTextPolicy: {
-        allowSupportingText: false,
-        supportingTextElements: [],
-        forbiddenTextTypes: [
-          "full meme captions",
-          "full fact text",
-          "hashtags",
-          "watermarks",
-          "real logos",
-          "brand marks",
-          "long explanatory paragraphs",
-        ],
-      },
-      secondaryCharacters: [],
-      // Model echoes the resolved name "David Franklin" — NOT the template token "{NAME}".
-      // With the filter in place this should be accepted (no echo-back required for {NAME}).
-      semanticEntitiesUsed: [],
-      culturalReferencesUsed: [],
-      contentNotes: "SFW",
-      debugNotes: "",
-      targetEngine: "nano_banana_2" as const,
-      generationMode: "i2i" as const,
     },
-    compiledPrompt: {
-      prompt:
-        "Image-to-image edit using the reference image as the person's facial identity source. Preserve the reference person's recognizable face. David Franklin stands in a library surrounded by glowing books, staring them down with an intense gaze.",
-      negativePrompt: "",
-      engineNotes: "",
-    },
-  };
+    secondaryCharacters: [],
+    // Model echoes the resolved name "David Franklin" — NOT the template token "{NAME}".
+    // With the filter in place this should be accepted (no echo-back required for {NAME}).
+    semanticEntitiesUsed: [],
+    culturalReferencesUsed: [],
+    contentNotes: "SFW",
+    debugNotes: "",
+    targetEngine: "nano_banana_2" as const,
+    generationMode: "i2i" as const,
+  },
+  compiledPrompt: {
+    prompt:
+      "Image-to-image edit using the reference image as the person's facial identity source. Preserve the reference person's recognizable face. David Franklin stands in a library surrounded by glowing books, staring them down with an intense gaze.",
+    negativePrompt: "",
+    engineNotes: "",
+  },
+};
+
+describe("generateImagePromptPlanWithModel — template-token entity filter", () => {
 
   it("succeeds when template-token material entities are omitted from semanticEntitiesUsed", async () => {
     const input: ImagePromptGenerationInput = {
@@ -507,5 +508,81 @@ describe("buildImagePromptUserMessage — moderator bubble staging context", () 
     ]) {
       assert.doesNotMatch(buildImagePromptUserMessage(input), /MODERATOR BUBBLE DIRECTIVES/);
     }
+  });
+});
+
+// ── A blank Concept leaves the planner's detail requirement in force ────────
+
+describe("expectationsFromInput — Concept presence gates the planner's detail requirement", () => {
+  const baseEnrichment = {
+    primaryArchetype: "presence_induced_reaction_aura",
+    subtype: "awe_deference",
+    modifiers: [],
+    visualLiteralness: "mixed",
+    visualComplexity: "medium",
+    overhypeFit: "strong",
+    adultSuitability: "safe",
+    taxonomyConfidence: 0.9,
+    culturalReferences: [],
+    semanticEntities: [],
+  };
+  function inputWithConcept(coreSceneOverride: string | undefined): ImagePromptGenerationInput {
+    return {
+      ...makeInput(),
+      factText: "David Franklin doesn't read books. He stares them down until he gets the information he wants.",
+      enrichment: {
+        ...baseEnrichment,
+        ...(coreSceneOverride === undefined ? {} : { visualPromptStrategyOverride: { coreSceneOverride } }),
+      },
+    } as unknown as ImagePromptGenerationInput;
+  }
+  // The same plan, but with the additive detail fields empty: valid only when a
+  // moderator Concept is authoritative.
+  const emptyDeltaPlan = {
+    ...VALID_PLAN,
+    visualPlan: { ...VALID_PLAN.visualPlan, subjectDetails: [], environment: [] },
+  };
+  const emptyEnvironmentPlan = {
+    ...VALID_PLAN,
+    visualPlan: { ...VALID_PLAN.visualPlan, environment: [] },
+  };
+
+  it("is not authoritative for an empty, whitespace-only or absent Concept", () => {
+    for (const concept of ["", "   \n  ", undefined]) {
+      assert.equal(expectationsFromInput(inputWithConcept(concept)).hasAuthoritativeCoreScene, false, JSON.stringify(concept));
+    }
+  });
+
+  it("is authoritative for a non-empty Concept", () => {
+    assert.equal(
+      expectationsFromInput(inputWithConcept("David stares down a wall of glowing books.")).hasAuthoritativeCoreScene,
+      true,
+    );
+  });
+
+  it("a blank Concept still requires subjectDetails and environment from the planner", async () => {
+    const mockModel = async () => JSON.stringify(emptyDeltaPlan);
+    const envOnlyModel = async () => JSON.stringify(emptyEnvironmentPlan);
+    for (const concept of ["", "   ", undefined]) {
+      await assert.rejects(
+        generateImagePromptPlanWithModel(inputWithConcept(concept), mockModel),
+        (err: unknown) => err instanceof ImagePromptError && /subjectDetails must contain at least one concrete entry/.test(err.message),
+        JSON.stringify(concept),
+      );
+      await assert.rejects(
+        generateImagePromptPlanWithModel(inputWithConcept(concept), envOnlyModel),
+        (err: unknown) => err instanceof ImagePromptError && /environment must contain at least one concrete entry/.test(err.message),
+        JSON.stringify(concept),
+      );
+    }
+  });
+
+  it("a non-empty Concept lets the same empty-detail plan through", async () => {
+    const mockModel = async () => JSON.stringify(emptyDeltaPlan);
+    const result = await generateImagePromptPlanWithModel(
+      inputWithConcept("David stares down a wall of glowing books."),
+      mockModel,
+    );
+    assert.deepEqual(result.visualPlan.subjectDetails, []);
   });
 });

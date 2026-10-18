@@ -38,9 +38,9 @@ Delay (ms)`.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/migrations.0097.test.ts:seeds exactly the keys ncmecConfig declares, and reserves exactly five`
+**Check:** `artifacts/api-server/src/__tests__/migrations.0097.test.ts:seeds exactly the keys ncmecConfig declares, and reserves exactly five`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:writes and stores the new value of each of the three unreserved NCMEC keys`
 
-**Deferred:** #628 — Phase 14 (compliance) — the page rendering all eight as generic cards is unasserted, no spec opens /admin/config, and the Safety surface built there decides where these keys show; #631 — 7b — admin PATCH /admin/config of each of the three unreserved NCMEC keys returns 200 and stores the new value — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Deferred:** #628 — Phase 14 (compliance) — the page rendering all eight as generic cards is unasserted, no spec opens /admin/config, and the Safety surface built there decides where these keys show
 
 ### 2. A reserved setting refuses to save
 
@@ -55,9 +55,9 @@ which validates the resulting configuration before applying it."*
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses each reserved key with the literal refusal copy and leaves its stored row unchanged`
 
-**Deferred:** #631 — 7b — the refusal error equals the literal copy This key controls NCMEC CyberTipline filing and cannot be written through the generic config route, written out in the test rather than read from NCMEC_RESERVED_KEY_REFUSAL — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #628 — Phase 14 (compliance) — card shows the refusal as an inline red message, no spec opens /admin/config, and the Safety surface it names is built there
+**Deferred:** #628 — Phase 14 (compliance) — card shows the refusal as an inline red message, no spec opens /admin/config, and the Safety surface it names is built there
 
 ### 3. A refused save doesn't actually write
 
@@ -70,7 +70,7 @@ attempt did not take effect.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — a refused save leaves the reserved key's stored value unchanged, which is what a reload shows — `artifacts/api-server/src/__tests__/routes.admin.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses each reserved key with the literal refusal copy and leaves its stored row unchanged`
 
 ### 4. Unrelated config keys still work normally
 
@@ -125,9 +125,9 @@ step 4's note).
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:still writes ncmec_safety_alert_email, which is deliberately not reserved`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:still writes ncmec_safety_alert_email, which is deliberately not reserved`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:writes and stores the new value of each of the three unreserved NCMEC keys`
 
-**Deferred:** #631 — 7b — the unreserved key's new value is stored, not only a 200 — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #628 — Phase 14 (compliance) — card shows an editable field with a working save button, no spec opens /admin/config
+**Deferred:** #628 — Phase 14 (compliance) — card shows an editable field with a working save button, no spec opens /admin/config
 
 ### R4. NCMEC Submission Enabled still refuses to save
 
@@ -138,9 +138,9 @@ after a page reload.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses every reserved NCMEC key, even for an admin`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:refuses each reserved key with the literal refusal copy and leaves its stored row unchanged`
 
-**Deferred:** #631 — 7b — the refused save leaves the reserved key's stored value unchanged — `artifacts/api-server/src/__tests__/routes.admin.test.ts`; #628 — Phase 14 (compliance) — card shows the refusal as inline red text, no spec opens /admin/config
+**Deferred:** #628 — Phase 14 (compliance) — card shows the refusal as inline red text, no spec opens /admin/config
 
 ### R5. Ordinary product use is unaffected
 

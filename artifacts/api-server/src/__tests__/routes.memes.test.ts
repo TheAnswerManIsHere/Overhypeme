@@ -162,6 +162,23 @@ describe("GET /memes/:slug", () => {
   });
 });
 
+describe("GET /memes/:slug — creator personalization", () => {
+  it("renders the fact's {NAME} template with the creator's name and pronouns as factText", async () => {
+    const userId = await createTestUser();
+    await db.update(usersTable)
+      .set({ displayName: "Nick Baron", pronouns: "he/him" })
+      .where(eq(usersTable.id, userId));
+    const factId = await insertFact("{NAME} makes onions cry.", { submittedById: userId });
+    // No frozen renderedFactText, so the route renders the template for the creator.
+    const meme = await insertMeme({ factId, createdById: userId });
+
+    const res = await request(makeApp()).get(`/memes/${meme.permalinkSlug}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.factText, "Nick Baron makes onions cry.");
+    assert.doesNotMatch(res.body.factText, /\{NAME\}/);
+  });
+});
+
 describe("GET /facts/:factId/memes", () => {
 
   it("returns 400 for a non-numeric factId", async () => {
@@ -198,6 +215,21 @@ describe("GET /facts/:factId/memes", () => {
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body.memes));
     assert.ok(res.body.memes.length >= 1);
+  });
+
+  it("logged out, the community view returns the fact's public meme and omits its private one", async () => {
+    const userId = await createTestUser();
+    const factId = await insertFact("seed", { submittedById: userId });
+    const publicMeme = await insertMeme({ factId, createdById: userId, isPublic: true });
+    const privateMeme = await insertMeme({ factId, createdById: userId, isPublic: false });
+
+    const res = await request(makeApp())
+      .get(`/facts/${factId}/memes`)
+      .query({ visibility: "community" });
+    assert.equal(res.status, 200);
+    const ids = res.body.memes.map((m: { id: number }) => m.id);
+    assert.ok(ids.includes(publicMeme.id), "the public meme is listed");
+    assert.ok(!ids.includes(privateMeme.id), "the private meme is omitted");
   });
 
   it("defaults to top sort: orders memes by heartCount desc, createdAt desc tiebreak", async () => {

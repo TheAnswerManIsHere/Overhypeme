@@ -1,8 +1,9 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import express from "express";
 import request from "supertest";
 import { createApp } from "../app.js";
-import { globalLimiterLogLevel, GLOBAL_RATE_LIMIT_BLOCKED } from "../lib/rateLimit.js";
+import { createGlobalLimiter, globalLimiterLogLevel, GLOBAL_RATE_LIMIT_BLOCKED } from "../lib/rateLimit.js";
 import { BoundedMemoryStore } from "../lib/globalRateLimitStore.js";
 import type { Options } from "express-rate-limit";
 import { logger } from "../lib/logger.js";
@@ -351,6 +352,43 @@ describe("global rate limiter", () => {
 
       const afterEviction = (await store.increment("victim")).totalHits;
       assert.equal(afterEviction, 1, "an evicted key starts over — a looser limit for a window, never a wrongful 429");
+    });
+  });
+
+  describe("limiter overhead", () => {
+    it("an ordinary API request spends well under the bound inside the limiter itself", async () => {
+      // Measures the limiter's OWN cost, not end-to-end latency: a timestamp is
+      // taken immediately before and after the real limiter (the same factory
+      // app.ts mounts at /api, default ceiling) and the difference is what the
+      // limiter added to the request. End-to-end time would fold in the HTTP
+      // stack and the CI machine's load. The in-memory check costs microseconds;
+      // the median over many requests against a bound ~3 orders of magnitude
+      // above that cannot flake on a slow runner, yet fails if the limiter
+      // starts doing real work (a blocking store, a per-request DB round trip).
+      const MEDIAN_BOUND_MS = 25;
+      const REQUESTS = 100;
+      const samplesMs: number[] = [];
+      const app = express();
+      app.use("/api", (req, _res, next) => {
+        (req as unknown as { __t0: bigint }).__t0 = process.hrtime.bigint();
+        next();
+      });
+      app.use("/api", createGlobalLimiter());
+      app.use("/api", (req, _res, next) => {
+        const t0 = (req as unknown as { __t0: bigint }).__t0;
+        samplesMs.push(Number(process.hrtime.bigint() - t0) / 1e6);
+        next();
+      });
+      app.get("/api/ordinary", (_req, res) => { res.json({ ok: true }); });
+
+      for (let i = 0; i < REQUESTS; i++) {
+        const res = await request(app).get("/api/ordinary");
+        assert.equal(res.status, 200);
+        assert.ok(res.headers["ratelimit-limit"], "the request must actually have passed through the limiter");
+      }
+      assert.equal(samplesMs.length, REQUESTS);
+      const median = [...samplesMs].sort((a, b) => a - b)[Math.floor(REQUESTS / 2)];
+      assert.ok(median < MEDIAN_BOUND_MS, `median limiter overhead ${median.toFixed(3)}ms should be under ${MEDIAN_BOUND_MS}ms`);
     });
   });
 

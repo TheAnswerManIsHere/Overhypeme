@@ -23,7 +23,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -201,5 +201,53 @@ describe("POST /admin/facts/:id/resubmit-for-moderation", () => {
     assert.equal(second.status, 409);
     assert.equal(second.body.code, "REVIEW_ALREADY_IN_PROGRESS");
     assert.equal(second.body.reviewId, first.body.reviewId);
+  });
+
+  it("a second click answers the error 'A moderation review is already in progress for this fact.'", async () => {
+    const fact = await seedInactiveFact();
+    const first = await request(makeApp())
+      .post(`/admin/facts/${fact.id}/resubmit-for-moderation`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({});
+    assert.equal(first.status, 200);
+
+    const second = await request(makeApp())
+      .post(`/admin/facts/${fact.id}/resubmit-for-moderation`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({});
+    assert.equal(second.status, 409);
+    assert.equal(second.body.error, "A moderation review is already in progress for this fact.");
+  });
+
+  it("leaves exactly one unresolved review for the fact after the second click", async () => {
+    const fact = await seedInactiveFact();
+    for (let click = 0; click < 2; click++) {
+      await request(makeApp())
+        .post(`/admin/facts/${fact.id}/resubmit-for-moderation`)
+        .set("authorization", `Bearer ${adminSid}`)
+        .send({});
+    }
+    const unresolved = await db
+      .select({ id: pendingReviewsTable.id })
+      .from(pendingReviewsTable)
+      .where(and(
+        eq(pendingReviewsTable.stagingFactId, fact.id),
+        inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
+      ));
+    assert.equal(unresolved.length, 1, "no duplicate review may stack up on the second click");
+  });
+
+  it("the 409 ALREADY_ACTIVE error tells the admin to use Send Back to Review to refresh it instead", async () => {
+    const [active] = await db.insert(factsTable)
+      .values({ text: `{NAME} still live ${randomUUID()}`, submittedById: adminId, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
+      .returning();
+    insertedFactIds.push(active.id);
+    const res = await request(makeApp())
+      .post(`/admin/facts/${active.id}/resubmit-for-moderation`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({});
+    assert.equal(res.status, 409);
+    assert.equal(res.body.code, "ALREADY_ACTIVE");
+    assert.match(res.body.error, /use Send Back to Review to refresh it instead/);
   });
 });

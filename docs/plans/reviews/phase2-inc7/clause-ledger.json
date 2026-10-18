@@ -14,17 +14,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 844,
+       "line": 870,
        "quote": ".post(\"/admin/facts/import\")"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 849,
+       "line": 884,
        "quote": "assert.equal(res.body.queued, 1);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 855,
+       "line": 890,
        "quote": "assert.ok(review, \"valid row should have been queued as a review\");"
       }
      ],
@@ -45,17 +45,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 875,
+       "line": 901,
        "quote": ".post(\"/admin/facts/import-csv\")"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 880,
+       "line": 884,
        "quote": "assert.equal(res.body.queued, 1);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 886,
+       "line": 921,
        "quote": "assert.ok(review, \"valid line should have been queued as a review\");"
       }
      ],
@@ -90,10 +90,16 @@
     },
     {
      "text": "it still works: the password is actually changed, so the new password verifies against the stored hash",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after POST /admin/users/set-password returns 200 for a real email, that user's stored password hash verifies the new password, the test only checks status 200 — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/localAuth.security.test.ts",
+       "line": 193,
+       "quote": "assert.equal(await bcrypt.compare(\"fresh-password-9\", row.passwordHash), true, \"stored hash must verify the new password\");"
+      }
+     ],
+     "fails_because": "the stored hash does not verify the new password",
+     "gap_clause": null
     }
    ]
   },
@@ -105,24 +111,42 @@
    "clauses": [
     {
      "text": "a paste list of more than 1000 facts gets a clear too many / invalid input error from the import route",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1189,
+       "quote": "assert.equal(res.body.error, \"Invalid input\");"
+      }
+     ],
+     "fails_because": "the 1001-fact body is not refused with Invalid input (or rows get queued; the queued-length assertion follows)",
+     "gap_clause": null
     },
     {
      "text": "it does not grind through: nothing from the over-cap batch is queued",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1189,
+       "quote": "assert.equal(res.body.error, \"Invalid input\");"
+      }
+     ],
+     "fails_because": "the 1001-fact body is not refused with Invalid input (or rows get queued; the queued-length assertion follows)",
+     "gap_clause": null
     },
     {
      "text": "splitting into smaller batches still works, a batch at the 1000 cap is accepted",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import as admin with exactly 1000 facts returns 200 with all 1000 processed, not refused or truncated — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1209,
+       "quote": "assert.equal(res.body.queued, 1000, \"all 1000 must be queued, not truncated\");"
+      }
+     ],
+     "fails_because": "1000 facts are refused or truncated instead of all queued",
+     "gap_clause": null
     }
    ]
   },
@@ -138,12 +162,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 927,
+       "line": 912,
        "quote": ".send({ csv });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 929,
+       "line": 964,
        "quote": "assert.match(res.body.error, /Too many rows \\(2001\\); import at most 2000 per call/);"
       }
      ],
@@ -156,7 +180,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 938,
+       "line": 973,
        "quote": "assert.equal(queued.length, 0, \"an over-cap import must queue nothing at all\");"
       }
      ],
@@ -165,10 +189,16 @@
     },
     {
      "text": "a CSV over ~2 MB gets a clear too many / invalid input error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1270,
+       "quote": "assert.equal(res.body.error, \"Invalid input\");"
+      }
+     ],
+     "fails_because": "a >2,000,000-char csv is accepted instead of refused with Invalid input (queued-nothing assertion follows)",
+     "gap_clause": null
     },
     {
      "text": "splitting into smaller batches still works: a CSV at the 2000-row cap is accepted and every row processed",
@@ -176,12 +206,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 947,
+       "line": 982,
        "quote": "assert.equal(res.status, 200, \"exactly 2000 rows is at the cap, not over it\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 949,
+       "line": 984,
        "quote": "assert.equal(res.body.failed.length, 2000, \"all 2000 rows must have been processed, not truncated\");"
       }
      ],
@@ -198,10 +228,16 @@
    "clauses": [
     {
      "text": "set-password with an obviously invalid email such as notanemail is rejected with a validation error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/users/set-password with email notanemail returns 400 with error a valid email is required, only a missing email is tested — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/localAuth.security.test.ts",
+       "line": 204,
+       "quote": "assert.equal(res.body.error, \"a valid email is required\");"
+      }
+     ],
+     "fails_because": "a malformed email gets a different error or status",
+     "gap_clause": null
     }
    ]
   },
@@ -217,17 +253,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 844,
+       "line": 870,
        "quote": ".post(\"/admin/facts/import\")"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 849,
+       "line": 884,
        "quote": "assert.equal(res.body.queued, 1);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 855,
+       "line": 890,
        "quote": "assert.ok(review, \"valid row should have been queued as a review\");"
       }
      ],
@@ -240,17 +276,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 875,
+       "line": 901,
        "quote": ".post(\"/admin/facts/import-csv\")"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 880,
+       "line": 884,
        "quote": "assert.equal(res.body.queued, 1);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 886,
+       "line": 921,
        "quote": "assert.ok(review, \"valid line should have been queued as a review\");"
       }
      ],
@@ -285,10 +321,16 @@
     },
     {
      "text": "it works: the password is actually changed",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after POST /admin/users/set-password returns 200 for a real email, that user's stored password hash verifies the new password, the test only checks status 200 — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/localAuth.security.test.ts",
+       "line": 193,
+       "quote": "assert.equal(await bcrypt.compare(\"fresh-password-9\", row.passwordHash), true, \"stored hash must verify the new password\");"
+      }
+     ],
+     "fails_because": "the stored hash does not verify the new password",
+     "gap_clause": null
     }
    ]
   },
@@ -300,10 +342,16 @@
    "clauses": [
     {
      "text": "more than 1000 facts via paste list are rejected with a clear error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import as admin with 1001 valid facts returns 400 with error Invalid input and queues none of them — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1189,
+       "quote": "assert.equal(res.body.error, \"Invalid input\");"
+      }
+     ],
+     "fails_because": "the 1001-fact body is not refused with Invalid input (or rows get queued; the queued-length assertion follows)",
+     "gap_clause": null
     },
     {
      "text": "a CSV over the row cap is rejected with a clear error telling you to split it",
@@ -311,12 +359,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 929,
+       "line": 964,
        "quote": "assert.match(res.body.error, /Too many rows \\(2001\\); import at most 2000 per call/);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 938,
+       "line": 973,
        "quote": "assert.equal(queued.length, 0, \"an over-cap import must queue nothing at all\");"
       }
      ],
@@ -325,10 +373,16 @@
     },
     {
      "text": "a CSV over the size cap is rejected with a clear error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import-csv as admin with a csv over 2,000,000 characters but under the 2 MiB request limit and under 2000 rows returns 400 with error Invalid input and queues nothing — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1270,
+       "quote": "assert.equal(res.body.error, \"Invalid input\");"
+      }
+     ],
+     "fails_because": "a >2,000,000-char csv is accepted instead of refused with Invalid input (queued-nothing assertion follows)",
+     "gap_clause": null
     }
    ]
   },
@@ -340,10 +394,16 @@
    "clauses": [
     {
      "text": "set-password with a malformed email is rejected with a validation error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/users/set-password with email notanemail returns 400 with error a valid email is required, only a missing email is tested — `artifacts/api-server/src/__tests__/localAuth.security.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/localAuth.security.test.ts",
+       "line": 204,
+       "quote": "assert.equal(res.body.error, \"a valid email is required\");"
+      }
+     ],
+     "fails_because": "a malformed email gets a different error or status",
+     "gap_clause": null
     }
    ]
   },
@@ -699,10 +759,16 @@
     },
     {
      "text": "pronoun tokens are rendered before the comparison",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — pronoun tokens rendered inside the verbatim moderator scene, the tests render name tokens only — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 1980,
+       "quote": "\"David rides a T-Rex while he waves his hat, the crowd cheers for him, and the trophy is his. He grins at himself.\","
+      }
+     ],
+     "fails_because": "The full rendered CORE SCENE (he/his/him/his/himself, capital He) would differ if any pronoun token stayed raw or rendered wrong.",
+     "gap_clause": null
     }
    ]
   },
@@ -714,17 +780,29 @@
    "clauses": [
     {
      "text": "the Concept's gag elements appear once, in CORE SCENE, not restated in ROLE DETAILS, SUBJECT DETAILS or ENVIRONMENT",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — with an authored coreSceneOverride, its restated phrase in SUBJECT DETAILS, ROLE DETAILS or ENVIRONMENT dropped so it counts once, while a distinct detail survives — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2011,
+       "quote": "assert.equal(countOccurrences(p, \"giant rubber duck across a packed stadium\"), 1, p);"
+      }
+     ],
+     "fails_because": "A restated phrase would appear twice (or remain in its section) if the additive de-dupe stopped covering the authored Concept.",
+     "gap_clause": null
     },
     {
      "text": "those sections only add details the Concept omitted",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — with an authored coreSceneOverride, its restated phrase in SUBJECT DETAILS, ROLE DETAILS or ENVIRONMENT dropped so it counts once, while a distinct detail survives — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2011,
+       "quote": "assert.equal(countOccurrences(p, \"giant rubber duck across a packed stadium\"), 1, p);"
+      }
+     ],
+     "fails_because": "A restated phrase would appear twice (or remain in its section) if the additive de-dupe stopped covering the authored Concept.",
+     "gap_clause": null
     }
    ]
   },
@@ -749,10 +827,16 @@
     },
     {
      "text": "LIGHTING contains only light and mood, no style or medium words",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the LIGHTING section holding only light and mood with no style or medium words is unasserted when no style is selected — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2031,
+       "quote": "assert.equal(sectionText(out.imagePrompt, \"LIGHTING\"), \"warm golden-hour rim light.\");"
+      }
+     ],
+     "fails_because": "LIGHTING would carry extra style/medium text if the style were folded into it.",
+     "gap_clause": null
     }
    ]
   },
@@ -773,7 +857,7 @@
       },
       {
        "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
-       "line": 377,
+       "line": 378,
        "quote": "assert.match(String(res.body.compiledPrompt.imagePrompt), /reimagined in cinematic test style/);"
       }
      ],
@@ -782,17 +866,29 @@
     },
     {
      "text": "LIGHTING still contains only light and mood, with no style or medium words",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the style phrase appearing once and not inside the LIGHTING section is unasserted, only the RENDER STYLE line and the light text are — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2045,
+       "quote": "assert.equal(countOccurrences(out.imagePrompt, style), 1, out.imagePrompt);"
+      }
+     ],
+     "fails_because": "The style phrase would occur twice and LIGHTING would no longer be exactly the light text.",
+     "gap_clause": null
     },
     {
      "text": "the style does not appear twice",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the style phrase appearing once and not inside the LIGHTING section is unasserted, only the RENDER STYLE line and the light text are — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2045,
+       "quote": "assert.equal(countOccurrences(out.imagePrompt, style), 1, out.imagePrompt);"
+      }
+     ],
+     "fails_because": "The style phrase would occur twice and LIGHTING would no longer be exactly the light text.",
+     "gap_clause": null
     },
     {
      "text": "the style picked in the preview's style control is the one previewed",
@@ -866,10 +962,16 @@
    "clauses": [
     {
      "text": "the owned-language phrase is kept verbatim in the preview's compiled prompt",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview route, for a fact whose stored Concept has compiler-owned language, keeping it verbatim in CORE SCENE and returning moderator_core_scene_owned_language whose message says rewrite it as visible scene description — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+       "line": 539,
+       "quote": "assert.match(w.message, /rewrite it as visible scene description/);"
+      }
+     ],
+     "fails_because": "The route response would lack the warning code or its rewrite-as-visible-scene message, or CORE SCENE would be altered.",
+     "gap_clause": null
     },
     {
      "text": "the preview's diagnostics show a moderator_core_scene_owned_language warning nudging a rewrite as pure scene description",
@@ -880,10 +982,16 @@
     },
     {
      "text": "the render still proceeds",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the image-prompt job enqueuing image_generation, not failing, for an attempt whose Concept raises moderator_core_scene_owned_language — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
+       "line": 345,
+       "quote": "assert.equal(job!.queue, IMAGE_GENERATION_QUEUE);"
+      }
+     ],
+     "fails_because": "Handler would fail or skip image_generation (or drop the warning) for a Concept raising the owned-language warning.",
+     "gap_clause": null
     }
    ]
   },
@@ -895,17 +1003,29 @@
    "clauses": [
     {
      "text": "the preview for a fact with no authored Concept uses the AI scene",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview route for a fact with no stored Concept returning a compiled prompt whose CORE SCENE is the planner's coreScene — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+       "line": 481,
+       "quote": "\"David performs a superhuman feat in the foreground as onlookers react.\","
+      }
+     ],
+     "fails_because": "CORE SCENE would not equal the planner coreScene if the AI scene fallback changed.",
+     "gap_clause": null
     },
     {
      "text": "the AI scene still requires its usual subject and environment detail; the relaxation applies only with a moderator Concept",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a blank Concept leaving the planner's subject and environment requirement in force is unasserted, expectationsFromInput is never checked for it — `artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts",
+       "line": 569,
+       "quote": "(err: unknown) => err instanceof ImagePromptError && /subjectDetails must contain at least one concrete entry/.test(err.message),"
+      }
+     ],
+     "fails_because": "A blank/whitespace/absent Concept must leave hasAuthoritativeCoreScene false so empty subjectDetails/environment are rejected.",
+     "gap_clause": null
     }
    ]
   },
@@ -926,7 +1046,7 @@
       },
       {
        "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
-       "line": 377,
+       "line": 378,
        "quote": "assert.match(String(res.body.compiledPrompt.imagePrompt), /reimagined in cinematic test style/);"
       }
      ],
@@ -935,24 +1055,42 @@
     },
     {
      "text": "a styled t2i compiled prompt uses the declarative form",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview route in t2i_fallback mode with a look style compiling that style's declarative promptSuffix, not its promptSuffixReference — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+       "line": 565,
+       "quote": "assert.doesNotMatch(prompt, /reimagined in cinematic test style/);"
+      }
+     ],
+     "fails_because": "The i2i reference copy would show up in a t2i prompt if the per-mode style choice flipped.",
+     "gap_clause": null
     },
     {
      "text": "the built-in styles' i2i copy reads Reimagine this… and t2i copy is declarative",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the none-style line asserted in full and the built-in styles' i2i Reimagine versus t2i declarative copy are unasserted, fixture styles only — `artifacts/api-server/src/__tests__/styleResolution.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/styleResolution.test.ts",
+       "line": 303,
+       "quote": "assert.match(i2i.prompt, /^(Reimagine|Transform) this\\b/, `${s.id} i2i opens with Reimagine/Transform`);"
+      }
+     ],
+     "fails_because": "Built-in i2i copy must open with Reimagine/Transform and t2i must be declarative, and the resolver must pick the right column per mode.",
+     "gap_clause": null
     },
     {
      "text": "with the none style RENDER STYLE reads the full photorealistic sentence",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the none-style line asserted in full and the built-in styles' i2i Reimagine versus t2i declarative copy are unasserted, fixture styles only — `artifacts/api-server/src/__tests__/styleResolution.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/styleResolution.test.ts",
+       "line": 303,
+       "quote": "assert.match(i2i.prompt, /^(Reimagine|Transform) this\\b/, `${s.id} i2i opens with Reimagine/Transform`);"
+      }
+     ],
+     "fails_because": "Built-in i2i copy must open with Reimagine/Transform and t2i must be declarative, and the resolver must pick the right column per mode.",
+     "gap_clause": null
     }
    ]
   },
@@ -982,10 +1120,16 @@
     },
     {
      "text": "the exclusion covers baked meme captions, watermarks and logos",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the STRICT CONSTRAINTS overlay exclusion naming full meme captions, watermarks and real logos, the test matches only its opening words — `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2060,
+       "quote": "\"Do not bake overlay or caption text into the image: no full meme captions, full fact text, hashtags, watermarks, real logos, brand marks, long explanatory paragraphs.\","
+      }
+     ],
+     "fails_because": "The full exclusion line would not match if any listed type (e.g. real logos) were dropped.",
+     "gap_clause": null
     }
    ]
   },
@@ -1224,7 +1368,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the compiled prompt from the preview route naming only the first name of a multi-word previewName is unasserted, only the reducer and the prepare helper are — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "gap_clause": "#693 — the compiled prompt from the preview route naming only the first name of a multi-word previewName is unasserted, only the reducer and the prepare helper are; the preview route uses the typed name in full while a real generation reduces it (POST /admin/image-prompt/preview with \"David Franklin\" compiles \"David Franklin\")"
     }
    ]
   },
@@ -1361,10 +1505,16 @@
    "clauses": [
     {
      "text": "the token-heavy Concept is rejected on save",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the fact enrichment PATCH answering 400 with a core_scene_rendered_too_long detail for a Concept of 110 {NAME} tokens under the raw cap — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 535,
+       "quote": "(res.body.details as Array<{ code: string }>).some((d) => d.code === \"core_scene_rendered_too_long\"),"
+      }
+     ],
+     "fails_because": "A 110-{NAME} Concept under the raw cap must be refused with the core_scene_rendered_too_long detail and nothing stored, so a disabled or weakened rendered-length gate returns 200 and fails.",
+     "gap_clause": null
     },
     {
      "text": "the rejection says it expands to up to N characters once names are filled in",
@@ -1389,10 +1539,16 @@
    "clauses": [
     {
      "text": "a Concept trimmed back under budget saves normally",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the fact enrichment PATCH accepting with 200 and storing a token-free Concept just under the cap, about 1,490 characters — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 548,
+       "quote": "assert.equal((await storedVso(id))?.coreSceneOverride, concept);"
+      }
+     ],
+     "fails_because": "A 1,490-character token-free Concept must be accepted and stored verbatim, so a gate that over-rejects fails.",
+     "gap_clause": null
     }
    ]
   },
@@ -1404,17 +1560,29 @@
    "clauses": [
     {
      "text": "saving a very large combination of guidance is rejected",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the fact enrichment PATCH answering 400 with a moderator_additions_rendered_too_long detail for many role bindings, required details, composition notes and additions together — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 564,
+       "quote": "(res.body.details as Array<{ code: string }>).some((d) => d.code === \"moderator_additions_rendered_too_long\"),"
+      }
+     ],
+     "fails_because": "Ten each of role bindings, required details, composition notes and additions must be refused with the combined moderator_additions_rendered_too_long detail measured through the compiler.",
+     "gap_clause": null
     },
     {
      "text": "the combined guidance is measured through the compiler for a real mix of entries",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the combined-guidance rejection for an actual mix of role bindings, required details, composition notes and additions measured through the compiler is unasserted, the cited checks inject the emitted length — `artifacts/api-server/src/__tests__/promptBudget.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/promptBudget.test.ts",
+       "line": 167,
+       "quote": "assert.equal(res.ok, false);"
+      }
+     ],
+     "fails_because": "Combined role bindings, required details, composition notes and additions measure above the 1500 pool through the real compiler and must be rejected with moderator_additions_rendered_too_long.",
+     "gap_clause": null
     },
     {
      "text": "the rejection reports the combined guidance is over budget",
@@ -1435,12 +1603,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 266,
+       "line": 276,
        "quote": "assert.equal(ok.status, 200);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 269,
+       "line": 279,
        "quote": "assert.equal(ov.requiredVisualDetails[0], \"{NAME}'s face\");"
       }
      ],
@@ -1457,24 +1625,42 @@
    "clauses": [
     {
      "text": "a deterministically broken render fails fast, without retrying",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the image-prompt job turning a corrupt frozen enrichment, a leaked {NAME} token or a required-budget overflow into a first-attempt terminal failure with its specific code and no image_generation job — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
+       "line": 374,
+       "quote": "assert.ok(!res.ok && \"code\" in res && res.code === code, JSON.stringify(res));"
+      }
+     ],
+     "fails_because": "Each deterministic failure must return a non-retryable terminal result with its specific code, persist errorCode and enqueue no image_generation job.",
+     "gap_clause": null
     },
     {
      "text": "it fails with a specific reason",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the image-prompt job turning a corrupt frozen enrichment, a leaked {NAME} token or a required-budget overflow into a first-attempt terminal failure with its specific code and no image_generation job — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
+       "line": 374,
+       "quote": "assert.ok(!res.ok && \"code\" in res && res.code === code, JSON.stringify(res));"
+      }
+     ],
+     "fails_because": "Each deterministic failure must return a non-retryable terminal result with its specific code, persist errorCode and enqueue no image_generation job.",
+     "gap_clause": null
     },
     {
      "text": "no degraded image is shipped",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the image-prompt job turning a corrupt frozen enrichment, a leaked {NAME} token or a required-budget overflow into a first-attempt terminal failure with its specific code and no image_generation job — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
+       "line": 374,
+       "quote": "assert.ok(!res.ok && \"code\" in res && res.code === code, JSON.stringify(res));"
+      }
+     ],
+     "fails_because": "Each deterministic failure must return a non-retryable terminal result with its specific code, persist errorCode and enqueue no image_generation job.",
+     "gap_clause": null
     }
    ]
   },
@@ -1486,10 +1672,16 @@
    "clauses": [
     {
      "text": "a typical Concept with normal role bindings and required details saves with no change",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a typical Concept with several role bindings and required details saving through the PATCH route is unasserted, the cited check validates an empty override — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 584,
+       "quote": "assert.deepEqual(stored?.roleBindings, override.roleBindings);"
+      }
+     ],
+     "fails_because": "A Concept with three role bindings and three required details must save with 200 and read back unchanged, so over-rejection or dropped fields fail.",
+     "gap_clause": null
     }
    ]
   },
@@ -1534,10 +1726,16 @@
    "clauses": [
     {
      "text": "saving changed text on a live fact is held for confirmation rather than saved silently",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — PATCH /admin/facts/:id answering 409 REQUIRES_CONFIRMATION with the impact for changed text on a live fact, and 200 once confirmed — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1313,
+       "quote": "assert.equal(unconfirmed.body.code, FACT_TEXT_EDIT_CODES.REQUIRES_CONFIRMATION);"
+      }
+     ],
+     "fails_because": "an unconfirmed text change on a live fact is not answered 409 REQUIRES_CONFIRMATION with the impact (the confirmed 200 + stored-text assertions follow)",
+     "gap_clause": null
     },
     {
      "text": "a red-bordered Change approved fact text modal appears on the Facts page, not a silent save and not a generic Save failed error",
@@ -1773,17 +1971,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 773,
+       "line": 808,
        "quote": "assert.equal(res.status, 200);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 776,
+       "line": 811,
        "quote": "assert.equal(row.isActive, true, \"the fact must still be active\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 777,
+       "line": 812,
        "quote": "assert.equal(row.upvotes, 7, \"the rest of the request must still have been applied\");"
       }
      ],
@@ -1865,17 +2063,29 @@
    "clauses": [
     {
      "text": "after the step-10 text edit the review is back at the prep stage",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — PATCH /admin/facts/:id with new text on an inactive staging fact whose review is at concept_review answering 200, the review moving to prep_pending and one enrichment job queued — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1348,
+       "quote": "assert.equal(review?.stage, \"prep_pending\");"
+      }
+     ],
+     "fails_because": "the staging review is not moved to prep_pending after the text edit (job-count assertion covers the single enrichment job)",
+     "gap_clause": null
     },
     {
      "text": "enrichment is re-running",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — PATCH /admin/facts/:id with new text on an inactive staging fact whose review is at concept_review answering 200, the review moving to prep_pending and one enrichment job queued — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1348,
+       "quote": "assert.equal(review?.stage, \"prep_pending\");"
+      }
+     ],
+     "fails_because": "the staging review is not moved to prep_pending after the text edit (job-count assertion covers the single enrichment job)",
+     "gap_clause": null
     },
     {
      "text": "images are re-running",
@@ -1886,10 +2096,16 @@
     },
     {
      "text": "production approval is refused until fresh prep and the Visual Concept complete",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/reviews/:id/approve-for-production on a review at prep_pending answering 409 and leaving its staging fact inactive — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+       "line": 1142,
+       "quote": "assert.equal(res.status, 409, JSON.stringify(res.body));"
+      }
+     ],
+     "fails_because": "approve-for-production no longer answers 409 for a prep_pending review (it activates it).",
+     "gap_clause": null
     },
     {
      "text": "Moderation shows the review at the prep stage",
@@ -1908,17 +2124,29 @@
    "clauses": [
     {
      "text": "the root's confirmed re-word saves normally, with nothing blocking it",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a confirmed PATCH /admin/facts/:id text edit on a live root whose variant has a pending concept_review review answering 200 and storing the new text — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1372,
+       "quote": "assert.equal(stored?.text, newText);"
+      }
+     ],
+     "fails_because": "a root edit is blocked (non-200) or not stored while its variant is mid-review",
+     "gap_clause": null
     },
     {
      "text": "nothing warns about the variant",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the unconfirmed PATCH /admin/facts/:id 409 for that root carrying an impact with refreshInFlight false, so the modal shows no in-flight warning — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1383,
+       "quote": "assert.equal(res.body.impact.refreshInFlight, false, \"a variant mid-review is not a refresh in flight on the root\");"
+      }
+     ],
+     "fails_because": "the impact reports a refresh in flight for a root whose variant is only mid-review",
+     "gap_clause": null
     }
    ]
   },
@@ -1934,17 +2162,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 378,
+       "line": 406,
        "quote": "assert.equal(res.body.workflowStage, \"prep_pending\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 388,
+       "line": 416,
        "quote": "assert.equal(r.workflowStage, \"prep_pending\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 392,
+       "line": 420,
        "quote": "assert.equal(jobs.length, 1, \"exactly one fact-backed enrichment job\");"
       }
      ],
@@ -1957,12 +2185,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 385,
+       "line": 413,
        "quote": "assert.equal(fact.pexelsStatus, \"pending\", \"image prep marked pending so the UI shows working\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 394,
+       "line": 422,
        "quote": "assert.equal(pexels.length, 1, \"exactly one fact-backed pexels job\");"
       }
      ],
@@ -1983,17 +2211,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 979,
+       "line": 1027,
        "quote": "assert.equal(res.status, 200);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 983,
+       "line": 1031,
        "quote": "assert.equal(fact.isActive, true, \"staging fact must become active\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 985,
+       "line": 1033,
        "quote": "assert.equal(r.workflowStage, \"production_approved\");"
       }
      ],
@@ -2045,12 +2273,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 202,
+       "line": 212,
        "quote": "assert.equal(res.status, 200);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 205,
+       "line": 215,
        "quote": "assert.deepEqual((row.enrichment as FactEnrichment).suggestedHashtags, [\"alpha\", \"beta\", \"gamma\"]);"
       }
      ],
@@ -2074,10 +2302,16 @@
    "clauses": [
     {
      "text": "the preview's compiled prompt has a SPEECH & THOUGHT BUBBLES section with one directive quoting the exact text, its tail pointing to the subject's name",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview route, for a stored subject speech bubble, returning one SPEECH & THOUGHT BUBBLES directive quoting its exact text, tail pointing to the preview name — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+       "line": 588,
+       "quote": "`One clean comic-style speech balloon with its tail pointing to David, containing exactly the text \"You're the man of the house now.\" in clear, legible lettering.`,"
+      }
+     ],
+     "fails_because": "The speech directive (exact quoted text, tail to the preview name) would not match if its wording or name rendering changed; one-section/one-balloon counted.",
+     "gap_clause": null
     }
    ]
   },
@@ -2089,10 +2323,16 @@
    "clauses": [
     {
      "text": "the preview shows a second directive, a cloud-shaped thought balloon with a trail leading to the head of the bartender, text Not again.",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview route, for a stored thought bubble on the bartender, returning a cloud-shaped thought balloon directive whose trail leads to the head of the bartender with text Not again. — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+       "line": 612,
+       "quote": "'One cloud-shaped thought balloon with a trail of small circles leading to the head of the bartender, containing exactly the text \"Not again.\" in clear, legible lettering.',"
+      }
+     ],
+     "fails_because": "The thought directive would differ if the trail target or text changed.",
+     "gap_clause": null
     }
    ]
   },
@@ -2149,10 +2389,16 @@
     },
     {
      "text": "the warning does not block saving",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the fact enrichment PATCH saving with 200 an override whose bubble entity, the mailman, matches no subject or role binding — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 594,
+       "quote": "assert.deepEqual((await storedVso(id))?.bubbles, [{ type: \"speech\", entity: \"the mailman\", text: \"Special delivery!\" }]);"
+      }
+     ],
+     "fails_because": "A bubble attributed to 'the mailman', matching no subject or role binding, must save with 200 and be stored as sent (the unresolved-entity warning is soft).",
+     "gap_clause": null
     },
     {
      "text": "the model may add, ignore or misattribute the character, confirmed on the render",
@@ -2236,17 +2482,29 @@
    "clauses": [
     {
      "text": "the preview shows the name inside the quotes, \"David did it again!\"",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview route with previewName David and a stored bubble reading {NAME} did it again! returning \"David did it again!\" and no {NAME} in the compiled prompt — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+       "line": 631,
+       "quote": "assert.ok(prompt.includes('containing exactly the text \"David did it again!\"'), prompt);"
+      }
+     ],
+     "fails_because": "A raw {NAME} would reach the prompt if bubble token rendering broke.",
+     "gap_clause": null
     },
     {
      "text": "no raw {NAME} reaches the render's prompt",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the image-prompt job compiling a stored bubble reading {NAME} did it again! with the attempt's identity into \"David did it again!\" with no {NAME} — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
+       "line": 363,
+       "quote": "assert.ok(compiled.imagePrompt.includes('containing exactly the text \"David did it again!\"'), compiled.imagePrompt);"
+      }
+     ],
+     "fails_because": "The handler-compiled prompt would show the wrong name or a raw {NAME} if identity/bubble token rendering broke.",
+     "gap_clause": null
     }
    ]
   },
@@ -2261,7 +2519,7 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the model proposing a speech bubble from a quote-bearing fact is unasserted, no journey submits a fact with a quote — acceptance journey 3"
+     "gap_clause": "#628 — Phase 8 (Engine evaluation) — the model proposing a speech bubble from a quote-bearing fact; whether the model proposes one is model behaviour that phase tunes (David, 2026-10-17)"
     },
     {
      "text": "an idea card shows the proposed speech row, Speech — subject: \"You're the man of the house now.\"",
@@ -2397,10 +2655,16 @@
    "clauses": [
     {
      "text": "a role binding edit saves and reads back unchanged",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a role binding saved through the fact enrichment PATCH and read back with its entity and visualRole unchanged — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 604,
+       "quote": "assert.deepEqual(read.body.enrichment.visualPromptStrategyOverride.roleBindings, [binding]);"
+      }
+     ],
+     "fails_because": "A role binding saved through the PATCH must come back from GET /admin/facts/:id with the same entity and visualRole.",
+     "gap_clause": null
     },
     {
      "text": "a required detail edit saves and reads back",
@@ -2408,12 +2672,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 266,
+       "line": 276,
        "quote": "assert.equal(ok.status, 200);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 269,
+       "line": 279,
        "quote": "assert.equal(ov.requiredVisualDetails[0], \"{NAME}'s face\");"
       }
      ],
@@ -2430,17 +2694,29 @@
    "clauses": [
     {
      "text": "editing and saving the Concept or a bubble marks the ideas stale",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — editing and saving the Concept or a bubble making the stored ideas stale is unasserted, the stale test changes the archetype instead — `artifacts/api-server/src/__tests__/visualConceptJobs.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/visualConceptJobs.test.ts",
+       "line": 266,
+       "quote": "assert.equal(stale.staleReason, \"input_hash_mismatch\");"
+      }
+     ],
+     "fails_because": "Ideas would stay current if Concept/bubble edits did not move the input hash.",
+     "gap_clause": null
     },
     {
      "text": "stale ideas do not block, the saved concept still advances to renders",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — approve-visual-concept answering 200 with production_review for a review whose stored ideas read current false after a Concept save, the cited test never makes them stale — `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts",
+       "line": 333,
+       "quote": "assert.equal(res.body.workflowStage, \"production_review\");"
+      }
+     ],
+     "fails_because": "Approve would be refused (or the ideas would not read stale) if a stale-ideas state blocked or was never produced.",
+     "gap_clause": null
     },
     {
      "text": "the saved Concept, not the AI scene, drives the render's prompt",
@@ -2479,10 +2755,16 @@
     },
     {
      "text": "GET /api/admin/reviews/:id returns the visual concept the card shows; the browser check reads a stub, so nothing yet asserts the server still sends it",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/admin/reviews/:id returns the visual concept the card shows; the browser check reads a stub, so nothing yet asserts the server still sends it — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+       "line": 749,
+       "quote": "res.body.stagingFact.enrichment.visualPromptStrategyOverride.coreSceneOverride,"
+      }
+     ],
+     "fails_because": "GET /admin/reviews/:id stops selecting/sending stagingFact.enrichment, so the Visual Concept coreSceneOverride is undefined.",
+     "gap_clause": null
     }
    ]
   },
@@ -2534,10 +2816,16 @@
     },
     {
      "text": "the save is refused when Step 2 saves a new submission's staging fact (PATCH /admin/facts/:id/enrichment)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — PATCH /admin/facts/:id/enrichment for a new submission's staging fact, the route Moderation Step 2 saves through, refusing a blank Visual Concept with 400 visual_concept_required and storing nothing — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 655,
+       "quote": "assert.equal(res.body.error, \"visual_concept_required\");"
+      }
+     ],
+     "fails_because": "A blank Concept on a staging fact (inactive, with a concept_review pending review) must be refused with visual_concept_required and store nothing.",
+     "gap_clause": null
     }
    ]
   },
@@ -2553,22 +2841,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts",
-       "line": 236,
+       "line": 237,
        "quote": "(blank.visualPromptStrategyOverride as { coreSceneOverride: string }).coreSceneOverride = \"   \";"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts",
-       "line": 238,
+       "line": 239,
        "quote": ".post(`/admin/reviews/${reviewId}/approve-visual-concept`)"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts",
-       "line": 239,
+       "line": 240,
        "quote": "assert.equal(res.status, 409);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts",
-       "line": 240,
+       "line": 241,
        "quote": "assert.equal(res.body.code, \"CONCEPT_MISSING\");"
       }
      ],
@@ -2585,10 +2873,16 @@
    "clauses": [
     {
      "text": "Save saves the typed scene as the Visual Concept",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — PATCH /admin/facts/:id/enrichment with a typed scene stores that exact text as visualPromptStrategyOverride.coreSceneOverride on the staging fact — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 664,
+       "quote": "assert.equal((await storedVso(id))?.coreSceneOverride, scene);"
+      }
+     ],
+     "fails_because": "The typed scene must be stored byte-for-byte as coreSceneOverride on the staging fact.",
+     "gap_clause": null
     },
     {
      "text": "Approve advances the review to Step 3 (production_review) as before",
@@ -2596,17 +2890,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts",
-       "line": 106,
+       "line": 107,
        "quote": "enrichment: (opts.enrichment ?? enrichmentWithConcept(\"A hero hoists the planet overhead.\")) as FactEnrichment,"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts",
-       "line": 268,
+       "line": 269,
        "quote": "assert.equal(res.body.workflowStage, \"production_review\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts",
-       "line": 272,
+       "line": 273,
        "quote": "assert.equal(row!.stage, \"production_review\");"
       }
      ],
@@ -2644,10 +2938,16 @@
     },
     {
      "text": "each other override field applies on its own when filled, with no toggle to flip first",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — each override field (details, role assignments, bubbles, policies) saved alone through PATCH /admin/facts/:id/enrichment is stored and reaches the compiled prompt with no enable flag — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 634,
+       "quote": "assert.match(await compiledPromptFor(id), c.prompt, `${c.name}: reaches the compiled prompt`);"
+      }
+     ],
+     "fails_because": "Each of required details, forbidden details, role assignments, bubbles, composition guidance and the supporting-text policy saved alone must be stored with no enabled flag and appear in the prompt compiled from the stored enrichment.",
+     "gap_clause": null
     }
    ]
   },
@@ -2673,10 +2973,16 @@
     },
     {
      "text": "the save is refused",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — PATCH /admin/facts/:id/enrichment, the Facts page save, refusing a blank Visual Concept with 400 visual_concept_required and leaving the stored concept unchanged — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 675,
+       "quote": "assert.equal((await storedVso(id))?.coreSceneOverride, scene);"
+      }
+     ],
+     "fails_because": "Blanking the Concept of a fact that has one must be refused with visual_concept_required and the stored concept must stay unchanged.",
+     "gap_clause": null
     },
     {
      "text": "with the same message (the card's Required — describe the picture before saving or approving line)",
@@ -2713,10 +3019,16 @@
     },
     {
      "text": "the detail filled in and saved takes effect in renders",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a non-empty forbiddenVisualDetails saved through PATCH /admin/facts/:id/enrichment is stored and appears as a Do not line in that fact's compiled prompt — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 642,
+       "quote": "assert.match(await compiledPromptFor(id), /Do not a rubber duck\\./);"
+      }
+     ],
+     "fails_because": "A saved forbidden detail must be stored and compile to a 'Do not ...' line in that fact's prompt.",
+     "gap_clause": null
     }
    ]
   },
@@ -2746,10 +3058,16 @@
     },
     {
      "text": "clearing the detail and saving stops it applying in renders",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clearing forbiddenVisualDetails to [] through PATCH /admin/facts/:id/enrichment stores [] and that fact's compiled prompt no longer has the Do not line — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 646,
+       "quote": "assert.doesNotMatch(await compiledPromptFor(id), /a rubber duck/);"
+      }
+     ],
+     "fails_because": "Saving forbiddenVisualDetails as [] must store [] and the compiled prompt must no longer contain the detail.",
+     "gap_clause": null
     }
    ]
   },
@@ -2765,22 +3083,22 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 191,
+       "line": 187,
        "quote": ".patch(`/api/admin/facts/${id}/enrichment`)"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 197,
+       "line": 207,
        "quote": "version: 1, coreSceneOverride: \"{NAME} hoists a barbell overhead in an arena.\","
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 202,
+       "line": 212,
        "quote": "assert.equal(res.status, 200);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 203,
+       "line": 213,
        "quote": "assert.equal(res.body.success, true);"
       }
      ],
@@ -2902,24 +3220,42 @@
    "clauses": [
     {
      "text": "re-importing the same text is skipped as a duplicate",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import answering queued 0 and skipped 1 with no new review, once for a text matching an existing fact and once for one matching an unresolved review — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1245,
+       "quote": "assert.equal(factReviews.length, 0, \"a text matching an existing fact must not get a review\");"
+      }
+     ],
+     "fails_because": "a text matching an existing fact (or unresolved review) is queued again instead of skipped",
+     "gap_clause": null
     },
     {
      "text": "the dedup checks existing facts",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import answering queued 0 and skipped 1 with no new review, once for a text matching an existing fact and once for one matching an unresolved review — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1245,
+       "quote": "assert.equal(factReviews.length, 0, \"a text matching an existing fact must not get a review\");"
+      }
+     ],
+     "fails_because": "a text matching an existing fact (or unresolved review) is queued again instead of skipped",
+     "gap_clause": null
     },
     {
      "text": "the dedup checks reviews already in the queue",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/import answering queued 0 and skipped 1 with no new review, once for a text matching an existing fact and once for one matching an unresolved review — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1245,
+       "quote": "assert.equal(factReviews.length, 0, \"a text matching an existing fact must not get a review\");"
+      }
+     ],
+     "fails_because": "a text matching an existing fact (or unresolved review) is queued again instead of skipped",
+     "gap_clause": null
     }
    ]
   },
@@ -2960,10 +3296,16 @@
     },
     {
      "text": "approval for production makes the variant live under its parent",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/reviews/:id/approve-for-production on a variant review leaving the fact active with parentId set to the parent fact, inactive before — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+       "line": 1179,
+       "quote": "assert.equal(after.parentId, parent.id, \"the activated variant must be nested under its parent fact\");"
+      }
+     ],
+     "fails_because": "approval stops carrying the parent link onto the activated fact (parentId null).",
+     "gap_clause": null
     },
     {
      "text": "it appears nested under the parent only after that approval",
@@ -2986,17 +3328,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 721,
+       "line": 719,
        "quote": "assert.equal(res.status, 400);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 722,
+       "line": 757,
        "quote": "assert.equal(res.body.code, \"ACTIVATION_REQUIRES_MODERATION\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 725,
+       "line": 760,
        "quote": "assert.equal(row.isActive, false, \"the fact must still be inactive — activation must not have been written\");"
       }
      ],
@@ -3024,17 +3366,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 699,
+       "line": 734,
        "quote": ".send({ isActive: false });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 700,
+       "line": 704,
        "quote": "assert.equal(res.status, 200);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 703,
+       "line": 738,
        "quote": "for (const r of rows) assert.equal(r.isActive, false);"
       }
      ],
@@ -3180,17 +3522,29 @@
     },
     {
      "text": "the message says a review is already in progress for this fact",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the second POST /admin/facts/:id/resubmit-for-moderation answering error A moderation review is already in progress for this fact. — `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts",
+       "line": 219,
+       "quote": "assert.equal(second.body.error, \"A moderation review is already in progress for this fact.\");"
+      }
+     ],
+     "fails_because": "the second click answers a different message",
+     "gap_clause": null
     },
     {
      "text": "no duplicate reviews stack up",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after the second resubmit click exactly one unresolved review exists for the fact — `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts",
+       "line": 237,
+       "quote": "assert.equal(unresolved.length, 1, \"no duplicate review may stack up on the second click\");"
+      }
+     ],
+     "fails_because": "the second click stacks a second unresolved review",
+     "gap_clause": null
     }
    ]
   },
@@ -3234,10 +3588,16 @@
     },
     {
      "text": "the rejection points at Send Back to Review",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the 409 ALREADY_ACTIVE body's error containing use Send Back to Review to refresh it instead — `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts",
+       "line": 251,
+       "quote": "assert.match(res.body.error, /use Send Back to Review to refresh it instead/);"
+      }
+     ],
+     "fails_because": "the ALREADY_ACTIVE message no longer points to Send Back to Review",
+     "gap_clause": null
     }
    ]
   },
@@ -3249,10 +3609,16 @@
    "clauses": [
     {
      "text": "production approval without a Visual Concept is blocked",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/reviews/:id/approve-for-production on a production_review review with no Visual Concept answering 409 CONCEPT_MISSING with error Save a non-empty Visual Concept before approving for production., then 200 with the fact active once a concept is saved — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+       "line": 1199,
+       "quote": "assert.equal(blocked.status, 409, JSON.stringify(blocked.body));"
+      }
+     ],
+     "fails_because": "approval no longer 409s with CONCEPT_MISSING for a conceptless fact.",
+     "gap_clause": null
     },
     {
      "text": "the refusal shows Save a non-empty Visual Concept before approving for production",
@@ -3263,10 +3629,16 @@
     },
     {
      "text": "adding a concept and approving then goes live",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/reviews/:id/approve-for-production on a production_review review with no Visual Concept answering 409 CONCEPT_MISSING with error Save a non-empty Visual Concept before approving for production., then 200 with the fact active once a concept is saved — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+       "line": 1199,
+       "quote": "assert.equal(blocked.status, 409, JSON.stringify(blocked.body));"
+      }
+     ],
+     "fails_because": "approval no longer 409s with CONCEPT_MISSING for a conceptless fact.",
+     "gap_clause": null
     }
    ]
   },
@@ -3278,17 +3650,29 @@
    "clauses": [
     {
      "text": "existing facts are still there",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — migration 0092's statements leaving an active fact with a projection and a non-empty scene active, with its scene unchanged — `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts",
+       "line": 330,
+       "quote": "assert.equal(row.scene, \"A hero stands tall.\", \"an existing scene must not be overwritten by the sentinel\");"
+      }
+     ],
+     "fails_because": "the sentinel statement overwrites an existing scene or deactivates the fact",
+     "gap_clause": null
     },
     {
      "text": "facts that had no Visual Concept were backfilled with the placeholder scene {NAME} stands there confidently.",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — migration 0092's sentinel statement setting coreSceneOverride to {NAME} stands there confidently. on an active fact with a projection and no scene, leaving it active — `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts",
+       "line": 342,
+       "quote": "assert.equal(row.scene, SENTINEL, `${key} must be stamped with the placeholder scene`);"
+      }
+     ],
+     "fails_because": "the sentinel statement does not stamp the placeholder (or deactivates the row)",
+     "gap_clause": null
     }
    ]
   },
@@ -3300,10 +3684,16 @@
    "clauses": [
     {
      "text": "old facts with no usable enrichment were deactivated",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — migration 0092's first statement setting is_active false on an active fact whose primary_archetype or enrichment is null — `artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/factLifecycleClosure.test.ts",
+       "line": 353,
+       "quote": "assert.equal(result.get(\"no-enrichment\")!.is_active, false, \"no enrichment: deactivated, not stamped\");"
+      }
+     ],
+     "fails_because": "statement 1 does not deactivate an active fact with null primary_archetype/enrichment",
+     "gap_clause": null
     },
     {
      "text": "import now routes through moderation",
@@ -3311,12 +3701,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 856,
+       "line": 845,
        "quote": "assert.equal(review.workflowStage, \"triage_pending\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 858,
+       "line": 893,
        "quote": "assert.equal(factRows.length, 0, \"bulk import must not write the fact directly\");"
       }
      ],
@@ -3337,7 +3727,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 127,
+       "line": 128,
        "quote": "assert.ok(ids.includes(id), \"seeded fact id should be in results\");"
       }
      ],
@@ -3350,7 +3740,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 174,
+       "line": 175,
        "quote": "assert.equal(res.body.id, id);"
       }
      ],
@@ -3363,7 +3753,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 407,
+       "line": 424,
        "quote": "assert.equal(res.body.upvotes, 1);"
       }
      ],
@@ -3376,7 +3766,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 486,
+       "line": 503,
        "quote": "assert.deepEqual(texts, [\"approved-2\", \"approved-1\"]);"
       }
      ],
@@ -3389,7 +3779,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 267,
+       "line": 284,
        "quote": "assert.equal(r1.body.shareCount, 1);"
       }
      ],
@@ -3460,17 +3850,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 721,
+       "line": 719,
        "quote": "assert.equal(res.status, 400);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 722,
+       "line": 757,
        "quote": "assert.equal(res.body.code, \"ACTIVATION_REQUIRES_MODERATION\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 725,
+       "line": 760,
        "quote": "assert.equal(row.isActive, false, \"the fact must still be inactive — activation must not have been written\");"
       }
      ],
@@ -3483,12 +3873,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 858,
+       "line": 893,
        "quote": "assert.equal(factRows.length, 0, \"bulk import must not write the fact directly\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 814,
+       "line": 849,
        "quote": "assert.equal(variants.length, 0, \"no active variant fact is created — it goes through moderation\");"
       },
       {
@@ -3549,10 +3939,16 @@
    "clauses": [
     {
      "text": "re-running Backfill enrichment keeps the moderator's Visual Concept",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/backfill-enrichment?force=true on an active fact with a moderator Visual Concept leaving its visualPromptStrategyOverride unchanged after the background loop — `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
+       "line": 380,
+       "quote": "\"the moderator's Visual Concept must survive re-classification\","
+      }
+     ],
+     "fails_because": "the backfill loop rewrites or drops the moderator Visual Concept",
+     "gap_clause": null
     }
    ]
   },
@@ -3568,17 +3964,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 199,
+       "line": 200,
        "quote": "await db.update(factsTable).set({ pexelsImages: rootImages, aiMemeImages: { neutral: [\"a.png\"], male: [], female: [] } }).where(eq(factsTable.id, rootId));"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 207,
+       "line": 208,
        "quote": "const res = await request(makeApp()).get(`/facts/${variant.id}`);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 210,
+       "line": 211,
        "quote": "assert.equal(res.body.aiMemeImages, null, \"must not fall back to the root's aiMemeImages\");"
       }
      ],
@@ -3613,17 +4009,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1006,
+       "line": 1041,
        "quote": ".post(`/admin/facts/${variantId}/refresh-images`)"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1009,
+       "line": 983,
        "quote": "assert.equal(res.body.success, true);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1010,
+       "line": 1045,
        "quote": "assert.equal(res.body.skipped, false);"
       }
      ],
@@ -3669,17 +4065,29 @@
    "clauses": [
     {
      "text": "the root edit goes through immediately while a variant has an unresolved review",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a confirmed PATCH /admin/facts/:id text edit on a root returns 200 and stores the new text while its variant has a pending review or a nonterminal enrichment job — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1406,
+       "quote": "assert.equal(stored?.text, newText);"
+      }
+     ],
+     "fails_because": "a root edit is blocked or not stored while its variant has a nonterminal enrichment job",
+     "gap_clause": null
     },
     {
      "text": "the root edit goes through while a variant has an active enrichment job in flight",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a confirmed PATCH /admin/facts/:id text edit on a root returns 200 and stores the new text while its variant has a pending review or a nonterminal enrichment job — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1406,
+       "quote": "assert.equal(stored?.text, newText);"
+      }
+     ],
+     "fails_because": "a root edit is blocked or not stored while its variant has a nonterminal enrichment job",
+     "gap_clause": null
     }
    ]
   },
@@ -3691,10 +4099,16 @@
    "clauses": [
     {
      "text": "the variant's own enrichment / stale_for_reprocess state is untouched by the root edit",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after a confirmed PATCH /admin/facts/:id text edit on a root, each variant's lastProcessedSignature and enrichment are unchanged and it is not stale for reprocess — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1434,
+       "quote": "assert.deepEqual(after, before, \"a root edit must not touch any variant's signature or enrichment\");"
+      }
+     ],
+     "fails_because": "a root edit clears a variant's signature or alters its enrichment",
+     "gap_clause": null
     }
    ]
   },
@@ -3838,10 +4252,16 @@
     },
     {
      "text": "the request enqueues jobs for every active fact missing AI memes",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/backfill-ai-memes as admin enqueues one durable job per active fact, root or variant, missing AI meme images — `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
+       "line": 416,
+       "quote": "\"exactly one durable job per missing fact, none for the fact with images\","
+      }
+     ],
+     "fails_because": "the route skips variants / ignores the images filter / creates no durable job",
+     "gap_clause": null
     },
     {
      "text": "a live status line shows N of M done like Backfill images",
@@ -3881,17 +4301,17 @@
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts",
-       "line": 266,
+       "line": 320,
        "quote": ".send({ scope: \"selected\", factIds: [rootId] });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts",
-       "line": 268,
+       "line": 322,
        "quote": "assert.equal(res.body.jobs.length, 1);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts",
-       "line": 270,
+       "line": 324,
        "quote": "assert.equal(res.body.outcomes.length, 0);"
       }
      ],
@@ -3931,10 +4351,16 @@
    "clauses": [
     {
      "text": "Send next 50 stale now picks up roots with active variants",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/taxonomy-health/actions/bulk-send-back with scope all_stale, not only pickSendBackTargets, enqueues a stale root that has an active variant — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts",
+       "line": 213,
+       "quote": "assert.ok(queued.includes(rootId), \"the endpoint must enqueue a stale root even though it has an active variant\");"
+      }
+     ],
+     "fails_because": "POST bulk-send-back with all_stale must enqueue a stale root that has an active variant, going through the endpoint rather than the picker.",
+     "gap_clause": null
     }
    ]
   },
@@ -3953,10 +4379,16 @@
     },
     {
      "text": "it is no longer picked up by Send next 50 stale automatically",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/taxonomy-health/actions/bulk-send-back scope all_stale leaves out a 3-strike stale fact that would otherwise fall within its 50-fact batch, so the cap cannot hide a regression — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts",
+       "line": 235,
+       "quote": "assert.ok(!queued.includes(struckId), \"the 3-strike fact is excluded although the cap would have admitted it\");"
+      }
+     ],
+     "fails_because": "A 3-strike stale fact that is inside the 50-fact batch (lowest id, with a control fact beside it that IS enqueued) must be left out by all_stale and counted in repeatedFailureCount.",
+     "gap_clause": null
     }
    ]
   },
@@ -3998,10 +4430,16 @@
     },
     {
      "text": "this deliberate retry is what clears the flag",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — once the fact_send_back job Send selected queued for a 3-strike fact finishes, GET /admin/taxonomy-health/facts reports repeatedFailure false for it — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts",
+       "line": 439,
+       "quote": "assert.equal(await repeatedFailure(), false, \"a finished send-back clears the repeated-failure flag\");"
+      }
+     ],
+     "fails_because": "Once the fact_send_back job queued by Send selected for a 3-strike fact has been run to done by the worker tick, GET /admin/taxonomy-health/facts must report repeatedFailure false for it.",
+     "gap_clause": null
     }
    ]
   },
@@ -4091,17 +4529,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 172,
+       "line": 173,
        "quote": "const res = await request(makeApp()).get(`/facts/${id}`);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 176,
+       "line": 177,
        "quote": "assert.ok(\"rank\" in res.body);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
-       "line": 178,
+       "line": 179,
        "quote": "assert.ok(Array.isArray(res.body.variants));"
       }
      ],
@@ -4110,10 +4548,16 @@
     },
     {
      "text": "a root fact's detail still returns its own AI meme images",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a root fact's detail still returns its own AI meme images unchanged — `artifacts/api-server/src/__tests__/routes.facts.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
+       "line": 227,
+       "quote": "assert.deepEqual(res.body.aiMemeImages, aiMemeImages);"
+      }
+     ],
+     "fails_because": "detail response stops returning the root's own aiMemeImages.",
+     "gap_clause": null
     },
     {
      "text": "the public feed is unchanged on screen",
@@ -4182,10 +4626,16 @@
     },
     {
      "text": "GET /api/admin/facts/:id for a root fact returns the fields and enrichment the Facts editor reads; the browser check above reads a stub, so nothing yet asserts the server still sends them",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/admin/facts/:id for a root fact returns the fields and enrichment the Facts editor reads; the browser check above reads a stub, so nothing yet asserts the server still sends them — `artifacts/api-server/src/__tests__/routes.adminFacts.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFacts.test.ts",
+       "line": 103,
+       "quote": "assert.equal(body.shareCount, 7);"
+      }
+     ],
+     "fails_because": "GET /admin/facts/:id for a root fact must return the text, counts, scores, null parentId, ids, dates and the stored enrichment (including the override) the editor reads.",
+     "gap_clause": null
     }
    ]
   },
@@ -4604,10 +5054,16 @@
     },
     {
      "text": "the stamp comes from each resource's own stored timestamp, which survives a restart, not an in-memory value",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/admin/stripe/sync/status, after _resetSyncRunnerForTests, still returning the seeded products row's lastSyncedAt non-null — `artifacts/api-server/src/__tests__/routes.adminStripeSync.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminStripeSync.test.ts",
+       "line": 276,
+       "quote": "assert.equal(new Date(products.lastSyncedAt!).toISOString(), SEEDED_SYNC_AT);"
+      }
+     ],
+     "fails_because": "readSyncStatus stops reporting the persisted last_synced_at for the products row.",
+     "gap_clause": null
     }
    ]
   },
@@ -4817,10 +5273,16 @@
    "clauses": [
     {
      "text": "granting Legendary for Life (POST grant-lifetime, the route the Grant button calls) makes the user Legendary",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST grant-lifetime answers success and the target user's tier becomes legendary, in the response and in the database — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1473,
+       "quote": "assert.equal(await storedTier(userId), \"legendary\");"
+      }
+     ],
+     "fails_because": "the grant does not leave the user legendary (response or database)",
+     "gap_clause": null
     }
    ]
   },
@@ -4832,24 +5294,42 @@
    "clauses": [
     {
      "text": "the grant shows as an admin grant, distinct from a purchase (membership read)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after POST grant-lifetime, GET admin users :id membership returns an admin_grant entry with granted-by label and reason, null amount and payment id, and an admin_grant history row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1489,
+       "quote": "assert.equal(entry.stripePaymentIntentId, null, \"a comp is not a payment: no payment id\");"
+      }
+     ],
+     "fails_because": "the grant entry carries a payment id/amount, or lacks label/reason/history",
+     "gap_clause": null
     },
     {
      "text": "it shows who granted it and why (membership read)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after POST grant-lifetime, GET admin users :id membership returns an admin_grant entry with granted-by label and reason, null amount and payment id, and an admin_grant history row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1489,
+       "quote": "assert.equal(entry.stripePaymentIntentId, null, \"a comp is not a payment: no payment id\");"
+      }
+     ],
+     "fails_because": "the grant entry carries a payment id/amount, or lacks label/reason/history",
+     "gap_clause": null
     },
     {
      "text": "no amount and no payment id, so payment records tell a comp from a sale (membership read and history)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after POST grant-lifetime, GET admin users :id membership returns an admin_grant entry with granted-by label and reason, null amount and payment id, and an admin_grant history row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1489,
+       "quote": "assert.equal(entry.stripePaymentIntentId, null, \"a comp is not a payment: no payment id\");"
+      }
+     ],
+     "fails_because": "the grant entry carries a payment id/amount, or lacks label/reason/history",
+     "gap_clause": null
     },
     {
      "text": "the membership screen shows the entry as an admin grant with who granted it and why, no amount, no payment id",
@@ -4868,10 +5348,16 @@
    "clauses": [
     {
      "text": "revoking the grant (POST revoke-lifetime, the route the Revoke button calls) drops the user to Registered",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST revoke-lifetime as admin answers 200 with success true, and the user's stored membership tier then reads registered in the database — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1504,
+       "quote": "assert.equal(await storedTier(userId), \"registered\");"
+      }
+     ],
+     "fails_because": "the stored tier is still legendary after the revoke",
+     "gap_clause": null
     }
    ]
   },
@@ -4883,10 +5369,16 @@
    "clauses": [
     {
      "text": "the grant is still returned after revoke, not deleted, marked revoked with who revoked it (membership read)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after a revoke the membership read still returns the grant with status revoked, revoker label and an admin_revoke history row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1518,
+       "quote": "assert.equal(entry.status, \"revoked\");"
+      }
+     ],
+     "fails_because": "the grant is not marked revoked / lacks revoker label / admin_revoke history",
+     "gap_clause": null
     },
     {
      "text": "the membership screen still lists the grant, marked revoked, with who revoked it",
@@ -4905,10 +5397,16 @@
    "clauses": [
     {
      "text": "granting Legendary again after a revoke works",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a second grant after a revoke succeeds and the user is legendary again, with a new active grant row — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1539,
+       "quote": "assert.deepEqual(rows.map((r) => r.lifecycleStatus).sort(), [\"active\", \"revoked\"]);"
+      }
+     ],
+     "fails_because": "a re-grant after revoke is refused or does not add a new active row",
+     "gap_clause": null
     }
    ]
   },
@@ -4920,17 +5418,29 @@
    "clauses": [
     {
      "text": "the second attempt is refused with \"User already has an active admin grant\"",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a second grant returns 400 with \"User already has an active admin grant\", leaving one active row so one revoke drops the user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1548,
+       "quote": "assert.equal(second.body.error, \"User already has an active admin grant\");"
+      }
+     ],
+     "fails_because": "a duplicate grant is accepted or the message differs",
+     "gap_clause": null
     },
     {
      "text": "no second silent grant lands, so a later revoke drops the user",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a second grant returns 400 with \"User already has an active admin grant\", leaving one active row so one revoke drops the user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1548,
+       "quote": "assert.equal(second.body.error, \"User already has an active admin grant\");"
+      }
+     ],
+     "fails_because": "a duplicate grant is accepted or the message differs",
+     "gap_clause": null
     }
    ]
   },
@@ -4980,10 +5490,16 @@
    "clauses": [
     {
      "text": "the user stays Legendary on the active admin grant beside a cancelled subscription (the derivation)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a cancelled subscription beside an active admin grant derives legendary on the grant alone, the cited test shows a lifetime holding the tier — `artifacts/api-server/src/__tests__/membershipState.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/membershipState.test.ts",
+       "line": 189,
+       "quote": "assert.deepEqual(derived.qualifyingSourceIds, [grant.id], \"the grant alone carries the tier\");"
+      }
+     ],
+     "fails_because": "an active admin_grant stops qualifying beside a cancelled subscription.",
+     "gap_clause": null
     },
     {
      "text": "cancelling the subscription (the action itself) leaves them Legendary",
@@ -5100,10 +5616,16 @@
    "clauses": [
     {
      "text": "GET admin users reports the correct effective tier per user",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET admin users reports the effective tier per user: legendary for a live member, registered for a lapsed one and a free user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1638,
+       "quote": "assert.equal(tierOf(lapsed), \"registered\");"
+      }
+     ],
+     "fails_because": "the list shows the raw stored tier for a lapsed member",
+     "gap_clause": null
     },
     {
      "text": "the Admin → Users list shows the correct tier per user",
@@ -5122,10 +5644,16 @@
    "clauses": [
     {
      "text": "the summary route's Legendary and Registered counts are right and add up (a lapsed member moves between them)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET admin stripe summary counts a seeded lapsed legendary user in registeredMembers, not activeSubscribers, and a live one in activeSubscribers — `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/stripeModeToggle.test.ts",
+       "line": 1301,
+       "quote": "assert.equal(afterLapsed.registeredMembers, baseline.registeredMembers + 1, \"the lapsed legendary user is a registered member\");"
+      }
+     ],
+     "fails_because": "summary counts the lapsed legendary user as an active subscriber instead of a registered member.",
+     "gap_clause": null
     },
     {
      "text": "the Stripe summary page shows Legendary and Registered counts that look right",
@@ -5198,10 +5726,16 @@
    "clauses": [
     {
      "text": "Legendary gets a higher daily upload limit than Registered",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the legendary daily upload cap is strictly higher than the registered cap, the test asserts only greater-or-equal — `artifacts/api-server/src/__tests__/moderation.uploadRateLimit.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/moderation.uploadRateLimit.test.ts",
+       "line": 49,
+       "quote": "assert.ok(leg > reg, `legendary (${leg}) should be strictly higher than registered (${reg})`);"
+      }
+     ],
+     "fails_because": "legendary cap equal to (or below) registered cap.",
+     "gap_clause": null
     }
    ]
   },
@@ -5264,10 +5798,16 @@
    "clauses": [
     {
      "text": "after a successful sweep the status route reports a healthy, non-alerting sweep",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after a successful sweep GET admin membership grace-sweep reports neverRun false, neverSucceeded false, alerting false and a lastSuccessAt — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1699,
+       "quote": "assert.equal(typeof res.body.health.lastSuccessAt, \"string\");"
+      }
+     ],
+     "fails_because": "the route does not report a successful sweep",
+     "gap_clause": null
     },
     {
      "text": "the strip shows grey text reading \"Healthy · last converged N ago\"",
@@ -5286,10 +5826,16 @@
    "clauses": [
     {
      "text": "before any sweep has run the status route reports not yet run",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — before any sweep has run the grace-sweep route reports neverRun true and alerting false — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1663,
+       "quote": "assert.equal(res.body.health.neverRun, true);"
+      }
+     ],
+     "fails_because": "neverRun is not true before any sweep",
+     "gap_clause": null
     },
     {
      "text": "the strip reads \"Not yet run · waiting Nm since start\", not \"healthy\"",
@@ -5323,10 +5869,16 @@
    "clauses": [
     {
      "text": "the status route counts users lagging convergence",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the grace-sweep route driftedCount counts a seeded lapsed legendary user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1672,
+       "quote": "assert.equal(res.body.driftedCount, before + 1);"
+      }
+     ],
+     "fails_because": "driftedCount does not include a lapsed legendary user",
+     "gap_clause": null
     },
     {
      "text": "the strip reads \"No users pending convergence\" normally",
@@ -5352,10 +5904,16 @@
    "clauses": [
     {
      "text": "past its alert threshold the status route reports alerting and the drifted users",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — with the alert threshold exceeded the route reports alerting true and lists the drifted user — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1685,
+       "quote": "assert.equal(res.body.health.alerting, true);"
+      }
+     ],
+     "fails_because": "alerting stays false after an overdue sweep",
+     "gap_clause": null
     },
     {
      "text": "the strip turns amber and says stored tiers are drifting, and that access is still correct",
@@ -5420,10 +5978,16 @@
     },
     {
      "text": "the payment-history route returns refunds and disputes too",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — payment-history returns refund and dispute rows as well as purchases — `artifacts/api-server/src/__tests__/routes.stripe.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.stripe.test.ts",
+       "line": 220,
+       "quote": "[\"dispute_lost\", \"dispute_opened\", \"refund\", \"lifetime_purchase\"],"
+      }
+     ],
+     "fails_because": "payment-history omits refund/dispute rows.",
+     "gap_clause": null
     },
     {
      "text": "payment history on the profile still lists purchases, refunds and disputes",
@@ -5442,10 +6006,16 @@
    "clauses": [
     {
      "text": "after deactivate and reinstate the user comes back at the right tier",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1582,
+       "quote": "assert.equal(await storedTier(plain), \"registered\", \"no source, no Legendary\");"
+      }
+     ],
+     "fails_because": "reinstatement does not re-derive the tier from sources",
+     "gap_clause": null
     },
     {
      "text": "reinstating re-checks Stripe first",
@@ -5478,10 +6048,16 @@
     },
     {
      "text": "picking Legendary gives them a recorded admin grant",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST admin users with membershipTier legendary answers 201, and the user has an active admin_grant row with a reason and an admin_grant history event — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1607,
+       "quote": "assert.ok(history.some((h) => h.event === \"admin_grant\"), \"an admin_grant history event must be written\");"
+      }
+     ],
+     "fails_because": "creating a legendary user writes no grant/reason/history",
+     "gap_clause": null
     }
    ]
   },
@@ -5920,12 +6496,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts",
-       "line": 220,
+       "line": 266,
        "quote": ".post(\"/api/admin/taxonomy-health/actions/repair-projections\")"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts",
-       "line": 226,
+       "line": 272,
        "quote": "assert.equal(res.body.outcomes[0].status, \"done\");"
       }
      ],
@@ -5934,10 +6510,16 @@
     },
     {
      "text": "a queued Taxonomy Health action (Re-enrich) still runs, not only queues: the cited test stops at pending/processing",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a Re-enrich job queued through /api/admin/taxonomy-health/actions/backfill-enrichment reaching done in /api/admin/taxonomy-health/job-status after the worker runs it — `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts",
+       "line": 251,
+       "quote": "assert.equal(await statusOf(), \"done\");"
+      }
+     ],
+     "fails_because": "A Re-enrich job queued through backfill-enrichment must be pending when queued and reach done in job-status after a worker tick, with the fact actually re-enriched.",
+     "gap_clause": null
     }
    ]
   },
@@ -5981,17 +6563,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 118,
+       "line": 128,
        "quote": "{ method: \"get\",    path: \"/admin/queue-health\" },"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 182,
+       "line": 199,
        "quote": "returns 403 admin_required for an authenticated non-admin"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 189,
+       "line": 206,
        "quote": "assert.equal(res.body.error, \"admin_required\");"
       }
      ],
@@ -6004,12 +6586,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 119,
+       "line": 129,
        "quote": "{ method: \"get\",    path: \"/admin/queue-health/jobs\" },"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 189,
+       "line": 206,
        "quote": "assert.equal(res.body.error, \"admin_required\");"
       }
      ],
@@ -6515,10 +7097,16 @@
     },
     {
      "text": "the three named keys (alert email, max attempts, 4th retry delay) are freely editable: a save is accepted and stored",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — admin PATCH /admin/config of each of the three unreserved NCMEC keys returns 200 and stores the new value — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1740,
+       "quote": "assert.equal((await rowOf(seed.key))?.value, seed.newValue, `${seed.key}: a 200 must mean the value is stored`);"
+      }
+     ],
+     "fails_because": "a 200 is returned without storing the new value",
+     "gap_clause": null
     }
    ]
   },
@@ -6534,17 +7122,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1044,
+       "line": 1079,
        "quote": ".patch(`/admin/config/${key}`)"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1047,
+       "line": 1082,
        "quote": "assert.equal(res.status, 403, `${key} was not refused`);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1048,
+       "line": 1083,
        "quote": "assert.equal(res.body.error, NCMEC_RESERVED_KEY_REFUSAL);"
       },
       {
@@ -6558,10 +7146,16 @@
     },
     {
      "text": "the refusal message reads exactly the copy the Expect quotes",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the refusal error equals the literal copy This key controls NCMEC CyberTipline filing and cannot be written through the generic config route, written out in the test rather than read from NCMEC_RESERVED_KEY_REFUSAL — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1770,
+       "quote": "assert.equal(res.body.error, RESERVED_LITERAL_REFUSAL);"
+      }
+     ],
+     "fails_because": "the refusal copy differs from the literal string",
+     "gap_clause": null
     },
     {
      "text": "the card shows the message as an inline red error",
@@ -6580,10 +7174,16 @@
    "clauses": [
     {
      "text": "after reload, the reserved key's value is what it was before the edit",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a refused save leaves the reserved key's stored value unchanged, which is what a reload shows — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1771,
+       "quote": "assert.deepEqual(await rowOf(key), before, `${key}: a refused save must leave the stored row untouched`);"
+      }
+     ],
+     "fails_because": "a refused save modifies the reserved key's stored row",
+     "gap_clause": null
     }
    ]
   },
@@ -6692,12 +7292,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1090,
+       "line": 1125,
        "quote": ".patch(\"/admin/config/ncmec_safety_alert_email\")"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1093,
+       "line": 1128,
        "quote": "assert.equal(res.status, 200);"
       }
      ],
@@ -6706,10 +7306,16 @@
     },
     {
      "text": "the save actually stores the new value",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the unreserved key's new value is stored, not only a 200 — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1740,
+       "quote": "assert.equal((await rowOf(seed.key))?.value, seed.newValue, `${seed.key}: a 200 must mean the value is stored`);"
+      }
+     ],
+     "fails_because": "a 200 is returned without storing the new value",
+     "gap_clause": null
     },
     {
      "text": "the card is an editable field with a working save button",
@@ -6732,12 +7338,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1047,
+       "line": 1082,
        "quote": "assert.equal(res.status, 403, `${key} was not refused`);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1048,
+       "line": 1083,
        "quote": "assert.equal(res.body.error, NCMEC_RESERVED_KEY_REFUSAL);"
       }
      ],
@@ -6753,10 +7359,16 @@
     },
     {
      "text": "the value is unchanged after a page reload",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the refused save leaves the reserved key's stored value unchanged — `artifacts/api-server/src/__tests__/routes.admin.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1771,
+       "quote": "assert.deepEqual(await rowOf(key), before, `${key}: a refused save must leave the stored row untouched`);"
+      }
+     ],
+     "fails_because": "a refused save modifies the reserved key's stored row",
+     "gap_clause": null
     }
    ]
   },
@@ -6854,10 +7466,16 @@
     },
     {
      "text": "no slowdowns",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — an ordinary API request through the global limiter completes within an asserted time bound measuring the limiter's own overhead — `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts",
+       "line": 391,
+       "quote": "assert.ok(median < MEDIAN_BOUND_MS, `median limiter overhead ${median.toFixed(3)}ms should be under ${MEDIAN_BOUND_MS}ms`);"
+      }
+     ],
+     "fails_because": "the limiter adds real latency per request (median over 100 requests exceeds 25ms).",
+     "gap_clause": null
     },
     {
      "text": "no unexpected redirects",
@@ -6985,10 +7603,16 @@
     },
     {
      "text": "no slowdown",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — an ordinary API request through the global limiter completes within an asserted time bound measuring the limiter's own overhead — `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts",
+       "line": 391,
+       "quote": "assert.ok(median < MEDIAN_BOUND_MS, `median limiter overhead ${median.toFixed(3)}ms should be under ${MEDIAN_BOUND_MS}ms`);"
+      }
+     ],
+     "fails_because": "the limiter adds real latency per request (median over 100 requests exceeds 25ms).",
+     "gap_clause": null
     }
    ]
   },
@@ -7069,10 +7693,16 @@
     },
     {
      "text": "it is still protected by its own stricter, pre-existing limit",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a non-admin account's sixth POST /facts/submit-review inside the window gets 429 \"You're submitting facts too quickly. Please slow down.\" — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+       "line": 358,
+       "quote": "assert.equal(res.status, 429);"
+      }
+     ],
+     "fails_because": "the fact_submit limiter stops answering 429 past FACT_SUBMIT_MAX.",
+     "gap_clause": null
     }
    ]
   },
@@ -7238,10 +7868,16 @@
    "clauses": [
     {
      "text": "the meme's caption text still reads Nick Baron makes onions cry. (never broken)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/memes/:slug for a meme whose creator is Nick Baron, he/him, on the fact {NAME} makes onions cry. returns factText Nick Baron makes onions cry. — `artifacts/api-server/src/__tests__/routes.memes.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.memes.test.ts",
+       "line": 177,
+       "quote": "assert.equal(res.body.factText, \"Nick Baron makes onions cry.\");"
+      }
+     ],
+     "fails_because": "GET /memes/:slug stops personalizing the {NAME} template for the creator.",
+     "gap_clause": null
     },
     {
      "text": "on the meme page, the text underneath the picture reads it",
@@ -7628,12 +8264,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 110,
+       "line": 123,
        "quote": "const res = await get(PRIV_SLUG, { kind: \"authenticated\", userId: ownerId });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 111,
+       "line": 124,
        "quote": "assert.equal(res.status, 200);"
       }
      ],
@@ -7642,10 +8278,16 @@
     },
     {
      "text": "the meme renders for the creator (its image is served to the owner)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a private meme to its non-admin owner — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
+       "line": 182,
+       "quote": "await assertDecodableLandscapeJpeg(res.body);"
+      }
+     ],
+     "fails_because": "image route stops serving the owner's private meme, or serves bytes that don't decode as a JPEG at the landscape ratio.",
+     "gap_clause": null
     }
    ]
   },
@@ -7661,12 +8303,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 122,
+       "line": 135,
        "quote": "const res = await get(PRIV_SLUG, { kind: \"unauthenticated\" });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 123,
+       "line": 131,
        "quote": "assert.equal(res.status, 404);"
       }
      ],
@@ -7701,12 +8343,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 110,
+       "line": 123,
        "quote": "const res = await get(PRIV_SLUG, { kind: \"authenticated\", userId: ownerId });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 112,
+       "line": 125,
        "quote": "assert.equal(res.body.isPublic, false);"
       }
      ],
@@ -7715,10 +8357,16 @@
     },
     {
      "text": "the linked meme's image still shows for the creator",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a private meme to its non-admin owner — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
+       "line": 182,
+       "quote": "await assertDecodableLandscapeJpeg(res.body);"
+      }
+     ],
+     "fails_because": "image route stops serving the owner's private meme, or serves bytes that don't decode as a JPEG at the landscape ratio.",
+     "gap_clause": null
     }
    ]
   },
@@ -7753,10 +8401,16 @@
     },
     {
      "text": "a second meme on the same fact, right after the private one, saves as its own public meme",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a Public save on the same fact right after a Private one with otherwise identical inputs returns a new public meme, not the private one — `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/phase4.memes.save.test.ts",
+       "line": 373,
+       "quote": "assert.equal(pub.status, 201, \"not the 200 an idempotent replay of the private save would return\");"
+      }
+     ],
+     "fails_because": "idempotency key ignores isPublic so the Public save replays the Private meme (200).",
+     "gap_clause": null
     },
     {
      "text": "leaving the control on Public in the builder saves it public",
@@ -7771,12 +8425,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 132,
+       "line": 145,
        "quote": "const res = await get(PUB_SLUG, { kind: \"unauthenticated\" });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 134,
+       "line": 147,
        "quote": "assert.equal(res.body.isPublic, true);"
       }
      ],
@@ -7785,10 +8439,16 @@
     },
     {
      "text": "the public meme's image shows logged out",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a public meme to a logged-out caller — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
+       "line": 189,
+       "quote": "await assertDecodableLandscapeJpeg(res.body);"
+      }
+     ],
+     "fails_because": "image route stops serving the public meme or serves undecodable bytes.",
+     "gap_clause": null
     }
    ]
   },
@@ -7800,10 +8460,16 @@
    "clauses": [
     {
      "text": "logged out, the fact's meme list returns the public meme",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/facts/:factId/memes?visibility=community, logged out, returns the fact's public meme and omits its private one — `artifacts/api-server/src/__tests__/routes.memes.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.memes.test.ts",
+       "line": 232,
+       "quote": "assert.ok(!ids.includes(privateMeme.id), \"the private meme is omitted\");"
+      }
+     ],
+     "fails_because": "community listing includes private memes.",
+     "gap_clause": null
     },
     {
      "text": "the public meme shows up in the fact page's meme list and gallery",
@@ -7851,12 +8517,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 122,
+       "line": 135,
        "quote": "const res = await get(PRIV_SLUG, { kind: \"unauthenticated\" });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 123,
+       "line": 131,
        "quote": "assert.equal(res.status, 404);"
       }
      ],
@@ -7876,12 +8542,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 110,
+       "line": 123,
        "quote": "const res = await get(PRIV_SLUG, { kind: \"authenticated\", userId: ownerId });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 111,
+       "line": 124,
        "quote": "assert.equal(res.status, 200);"
       }
      ],
@@ -7890,10 +8556,16 @@
     },
     {
      "text": "it is visible to the creator (its image)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a private meme to its non-admin owner — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
+       "line": 182,
+       "quote": "await assertDecodableLandscapeJpeg(res.body);"
+      }
+     ],
+     "fails_because": "image route stops serving the owner's private meme, or serves bytes that don't decode as a JPEG at the landscape ratio.",
+     "gap_clause": null
     }
    ]
   },
@@ -8008,10 +8680,16 @@
    "clauses": [
     {
      "text": "a registered user's meme saves public (the builder sends isPublic true)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /api/memes with isPublic true from a registered non-admin account returns 201 and stores the meme public — `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/phase4.memes.save.test.ts",
+       "line": 361,
+       "quote": "assert.equal(await storedIsPublic(res.body.id), true);"
+      }
+     ],
+     "fails_because": "an explicit isPublic true from a registered non-admin is stored private/not created.",
+     "gap_clause": null
     },
     {
      "text": "saving from the builder after closing the upsell sends Public",
@@ -8026,12 +8704,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 132,
+       "line": 145,
        "quote": "const res = await get(PUB_SLUG, { kind: \"unauthenticated\" });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 133,
+       "line": 141,
        "quote": "assert.equal(res.status, 200);"
       }
      ],
@@ -8040,10 +8718,16 @@
     },
     {
      "text": "the public meme's image loads logged out",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /api/memes/:slug/image returns 200 and a decodable image for a public meme to a logged-out caller — `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
+       "line": 189,
+       "quote": "await assertDecodableLandscapeJpeg(res.body);"
+      }
+     ],
+     "fails_because": "image route stops serving the public meme or serves undecodable bytes.",
+     "gap_clause": null
     }
    ]
   },
@@ -8278,10 +8962,16 @@
     },
     {
      "text": "with the Admin custom_avatar cell off, the Legendary account still has the custom avatar",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — with the Admin custom_avatar cell off, effectiveAvatarUrl still returns the selected photo for a Legendary subject, admin and non-admin — `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts",
+       "line": 213,
+       "quote": "subject({ id, profileImageUrl: PHOTO, avatarSource: \"photo\", membershipTier: \"legendary\", isRealAdmin }),"
+      }
+     ],
+     "fails_because": "the Legendary admin subject loses the photo when the Admin custom_avatar cell is off (union broken).",
+     "gap_clause": null
     }
    ]
   },
@@ -8682,12 +9372,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 127,
+       "line": 140,
        "quote": "const res = await get(PRIV_SLUG, { kind: \"authenticated\", userId: adminId });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 128,
+       "line": 124,
        "quote": "assert.equal(res.status, 200);"
       }
      ],
@@ -8722,12 +9412,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 122,
+       "line": 135,
        "quote": "const res = await get(PRIV_SLUG, { kind: \"unauthenticated\" });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 123,
+       "line": 131,
        "quote": "assert.equal(res.status, 404);"
       }
      ],
@@ -8813,10 +9503,16 @@
     },
     {
      "text": "the public avatar the API serves for this account is the generated icon, not the photo",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — logged out, GET /facts/:factId submittedByImage and GET /facts/:factId/comments authorImage are the generated icon for a registered author with a stored unselected photo — `artifacts/api-server/src/__tests__/routes.facts.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
+       "line": 566,
+       "quote": "assert.equal(detail.body.submittedByImage, icon);"
+      }
+     ],
+     "fails_because": "submittedByImage exposes the stored profile photo instead of the generated icon.",
+     "gap_clause": null
     },
     {
      "text": "the public avatar shown on the site stays the generated icon",
@@ -8901,10 +9597,16 @@
    "clauses": [
     {
      "text": "next to the submission and the comment the API serves the generated icon, not the uploaded photo",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — logged out, GET /facts/:factId submittedByImage and GET /facts/:factId/comments authorImage are the generated icon for a registered author with a stored unselected photo — `artifacts/api-server/src/__tests__/routes.facts.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.facts.test.ts",
+       "line": 566,
+       "quote": "assert.equal(detail.body.submittedByImage, icon);"
+      }
+     ],
+     "fails_because": "submittedByImage exposes the stored profile photo instead of the generated icon.",
+     "gap_clause": null
     },
     {
      "text": "viewed logged out, the fact page shows the generated icon next to the submission and the comment",
@@ -8956,12 +9658,12 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 132,
+       "line": 145,
        "quote": "const res = await get(PUB_SLUG, { kind: \"unauthenticated\" });"
       },
       {
        "path": "artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts",
-       "line": 134,
+       "line": 147,
        "quote": "assert.equal(res.body.isPublic, true);"
       }
      ],
@@ -9034,10 +9736,16 @@
     },
     {
      "text": "rate limit: the per-minute submission limiter behaves as before",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /facts/submit-review as a registered user over the per-minute fact_submit limit returns 429 with error You're submitting facts too quickly, only the pending cap is tested — `artifacts/api-server/src/__tests__/routes.reviews.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+       "line": 359,
+       "quote": "assert.equal(res.body.error, \"You're submitting facts too quickly. Please slow down.\");"
+      }
+     ],
+     "fails_because": "the 429 body no longer carries the 'You're submitting facts too quickly' error text (or the limiter does not fire).",
+     "gap_clause": null
     }
    ]
   },
@@ -10109,10 +10817,16 @@
     },
     {
      "text": "the enrichment lane's failed count is no higher than the setup capture",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 533,
+       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+      }
+     ],
+     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "gap_clause": null
     }
    ]
   },
@@ -10124,10 +10838,16 @@
    "clauses": [
     {
      "text": "at least one due row's review has left prep and advanced to the concept stage",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 533,
+       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+      }
+     ],
+     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "gap_clause": null
     },
     {
      "text": "that row shows Enrichment ✓ ready with Generating visual ideas… or Ready for concept review",
@@ -10146,10 +10866,16 @@
    "clauses": [
     {
      "text": "the sent-back fact's enrichment job completes and its review reaches the concept stage rather than staying in prep",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 533,
+       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+      }
+     ],
+     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "gap_clause": null
     },
     {
      "text": "within about a minute the Moderation row leaves Preparing… and shows Enrichment ✓ ready alongside Generating visual ideas… or Ready for concept review",
@@ -10160,10 +10886,16 @@
     },
     {
      "text": "Queue Health shows no new job carrying the forEach error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 533,
+       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+      }
+     ],
+     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "gap_clause": null
     }
    ]
   },
@@ -10175,10 +10907,16 @@
    "clauses": [
     {
      "text": "the sent-back fact carrying a visual override reaches enrichment done at the concept stage",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 533,
+       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+      }
+     ],
+     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "gap_clause": null
     },
     {
      "text": "its Moderation row shows Enrichment ✓ ready with a concept-stage label",
@@ -10189,10 +10927,16 @@
     },
     {
      "text": "the refreshed candidate keeps the override content word for word",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 533,
+       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+      }
+     ],
+     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "gap_clause": null
     },
     {
      "text": "reopening its enrichment editor shows the same override content, word for word",
@@ -10211,10 +10955,16 @@
    "clauses": [
     {
      "text": "the summary the editor loads carries no visual-override signal for a fact with no override or an empty scaffold",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /admin/facts/:id/enrichment-resolved returns overrideSummary.hasVisualStrategyOverride false for a fact with no visual override and for one storing an empty scaffold — `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts",
+       "line": 129,
+       "quote": "assert.equal(await hasVisualOverride(await seedInactive(AI)), false, \"no visual override at all\");"
+      }
+     ],
+     "fails_because": "overrideSummary.hasVisualStrategyOverride must be false for a fact with no visual override and for one with an empty scaffold.",
+     "gap_clause": null
     },
     {
      "text": "the editor shows no manual override / visual-override signal for that fact",
@@ -10237,17 +10987,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 264,
+       "line": 254,
        "quote": ".patch(`/api/admin/facts/${id}/enrichment`)"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 266,
+       "line": 276,
        "quote": "assert.equal(ok.status, 200);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 269,
+       "line": 279,
        "quote": "assert.equal(ov.requiredVisualDetails[0], \"{NAME}'s face\");"
       }
      ],
@@ -10263,10 +11013,16 @@
     },
     {
      "text": "reopening reloads the edited value from the server",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after that PATCH, GET /api/admin/facts/:id returns the edited required visual detail in enrichment.visualPromptStrategyOverride.requiredVisualDetails — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 614,
+       "quote": "assert.deepEqual(read.body.enrichment.visualPromptStrategyOverride.requiredVisualDetails, [\"an edited detail\"]);"
+      }
+     ],
+     "fails_because": "After the PATCH edits a required visual detail, GET /admin/facts/:id must return the edited value in enrichment.visualPromptStrategyOverride.requiredVisualDetails.",
+     "gap_clause": null
     },
     {
      "text": "the reopened editor shows the edited value",
@@ -10327,17 +11083,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 107,
+       "line": 117,
        "quote": "const res = await request(adminApp).get(`/api/admin/facts/${id}`);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 110,
+       "line": 120,
        "quote": "assert.equal(res.body.enrichmentStatus, \"ok\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 111,
+       "line": 121,
        "quote": "assert.equal((res.body.enrichment as FactEnrichment).primaryArchetype, \"superhuman_physical_feat\");"
       }
      ],
@@ -10368,10 +11124,16 @@
    "clauses": [
     {
      "text": "sent-back facts resolve rather than hanging, so the bulk-run step can reach a real pass or fail",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — POST /admin/facts/:id/send-back-to-review on a fact whose stored visual override lacks its list fields, then its queued job run through enrichmentJobHandler.run, returns ok, reaches concept_review and keeps that override word for word — `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 533,
+       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+      }
+     ],
+     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "gap_clause": null
     }
    ]
   },
@@ -10383,10 +11145,16 @@
    "clauses": [
     {
      "text": "the summary the editor loads carries no Visual Strategy override signal for a fact whose override holds only a Visual Concept",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /admin/facts/:id/enrichment-resolved returns overrideSummary.hasVisualStrategyOverride false for a fact whose visual override holds only a Visual Concept — `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts",
+       "line": 140,
+       "quote": "assert.equal(await hasVisualOverride(id), false);"
+      }
+     ],
+     "fails_because": "A fact whose visual override holds only a Visual Concept must report hasVisualStrategyOverride false.",
+     "gap_clause": null
     },
     {
      "text": "there is no orange Overridden: Visual Strategy bar",
@@ -10412,10 +11180,16 @@
    "clauses": [
     {
      "text": "the summary the editor loads raises the Visual Strategy override signal for a fact with real override content",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — GET /admin/facts/:id/enrichment-resolved returns overrideSummary.hasVisualStrategyOverride true for a fact with a Visual Concept plus a required visual detail — `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts",
+       "line": 148,
+       "quote": "assert.equal(await hasVisualOverride(id), true);"
+      }
+     ],
+     "fails_because": "A Concept plus a required visual detail must report hasVisualStrategyOverride true.",
+     "gap_clause": null
     },
     {
      "text": "the orange Overridden: Visual Strategy bar is shown",
@@ -10434,10 +11208,16 @@
    "clauses": [
     {
      "text": "the compiled prompt from Generate contains a CORE SCENE section describing the fact's saved Visual Concept",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview endpoint returning a compiled prompt whose CORE SCENE is the fact's saved Visual Concept is unasserted — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+       "line": 499,
+       "quote": "assert.equal(promptSection(prompt, \"CORE SCENE\"), \"David rides a giant rubber duck across a packed stadium.\");"
+      }
+     ],
+     "fails_because": "CORE SCENE would be the planner scene or raw-token text if the saved Concept were not used.",
+     "gap_clause": null
     },
     {
      "text": "clicking Generate shows the freshly compiled prompt in Prompt Diagnostics",
@@ -10505,10 +11285,16 @@
    "clauses": [
     {
      "text": "after the save, the summary the reopened editor loads reports the Visual Strategy override as present",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — PATCH /admin/facts/:id/enrichment adding required visual detail uat-585-scratch to a Visual-Concept-only fact, then GET /admin/facts/:id/enrichment-resolved returns hasVisualStrategyOverride true — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 689,
+       "quote": "assert.equal(await resolvedFlag(id), true);"
+      }
+     ],
+     "fails_because": "After a PATCH adds required detail uat-585-scratch to a Concept-only fact, enrichment-resolved must report hasVisualStrategyOverride true (it was false before).",
+     "gap_clause": null
     },
     {
      "text": "on reopening, the orange Overridden: Visual Strategy bar appears",
@@ -10527,10 +11313,16 @@
    "clauses": [
     {
      "text": "after removing the detail and saving, the summary the reopened editor loads reports no Visual Strategy override",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — PATCH /admin/facts/:id/enrichment removing that uat-585-scratch detail, then GET /admin/facts/:id/enrichment-resolved returns hasVisualStrategyOverride false — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+       "line": 698,
+       "quote": "assert.equal(await resolvedFlag(id), false);"
+      }
+     ],
+     "fails_because": "After a PATCH removes the uat-585-scratch detail, enrichment-resolved must report hasVisualStrategyOverride false again (true beforehand).",
+     "gap_clause": null
     },
     {
      "text": "on reopening, the Overridden: Visual Strategy bar is gone",
@@ -10553,17 +11345,17 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 107,
+       "line": 117,
        "quote": "const res = await request(adminApp).get(`/api/admin/facts/${id}`);"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 110,
+       "line": 120,
        "quote": "assert.equal(res.body.enrichmentStatus, \"ok\");"
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
-       "line": 111,
+       "line": 121,
        "quote": "assert.equal((res.body.enrichment as FactEnrichment).primaryArchetype, \"superhuman_physical_feat\");"
       }
      ],
@@ -10594,10 +11386,16 @@
    "clauses": [
     {
      "text": "the compiled prompt carries both the CORE SCENE and the fact's override content",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview endpoint returning one prompt carrying both CORE SCENE and the fact's required visual detail is unasserted — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+       "line": 519,
+       "quote": "assert.equal(promptSection(prompt, \"REQUIRED VISUAL DETAILS\"), \"a scoreboard reading 9999.\");"
+      }
+     ],
+     "fails_because": "The prompt would lack the REQUIRED VISUAL DETAILS section if required details stopped compiling.",
+     "gap_clause": null
     },
     {
      "text": "clicking Generate shows the freshly compiled prompt in Prompt Diagnostics",
@@ -11177,8 +11975,8 @@
  ],
  "counts": {
   "steps": 324,
-  "asserted": 274,
-  "gap": 488,
+  "asserted": 407,
+  "gap": 355,
   "live": 1
  }
 }

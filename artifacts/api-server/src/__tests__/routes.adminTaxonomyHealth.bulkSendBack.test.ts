@@ -182,6 +182,60 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     assert.ok(pick.toEnqueue.includes(rootId), "a root with an active variant must be enqueued like any other stale fact");
   });
 
+  // The all_stale endpoint takes the first 50 eligible stale facts by ascending id, and the
+  // shared test corpus can hold more than 50 stale facts. A negative id sorts ahead of every
+  // serial id, so a fact inserted with one is inside the batch whenever it is eligible —
+  // which lets these tests go through the real endpoint instead of the picker.
+  let nextLowId = -1_000_000 - Math.floor(Math.random() * 1_000_000) * 100;
+  async function insertStaleFactInsideBatch(text: string): Promise<number> {
+    const id = nextLowId--;
+    await db.insert(factsTable).values({
+      id, text, submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS,
+    });
+    factIds.push(id);
+    return id;
+  }
+
+  it("all_stale through the endpoint enqueues a stale root that has an active variant", async () => {
+    const rootId = await insertStaleFactInsideBatch(TEXT("endpoint variant root"));
+    const [variant] = await db
+      .insert(factsTable)
+      .values({ text: TEXT("endpoint variant child"), submittedById: adminUserId, isActive: true, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() })
+      .returning({ id: factsTable.id });
+    factIds.push(variant!.id);
+
+    const res = await request(app).post("/api/admin/taxonomy-health/actions/bulk-send-back").send({ scope: "all_stale" });
+    assert.equal(res.status, 200);
+    const queued = (res.body.jobs as Array<{ jobId: number; factId: number }>).map((j) => {
+      jobIds.push(j.jobId);
+      return j.factId;
+    });
+    assert.ok(queued.includes(rootId), "the endpoint must enqueue a stale root even though it has an active variant");
+  });
+
+  it("all_stale leaves out a 3-strike stale fact that sits inside its 50-fact batch", async () => {
+    // Lowest id in the corpus, so it is inside the batch unless the repeated-failure exclusion drops it.
+    const struckId = await insertStaleFactInsideBatch(TEXT("3-strike inside batch"));
+    const controlId = await insertStaleFactInsideBatch(TEXT("control inside batch"));
+    for (let i = 0; i < 3; i++) {
+      const [row] = await db
+        .insert(asyncJobsTable)
+        .values({ queue: "fact_send_back", payload: { factId: struckId }, status: "failed", dedupeKey: `fact_send_back:${struckId}` })
+        .returning({ id: asyncJobsTable.id });
+      jobIds.push(row!.id);
+    }
+
+    const res = await request(app).post("/api/admin/taxonomy-health/actions/bulk-send-back").send({ scope: "all_stale" });
+    assert.equal(res.status, 200);
+    const queued = (res.body.jobs as Array<{ jobId: number; factId: number }>).map((j) => {
+      jobIds.push(j.jobId);
+      return j.factId;
+    });
+    assert.ok(queued.includes(controlId), "control: a stale fact with the same low-id position IS in the batch");
+    assert.ok(!queued.includes(struckId), "the 3-strike fact is excluded although the cap would have admitted it");
+    assert.ok(res.body.repeatedFailureCount >= 1, "and it is counted as a repeated failure");
+  });
+
   // ─── selected scope classification ─────────────────────────────────────
 
   it("selected: dedupes ids, enqueuing exactly one job per fact", async () => {

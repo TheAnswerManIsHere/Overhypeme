@@ -354,6 +354,30 @@ describe("POST /api/memes — private visibility gate", () => {
     }
   });
 
+  it("stores isPublic=true and answers 201 when a registered non-admin explicitly asks for public", async () => {
+    const userId = await createTestUser({ membershipTier: "registered" });
+    const res = await saveWith(userId, true);
+    assert.equal(res.status, 201);
+    assert.equal(await storedIsPublic(res.body.id), true);
+  });
+
+  it("a Public save right after a Private one with otherwise identical inputs is a new public meme, not the private one", async () => {
+    const userId = await createTestUser({ membershipTier: "legendary" });
+    const factId = await insertFact("private then public", { submittedById: userId });
+    const body = { factId, imageSource: { type: "template", templateId: "action" } };
+
+    const priv = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, isPublic: false });
+    assert.equal(priv.status, 201);
+    const pub = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, isPublic: true });
+
+    assert.equal(pub.status, 201, "not the 200 an idempotent replay of the private save would return");
+    assert.notEqual(pub.body.idempotent, true);
+    assert.notEqual(pub.body.id, priv.body.id);
+    assert.notEqual(pub.body.permalinkSlug, priv.body.permalinkSlug);
+    assert.equal(await storedIsPublic(pub.body.id), true);
+    assert.equal(await storedIsPublic(priv.body.id), false, "the private meme stays private");
+  });
+
   it("stores isPublic=true when a legendary user explicitly asks for public", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
     const res = await saveWith(userId, true);

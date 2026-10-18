@@ -19,14 +19,19 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 
 import { db, factsTable, usersTable } from "@workspace/db";
-import { asyncJobsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
-import { eq, inArray, like } from "drizzle-orm";
+import { asyncJobsTable, factEnrichmentVersionsTable, pendingReviewsTable } from "@workspace/db/schema";
+import { and, eq, gte, inArray, like } from "drizzle-orm";
 import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
+import { asyncJobsTick } from "../lib/asyncJobs.js";
+import { registerFactSendBackHandler } from "../lib/factSendBackJob.js";
+import { registerFactEnrichmentBackfillHandler } from "../lib/factEnrichmentBackfillJob.js";
+import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 
 const USER_PREFIX = "ttha-act-";
+const TEST_FILE_START = new Date();
 const RUN = randomUUID().slice(0, 8);
 const TEXT = (s: string) => `TTHA_${RUN} ${s}`;
 
@@ -114,7 +119,13 @@ describe("/admin/taxonomy-health — actions & filters", () => {
 
   after(async () => {
     if (jobIds.length > 0) await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.id, jobIds));
-    if (factIds.length > 0) await db.delete(factsTable).where(inArray(factsTable.id, factIds));
+    if (factIds.length > 0) {
+      // Send-back jobs the tests run leave refresh reviews (and enrichment jobs) behind.
+      await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.dedupeKey, factIds.map((id) => `enrichment:fact:${id}`)));
+      await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, factIds));
+      await db.delete(factsTable).where(inArray(factsTable.id, factIds));
+    }
+    await db.delete(asyncJobsTable).where(and(eq(asyncJobsTable.queue, "enrichment"), gte(asyncJobsTable.createdAt, TEST_FILE_START)));
     await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   });
 
@@ -205,6 +216,41 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     assert.equal(poll.body.jobs.length, 1);
     assert.equal(poll.body.jobs[0].jobId, job.jobId);
     assert.ok(["pending", "processing"].includes(poll.body.jobs[0].status));
+  });
+
+  it("a Re-enrich job queued through backfill-enrichment reaches done in job-status after the worker runs it", async () => {
+    const id = await insertFact(TEXT("re-enrich worker run"), validEnrichment({ enrichedBy: "admin" }), MATCHING_COLS);
+    const queued = await request(app)
+      .post("/api/admin/taxonomy-health/actions/backfill-enrichment")
+      .send({ mode: "selected_fact_ids", factIds: [id], forceOverwriteAdminEdited: true });
+    assert.equal(queued.status, 200);
+    assert.equal(queued.body.jobs.length, 1);
+    const jobId = queued.body.jobs[0].jobId as number;
+    jobIds.push(jobId);
+
+    const statusOf = async (): Promise<string> => {
+      const poll = await request(app).post("/api/admin/taxonomy-health/job-status").send({ jobs: [{ jobId }] });
+      assert.equal(poll.status, 200);
+      return poll.body.jobs[0].status;
+    };
+    assert.equal(await statusOf(), "pending", "precondition: queued, not yet run");
+
+    // The real worker tick over the backfill queue; only the OpenAI client is a double.
+    registerFactEnrichmentBackfillHandler();
+    const reclassified = validEnrichment({ primaryArchetype: "object_logic_impossibility", subtype: "mechanical_contradiction" });
+    __setUtilityLLMClientForTest({
+      chat: { completions: { create: async () => ({ choices: [{ message: { content: JSON.stringify(reclassified) } }] }) } },
+    } as never);
+    try {
+      for (let i = 0; i < 5 && (await statusOf()) === "pending"; i++) {
+        await asyncJobsTick(db, new Date(), { queues: ["fact_enrichment_backfill"] });
+      }
+    } finally {
+      __setUtilityLLMClientForTest(null);
+    }
+    assert.equal(await statusOf(), "done");
+    const [row] = await db.select({ primaryArchetype: factsTable.primaryArchetype }).from(factsTable).where(eq(factsTable.id, id));
+    assert.equal(row?.primaryArchetype, "object_logic_impossibility", "the worker really re-enriched the fact");
   });
 
   it("job-status handles unknown ids safely", async () => {
@@ -351,6 +397,46 @@ describe("/admin/taxonomy-health — actions & filters", () => {
       .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
     row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
     assert.equal(row?.repeatedFailure, false, "a later success within the most recent 3 clears the flag");
+  });
+
+  it("once the fact_send_back job Send selected queued for a 3-strike fact finishes, repeatedFailure is false for it", async () => {
+    const [f] = await db
+      .insert(factsTable)
+      .values({ text: TEXT("3-strike send selected"), submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS })
+      .returning({ id: factsTable.id });
+    factIds.push(f!.id);
+    for (let i = 0; i < 3; i++) {
+      const [row] = await db
+        .insert(asyncJobsTable)
+        .values({ queue: "fact_send_back", payload: { factId: f!.id }, status: "failed", dedupeKey: `fact_send_back:${f!.id}` })
+        .returning({ id: asyncJobsTable.id });
+      jobIds.push(row!.id);
+    }
+    const repeatedFailure = async (): Promise<boolean | undefined> => {
+      const res = await request(app)
+        .get("/api/admin/taxonomy-health/facts")
+        .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
+      assert.equal(res.status, 200);
+      return (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id)?.repeatedFailure;
+    };
+    assert.equal(await repeatedFailure(), true, "precondition: three failures flag the fact");
+
+    // Send selected: the one path that still queues a flagged fact.
+    const send = await request(app)
+      .post("/api/admin/taxonomy-health/actions/bulk-send-back")
+      .send({ scope: "selected", factIds: [f!.id] });
+    assert.equal(send.status, 200);
+    assert.equal(send.body.jobs.length, 1);
+    const jobId = send.body.jobs[0].jobId as number;
+    jobIds.push(jobId);
+
+    // Run it through the real worker tick; the job finishes done.
+    registerFactSendBackHandler();
+    await asyncJobsTick(db, new Date(), { queues: ["fact_send_back"] });
+    const [job] = await db.select({ status: asyncJobsTable.status }).from(asyncJobsTable).where(eq(asyncJobsTable.id, jobId));
+    assert.equal(job?.status, "done");
+
+    assert.equal(await repeatedFailure(), false, "a finished send-back clears the repeated-failure flag");
   });
 });
 

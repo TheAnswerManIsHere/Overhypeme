@@ -87,7 +87,7 @@ actual oracle for the split; step 3's caption is a red herring for it.
 
 **Check:** `artifacts/api-server/src/__tests__/prepareAttemptInputs.test.ts:renders fact text from the SAME reduced identity the snapshot carries (user path)` `artifacts/api-server/src/__tests__/promptIdentity.test.ts:prefers firstName when present`
 
-**Deferred:** #631 — 7b — the compiled prompt from the preview route naming only the first name of a multi-word previewName is unasserted, only the reducer and the prepare helper are — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
+**Deferred:** #693 — the compiled prompt from the preview route naming only the first name of a multi-word previewName is unasserted, only the reducer and the prepare helper are; the preview route uses the typed name in full while a real generation reduces it (POST /admin/image-prompt/preview with "David Franklin" compiles "David Franklin")
 
 ### 5. A disabled style is rejected, not silently dropped
 

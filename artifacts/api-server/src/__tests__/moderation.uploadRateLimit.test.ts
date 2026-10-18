@@ -46,7 +46,7 @@ describe("moderation/uploadRateLimit", () => {
     it("legendary users get the legendary cap", async () => {
       const reg = await getDailyUploadLimit("registered", false);
       const leg = await getDailyUploadLimit("legendary", false);
-      assert.ok(leg >= reg, `legendary (${leg}) should be >= registered (${reg})`);
+      assert.ok(leg > reg, `legendary (${leg}) should be strictly higher than registered (${reg})`);
     });
   });
 

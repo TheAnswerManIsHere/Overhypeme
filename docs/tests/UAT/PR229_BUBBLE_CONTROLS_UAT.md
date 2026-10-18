@@ -36,9 +36,7 @@ with your exact text in quotes and a tail "pointing to" the subject's name.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits one deterministic directive per bubble in STORED order, with exact serialized text`
-
-**Deferred:** #631 — 7b — the preview route, for a stored subject speech bubble, returning one SPEECH & THOUGHT BUBBLES directive quoting its exact text, tail pointing to the preview name — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits one deterministic directive per bubble in STORED order, with exact serialized text`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:returns one speech directive quoting the exact text, tail pointing to the preview name`
 
 ### 2. The speech bubble renders correctly at 2K
 
@@ -65,9 +63,7 @@ trail "leading to the head of the bartender", text `Not again.`
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits one deterministic directive per bubble in STORED order, with exact serialized text`
-
-**Deferred:** #631 — 7b — the preview route, for a stored thought bubble on the bartender, returning a cloud-shaped thought balloon directive whose trail leads to the head of the bartender with text Not again. — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits one deterministic directive per bubble in STORED order, with exact serialized text`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:returns a cloud-shaped thought balloon whose trail leads to the head of the bartender`
 
 ### 4. The thought bubble renders on the right character
 
@@ -111,9 +107,9 @@ or is blocked is a Fail.
 
 **Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones` `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns on an entity matching neither subject nor any role binding — but not on matches`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr229-s6-render`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones` `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns on an entity matching neither subject nor any role binding — but not on matches`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr229-s6-render`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:200s a bubble whose entity (the mailman) matches no subject or role binding`
 
-**Deferred:** #631 — 7b — the preview listing the unresolved-entity note is unasserted, the preview test covers other warning codes only — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`; #631 — 7b — the unmatched-entity warning rendered in the amber warning style, the text-amber-700 class, the test checks only its text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`; #631 — 7b — the fact enrichment PATCH saving with 200 an override whose bubble entity, the mailman, matches no subject or role binding — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+**Deferred:** #631 — 7b — the preview listing the unresolved-entity note is unasserted, the preview test covers other warning codes only — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`; #631 — 7b — the unmatched-entity warning rendered in the amber warning style, the text-amber-700 class, the test checks only its text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`
 
 ### 7. Bubble text over 60 characters shows a soft warning
 
@@ -161,9 +157,7 @@ and check the preview and render.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:token-bearing bubble text renders the subject name BEFORE serialization`
-
-**Deferred:** #631 — 7b — the preview route with previewName David and a stored bubble reading {NAME} did it again! returning "David did it again!" and no {NAME} in the compiled prompt — `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`; #631 — 7b — the image-prompt job compiling a stored bubble reading {NAME} did it again! with the attempt's identity into "David did it again!" with no {NAME} — `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:token-bearing bubble text renders the subject name BEFORE serialization`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:renders a {NAME} token in the stored bubble with the previewName and leaves no raw token`; `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts:compiles a {NAME} bubble with the attempt's identity into the rendered name, no raw token`
 
 ### 11. The AI proposes a bubble from a quote-bearing fact
 
@@ -178,7 +172,7 @@ now."`
 
 **Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:renders the normalized proposed bubbles on the card (exactly what pick applies)`
 
-**Deferred:** #631 — 7b — the model proposing a speech bubble from a quote-bearing fact is unasserted, no journey submits a fact with a quote — acceptance journey 3
+**Deferred:** #628 — Phase 8 (Engine evaluation) — the model proposing a speech bubble from a quote-bearing fact; whether the model proposes one is model behaviour that phase tunes (David, 2026-10-17)
 
 ### 12. Using a proposed idea fills both the Concept and the bubble editor
 
@@ -313,9 +307,7 @@ unchanged.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a required detail saves with 200 and reads back
-
-**Deferred:** #631 — 7b — a role binding saved through the fact enrichment PATCH and read back with its entity and visualRole unchanged — `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts`:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override — a required detail saves with 200 and reads back; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:reads a saved role binding back with its entity and visualRole unchanged`
 
 ### R4. Editing the Concept or a bubble marks ideas stale, non-blocking
 
@@ -327,9 +319,7 @@ renders — this is non-blocking, as before.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:ok + stale (current:false) → hides candidates, shows the stale reason` `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts:stale-but-saved concept still advances (visualConcepts.current false is allowed)`
-
-**Deferred:** #631 — 7b — editing and saving the Concept or a bubble making the stored ideas stale is unasserted, the stale test changes the archetype instead — `artifacts/api-server/src/__tests__/visualConceptJobs.test.ts`; #631 — 7b — approve-visual-concept answering 200 with production_review for a review whose stored ideas read current false after a Concept save, the cited test never makes them stale — `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:ok + stale (current:false) → hides candidates, shows the stale reason` `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts:stale-but-saved concept still advances (visualConcepts.current false is allowed)`; `artifacts/api-server/src/__tests__/visualConceptJobs.test.ts:editing and saving the Concept makes the stored ideas stale (input_hash_mismatch) with the archetype untouched`; `artifacts/api-server/src/__tests__/routes.approveVisualConcept.test.ts:approves with 200 production_review after a Concept or bubble save leaves the stored ideas stale (GET reads current false)`
 
 ## Not bugs
 
