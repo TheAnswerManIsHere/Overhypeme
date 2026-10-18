@@ -28,7 +28,7 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { usersTable, factsTable, asyncJobsTable } from "@workspace/db/schema";
-import { and, eq, gte, inArray, like } from "drizzle-orm";
+import { and, eq, gte, inArray, like, ne } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
@@ -354,6 +354,16 @@ describe("admin bulk backfill routes", () => {
     const conceptBefore = (before.enrichment as FactEnrichment).visualPromptStrategyOverride;
     assert.equal(conceptBefore?.coreSceneOverride, concept.coreSceneOverride, "precondition: the concept is stored");
 
+    // force=true snapshots EVERY active fact into a detached loop. Other files'
+    // leftover active rows are set aside for the call, so the batch is this
+    // fact alone: the loop cannot rewrite unrelated fixtures, and once this
+    // fact is re-classified the loop has no work left that could outlive the
+    // double and reach the real client.
+    const others = await db
+      .update(factsTable)
+      .set({ isActive: false })
+      .where(and(eq(factsTable.isActive, true), ne(factsTable.id, factId)))
+      .returning({ id: factsTable.id });
     // Only the OpenAI client is a double; the route's own background loop runs.
     __setUtilityLLMClientForTest({
       chat: { completions: { create: async () => ({ choices: [{ message: { content: JSON.stringify(CLASSIFIED) } }] }) } },
@@ -362,14 +372,20 @@ describe("admin bulk backfill routes", () => {
       const res = await request(adminApp).post("/api/admin/facts/backfill-enrichment?force=true");
       assert.equal(res.status, 200);
       assert.equal(res.body.success, true);
+      assert.equal(res.body.queued, 1, "the batch must be this fact alone");
 
-      // The loop is fire-and-forget: wait until it has re-enriched THIS fact.
+      // The loop is fire-and-forget: wait until it has re-enriched THIS fact,
+      // its only row, and fail loudly rather than tear down mid-batch.
       const deadline = Date.now() + 20_000;
-      while (Date.now() < deadline && (await readBack()).primaryArchetype === "object_logic_impossibility") {
+      while ((await readBack()).primaryArchetype === "object_logic_impossibility") {
+        assert.ok(Date.now() < deadline, "the background loop did not finish within 20s");
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
     } finally {
       __setUtilityLLMClientForTest(null);
+      if (others.length > 0) {
+        await db.update(factsTable).set({ isActive: true }).where(inArray(factsTable.id, others.map((o) => o.id)));
+      }
     }
 
     const after = await readBack();
