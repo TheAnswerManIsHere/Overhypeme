@@ -22,7 +22,7 @@ routes, delete, git keeps it) · **your call**.
 |---|---|---|---|---|
 | A1 | Home, cold state | Teaser with a demo name until a name is typed | doc | ship, verify |
 | A2 | Name personalisation | Typing a name rewrites every fact; no account | grammar tests strong; manual ch.1 | ship (core) |
-| A3 | Pronoun sheet + AI pronoun suggestion | Collects or infers pronouns before warm state; `POST /ai/suggest-pronouns` is a model call per anonymous visitor | code | ship, verify the AI call is rate-limited and cheap |
+| A3 | Pronoun sheet + AI pronoun suggestion | Collects or infers pronouns before warm state; since #719 Phase 1 the identity sheet and name tag suggest in the browser (`inferPronounsFromName`), so no anonymous name reaches `POST /ai/suggest-pronouns` (the share dialog still calls it for a recipient's name) | code | ship, verify the AI call is rate-limited and cheap |
 | A4 | Share-link personalisation (`?displayName=&pronouns=`) | A shared link re-personalises for the recipient | doc | ship (core to the loop) |
 | A5 | Hero billboard + Next Random Fact | Weighted-random top-50 pick | doc | ship, verify |
 | A6 | Fact feed grid | 20 facts, newest/top, hashtag filter; no pagination | doc | ship; pagination is `next` (irrelevant at 44 facts) |

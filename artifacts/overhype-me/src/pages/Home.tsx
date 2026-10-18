@@ -3,16 +3,14 @@ import { FactCard } from "@/components/facts/FactCard";
 import { FactComments } from "@/components/facts/FactComments";
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 import { Layout } from "@/components/layout/Layout";
-import { ChevronDown, ChevronUp, Flame, Loader2 } from "lucide-react";
+import { Flame, Loader2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_PRONOUNS } from "@/hooks/use-person-name";
+import { usePersonName, DEFAULT_PRONOUNS } from "@/hooks/use-person-name";
 import { useHeroFact } from "@/hooks/use-hero-fact";
 import { cn } from "@/components/ui/Button";
-import { inferPronounsFromName } from "@/lib/infer-pronouns";
-import { PRONOUN_PRESETS, isCustomPronouns, parseCustom, serializeCustom, EMPTY_CUSTOM, type CustomPronounSet } from "@/lib/pronouns";
 
 type FilterMode = "default" | "top-facts" | "hashtags";
 
@@ -139,22 +137,11 @@ function Hero({
 }
 
 
-// Full-screen cold-visitor hero for mobile — shows the teaser fact with a
-// demo name, then a bottom-panel "YOUR TURN." name capture form.
-function ColdMobileHero({ onSubmit }: { onSubmit: (name: string) => void }) {
-  const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    onSubmit(trimmed);
-  }
-
+// Full-screen cold-visitor hero for mobile: the teaser fact with a demo name.
+// The identity sheet asks for the visitor's own name over it (#719).
+function ColdMobileHero() {
   return (
     <div className="flex flex-col" style={{ minHeight: "calc(100svh - 56px)" }}>
-      {/* ── Hero: teaser fact with demo name ──────────────────────── */}
       <div className="flex-1 px-5 pt-8 pb-6 flex flex-col justify-center">
         <div className="flex items-center gap-2 mb-5">
           <span className="w-5 h-px bg-muted-foreground/40" />
@@ -168,302 +155,8 @@ function ColdMobileHero({ onSubmit }: { onSubmit: (name: string) => void }) {
           style={{ fontSize: "clamp(36px, 10vw, 52px)" }}>
           <HighlightedFactText template={COLD_TEASER_FACT} name={DEMO_NAME} pronouns={DEFAULT_PRONOUNS} />
         </h2>
-
-        <button
-          type="button"
-          onClick={() => inputRef.current?.focus()}
-          className="mt-8 self-start text-sm italic text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-        >
-          Enough about {DEMO_NAME}.
-        </button>
-      </div>
-
-      {/* ── Bottom panel: name capture ─────────────────────────────── */}
-      <div className="bg-card border-t border-border rounded-t-[24px] px-5 pt-5 pb-24 shadow-[0_-8px_32px_rgba(0,0,0,0.4)]">
-        <div className="w-10 h-1 bg-border rounded-full mx-auto mb-5" />
-
-        <h3 className="font-display font-bold text-[22px] uppercase tracking-tight text-foreground mb-1">
-          Your turn.
-        </h3>
-        <p className="text-[13px] text-muted-foreground mb-4">
-          Add your name. Every fact becomes about you.
-        </p>
-
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <input
-            ref={inputRef}
-            type="text"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder="Your name"
-            maxLength={100}
-            autoComplete="given-name"
-            className="w-full h-[52px] px-4 bg-background border border-border rounded-[12px] text-[15px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/40"
-          />
-          <button
-            type="submit"
-            disabled={!value.trim()}
-            className="w-full h-[52px] bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.12em] hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.5)]"
-          >
-            <Flame className="w-4 h-4" /> Hype me
-          </button>
-        </form>
-
-        <p className="text-center text-[11px] text-muted-foreground/40 mt-4">
-          Stored on this device · No account
-        </p>
       </div>
     </div>
-  );
-}
-
-// Bottom-sheet that slides up after name entry to collect pronouns.
-// The AI/lookup inference pre-selects the most likely option so most
-// users just tap confirm once.
-// Three facts that together exercise all major pronoun forms so the user sees
-// subject ({Subj}), possessive ({Poss}), and reflexive ({REFL}) in the preview.
-const PRONOUN_PREVIEW_FACTS = [
-  "{NAME} {does|do} not negotiate. {Subj} {dictates|dictate}.",
-  "{NAME}'s word {is|are} law. {Poss} decisions are final.",
-  "{NAME} taught {REFL} 14 languages. {Subj} called it nothing.",
-];
-
-const PRESET_LABELS: Record<string, string> = {
-  "he/him":    "He / Him",
-  "she/her":   "She / Her",
-  "they/them": "They / Them",
-};
-
-const INPUT_CLASS =
-  "w-full bg-secondary border border-border rounded-[8px] px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/60";
-
-function PronounsOnboardingSheet({
-  name,
-  onConfirm,
-  onSkip,
-}: {
-  name: string;
-  onConfirm: (pronouns: string) => void;
-  onSkip: () => void;
-}) {
-  const prefersReducedMotion = useReducedMotion();
-  const inferred = inferPronounsFromName(name) ?? DEFAULT_PRONOUNS;
-  const [selected, setSelected]   = useState<string>(inferred);
-  const [customOpen, setCustomOpen] = useState(false);
-
-  // Custom pronoun field state — initialised from `selected` if it's already
-  // a pipe-delimited value, otherwise blank (user starts from scratch).
-  const [custom, setCustom] = useState<CustomPronounSet>(() => {
-    if (isCustomPronouns(inferred)) return parseCustom(inferred) ?? { ...EMPTY_CUSTOM };
-    return { ...EMPTY_CUSTOM };
-  });
-
-  const isCustomMode = customOpen;
-
-  function handlePreset(p: string) {
-    setSelected(p);
-    setCustomOpen(false);
-  }
-
-  function openCustom() {
-    setCustomOpen(true);
-    // If switching from a preset, serialise whatever is in custom state
-    // (may be empty — that's fine, user fills it in).
-    setSelected(serializeCustom(custom));
-  }
-
-  function updateCustomField(field: keyof CustomPronounSet, val: string | boolean) {
-    const next = { ...custom, [field]: val };
-    setCustom(next);
-    setSelected(serializeCustom(next));
-  }
-
-  function handleConfirm() {
-    onConfirm(selected);
-  }
-
-  // Is the confirm button valid? Custom requires all 5 fields filled.
-  const confirmEnabled = isCustomMode
-    ? !!(custom.subj.trim() && custom.obj.trim() && custom.poss.trim() && custom.possPro.trim() && custom.refl.trim())
-    : true;
-
-  return (
-    <div className="fixed inset-0 z-[110] flex flex-col justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onSkip} />
-
-      <motion.div
-        initial={prefersReducedMotion ? false : { y: "100%" }}
-        animate={prefersReducedMotion ? {} : { y: 0 }}
-        exit={prefersReducedMotion ? {} : { y: "100%" }}
-        transition={prefersReducedMotion ? { duration: 0 } : { type: "spring", damping: 30, stiffness: 280 }}
-        className="relative z-10 bg-card rounded-t-[24px] shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
-      >
-        <div className="flex justify-center pt-3 mb-4">
-          <div className="w-10 h-1 rounded-full bg-border" />
-        </div>
-
-        {/* Scrollable body so long custom forms don't clip on small screens */}
-        <div className="px-5 pb-10 max-h-[85svh] overflow-y-auto">
-          <h3 className="font-display font-bold text-[22px] uppercase tracking-tight text-foreground mb-1">
-            One more thing.
-          </h3>
-          <p className="text-[13px] text-muted-foreground mb-5">
-            Which pronouns should we use for{" "}
-            <span className="text-foreground font-medium">{name}</span>?
-          </p>
-
-          {/* ── Three live previews ───────────────────────── */}
-          <div className="space-y-2 mb-5">
-            {PRONOUN_PREVIEW_FACTS.map((tpl, i) => (
-              <div key={i} className="rounded-[12px] bg-background border border-border px-4 py-2.5">
-                <p className="font-display font-bold text-[15px] uppercase leading-snug text-foreground">
-                  <HighlightedFactText template={tpl} name={name} pronouns={selected} />
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* ── Preset chips ──────────────────────────────── */}
-          <div className="flex gap-2 mb-3">
-            {PRONOUN_PRESETS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => handlePreset(p)}
-                className={`flex-1 py-3 rounded-[12px] border text-[13px] font-bold font-display uppercase tracking-wide transition-colors ${
-                  !isCustomMode && selected === p
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:border-primary/50"
-                }`}
-              >
-                {PRESET_LABELS[p]}
-              </button>
-            ))}
-          </div>
-
-          {/* ── Custom pronouns expander ──────────────────── */}
-          <button
-            type="button"
-            onClick={() => isCustomMode ? handlePreset(inferred) : openCustom()}
-            className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors mb-3 font-medium"
-          >
-            {isCustomMode ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            {isCustomMode ? "Hide custom pronouns" : "Use custom pronouns"}
-          </button>
-
-          <AnimatePresence>
-            {isCustomMode && (
-              <motion.div
-                initial={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
-                className="overflow-hidden mb-4"
-              >
-                <div className="p-3 border border-border rounded-[12px] bg-secondary/40 space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Subject</label>
-                      <input type="text" value={custom.subj} onChange={(e) => updateCustomField("subj", e.target.value)}
-                        placeholder="xe, fae, ey…" maxLength={15} className={INPUT_CLASS} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Object</label>
-                      <input type="text" value={custom.obj} onChange={(e) => updateCustomField("obj", e.target.value)}
-                        placeholder="xem, faer, em…" maxLength={15} className={INPUT_CLASS} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Possessive adj.</label>
-                      <input type="text" value={custom.poss} onChange={(e) => updateCustomField("poss", e.target.value)}
-                        placeholder="xyr, faer, eir…" maxLength={15} className={INPUT_CLASS} />
-                      <p className="text-[10px] text-muted-foreground mt-0.5">"xyr book"</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Possessive pro.</label>
-                      <input type="text" value={custom.possPro} onChange={(e) => updateCustomField("possPro", e.target.value)}
-                        placeholder="xyrs, faers, eirs…" maxLength={15} className={INPUT_CLASS} />
-                      <p className="text-[10px] text-muted-foreground mt-0.5">"the book is xyrs"</p>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Reflexive</label>
-                    <input type="text" value={custom.refl} onChange={(e) => updateCustomField("refl", e.target.value)}
-                      placeholder="xemself, faerself, emself…" maxLength={20} className={INPUT_CLASS} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Verb form</label>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => updateCustomField("plural", false)}
-                        className={`flex-1 py-1.5 rounded-[8px] border text-xs font-medium transition-colors ${!custom.plural ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-                        singular <span className="opacity-60 font-normal">(xe doesn't)</span>
-                      </button>
-                      <button type="button" onClick={() => updateCustomField("plural", true)}
-                        className={`flex-1 py-1.5 rounded-[8px] border text-xs font-medium transition-colors ${custom.plural ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-                        plural <span className="opacity-60 font-normal">(they don't)</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* ── Confirm / skip ───────────────────────────── */}
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={!confirmEnabled}
-            className="w-full h-[52px] bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.12em] hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.4)]"
-          >
-            <Flame className="w-4 h-4" /> Looks right
-          </button>
-
-          <p className="text-center text-[11px] text-muted-foreground/50 mt-3">
-            <button
-              type="button"
-              onClick={onSkip}
-              className="underline underline-offset-2 hover:text-muted-foreground transition-colors"
-            >
-              skip for now
-            </button>
-            {" · "}you can always change this later
-          </p>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-// Desktop inline name input (kept for the desktop cold card)
-function InlineNameInput({ onSubmit }: { onSubmit: (name: string) => void }) {
-  const [value, setValue] = useState("");
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    onSubmit(trimmed);
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="Type your first name…"
-        maxLength={100}
-        autoComplete="given-name"
-        className="flex-1 h-12 px-4 bg-secondary border border-border rounded-[12px] text-[15px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
-      />
-      <button
-        type="submit"
-        disabled={!value.trim()}
-        className="h-12 px-5 bg-primary text-white rounded-[12px] font-display font-bold text-[12px] uppercase tracking-[0.12em] hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-      >
-        Hype me
-      </button>
-    </form>
   );
 }
 
@@ -472,35 +165,12 @@ export default function Home() {
   const [filterMode, setFilterMode] = useState<FilterMode>("default");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showHashtagRail, setShowHashtagRail] = useState(false);
-  const { name, setName, setPronouns } = usePersonName();
+  const { name } = usePersonName();
   const prefersReducedMotion = useReducedMotion();
 
-  // Two-step cold onboarding: capture name first, then show pronouns sheet.
-  const [pendingName, setPendingName] = useState<string | null>(null);
-
-  function handleNameSubmit(submittedName: string) {
-    setPendingName(submittedName);
-  }
-
-  function handlePronounsConfirm(chosenPronouns: string) {
-    if (!pendingName) return;
-    setName(pendingName);
-    setPronouns(chosenPronouns);
-    setPendingName(null);
-  }
-
-  function handlePronounsSkip() {
-    if (!pendingName) return;
-    setName(pendingName);
-    // leave pronouns unchanged — the inferred default or whatever was set before
-    setPendingName(null);
-  }
-
-
-  // Cold visitor = no stored name AND no share-link override.  In that state
-  // the hero shows a placeholder fact + inline name input instead of querying
-  // a real hero.  As soon as a name is set we flip to warm mode.
-  const isCold = !name && !SHARE_LINK_ACTIVE;
+  // Cold visitor = no name yet. The hero shows a placeholder fact while the
+  // identity sheet asks; as soon as a name is set we flip to warm mode.
+  const isCold = !name;
   const { fact: heroFact, isLoading: heroLoading, shuffle: shuffleHero } = useHeroFact();
 
   const primaryTag = selectedTags[0] ?? undefined;
@@ -636,10 +306,6 @@ export default function Home() {
                 >
                   <HighlightedFactText template={COLD_TEASER_FACT} name={DEMO_NAME} pronouns={DEFAULT_PRONOUNS} />
                 </h2>
-                <p className="text-[14px] text-muted-foreground mb-5">Type your name and every fact in the database becomes about you.</p>
-                <div className="max-w-[420px]">
-                  <InlineNameInput onSubmit={setName} />
-                </div>
               </div>
             ) : (
               <Hero
@@ -656,7 +322,7 @@ export default function Home() {
       {filterMode === "default" && (
         <div className="md:hidden">
           {isCold ? (
-            <ColdMobileHero onSubmit={handleNameSubmit} />
+            <ColdMobileHero />
           ) : (
             <div className="px-4 pb-4 pt-3">
               <Hero
@@ -733,16 +399,6 @@ export default function Home() {
         )}
       </section>
 
-      {/* ── Pronouns onboarding sheet (mobile cold flow) ──────── */}
-      <AnimatePresence>
-        {pendingName && (
-          <PronounsOnboardingSheet
-            name={pendingName}
-            onConfirm={handlePronounsConfirm}
-            onSkip={handlePronounsSkip}
-          />
-        )}
-      </AnimatePresence>
     </Layout>
   );
 }

@@ -17,6 +17,7 @@ import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
+import { useIdentityGate } from "@/hooks/use-identity-gate";
 import type { FactPexelsImages } from "@/types/pexels";
 
 import { lazyWithRetry } from "@/lib/lazy-retry";
@@ -361,7 +362,10 @@ export default function FactDetail() {
   const [memeBuilderDefaultPrivate, setMemeBuilderDefaultPrivate] = useState(false);
   const [studioDefaultTab, setStudioDefaultTab] = useState<"image" | "video">("image");
 
-  const showMemeStudio = isMemeRoute || isVideoRoute;
+  // A builder copies the identity once at mount, so a builder reached by its
+  // route waits until the identity sheet has a complete identity (#719).
+  const { builderReady } = useIdentityGate();
+  const showMemeStudio = (isMemeRoute || isVideoRoute) && builderReady;
   const openMemeStudio = (tab: "image" | "video" = "image") => {
     setStudioDefaultTab(tab);
     setLocation(`/facts/${factId}/meme`);

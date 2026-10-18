@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
+import { useSignOut } from "@/hooks/use-sign-out";
 import { helpHrefFor } from "./helpMap";
 import {
   LayoutDashboard,
@@ -78,7 +79,8 @@ export function isAdminNavItemActive(location: string, href: string, exact?: boo
 
 export function AdminLayout({ children, title }: AdminLayoutProps) {
   const [location] = useLocation();
-  const { isAuthenticated, logout, isLoading, role, realRole } = useAuth();
+  const { isAuthenticated, isLoading, role, realRole } = useAuth();
+  const signOut = useSignOut();
   const [pendingReviews, setPendingReviews] = useState(0);
   const [pendingComments, setPendingComments] = useState(0);
   const [collapsed, setCollapsed] = useState(() => {
@@ -342,7 +344,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
               </div>
             </Link>
             <button
-              onClick={() => logout()}
+              onClick={() => signOut()}
               className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm text-muted-foreground hover:text-destructive hover:bg-muted rounded-sm cursor-pointer transition-colors"
             >
               <LogOut className="w-4 h-4" />

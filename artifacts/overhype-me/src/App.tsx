@@ -6,7 +6,8 @@ import { Sentry } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes, flushRouteStatsToServer } from "@/lib/analytics";
-import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/use-person-name";
+import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
+import { WelcomeModal } from "@/components/WelcomeModal";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
@@ -78,27 +79,6 @@ function AdminAIRedirect() {
 function AdminModerationRedirect() {
   const [, setLocation] = useLocation();
   useEffect(() => { setLocation("/admin/moderation"); }, [setLocation]);
-  return null;
-}
-
-/**
- * Strips ?displayName=...&pronouns=... from the address bar after they have
- * been consumed by PersonNameProvider's initial-state logic (which runs at
- * module load time, before any React rendering).
- */
-function ShareParamReader() {
-  useEffect(() => {
-    if (!SHARE_LINK_ACTIVE) return;
-    const params = new URLSearchParams(window.location.search);
-    params.delete("displayName");
-    params.delete("pronouns");
-    const remaining = params.toString();
-    const clean = remaining
-      ? `${window.location.pathname}?${remaining}`
-      : window.location.pathname;
-    window.history.replaceState({}, "", clean);
-  }, []);
-
   return null;
 }
 
@@ -179,27 +159,6 @@ function AuthProfileSync() {
     return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, isLoading]);
-
-  return null;
-}
-
-/**
- * When a share link is opened by a logged-in user, silently log them out
- * so they experience the page as the recipient (unauthenticated visitor).
- * Uses a ref guard so logout is only triggered once per page load.
- */
-function ShareLinkAutoLogout() {
-  const { isAuthenticated, isLoading, logout } = useAuth();
-  const firedRef = useRef(false);
-
-  useEffect(() => {
-    if (!SHARE_LINK_ACTIVE) return;
-    if (isLoading) return;
-    if (!isAuthenticated) return;
-    if (firedRef.current) return;
-    firedRef.current = true;
-    logout();
-  }, [isAuthenticated, isLoading, logout]);
 
   return null;
 }
@@ -365,8 +324,6 @@ function Router() {
       <RouteStatsFlush />
       <PrefetchCriticalRoutes />
       <AuthProfileSync />
-      <ShareParamReader />
-      <ShareLinkAutoLogout />
       <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
       <Switch>
         <Route path="/" component={Home} />
@@ -411,6 +368,7 @@ function Router() {
         <Route component={NotFound} />
       </Switch>
       </Suspense>
+      <WelcomeModal />
     </>
   );
 }

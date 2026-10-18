@@ -24,8 +24,8 @@ Two independent surfaces, not a personalization-driven feed:
 
 **Personalization is entirely client-side and never changes which facts
 are fetched.** `usePersonName()` (`hooks/use-person-name.ts`) reads/writes
-`localStorage` (or seeds from a share link's `?displayName=&pronouns=`
-params, `Home.tsx:26-36`) — neither `useListFacts` nor `useHeroFact` ever
+`localStorage` (or seeds the halves the browser lacks from a share link's
+`?displayName=&pronouns=` params, `resolveInitialIdentity`) — neither `useListFacts` nor `useHeroFact` ever
 sends name/pronouns to the server; only the rendered text substitutes
 tokens per-visitor. **The feed pool is identical for everyone, but the
 hero pool is not** — `GET /facts/hero` (`facts.ts:117-207`) accepts a
@@ -36,14 +36,15 @@ shown-as-hero to that user (`userFactPreferencesTable`, `facts.ts:127-139`)
 different-sized hero pools, even though the ranking/weighting logic
 itself is identical.
 
-**Cold vs. warm.** Cold = `!name && !SHARE_LINK_ACTIVE` (`Home.tsx:503`) —
+**Cold vs. warm.** Cold = no name yet (`isCold = !name` in `Home.tsx`) —
 shows a static placeholder teaser with a demo name instead of the real
 hero result. **The `/facts/hero` request still fires while cold** —
-`useHeroFact()` is called unconditionally at `Home.tsx:504`, regardless of
-`isCold`; the cold UI only hides the response behind the teaser, it
-doesn't suppress the request. After a name is submitted, a
-pronoun-onboarding sheet collects/infers pronouns before the visitor flips
-warm and the real hero result is shown.
+`useHeroFact()` is called unconditionally, regardless of `isCold`; the
+cold UI only hides the response behind the teaser, it doesn't suppress
+the request. Home has no capture of its own: the identity sheet
+(`WelcomeModal`, mounted once at route level) asks for the name and
+pronouns on every ordinary page, and its decision of when to ask lives in
+`artifacts/overhype-me/src/lib/identity.ts`, read through `artifacts/overhype-me/src/hooks/use-identity-gate.ts` (#719).
 
 **No pagination or infinite scroll on the fact-discovery surfaces
 (Home, Search).** `useListFacts` is called once with a fixed `limit` — no

@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Navbar } from "./Navbar";
 import { PrimaryNav } from "./PrimaryNav";
 import { AdSlot } from "@/components/AdSlot";
-import { WelcomeModal } from "@/components/WelcomeModal";
 import { AccessRevocationBanner } from "@/components/AccessRevocationBanner";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Mail, X, CheckCircle, Loader2 } from "lucide-react";
@@ -87,7 +86,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <PrimaryNav />
       <EmailVerificationBanner />
       <AccessRevocationBanner />
-      <WelcomeModal />
       {/* Extra bottom padding on mobile to clear the fixed tab bar */}
       <main className="flex-1 w-full pb-20 md:pb-0">
         {children}

@@ -21,6 +21,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { factDetail, memeDetail, memeItem, stubPublicFacts } from "./helpers/apiStubs";
 import { brandOrangeRgb } from "./helpers/brandTokens";
 import { FREE_ACCOUNT, TEST_ACCOUNT_PASSWORD, signInThroughForm } from "./helpers/testAccounts";
+import { seedIdentity } from "./helpers/identity";
 
 const DESKTOP = { width: 1280, height: 900 };
 
@@ -54,7 +55,9 @@ test.describe("Public described screens", () => {
       await expect(page.getByRole("link", { name: link, exact: true })).toBeVisible();
     }
     await expect(page.getByText("About David Franklin").filter({ visible: true })).toBeVisible();
-    await expect(page.getByPlaceholder("Type your first name…")).toBeVisible();
+    // A cold visitor is asked for their name by the identity sheet (#719), not by a box on Home.
+    await expect(page.getByTestId("identity-sheet").filter({ visible: true })).toBeVisible();
+    await expect(page.getByPlaceholder("Type your first name…")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "For you" })).toBeVisible();
     await expect(page.getByRole("heading", { level: 3, name: /counted to infinity\. twice\./i })).toBeVisible();
     await expect(page.getByRole("heading", { level: 3, name: /can slam a revolving door\./i })).toBeVisible();
@@ -85,8 +88,8 @@ test.describe("Public described screens", () => {
     await stubPublicFacts(page, { facts: [] });
     await page.goto("/");
 
-    // The cold-visitor card's fact, with its sample name.
-    const teaser = page.getByRole("heading", { name: /pushes it/i });
+    // The cold-visitor card's fact, with its sample name (Home's own card, not the identity sheet's billboard).
+    const teaser = page.locator("main").getByRole("heading", { name: /pushes it/i });
     await expect(teaser).toBeVisible();
     const name = teaser.getByText("David Franklin", { exact: true });
     await expect(name).toHaveCSS("color", orange);
@@ -94,10 +97,7 @@ test.describe("Public described screens", () => {
     await expect(teaser.getByText(/the universe doesn't expand/i)).not.toHaveCSS("color", orange);
 
     // A feed card, once the visitor has given a name of their own.
-    await page.addInitScript(() => {
-      localStorage.setItem("fact_db_name", "Nick Baron");
-      localStorage.setItem("fact_db_name_explicit", "1");
-    });
+    await seedIdentity(page, "Nick Baron");
     await stubPublicFacts(page, { facts: [factDetail({ id: 511, text: "{NAME} makes onions cry." })] });
     await page.goto("/");
     const card = page.getByRole("heading", { name: /makes onions cry/i }).first();
@@ -120,6 +120,8 @@ test.describe("Public described screens", () => {
       ],
     });
     const rootImagePaths = Object.values(rootImages).flat();
+    // A builder waits for a complete identity (#719); this test is about images, not the sheet.
+    await seedIdentity(page);
     const imageRequests: string[] = [];
     page.on("request", (r) => {
       if (r.resourceType() === "image") imageRequests.push(new URL(r.url()).pathname);
@@ -239,6 +241,7 @@ test.describe("Public described screens", () => {
   // PR402 step 10 — logged out, the builder's image step shows no visibility control.
   test("logged out, /facts/:id/meme opens the builder and its image step shows no visibility control", async ({ page }) => {
     await stubPublicFacts(page, { facts: [factDetail({ id: 39, text: "{NAME} out-ran the weekend." })] });
+    await seedIdentity(page);
     await openImageStep(page, 39);
     await expect(page.getByText("Sign up to create a meme using your photo")).toBeVisible();
     await expect(page.getByTestId("meme-visibility")).toHaveCount(0);
