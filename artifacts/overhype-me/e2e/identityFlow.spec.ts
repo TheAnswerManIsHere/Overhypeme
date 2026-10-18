@@ -186,6 +186,60 @@ test.describe("Identity flow, Phase 1", () => {
     await context.close();
   });
 
+  test("a nameless signed-in account never keeps a share link's identity, even across a reload before sign-in resolves", async ({ page }) => {
+    // A signed-in account with no name, answered only once we release it.
+    let release: () => void = () => {};
+    let gate = new Promise<void>((r) => { release = r; });
+    await page.route("**/api/auth/user", async (route) => {
+      await gate;
+      await route.fulfill({
+        json: {
+          user: { id: "e2e-nameless", email: "nameless@example.test", displayName: null, pronouns: null, role: "user" },
+          entitlements: {},
+        },
+      });
+    });
+    await page.route("**/api/users/me", (route) => route.fulfill({ json: { displayName: null, pronouns: null } }));
+    await stubPublicFacts(page, { facts: [] });
+
+    await page.goto("/?displayName=Grace&pronouns=she%2Fher");
+    await page.waitForTimeout(800);
+    // Nothing from the link is written while sign-in is unresolved, and the link stays in the address bar.
+    expect(await stored(page)).toEqual({ name: null, pronouns: null });
+    expect(new URL(page.url()).searchParams.get("displayName")).toBe("Grace");
+
+    // Reload in that window, then let sign-in resolve.
+    gate = Promise.resolve();
+    await page.reload();
+    release();
+    await expect.poll(() => new URL(page.url()).search).toBe("");
+    expect(await stored(page)).toEqual({ name: null, pronouns: null });
+    // The nameless account is asked for its own name rather than shown the recipient's.
+    await expect(sheet(page)).toBeVisible();
+    await expect(sheet(page).getByTestId("identity-name-input")).toHaveValue("");
+  });
+
+  for (const viewport of [DESKTOP, { width: 390, height: 844 }]) {
+    test(`keyboard focus moves into the sheet and stays there (${viewport.width}px, name already known)`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await stubPublicFacts(page, { facts: [] });
+      await page.goto("/?displayName=Grace");
+      const s = sheet(page);
+      await expect(s).toBeVisible();
+      const insideSheet = () => s.evaluate((el) => el.contains(document.activeElement));
+      await expect.poll(insideSheet).toBe(true);
+      // Forward past the last control and backward past the first both stay inside.
+      for (let i = 0; i < 25; i++) {
+        await page.keyboard.press("Tab");
+        expect(await insideSheet()).toBe(true);
+      }
+      for (let i = 0; i < 25; i++) {
+        await page.keyboard.press("Shift+Tab");
+        expect(await insideSheet()).toBe(true);
+      }
+    });
+  }
+
   test("a cold visitor arriving at a builder route is asked first; the builder then starts with the saved name", async ({ page }) => {
     await stubPublicFacts(page, { facts: [factDetail({ id: 561, text: "{NAME} out-ran the weekend." })] });
     await page.goto("/facts/561/meme");

@@ -44,15 +44,16 @@ export function useIdentityGate(): IdentityGate {
 }
 
 /**
- * A signed-in account wins over a share link: once auth resolves signed in,
- * the halves this page load's link filled in are taken back out, so a nameless
- * account never adopts the share recipient's identity. Mounted once.
+ * Settles this page load's share link once auth resolves: a signed-out visitor
+ * keeps its halves, a signed-in account wins over them. Nothing from the link
+ * is written before that, so a reload in between resolves the same way.
+ * Mounted once.
  */
-export function ShareLinkAccountGuard(): null {
+export function ShareLinkResolver(): null {
   const { isAuthenticated, isLoading } = useAuth();
-  const { discardShareLink } = usePersonName();
+  const { resolveShareLink } = usePersonName();
   useEffect(() => {
-    if (!isLoading && isAuthenticated) discardShareLink();
-  }, [isLoading, isAuthenticated, discardShareLink]);
+    if (!isLoading) resolveShareLink(isAuthenticated);
+  }, [isLoading, isAuthenticated, resolveShareLink]);
   return null;
 }

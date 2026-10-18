@@ -21,6 +21,13 @@ function canSave(draftPronouns: string): boolean {
   return !!(p.subj.trim() && p.obj.trim() && p.poss.trim() && p.possPro.trim() && p.refl.trim());
 }
 
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+
+/** The controls a keyboard can reach inside `root`, in tab order, visible ones only. */
+function focusableIn(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.getClientRects().length > 0);
+}
+
 function FlameMark() {
   return (
     <svg width="13" height="16" viewBox="0 0 16 20" fill="none">
@@ -38,7 +45,9 @@ export function WelcomeModal() {
   const [draftPronouns, setDraftPronouns] = useState(pronouns);
   const [pronounsExpanded, setPronounsExpanded] = useState(false);
   const userChosenRef = useRef(false);
-  const nameInputRef  = useRef<HTMLInputElement>(null);
+  // One root per responsive layout; only the visible one takes focus.
+  const mobileRootRef  = useRef<HTMLDivElement>(null);
+  const desktopRootRef = useRef<HTMLDivElement>(null);
   // The half that was already known when the sheet opened; only the rest is asked.
   const [knownName, setKnownName] = useState(false);
 
@@ -63,10 +72,45 @@ export function WelcomeModal() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAsk]);
 
+  // The sheet is a gate: focus moves into the visible layout when it opens
+  // (the name field, or the pronoun choices when the name is known) and Tab
+  // and Shift+Tab stay inside it until it closes (#723).
   useEffect(() => {
-    if (!open || knownName) return;
-    const t = setTimeout(() => nameInputRef.current?.focus(), 100);
-    return () => clearTimeout(t);
+    if (!open) return;
+    const visibleRoot = () =>
+      [mobileRootRef.current, desktopRootRef.current].find((el) => el && el.getClientRects().length > 0) ?? null;
+    const t = setTimeout(() => {
+      const root = visibleRoot();
+      const target = knownName
+        ? root?.querySelector<HTMLElement>("[data-identity-pronouns] button")
+        : root?.querySelector<HTMLElement>('[data-testid="identity-name-input"]');
+      target?.focus();
+    }, 100);
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+      const root = visibleRoot();
+      if (!root) return;
+      const focusable = focusableIn(root);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (!root.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [open, knownName]);
 
   function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -116,7 +160,6 @@ export function WelcomeModal() {
 
       <div className="relative mb-3">
         <input
-          ref={nameInputRef}
           type="text"
           value={draftName}
           onChange={handleNameChange}
@@ -141,6 +184,7 @@ export function WelcomeModal() {
       <AnimatePresence>
         {pronounsExpanded && (
           <motion.div
+            data-identity-pronouns
             initial={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
@@ -188,7 +232,7 @@ export function WelcomeModal() {
           screen (short phones, the keyboard up, custom pronouns open); the
           inner min-h-full wrapper keeps it bottom-anchored when it fits, and
           the backdrop is fixed so it never scrolls away. */}
-      <div className="md:hidden fixed inset-0 z-[100] overflow-y-auto overscroll-contain" data-testid="identity-sheet">
+      <div ref={mobileRootRef} role="dialog" aria-modal="true" aria-label="Your name and pronouns" className="md:hidden fixed inset-0 z-[100] overflow-y-auto overscroll-contain" data-testid="identity-sheet">
         <div className="fixed inset-0 bg-black/65 backdrop-blur-sm" />
 
         <div className="relative min-h-full flex flex-col justify-end">
@@ -217,7 +261,7 @@ export function WelcomeModal() {
       </div>
 
       {/* ── Desktop: two-column overlay ────────────────────── */}
-      <div className="hidden md:block fixed inset-0 z-[100] overflow-y-auto overscroll-contain" data-testid="identity-sheet">
+      <div ref={desktopRootRef} role="dialog" aria-modal="true" aria-label="Your name and pronouns" className="hidden md:block fixed inset-0 z-[100] overflow-y-auto overscroll-contain" data-testid="identity-sheet">
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
 
         <div className="relative min-h-full flex p-6">
@@ -225,19 +269,6 @@ export function WelcomeModal() {
           {/* Billboard L */}
           <div className="bg-background px-20 py-24 flex flex-col justify-center">
             {billboard}
-
-            {/* Stats row */}
-            <div className="flex items-center gap-8 mt-12">
-              <div>
-                <div className="font-display font-bold text-2xl">4,832</div>
-                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-1">Facts in database</div>
-              </div>
-              <div className="w-px h-9 bg-border" />
-              <div>
-                <div className="font-display font-bold text-2xl">192k</div>
-                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-1">Memes made</div>
-              </div>
-            </div>
           </div>
 
           {/* Sign-up card R */}

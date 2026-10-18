@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clearStoredIdentity, discardLinkHalves, profileIdentity, resolveInitialIdentity, type SafeStorage } from "./use-person-name";
+import { clearStoredIdentity, commitLinkHalves, profileIdentity, resolveInitialIdentity, type SafeStorage } from "./use-person-name";
 import { DEFAULT_PRONOUNS } from "@/lib/pronouns";
 
 function memoryStorage(init: Record<string, string> = {}): SafeStorage & { data: Record<string, string> } {
@@ -45,34 +45,34 @@ describe("resolveInitialIdentity", () => {
     expect(resolveInitialIdentity(chosen, null, null).name).toBe("David Franklin");
   });
 
-  it("applies a full share link to an empty browser and persists exactly that", () => {
+  it("applies a full share link to an empty browser in the identity, holding it unwritten until auth resolves", () => {
     const s = memoryStorage();
     const r = resolveInitialIdentity(s, "Grace", "she/her");
-    expect(r).toEqual({ name: "Grace", pronouns: "she/her", pronounsSupplied: true, fromLink: { name: true, pronouns: true } });
-    expect(s.data).toEqual({ fact_db_name: "Grace", fact_db_pronouns: "she/her" });
-    // A reload with no parameters resolves to the same identity, now the browser's own.
-    expect(resolveInitialIdentity(s, null, null)).toEqual({ ...r, fromLink: { name: false, pronouns: false } });
+    expect(r).toEqual({ name: "Grace", pronouns: "she/her", pronounsSupplied: true, pending: { name: "Grace", pronouns: "she/her" } });
+    expect(s.data).toEqual({});
+    // A reload before auth resolves still carries the link, so it resolves the same way.
+    expect(resolveInitialIdentity(s, "Grace", "she/her")).toEqual(r);
   });
 
   it("applies a half link and leaves the other half unsupplied", () => {
     const s = memoryStorage();
     const r = resolveInitialIdentity(s, null, "they/them");
-    expect(r).toEqual({ name: "", pronouns: "they/them", pronounsSupplied: true, fromLink: { name: false, pronouns: true } });
+    expect(r).toEqual({ name: "", pronouns: "they/them", pronounsSupplied: true, pending: { name: null, pronouns: "they/them" } });
     const n = resolveInitialIdentity(memoryStorage(), "Grace", null);
-    expect(n).toEqual({ name: "Grace", pronouns: DEFAULT_PRONOUNS, pronounsSupplied: false, fromLink: { name: true, pronouns: false } });
+    expect(n).toEqual({ name: "Grace", pronouns: DEFAULT_PRONOUNS, pronounsSupplied: false, pending: { name: "Grace", pronouns: null } });
   });
 
   it("never overwrites halves the browser already holds", () => {
     const s = memoryStorage({ fact_db_name: "Ada", fact_db_pronouns: "she/her" });
-    expect(resolveInitialIdentity(s, "Grace", "he/him")).toEqual({ name: "Ada", pronouns: "she/her", pronounsSupplied: true, fromLink: { name: false, pronouns: false } });
+    expect(resolveInitialIdentity(s, "Grace", "he/him")).toEqual({ name: "Ada", pronouns: "she/her", pronounsSupplied: true, pending: { name: null, pronouns: null } });
     expect(s.data.fact_db_name).toBe("Ada");
     expect(s.data.fact_db_pronouns).toBe("she/her");
   });
 
   it("fills only the empty half when the browser holds one", () => {
     const s = memoryStorage({ fact_db_name: "Ada" });
-    expect(resolveInitialIdentity(s, "Grace", "they/them")).toEqual({ name: "Ada", pronouns: "they/them", pronounsSupplied: true, fromLink: { name: false, pronouns: true } });
-    expect(s.data.fact_db_pronouns).toBe("they/them");
+    expect(resolveInitialIdentity(s, "Grace", "they/them")).toEqual({ name: "Ada", pronouns: "they/them", pronounsSupplied: true, pending: { name: null, pronouns: "they/them" } });
+    expect(s.data).toEqual({ fact_db_name: "Ada" });
   });
 
   it("works when storage is unavailable", () => {
@@ -93,27 +93,32 @@ describe("clearStoredIdentity", () => {
   });
 });
 
-describe("discardLinkHalves (a signed-in account wins over a share link, #723)", () => {
-  it("takes back both halves a link filled into an empty browser", () => {
+describe("commitLinkHalves (a signed-out visitor keeps the link's halves, #723)", () => {
+  it("writes exactly the held halves once the visitor is known to be signed out", () => {
     const s = memoryStorage();
     const r = resolveInitialIdentity(s, "Grace", "they/them");
-    discardLinkHalves(s, r.fromLink);
-    expect(s.data).toEqual({});
-    expect(resolveInitialIdentity(s, null, null)).toMatchObject({ name: "", pronounsSupplied: false });
+    commitLinkHalves(s, r.pending);
+    expect(s.data).toEqual({ fact_db_name: "Grace", fact_db_pronouns: "they/them" });
+    // After that the link's halves are the browser's own; a later load needs no parameters.
+    expect(resolveInitialIdentity(s, null, null)).toEqual({ name: "Grace", pronouns: "they/them", pronounsSupplied: true, pending: { name: null, pronouns: null } });
   });
 
   it("never touches a half the browser already held", () => {
     const s = memoryStorage({ fact_db_name: "Ada", fact_db_pronouns: "she/her" });
-    const r = resolveInitialIdentity(s, "Grace", "they/them");
-    discardLinkHalves(s, r.fromLink);
+    commitLinkHalves(s, resolveInitialIdentity(s, "Grace", "they/them").pending);
     expect(s.data).toEqual({ fact_db_name: "Ada", fact_db_pronouns: "she/her" });
   });
 
-  it("takes back only the half the link filled", () => {
+  it("writes only the half the link filled", () => {
     const s = memoryStorage({ fact_db_name: "Ada" });
-    const r = resolveInitialIdentity(s, "Grace", "they/them");
-    discardLinkHalves(s, r.fromLink);
-    expect(s.data).toEqual({ fact_db_name: "Ada" });
+    commitLinkHalves(s, resolveInitialIdentity(s, "Grace", "they/them").pending);
+    expect(s.data).toEqual({ fact_db_name: "Ada", fact_db_pronouns: "they/them" });
+  });
+
+  it("writes nothing when a signed-in visitor's link is dropped instead (nothing was persisted)", () => {
+    const s = memoryStorage();
+    resolveInitialIdentity(s, "Grace", "they/them");
+    expect(s.data).toEqual({});
   });
 });
 

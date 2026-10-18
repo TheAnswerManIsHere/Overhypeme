@@ -8,7 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes, flushRouteStatsToServer } from "@/lib/analytics";
 import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
 import { WelcomeModal } from "@/components/WelcomeModal";
-import { ShareLinkAccountGuard } from "@/hooks/use-identity-gate";
+import { ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
@@ -86,11 +86,11 @@ function AdminModerationRedirect() {
 /**
  * Keeps PersonNameProvider in sync with the authenticated user's server profile.
  * - On login  (unauthenticated → authenticated): loads name + pronouns from API.
- * - On logout (authenticated → unauthenticated): resets to defaults and clears storage.
+ * - On logout (authenticated → unauthenticated): clears meme-builder drafts; the identity is kept, since this transition also follows a mere session expiry.
  */
 function AuthProfileSync() {
   const { isAuthenticated, isLoading, user } = useAuth();
-  const { reset, syncFromProfile } = usePersonName();
+  const { syncFromProfile } = usePersonName();
   const prevAuthRef = useRef<boolean | null>(null);
 
   // Keep Sentry's user scope in sync with the auth state.
@@ -116,9 +116,10 @@ function AuthProfileSync() {
     const prev = prevAuthRef.current;
     prevAuthRef.current = isAuthenticated;
 
-    // Transition: logged in → logged out
+    // Transition: logged in → logged out. This also fires when a session
+    // simply expires, which is not a sign-out, so the visitor's identity is
+    // kept; the sign-out operation (useSignOut) is what clears it (#723).
     if (prev === true && !isAuthenticated) {
-      reset();
       // Drop every in-flight meme-builder draft so a draft started by the
       // previous viewer can't leak into the next session.
       clearAllWizardStates();
@@ -325,7 +326,7 @@ function Router() {
       <RouteStatsFlush />
       <PrefetchCriticalRoutes />
       <AuthProfileSync />
-      <ShareLinkAccountGuard />
+      <ShareLinkResolver />
       <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
       <Switch>
         <Route path="/" component={Home} />
