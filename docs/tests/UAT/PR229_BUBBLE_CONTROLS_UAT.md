@@ -178,7 +178,7 @@ now."`
 
 **Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCandidates.test.tsx:renders the normalized proposed bubbles on the card (exactly what pick applies)`
 
-**Deferred:** #631 — 7b — the model proposing a speech bubble from a quote-bearing fact is unasserted, no journey submits a fact with a quote — acceptance journey 3
+**Deferred:** #628 — Phase 8 (Engine evaluation) — the model proposing a speech bubble from a quote-bearing fact; whether the model proposes one is model behaviour that phase tunes (David, 2026-10-17)
 
 ### 12. Using a proposed idea fills both the Concept and the bubble editor
 
