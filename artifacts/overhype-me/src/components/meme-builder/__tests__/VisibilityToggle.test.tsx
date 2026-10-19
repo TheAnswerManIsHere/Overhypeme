@@ -89,4 +89,16 @@ describe("VisibilityToggle", () => {
     expect(screen.getByTestId("meme-visibility-private").getAttribute("aria-pressed")).toBe("false");
     expect(screen.queryByText(/only you/i)).toBeNull();
   });
+
+  it("renders the locked Private pill with the opacity-60 dimming class when canSetPrivate is false", () => {
+    const { rerender } = render(
+      <VisibilityToggle isPublic onChange={() => {}} canSetPrivate={false} onRequestUpgrade={() => {}} />,
+    );
+    expect(screen.getByTestId("meme-visibility-private").classList.contains("opacity-60")).toBe(true);
+    // The dimming is the lock, not a constant: an entitled viewer's pill is not dimmed.
+    rerender(
+      <VisibilityToggle isPublic onChange={() => {}} canSetPrivate onRequestUpgrade={() => {}} />,
+    );
+    expect(screen.getByTestId("meme-visibility-private").classList.contains("opacity-60")).toBe(false);
+  });
 });

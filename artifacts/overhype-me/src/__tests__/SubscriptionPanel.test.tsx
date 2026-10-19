@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
@@ -83,13 +83,13 @@ const MIRRORED_MONTHLY_SUB = {
   },
 };
 
-function mockFetch(subscriptionResponse: unknown) {
+function mockFetch(subscriptionResponse: unknown, history: unknown[] = []) {
   return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     const body = url.includes("/api/stripe/subscription")
       ? subscriptionResponse
       : url.includes("/api/stripe/payment-history")
-        ? { history: [] }
+        ? { history }
         : url.includes("/api/stripe/plans")
           ? { plans: PLANS }
           : {};
@@ -353,5 +353,174 @@ describe("SubscriptionPanel after a plan switch the mirror has not caught up to"
     // With nothing authoritative to say otherwise, the mirror is still the best
     // available answer -- the fix inverts precedence, it does not drop the mirror.
     expect(await screen.findByRole("button", { name: /Switch to Annual/i })).toBeTruthy();
+  });
+});
+
+/** A renewal date at midday UTC so it formats to the same calendar day in any
+ *  timezone the suite runs under. */
+const MIDDAY_APP_SUB = { ...ACTIVE_MONTHLY_APP_SUB, currentPeriodEnd: "2026-09-29T12:00:00.000Z" };
+
+describe("SubscriptionPanel card text the UAT steps name", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("lists purchase, refund and dispute entries with their labels in the profile payment history", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch(
+        {
+          subscription: MIRRORED_MONTHLY_SUB,
+          appSubscription: ACTIVE_MONTHLY_APP_SUB,
+          membershipTier: "legendary",
+          isLifetime: false,
+        },
+        [
+          { id: 1, event: "lifetime_purchase", plan: "lifetime", amount: 9900, currency: "usd", createdAt: "2026-08-01T12:00:00.000Z" },
+          { id: 2, event: "refund", plan: null, amount: 399, currency: "usd", createdAt: "2026-08-02T12:00:00.000Z" },
+          { id: 3, event: "dispute_opened", plan: null, amount: 399, currency: "usd", createdAt: "2026-08-03T12:00:00.000Z" },
+        ],
+      ),
+    );
+
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Payment History \(3\)/ }));
+    expect(screen.getByText("Legendary for Life Purchase")).toBeTruthy();
+    expect(screen.getByText("Refund")).toBeTruthy();
+    expect(screen.getByText("Dispute Opened")).toBeTruthy();
+  });
+
+  it("names a Legendary for Life member's card as Legendary for Life and shows no Reactivate Subscription button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: null,
+        appSubscription: null,
+        membershipTier: "legendary",
+        isLifetime: true,
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByRole("button", { name: /Manage billing/i });
+    expect(screen.getByText("Legendary for Life — access never expires", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText("legendary for life")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Reactivate Subscription/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Switch to Annual/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Cancel Subscription/i })).toBeNull();
+  });
+
+  it("shows the Free Plan block text beside Go Legendary for a free account", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: null,
+        appSubscription: null,
+        membershipTier: "registered",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    expect(await screen.findByText("Free Plan")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go Legendary" })).toBeTruthy();
+  });
+
+  it("shows the renewal date on the card while the Stripe mirror is still empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: null,
+        appSubscription: MIDDAY_APP_SUB,
+        membershipTier: "legendary",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByRole("button", { name: /Cancel Subscription/i });
+    expect(screen.getByText("September 29, 2026")).toBeTruthy();
+  });
+
+  it("reads Monthly as the plan label and $3.99/month on the price line for a genuine monthly subscriber", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        subscription: MIRRORED_MONTHLY_SUB,
+        appSubscription: ACTIVE_MONTHLY_APP_SUB,
+        membershipTier: "legendary",
+        isLifetime: false,
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByRole("button", { name: /Switch to Annual/i });
+    expect(screen.getByText(/^Monthly subscription/)).toBeTruthy();
+    expect(screen.getByText("$3.99/month")).toBeTruthy();
+  });
+
+  it("cancel then reactivate: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back", async () => {
+    // Stateful stub: the cancel/reactivate routes flip the app-DB flag the
+    // background refetch of /api/stripe/subscription then reads back.
+    let cancelAtPeriodEnd = false;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        let body: unknown = {};
+        if (url.includes("/api/stripe/subscription/cancel")) {
+          calls.push(`${init?.method} cancel`);
+          cancelAtPeriodEnd = true;
+          body = { subscription: { id: "sub_test" } };
+        } else if (url.includes("/api/stripe/subscription/reactivate")) {
+          calls.push(`${init?.method} reactivate`);
+          cancelAtPeriodEnd = false;
+          body = { subscription: { id: "sub_test" } };
+        } else if (url.includes("/api/stripe/subscription")) {
+          body = {
+            subscription: null,
+            appSubscription: { ...MIDDAY_APP_SUB, cancelAtPeriodEnd },
+            membershipTier: "legendary",
+            isLifetime: false,
+          };
+        } else if (url.includes("/api/stripe/payment-history")) {
+          body = { history: [] };
+        } else if (url.includes("/api/stripe/plans")) {
+          body = { plans: PLANS };
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
+      }),
+    );
+
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Cancel Subscription$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, Cancel" }));
+
+    // Cancelled: notice + renewal date + Reactivate, and the controls are gone.
+    expect(await screen.findByText("Subscription cancelled")).toBeTruthy();
+    expect(screen.getByText("September 29, 2026")).toBeTruthy();
+    const reactivate = await screen.findByRole("button", { name: /Reactivate Subscription/i });
+    expect(screen.queryByRole("button", { name: /Cancel Subscription/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Switch to Annual/i })).toBeNull();
+
+    fireEvent.click(reactivate);
+
+    // Reactivated: the controls come back and the Reactivate button is gone.
+    expect(await screen.findByRole("button", { name: /Cancel Subscription/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Switch to Annual/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Reactivate Subscription/i })).toBeNull();
+    expect(calls).toEqual(["POST cancel", "POST reactivate"]);
   });
 });
