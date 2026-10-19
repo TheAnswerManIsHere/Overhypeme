@@ -51,9 +51,7 @@ been retried yet.
 
 **Lane:** live
 
-**Check:** `ask_question` (read-only): report the enrichment lane's queued/working/done/failed counts and any async_jobs row whose last error contains the forEach message; compare to the setup capture; `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:a fact whose stored visual override lacks its list fields refreshes through the route and the queued job, keeping the override word for word`
-
-**Deferred:** #631 — 7b — a job that failed with an error and then succeeded on retry showing no error in the Queue Health response, which stays open until #692 lands with its regression test — `artifacts/api-server/src/__tests__/queueHealth.test.ts`
+**Check:** `ask_question` (read-only): report the enrichment lane's queued/working/done/failed counts and any async_jobs row whose last error contains the forEach message; compare to the setup capture; `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:a fact whose stored visual override lacks its list fields refreshes through the route and the queued job, keeping the override word for word`; `artifacts/api-server/src/__tests__/queueHealth.test.ts:shows no error for a job that failed and then succeeded on retry, and keeps it while the retry is pending (#692)`
 
 ### 2. The stuck facts start clearing on the Moderation screen
 

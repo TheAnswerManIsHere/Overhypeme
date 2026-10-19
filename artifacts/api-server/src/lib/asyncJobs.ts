@@ -428,6 +428,9 @@ async function processClaimedJob(
             status: "done",
             attempts: newAttempts,
             result: (outcome.result as object | undefined) ?? null,
+            // The latest outcome is a success: an error left from an earlier
+            // attempt would read as current on every admin surface (#692).
+            lastError: null,
             updatedAt: new Date(),
           })
           .where(eq(asyncJobsTable.id, row.id));

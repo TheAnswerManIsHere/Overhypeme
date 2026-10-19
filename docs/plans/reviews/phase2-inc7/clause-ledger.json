@@ -11190,10 +11190,16 @@
    "clauses": [
     {
      "text": "no job whose retry has come due still carries the forEach error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a job that failed with an error and then succeeded on retry showing no error in the Queue Health response, which stays open until #692 lands with its regression test — `artifacts/api-server/src/__tests__/queueHealth.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/api-server/src/__tests__/queueHealth.test.ts",
+       "line": 421,
+       "quote": "assert.equal(page.rows[0]?.lastError, null, \"a job that finished successfully shows no error\");"
+      }
+     ],
+     "fails_because": "a job that failed and then succeeded on retry still shows its old error in the Queue Health response",
+     "gap_clause": null
     },
     {
      "text": "the enrichment lane's failed count is no higher than the setup capture",
@@ -12525,8 +12531,8 @@
  ],
  "counts": {
   "steps": 324,
-  "asserted": 482,
-  "gap": 280,
+  "asserted": 483,
+  "gap": 279,
   "live": 1
  }
 }
