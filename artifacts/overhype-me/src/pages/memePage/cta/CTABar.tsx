@@ -13,9 +13,10 @@
 import { ArrowRight, Crown, Download, ExternalLink, Library, Share2, ShoppingBag } from "lucide-react";
 import { Link } from "wouter";
 import { useState } from "react";
+import { usePersonName } from "@/hooks/use-person-name";
+import { displayPronouns, PRONOUN_PRESETS } from "@/lib/pronouns";
 
-const PRONOUNS = ["he/him", "she/her", "they/them"] as const;
-type Pronouns = (typeof PRONOUNS)[number];
+const PRONOUNS: readonly string[] = PRONOUN_PRESETS;
 
 interface OpenBuilderArgs {
   initialName?: string;
@@ -175,8 +176,15 @@ export function CTABarAnonOther({
    */
   factTemplateReady: boolean;
 }) {
-  const [name, setName] = useState("");
-  const [pronouns, setPronouns] = useState<Pronouns>("they/them");
+  // The form shows what the browser already holds until the visitor edits it
+  // (#732). Pronouns the visitor never supplied stay they/them here, never the
+  // rendering fallback's silent he/him.
+  const saved = usePersonName();
+  const [editedName, setName] = useState<string | null>(null);
+  const [editedPronouns, setPronouns] = useState<string | null>(null);
+  const name = editedName ?? saved.name;
+  const pronouns = editedPronouns ?? (saved.pronounsSupplied ? saved.pronouns : "they/them");
+  const pronounOptions = PRONOUNS.includes(pronouns) ? PRONOUNS : [...PRONOUNS, pronouns];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,12 +211,12 @@ export function CTABarAnonOther({
         />
         <select
           value={pronouns}
-          onChange={(e) => setPronouns(e.target.value as Pronouns)}
+          onChange={(e) => setPronouns(e.target.value)}
           data-testid="anon-pronouns-input"
           className="w-full h-[44px] px-3 rounded-[10px] bg-background border border-border text-foreground focus:outline-none focus:border-primary"
         >
-          {PRONOUNS.map((p) => (
-            <option key={p} value={p}>{p}</option>
+          {pronounOptions.map((p) => (
+            <option key={p} value={p}>{displayPronouns(p)}</option>
           ))}
         </select>
         <PrimaryButton type="submit" testId="anon-see-with-name" disabled={!factTemplateReady}>

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, screen } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -11,6 +11,8 @@ import {
   CTABarRegisteredOther,
   CTABarRegisteredOwn,
 } from "@/pages/memePage/cta/CTABar";
+import { act } from "@testing-library/react";
+import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
 
 function renderWithRouter(ui: React.ReactElement) {
   const { hook } = memoryLocation({ path: "/m/abc" });
@@ -59,6 +61,85 @@ describe("CTABarAnonOther", () => {
     expect(submit.textContent).toContain("Loading");
     fireEvent.click(submit);
     expect(onOpenBuilder).not.toHaveBeenCalled();
+  });
+});
+
+describe("CTABarAnonOther pre-fills what the browser holds (#732)", () => {
+  beforeEach(() => localStorage.clear());
+
+  function renderWithIdentity(onOpenBuilder = vi.fn()) {
+    renderWithRouter(
+      <PersonNameProvider>
+        <CTABarAnonOther onOpenBuilder={onOpenBuilder} factTemplateReady={true} />
+      </PersonNameProvider>,
+    );
+    return onOpenBuilder;
+  }
+
+  const nameInput = () => screen.getByTestId("anon-name-input") as HTMLInputElement;
+  const pronounsInput = () => screen.getByTestId("anon-pronouns-input") as HTMLSelectElement;
+
+  it("opens with the saved name and pronouns, and submits them untouched", () => {
+    localStorage.setItem("fact_db_name", "Dana");
+    localStorage.setItem("fact_db_pronouns", "he/him");
+    const onOpenBuilder = renderWithIdentity();
+    expect(nameInput().value).toBe("Dana");
+    expect(pronounsInput().value).toBe("he/him");
+    fireEvent.click(screen.getByTestId("anon-see-with-name"));
+    expect(onOpenBuilder).toHaveBeenCalledWith({ initialName: "Dana", initialPronouns: "he/him" });
+  });
+
+  it("offers a saved custom pronoun set as the selected option", () => {
+    localStorage.setItem("fact_db_name", "Rue");
+    localStorage.setItem("fact_db_pronouns", "xe|xem|xyr|xyrs|xemself|s");
+    const onOpenBuilder = renderWithIdentity();
+    expect(pronounsInput().value).toBe("xe|xem|xyr|xyrs|xemself|s");
+    expect(pronounsInput().selectedOptions[0].textContent).toBe("xe/xem");
+    fireEvent.click(screen.getByTestId("anon-see-with-name"));
+    expect(onOpenBuilder).toHaveBeenCalledWith({ initialName: "Rue", initialPronouns: "xe|xem|xyr|xyrs|xemself|s" });
+  });
+
+  it("never fills in a silent he/him when only a name is saved", () => {
+    localStorage.setItem("fact_db_name", "Dana");
+    renderWithIdentity();
+    expect(nameInput().value).toBe("Dana");
+    expect(pronounsInput().value).toBe("they/them");
+  });
+
+  it("stays empty for a visitor who has saved nothing", () => {
+    renderWithIdentity();
+    expect(nameInput().value).toBe("");
+    expect(pronounsInput().value).toBe("they/them");
+  });
+
+  it("picks up a name saved while the page is open, until the visitor types", () => {
+    let save: (n: string) => void = () => {};
+    function Saver() {
+      save = usePersonName().setName;
+      return null;
+    }
+    renderWithRouter(
+      <PersonNameProvider>
+        <Saver />
+        <CTABarAnonOther onOpenBuilder={vi.fn()} factTemplateReady={true} />
+      </PersonNameProvider>,
+    );
+    expect(nameInput().value).toBe("");
+    act(() => save("Dana"));
+    expect(nameInput().value).toBe("Dana");
+    fireEvent.change(nameInput(), { target: { value: "Sam" } });
+    act(() => save("Lee"));
+    expect(nameInput().value).toBe("Sam");
+  });
+
+  it("keeps what the visitor types over the saved identity", () => {
+    localStorage.setItem("fact_db_name", "Dana");
+    localStorage.setItem("fact_db_pronouns", "he/him");
+    const onOpenBuilder = renderWithIdentity();
+    fireEvent.change(nameInput(), { target: { value: "Sam" } });
+    fireEvent.change(pronounsInput(), { target: { value: "she/her" } });
+    fireEvent.click(screen.getByTestId("anon-see-with-name"));
+    expect(onOpenBuilder).toHaveBeenCalledWith({ initialName: "Sam", initialPronouns: "she/her" });
   });
 });
 
