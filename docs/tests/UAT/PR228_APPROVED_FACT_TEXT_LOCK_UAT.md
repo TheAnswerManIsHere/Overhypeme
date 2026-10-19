@@ -36,9 +36,7 @@ about variants — a root re-word deliberately doesn't touch them.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:shows the meme consequence only when persisted memes exist`
-
-**Deferred:** #631 — 7b — the modal rendering impact.currentStoredText with line-through styling and impact.normalizedProposedText beside it — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`; #631 — 7b — the modal showing the consequence line saying the fact's taxonomy will be marked stale for reprocess — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`; #631 — 7b — the rendered modal containing no text that mentions variants — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`
+**Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:shows the meme consequence only when persisted memes exist`; `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:renders the stored text struck through (line-through) with the normalized proposed text beside it`; `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:always shows the consequence line that the taxonomy will be marked stale for reprocess`; `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:says nothing about variants anywhere in the rendered modal`
 
 ### 3. A wrong confirmation phrase leaves the button disabled
 
@@ -71,9 +69,7 @@ reason blank (or under 10 characters).
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:disables Confirm until the exact phrase AND a ≥10-char reason are present`
-
-**Deferred:** #631 — 7b — the phrase the modal requires is exactly CHANGE APPROVED FACT TEXT, pinned as a literal and not read from the production export APPROVED_FACT_TEXT_EDIT_PHRASE — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`
+**Check:** `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:disables Confirm until the exact phrase AND a ≥10-char reason are present`; `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx:requires exactly the literal phrase CHANGE APPROVED FACT TEXT (pinned, not read from the production export)`
 
 ### 6. Confirming the change saves it and shows the new wording
 

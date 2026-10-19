@@ -102,9 +102,9 @@ content you noted before the refresh, word for word.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:writes the VERSION row (never facts.*), advances its exact review to concept_review, and preps concepts (NOT renders)` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override whose lists are absent (no schema parse)`; `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:a fact whose stored visual override lacks its list fields refreshes through the route and the queued job, keeping the override word for word`
+**Check:** `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:writes the VERSION row (never facts.*), advances its exact review to concept_review, and preps concepts (NOT renders)` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override whose lists are absent (no schema parse)`; `artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts:a fact whose stored visual override lacks its list fields refreshes through the route and the queued job, keeping the override word for word`; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:a refresh candidate's enrichment shows the override's core scene and required visual detail text verbatim in its Visual Concept and override fields`
 
-**Deferred:** #628 — Phase 13 (Admin console) — the Enrichment ready label on the Moderation row is on the screen Phase 13 rebuilds; #631 — 7b — the editor rendered with that refresh candidate's enrichment shows the override's core scene and required visual detail text verbatim in its Visual Concept and override fields — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Deferred:** #628 — Phase 13 (Admin console) — the Enrichment ready label on the Moderation row is on the screen Phase 13 rebuilds
 
 ### 5. An empty override is still reported as empty
 
@@ -116,9 +116,7 @@ or one whose override is an empty scaffold.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override that is a bare version stub` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)`; `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts:reports hasVisualStrategyOverride false for a fact with no visual override and for one storing an empty scaffold`
-
-**Deferred:** #631 — 7b — the Enrichment editor showing no Overridden bar when a fact has no override or only an empty scaffold is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:resolves a stored visual override that is a bare version stub` `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)`; `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts:reports hasVisualStrategyOverride false for a fact with no visual override and for one storing an empty scaffold`; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:the Enrichment editor shows no Overridden bar for a fact with no override or only an empty scaffold`
 
 ### 6. Saving a visual override still works
 
@@ -130,9 +128,7 @@ edited value.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:GET /admin/facts/:id returns the edited required visual detail after the PATCH`
-
-**Deferred:** #631 — 7b — reopening the editor after the save shows the saved required visual detail, loaded through the save and reload path — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`; #631 — 7b — tokenizeAndSaveVisualOverride on a fact target with a newly added required visual detail returns true and sends PATCH /api/admin/facts/:id/enrichment carrying it — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)` `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:GET /admin/facts/:id returns the edited required visual detail after the PATCH`; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:reopening the editor after saving a new required visual detail shows the saved detail, loaded through the save and reload path`; `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx:fact target: tokenizeAndSaveVisualOverride with a newly added required visual detail returns true and PATCHes /api/admin/facts/:id/enrichment carrying it`
 
 ## Regression
 
@@ -160,9 +156,7 @@ subtype, fit — and no error banner.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:returns the enrichment and enrichmentStatus` — the editor's load request, GET /api/admin/facts/:id, returns the fact's completed enrichment
-
-**Deferred:** #631 — 7b — the enrichment editor rendering archetype, subtype and fit populated with no error banner for a fact with completed enrichment is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:returns the enrichment and enrichmentStatus` — the editor's load request, GET /api/admin/facts/:id, returns the fact's completed enrichment; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:a fact with completed enrichment opens with archetype, subtype and fit populated and no error banner`
 
 ### R3. PR216 step 3 is reachable again
 

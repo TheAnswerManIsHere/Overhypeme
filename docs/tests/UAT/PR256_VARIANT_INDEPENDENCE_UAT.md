@@ -100,9 +100,9 @@ visible regardless of which health card filter is selected.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:is visible regardless of the selected card filter (not gated like send-back)`
+**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:is visible regardless of the selected card filter (not gated like send-back)`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:the panel renders above the health cards and still renders, with its Backfill AI memes button, after a different card filter is selected`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — two of the panel's three buttons (Backfill images, Backfill Pexels) drive Pexels and go with it, which rewrites this step, and the cited test also never selects a card filter; #631 — 7b — the bulk-media-backfill-panel renders above the health cards and still renders, with its Backfill AI memes button, after a different card filter is selected — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`
+**Deferred:** #628 — Phase 4 (Cut and prune) — two of the panel's three buttons (Backfill images, Backfill Pexels) drive Pexels and go with it, which rewrites this step, and the cited test also never selects a card filter
 
 ### 8. Backfill images enqueues durable jobs
 
@@ -142,9 +142,7 @@ APIs.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill AI memes' posts to backfill-ai-memes`; `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:backfill-ai-memes enqueues one durable job per active fact missing AI meme images, root or variant`
-
-**Deferred:** #631 — 7b — the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`; #631 — 7b — clicking Backfill AI memes calls window.confirm before any POST to backfill-ai-memes, and declining that confirm sends nothing — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`
+**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill AI memes' posts to backfill-ai-memes`; `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:backfill-ai-memes enqueues one durable job per active fact missing AI meme images, root or variant`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:clicking Backfill AI memes calls window.confirm before any POST to backfill-ai-memes, and declining sends nothing`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images`
 
 ### 11. A root with an active variant can be sent back to review
 
@@ -183,9 +181,7 @@ button, and it's no longer picked up by "Send next 50 stale" automatically.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale leaves out a 3-strike stale fact that sits inside its 50-fact batch`
-
-**Deferred:** #631 — 7b — a fact flagged after 3 failed send-backs shows the 3 failed attempts badge beside its send-back button — `artifacts/overhype-me/src/pages/admin/taxonomy-health.rows.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale leaves out a 3-strike stale fact that sits inside its 50-fact batch`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.rows.test.tsx:a fact flagged after 3 failed send-backs shows the 3 failed attempts badge beside its send-back button`
 
 ### 14. A flagged fact can still be retried deliberately
 
@@ -196,9 +192,7 @@ way to clear the flag.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:once the fact_send_back job Send selected queued for a 3-strike fact finishes, repeatedFailure is false for it`
-
-**Deferred:** #631 — 7b — a row flagged for repeated failures can be ticked and Send selected posts its fact id with no rejection shown — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.bulkSendBack.test.ts:all_stale: a 3-strike fact is excluded and counted in repeatedFailureCount; scope:selected still enqueues it normally (the only path that clears the streak)`; `artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.actions.test.ts:once the fact_send_back job Send selected queued for a 3-strike fact finishes, repeatedFailure is false for it`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx:a row flagged for repeated failures can be ticked and Send selected posts its fact id with no rejection shown`
 
 ### 15. Bulk send-back reports any facts it excluded
 
@@ -211,7 +205,7 @@ complete") so it's never silently missed.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the Send next 50 stale status line reads N fact(s) excluded after repeated failures, investigate before considering the migration complete — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx`
+**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx:the Send next 50 stale status line reads '1 fact excluded after repeated failures — investigate before considering the migration complete.'`
 
 ## Regression
 

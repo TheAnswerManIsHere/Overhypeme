@@ -68,9 +68,7 @@ the style doesn't appear twice.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`:styleSource=selected_look_style with a non-empty suffix when a look style is chosen — the preview route compiles the chosen style's i2i copy into the prompt; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:a selected style phrase appears once, in RENDER STYLE, and never inside LIGHTING`
-
-**Deferred:** #631 — 7b — choosing a style in the rpp-look-style control sending that style's id as lookStyleId in the preview request body — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:single-channel style: LIGHTING carries only light/mood, style goes to its own RENDER STYLE section`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts`:styleSource=selected_look_style with a non-empty suffix when a look style is chosen — the preview route compiles the chosen style's i2i copy into the prompt; `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:a selected style phrase appears once, in RENDER STYLE, and never inside LIGHTING`; `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx:choosing a style in rpp-look-style sends that style's id as lookStyleId in the preview request body`
 
 ### 5. Readable in-scene text is quoted
 
@@ -108,9 +106,7 @@ you to rewrite it as pure scene description; the render still proceeds.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:keeps a Concept with compiler-owned language verbatim and returns the rewrite warning`; `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts:enqueues image_generation (does not fail) and persists the owned-language warning`
-
-**Deferred:** #631 — 7b — the Runtime Prompt Preview panel showing the moderator_core_scene_owned_language warning's message when the preview response carries it — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits the moderator scene VERBATIM — compiler-owned language kept, not stripped — and warns`; `artifacts/api-server/src/__tests__/imagePromptPreview.test.ts:keeps a Concept with compiler-owned language verbatim and returns the rewrite warning`; `artifacts/api-server/src/__tests__/imagePromptJobs.test.ts:enqueues image_generation (does not fail) and persists the owned-language warning`; `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx:shows the moderator_core_scene_owned_language warning's message in the diagnostics when the response carries it`
 
 ### 8. An empty Concept still uses the AI scene, at full strictness
 

@@ -57,9 +57,7 @@ and so on) are unchanged and still populated.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:does NOT count coreSceneOverride — it is the required Visual Concept, not an override`; `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts:reports hasVisualStrategyOverride false for a fact whose visual override holds only a Visual Concept`
-
-**Deferred:** #631 — 7b — the editor showing no Overridden Visual Strategy bar with classification fields still populated, when only the Visual Concept is set, is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:does not raise the signal for a Visual-Concept-only blob (no AI baseline)` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:does NOT count coreSceneOverride — it is the required Visual Concept, not an override`; `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts:reports hasVisualStrategyOverride false for a fact whose visual override holds only a Visual Concept`; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:with only the Visual Concept set there is no Overridden Visual Strategy bar and the classification fields are still populated`
 
 ### 2. The badge still appears where something really was overridden
 
@@ -72,9 +70,7 @@ the case that must not have been broken by the fix.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:still raises the signal when that same blob carries real override content` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:still counts every other rendered field when a Visual Concept is also present`; `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts:reports hasVisualStrategyOverride true for a fact with a Visual Concept plus a required visual detail`
-
-**Deferred:** #631 — 7b — the editor showing the Overridden Visual Strategy bar when the summary reports real override content is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts:still raises the signal when that same blob carries real override content` `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:still counts every other rendered field when a Visual Concept is also present`; `artifacts/api-server/src/__tests__/routes.enrichmentOverrides.test.ts:reports hasVisualStrategyOverride true for a fact with a Visual Concept plus a required visual detail`; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:shows the Overridden Visual Strategy bar when the summary reports real override content`
 
 ### 3. The Visual Concept still reaches the picture prompt
 
@@ -112,9 +108,7 @@ leaving the field exactly as you found it, and close the editor without saving.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx:flags an unknown token with the advisory`
-
-**Deferred:** #631 — 7b — typing {NOPE} after existing text in the visual-concept-textarea, with no save, shows the Invalid token warning — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`
+**Check:** `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx:flags an unknown token with the advisory`; `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx:typing {NOPE} after existing text in the visual-concept-textarea, with no save, shows the Invalid token warning`
 
 ### 5. Saving a real override raises the badge
 
@@ -130,9 +124,7 @@ place; step 6 removes it.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:adding required visual detail uat-585-scratch to a Concept-only fact raises hasVisualStrategyOverride`
-
-**Deferred:** #631 — 7b — reopening the editor after that save shows the orange Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:adding required visual detail uat-585-scratch to a Concept-only fact raises hasVisualStrategyOverride`; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:reopening the editor after saving a real override shows the orange Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag`
 
 ### 6. Clearing that override lowers the badge again
 
@@ -147,9 +139,7 @@ setup.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:removing the uat-585-scratch detail lowers hasVisualStrategyOverride again`
-
-**Deferred:** #631 — 7b — reopening the editor after that save shows no Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:removing the uat-585-scratch detail lowers hasVisualStrategyOverride again`; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:reopening the editor after clearing that override shows no Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag`
 
 ## Regression
 
@@ -163,9 +153,7 @@ archetype, subtype, fit — and no error banner.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:returns the enrichment and enrichmentStatus` — the editor's load request, GET /api/admin/facts/:id, returns the fact's completed enrichment
-
-**Deferred:** #631 — 7b — the enrichment editor rendering archetype, subtype and fit populated with no error banner for a fact with completed enrichment is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:returns the enrichment and enrichmentStatus` — the editor's load request, GET /api/admin/facts/:id, returns the fact's completed enrichment; `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx:a fact with completed enrichment opens with archetype, subtype and fit populated and no error banner`
 
 ### R2. Real override content still reaches the prompt alongside the scene
 

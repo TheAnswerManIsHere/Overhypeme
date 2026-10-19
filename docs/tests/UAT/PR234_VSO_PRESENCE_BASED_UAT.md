@@ -30,9 +30,7 @@ speech bubbles and visual ideas below it, and a red `*` in its header.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminScreens.spec.ts:Moderation Step 2 shows the Visual Concept card near the top with a red * in its header`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns the staging fact's saved Visual Concept (the text the Step-2 card shows)`
-
-**Deferred:** #631 — 7b — the red * required marker in the Visual Concept card header — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`
+**Check:** `artifacts/overhype-me/e2e/adminScreens.spec.ts:Moderation Step 2 shows the Visual Concept card near the top with a red * in its header`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:returns the staging fact's saved Visual Concept (the text the Step-2 card shows)`; `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx:the Visual Concept card header carries a red * required marker`
 
 ### 2. A blank Visual Concept blocks Save
 
@@ -43,9 +41,7 @@ approving" message, and the save is refused.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.candidateEnrichmentEditing.test.ts:PATCH refuses`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:refuses a blank Visual Concept on a new submission's staging fact with 400 visual_concept_required and stores nothing`
-
-**Deferred:** #631 — 7b — VisualConceptCard with a blank concept renders its visual-concept-required line reading the Expect's exact text, Required then describe the picture before saving or approving — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.candidateEnrichmentEditing.test.ts:PATCH refuses`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:refuses a blank Visual Concept on a new submission's staging fact with 400 visual_concept_required and stores nothing`; `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx:a blank concept renders the visual-concept-required line reading exactly: Required — describe the picture before saving or approving.`
 
 ### 3. A blank Visual Concept blocks Approve
 
@@ -81,9 +77,7 @@ first.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:stores each override field saved alone and compiles it into the prompt with no enable flag`
-
-**Deferred:** #631 — 7b — VisualStrategyOverridePanel renders no Core Scene field and no enable toggle, yet still renders the required and forbidden details, role assignments, bubbles and policies fields — `artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:stores each override field saved alone and compiles it into the prompt with no enable flag`; `artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx:renders no Core Scene field and no enable toggle, yet still renders the required and forbidden details, role assignments, bubbles and policies fields`
 
 ### 6. The Facts page enforces the same requirement
 
@@ -95,9 +89,7 @@ and the save is refused with the same message.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminScreens.spec.ts:the Facts page enrichment view shows the Visual Concept card with its required marker`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:refuses a blank Visual Concept on an existing fact with 400 visual_concept_required and leaves the stored concept unchanged`
-
-**Deferred:** #631 — 7b — VisualConceptCard with a blank concept renders its visual-concept-required line reading the Expect's exact text, Required then describe the picture before saving or approving — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`
+**Check:** `artifacts/overhype-me/e2e/adminScreens.spec.ts:the Facts page enrichment view shows the Visual Concept card with its required marker`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:refuses a blank Visual Concept on an existing fact with 400 visual_concept_required and leaves the stored concept unchanged`; `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx:a blank concept renders the visual-concept-required line reading exactly: Required — describe the picture before saving or approving.`
 
 ### 7. A filled override field applies without any toggle
 

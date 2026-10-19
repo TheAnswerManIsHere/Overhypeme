@@ -168,9 +168,7 @@ if any is — it's a one-line change per screen.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpMap.test.ts:builds the href a ? control actually links to`
-
-**Deferred:** #631 — 7b — helpHrefFor for /admin/taxonomy-health, /admin/billing, /admin/email-queue, /admin/facts and /admin returning the Ch. 4, 10 and 12 sections and Ch. 2 and 11 the Expect names — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpMap.test.ts:builds the href a ? control actually links to`; `artifacts/overhype-me/src/components/admin/helpMap.test.ts:links Taxonomy Health, Billing, Email Queue, Facts and the Dashboard to the Ch. 4, 10, 12, 2 and 11 targets the UAT names`
 
 ### 12. A link out of the Manual opens GitHub
 
