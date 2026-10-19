@@ -323,6 +323,72 @@ describe("RuntimePromptPreview", () => {
     expect(warnings.join(" ")).toMatch(/AI scene was used instead/);
   });
 
+  it("shows the moderator_core_scene_owned_language warning's message in the diagnostics when the response carries it", async () => {
+    const message = 'The Visual concept contains identity language the compiler owns ("preserve his recognizable face"). It is rendered verbatim as authored; rewrite it as visible scene description only so the compiler\'s identity/reference/text-policy clauses stay the single source.';
+    const body = previewResponse({
+      compiledPrompt: {
+        prompt: "PROMPT TEXT",
+        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
+        negativePrompt: "",
+        diagnostics: {
+          removedPlannerProseSentences: [],
+          warnings: [{ code: "moderator_core_scene_owned_language", severity: "warning", message }],
+        },
+      },
+    });
+    installFetch({ previewBody: body });
+    render(<RuntimePromptPreview factId={42} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-diagnostics")).toBeTruthy());
+
+    const warnings = screen.getAllByTestId("rpp-tone-warning");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].textContent).toBe(message);
+    expect(warnings[0].textContent).toContain('"preserve his recognizable face"');
+    expect(warnings[0].textContent).toContain("rewrite it as visible scene description only");
+  });
+
+  it("choosing a style in rpp-look-style sends that style's id as lookStyleId in the preview request body", async () => {
+    render(<RuntimePromptPreview factId={42} />);
+    expand();
+    const select = screen.getByTestId("rpp-look-style") as HTMLSelectElement;
+    await waitFor(() => expect(within(select).getByText("Cinematic")).toBeTruthy());
+
+    fireEvent.change(select, { target: { value: "cinematic" } });
+    expect(select.value).toBe("cinematic");
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+
+    await waitFor(() => expect(calls.some((c) => c.url.includes("/api/admin/image-prompt/preview"))).toBe(true));
+    const body = calls.find((c) => c.url.includes("/api/admin/image-prompt/preview"))!.body!;
+    expect(body.lookStyleId).toBe("cinematic");
+  });
+
+  it("lists the bubble_entity_unresolved note in the diagnostics when the preview response carries it", async () => {
+    const message = 'Bubble 1 is attributed to "mailman", which matches no character in the scene (subject, role bindings, or planned secondary characters). The directive still renders; the model may introduce, ignore, or misattribute that character — confirm the render.';
+    const body = previewResponse({
+      compiledPrompt: {
+        prompt: "PROMPT TEXT",
+        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
+        negativePrompt: "",
+        diagnostics: {
+          removedPlannerProseSentences: [],
+          warnings: [{ code: "bubble_entity_unresolved", severity: "warning", message, context: { bubbleIndex: 0, entity: "mailman" } }],
+        },
+      },
+    });
+    installFetch({ previewBody: body });
+    render(<RuntimePromptPreview factId={42} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-diagnostics")).toBeTruthy());
+
+    const warnings = screen.getAllByTestId("rpp-tone-warning");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].textContent).toBe(message);
+    expect(warnings[0].textContent).toContain('attributed to "mailman", which matches no character in the scene');
+  });
+
   it("persists the result to localStorage and restores it on remount (no recompute)", async () => {
     localStorage.clear();
     const { unmount } = render(<RuntimePromptPreview factId={99} />);

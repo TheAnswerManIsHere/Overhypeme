@@ -80,6 +80,47 @@ describe("BubbleEditor", () => {
     expect(warnings[0]!.textContent).toContain("the mailman");
   });
 
+  it("renders the unmatched-entity soft warning in the amber warning style (text-amber-700)", () => {
+    const ov = OV({ bubbles: [bubble({ entity: "the mailman" })] });
+    render(<BubbleEditor value={ov} onChange={vi.fn()} />);
+    const warning = screen.getByText(/doesn't match "subject" or any Scene Role Assignment/);
+    expect(warning.tagName).toBe("P");
+    expect(warning.className).toContain("text-amber-700");
+  });
+
+  it("turns the character counter amber (text-amber-600) at 60+ chars, and keeps it muted below", () => {
+    const { unmount } = render(<BubbleEditor value={OV({ bubbles: [bubble({ text: "x".repeat(60) })] })} onChange={vi.fn()} />);
+    const counter = screen.getByText(/shorter renders more reliably/);
+    expect(counter.textContent).toContain("60/80");
+    expect(counter.className).toContain("text-amber-600");
+    expect(counter.className).not.toContain("text-muted-foreground");
+    unmount();
+
+    render(<BubbleEditor value={OV({ bubbles: [bubble({ text: "x".repeat(59) })] })} onChange={vi.fn()} />);
+    const quiet = screen.getByText("59/80");
+    expect(quiet.className).toContain("text-muted-foreground");
+    expect(quiet.className).not.toContain("text-amber-600");
+  });
+
+  it("the bubble text input refuses characters past 80 (maxLength is the literal 80)", () => {
+    render(<BubbleEditor value={OV({ bubbles: [bubble({ text: "x".repeat(80) })] })} onChange={vi.fn()} />);
+    const input = screen.getByTestId("bubble-text") as HTMLInputElement;
+    expect(input.getAttribute("maxlength")).toBe("80");
+    expect(input.maxLength).toBe(80);
+  });
+
+  it("with four bubbles Add is disabled and the hint reads \"Maximum 4 bubbles\" (literal 4, not MAX_BUBBLES); three still allow Add", () => {
+    const four = OV({ bubbles: Array.from({ length: 4 }, () => bubble()) });
+    const { unmount } = render(<BubbleEditor value={four} onChange={vi.fn()} />);
+    expect((screen.getByTestId("bubble-add") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Maximum 4 bubbles/)).toBeTruthy();
+    unmount();
+
+    render(<BubbleEditor value={OV({ bubbles: Array.from({ length: 3 }, () => bubble()) })} onChange={vi.fn()} />);
+    expect((screen.getByTestId("bubble-add") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/Maximum 4 bubbles/)).toBeNull();
+  });
+
   it("soft-warns when duplicate role-binding labels make tail attribution ambiguous", () => {
     const ov = OV({
       roleBindings: [

@@ -61,4 +61,45 @@ describe("ApprovedFactTextEditModal", () => {
     rerender(<ApprovedFactTextEditModal impact={impact({ persistedMemeCount: 5, liveMemeCount: 4 })} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.getByText(/keep the OLD wording/i)).toBeTruthy();
   });
+
+  it("renders the stored text struck through (line-through) with the normalized proposed text beside it", () => {
+    render(<ApprovedFactTextEditModal impact={impact()} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    const oldEl = screen.getByText("OLD wording.");
+    expect(oldEl.className).toContain("line-through");
+    const newEl = screen.getByText("NEW wording.");
+    expect(newEl.className).not.toContain("line-through");
+    // old (struck) is listed before new in the same diff block
+    expect(oldEl.compareDocumentPosition(newEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(oldEl.parentElement!.parentElement).toBe(newEl.parentElement!.parentElement);
+  });
+
+  it("always shows the consequence line that the taxonomy will be marked stale for reprocess", () => {
+    render(<ApprovedFactTextEditModal impact={impact({ persistedMemeCount: 0 })} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(
+      screen.getByText(/taxonomy was classified from the old wording; it will be marked stale for reprocess/),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about variants anywhere in the rendered modal", () => {
+    const { container, rerender } = render(<ApprovedFactTextEditModal impact={impact()} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(container.textContent ?? "").not.toMatch(/variant/i);
+    rerender(<ApprovedFactTextEditModal impact={impact({ persistedMemeCount: 5, liveMemeCount: 4, refreshInFlight: true })} busy={false} error={null} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(container.textContent ?? "").not.toMatch(/variant/i);
+  });
+
+  it("requires exactly the literal phrase CHANGE APPROVED FACT TEXT (pinned, not read from the production export)", () => {
+    const onConfirm = vi.fn();
+    render(<ApprovedFactTextEditModal impact={impact()} busy={false} error={null} onConfirm={onConfirm} onCancel={vi.fn()} />);
+    const confirm = screen.getByTestId("approved-fact-text-edit-confirm") as HTMLButtonElement;
+    fireEvent.change(screen.getByTestId("approved-fact-text-edit-reason"), { target: { value: "a properly long reason" } });
+    fireEvent.change(screen.getByTestId("approved-fact-text-edit-phrase"), { target: { value: "CHANGE APPROVED FACT TEXT" } });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ phrase: "CHANGE APPROVED FACT TEXT" }));
+    // A near-miss of the literal keeps it disabled.
+    fireEvent.change(screen.getByTestId("approved-fact-text-edit-phrase"), { target: { value: "CHANGE APPROVED FACT TEXT " } });
+    expect(confirm.disabled).toBe(true);
+    // And the modal tells the admin to type that literal.
+    expect(screen.getByText("CHANGE APPROVED FACT TEXT")).toBeTruthy();
+  });
 });
