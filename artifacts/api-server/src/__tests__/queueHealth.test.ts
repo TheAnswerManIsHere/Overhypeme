@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { db } from "@workspace/db";
 import { asyncJobsTable, workerLaneHeartbeatsTable } from "@workspace/db/schema";
-import { inArray, like } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 
 import {
   deriveDisplayStatus,
@@ -16,6 +16,8 @@ import {
 import { WORKER_PROTOCOL_VERSION } from "../lib/workerHeartbeats.js";
 import {
   __resetHandlersForTest,
+  asyncJobsTick,
+  enqueueJob,
   registerJobHandler,
   staleThresholdMs,
   widestStaleThresholdMs,
@@ -388,6 +390,35 @@ describe("queueHealth — aggregate and per-item altitudes agree", () => {
   it("caps limit at 100 so the per-item endpoint cannot be used to dump the table", async () => {
     const page = await queueHealthJobs({ limit: 100_000 }, db);
     assert.equal(page.limit, 100);
+  });
+
+  it("shows no error for a job that failed and then succeeded on retry, and keeps it while the retry is pending (#692)", async () => {
+    // PR582 step 1: a recovered job must not still carry its crash message.
+    const queue = testQueue();
+    const crash = "Cannot read properties of undefined (reading 'forEach')";
+    let calls = 0;
+    registerJobHandler(queue, {
+      async run() {
+        calls += 1;
+        if (calls === 1) throw new TypeError(crash);
+        return { ok: true };
+      },
+    }, { lane: "bulk" });
+    const { jobId: id } = await enqueueJob({ queue, payload: {} }, db);
+
+    // First run crashes: the job waits for its retry and still shows why.
+    await asyncJobsTick(db, new Date(), { queues: [queue] });
+    let page = await queueHealthJobs({ queue }, db);
+    assert.equal(page.rows[0]?.status, "pending");
+    assert.equal(page.rows[0]?.lastError, crash, "a job whose latest outcome was a failure keeps its error");
+
+    // The retry comes due and succeeds.
+    await db.update(asyncJobsTable).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(asyncJobsTable.id, id));
+    await asyncJobsTick(db, new Date(), { queues: [queue] });
+    page = await queueHealthJobs({ queue }, db);
+    assert.equal(page.rows[0]?.status, "done");
+    assert.equal(calls, 2);
+    assert.equal(page.rows[0]?.lastError, null, "a job that finished successfully shows no error");
   });
 
   it("truncates lastError rather than returning a full provider stack trace", async () => {
