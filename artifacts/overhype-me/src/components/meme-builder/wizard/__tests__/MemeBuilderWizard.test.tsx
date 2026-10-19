@@ -172,9 +172,11 @@ describe("MemeBuilderWizard", () => {
   describe("saving from Step 2 with a stock photo already chosen", () => {
     const PERMALINK = "/m/saved-meme-77";
     let memeBodies: Array<Record<string, unknown>>;
+    let stockPhotos: Array<{ id: number; url: string }>;
 
     beforeEach(() => {
       memeBodies = [];
+      stockPhotos = [];
       window.history.pushState({}, "", "/");
       vi.stubGlobal(
         "fetch",
@@ -185,7 +187,9 @@ describe("MemeBuilderWizard", () => {
             memeBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
             body = { memeId: 77, permalinkUrl: PERMALINK };
           } else if (url.includes("/pexels-images")) {
-            body = { photos: [], hasMore: false };
+            body = { photos: stockPhotos, hasMore: false };
+          } else if (url.includes("/api/users/me/uploads")) {
+            body = { uploads: [], uploadCount: 0, maxUploads: 5 };
           }
           return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) } as Response);
         }),
@@ -247,7 +251,7 @@ describe("MemeBuilderWizard", () => {
       expect(onComplete).toHaveBeenCalledWith({ kind: "saved", memeId: "", permalinkUrl: PERMALINK });
     });
 
-    it("closing the upgrade modal leaves Public selected and the in-progress meme intact", async () => {
+    it("closing the upgrade modal leaves Public selected and the in-progress meme intact, and saving it then sends Public", async () => {
       const { onComplete } = openStep2WithPhoto("registered", false);
       await screen.findByRole("heading", { name: /build your meme/i }, S2);
 
@@ -273,6 +277,39 @@ describe("MemeBuilderWizard", () => {
       expect(draft.isPublic).toBe(true);
       expect(onComplete).not.toHaveBeenCalled();
       expect(memeBodies).toHaveLength(0);
+
+      // Saving that same draft after the upsell is dismissed still sends Public.
+      fireEvent.click(screen.getByRole("button", { name: "Make my meme" }));
+      await waitFor(() => expect(memeBodies).toHaveLength(1), S2);
+      expect(memeBodies[0]!.isPublic).toBe(true);
+      await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);
+    });
+
+    it("built from Step 1 with no draft: Image, the Stock tab's first photo auto-picked, saved public, lands on the permalink", async () => {
+      window.sessionStorage.clear();
+      stockPhotos = [{ id: 555, url: "https://images.example/555.jpg" }];
+      const { onComplete } = renderWizard({
+        viewerContext: {
+          ...VIEWER,
+          entitlements: { meme_private_visibility: { allowed: false, limit: null } },
+        },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
+      await screen.findByRole("heading", { name: /build your meme/i }, S2);
+      fireEvent.click(screen.getByTestId("source-tab-stock"));
+      await waitFor(() => expect(screen.getByTestId("stock-thumb-555").getAttribute("aria-checked")).toBe("true"), S2);
+      // The pick has reached the wizard's draft, not only the thumbnail.
+      await waitFor(() => {
+        const draft = JSON.parse(window.sessionStorage.getItem("pending_meme_wizard_v2::fact-42") ?? "{}");
+        expect(draft.source).toEqual({ kind: "stock", stockImageId: "555" });
+      }, S2);
+
+      fireEvent.click(screen.getByRole("button", { name: "Make my meme" }));
+      await waitFor(() => expect(memeBodies).toHaveLength(1), S2);
+      expect(memeBodies[0]!.imageSource).toEqual({ type: "stock", pexelsPhotoId: 555 });
+      expect(memeBodies[0]!.isPublic).toBe(true);
+      await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);
+      expect(onComplete).toHaveBeenCalledWith({ kind: "saved", memeId: "", permalinkUrl: PERMALINK });
     });
   });
 

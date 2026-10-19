@@ -1501,11 +1501,6 @@
        "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
        "line": 141,
        "quote": "expect(el.getAttribute(\"maxlength\")).toBe(\"1500\");"
-      },
-      {
-       "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
-       "line": 146,
-       "quote": "expect(screen.getByText(\"1500/1500\")).toBeTruthy();"
       }
      ],
      "fails_because": "the textarea does not cap at 1500 or the counter does not read 1500/1500",
@@ -1515,11 +1510,6 @@
      "text": "its counter reads 1500/1500",
      "status": "asserted",
      "evidence": [
-      {
-       "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
-       "line": 141,
-       "quote": "expect(el.getAttribute(\"maxlength\")).toBe(\"1500\");"
-      },
       {
        "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
        "line": 146,
@@ -2548,11 +2538,6 @@
        "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
        "line": 115,
        "quote": "expect((screen.getByTestId(\"bubble-add\") as HTMLButtonElement).disabled).toBe(true);"
-      },
-      {
-       "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
-       "line": 116,
-       "quote": "expect(screen.getByText(/Maximum 4 bubbles/)).toBeTruthy();"
       }
      ],
      "fails_because": "Add is enabled at four bubbles or the hint does not read Maximum 4 bubbles",
@@ -2562,11 +2547,6 @@
      "text": "the hint reads Maximum 4",
      "status": "asserted",
      "evidence": [
-      {
-       "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
-       "line": 115,
-       "quote": "expect((screen.getByTestId(\"bubble-add\") as HTMLButtonElement).disabled).toBe(true);"
-      },
       {
        "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
        "line": 116,
@@ -3039,11 +3019,6 @@
        "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
        "line": 222,
        "quote": "expect(screen.queryByText(/core scene/i)).toBeNull();"
-      },
-      {
-       "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
-       "line": 234,
-       "quote": "expect(screen.getByText(\"Forbidden Visual Details\")).toBeTruthy();"
       }
      ],
      "fails_because": "the panel renders a Core Scene field or drops the other override fields",
@@ -3055,16 +3030,16 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
-       "line": 222,
-       "quote": "expect(screen.queryByText(/core scene/i)).toBeNull();"
+       "line": 224,
+       "quote": "expect(screen.queryByLabelText(/enable/i)).toBeNull();"
       },
       {
        "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
-       "line": 234,
-       "quote": "expect(screen.getByText(\"Forbidden Visual Details\")).toBeTruthy();"
+       "line": 230,
+       "quote": "expect(checkboxLabels).toEqual([\"Override supporting-text policy\", \"Override violence policy\"]);"
       }
      ],
-     "fails_because": "the panel renders a Core Scene field or drops the other override fields",
+     "fails_because": "the override UI has an enable toggle",
      "gap_clause": null
     },
     {
@@ -3073,16 +3048,21 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
-       "line": 222,
-       "quote": "expect(screen.queryByText(/core scene/i)).toBeNull();"
+       "line": 233,
+       "quote": "expect(screen.getByText(\"Required Visual Details\")).toBeTruthy();"
       },
       {
        "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
-       "line": 234,
-       "quote": "expect(screen.getByText(\"Forbidden Visual Details\")).toBeTruthy();"
+       "line": 235,
+       "quote": "expect(screen.getByText(\"Scene Role Assignments\")).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
+       "line": 236,
+       "quote": "expect(screen.getByText(\"Speech & Thought Bubbles\")).toBeTruthy();"
       }
      ],
-     "fails_because": "the panel renders a Core Scene field or drops the other override fields",
+     "fails_because": "one of the other override fields is gone",
      "gap_clause": null
     },
     {
@@ -4294,11 +4274,6 @@
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
        "line": 174,
        "quote": "expect(panel.compareDocumentPosition(totalCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();"
-      },
-      {
-       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 185,
-       "quote": "expect(screen.getByTestId(\"bulk-media-backfill-panel\").contains(aiBtn)).toBe(true);"
       }
      ],
      "fails_because": "the panel is not above the cards or disappears under another filter",
@@ -4315,11 +4290,6 @@
      "text": "it is visible regardless of which health card filter is selected",
      "status": "asserted",
      "evidence": [
-      {
-       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 174,
-       "quote": "expect(panel.compareDocumentPosition(totalCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();"
-      },
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
        "line": 185,
@@ -4457,11 +4427,6 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 241,
-       "quote": "expect(message).toContain(\"This calls paid OpenAI/fal.ai APIs.\");"
-      },
-      {
-       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
        "line": 243,
        "quote": "() => expect(screen.getByTestId(\"bulk-backfill-ai-memes-status\").textContent).toBe(\"2 of 2 done\"),"
       }
@@ -4477,11 +4442,6 @@
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
        "line": 241,
        "quote": "expect(message).toContain(\"This calls paid OpenAI/fal.ai APIs.\");"
-      },
-      {
-       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 243,
-       "quote": "() => expect(screen.getByTestId(\"bulk-backfill-ai-memes-status\").textContent).toBe(\"2 of 2 done\"),"
       }
      ],
      "fails_because": "the confirmation does not name the paid calls or the status line does not read N of M done",
@@ -6234,10 +6194,20 @@
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
        "line": 395,
+       "quote": "expect(screen.getByText(\"Legendary for Life Purchase\")).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 396,
        "quote": "expect(screen.getByText(\"Refund\")).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 397,
+       "quote": "expect(screen.getByText(\"Dispute Opened\")).toBeTruthy();"
       }
      ],
-     "fails_because": "the payment history does not list the refund entry with its label",
+     "fails_because": "the payment history does not list the purchase, refund or dispute entry with its label",
      "gap_clause": null
     }
    ]
@@ -6894,11 +6864,6 @@
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
        "line": 170,
        "quote": "const back = screen.getByRole(\"button\", { name: \"BACK TO FACT\" });"
-      },
-      {
-       "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 174,
-       "quote": "expect(setLocationMock).toHaveBeenCalledWith(\"/facts/123\");"
       }
      ],
      "fails_because": "the back link does not read BACK TO FACT or does not point at the fact",
@@ -6908,11 +6873,6 @@
      "text": "tapping the back link takes you to that fact",
      "status": "asserted",
      "evidence": [
-      {
-       "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 170,
-       "quote": "const back = screen.getByRole(\"button\", { name: \"BACK TO FACT\" });"
-      },
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
        "line": 174,
@@ -8540,12 +8500,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 232,
+       "line": 236,
        "quote": "expect(memeBodies[0]!.isPublic).toBe(false);"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 233,
+       "line": 237,
        "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
       }
      ],
@@ -8712,12 +8672,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 245,
+       "line": 249,
        "quote": "expect(memeBodies[0]!.isPublic).toBe(true);"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 246,
+       "line": 250,
        "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
       }
      ],
@@ -8815,12 +8775,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 232,
+       "line": 236,
        "quote": "expect(memeBodies[0]!.isPublic).toBe(false);"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 233,
+       "line": 237,
        "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
       }
      ],
@@ -8984,16 +8944,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 261,
+       "line": 265,
        "quote": "expect(screen.getByTestId(\"meme-visibility-public\").getAttribute(\"aria-pressed\")).toBe(\"true\");"
-      },
-      {
-       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 270,
-       "quote": "expect(draft.currentStep).toBe(2);"
       }
      ],
-     "fails_because": "closing the modal changes the selection or loses the in-progress meme",
+     "fails_because": "closing the modal changes the selection",
      "gap_clause": null
     },
     {
@@ -9002,16 +8957,16 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 261,
-       "quote": "expect(screen.getByTestId(\"meme-visibility-public\").getAttribute(\"aria-pressed\")).toBe(\"true\");"
+       "line": 274,
+       "quote": "expect(draft.currentStep).toBe(2);"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 270,
-       "quote": "expect(draft.currentStep).toBe(2);"
+       "line": 275,
+       "quote": "expect(draft.source).toEqual({ kind: \"stock\", stockImageId: \"777\" });"
       }
      ],
-     "fails_because": "closing the modal changes the selection or loses the in-progress meme",
+     "fails_because": "closing the modal loses the in-progress meme",
      "gap_clause": null
     }
    ]
@@ -9041,16 +8996,16 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 245,
+       "line": 284,
        "quote": "expect(memeBodies[0]!.isPublic).toBe(true);"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 246,
+       "line": 285,
        "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
       }
      ],
-     "fails_because": "the save does not post isPublic true or does not navigate to the permalink",
+     "fails_because": "saving after the upsell is closed does not send Public or land on the permalink",
      "gap_clause": null
     },
     {
@@ -9172,16 +9127,21 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 245,
-       "quote": "expect(memeBodies[0]!.isPublic).toBe(true);"
+       "line": 297,
+       "quote": "fireEvent.click(screen.getByRole(\"button\", { name: /^image$/i }));"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 246,
+       "line": 309,
+       "quote": "expect(memeBodies[0]!.imageSource).toEqual({ type: \"stock\", pexelsPhotoId: 555 });"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 311,
        "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
       }
      ],
-     "fails_because": "the save does not post isPublic true or does not navigate to the permalink",
+     "fails_because": "a meme built from Step 1 does not save the picked photo or does not land on the permalink",
      "gap_clause": null
     }
    ]
@@ -10630,11 +10590,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
-       "line": 76,
-       "quote": "expect(helpHrefFor(\"/admin/billing\")).toBe(\"/admin/help/10-payments-and-membership#for-the-admin\");"
+       "line": 75,
+       "quote": "expect(helpHrefFor(\"/admin/taxonomy-health\")).toBe("
       }
      ],
-     "fails_because": "a page's help link does not reach the section the UAT names",
+     "fails_because": "the Taxonomy Health help link does not reach Ch. 4's Taxonomy Health section",
      "gap_clause": null
     },
     {
@@ -10644,10 +10604,10 @@
       {
        "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
        "line": 76,
-       "quote": "expect(helpHrefFor(\"/admin/billing\")).toBe(\"/admin/help/10-payments-and-membership#for-the-admin\");"
+       "quote": "expect(helpHrefFor(\"/admin/billing\")).toBe("
       }
      ],
-     "fails_because": "a page's help link does not reach the section the UAT names",
+     "fails_because": "the Billing help link does not reach Ch. 10 § For the admin",
      "gap_clause": null
     },
     {
@@ -10656,11 +10616,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
-       "line": 76,
-       "quote": "expect(helpHrefFor(\"/admin/billing\")).toBe(\"/admin/help/10-payments-and-membership#for-the-admin\");"
+       "line": 77,
+       "quote": "expect(helpHrefFor(\"/admin/email-queue\")).toBe("
       }
      ],
-     "fails_because": "a page's help link does not reach the section the UAT names",
+     "fails_because": "the Email Queue help link does not reach Ch. 12's email section",
      "gap_clause": null
     },
     {
@@ -10669,11 +10629,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
-       "line": 76,
-       "quote": "expect(helpHrefFor(\"/admin/billing\")).toBe(\"/admin/help/10-payments-and-membership#for-the-admin\");"
+       "line": 78,
+       "quote": "expect(helpHrefFor(\"/admin/facts\")).toBe("
       }
      ],
-     "fails_because": "a page's help link does not reach the section the UAT names",
+     "fails_because": "the Facts help link does not reach Ch. 2",
      "gap_clause": null
     },
     {
@@ -10682,11 +10642,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
-       "line": 76,
-       "quote": "expect(helpHrefFor(\"/admin/billing\")).toBe(\"/admin/help/10-payments-and-membership#for-the-admin\");"
+       "line": 79,
+       "quote": "expect(helpHrefFor(\"/admin\")).toBe("
       }
      ],
-     "fails_because": "a page's help link does not reach the section the UAT names",
+     "fails_because": "the Dashboard help link does not reach Ch. 11",
      "gap_clause": null
     }
    ]
@@ -10995,11 +10955,6 @@
        "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
        "line": 278,
        "quote": "\"This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ.\","
-      },
-      {
-       "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
-       "line": 282,
-       "quote": "expect(boxText).not.toMatch(/\\bthe deployment (is|has)\\b/i);"
       }
      ],
      "fails_because": "the scope line does not read the exact text, or claims the deployment is or has",
@@ -11031,11 +10986,6 @@
        "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
        "line": 278,
        "quote": "\"This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ.\","
-      },
-      {
-       "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
-       "line": 282,
-       "quote": "expect(boxText).not.toMatch(/\\bthe deployment (is|has)\\b/i);"
       }
      ],
      "fails_because": "the scope line does not read the exact text, or claims the deployment is or has",
@@ -11047,16 +10997,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
-       "line": 278,
-       "quote": "\"This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ.\","
-      },
-      {
-       "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
        "line": 282,
        "quote": "expect(boxText).not.toMatch(/\\bthe deployment (is|has)\\b/i);"
       }
      ],
-     "fails_because": "the scope line does not read the exact text, or claims the deployment is or has",
+     "fails_because": "the box claims something about the deployment as a whole",
      "gap_clause": null
     }
    ]
@@ -11457,11 +11402,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx",
-       "line": 766,
-       "quote": "expect(sent?.requiredVisualDetails).toEqual([\"adult head on a newborn body\", \"uat-582-scratch\"]);"
+       "line": 760,
+       "quote": "expect(ok).toBe(true);"
       }
      ],
-     "fails_because": "the PATCH does not carry the newly added required visual detail",
+     "fails_because": "the save does not complete",
      "gap_clause": null
     },
     {
@@ -11567,11 +11512,6 @@
        "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
        "line": 483,
        "quote": "expect(values).toContain(\"strong\"); // overhype fit"
-      },
-      {
-       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
-       "line": 487,
-       "quote": "expect(document.querySelector(\".text-destructive\")).toBeNull();"
       }
      ],
      "fails_because": "the classification fields are not populated or an error banner shows",
@@ -11583,16 +11523,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
-       "line": 483,
-       "quote": "expect(values).toContain(\"strong\"); // overhype fit"
-      },
-      {
-       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
        "line": 487,
        "quote": "expect(document.querySelector(\".text-destructive\")).toBeNull();"
       }
      ],
-     "fails_because": "the classification fields are not populated or an error banner shows",
+     "fails_because": "an error banner shows",
      "gap_clause": null
     }
    ]
@@ -11656,11 +11591,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
-       "line": 497,
-       "quote": "expect(screen.queryByText(\"Overridden:\")).toBeNull();"
+       "line": 500,
+       "quote": "expect(values).toEqual(expect.arrayContaining([\"superhuman_physical_feat\", \"force_scaled_action\", \"strong\", \"medium\"]));"
       }
      ],
-     "fails_because": "the Overridden bar shows when only the Visual Concept is set",
+     "fails_because": "the classification fields are not populated when only the Visual Concept is set",
      "gap_clause": null
     }
    ]
@@ -11887,11 +11822,6 @@
        "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
        "line": 483,
        "quote": "expect(values).toContain(\"strong\"); // overhype fit"
-      },
-      {
-       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
-       "line": 487,
-       "quote": "expect(document.querySelector(\".text-destructive\")).toBeNull();"
       }
      ],
      "fails_because": "the classification fields are not populated or an error banner shows",
@@ -11903,16 +11833,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
-       "line": 483,
-       "quote": "expect(values).toContain(\"strong\"); // overhype fit"
-      },
-      {
-       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
        "line": 487,
        "quote": "expect(document.querySelector(\".text-destructive\")).toBeNull();"
       }
      ],
-     "fails_because": "the classification fields are not populated or an error banner shows",
+     "fails_because": "an error banner shows",
      "gap_clause": null
     }
    ]
@@ -11980,7 +11905,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 451,
+       "line": 452,
        "quote": "expect(screen.getByText(\"September 29, 2026\")).toBeTruthy();"
       }
      ],
@@ -12090,13 +12015,8 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 413,
+       "line": 414,
        "quote": "expect(screen.getByText(\"Legendary for Life — access never expires\", { selector: \"span\" })).toBeTruthy();"
-      },
-      {
-       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 415,
-       "quote": "expect(screen.queryByRole(\"button\", { name: /Reactivate Subscription/i })).toBeNull();"
       }
      ],
      "fails_because": "the lifetime card does not read Legendary for Life, or shows Reactivate Subscription",
@@ -12148,15 +12068,25 @@
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
        "line": 413,
-       "quote": "expect(screen.getByText(\"Legendary for Life — access never expires\", { selector: \"span\" })).toBeTruthy();"
+       "quote": "await screen.findByRole(\"button\", { name: /Manage billing/i });"
       },
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 415,
+       "line": 416,
        "quote": "expect(screen.queryByRole(\"button\", { name: /Reactivate Subscription/i })).toBeNull();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 417,
+       "quote": "expect(screen.queryByRole(\"button\", { name: /Switch to Annual/i })).toBeNull();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 418,
+       "quote": "expect(screen.queryByRole(\"button\", { name: /Cancel Subscription/i })).toBeNull();"
       }
      ],
-     "fails_because": "the lifetime card does not read Legendary for Life, or shows Reactivate Subscription",
+     "fails_because": "the lifetime card lacks Manage billing or offers another control",
      "gap_clause": null
     }
    ]
@@ -12173,7 +12103,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 433,
+       "line": 434,
        "quote": "expect(await screen.findByText(\"Free Plan\")).toBeTruthy();"
       }
      ],
@@ -12225,16 +12155,16 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 512,
+       "line": 513,
        "quote": "expect(await screen.findByText(\"Subscription cancelled\")).toBeTruthy();"
       },
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 521,
-       "quote": "expect(await screen.findByRole(\"button\", { name: /Cancel Subscription/i })).toBeTruthy();"
+       "line": 514,
+       "quote": "expect(screen.getByText(\"September 29, 2026\")).toBeTruthy();"
       }
      ],
-     "fails_because": "cancel does not show Subscription cancelled with the renewal date and Reactivate, or reactivate does not bring Cancel Subscription back",
+     "fails_because": "the card does not report the subscription ending on the renewal date",
      "gap_clause": null
     },
     {
@@ -12243,16 +12173,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 512,
-       "quote": "expect(await screen.findByText(\"Subscription cancelled\")).toBeTruthy();"
-      },
-      {
-       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 521,
-       "quote": "expect(await screen.findByRole(\"button\", { name: /Cancel Subscription/i })).toBeTruthy();"
+       "line": 515,
+       "quote": "const reactivate = await screen.findByRole(\"button\", { name: /Reactivate Subscription/i });"
       }
      ],
-     "fails_because": "cancel does not show Subscription cancelled with the renewal date and Reactivate, or reactivate does not bring Cancel Subscription back",
+     "fails_because": "the cancelled card does not offer Reactivate Subscription",
      "gap_clause": null
     },
     {
@@ -12261,16 +12186,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 512,
-       "quote": "expect(await screen.findByText(\"Subscription cancelled\")).toBeTruthy();"
-      },
-      {
-       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 521,
-       "quote": "expect(await screen.findByRole(\"button\", { name: /Cancel Subscription/i })).toBeTruthy();"
+       "line": 516,
+       "quote": "expect(screen.queryByRole(\"button\", { name: /Cancel Subscription/i })).toBeNull();"
       }
      ],
-     "fails_because": "cancel does not show Subscription cancelled with the renewal date and Reactivate, or reactivate does not bring Cancel Subscription back",
+     "fails_because": "Cancel Subscription is still offered after the cancel",
      "gap_clause": null
     },
     {
@@ -12286,16 +12206,11 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 512,
-       "quote": "expect(await screen.findByText(\"Subscription cancelled\")).toBeTruthy();"
-      },
-      {
-       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 521,
+       "line": 522,
        "quote": "expect(await screen.findByRole(\"button\", { name: /Cancel Subscription/i })).toBeTruthy();"
       }
      ],
-     "fails_because": "cancel does not show Subscription cancelled with the renewal date and Reactivate, or reactivate does not bring Cancel Subscription back",
+     "fails_because": "Reactivate does not bring Cancel Subscription back",
      "gap_clause": null
     },
     {
@@ -12456,13 +12371,8 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 468,
-       "quote": "expect(screen.getByText(/^Monthly subscription/)).toBeTruthy();"
-      },
-      {
-       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
        "line": 469,
-       "quote": "expect(screen.getByText(\"$3.99/month\")).toBeTruthy();"
+       "quote": "expect(screen.getByText(/^Monthly subscription/)).toBeTruthy();"
       }
      ],
      "fails_because": "the plan label does not read Monthly or the price line does not read $3.99/month",
@@ -12474,12 +12384,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 468,
-       "quote": "expect(screen.getByText(/^Monthly subscription/)).toBeTruthy();"
-      },
-      {
-       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 469,
+       "line": 470,
        "quote": "expect(screen.getByText(\"$3.99/month\")).toBeTruthy();"
       }
      ],
@@ -12564,7 +12469,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
-       "line": 413,
+       "line": 414,
        "quote": "expect(screen.getByText(\"Legendary for Life — access never expires\", { selector: \"span\" })).toBeTruthy();"
       }
      ],

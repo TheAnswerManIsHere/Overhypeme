@@ -356,9 +356,10 @@ describe("SubscriptionPanel after a plan switch the mirror has not caught up to"
   });
 });
 
-/** A renewal date at midday UTC so it formats to the same calendar day in any
- *  timezone the suite runs under. */
-const MIDDAY_APP_SUB = { ...ACTIVE_MONTHLY_APP_SUB, currentPeriodEnd: "2026-09-29T12:00:00.000Z" };
+/** A renewal date at local noon on 2026-09-29, serialized to ISO. Built from
+ *  local time, so the card formats it as September 29 whatever timezone the
+ *  suite runs under (a fixed UTC instant reads as September 30 from UTC+12). */
+const MIDDAY_APP_SUB = { ...ACTIVE_MONTHLY_APP_SUB, currentPeriodEnd: new Date(2026, 8, 29, 12).toISOString() };
 
 describe("SubscriptionPanel card text the UAT steps name", () => {
   beforeEach(() => {

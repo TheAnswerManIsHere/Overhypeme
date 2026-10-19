@@ -140,7 +140,7 @@ selected with your in-progress meme intact.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:shows a registered creator the upsell instead of letting them pick private` — tapping Private opens the upgrade modal's Go Legendary to keep memes private copy; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:closing the upgrade modal leaves Public selected and the in-progress meme intact`
+**Check:** `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx:locks private for a registered viewer: upsells instead of selecting`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:shows a registered creator the upsell instead of letting them pick private` — tapping Private opens the upgrade modal's Go Legendary to keep memes private copy; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:closing the upgrade modal leaves Public selected and the in-progress meme intact, and saving it then sends Public`
 
 ### 9. A registered account's meme still saves public
 
@@ -151,7 +151,7 @@ hasn't changed.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`; `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=true and answers 201 when a registered non-admin explicitly asks for public`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:serves a public meme to a logged-out caller as a decodable image`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:saving with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink`
+**Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:still defaults to public when isPublic is omitted, at every tier`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:a public meme is visible to anyone`; `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=true and answers 201 when a registered non-admin explicitly asks for public`; `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:serves a public meme to a logged-out caller as a decodable image`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:saving with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink`; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:closing the upgrade modal leaves Public selected and the in-progress meme intact, and saving it then sends Public`
 
 ### 10. Logged-out visitors still see no control
 
@@ -186,7 +186,7 @@ finish.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: an ordinary free account saves a public photo meme; anyone reads its permalink and its composed image, the image decoded; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:saving with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink`
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: an ordinary free account saves a public photo meme; anyone reads its permalink and its composed image, the image decoded; `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:built from Step 1 with no draft: Image, the Stock tab's first photo auto-picked, saved public, lands on the permalink`
 
 ## Not bugs
 
