@@ -213,3 +213,28 @@ describe("VisualStrategyOverridePanel — token chips", () => {
     expect(screen.getByText("Network error — could not tokenize.")).toBeTruthy();
   });
 });
+
+describe("VisualStrategyOverridePanel — presence-based layout (no Core Scene, no enable toggle)", () => {
+  it("renders no Core Scene field and no enable toggle, yet still renders the required and forbidden details, role assignments, bubbles and policies fields", () => {
+    render(<VisualStrategyOverridePanel value={enabledOverride()} onChange={() => {}} />);
+
+    // Gone: the Core Scene field (it lives on VisualConceptCard) and any enable toggle.
+    expect(screen.queryByText(/core scene/i)).toBeNull();
+    expect(screen.queryByTestId("visual-concept-textarea")).toBeNull();
+    expect(screen.queryByLabelText(/enable/i)).toBeNull();
+    expect(screen.queryByText(/enable/i)).toBeNull();
+    // The only checkboxes are the two policy overrides — neither is an enable toggle.
+    const checkboxLabels = screen
+      .getAllByRole("checkbox")
+      .map((c) => c.closest("label")?.textContent?.trim());
+    expect(checkboxLabels).toEqual(["Override supporting-text policy", "Override violence policy"]);
+
+    // Still there: each field renders on its own, with no toggle to flip first.
+    expect(screen.getByText("Required Visual Details")).toBeTruthy();
+    expect(screen.getByText("Forbidden Visual Details")).toBeTruthy();
+    expect(screen.getByText("Scene Role Assignments")).toBeTruthy();
+    expect(screen.getByText("Speech & Thought Bubbles")).toBeTruthy();
+    expect(screen.getByText("Override supporting-text policy")).toBeTruthy();
+    expect(screen.getByText("Override violence policy")).toBeTruthy();
+  });
+});

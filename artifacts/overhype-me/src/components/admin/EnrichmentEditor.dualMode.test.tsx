@@ -12,10 +12,17 @@
  *    override endpoints.
  */
 
-import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { useState } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  type FactEnrichment,
+  type VisualPromptStrategyOverride,
+} from "@workspace/api-zod";
 import { EnrichmentEditor, type EnrichmentOverrideContext } from "./EnrichmentEditor";
+import { VisualConceptCard } from "./VisualConceptCard";
+import { useFactEnrichmentEditing, type EnrichmentEditTarget } from "./useFactEnrichmentEditing";
 
 const BASELINE: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
@@ -219,3 +226,306 @@ describe("EnrichmentEditor dual mode (review hashtags + override decoration)", (
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+
+// ── Opening the editor from the SAVED enrichment (no supplied override flag) ───
+//
+// The UAT steps below reopen the editor after a save, and the "Overridden"
+// bar must come from what the server stored. So these tests drive the real
+// `useFactEnrichmentEditing` hook against a stateful fetch stub that keeps the
+// saved enrichment and derives `overrideSummary.hasVisualStrategyOverride` from
+// it the way the server does: any override content other than the Visual
+// Concept (core scene) counts.
+
+type Summary = EnrichmentOverrideContext["summary"];
+
+function summaryFromSaved(e: FactEnrichment): Summary {
+  const ov = e.visualPromptStrategyOverride;
+  const hasReal =
+    !!ov &&
+    (ov.requiredVisualDetails.length > 0 ||
+      ov.forbiddenVisualDetails.length > 0 ||
+      ov.roleBindings.length > 0 ||
+      ov.bubbles.length > 0 ||
+      ov.compositionGuidance.length > 0 ||
+      ov.styleAgnosticPromptAdditions.length > 0 ||
+      ov.negativePromptAdditions.length > 0 ||
+      !!ov.moderatorIntent?.trim() ||
+      !!ov.subjectRealizationOverride ||
+      !!ov.supportingTextPolicyOverride ||
+      !!ov.violencePolicyOverride);
+  return {
+    hasOverrides: false,
+    overriddenPaths: [],
+    baselineChangedPaths: [],
+    invalidPaths: [],
+    crossFieldInvalid: false,
+    hasVisualStrategyOverride: hasReal,
+  } as Summary;
+}
+
+/** In-memory server: PATCH stores what it is sent; every later GET reads it back. */
+function statefulServer(initial: FactEnrichment) {
+  const state = { saved: initial };
+  const patches: { url: string; body: { enrichment: FactEnrichment } }[] = [];
+  const resolvedReads: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, opts?: RequestInit) => {
+      const u = String(url);
+      const method = opts?.method ?? "GET";
+      const json = (b: unknown) =>
+        new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u === "/api/ai/tokenize-enrichment" && method === "POST") {
+        const body = JSON.parse(String(opts!.body)) as { entries: { path: string; value: string }[] };
+        return json({ results: body.entries.map((e) => ({ path: e.path, value: e.value, changed: false, usedLlm: false })) });
+      }
+      if (method === "PATCH" && /\/(candidate-)?enrichment$/.test(u)) {
+        const body = JSON.parse(String(opts!.body)) as { enrichment: FactEnrichment };
+        patches.push({ url: u, body });
+        state.saved = body.enrichment;
+        return json({ enrichment: state.saved });
+      }
+      if (u.endsWith("/enrichment-resolved") || u.endsWith("/candidate-enrichment-resolved")) {
+        resolvedReads.push(u);
+        return json({
+          aiDerived: BASELINE,
+          overrides: {},
+          effective: state.saved,
+          overrideSummary: summaryFromSaved(state.saved),
+          enrichmentStatus: "ok",
+        });
+      }
+      if (/\/api\/admin\/facts\/\d+$/.test(u)) {
+        return json({ id: 7, enrichment: state.saved, enrichmentStatus: "ok" });
+      }
+      return new Response("{}", { status: 404 });
+    }),
+  );
+  return { state, patches, resolvedReads };
+}
+
+/** The editor as a moderator opens it: loaded by the hook, Visual Concept card beside it. */
+function OpenedEditor({ target }: { target: EnrichmentEditTarget }) {
+  const h = useFactEnrichmentEditing({
+    target,
+    enabled: true,
+    editableUntrackedFields: ["visualPromptStrategyOverride"],
+  });
+  const [saved, setSaved] = useState<boolean | null>(null);
+  return (
+    <div>
+      {h.enrichment && (
+        <VisualConceptCard
+          value={h.enrichment.visualPromptStrategyOverride}
+          onChange={(next) =>
+            h.draft.setValue((prev) => ({ ...(prev as FactEnrichment), visualPromptStrategyOverride: next }))
+          }
+        />
+      )}
+      {h.enrichment && (
+        <EnrichmentEditor
+          value={h.enrichment}
+          status={h.enrichmentStatus}
+          onChange={(next) => h.draft.setValue(next)}
+          overrideContext={h.overrideContext}
+          vsoTokenizing={h.vsoTokenizing}
+          vsoTokenizeErrors={h.vsoTokenizeErrors}
+        />
+      )}
+      <button type="button" onClick={() => void h.tokenizeAndSaveVisualOverride(["David"]).then(setSaved)}>
+        Save the override
+      </button>
+      <span data-testid="save-result">{String(saved)}</span>
+    </div>
+  );
+}
+
+const FACT_TARGET: EnrichmentEditTarget = { kind: "fact", factId: 7 };
+
+function vso(over: Partial<VisualPromptStrategyOverride> = {}): VisualPromptStrategyOverride {
+  return { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, ...over };
+}
+
+/** The container of one StringListEditor, found by its field label. */
+function listEditor(label: string): HTMLElement {
+  let el: HTMLElement | null = screen.getByText(label);
+  while (el && !within(el).queryByRole("button", { name: /^add$/i })) el = el.parentElement;
+  if (!el) throw new Error(`no list editor for ${label}`);
+  return el;
+}
+
+const overriddenBar = () => screen.queryByText("Overridden:")?.parentElement ?? null;
+
+/** Open the editor and wait until the resolved override state has been read and
+ *  applied, so an absent bar means "the saved data says no", not "not loaded yet". */
+async function openAndWait(
+  server: { resolvedReads: string[] },
+  target: EnrichmentEditTarget = FACT_TARGET,
+) {
+  const before = server.resolvedReads.length;
+  render(<OpenedEditor target={target} />);
+  await screen.findByText("AI Visual Classification");
+  await waitFor(() => expect(server.resolvedReads.length).toBeGreaterThan(before));
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+}
+
+/** Click Save, then close and reopen the editor so everything shown is re-read from the server. */
+async function saveAndReopen(
+  server: { resolvedReads: string[] },
+  target: EnrichmentEditTarget = FACT_TARGET,
+) {
+  fireEvent.click(screen.getByRole("button", { name: "Save the override" }));
+  await waitFor(() => expect(screen.getByTestId("save-result").textContent).toBe("true"));
+  cleanup();
+  await openAndWait(server, target);
+}
+
+describe("EnrichmentEditor opened from the saved enrichment (UAT PR582 / PR585 editor clauses)", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("a refresh candidate's enrichment shows the override's core scene and required visual detail text verbatim in its Visual Concept and override fields", async () => {
+    const CORE = "A knight in sparkling armor rides a very slow snail across a supermarket car park";
+    const DETAIL = "a golden spur on the snail's left shell, glinting in the sun";
+    const server = statefulServer(
+      makeCandidateEnrichment(vso({ coreSceneOverride: CORE, requiredVisualDetails: [DETAIL] })),
+    );
+    await openAndWait(server, { kind: "reviewCandidate", reviewId: 31, factId: 42 });
+
+    await waitFor(() =>
+      expect((screen.getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe(CORE),
+    );
+    const required = within(listEditor("Required Visual Details"));
+    expect((required.getByDisplayValue(DETAIL) as HTMLInputElement).value).toBe(DETAIL);
+  });
+
+  it("the Enrichment editor shows no Overridden bar for a fact with no override or only an empty scaffold", async () => {
+    for (const saved of [
+      makeCandidateEnrichment(undefined),
+      makeCandidateEnrichment(EMPTY_VISUAL_STRATEGY_OVERRIDE),
+    ]) {
+      const server = statefulServer(saved);
+      await openAndWait(server);
+      expect(screen.queryByText("Overridden:")).toBeNull();
+      expect(screen.queryByText(/Visual Strategy$/)).toBeNull();
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reopening the editor after saving a new required visual detail shows the saved detail, loaded through the save and reload path", async () => {
+    const server = statefulServer(makeCandidateEnrichment(vso({ coreSceneOverride: "A concept" })));
+    const { patches } = server;
+    await openAndWait(server);
+    expect(within(listEditor("Required Visual Details")).queryByDisplayValue("uat-582-scratch")).toBeNull();
+
+    fireEvent.click(within(listEditor("Required Visual Details")).getByRole("button", { name: /^add$/i }));
+    fireEvent.change(within(listEditor("Required Visual Details")).getByPlaceholderText(/recognizable face/), {
+      target: { value: "uat-582-scratch" },
+    });
+    await saveAndReopen(server);
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].url).toBe("/api/admin/facts/7/enrichment");
+    await waitFor(() =>
+      expect(
+        (within(listEditor("Required Visual Details")).getByDisplayValue("uat-582-scratch") as HTMLInputElement).value,
+      ).toBe("uat-582-scratch"),
+    );
+  });
+
+  it("reopening the editor after saving a real override shows the orange Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag", async () => {
+    const server = statefulServer(makeCandidateEnrichment(vso({ coreSceneOverride: "A concept" })));
+    await openAndWait(server);
+    expect(overriddenBar()).toBeNull();
+
+    fireEvent.click(within(listEditor("Required Visual Details")).getByRole("button", { name: /^add$/i }));
+    fireEvent.change(within(listEditor("Required Visual Details")).getByPlaceholderText(/recognizable face/), {
+      target: { value: "uat-585-scratch" },
+    });
+    // Saving did not raise the bar on the still-open editor: it is read at load.
+    await saveAndReopen(server);
+
+    await waitFor(() => expect(overriddenBar()).not.toBeNull());
+    expect(overriddenBar()!.textContent).toMatch(/^Overridden:\s*Visual Strategy$/);
+    expect(screen.getByText("Overridden:").className).toContain("text-primary");
+  });
+
+  it("reopening the editor after clearing that override shows no Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag", async () => {
+    const server = statefulServer(
+      makeCandidateEnrichment(vso({ coreSceneOverride: "A concept", requiredVisualDetails: ["uat-585-scratch"] })),
+    );
+    await openAndWait(server);
+    await waitFor(() => expect(overriddenBar()).not.toBeNull());
+    expect(overriddenBar()!.textContent).toMatch(/Overridden:\s*Visual Strategy/);
+
+    fireEvent.click(within(listEditor("Required Visual Details")).getByRole("button", { name: "Remove" }));
+    await saveAndReopen(server);
+
+    await waitFor(() =>
+      expect(within(listEditor("Required Visual Details")).queryByDisplayValue("uat-585-scratch")).toBeNull(),
+    );
+    expect(screen.queryByText("Overridden:")).toBeNull();
+    expect(screen.queryByText("Visual Strategy")).toBeNull();
+  });
+
+  it("a fact with completed enrichment opens with archetype, subtype and fit populated and no error banner", async () => {
+    const server = statefulServer(makeCandidateEnrichment(undefined));
+    await openAndWait(server);
+
+    const values = (screen.getAllByRole("combobox") as HTMLSelectElement[]).map((c) => c.value);
+    expect(values).toContain("superhuman_physical_feat"); // archetype
+    expect(values).toContain("force_scaled_action"); // subtype
+    expect(values).toContain("strong"); // overhype fit
+    expect(screen.getByText("ok")).toBeTruthy(); // status: ok
+    expect(screen.queryByText(/No AI enrichment available/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.querySelector(".text-destructive")).toBeNull();
+  });
+
+  it("with only the Visual Concept set there is no Overridden Visual Strategy bar and the classification fields are still populated", async () => {
+    const server = statefulServer(makeCandidateEnrichment(vso({ coreSceneOverride: "Only a concept, nothing else overridden" })));
+    await openAndWait(server);
+
+    expect((screen.getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe(
+      "Only a concept, nothing else overridden",
+    );
+    expect(screen.queryByText("Overridden:")).toBeNull();
+    expect(screen.queryByText("Visual Strategy")).toBeNull();
+    const values = (screen.getAllByRole("combobox") as HTMLSelectElement[]).map((c) => c.value);
+    expect(values).toEqual(expect.arrayContaining(["superhuman_physical_feat", "force_scaled_action", "strong", "medium"]));
+  });
+
+  it("shows the Overridden Visual Strategy bar when the summary reports real override content", () => {
+    const oc = makeOverrideContext({
+      overrides: {},
+      summary: {
+        overriddenPaths: [],
+        baselineChangedPaths: [],
+        hasVisualStrategyOverride: true,
+      },
+    });
+    render(
+      <EnrichmentEditor
+        value={{
+          ...EFFECTIVE,
+          visualPromptStrategyOverride: vso({ coreSceneOverride: "A concept", requiredVisualDetails: ["a real detail"] }),
+        }}
+        status="ok"
+        onChange={vi.fn()}
+        overrideContext={oc}
+      />,
+    );
+    expect(screen.getByText("Overridden:").parentElement?.textContent).toMatch(/^Overridden:\s*Visual Strategy$/);
+  });
+});
+
+/** A completed, valid enrichment as the server stores it (three or more hashtags). */
+function makeCandidateEnrichment(ov: VisualPromptStrategyOverride | undefined): FactEnrichment {
+  const complete = { ...BASELINE, suggestedHashtags: ["strength", "legendary", "earth"] };
+  return ov ? { ...complete, visualPromptStrategyOverride: ov } : complete;
+}

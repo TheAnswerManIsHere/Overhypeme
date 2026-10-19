@@ -735,6 +735,37 @@ describe("useFactEnrichmentEditing", () => {
     expect(sentVso?.coreSceneOverride).toBe("{NAME} leans against the bar.");
   });
 
+  it("fact target: tokenizeAndSaveVisualOverride with a newly added required visual detail returns true and PATCHes /api/admin/facts/:id/enrichment carrying it", async () => {
+    const baselineVso = { ...VSO, requiredVisualDetails: ["adult head on a newborn body"] };
+    const { calls } = mockFetchWithTokenize({ 7: makeEnrichment({ visualPromptStrategyOverride: baselineVso }) });
+    const { result } = renderEditing({
+      target: { kind: "fact", factId: 7 },
+      enabled: true,
+      editableUntrackedFields: ["visualPromptStrategyOverride"],
+    });
+    await waitFor(() => expect(result.current.enrichment).not.toBeNull());
+
+    act(() =>
+      result.current.draft.setValue((prev) => ({
+        ...(prev as FactEnrichment),
+        visualPromptStrategyOverride: {
+          ...baselineVso,
+          requiredVisualDetails: ["adult head on a newborn body", "uat-582-scratch"],
+        },
+      })),
+    );
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.tokenizeAndSaveVisualOverride(["David Franklin"]); });
+    expect(ok).toBe(true);
+
+    const patches = calls.filter((c) => c.method === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(patches[0].url).toBe("/api/admin/facts/7/enrichment");
+    const sent = (patches[0].body as { enrichment: FactEnrichment }).enrichment.visualPromptStrategyOverride;
+    expect(sent?.requiredVisualDetails).toEqual(["adult head on a newborn body", "uat-582-scratch"]);
+  });
+
   it("hashtag-only dirty draft still persists through tokenizeAndSaveVisualOverride", async () => {
     const { calls } = mockFetchWithTokenize({ 7: makeEnrichment({ visualPromptStrategyOverride: VSO }) });
     const { result } = renderEditing({ target: { kind: "fact", factId: 7 }, enabled: true });
