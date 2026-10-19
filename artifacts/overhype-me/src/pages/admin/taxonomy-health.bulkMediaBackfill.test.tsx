@@ -17,6 +17,7 @@ vi.mock("@/components/admin/AdminLayout", () => ({
 }));
 
 import TaxonomyHealth from "./taxonomy-health";
+import { CARD_META } from "./taxonomyHealthCards";
 
 interface Call { url: string; method: string; body?: unknown }
 
@@ -163,5 +164,92 @@ describe("TaxonomyHealth — Bulk Media Backfill panel", () => {
     expect(itemsText).toContain("an inactive fact");
     expect(itemsText).not.toContain("42");
     expect(itemsText).not.toContain("43");
+  });
+
+  it("the panel renders above the health cards and still renders, with its Backfill AI memes button, after a different card filter is selected", async () => {
+    renderPage();
+    const panel = await screen.findByTestId("bulk-media-backfill-panel");
+    const totalCard = screen.getByText("Total facts").closest("button")!;
+    // DOM order: the panel precedes the first health card.
+    expect(panel.compareDocumentPosition(totalCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Select a card other than the default (missing_enrichment) filter.
+    const other = CARD_META.find((c) => c.filter === "stale_for_reprocess")!;
+    const otherCard = screen.getAllByText(other.label).map((el) => el.closest("button")).find((b) => b)!;
+    otherCard.click();
+    await waitFor(() => expect(otherCard.className).toContain("ring-2"));
+
+    expect(screen.getByTestId("bulk-media-backfill-panel")).toBeTruthy();
+    const aiBtn = screen.getByTestId("bulk-backfill-ai-memes-button");
+    expect(aiBtn.textContent).toContain("Backfill AI memes");
+    expect(screen.getByTestId("bulk-media-backfill-panel").contains(aiBtn)).toBe(true);
+  });
+
+  it("clicking Backfill AI memes calls window.confirm before any POST to backfill-ai-memes, and declining sends nothing", async () => {
+    const { calls } = mockFetch();
+    const postsWhenConfirmAsked: number[] = [];
+    const confirmSpy = vi.spyOn(window, "confirm").mockImplementation(() => {
+      postsWhenConfirmAsked.push(calls.filter((c) => c.method === "POST").length);
+      return false;
+    });
+    confirmSpy.mockClear();
+    postsWhenConfirmAsked.length = 0;
+    renderPage();
+    const btn = await screen.findByTestId("bulk-backfill-ai-memes-button");
+    btn.click();
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(postsWhenConfirmAsked).toEqual([0]);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    expect(calls.some((c) => c.url.includes("backfill-ai-memes"))).toBe(false);
+    confirmSpy.mockRestore();
+
+    // Accepting the same confirm is what produces the POST, after the confirm.
+    const order: string[] = [];
+    const { calls: calls2 } = mockFetch();
+    const acceptSpy = vi.spyOn(window, "confirm").mockImplementation(() => {
+      order.push(`confirm(posts=${calls2.filter((c) => c.method === "POST").length})`);
+      return true;
+    });
+    screen.getByTestId("bulk-backfill-ai-memes-button").click();
+    await waitFor(() =>
+      expect(calls2.some((c) => c.method === "POST" && c.url.includes("/admin/facts/backfill-ai-memes"))).toBe(true),
+    );
+    expect(order).toEqual(["confirm(posts=0)"]);
+    acceptSpy.mockRestore();
+  });
+
+  it("the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images", async () => {
+    mockFetch({
+      backfillResponse: {
+        success: true,
+        jobs: [
+          { factId: 1, jobId: 501, label: "fact one", deduped: false },
+          { factId: 2, jobId: 502, label: "fact two", deduped: false },
+        ],
+        outcomes: [],
+        summary: { requested: 2, queued: 2, skipped: 0 },
+      },
+      jobStatusResponse: { jobs: [{ jobId: 501, status: "done" }, { jobId: 502, status: "done" }] },
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirmSpy.mockClear();
+    renderPage();
+    (await screen.findByTestId("bulk-backfill-ai-memes-button")).click();
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    const message = String(confirmSpy.mock.calls[0]![0]);
+    expect(message).toContain("This calls paid OpenAI/fal.ai APIs.");
+    await waitFor(
+      () => expect(screen.getByTestId("bulk-backfill-ai-memes-status").textContent).toBe("2 of 2 done"),
+      { timeout: 3000 },
+    );
+
+    // Same pattern as Backfill images.
+    (await screen.findByTestId("bulk-backfill-images-button")).click();
+    await waitFor(
+      () => expect(screen.getByTestId("bulk-backfill-images-status").textContent).toBe("2 of 2 done"),
+      { timeout: 3000 },
+    );
+    confirmSpy.mockRestore();
   });
 });
