@@ -3943,7 +3943,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 380,
+       "line": 396,
        "quote": "\"the moderator's Visual Concept must survive re-classification\","
       }
      ],
@@ -4256,7 +4256,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 416,
+       "line": 432,
        "quote": "\"exactly one durable job per missing fact, none for the fact with images\","
       }
      ],
