@@ -265,6 +265,9 @@ describe("MemeBuilderWizard", () => {
       expect(screen.getByRole("heading", { name: /build your meme/i })).toBeTruthy();
       expect((screen.getByRole("button", { name: "Make my meme" }) as HTMLButtonElement).disabled).toBe(false);
       const draft = JSON.parse(window.sessionStorage.getItem("pending_meme_wizard_v2::fact-42") ?? "{}");
+      // The heading alone cannot prove the step: the step container animates
+      // its exit, so Step 2 stays mounted for a moment after a step change.
+      expect(draft.currentStep).toBe(2);
       expect(draft.source).toEqual({ kind: "stock", stockImageId: "777" });
       expect(draft.name).toBe("Quinn");
       expect(draft.isPublic).toBe(true);
