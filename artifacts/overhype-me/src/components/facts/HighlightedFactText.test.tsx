@@ -90,17 +90,18 @@ describe("HighlightedFactText", () => {
   /**
    * WelcomeModal falls back to the second-person "You" while the name field is
    * still empty — it is asking for *your* name, so the demo persona would be
-   * confusing there. That fallback must still highlight.
+   * confusing there — with its own second-person template, so the verb agrees
+   * with "You" (#731). That fallback must still highlight.
    */
   it("highlights the 'You' fallback used before a name is typed", () => {
     const { container } = render(
       <HighlightedFactText
-        template="The universe doesn't expand. {NAME} pushes it."
+        template="The universe doesn't expand. {NAME} push it."
         name="You"
         pronouns="they/them"
       />,
     );
     expect(highlightedSpans(container)).toEqual(["You"]);
-    expect(container.textContent).toBe("The universe doesn't expand. You pushes it.");
+    expect(container.textContent).toBe("The universe doesn't expand. You push it.");
   });
 });

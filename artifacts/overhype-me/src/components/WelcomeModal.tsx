@@ -11,8 +11,7 @@ import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { DEFAULT_PRONOUNS, isCustomPronouns, parseCustom } from "@/lib/pronouns";
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
-
-const TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
+import { teaserFor } from "@/components/welcomeTeaser";
 
 /** Pronouns are saved only once the visitor can see them: a suggestion shown, or their own pick. Never the fallback. */
 function canSave(draftPronouns: string): boolean {
@@ -170,7 +169,8 @@ export function WelcomeModal() {
   if (!open) return null;
 
   const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0;
-  const displayName = draftName.trim() || "You";
+  const teaser = teaserFor(draftName);
+  const displayName = teaser.name;
 
   const nameForm = (
     <>
@@ -244,7 +244,7 @@ export function WelcomeModal() {
         <span className="w-5 h-px bg-muted-foreground/40" />
       </div>
       <h1 className="font-display font-bold text-4xl md:text-[88px] uppercase tracking-tight leading-[1.0] md:leading-[0.95] text-foreground" style={{ textWrap: "pretty" } as React.CSSProperties}>
-        <HighlightedFactText template={TEASER_FACT} name={displayName} pronouns={draftPronouns || DEFAULT_PRONOUNS} />
+        <HighlightedFactText template={teaser.template} name={displayName} pronouns={draftPronouns || DEFAULT_PRONOUNS} />
       </h1>
       <p className="mt-4 text-sm md:text-base text-muted-foreground italic flex items-center gap-3">
         <span className="hidden md:inline-block w-9 h-px bg-border flex-shrink-0" />
