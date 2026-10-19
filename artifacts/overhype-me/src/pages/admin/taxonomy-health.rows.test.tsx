@@ -92,6 +92,20 @@ const ROWS = [
     updatedAt: null,
     refreshInReview: true,
   },
+  // Fact 3: stale_for_reprocess flagged after 3 failed send-backs.
+  {
+    factId: 3,
+    factText: "Thrice failed fact.",
+    primaryArchetype: "superhuman_physical_feat",
+    subtype: "force_scaled_action",
+    overhypeFit: "strong",
+    adultSuitability: "safe",
+    taxonomyConfidence: 0.9,
+    health: makeHealth(3, { staleForReprocess: true }, ["stale_for_reprocess"]),
+    updatedAt: null,
+    refreshInReview: false,
+    repeatedFailure: true,
+  },
 ];
 
 function mockFetch() {
@@ -152,5 +166,23 @@ describe("TaxonomyHealth — stale-for-reprocess rows", () => {
     });
     expect(within(row).getByTestId("send-back-in-review")).toBeTruthy();
     expect(within(row).queryByTestId("send-back-to-review")).toBeNull();
+  });
+
+  it("a fact flagged after 3 failed send-backs shows the 3 failed attempts badge beside its send-back button", async () => {
+    renderPage();
+    const row = await waitFor(() => {
+      const cell = screen.getByText("Thrice failed fact.").closest("tr");
+      expect(cell).toBeTruthy();
+      return cell as HTMLElement;
+    });
+    const badge = within(row).getByTestId("send-back-repeated-failure");
+    expect(badge.textContent).toContain("3 failed attempts");
+    const sendBack = within(row).getByTestId("send-back-to-review");
+    // Beside: same action cell, badge after the button.
+    expect(badge.parentElement).toBe(sendBack.parentElement);
+    expect(sendBack.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Unflagged rows carry no badge.
+    const plainRow = screen.getByText("Overlapping stale fact.").closest("tr") as HTMLElement;
+    expect(within(plainRow).queryByTestId("send-back-repeated-failure")).toBeNull();
   });
 });

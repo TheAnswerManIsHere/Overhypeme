@@ -42,9 +42,9 @@ toggle still works and now explains itself, and that paying still works exactly 
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 16 — pending becomes verified without a manual refresh`
+**Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 16 — pending becomes verified without a manual refresh`; `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:the verified box carries the text-green-400 class so it shows green, not only data-state verified`
 
-**Deferred:** #631 — 7b — the green box reading Payments verified, directly beneath the mode toggle on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #631 — 7b — the verification box in its verified state carrying the text-green-400 class, so it shows green, not only data-state verified — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`
+**Deferred:** #631 — 7b — the green box reading Payments verified, directly beneath the mode toggle on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
 
 ### 2. That report says which instance it speaks for
 
@@ -56,9 +56,7 @@ deployment as a whole.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 19 — the rendered value is labelled with its instance`
-
-**Deferred:** #631 — 7b — the rendered scope line reading This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ., with no text matching the deployment is or has — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`
+**Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 19 — the rendered value is labelled with its instance`; `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:the scope line reads exactly 'This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ.' with no claim that the deployment is or has`
 
 ### 3. The report agrees with the mode chip
 

@@ -64,8 +64,9 @@ function makeHealth(factId: number): FactTaxonomyHealth {
   };
 }
 
-function makeRow(factId: number, text: string) {
+function makeRow(factId: number, text: string, repeatedFailure = false) {
   return {
+    repeatedFailure,
     factId,
     factText: text,
     primaryArchetype: "superhuman_physical_feat",
@@ -79,11 +80,15 @@ function makeRow(factId: number, text: string) {
   };
 }
 
-const ROWS = [makeRow(1, "Stale fact one."), makeRow(2, "Stale fact two.")];
+const ROWS = [
+  makeRow(1, "Stale fact one."),
+  makeRow(2, "Stale fact two."),
+  makeRow(3, "Flagged stale fact three.", true),
+];
 
 interface Call { url: string; method: string; body?: unknown }
 
-function mockFetch() {
+function mockFetch(cfg: { repeatedFailureCount?: number } = {}) {
   const calls: Call[] = [];
   const fetchMock = vi.fn(async (url: string, opts?: RequestInit) => {
     const u = String(url);
@@ -110,8 +115,9 @@ function mockFetch() {
           outcomes: factIds.map((factId) => ({ factId, action: "send_back_to_review", status: "done", message: "Refresh started." })),
           summary: { requested: factIds.length, queued: 0, done: factIds.length, failed: 0, skipped: 0 },
           totalStale: 2,
-          eligibleRemaining: 2 - factIds.length,
+          eligibleRemaining: Math.max(0, 2 - factIds.length),
           batchLimit: 50,
+          ...(cfg.repeatedFailureCount != null ? { repeatedFailureCount: cfg.repeatedFailureCount } : {}),
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
@@ -227,5 +233,69 @@ describe("TaxonomyHealth — bulk send-back", () => {
       ).toBe(true),
     );
     expect(calls.some((c) => c.url.includes("/send-back-to-review") && !c.url.includes("bulk-send-back"))).toBe(false);
+  });
+
+  it("a row flagged for repeated failures can be ticked and Send selected posts its fact id with no rejection shown", async () => {
+    const { calls } = mockFetch();
+    const { container } = renderPage();
+    await switchToStaleForReprocessCard();
+
+    const flaggedRow = (await screen.findByText("Flagged stale fact three.")).closest("tr") as HTMLElement;
+    // It is flagged...
+    expect(within(flaggedRow).getByTestId("send-back-repeated-failure").textContent).toContain("3 failed attempts");
+    // ...and its box can still be ticked.
+    const checkbox = within(flaggedRow).getByTestId("send-back-select") as HTMLInputElement;
+    expect(checkbox.disabled).toBe(false);
+    checkbox.click();
+
+    const selectedBtn = screen.getByTestId("send-back-selected") as HTMLButtonElement;
+    await waitFor(() => expect(selectedBtn.disabled).toBe(false));
+    expect(selectedBtn.textContent).toContain("Send selected (1)");
+    selectedBtn.click();
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.method === "POST" &&
+            c.url.includes("bulk-send-back") &&
+            (c.body as { scope?: string })?.scope === "selected" &&
+            JSON.stringify((c.body as { factIds?: number[] }).factIds) === JSON.stringify([3]),
+        ),
+      ).toBe(true),
+    );
+    // Succeeds like any other row: a normal done banner, and no error panel.
+    await waitFor(() => expect(screen.getByText(/Send back to review: 1 of 1 done/)).toBeTruthy());
+    expect(container.querySelector(".bg-destructive\\/10")).toBeNull();
+  });
+
+  it("the Send next 50 stale status line reads '1 fact excluded after repeated failures — investigate before considering the migration complete.'", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockFetch({ repeatedFailureCount: 1 });
+    renderPage();
+    await switchToStaleForReprocessCard();
+    (await screen.findByTestId("send-back-all-stale")).click();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          (t) => t.includes("1 fact excluded after repeated failures — investigate before considering the migration complete."),
+        ),
+      ).toBeTruthy(),
+    );
+    confirmSpy.mockRestore();
+
+    // Plural wording for N > 1.
+    const confirmSpy2 = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockFetch({ repeatedFailureCount: 3 });
+    screen.getByTestId("send-back-all-stale").click();
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          (t) => t.includes("3 facts excluded after repeated failures — investigate before considering the migration complete."),
+        ),
+      ).toBeTruthy(),
+    );
+    confirmSpy2.mockRestore();
   });
 });

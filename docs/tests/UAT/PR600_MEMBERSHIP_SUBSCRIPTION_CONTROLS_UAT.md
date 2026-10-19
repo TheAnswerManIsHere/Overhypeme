@@ -71,9 +71,9 @@ leave it carrying two subscriptions, only one of which the UI can reach.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers Switch to Annual and Cancel while the Stripe mirror has not synced the subscription yet`
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers Switch to Annual and Cancel while the Stripe mirror has not synced the subscription yet`; `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:shows the renewal date on the card while the Stripe mirror is still empty`
 
-**Deferred:** #631 — 7b — the renewal date on the card while the Stripe mirror is still empty — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`; #628 — Phase 10 (Membership and money) — the Switch to Annual button goes with the monthly-only rebuild (F6); #695 — the Stripe fake's event channel — a monthly checkout from /pricing completing, so GET /api/stripe/subscription returns the active monthly appSubscription while the mirror row is still null
+**Deferred:** #628 — Phase 10 (Membership and money) — the Switch to Annual button goes with the monthly-only rebuild (F6); #695 — the Stripe fake's event channel — a monthly checkout from /pricing completing, so GET /api/stripe/subscription returns the active monthly appSubscription while the mirror row is still null
 
 ### 2. The savings figure is right
 
@@ -170,9 +170,7 @@ on.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`
-
-**Deferred:** #631 — 7b — the card showing the text Legendary for Life, and no Reactivate Subscription button, not only the absence of Switch and Cancel, for isLifetime true — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`; `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:names a Legendary for Life member's card as Legendary for Life and shows no Reactivate Subscription button`
 
 ### R2. A free account still sees the Free Plan block
 
@@ -184,9 +182,7 @@ cancel controls anywhere on the card.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a non-member`
-
-**Deferred:** #631 — 7b — the Free Plan block text beside Go Legendary — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a non-member`; `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:shows the Free Plan block text beside Go Legendary for a free account`
 
 ### R3. A cancelling subscription offers Reactivate, not the controls
 
@@ -202,7 +198,9 @@ are both gone. Click Reactivate and confirm both controls come back.
 
 **Lane:** scripted
 
-**Deferred:** #631 — 7b — clicking Cancel Subscription and confirming, then Reactivate, with the routes stubbed: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`; #695 — the Stripe fake's event channel — cancel and reactivate are executed against Stripe; #628 — Phase 10 (Membership and money) — the Switch to Annual button goes with the monthly-only rebuild (F6)
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:cancel then reactivate: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back`
+
+**Deferred:** #695 — the Stripe fake's event channel — cancel and reactivate are executed against Stripe; #628 — Phase 10 (Membership and money) — the Switch to Annual button goes with the monthly-only rebuild (F6)
 
 ### R4. Purchase still works from the pricing page
 

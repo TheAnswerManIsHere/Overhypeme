@@ -25,8 +25,10 @@ vi.mock("@/components/ui/PronounEditor", () => ({
   PronounEditor: () => React.createElement("div", { "data-testid": "pronoun-editor" }),
 }));
 
+const setLocationMock = vi.hoisted(() => vi.fn());
+
 vi.mock("wouter", () => ({
-  useLocation: () => ["/login", vi.fn()],
+  useLocation: () => ["/login", setLocationMock],
   Link: ({ children, href }: { children: React.ReactNode; href: string }) =>
     React.createElement("a", { href }, children),
 }));
@@ -93,6 +95,7 @@ describe("Login.tsx — post-login redirect target", () => {
 
   beforeEach(() => {
     vi.stubGlobal("scrollTo", vi.fn());
+    setLocationMock.mockClear();
   });
 
   afterEach(() => {
@@ -125,5 +128,49 @@ describe("Login.tsx — post-login redirect target", () => {
 
   it("falls back to / when no from param is present", async () => {
     expect(await submitLogin("")).toBe("/");
+  });
+
+  it("honours /profile exactly: submitting the login form at /login?from=/profile assigns location.href /profile", async () => {
+    expect(await submitLogin("?from=/profile")).toBe("/profile");
+  });
+});
+
+describe("Login.tsx — back link before sign-in", () => {
+  beforeAll(async () => {
+    await import("@/pages/Login");
+  }, 20000);
+
+  beforeEach(() => {
+    vi.stubGlobal("scrollTo", vi.fn());
+    setLocationMock.mockClear();
+  });
+
+  afterEach(() => {
+    restoreWindowLocation();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function renderLoginAt(search: string) {
+    stubWindowLocation(search);
+    const { default: Login } = await import("@/pages/Login");
+    render(React.createElement(Login));
+  }
+
+  it("reads BACK TO FACTS and points at / when no from value is present", async () => {
+    await renderLoginAt("");
+    const back = screen.getByRole("button", { name: "BACK TO FACTS" });
+    fireEvent.click(back);
+    expect(setLocationMock).toHaveBeenCalledWith("/");
+    expect(screen.queryByRole("button", { name: "BACK TO FACT" })).toBeNull();
+  });
+
+  it("reads BACK TO FACT and points at the fact for a ?from=/facts/ value", async () => {
+    await renderLoginAt("?from=/facts/123");
+    const back = screen.getByRole("button", { name: "BACK TO FACT" });
+    expect(screen.queryByRole("button", { name: "BACK TO FACTS" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "GO BACK" })).toBeNull();
+    fireEvent.click(back);
+    expect(setLocationMock).toHaveBeenCalledWith("/facts/123");
   });
 });

@@ -113,9 +113,9 @@ not have removed the ordinary path.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:still shows the monthly amount and the switch button when both agree`
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:still shows the monthly amount and the switch button when both agree`; `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:reads Monthly as the plan label and $3.99/month on the price line for a genuine monthly subscriber`
 
-**Deferred:** #631 — 7b — plan label reads Monthly and the price line reads $3.99/month, the test matches only $3.99 — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`; #628 — Phase 10 (membership and money) — the Switch to Annual save 48% wording goes with the annual cut
+**Deferred:** #628 — Phase 10 (membership and money) — the Switch to Annual save 48% wording goes with the annual cut
 
 ### R2. PR #600's fix still holds
 
@@ -139,9 +139,7 @@ switch, no cancel.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`
-
-**Deferred:** #631 — 7b — the card names the lifetime membership as Legendary for Life, the test asserts only the absent switch and cancel — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`
+**Check:** `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:offers no recurring-subscription controls to a Legendary for Life member`; `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:names a Legendary for Life member's card as Legendary for Life and shows no Reactivate Subscription button`
 
 ## Not bugs
 

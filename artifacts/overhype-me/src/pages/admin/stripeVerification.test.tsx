@@ -254,6 +254,35 @@ describe("the rendered status surface", () => {
     cleanup();
   });
 
+  it("the verified box carries the text-green-400 class so it shows green, not only data-state verified", async () => {
+    const fetchStatus = vi.fn(async () => snap({ instanceId: "9f8e7d6c-1111-2222-3333-444455556666", state: "verified" }));
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} expectedMode="test" pollIntervalMs={1} settledPollIntervalMs={1} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-state")).toBe("verified");
+    });
+    const box = screen.getByTestId("stripe-verification");
+    expect(box.className).toContain("text-green-400");
+    expect(screen.getByText("Payments verified")).toBeTruthy();
+    cleanup();
+  });
+
+  it("the scope line reads exactly 'This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ.' with no claim that the deployment is or has", async () => {
+    const fetchStatus = vi.fn(async () => snap({ instanceId: "9f8e7d6c-1111-2222-3333-444455556666", state: "verified" }));
+    render(<StripeVerificationStatus fetchStatus={fetchStatus} expectedMode="test" pollIntervalMs={1} settledPollIntervalMs={1} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stripe-verification").getAttribute("data-instances")).toBe("1");
+    });
+    const scopeLine = screen.getByText(
+      "This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ.",
+    );
+    expect(scopeLine).toBeTruthy();
+    const boxText = screen.getByTestId("stripe-verification").textContent ?? "";
+    expect(boxText).not.toMatch(/\bthe deployment (is|has)\b/i);
+    cleanup();
+  });
+
   it("a first fetch that fails keeps trying instead of rendering nothing forever", async () => {
     // The panel exists to SHOW a state rather than log it, so a transport
     // failure on the first sample must not silently leave the operator with a

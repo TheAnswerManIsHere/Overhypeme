@@ -107,9 +107,7 @@ or is blocked is a Fail.
 
 **Lane:** capture
 
-**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones` `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns on an entity matching neither subject nor any role binding — but not on matches`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr229-s6-render`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:200s a bubble whose entity (the mailman) matches no subject or role binding`
-
-**Deferred:** #631 — 7b — the preview listing the unresolved-entity note is unasserted, the preview test covers other warning codes only — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`; #631 — 7b — the unmatched-entity warning rendered in the amber warning style, the text-amber-700 class, the test checks only its text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts:emits bubble_entity_unresolved with typed context for an unmatched entity, and nothing for matched ones` `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns on an entity matching neither subject nor any role binding — but not on matches`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr229-s6-render`; `artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts:200s a bubble whose entity (the mailman) matches no subject or role binding`; `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx:lists the bubble_entity_unresolved note in the diagnostics when the preview response carries it`; `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:renders the unmatched-entity soft warning in the amber warning style (text-amber-700)`
 
 ### 7. Bubble text over 60 characters shows a soft warning
 
@@ -119,9 +117,7 @@ or is blocked is a Fail.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns at 60+ chars of text`
-
-**Deferred:** #631 — 7b — the counter element turning amber is unasserted, the test checks only the warning text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`
+**Check:** `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:soft-warns at 60+ chars of text`; `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:turns the character counter amber (text-amber-600) at 60+ chars, and keeps it muted below`
 
 ### 8. Bubble text is hard-capped at 80 characters
 
@@ -131,9 +127,7 @@ or is blocked is a Fail.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:rejects over-cap text (81) and entity (61)`
-
-**Deferred:** #631 — 7b — the editor input refusing characters past 80 is unasserted, only the server schema rejects 81 — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/visualStrategyOverride.test.ts:rejects over-cap text (81) and entity (61)`; `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:the bubble text input refuses characters past 80 (maxLength is the literal 80)`
 
 ### 9. A 5th bubble is blocked
 
@@ -143,9 +137,7 @@ or is blocked is a Fail.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:caps at MAX_BUBBLES rows (Add disabled with a hint)`
-
-**Deferred:** #631 — 7b — with four bubbles the Add button disabled and the hint reading Maximum 4 bubbles, the test reads both from MAX_BUBBLES and so pins no number — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`
+**Check:** `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:caps at MAX_BUBBLES rows (Add disabled with a hint)`; `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx:with four bubbles Add is disabled and the hint reads "Maximum 4 bubbles" (literal 4, not MAX_BUBBLES); three still allow Add`
 
 ### 10. A `{NAME}` token in bubble text renders your name
 

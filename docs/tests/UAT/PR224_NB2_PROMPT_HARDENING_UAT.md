@@ -36,9 +36,7 @@ editor's own cap prevents a moderator from reaching).
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`
-
-**Deferred:** #631 — 7b — the Visual Concept box's textarea carrying maxLength 1500, so text pasted past 1,500 characters is cut there and the counter reads 1500/1500 — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/promptBudget.test.ts:rejects a Concept over the raw cap`; `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx:the Visual Concept textarea carries maxLength 1500, so a paste past 1,500 characters is cut there and the counter reads 1500/1500`
 
 ### 2. A Visual Concept that expands over budget via tokens is rejected
 

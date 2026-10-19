@@ -54,9 +54,7 @@ were.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:honours a legitimate same-origin path`
-
-**Deferred:** #631 — 7b — submitting the login form at /login?from=/profile assigns location.href exactly /profile — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:honours a legitimate same-origin path`; `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:honours /profile exactly: submitting the login form at /login?from=/profile assigns location.href /profile`
 
 ### 2. A fact page's back link shows before sign-in
 
@@ -68,7 +66,7 @@ FACT" (not "GO BACK"), and tapping it takes you to that fact.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — back link reads BACK TO FACT and points at the fact for a ?from=/facts/ value — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:reads BACK TO FACT and points at the fact for a ?from=/facts/ value`
 
 ### 3. A fact page still round-trips after sign-in
 
@@ -230,7 +228,7 @@ started.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — back link reads BACK TO FACTS and points at / when no from value is present — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`
+**Check:** `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts:reads BACK TO FACTS and points at / when no from value is present`
 
 ### R8. Sign out still returns you home
 

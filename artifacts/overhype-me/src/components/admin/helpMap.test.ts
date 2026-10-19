@@ -71,6 +71,14 @@ describe("admin help map", () => {
     );
   });
 
+  it("links Taxonomy Health, Billing, Email Queue, Facts and the Dashboard to the Ch. 4, 10, 12, 2 and 11 targets the UAT names", () => {
+    expect(helpHrefFor("/admin/taxonomy-health")).toBe("/admin/help/4-taxonomy-and-enrichment#for-the-admin-taxonomy-health");
+    expect(helpHrefFor("/admin/billing")).toBe("/admin/help/10-payments-and-membership#for-the-admin");
+    expect(helpHrefFor("/admin/email-queue")).toBe("/admin/help/12-background-work#email-the-most-consequential-rider");
+    expect(helpHrefFor("/admin/facts")).toBe("/admin/help/2-content-lifecycle");
+    expect(helpHrefFor("/admin")).toBe("/admin/help/11-admin-console");
+  });
+
   // An unmapped location must degrade to the help index, never to a dead URL.
   it("falls back to the help index for an unmapped location", () => {
     expect(helpHrefFor("/admin/some-future-screen")).toBe("/admin/help");

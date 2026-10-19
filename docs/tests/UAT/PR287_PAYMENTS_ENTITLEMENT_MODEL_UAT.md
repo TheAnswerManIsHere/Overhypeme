@@ -525,9 +525,7 @@ layer still refuses to upgrade, is PR214's doc.)
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns the user's membership_history rows newest-first`; `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns refund and dispute rows as well as purchases`
-
-**Deferred:** #631 — 7b — the profile payment-history card lists purchase, refund and dispute entries with their labels, the test always mocks an empty history — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`
+**Check:** `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns the user's membership_history rows newest-first`; `artifacts/api-server/src/__tests__/routes.stripe.test.ts:returns refund and dispute rows as well as purchases`; `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx:lists purchase, refund and dispute entries with their labels in the profile payment history`
 
 ### R7. Deactivating and reinstating a user restores the right tier
 

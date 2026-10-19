@@ -892,10 +892,16 @@
     },
     {
      "text": "the style picked in the preview's style control is the one previewed",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — choosing a style in the rpp-look-style control sending that style's id as lookStyleId in the preview request body — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx",
+       "line": 364,
+       "quote": "expect(body.lookStyleId).toBe(\"cinematic\");"
+      }
+     ],
+     "fails_because": "the chosen style's id is not sent as lookStyleId in the preview request",
+     "gap_clause": null
     }
    ]
   },
@@ -975,10 +981,16 @@
     },
     {
      "text": "the preview's diagnostics show a moderator_core_scene_owned_language warning nudging a rewrite as pure scene description",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Runtime Prompt Preview panel showing the moderator_core_scene_owned_language warning's message when the preview response carries it — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx",
+       "line": 347,
+       "quote": "expect(warnings[0].textContent).toBe(message);"
+      }
+     ],
+     "fails_because": "the preview diagnostics do not show the moderator_core_scene_owned_language warning's message",
+     "gap_clause": null
     },
     {
      "text": "the render still proceeds",
@@ -1483,17 +1495,29 @@
    "clauses": [
     {
      "text": "the box stops accepting text at 1,500 characters",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Visual Concept box's textarea carrying maxLength 1500, so text pasted past 1,500 characters is cut there and the counter reads 1500/1500 — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
+       "line": 141,
+       "quote": "expect(el.getAttribute(\"maxlength\")).toBe(\"1500\");"
+      }
+     ],
+     "fails_because": "the textarea does not cap at 1500 or the counter does not read 1500/1500",
+     "gap_clause": null
     },
     {
      "text": "its counter reads 1500/1500",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Visual Concept box's textarea carrying maxLength 1500, so text pasted past 1,500 characters is cut there and the counter reads 1500/1500 — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
+       "line": 146,
+       "quote": "expect(screen.getByText(\"1500/1500\")).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the textarea does not cap at 1500 or the counter does not read 1500/1500",
+     "gap_clause": null
     }
    ]
   },
@@ -1754,10 +1778,16 @@
    "clauses": [
     {
      "text": "it shows the old wording struck through, then the new wording",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the modal rendering impact.currentStoredText with line-through styling and impact.normalizedProposedText beside it — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx",
+       "line": 68,
+       "quote": "expect(oldEl.className).toContain(\"line-through\");"
+      }
+     ],
+     "fails_because": "the stored text is not struck through beside the proposed text",
+     "gap_clause": null
     },
     {
      "text": "the consequence list says existing memes keep the old wording",
@@ -1779,17 +1809,29 @@
     },
     {
      "text": "the consequence list says the fact's taxonomy will be marked stale for review",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the modal showing the consequence line saying the fact's taxonomy will be marked stale for reprocess — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx",
+       "line": 79,
+       "quote": "screen.getByText(/taxonomy was classified from the old wording; it will be marked stale for reprocess/),"
+      }
+     ],
+     "fails_because": "the modal does not say the taxonomy will be marked stale for reprocess",
+     "gap_clause": null
     },
     {
      "text": "it says nothing about variants",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the rendered modal containing no text that mentions variants — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx",
+       "line": 85,
+       "quote": "expect(container.textContent ?? \"\").not.toMatch(/variant/i);"
+      }
+     ],
+     "fails_because": "the modal mentions variants",
+     "gap_clause": null
     }
    ]
   },
@@ -1894,10 +1936,16 @@
     },
     {
      "text": "the phrase is exactly CHANGE APPROVED FACT TEXT",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the phrase the modal requires is exactly CHANGE APPROVED FACT TEXT, pinned as a literal and not read from the production export APPROVED_FACT_TEXT_EDIT_PHRASE — `artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/ApprovedFactTextEditModal.test.tsx",
+       "line": 98,
+       "quote": "expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ phrase: \"CHANGE APPROVED FACT TEXT\" }));"
+      }
+     ],
+     "fails_because": "the modal does not accept exactly CHANGE APPROVED FACT TEXT",
+     "gap_clause": null
     }
    ]
   },
@@ -2362,17 +2410,29 @@
     },
     {
      "text": "the warning is amber",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the unmatched-entity warning rendered in the amber warning style, the text-amber-700 class, the test checks only its text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
+       "line": 88,
+       "quote": "expect(warning.className).toContain(\"text-amber-700\");"
+      }
+     ],
+     "fails_because": "the unmatched-entity warning is not in the amber warning style",
+     "gap_clause": null
     },
     {
      "text": "the preview shows an unresolved-entity note",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the preview listing the unresolved-entity note is unasserted, the preview test covers other warning codes only — `artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/RuntimePromptPreview.test.tsx",
+       "line": 388,
+       "quote": "expect(warnings[0].textContent).toBe(message);"
+      }
+     ],
+     "fails_because": "the preview does not list the unresolved-entity note",
+     "gap_clause": null
     },
     {
      "text": "the bubble still compiles",
@@ -2430,10 +2490,16 @@
     },
     {
      "text": "the counter turns amber",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the counter element turning amber is unasserted, the test checks only the warning text — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
+       "line": 95,
+       "quote": "expect(counter.className).toContain(\"text-amber-600\");"
+      }
+     ],
+     "fails_because": "the counter does not turn amber",
+     "gap_clause": null
     }
    ]
   },
@@ -2445,10 +2511,16 @@
    "clauses": [
     {
      "text": "the editor won't accept typing past 80 characters",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the editor input refusing characters past 80 is unasserted, only the server schema rejects 81 — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
+       "line": 108,
+       "quote": "expect(input.getAttribute(\"maxlength\")).toBe(\"80\");"
+      }
+     ],
+     "fails_because": "the bubble input does not stop at 80 characters",
+     "gap_clause": null
     }
    ]
   },
@@ -2460,17 +2532,29 @@
    "clauses": [
     {
      "text": "a 5th bubble cannot be added: Add is disabled at four",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — with four bubbles the Add button disabled and the hint reading Maximum 4 bubbles, the test reads both from MAX_BUBBLES and so pins no number — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
+       "line": 115,
+       "quote": "expect((screen.getByTestId(\"bubble-add\") as HTMLButtonElement).disabled).toBe(true);"
+      }
+     ],
+     "fails_because": "Add is enabled at four bubbles or the hint does not read Maximum 4 bubbles",
+     "gap_clause": null
     },
     {
      "text": "the hint reads Maximum 4",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — with four bubbles the Add button disabled and the hint reading Maximum 4 bubbles, the test reads both from MAX_BUBBLES and so pins no number — `artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/BubbleEditor.test.tsx",
+       "line": 116,
+       "quote": "expect(screen.getByText(/Maximum 4 bubbles/)).toBeTruthy();"
+      }
+     ],
+     "fails_because": "Add is enabled at four bubbles or the hint does not read Maximum 4 bubbles",
+     "gap_clause": null
     }
    ]
   },
@@ -2748,10 +2832,16 @@
     },
     {
      "text": "a red * in the card's header",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the red * required marker in the Visual Concept card header — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
+       "line": 159,
+       "quote": "expect(marker.className).toContain(\"text-red-500\");"
+      }
+     ],
+     "fails_because": "the header has no red * marker",
+     "gap_clause": null
     },
     {
      "text": "GET /api/admin/reviews/:id returns the visual concept the card shows; the browser check reads a stub, so nothing yet asserts the server still sends it",
@@ -2776,10 +2866,16 @@
    "clauses": [
     {
      "text": "a blocking \"Required — describe the picture before saving or approving\" message is shown",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — VisualConceptCard with a blank concept renders its visual-concept-required line reading the Expect's exact text, Required then describe the picture before saving or approving — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
+       "line": 152,
+       "quote": "expect(line.textContent?.trim()).toBe(\"Required — describe the picture before saving or approving.\");"
+      }
+     ],
+     "fails_because": "the required line does not read the exact text",
+     "gap_clause": null
     },
     {
      "text": "the save is refused when Step 2 saves a refresh cycle's candidate (PATCH /admin/reviews/:id/candidate-enrichment)",
@@ -2917,24 +3013,57 @@
    "clauses": [
     {
      "text": "Advanced Options has no Core Scene field",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — VisualStrategyOverridePanel renders no Core Scene field and no enable toggle, yet still renders the required and forbidden details, role assignments, bubbles and policies fields — `artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
+       "line": 222,
+       "quote": "expect(screen.queryByText(/core scene/i)).toBeNull();"
+      }
+     ],
+     "fails_because": "the panel renders a Core Scene field or drops the other override fields",
+     "gap_clause": null
     },
     {
      "text": "there is no master on/off toggle anywhere in the override UI",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — VisualStrategyOverridePanel renders no Core Scene field and no enable toggle, yet still renders the required and forbidden details, role assignments, bubbles and policies fields — `artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
+       "line": 224,
+       "quote": "expect(screen.queryByLabelText(/enable/i)).toBeNull();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
+       "line": 230,
+       "quote": "expect(checkboxLabels).toEqual([\"Override supporting-text policy\", \"Override violence policy\"]);"
+      }
+     ],
+     "fails_because": "the override UI has an enable toggle",
+     "gap_clause": null
     },
     {
      "text": "the other override fields (required/forbidden details, role assignments, bubbles, policies) are still there",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — VisualStrategyOverridePanel renders no Core Scene field and no enable toggle, yet still renders the required and forbidden details, role assignments, bubbles and policies fields — `artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
+       "line": 233,
+       "quote": "expect(screen.getByText(\"Required Visual Details\")).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
+       "line": 235,
+       "quote": "expect(screen.getByText(\"Scene Role Assignments\")).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualStrategyOverrideTokens.test.tsx",
+       "line": 236,
+       "quote": "expect(screen.getByText(\"Speech & Thought Bubbles\")).toBeTruthy();"
+      }
+     ],
+     "fails_because": "one of the other override fields is gone",
+     "gap_clause": null
     },
     {
      "text": "each other override field applies on its own when filled, with no toggle to flip first",
@@ -2986,10 +3115,16 @@
     },
     {
      "text": "with the same message (the card's Required — describe the picture before saving or approving line)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — VisualConceptCard with a blank concept renders its visual-concept-required line reading the Expect's exact text, Required then describe the picture before saving or approving — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
+       "line": 152,
+       "quote": "expect(line.textContent?.trim()).toBe(\"Required — describe the picture before saving or approving.\");"
+      }
+     ],
+     "fails_because": "the required line does not read the exact text",
+     "gap_clause": null
     }
    ]
   },
@@ -3943,7 +4078,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 380,
+       "line": 396,
        "quote": "\"the moderator's Visual Concept must survive re-classification\","
       }
      ],
@@ -4124,7 +4259,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 80,
+       "line": 81,
        "quote": "await waitFor(() => expect(screen.getByTestId(\"bulk-media-backfill-panel\")).toBeTruthy());"
       }
      ],
@@ -4133,10 +4268,16 @@
     },
     {
      "text": "the section sits near the top",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the bulk-media-backfill-panel renders above the health cards and still renders, with its Backfill AI memes button, after a different card filter is selected — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
+       "line": 174,
+       "quote": "expect(panel.compareDocumentPosition(totalCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the panel is not above the cards or disappears under another filter",
+     "gap_clause": null
     },
     {
      "text": "it has three buttons: Backfill images, Backfill Pexels, Backfill AI memes",
@@ -4147,10 +4288,16 @@
     },
     {
      "text": "it is visible regardless of which health card filter is selected",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the bulk-media-backfill-panel renders above the health cards and still renders, with its Backfill AI memes button, after a different card filter is selected — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
+       "line": 185,
+       "quote": "expect(screen.getByTestId(\"bulk-media-backfill-panel\").contains(aiBtn)).toBe(true);"
+      }
+     ],
+     "fails_because": "the panel is not above the cards or disappears under another filter",
+     "gap_clause": null
     }
    ]
   },
@@ -4166,22 +4313,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 92,
+       "line": 93,
        "quote": "expect(confirmSpy).toHaveBeenCalled();"
       },
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 94,
+       "line": 95,
        "quote": "expect(calls.some((c) => c.method === \"POST\" && c.url.includes(\"/admin/facts/backfill-images\"))).toBe(true),"
       },
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 124,
+       "line": 125,
        "quote": "const confirmSpy = vi.spyOn(window, \"confirm\").mockReturnValue(false);"
       },
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 130,
+       "line": 131,
        "quote": "expect(calls.some((c) => c.method === \"POST\" && c.url.includes(\"backfill-images\"))).toBe(false);"
       }
      ],
@@ -4227,10 +4374,21 @@
    "clauses": [
     {
      "text": "a confirmation appears before the AI memes backfill fires",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking Backfill AI memes calls window.confirm before any POST to backfill-ai-memes, and declining that confirm sends nothing — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
+       "line": 201,
+       "quote": "expect(postsWhenConfirmAsked).toEqual([0]);"
+      },
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
+       "line": 203,
+       "quote": "expect(calls.some((c) => c.method === \"POST\")).toBe(false);"
+      }
+     ],
+     "fails_because": "a POST is sent before the confirm, or after it is declined",
+     "gap_clause": null
     },
     {
      "text": "confirming sends the AI memes backfill request",
@@ -4238,12 +4396,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 115,
+       "line": 116,
        "quote": "const btn = await screen.findByTestId(\"bulk-backfill-ai-memes-button\");"
       },
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
-       "line": 118,
+       "line": 119,
        "quote": "expect(calls.some((c) => c.method === \"POST\" && c.url.includes(\"/admin/facts/backfill-ai-memes\"))).toBe(true),"
       }
      ],
@@ -4256,7 +4414,7 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.auth.test.ts",
-       "line": 416,
+       "line": 432,
        "quote": "\"exactly one durable job per missing fact, none for the fact with images\","
       }
      ],
@@ -4265,17 +4423,29 @@
     },
     {
      "text": "a live status line shows N of M done like Backfill images",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
+       "line": 243,
+       "quote": "() => expect(screen.getByTestId(\"bulk-backfill-ai-memes-status\").textContent).toBe(\"2 of 2 done\"),"
+      }
+     ],
+     "fails_because": "the confirmation does not name the paid calls or the status line does not read N of M done",
+     "gap_clause": null
     },
     {
      "text": "the confirmation message notes this one calls paid OpenAI/fal.ai APIs",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx",
+       "line": 241,
+       "quote": "expect(message).toContain(\"This calls paid OpenAI/fal.ai APIs.\");"
+      }
+     ],
+     "fails_because": "the confirmation does not name the paid calls or the status line does not read N of M done",
+     "gap_clause": null
     }
    ]
   },
@@ -4291,12 +4461,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx",
-       "line": 216,
+       "line": 222,
        "quote": "const sendBtn = within(row1).getByTestId(\"send-back-to-review\");"
       },
       {
        "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx",
-       "line": 223,
+       "line": 229,
        "quote": "c.url.includes(\"/api/admin/taxonomy-health/actions/bulk-send-back\") &&"
       },
       {
@@ -4372,10 +4542,21 @@
    "clauses": [
     {
      "text": "the row shows a 3 failed attempts badge next to the send-back button",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a fact flagged after 3 failed send-backs shows the 3 failed attempts badge beside its send-back button — `artifacts/overhype-me/src/pages/admin/taxonomy-health.rows.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.rows.test.tsx",
+       "line": 179,
+       "quote": "expect(badge.textContent).toContain(\"3 failed attempts\");"
+      },
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.rows.test.tsx",
+       "line": 182,
+       "quote": "expect(badge.parentElement).toBe(sendBack.parentElement);"
+      }
+     ],
+     "fails_because": "the flagged fact has no 3 failed attempts badge beside its send-back button",
+     "gap_clause": null
     },
     {
      "text": "it is no longer picked up by Send next 50 stale automatically",
@@ -4423,10 +4604,21 @@
     },
     {
      "text": "on the page, the flagged row can be ticked and Send selected used with no rejection shown",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a row flagged for repeated failures can be ticked and Send selected posts its fact id with no rejection shown — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx",
+       "line": 248,
+       "quote": "expect(checkbox.disabled).toBe(false);"
+      },
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx",
+       "line": 263,
+       "quote": "JSON.stringify((c.body as { factIds?: number[] }).factIds) === JSON.stringify([3]),"
+      }
+     ],
+     "fails_because": "a flagged row cannot be ticked or its id is not posted",
+     "gap_clause": null
     },
     {
      "text": "this deliberate retry is what clears the flag",
@@ -4451,10 +4643,16 @@
    "clauses": [
     {
      "text": "the status line calls out N fact(s) excluded after repeated failures — investigate before considering the migration complete",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Send next 50 stale status line reads N fact(s) excluded after repeated failures, investigate before considering the migration complete — `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkSendBack.test.tsx",
+       "line": 282,
+       "quote": "(t) => t.includes(\"1 fact excluded after repeated failures — investigate before considering the migration complete.\"),"
+      }
+     ],
+     "fails_because": "the status line does not read the exclusion text",
+     "gap_clause": null
     }
    ]
   },
@@ -5991,10 +6189,26 @@
     },
     {
      "text": "payment history on the profile still lists purchases, refunds and disputes",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the profile payment-history card lists purchase, refund and dispute entries with their labels, the test always mocks an empty history — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 395,
+       "quote": "expect(screen.getByText(\"Legendary for Life Purchase\")).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 396,
+       "quote": "expect(screen.getByText(\"Refund\")).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 397,
+       "quote": "expect(screen.getByText(\"Dispute Opened\")).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the payment history does not list the purchase, refund or dispute entry with its label",
+     "gap_clause": null
     }
    ]
   },
@@ -6623,10 +6837,16 @@
    "clauses": [
     {
      "text": "signing in at /login?from=/profile lands you on your profile page",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — submitting the login form at /login?from=/profile assigns location.href exactly /profile — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
+       "line": 134,
+       "quote": "expect(await submitLogin(\"?from=/profile\")).toBe(\"/profile\");"
+      }
+     ],
+     "fails_because": "the login submit does not assign location.href exactly /profile",
+     "gap_clause": null
     }
    ]
   },
@@ -6638,17 +6858,29 @@
    "clauses": [
     {
      "text": "before signing in, the back link reads \"BACK TO FACT\" (not \"GO BACK\")",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — back link reads BACK TO FACT and points at the fact for a ?from=/facts/ value — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
+       "line": 170,
+       "quote": "const back = screen.getByRole(\"button\", { name: \"BACK TO FACT\" });"
+      }
+     ],
+     "fails_because": "the back link does not read BACK TO FACT or does not point at the fact",
+     "gap_clause": null
     },
     {
      "text": "tapping the back link takes you to that fact",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — back link reads BACK TO FACT and points at the fact for a ?from=/facts/ value — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
+       "line": 174,
+       "quote": "expect(setLocationMock).toHaveBeenCalledWith(\"/facts/123\");"
+      }
+     ],
+     "fails_because": "the back link does not read BACK TO FACT or does not point at the fact",
+     "gap_clause": null
     }
    ]
   },
@@ -6664,12 +6896,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 83,
+       "line": 85,
        "quote": "fireEvent.click(screen.getByRole(\"button\", { name: /sign in/i }));"
       },
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 105,
+       "line": 108,
        "quote": "expect(await submitLogin(\"?from=/facts/123\")).toBe(\"/facts/123\");"
       }
      ],
@@ -6690,7 +6922,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 109,
+       "line": 112,
        "quote": "expect(await submitLogin(\"?from=https://evil.com\")).toBe(\"/\");"
       }
      ],
@@ -6703,7 +6935,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 109,
+       "line": 112,
        "quote": "expect(await submitLogin(\"?from=https://evil.com\")).toBe(\"/\");"
       }
      ],
@@ -6724,7 +6956,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 113,
+       "line": 116,
        "quote": "expect(await submitLogin(\"?from=//evil.com\")).toBe(\"/\");"
       }
      ],
@@ -6745,12 +6977,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 117,
+       "line": 120,
        "quote": "const href = await submitLogin(\"?from=javascript:alert(document.domain)\");"
       },
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 118,
+       "line": 121,
        "quote": "expect(href).toBe(\"/\");"
       }
      ],
@@ -6763,7 +6995,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 119,
+       "line": 122,
        "quote": "expect(href).not.toContain(\"javascript:\");"
       }
      ],
@@ -6784,7 +7016,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 123,
+       "line": 126,
        "quote": "expect(await submitLogin(\"?from=/\\\\evil.com\")).toBe(\"/\");"
       }
      ],
@@ -6805,7 +7037,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
-       "line": 127,
+       "line": 130,
        "quote": "expect(await submitLogin(\"\")).toBe(\"/\");"
       }
      ],
@@ -7035,10 +7267,21 @@
    "clauses": [
     {
      "text": "clicking BACK TO FACTS with no ?from= goes to the facts list",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — back link reads BACK TO FACTS and points at / when no from value is present — `artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
+       "line": 162,
+       "quote": "const back = screen.getByRole(\"button\", { name: \"BACK TO FACTS\" });"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/loginRedirect.security.test.ts",
+       "line": 164,
+       "quote": "expect(setLocationMock).toHaveBeenCalledWith(\"/\");"
+      }
+     ],
+     "fails_because": "the back link does not read BACK TO FACTS or does not point at /",
+     "gap_clause": null
     }
    ]
   },
@@ -8253,10 +8496,21 @@
     },
     {
      "text": "picking Private in the builder sends that choice, and you land on the permalink",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — picking Private in the builder and saving sends isPublic false and the browser lands on the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 236,
+       "quote": "expect(memeBodies[0]!.isPublic).toBe(false);"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 237,
+       "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
+      }
+     ],
+     "fails_because": "the save does not send isPublic false or does not land on the permalink",
+     "gap_clause": null
     },
     {
      "text": "the permalink returns the private meme to you, the creator",
@@ -8414,10 +8668,21 @@
     },
     {
      "text": "leaving the control on Public in the builder saves it public",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — saving from the builder with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 249,
+       "quote": "expect(memeBodies[0]!.isPublic).toBe(true);"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 250,
+       "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
+      }
+     ],
+     "fails_because": "the save does not post isPublic true or does not navigate to the permalink",
+     "gap_clause": null
     },
     {
      "text": "the permalink opens fine logged out",
@@ -8506,10 +8771,21 @@
     },
     {
      "text": "setting Private in the builder and saving sends that choice",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — picking Private in the builder and saving sends isPublic false and the browser lands on the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 236,
+       "quote": "expect(memeBodies[0]!.isPublic).toBe(false);"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 237,
+       "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
+      }
+     ],
+     "fails_because": "the save does not send isPublic false or does not land on the permalink",
+     "gap_clause": null
     },
     {
      "text": "logged out, the permalink does not load (404)",
@@ -8581,12 +8857,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 157,
+       "line": 158,
        "quote": "await openImageStep(\"registered\");"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 158,
+       "line": 159,
        "quote": "fireEvent.click(screen.getByTestId(\"meme-visibility-private\"));"
       }
      ],
@@ -8613,10 +8889,16 @@
     },
     {
      "text": "Private is dimmed",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the locked Private pill renders with the opacity-60 dimming class when canSetPrivate is false — `artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/__tests__/VisibilityToggle.test.tsx",
+       "line": 97,
+       "quote": "expect(screen.getByTestId(\"meme-visibility-private\").classList.contains(\"opacity-60\")).toBe(true);"
+      }
+     ],
+     "fails_because": "the locked Private pill is not dimmed",
+     "gap_clause": null
     },
     {
      "text": "logged in as the plain registered account and starting a meme, that is what the builder shows",
@@ -8639,12 +8921,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 158,
+       "line": 159,
        "quote": "fireEvent.click(screen.getByTestId(\"meme-visibility-private\"));"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 160,
+       "line": 161,
        "quote": "expect(await screen.findByText(/go legendary to keep memes private/i)).toBeTruthy();"
       },
       {
@@ -8658,17 +8940,34 @@
     },
     {
      "text": "closing the modal leaves Public selected",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — closing the upgrade modal leaves Public selected and the in-progress meme intact — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 265,
+       "quote": "expect(screen.getByTestId(\"meme-visibility-public\").getAttribute(\"aria-pressed\")).toBe(\"true\");"
+      }
+     ],
+     "fails_because": "closing the modal changes the selection",
+     "gap_clause": null
     },
     {
      "text": "the in-progress meme is intact after closing",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — closing the upgrade modal leaves Public selected and the in-progress meme intact — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 274,
+       "quote": "expect(draft.currentStep).toBe(2);"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 275,
+       "quote": "expect(draft.source).toEqual({ kind: \"stock\", stockImageId: \"777\" });"
+      }
+     ],
+     "fails_because": "closing the modal loses the in-progress meme",
+     "gap_clause": null
     }
    ]
   },
@@ -8693,10 +8992,21 @@
     },
     {
      "text": "saving from the builder after closing the upsell sends Public",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — saving from the builder with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 284,
+       "quote": "expect(memeBodies[0]!.isPublic).toBe(true);"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 285,
+       "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
+      }
+     ],
+     "fails_because": "saving after the upsell is closed does not send Public or land on the permalink",
+     "gap_clause": null
     },
     {
      "text": "the permalink loads logged out",
@@ -8743,12 +9053,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 164,
+       "line": 165,
        "quote": "await openImageStep(\"unregistered\");"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 165,
+       "line": 166,
        "quote": "expect(screen.queryByTestId(\"meme-visibility\")).toBeNull();"
       }
      ],
@@ -8813,10 +9123,26 @@
     },
     {
      "text": "built and saved in the builder from start to finish, you land on the permalink",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — saving from the builder with the control left on Public posts isPublic true to /api/memes and navigates to the returned permalink — `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 297,
+       "quote": "fireEvent.click(screen.getByRole(\"button\", { name: /^image$/i }));"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 309,
+       "quote": "expect(memeBodies[0]!.imageSource).toEqual({ type: \"stock\", pexelsPhotoId: 555 });"
+      },
+      {
+       "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
+       "line": 311,
+       "quote": "await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);"
+      }
+     ],
+     "fails_because": "a meme built from Step 1 does not save the picked photo or does not land on the permalink",
+     "gap_clause": null
     }
    ]
   },
@@ -9234,12 +9560,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 159,
+       "line": 160,
        "quote": "expect(screen.getByTestId(\"meme-visibility-private\").getAttribute(\"aria-pressed\")).toBe(\"false\");"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 160,
+       "line": 161,
        "quote": "expect(await screen.findByText(/go legendary to keep memes private/i)).toBeTruthy();"
       }
      ],
@@ -9323,12 +9649,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 152,
+       "line": 153,
        "quote": "fireEvent.click(priv);"
       },
       {
        "path": "artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx",
-       "line": 153,
+       "line": 154,
        "quote": "expect(screen.getByTestId(\"meme-visibility-private\").getAttribute(\"aria-pressed\")).toBe(\"true\");"
       }
      ],
@@ -10260,38 +10586,68 @@
     },
     {
      "text": "Taxonomy Health → Ch. 4 § For the admin (Taxonomy Health)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — helpHrefFor for /admin/taxonomy-health, /admin/billing, /admin/email-queue, /admin/facts and /admin returning the Ch. 4, 10 and 12 sections and Ch. 2 and 11 the Expect names — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
+       "line": 75,
+       "quote": "expect(helpHrefFor(\"/admin/taxonomy-health\")).toBe("
+      }
+     ],
+     "fails_because": "the Taxonomy Health help link does not reach Ch. 4's Taxonomy Health section",
+     "gap_clause": null
     },
     {
      "text": "Billing → Ch. 10 § For the admin",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — helpHrefFor for /admin/taxonomy-health, /admin/billing, /admin/email-queue, /admin/facts and /admin returning the Ch. 4, 10 and 12 sections and Ch. 2 and 11 the Expect names — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
+       "line": 76,
+       "quote": "expect(helpHrefFor(\"/admin/billing\")).toBe("
+      }
+     ],
+     "fails_because": "the Billing help link does not reach Ch. 10 § For the admin",
+     "gap_clause": null
     },
     {
      "text": "Email Queue → Ch. 12 § Email, the most consequential rider",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — helpHrefFor for /admin/taxonomy-health, /admin/billing, /admin/email-queue, /admin/facts and /admin returning the Ch. 4, 10 and 12 sections and Ch. 2 and 11 the Expect names — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
+       "line": 77,
+       "quote": "expect(helpHrefFor(\"/admin/email-queue\")).toBe("
+      }
+     ],
+     "fails_because": "the Email Queue help link does not reach Ch. 12's email section",
+     "gap_clause": null
     },
     {
      "text": "Facts → Ch. 2 · Content Lifecycle",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — helpHrefFor for /admin/taxonomy-health, /admin/billing, /admin/email-queue, /admin/facts and /admin returning the Ch. 4, 10 and 12 sections and Ch. 2 and 11 the Expect names — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
+       "line": 78,
+       "quote": "expect(helpHrefFor(\"/admin/facts\")).toBe("
+      }
+     ],
+     "fails_because": "the Facts help link does not reach Ch. 2",
+     "gap_clause": null
     },
     {
      "text": "Dashboard → Ch. 11 · Admin Console",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — helpHrefFor for /admin/taxonomy-health, /admin/billing, /admin/email-queue, /admin/facts and /admin returning the Ch. 4, 10 and 12 sections and Ch. 2 and 11 the Expect names — `artifacts/overhype-me/src/components/admin/helpMap.test.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/helpMap.test.ts",
+       "line": 79,
+       "quote": "expect(helpHrefFor(\"/admin\")).toBe("
+      }
+     ],
+     "fails_because": "the Dashboard help link does not reach Ch. 11",
+     "gap_clause": null
     }
    ]
   },
@@ -10558,10 +10914,16 @@
     },
     {
      "text": "the verified box is green",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the verification box in its verified state carrying the text-green-400 class, so it shows green, not only data-state verified — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
+       "line": 265,
+       "quote": "expect(box.className).toContain(\"text-green-400\");"
+      }
+     ],
+     "fails_because": "the verified box is not green",
+     "gap_clause": null
     },
     {
      "text": "the box reads Payments verified",
@@ -10587,10 +10949,16 @@
    "clauses": [
     {
      "text": "the line says This instance only",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the rendered scope line reading This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ., with no text matching the deployment is or has — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
+       "line": 278,
+       "quote": "\"This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ.\","
+      }
+     ],
+     "fails_because": "the scope line does not read the exact text, or claims the deployment is or has",
+     "gap_clause": null
     },
     {
      "text": "followed by a short identifier",
@@ -10612,17 +10980,29 @@
     },
     {
      "text": "and a sentence that other instances of the deployment may differ",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the rendered scope line reading This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ., with no text matching the deployment is or has — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
+       "line": 278,
+       "quote": "\"This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ.\","
+      }
+     ],
+     "fails_because": "the scope line does not read the exact text, or claims the deployment is or has",
+     "gap_clause": null
     },
     {
      "text": "it claims nothing about the deployment as a whole",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the rendered scope line reading This instance only (9f8e7d6c). Other instances of this autoscale deployment may differ., with no text matching the deployment is or has — `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx",
+       "line": 282,
+       "quote": "expect(boxText).not.toMatch(/\\bthe deployment (is|has)\\b/i);"
+      }
+     ],
+     "fails_because": "the box claims something about the deployment as a whole",
+     "gap_clause": null
     }
    ]
   },
@@ -10940,10 +11320,16 @@
     },
     {
      "text": "reopening its enrichment editor shows the same override content, word for word",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the editor rendered with that refresh candidate's enrichment shows the override's core scene and required visual detail text verbatim in its Visual Concept and override fields — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 403,
+       "quote": "expect((required.getByDisplayValue(DETAIL) as HTMLInputElement).value).toBe(DETAIL);"
+      }
+     ],
+     "fails_because": "the editor does not show the override's core scene or required detail verbatim",
+     "gap_clause": null
     }
    ]
   },
@@ -10968,10 +11354,16 @@
     },
     {
      "text": "the editor shows no manual override / visual-override signal for that fact",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Enrichment editor showing no Overridden bar when a fact has no override or only an empty scaffold is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 413,
+       "quote": "expect(screen.queryByText(\"Overridden:\")).toBeNull();"
+      }
+     ],
+     "fails_because": "the Overridden bar shows for a fact with no override or an empty scaffold",
+     "gap_clause": null
     }
    ]
   },
@@ -11006,10 +11398,16 @@
     },
     {
      "text": "the editor's save completes with no error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — tokenizeAndSaveVisualOverride on a fact target with a newly added required visual detail returns true and sends PATCH /api/admin/facts/:id/enrichment carrying it — `artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/useFactEnrichmentEditing.test.tsx",
+       "line": 760,
+       "quote": "expect(ok).toBe(true);"
+      }
+     ],
+     "fails_because": "the save does not complete",
+     "gap_clause": null
     },
     {
      "text": "reopening reloads the edited value from the server",
@@ -11026,10 +11424,16 @@
     },
     {
      "text": "the reopened editor shows the edited value",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — reopening the editor after the save shows the saved required visual detail, loaded through the save and reload path — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 436,
+       "quote": "getByDisplayValue(\"uat-582-scratch\")"
+      }
+     ],
+     "fails_because": "the reopened editor does not show the saved required visual detail",
+     "gap_clause": null
     }
    ]
   },
@@ -11102,17 +11506,29 @@
     },
     {
      "text": "the editor shows its classification fields populated: archetype, subtype, fit",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the enrichment editor rendering archetype, subtype and fit populated with no error banner for a fact with completed enrichment is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 483,
+       "quote": "expect(values).toContain(\"strong\"); // overhype fit"
+      }
+     ],
+     "fails_because": "the classification fields are not populated or an error banner shows",
+     "gap_clause": null
     },
     {
      "text": "no error banner is shown",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the enrichment editor rendering archetype, subtype and fit populated with no error banner for a fact with completed enrichment is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 487,
+       "quote": "expect(document.querySelector(\".text-destructive\")).toBeNull();"
+      }
+     ],
+     "fails_because": "an error banner shows",
+     "gap_clause": null
     }
    ]
   },
@@ -11158,17 +11574,29 @@
     },
     {
      "text": "there is no orange Overridden: Visual Strategy bar",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the editor showing no Overridden Visual Strategy bar with classification fields still populated, when only the Visual Concept is set, is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 497,
+       "quote": "expect(screen.queryByText(\"Overridden:\")).toBeNull();"
+      }
+     ],
+     "fails_because": "the Overridden bar shows when only the Visual Concept is set",
+     "gap_clause": null
     },
     {
      "text": "the classification fields below it are unchanged and still populated",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the editor showing no Overridden Visual Strategy bar with classification fields still populated, when only the Visual Concept is set, is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 500,
+       "quote": "expect(values).toEqual(expect.arrayContaining([\"superhuman_physical_feat\", \"force_scaled_action\", \"strong\", \"medium\"]));"
+      }
+     ],
+     "fails_because": "the classification fields are not populated when only the Visual Concept is set",
+     "gap_clause": null
     }
    ]
   },
@@ -11193,10 +11621,16 @@
     },
     {
      "text": "the orange Overridden: Visual Strategy bar is shown",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the editor showing the Overridden Visual Strategy bar when the summary reports real override content is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 523,
+       "quote": "expect(screen.getByText(\"Overridden:\").parentElement?.textContent).toMatch(/^Overridden:\\s*Visual Strategy$/);"
+      }
+     ],
+     "fails_because": "the Overridden bar is missing when the summary reports real override content",
+     "gap_clause": null
     }
    ]
   },
@@ -11270,10 +11704,16 @@
     },
     {
      "text": "typing {NOPE} at the end of the existing text, without saving, raises that warning",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — typing {NOPE} after existing text in the visual-concept-textarea, with no save, shows the Invalid token warning — `artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/VisualConceptCard.test.tsx",
+       "line": 170,
+       "quote": "expect(screen.getByTestId(\"visual-concept-card\").textContent).toContain(\"Invalid token: \");"
+      }
+     ],
+     "fails_because": "typing an unknown token does not show the Invalid token warning",
+     "gap_clause": null
     }
    ]
   },
@@ -11298,10 +11738,16 @@
     },
     {
      "text": "on reopening, the orange Overridden: Visual Strategy bar appears",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — reopening the editor after that save shows the orange Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 454,
+       "quote": "expect(overriddenBar()!.textContent).toMatch(/^Overridden:\\s*Visual Strategy$/);"
+      }
+     ],
+     "fails_because": "the reopened editor does not show the Overridden: Visual Strategy bar after a real override is saved",
+     "gap_clause": null
     }
    ]
   },
@@ -11326,10 +11772,16 @@
     },
     {
      "text": "on reopening, the Overridden: Visual Strategy bar is gone",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — reopening the editor after that save shows no Overridden: Visual Strategy bar, driven by the saved enrichment rather than a supplied flag — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 472,
+       "quote": "expect(screen.queryByText(\"Overridden:\")).toBeNull();"
+      }
+     ],
+     "fails_because": "the reopened editor still shows the Overridden bar after the override is cleared",
+     "gap_clause": null
     }
    ]
   },
@@ -11364,17 +11816,29 @@
     },
     {
      "text": "the editor shows its classification fields populated: archetype, subtype, fit",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the enrichment editor rendering archetype, subtype and fit populated with no error banner for a fact with completed enrichment is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 483,
+       "quote": "expect(values).toContain(\"strong\"); // overhype fit"
+      }
+     ],
+     "fails_because": "the classification fields are not populated or an error banner shows",
+     "gap_clause": null
     },
     {
      "text": "no error banner is shown",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the enrichment editor rendering archetype, subtype and fit populated with no error banner for a fact with completed enrichment is unasserted — `artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+       "line": 487,
+       "quote": "expect(document.querySelector(\".text-destructive\")).toBeNull();"
+      }
+     ],
+     "fails_because": "an error banner shows",
+     "gap_clause": null
     }
    ]
   },
@@ -11437,10 +11901,16 @@
     },
     {
      "text": "the card shows the renewal date",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the renewal date on the card while the Stripe mirror is still empty — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 452,
+       "quote": "expect(screen.getByText(\"September 29, 2026\")).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the renewal date is missing while the Stripe mirror is empty",
+     "gap_clause": null
     },
     {
      "text": "the card shows a Switch to Annual button",
@@ -11541,10 +12011,16 @@
    "clauses": [
     {
      "text": "the card names the lifetime membership",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the card showing the text Legendary for Life, and no Reactivate Subscription button, not only the absence of Switch and Cancel, for isLifetime true — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 414,
+       "quote": "expect(screen.getByText(\"Legendary for Life — access never expires\", { selector: \"span\" })).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the lifetime card does not read Legendary for Life, or shows Reactivate Subscription",
+     "gap_clause": null
     },
     {
      "text": "it offers Manage billing & receipts",
@@ -11587,10 +12063,31 @@
     },
     {
      "text": "Manage billing & receipts is the only control offered",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the card showing the text Legendary for Life, and no Reactivate Subscription button, not only the absence of Switch and Cancel, for isLifetime true — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 413,
+       "quote": "await screen.findByRole(\"button\", { name: /Manage billing/i });"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 416,
+       "quote": "expect(screen.queryByRole(\"button\", { name: /Reactivate Subscription/i })).toBeNull();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 417,
+       "quote": "expect(screen.queryByRole(\"button\", { name: /Switch to Annual/i })).toBeNull();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 418,
+       "quote": "expect(screen.queryByRole(\"button\", { name: /Cancel Subscription/i })).toBeNull();"
+      }
+     ],
+     "fails_because": "the lifetime card lacks Manage billing or offers another control",
+     "gap_clause": null
     }
    ]
   },
@@ -11602,10 +12099,16 @@
    "clauses": [
     {
      "text": "the Free Plan block shows",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Free Plan block text beside Go Legendary — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 434,
+       "quote": "expect(await screen.findByText(\"Free Plan\")).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the free account's card does not show the Free Plan text",
+     "gap_clause": null
     },
     {
      "text": "with a Go Legendary button",
@@ -11648,24 +12151,47 @@
    "clauses": [
     {
      "text": "after Cancel Subscription is confirmed, the card reports the subscription ending on the renewal date",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking Cancel Subscription and confirming, then Reactivate, with the routes stubbed: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 513,
+       "quote": "expect(await screen.findByText(\"Subscription cancelled\")).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 514,
+       "quote": "expect(screen.getByText(\"September 29, 2026\")).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the card does not report the subscription ending on the renewal date",
+     "gap_clause": null
     },
     {
      "text": "it offers Reactivate Subscription",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking Cancel Subscription and confirming, then Reactivate, with the routes stubbed: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 515,
+       "quote": "const reactivate = await screen.findByRole(\"button\", { name: /Reactivate Subscription/i });"
+      }
+     ],
+     "fails_because": "the cancelled card does not offer Reactivate Subscription",
+     "gap_clause": null
     },
     {
      "text": "Cancel Subscription is gone after the cancel",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking Cancel Subscription and confirming, then Reactivate, with the routes stubbed: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 516,
+       "quote": "expect(screen.queryByRole(\"button\", { name: /Cancel Subscription/i })).toBeNull();"
+      }
+     ],
+     "fails_because": "Cancel Subscription is still offered after the cancel",
+     "gap_clause": null
     },
     {
      "text": "Switch to Annual is gone, and returns after Reactivate",
@@ -11676,10 +12202,16 @@
     },
     {
      "text": "clicking Reactivate brings Cancel Subscription back",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking Cancel Subscription and confirming, then Reactivate, with the routes stubbed: Subscription cancelled with the renewal date, Reactivate Subscription, no Cancel, then Cancel Subscription back — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 522,
+       "quote": "expect(await screen.findByRole(\"button\", { name: /Cancel Subscription/i })).toBeTruthy();"
+      }
+     ],
+     "fails_because": "Reactivate does not bring Cancel Subscription back",
+     "gap_clause": null
     },
     {
      "text": "the cancel and the reactivation take effect at Stripe",
@@ -11835,17 +12367,29 @@
    "clauses": [
     {
      "text": "the plan reads Monthly",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — plan label reads Monthly and the price line reads $3.99/month, the test matches only $3.99 — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 469,
+       "quote": "expect(screen.getByText(/^Monthly subscription/)).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the plan label does not read Monthly or the price line does not read $3.99/month",
+     "gap_clause": null
     },
     {
      "text": "the price line reads $3.99/month",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — plan label reads Monthly and the price line reads $3.99/month, the test matches only $3.99 — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 470,
+       "quote": "expect(screen.getByText(\"$3.99/month\")).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the plan label does not read Monthly or the price line does not read $3.99/month",
+     "gap_clause": null
     },
     {
      "text": "\"Switch to Annual\" is offered",
@@ -11921,10 +12465,16 @@
    "clauses": [
     {
      "text": "the lifetime membership is named",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the card names the lifetime membership as Legendary for Life, the test asserts only the absent switch and cancel — `artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/src/__tests__/SubscriptionPanel.test.tsx",
+       "line": 414,
+       "quote": "expect(screen.getByText(\"Legendary for Life — access never expires\", { selector: \"span\" })).toBeTruthy();"
+      }
+     ],
+     "fails_because": "the lifetime card does not name Legendary for Life",
+     "gap_clause": null
     },
     {
      "text": "\"Manage billing & receipts\" is shown",
@@ -11975,8 +12525,8 @@
  ],
  "counts": {
   "steps": 324,
-  "asserted": 407,
-  "gap": 355,
+  "asserted": 482,
+  "gap": 280,
   "live": 1
  }
 }
