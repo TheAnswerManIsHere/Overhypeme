@@ -675,3 +675,12 @@ The text above is sha256 `cb8b199a06bb3d092930164d0a6e73df8911291e9f45fee5e92973
 10. **7b part 2 runs as four PRs by target family**, in the order journeys,
     api, frontend, e2e, and **#692 is fixed before the e2e PR** so PR582's
     Queue Health clause closes inside Phase 2 (David, 2026-10-17).
+11. **`E2E Smoke`'s bound is 12 minutes for the rest of increment 7**
+    (David, 2026-10-19, option 2 of three). Wherever this plan says `E2E
+    Smoke` stays under 7 minutes (D2, the Definition of Done), read 12. The
+    job ran 8m28s–9m19s on the four 7b part 2 PR heads before the e2e PR,
+    with growth from increment 8's described-screens and capture suites; the
+    7 minutes was headroom over the `de15e8f` measurement (4m55s), and the
+    parent's own rule — acceptance journeys do not join the per-PR gate, and
+    `Build` and `Test` keep their budget — still holds. `Test` and `Frontend
+    Test` keep their 3-minute bounds. The speed-up is #730, outside Phase 2.
