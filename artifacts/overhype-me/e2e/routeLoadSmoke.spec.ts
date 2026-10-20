@@ -513,3 +513,300 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(page.getByText("No facts found.", { exact: true }), "PR242 step 3: the live list has nothing for the imported text").toBeVisible();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #631 increment 7b: the admin screens in regular use, asserted in the terms
+// their UAT steps use. Each test names the steps it answers. State is set up
+// through the real API as the dev admin; the only stubs are the grace-sweep
+// status (whose Healthy / amber / drifted states a fresh stack cannot honestly
+// reach) and one injected Email Queue row (a real job would need an email
+// send), each said where it is made.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { FREE_ACCOUNT, PAID_ACCOUNT, csrfToken } from "./helpers/testAccounts";
+
+/** Records every /api/ response status and how many /api/ requests are still in flight. */
+function trackApi(page: Page) {
+  const responses: { url: string; status: number }[] = [];
+  let inFlight = 0;
+  const isApi = (url: string) => new URL(url).pathname.startsWith("/api/");
+  page.on("request", (r) => { if (isApi(r.url())) inFlight += 1; });
+  page.on("requestfinished", (r) => { if (isApi(r.url())) inFlight -= 1; });
+  page.on("requestfailed", (r) => { if (isApi(r.url())) inFlight -= 1; });
+  page.on("response", (r) => { if (isApi(r.url())) responses.push({ url: r.url(), status: r.status() }); });
+  return {
+    responses,
+    /** Waits until every API request the page started has answered — or one was refused 429, which a client may retry forever. */
+    settled: () =>
+      expect
+        .poll(() => inFlight === 0 || responses.some((r) => r.status === 429), { timeout: 30_000, message: "API requests still in flight" })
+        .toBe(true),
+    throttled: () => responses.filter((r) => r.status === 429).map((r) => r.url),
+  };
+}
+
+/** PR425 R7: an admin screen renders inside the AdminLayout, authorized, with no error boundary. */
+async function expectAdminScreen(page: Page, path: string) {
+  await page.goto(path, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("nav").first(), `PR425 R7: ${path} should render the AdminLayout nav`).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: "Access Denied" }), `PR425 R7: ${path} should be authorized`).toHaveCount(0);
+  await expect
+    .poll(async () => (await page.locator("main").innerText()).trim().length, { message: `PR425 R7: ${path} rendered no content` })
+    .toBeGreaterThan(20);
+  await expect(page.getByText("Something broke"), `PR425 R7: ${path} hit the error boundary`).toHaveCount(0);
+}
+
+test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, PR425)", () => {
+  // PR425 R1, PR308 step 1 and R2. Deliberately NOT signed in: the smoke above
+  // signs in as admin before every route, so it never sees what a visitor sees.
+  test("logged out, the ordinary and feed routes load with no sign-in wall, no 429 and no redirect", async ({ page }) => {
+    const api = trackApi(page);
+    for (const path of ["/", "/top-facts", "/library"]) {
+      await page.goto(path, { waitUntil: "domcontentloaded" });
+      if (path === "/") {
+        await expect(page.getByText("For you").first(), "PR425 R1: / should render the real feed for a logged-out visitor").toBeVisible({ timeout: 20_000 });
+        await expect(page.getByPlaceholder("Enter your password"), "PR425 R1: / should not put a sign-in wall in front of a logged-out visitor").toHaveCount(0);
+      }
+      await expect
+        .poll(async () => (await page.locator("body").innerText()).trim().length, { message: `${path} rendered no content` })
+        .toBeGreaterThan(20);
+      await api.settled();
+      expect(api.throttled(), `PR308 step 1 / R2: no API response while loading ${path} should be a 429`).toEqual([]);
+      expect(new URL(page.url()).pathname, `PR308 step 1: ${path} should stay on its own address`).toBe(path);
+    }
+    expect(api.responses.length, "the routes should have made API calls for this to mean anything").toBeGreaterThan(0);
+  });
+
+  // PR308 step 3 and R6.
+  test("the admin moderation and taxonomy-health screens load with no API response answered 429", async ({ page, context }) => {
+    expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
+    const api = trackApi(page);
+    for (const path of ["/admin/moderation", "/admin/taxonomy-health"]) {
+      await page.goto(path, { waitUntil: "domcontentloaded" });
+      await expect(page.locator("nav").first(), `${path} should render the AdminLayout nav`).toBeVisible({ timeout: 20_000 });
+      await api.settled();
+      expect(api.throttled(), `PR308 step 3 / R6: no API response while ${path} loads should be a 429`).toEqual([]);
+    }
+    expect(api.responses.length).toBeGreaterThan(0);
+  });
+
+  // PR287 steps 6, 8, 23 and R8, and PR425 R7 for Users. The grant is read on
+  // the seeded paid account; the revoke runs on a user this test creates (and
+  // deletes), never on the seeded one the other suites depend on.
+  test("Users shows each tier, an admin grant as a grant, creates a Legendary user, and keeps a revoked grant", async ({ page, context }) => {
+    expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
+    await expectAdminScreen(page, "/admin/users");
+    const adminName = String((await (await context.request.get("/api/auth/user")).json()).user.displayName ?? "");
+    expect(adminName, "the dev admin needs a display name for its grant label").not.toBe("");
+
+    const row = (email: string) => page.locator("div.cursor-pointer").filter({ hasText: email });
+    await page.getByPlaceholder("Search name, email, or ID…").fill("e2e-");
+    const paidRow = row(PAID_ACCOUNT.email);
+    const freeRow = row(FREE_ACCOUNT.email);
+    await expect(paidRow.locator('[aria-label="Legendary"]'), "PR287 step 23: the paid account's row should show the Legendary icon").toBeVisible();
+    await expect(paidRow.locator('[aria-label="Registered"]'), "PR287 step 23: ...and not the Registered one").toHaveCount(0);
+    await expect(freeRow.locator('[aria-label="Registered"]'), "PR287 step 23: the free account's row should show the Registered icon").toBeVisible();
+    await expect(freeRow.locator('[aria-label="Legendary"]'), "PR287 step 23: ...and not the Legendary one").toHaveCount(0);
+
+    const panel = page.locator("div.rounded-sm.overflow-hidden").filter({ hasText: "Membership Status" });
+    const lifetime = panel.locator("div").filter({ has: page.getByText("Legendary for Life", { exact: true }) }).last();
+
+    // PR287 step 6 — the seeded grant reads as a grant: who and why, no amount, no payment id.
+    await paidRow.click();
+    await expect(lifetime.getByText(/^Granted /), "PR287 step 6: the paid account's lifetime row should read Granted").toBeVisible();
+    await expect(panel.locator('a[title="Open payment in Stripe"]'), "PR287 step 6: an admin grant shows no payment-intent link").toHaveCount(0);
+    await expect(panel, "PR287 step 6: an admin grant shows no amount").not.toContainText(/[$£€]\s?\d|\d\.\d{2}\s?(USD|GBP|EUR)/i);
+    await expect(lifetime.getByText(`(admin: ${adminName})`), "PR287 step 6: the grant names who granted it").toBeVisible();
+    await expect(
+      lifetime.getByText("“E2E paid test account (seeded by scripts/seed-e2e-test-accounts.ts)”"),
+      "PR287 step 6: the grant shows why, quoted",
+    ).toBeVisible();
+
+    // PR287 R8 — the create-user form submits and the new user appears in the list.
+    const email = `e2e-7b-${Date.now()}@example.test`;
+    let createdId: string | null = null;
+    try {
+      await page.getByRole("button", { name: "Add User" }).click();
+      const modal = page.locator("div.max-w-md").filter({ has: page.getByRole("heading", { name: "Add User" }) });
+      await modal.getByPlaceholder("Name inserted into personalized facts (e.g. Alex Smith)").fill("E2E 7b Created");
+      await modal.getByPlaceholder("user@example.com").fill(email);
+      await modal.getByPlaceholder("Min. 8 characters").fill("e2e-7b-password");
+      await modal.getByRole("button", { name: "Legendary" }).click();
+      const created = page.waitForResponse((r) => r.url().endsWith("/api/admin/users") && r.request().method() === "POST");
+      await modal.getByRole("button", { name: "Create User" }).click();
+      const createdRes = await created;
+      if (createdRes.ok()) createdId = String((await createdRes.json()).user.id);
+      await expect(modal, "PR287 R8: the form should close once the user is created").toHaveCount(0);
+      await expect(row(email), "PR287 R8: the new user should appear in the list").toBeVisible();
+
+      // PR287 step 8 — revoke that user's grant; the row stays, marked revoked, naming who revoked it.
+      await row(email).click();
+      await expect(lifetime.getByText(/^Granted /)).toBeVisible();
+      await panel.getByRole("button", { name: "Revoke" }).click();
+      await expect(lifetime.getByText(/^Revoked grant /), "PR287 step 8: the revoked grant should still be listed, marked Revoked grant").toBeVisible();
+      await expect(
+        lifetime.getByText(new RegExp(`^Revoked \\S+ by ${adminName}`)),
+        "PR287 step 8: the revoked grant should name who revoked it",
+      ).toBeVisible();
+    } finally {
+      if (createdId) {
+        const del = await context.request.delete(`/api/admin/users/${createdId}?hard=true`, {
+          headers: { "X-CSRF-Token": await csrfToken(page) },
+        });
+        expect(del.ok(), `cleanup: hard-deleting ${email} -> ${del.status()}`).toBe(true);
+      }
+    }
+  });
+
+  // PR287 steps 30-34, and PR425 R7 for Refunds & Disputes. The first status
+  // read is the real server's (a clean database: nobody pending). The later
+  // ones are stubbed, because a fresh stack has never swept and cannot honestly
+  // be made Healthy, stale or drifting; each is delivered by the strip's own
+  // 30-second poll on a fake clock, which is what step 32 is about.
+  test("the Refunds & Disputes convergence strip reads each state honestly and refreshes itself", async ({ page, context }) => {
+    expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
+    const base = {
+      intervalSeconds: 3600, alertAfterSeconds: 21600, lastRunAt: null, lastSuccessAt: null,
+      lastConvergedCount: null, lastError: null, consecutiveFailures: 0,
+    };
+    const drifted = { id: "e2e-drift", email: "drifted@example.test", storedTier: "legendary", effectiveTier: "registered" };
+    const stubbed = [
+      { health: { ...base, staleSeconds: 300, alerting: false, neverRun: true, neverSucceeded: true }, drifted: [], driftedCount: 0, driftedTruncated: false },
+      { health: { ...base, staleSeconds: 120, alerting: false, neverRun: false, neverSucceeded: false, lastRunAt: "2026-10-01T12:00:00.000Z", lastSuccessAt: "2026-10-01T12:00:00.000Z", lastConvergedCount: 0 }, drifted: [], driftedCount: 0, driftedTruncated: false },
+      { health: { ...base, staleSeconds: 7 * 3600, alerting: true, neverRun: false, neverSucceeded: false, consecutiveFailures: 7 }, drifted: [drifted], driftedCount: 1, driftedTruncated: false },
+    ];
+    let reads = 0;
+    await page.route("**/api/admin/membership/grace-sweep", async (route) => {
+      reads += 1;
+      if (reads === 1) return route.fulfill({ response: await route.fetch() });
+      return route.fulfill({ json: stubbed[Math.min(reads - 2, stubbed.length - 1)] });
+    });
+    let loads = 0;
+    page.on("load", () => { loads += 1; });
+    await page.clock.install();
+    await expectAdminScreen(page, "/admin/refunds-disputes");
+
+    const strip = page.locator("div.bg-card").filter({ has: page.getByText("Membership grace sweep", { exact: true }) });
+    const status = strip.locator("span").nth(1);
+    const grey = strip.getByText(/^every /);
+    const amber = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--color-amber-500)";
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+
+    // PR287 step 33, the normal case — read from the real server.
+    await expect(strip.getByText("No users pending convergence", { exact: true }), "PR287 step 33: a clean database reads No users pending convergence").toBeVisible();
+
+    // PR287 step 31 — right after a deploy: honest, never Healthy. Delivered by the poll (step 32).
+    await page.clock.runFor(30_000);
+    await expect.poll(() => reads, { message: "PR287 step 32: the strip should refetch its status on its own after 30 s" }).toBe(2);
+    await expect(status, "PR287 step 31: before any sweep the strip reads Not yet run · waiting Nm since start").toHaveText("Not yet run · waiting 5m since start");
+    await expect(strip.getByText(/Healthy/), "PR287 step 31: ...and never Healthy").toHaveCount(0);
+
+    // PR287 step 30 — healthy is grey, not alarming. Also delivered by the poll.
+    await page.clock.runFor(30_000);
+    await expect.poll(() => reads, { message: "PR287 step 32: ...and again 30 s later" }).toBe(3);
+    await expect(status, "PR287 step 30: after a sweep the strip reads Healthy · last converged N ago").toHaveText("Healthy · last converged 2m ago");
+    const greyColor = await grey.evaluate((el) => getComputedStyle(el).color);
+    expect(greyColor, "the grey reference should not itself be amber").not.toBe(amber);
+    await expect(status, "PR287 step 30: Healthy is grey text").toHaveCSS("color", greyColor);
+    expect(loads, "PR287 step 32: the strip refreshed without the page reloading").toBe(1);
+
+    // PR287 steps 33 (lagging) and 34 — amber, drifting, and access still correct.
+    await page.clock.runFor(30_000);
+    await expect(strip.getByText("1 user pending convergence", { exact: true }), "PR287 step 33: a lagging user is counted").toBeVisible();
+    await expect(status, "PR287 step 34: the amber strip says stored tiers are drifting").toHaveText("Failing for 7h — stored tiers are drifting");
+    await expect(status, "PR287 step 34: ...in amber").toHaveCSS("color", amber);
+    await expect(
+      strip.getByText("Their stored tier is stale; access is already enforced correctly on every request."),
+      "PR287 step 34: the strip says access is still correct",
+    ).toBeVisible();
+  });
+
+  // PR293 step 4, R1 and R2, and PR425 R7 for Configuration. Two unrelated,
+  // harmless keys are edited and saved through the page, read back after a
+  // reload, and set back to the value found — the set-back is a real write too.
+  test("Configuration lists every existing key, and saving ordinary keys persists each value", async ({ page, context }) => {
+    expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
+    // Every collapsible section open, so every key the page renders is in the DOM.
+    await page.addInitScript(() => {
+      for (const k of ["budget", "limits", "email", "zazzle", "moderation", "ai_group", "ai_style_prompts", "ai_gen_limits"]) {
+        try { localStorage.setItem(`admin_section_config_${k}`, "1"); } catch { /* storage off: the key checks then fail loudly */ }
+      }
+    });
+    const rowsRes = await context.request.get("/api/admin/config");
+    expect(rowsRes.ok()).toBe(true);
+    const rows = (await rowsRes.json()) as { key: string; value: string }[];
+    // Keys the page deliberately shows elsewhere (Billing) or as the debug toggle.
+    const elsewhere = new Set(["debug_mode_active", "stripe_live_mode", "fal_active_endpoints", "pricing_refresh_interval_ms"]);
+    const expected = rows.map((r) => r.key).filter((k) => !elsewhere.has(k) && !k.startsWith("style_suffix_"));
+    expect(expected.length, "the config table should hold keys for this check to mean anything").toBeGreaterThan(20);
+
+    await expectAdminScreen(page, "/admin/config");
+    await expect(page.getByRole("heading", { name: /^Debug Mode (ON|OFF)$/ }), "PR293 R1: /admin/config loads normally").toBeVisible();
+    await expect(page.getByText("Loading configuration…"), "PR293 R1: ...past its loading state").toHaveCount(0);
+    const shown = await page.locator("code").allInnerTexts();
+    expect(expected.filter((k) => !shown.includes(k)), "PR293 R1: every existing key should still be present on the page").toEqual([]);
+
+    const card = (key: string) => page.locator("div.bg-card.rounded-lg.p-5").filter({ has: page.locator("code", { hasText: new RegExp(`^${key.replace(/\./g, "\\.")}$`) }) });
+    const edits = [
+      { key: "share_copy_twitter_hashtags", field: (k: string) => card(k).locator("textarea").first(), next: (v: string) => `${v},e2e7b` },
+      { key: "rate_limit_counters.purge_batch_size", field: (k: string) => card(k).locator("input").first(), next: (v: string) => String(Number(v) + 1) },
+    ];
+    const original = new Map(rows.map((r) => [r.key, r.value]));
+    try {
+      for (const e of edits) {
+        const field = e.field(e.key);
+        await field.fill(e.next(original.get(e.key)!));
+        const saved = page.waitForResponse((r) => r.url().endsWith(`/api/admin/config/${e.key}`) && r.request().method() === "PATCH");
+        await card(e.key).getByRole("button", { name: "Save" }).first().click();
+        expect((await saved).status(), `PR293 R2: saving ${e.key} should succeed`).toBe(200);
+        await expect(card(e.key).getByRole("button", { name: "Saved" }), `PR293 R2: ${e.key} should show Saved`).toBeVisible();
+      }
+      await page.reload({ waitUntil: "domcontentloaded" });
+      for (const e of edits) {
+        await expect(e.field(e.key), `PR293 step 4: ${e.key} should still hold the saved value after a reload`).toHaveValue(e.next(original.get(e.key)!));
+      }
+    } finally {
+      for (const e of edits) {
+        const res = await context.request.patch(`/api/admin/config/${e.key}`, {
+          headers: { "X-CSRF-Token": await csrfToken(page) },
+          data: { value: original.get(e.key) },
+        });
+        expect(res.ok(), `cleanup: restoring ${e.key} -> ${res.status()}`).toBe(true);
+      }
+    }
+  });
+
+  // PR288 R1, and PR425 R7 for Email Queue and Engines. The queue's list read
+  // goes to the real server, which must answer 200; one job is appended to its
+  // answer because a real one needs an email send, which this stack must not make.
+  test("Email Queue loads and lists its jobs with no error, and Engines loads", async ({ page, context }) => {
+    expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
+    const job = {
+      id: 987001, to: "e2e-7b-queue@example.test", subject: "E2E 7b queued job", text: "body", html: null,
+      kind: "e2e", status: "pending", attempts: 0, maxAttempts: 5, lastError: null,
+      nextAttemptAt: "2026-10-01T12:00:00.000Z", createdAt: "2026-10-01T12:00:00.000Z", updatedAt: "2026-10-01T12:00:00.000Z",
+    };
+    const realStatuses: number[] = [];
+    await page.route(/\/api\/admin\/email-queue\?/, async (route) => {
+      const real = await route.fetch();
+      realStatuses.push(real.status());
+      if (!real.ok()) return route.fulfill({ response: real });
+      const body = await real.json();
+      return route.fulfill({ response: real, json: { ...body, rows: [job, ...body.rows], total: body.total + 1 } });
+    });
+    await expectAdminScreen(page, "/admin/email-queue");
+    await expect(page.getByText(job.subject).filter({ visible: true }), "PR288 R1: the Email Queue should list its jobs").toBeVisible();
+    expect(realStatuses.length, "the list should have been read from the real server").toBeGreaterThan(0);
+    expect(realStatuses.every((s) => s === 200), `PR288 R1: the real list read should succeed, got ${realStatuses.join(",")}`).toBe(true);
+    await expect(page.locator("div.bg-destructive\\/10"), "PR288 R1: the Email Queue should show no error").toHaveCount(0);
+    await expect(page.getByText("Email queue failed to render"), "PR288 R1: ...and not its render-error panel").toHaveCount(0);
+
+    await expectAdminScreen(page, "/admin/engines");
+  });
+});

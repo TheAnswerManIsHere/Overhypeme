@@ -54,7 +54,11 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { csrfToken } from "./helpers/testAccounts";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { FREE_ACCOUNT, PAID_ACCOUNT, TEST_ACCOUNT_PASSWORD, csrfToken, signInThroughForm } from "./helpers/testAccounts";
 
 /**
  * The feature this file uses to observe the resolver. Chosen because its gated
@@ -381,26 +385,297 @@ test.describe("Admin · permissions core", () => {
   // test failed part-way. The grid is shared mutable state; a dirty cell would
   // fail the NEXT run closed, which is the class of flake #563 round 7 removed.
   test.afterEach(async ({ page }) => {
-    // Every failure is collected rather than thrown, so one unrestorable cell
-    // cannot skip the cells after it — then the teardown fails naming exactly
-    // what was left dirty. A bare `.catch(() => {})` was not enough: an
-    // APIRequestContext rejects only on a network error, so a 403 or a 500
-    // resolved normally and left the suite green with a permission still
-    // changed. (Codex, #570 round 2.)
-    const failures: string[] = [];
-    for (const cell of captured.reverse()) {
-      try {
-        const res = await page.context().request.patch("/api/admin/feature-flags", {
-          headers: { "X-CSRF-Token": await csrfToken(page) },
-          data: { tier: cell.tier, featureKey: cell.featureKey, enabled: cell.enabled },
-        });
-        if (!res.ok()) failures.push(`${cell.tier}:${cell.featureKey} -> HTTP ${res.status()}`);
-      } catch (err) {
-        failures.push(`${cell.tier}:${cell.featureKey} -> ${(err as Error).message}`);
-      }
+    await restoreCapturedCells(page);
+  });
+});
+
+async function restoreCapturedCells(page: Page) {
+  // Every failure is collected rather than thrown, so one unrestorable cell
+  // cannot skip the cells after it — then the teardown fails naming exactly
+  // what was left dirty. A bare `.catch(() => {})` was not enough: an
+  // APIRequestContext rejects only on a network error, so a 403 or a 500
+  // resolved normally and left the suite green with a permission still
+  // changed. (Codex, #570 round 2.)
+  const failures: string[] = [];
+  for (const cell of captured.reverse()) {
+    try {
+      const res = await page.context().request.patch("/api/admin/feature-flags", {
+        headers: { "X-CSRF-Token": await csrfToken(page) },
+        data: { tier: cell.tier, featureKey: cell.featureKey, enabled: cell.enabled },
+      });
+      if (!res.ok()) failures.push(`${cell.tier}:${cell.featureKey} -> HTTP ${res.status()}`);
+    } catch (err) {
+      failures.push(`${cell.tier}:${cell.featureKey} -> ${(err as Error).message}`);
     }
-    captured = [];
-    expect(failures, `grid cells left dirty by teardown: ${failures.join("; ")}`).toEqual([]);
+  }
+  captured = [];
+  expect(failures, `grid cells left dirty by teardown: ${failures.join("; ")}`).toEqual([]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #631 increment 7b: the PR425 steps the file header above lists as not
+// asserted, now asserted on the features they name, plus PR242 step 1 and
+// PR472 R7.
+//
+// A stored photo is the one premise this stack cannot produce: an upload needs
+// object storage, and a profileImageUrl written through PATCH /users/me can
+// never be cleared again through any route, so it would outlive the test and
+// change what later suites see. So the profile read (GET /api/users/me) is
+// passed through from the real server with only `profileImageUrl` filled in,
+// and the photo's bytes are served from the committed fixture. Everything the
+// steps are about — the entitlement, the grid, the avatar selection write, the
+// gate — is the real server's.
+//
+// Form sign-ins are counted: the server allows ten per IP per fifteen minutes,
+// and the whole E2E job shares one IP, so this block signs in once per account.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STUB_PHOTO_URL = "/api/storage/objects/uploads/e2e-7b-stored-photo";
+const FIXTURE_PHOTO = fs.readFileSync(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../api-server/scripts/fixtures/ai-baseline/photo.jpg"),
+);
+
+/** Fills in a stored photo on the account's real profile read, and serves its bytes. */
+async function withStoredPhoto(page: Page) {
+  await page.route(
+    (url) => url.pathname === "/api/users/me",
+    async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const real = await route.fetch();
+      if (!real.ok()) return route.fulfill({ response: real });
+      return route.fulfill({ response: real, json: { ...(await real.json()), profileImageUrl: STUB_PHOTO_URL } });
+    },
+  );
+  await page.route(`**${STUB_PHOTO_URL}`, (route) => route.fulfill({ contentType: "image/jpeg", body: FIXTURE_PHOTO }));
+}
+
+/** The real stored avatar selection, read and written as the signed-in account. */
+async function avatarSource(page: Page): Promise<string> {
+  const res = await page.context().request.get("/api/users/me");
+  expect(res.ok()).toBe(true);
+  return String((await res.json()).avatarSource ?? "avatar");
+}
+async function setAvatarSource(page: Page, value: string) {
+  const res = await page.context().request.patch("/api/users/me", {
+    headers: { "X-CSRF-Token": await csrfToken(page) },
+    data: { avatarSource: value },
+  });
+  expect(res.ok(), `PATCH avatarSource=${value} -> ${res.status()}`).toBe(true);
+}
+
+/** Opens Profile's editor, where the Profile Photo section and its Avatar / Photo pills live on desktop. */
+async function openProfileEditor(page: Page) {
+  await page.goto("/profile", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Edit Profile" }).filter({ visible: true }).click();
+  await expect(page.getByText("Profile Photo", { exact: false }).filter({ visible: true }).first()).toBeVisible();
+}
+
+const unlockedPhotoPill = (page: Page) => page.locator('button[title="Use custom photo"]').filter({ visible: true });
+const lockedPhotoPill = (page: Page) => page.locator('button[title="Custom photo avatars are a Legendary feature"]').filter({ visible: true });
+/** The header's avatar image (the control that opens Profile). */
+const headerAvatar = (page: Page) => page.getByRole("button", { name: "Open your profile" }).filter({ visible: true }).locator("img");
+/** Profile's own large avatar on desktop. */
+const profileAvatar = (page: Page) => page.locator("img.rounded-full.object-cover").filter({ visible: true }).first();
+const GENERATED_ICON = /^https:\/\/api\.dicebear\.com\//;
+
+/** The resolver's answer for one feature, for this session. */
+async function allowed(page: Page, feature: string): Promise<boolean> {
+  if (!page.url().startsWith("http")) await page.goto("/", { waitUntil: "domcontentloaded" });
+  return page.evaluate(async (f) => {
+    const body = await (await fetch("/api/auth/user", { credentials: "include" })).json();
+    return body.entitlements?.[f]?.allowed === true;
+  }, feature);
+}
+
+/** As establishGridPremise, for any feature: the account's own tier and preview tier off, the Admin row on. */
+async function adminRowOnlyGrants(page: Page, feature: string): Promise<string> {
+  const res = await page.context().request.get("/api/auth/user");
+  const tier = String((await res.json()).user?.membershipTier);
+  expect(tier, "this suite needs a bootstrap admin whose STORED tier is not itself `admin`").not.toBe("admin");
+  await setGridCell(page, tier, feature, false);
+  await setGridCell(page, PREVIEW_TIER, feature, false);
+  await setGridCell(page, "admin", feature, true);
+  return tier;
+}
+
+test.describe("7b — Admin permissions on the features the steps name (PR425, PR242, PR472)", () => {
+  test.beforeEach(() => { captured = []; });
+  test.afterEach(async ({ page }) => {
+    if (captured.length > 0) await restoreCapturedCells(page);
+  });
+
+  // PR425 steps 1, 2, 3 and 5, on custom_avatar itself.
+  test("the Admin cell alone grants a registered-tier admin the custom-avatar photo, and unchecking it takes it away", async ({ page }) => {
+    await loginAsAdmin(page);
+    const tier = await adminRowOnlyGrants(page, "custom_avatar");
+    expect(tier, "steps 1 and 5 are about a registered-tier admin").toBe("registered");
+    await withStoredPhoto(page);
+    const before = await avatarSource(page);
+    try {
+      // Step 1 — available through the Admin row; selecting it works.
+      await openProfileEditor(page);
+      await expect(unlockedPhotoPill(page), "PR425 step 1: the custom-avatar option should be available to the admin").toBeVisible();
+      await unlockedPhotoPill(page).click();
+      await expect(headerAvatar(page), "selecting the photo should show it as the avatar").toHaveAttribute("src", STUB_PHOTO_URL);
+
+      // Steps 2 and 5 — the Admin cell off, the registered tier off: refused, generated icon.
+      await toggleGridCellInUi(page, "disable", "Custom Avatar Photo");
+      await openProfileEditor(page);
+      await expect(lockedPhotoPill(page), "PR425 step 2: with the Admin cell off the custom-avatar selection should be refused (locked)").toBeVisible();
+      await expect(unlockedPhotoPill(page)).toHaveCount(0);
+      await expect(
+        lockedPhotoPill(page).locator("svg.lucide-crown"),
+        "PR425 step 5: with only its own Admin cell off, the registered-tier admin's option is gone behind the Legendary lock",
+      ).toHaveCount(1);
+      await expect(headerAvatar(page), "PR425 step 2: the avatar should fall back to the generated icon").toHaveAttribute("src", GENERATED_ICON);
+      await expect(profileAvatar(page), "PR425 step 2: ...on Profile too").toHaveAttribute("src", GENERATED_ICON);
+
+      // Step 3 — re-checked: available again.
+      await toggleGridCellInUi(page, "enable", "Custom Avatar Photo");
+      await openProfileEditor(page);
+      await expect(unlockedPhotoPill(page), "PR425 step 3: re-checking the Admin cell should make the option available again").toBeVisible();
+    } finally {
+      await setAvatarSource(page, before);
+    }
+  });
+
+  // PR425 steps 6, 10 and 12, and R8.
+  test("Exit Admin hides the Admin Panel and withdraws private memes; Resume Admin on Profile restores them", async ({ page }) => {
+    await loginAsAdmin(page);
+    await adminRowOnlyGrants(page, "meme_private_visibility");
+    await page.goto("/profile", { waitUntil: "domcontentloaded" });
+    const adminPanel = page.getByRole("button", { name: "Admin Panel" }).filter({ visible: true });
+    await expect(adminPanel, "in admin mode Profile offers the Admin Panel").toBeVisible();
+
+    // R8 — the admin's notification preferences are visible and a toggle saves.
+    await expect(page.getByRole("heading", { name: "Notification Preferences" }), "PR425 R8: the preferences should be visible on the admin's Profile").toBeVisible();
+    const alerts = page.getByRole("switch").first();
+    const was = await alerts.getAttribute("aria-checked");
+    const flip = async () => {
+      const saved = page.waitForResponse((r) => r.url().endsWith("/api/users/me/notifications") && r.request().method() === "PATCH");
+      await alerts.click();
+      expect((await saved).status(), "PR425 R8: the preference write should succeed").toBe(200);
+    };
+    await flip();
+    try {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByRole("switch").first(), "PR425 R8: the toggled preference should persist").toHaveAttribute("aria-checked", was === "true" ? "false" : "true");
+    } finally {
+      await flip();
+    }
+    await expect(page.getByRole("switch").first()).toHaveAttribute("aria-checked", String(was));
+
+    expect(await allowed(page, "meme_private_visibility"), "in admin mode the Admin row grants private memes").toBe(true);
+    await page.getByRole("button", { name: /Exit Admin/i }).filter({ visible: true }).click();
+    await expect(page.getByRole("button", { name: /Resume Admin/i }).filter({ visible: true })).toBeVisible({ timeout: 30_000 });
+    await expect(adminPanel, "PR425 step 6: after Exit Admin, Profile should not show the Admin Panel button").toHaveCount(0);
+    expect(await allowed(page, "meme_private_visibility"), "PR425 step 10: after Exit Admin the admin no longer holds private memes").toBe(false);
+
+    await page.getByRole("button", { name: /Resume Admin/i }).filter({ visible: true }).click();
+    await expect
+      .poll(() => allowed(page, "meme_private_visibility"), { message: "PR425 step 12: after Resume Admin the admin holds private memes again" })
+      .toBe(true);
+    await expect(page.getByRole("button", { name: /Exit Admin/i }).filter({ visible: true })).toBeVisible({ timeout: 30_000 });
+  });
+
+  // PR425 step 11 — "nothing you can toggle in Features can cost you console access".
+  test("with every Admin-row cell off, the admin still gets the console", async ({ page }) => {
+    await loginAsAdmin(page);
+    const grid = await readGrid(page);
+    const adminCells = [...grid.keys()].filter((k) => k.startsWith("admin:")).map((k) => k.slice("admin:".length));
+    expect(adminCells.length, "the grid should have an Admin row").toBeGreaterThan(0);
+    for (const feature of adminCells) await setGridCell(page, "admin", feature, false);
+    await page.goto("/admin", { waitUntil: "domcontentloaded" });
+    await expect(consoleRail(page), "PR425 step 11: the console should still render with every Admin cell off").toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Access Denied"), "PR425 step 11: ...and never Access Denied").toHaveCount(0);
+  });
+
+  // PR472 R7 (both halves), PR425 steps 6 (the registered half), 17 and 20, and
+  // PR242 step 1 — all as the ordinary free account, signed in once.
+  test("the free account: refused at /admin/help, photo withheld and its selection refused, and a submission confirmed", async ({ page, browser }) => {
+    await page.context().clearCookies();
+    await page.goto("/admin/help", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: "Access Denied" }), "PR472 R7: /admin/help signed out shows Access Denied").toBeVisible({ timeout: 30_000 });
+
+    await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
+    await page.goto("/admin/help", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: "Access Denied" }), "PR472 R7: /admin/help as a non-admin shows the same Access Denied").toBeVisible({ timeout: 30_000 });
+
+    // The admin context does the account setup and the cleanup, never the free session.
+    const admin = await browser.newContext({ baseURL: new URL(page.url()).origin });
+    expect((await admin.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
+    const adminCsrf = (await admin.cookies()).find((c) => c.name === "csrf_token")?.value ?? "";
+    const freeId = String((await (await page.context().request.get("/api/users/me")).json()).id);
+    let reviewId: number | null = null;
+    try {
+      // PR425 step 20 — a stored, unselected photo: the account's own Profile shows the generated icon.
+      await withStoredPhoto(page);
+      await page.goto("/profile", { waitUntil: "domcontentloaded" });
+      await expect(page.getByRole("button", { name: "Edit Profile" }).filter({ visible: true })).toBeVisible();
+      await expect(profileAvatar(page), "PR425 step 20: the account's own Profile should show the generated icon").toHaveAttribute("src", GENERATED_ICON);
+      // PR425 step 6's comparison: a registered member's Profile has no Admin Panel.
+      await expect(page.getByRole("button", { name: "Admin Panel" }), "a registered member's Profile shows no Admin Panel").toHaveCount(0);
+
+      // PR425 step 17 — selecting the photo is refused with the upgrade path, not a silent no-op.
+      await openProfileEditor(page);
+      await lockedPhotoPill(page).click();
+      await expect(page, "PR425 step 17: tapping the locked Photo pill should lead to the upgrade prompt").toHaveURL(/\/pricing\/?$/);
+
+      // PR242 step 1. Onboarding (the one-time captcha) is set as done through
+      // the admin route, since the captcha widget is a third party's; the AI
+      // conversion and its two helpers are answered here, since they are a
+      // vendor call. The submission itself reaches the real server.
+      const onboard = await admin.request.patch(`/api/admin/users/${freeId}`, {
+        headers: { "X-CSRF-Token": adminCsrf },
+        data: { captchaVerified: true },
+      });
+      expect(onboard.ok(), `setting captchaVerified -> ${onboard.status()}`).toBe(true);
+      const template = `{NAME} out-lifted a crane, run ${Date.now()}.`;
+      await page.route("**/api/ai/tokenize-fact", (route) => route.fulfill({ json: { template } }));
+      await page.route("**/api/ai/check-duplicate", (route) => route.fulfill({ json: { isDuplicate: false, confidence: 0 } }));
+      await page.route("**/api/ai/suggest-hashtags", (route) => route.fulfill({ json: { hashtags: [] } }));
+      await page.goto("/submit", { waitUntil: "domcontentloaded" });
+      await page.getByPlaceholder(/When John does pushups/).fill("Free Tester out-lifted a crane with one hand.");
+      await page.getByRole("button", { name: /Preview/ }).click();
+      const submitted = page.waitForResponse((r) => r.url().endsWith("/api/facts/submit-review") && r.request().method() === "POST");
+      await page.getByRole("button", { name: /Looks Great — Submit/ }).click();
+      const submitRes = await submitted;
+      if (submitRes.ok()) reviewId = Number((await submitRes.json()).reviewId);
+      await expect(page.getByRole("heading", { name: "You're Done!" }), "PR242 step 1: a normal submission shows the confirmation").toBeVisible();
+      await expect(page.getByText("Your fact is in the queue for review."), "PR242 step 1: ...saying it is queued for review").toBeVisible();
+    } finally {
+      if (reviewId) {
+        const rej = await admin.request.post(`/api/admin/reviews/${reviewId}/reject`, {
+          headers: { "X-CSRF-Token": adminCsrf },
+          data: { rejectionReason: "spam", adminNote: "e2e 7b cleanup" },
+        });
+        expect(rej.ok(), `cleanup: rejecting review ${reviewId} -> ${rej.status()}`).toBe(true);
+      }
+      const reset = await admin.request.patch(`/api/admin/users/${freeId}`, {
+        headers: { "X-CSRF-Token": adminCsrf },
+        data: { captchaVerified: false },
+      });
+      expect(reset.ok(), `cleanup: restoring captchaVerified -> ${reset.status()}`).toBe(true);
+      await admin.close();
+    }
+  });
+
+  // PR425 step 18 — the paid account selects its stored photo and the header avatar shows it.
+  test("the paid account selects its stored photo and the avatar shows it", async ({ page }) => {
+    await signInThroughForm(page, PAID_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
+    await withStoredPhoto(page);
+    const before = await avatarSource(page);
+    try {
+      if (before === "photo") await setAvatarSource(page, "avatar");
+      await openProfileEditor(page);
+      await expect(headerAvatar(page)).toHaveAttribute("src", GENERATED_ICON);
+      const selected = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/users/me" && r.request().method() === "PATCH");
+      await unlockedPhotoPill(page).click();
+      expect((await selected).status(), "PR425 step 18: the selection should be accepted").toBe(200);
+      await expect(headerAvatar(page), "PR425 step 18: the header avatar should show the photo").toHaveAttribute("src", STUB_PHOTO_URL);
+    } finally {
+      await setAvatarSource(page, before);
+    }
   });
 });
 
@@ -455,13 +730,13 @@ async function expandFeatureGrid(page: Page) {
  * encodes its own state — so asking for "disable" both finds a cell that is
  * currently ON and turns it off.
  */
-async function toggleGridCellInUi(page: Page, intent: "enable" | "disable") {
+async function toggleGridCellInUi(page: Page, intent: "enable" | "disable", featureLabel = FEATURE_LABEL) {
   await expandFeatureGrid(page);
   await page.goto("/admin/features", { waitUntil: "domcontentloaded" });
 
   const label = intent === "disable" ? "Disable" : "Enable";
   const cell = page
-    .locator(`button[title="${label} ${FEATURE_LABEL} for Admin"]`)
+    .locator(`button[title="${label} ${featureLabel} for Admin"]`)
     .filter({ visible: true });
 
   // Exactly one INTERACTIVE cell per feature/tier. The page renders a desktop
@@ -485,7 +760,7 @@ async function toggleGridCellInUi(page: Page, intent: "enable" | "disable") {
   // button — so the UI has observed the same success, not just the network.
   const flipped = intent === "disable" ? "Enable" : "Disable";
   const after = page
-    .locator(`button[title="${flipped} ${FEATURE_LABEL} for Admin"]`)
+    .locator(`button[title="${flipped} ${featureLabel} for Admin"]`)
     .filter({ visible: true });
   await expect(
     after,
