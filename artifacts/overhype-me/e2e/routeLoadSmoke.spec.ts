@@ -454,6 +454,14 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     const resubmit = page.getByTestId("resubmit-for-moderation-button");
     await expect(resubmit, "PR242 step 9: an inactive fact shows a Resubmit for Moderation button").toHaveText("Resubmit for Moderation");
     await expect(page.getByTestId("send-back-button"), "PR242 step 9: Send Back to Review is not offered on an inactive fact").toHaveCount(0);
+
+    // Step 7: the editor refuses the toggle itself and says why, so no false→true save can be sent.
+    const activeToggle = page.getByTitle("Deactivated — re-moderate to reactivate");
+    await expect(activeToggle, "PR242 step 7: toggling an inactive fact Active is refused").toBeDisabled();
+    await expect(
+      page.getByText("Deactivated facts can only go live again through moderation.", { exact: true }),
+      "PR242 step 7: the refusal says activation is through moderation",
+    ).toBeVisible();
     await resubmit.click();
     await expect(
       page.getByText(/^Resubmitted for moderation/),
