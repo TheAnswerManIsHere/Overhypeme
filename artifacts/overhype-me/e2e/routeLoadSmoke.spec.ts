@@ -645,7 +645,7 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
       await panel.getByRole("button", { name: "Revoke" }).click();
       await expect(lifetime.getByText(/^Revoked grant /), "PR287 step 8: the revoked grant should still be listed, marked Revoked grant").toBeVisible();
       await expect(
-        lifetime.getByText(new RegExp(`^Revoked \\S+ by ${adminName}`)),
+        lifetime.getByText(new RegExp(`^Revoked \\S+ by ${adminName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)),
         "PR287 step 8: the revoked grant should name who revoked it",
       ).toBeVisible();
     } finally {

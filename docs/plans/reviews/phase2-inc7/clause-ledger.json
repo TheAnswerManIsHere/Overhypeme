@@ -11664,7 +11664,7 @@
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
        "line": 296,
-       "quote": "toHaveURL(new RegExp(`#${targetFragment}$`));"
+       "quote": "await expect(page, \"PR472 step 4: the address should carry the section\").toHaveURL(new RegExp(`#${targetFragment.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\")}$`));"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",

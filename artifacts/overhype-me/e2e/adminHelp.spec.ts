@@ -293,7 +293,7 @@ test.describe("Admin · Help", () => {
       .poll(() => new URL(page.url()).pathname, { message: "PR472 step 4: the link should open the other chapter" })
       .toBe(targetPath);
     expect(await isSameDocument(page), "PR472 step 4: the link should navigate inside the console, not reload the page").toBe(true);
-    await expect(page, "PR472 step 4: the address should carry the section").toHaveURL(new RegExp(`#${targetFragment}$`));
+    await expect(page, "PR472 step 4: the address should carry the section").toHaveURL(new RegExp(`#${targetFragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
     await expectParkedOn(body.locator(`[id="${targetFragment}"]`), "PR472 step 4");
 
     // Step 12: a link out of the Manual. GitHub itself is answered locally --
