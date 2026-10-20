@@ -13,9 +13,11 @@
 import { ArrowRight, Crown, Download, ExternalLink, Library, Share2, ShoppingBag } from "lucide-react";
 import { Link } from "wouter";
 import { useState } from "react";
+import { usePersonName } from "@/hooks/use-person-name";
+import { PRONOUN_PRESETS } from "@/lib/pronouns";
 
-const PRONOUNS = ["he/him", "she/her", "they/them"] as const;
-type Pronouns = (typeof PRONOUNS)[number];
+// The builder's picker and the download endpoint take only these three.
+const PRONOUNS: readonly string[] = PRONOUN_PRESETS;
 
 interface OpenBuilderArgs {
   initialName?: string;
@@ -175,8 +177,16 @@ export function CTABarAnonOther({
    */
   factTemplateReady: boolean;
 }) {
-  const [name, setName] = useState("");
-  const [pronouns, setPronouns] = useState<Pronouns>("they/them");
+  // The form shows what the browser already holds until the visitor edits it
+  // (#732). Pronouns the visitor never supplied stay they/them here, never the
+  // rendering fallback's silent he/him; a saved custom set does too, since the
+  // builder cannot download one (#733 round 1; custom-set support is #719's).
+  const saved = usePersonName();
+  const [editedName, setName] = useState<string | null>(null);
+  const [editedPronouns, setPronouns] = useState<string | null>(null);
+  const name = editedName ?? saved.name;
+  const savedPronouns = saved.pronounsSupplied && PRONOUNS.includes(saved.pronouns) ? saved.pronouns : "they/them";
+  const pronouns = editedPronouns ?? savedPronouns;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,7 +213,7 @@ export function CTABarAnonOther({
         />
         <select
           value={pronouns}
-          onChange={(e) => setPronouns(e.target.value as Pronouns)}
+          onChange={(e) => setPronouns(e.target.value)}
           data-testid="anon-pronouns-input"
           className="w-full h-[44px] px-3 rounded-[10px] bg-background border border-border text-foreground focus:outline-none focus:border-primary"
         >
