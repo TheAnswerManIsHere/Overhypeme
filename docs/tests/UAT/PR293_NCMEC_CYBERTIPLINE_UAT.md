@@ -87,9 +87,7 @@ the five NCMEC keys named in step 2, nothing else on the page changed.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/membershipConfigRoute.test.ts:accepts a write that keeps the set coherent, and stores it`
-
-**Deferred:** #631 — 7b — saving unrelated config keys through the config page persists each value — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/membershipConfigRoute.test.ts:accepts a write that keeps the set coherent, and stores it`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:Configuration lists every existing key, and saving ordinary keys persists each value`
 
 ## Regression
 
@@ -101,7 +99,7 @@ the five NCMEC keys named in step 2, nothing else on the page changed.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — /admin/config loads normally with the existing keys listed — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:Configuration lists every existing key, and saving ordinary keys persists each value`
 
 ### R2. A normal config key still saves
 
@@ -111,9 +109,7 @@ the five NCMEC keys named in step 2, nothing else on the page changed.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/membershipConfigRoute.test.ts:accepts a write that keeps the set coherent, and stores it`
-
-**Deferred:** #631 — 7b — saving an ordinary key through the config page succeeds — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/membershipConfigRoute.test.ts:accepts a write that keeps the set coherent, and stores it`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:Configuration lists every existing key, and saving ordinary keys persists each value`
 
 ### R3. NCMEC Safety Alert Email is editable like any unreserved key
 

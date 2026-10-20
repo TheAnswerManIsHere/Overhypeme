@@ -54,9 +54,7 @@ is not slowed by the limiter.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:the documented concurrent-poller load receives zero 429s under the default ceiling`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:home, Top Facts and a fact page show their usual layout and content`; `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:an ordinary API request spends well under the bound inside the limiter itself`
-
-**Deferred:** #631 — 7b — no API response while ordinary routes load is a 429 and each route stays on its path — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:the documented concurrent-poller load receives zero 429s under the default ceiling`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:home, Top Facts and a fact page show their usual layout and content`; `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:an ordinary API request spends well under the bound inside the limiter itself`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:logged out, the ordinary and feed routes load with no sign-in wall, no 429 and no redirect`
 
 ### 2. A video or image generation completes normally
 
@@ -79,9 +77,7 @@ you'd normally check).
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
-
-**Deferred:** #631 — 7b — no API response is answered 429 while /admin/moderation and /admin/taxonomy-health load for the admin — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:the admin moderation and taxonomy-health screens load with no API response answered 429`
 
 ## Regression
 
@@ -103,9 +99,7 @@ you'd normally check).
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:an ordinary API request spends well under the bound inside the limiter itself`
-
-**Deferred:** #631 — 7b — no API request made while the feed routes load is answered 429 — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:an ordinary API request spends well under the bound inside the limiter itself`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:logged out, the ordinary and feed routes load with no sign-in wall, no 429 and no redirect`
 
 ### R3. A meme completes — image flow
 
@@ -147,9 +141,7 @@ pre-existing limit.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
-
-**Deferred:** #631 — 7b — no API response is answered 429 while /admin/moderation and /admin/taxonomy-health load for the admin — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:the admin moderation and taxonomy-health screens load with no API response answered 429`
 
 ### R7. Admin Queue Health loads
 

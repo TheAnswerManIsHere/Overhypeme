@@ -35,8 +35,6 @@ list down the left on a wide screen.
 
 **Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders the manual front page as a document, not as markdown source`
 
-**Deferred:** #631 — 7b — the table listing chapters 1-12 (the first table is a different one), bordered cells, chapter list left of the content — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
-
 ### 2. A chapter renders as prose
 
 **Do:** From the front page, click into **Chapter 3 · Moderation**.
@@ -46,9 +44,7 @@ block. It reads like a page, not like a text file.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders a chapter as prose with real headings and lists`
-
-**Deferred:** #631 — 7b — bold text, bullet lists and a table or quoted block rendering inside a chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`; #631 — 7b — clicking Chapter 3 · Moderation in the /admin/help chapter list opening /admin/help/3-moderation in-app with its chapter body rendered — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders a chapter as prose with real headings and lists`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:chapters open in-app by click, in-chapter links keep their section, GitHub opens in a new tab`
 
 ### 3. A cold deep link parks on the right heading
 
@@ -74,9 +70,7 @@ specific section, it lands on that section.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:marks every in-app link so the page can make it base-aware and routed`; `artifacts/overhype-me/src/components/admin/helpContent.test.ts:emits a data-help-internal value the guard accepts, matching the href`
-
-**Deferred:** #631 — 7b — clicking a chapter then an in-chapter link to another chapter navigating in-app and landing on its section — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:marks every in-app link so the page can make it base-aware and routed`; `artifacts/overhype-me/src/components/admin/helpContent.test.ts:emits a data-help-internal value the guard accepts, matching the href`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:chapters open in-app by click, in-chapter links keep their section, GitHub opens in a new tab`
 
 ### 5. Search results name their location
 
@@ -87,9 +81,7 @@ belongs to.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index is populated and attributes every entry to a real chapter section`
-
-**Deferred:** #631 — 7b — typing visual concept in the search box showing result rows that each name a section and its chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index is populated and attributes every entry to a real chapter section`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:search results name their section and chapter, land where they say, and skip what is not prose`
 
 ### 6. A search result lands where it says
 
@@ -100,9 +92,7 @@ chapter, and not a different one.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:a cold deep link parks on its heading, not the chapter top`
-
-**Deferred:** #631 — 7b — clicking a search result navigating in-app to that section of that chapter, parked on its heading — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:a cold deep link parks on its heading, not the chapter top`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:search results name their section and chapter, land where they say, and skip what is not prose`
 
 ### 7. Search holds up on other terms
 
@@ -112,9 +102,7 @@ chapter, and not a different one.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`
-
-**Deferred:** #631 — 7b — typing moderation, then stale, in the /admin/help search box showing result rows, each naming a section and its chapter and containing the term — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index returns hits that land on a real anchor`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:search results name their section and chapter, land where they say, and skip what is not prose`
 
 ### 8. Plumbing inside links is not searchable
 
@@ -125,9 +113,7 @@ Manual points at, not words on the page.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index indexes visible link text but NOT link targets`
-
-**Deferred:** #631 — 7b — typing ai-context/glossary.md in the /admin/help search box showing No matches for “ai-context/glossary.md” and no result rows — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index indexes visible link text but NOT link targets`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:search results name their section and chapter, land where they say, and skip what is not prose`
 
 ### 9. The front page is not indexed — your decision
 
@@ -138,9 +124,7 @@ asked to keep out of search. The page is still readable; it just isn't indexed.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index excludes the README`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders the manual front page as a document, not as markdown source` (the front page still renders)
-
-**Deferred:** #631 — 7b — typing Chapter quality bar in the /admin/help search box showing No matches for “Chapter quality bar” and no result rows — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:help search index excludes the README`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:renders the manual front page as a document, not as markdown source` (the front page still renders); `artifacts/overhype-me/e2e/adminHelp.spec.ts:search results name their section and chapter, land where they say, and skip what is not prose`
 
 ### 10. The `?` on a screen lands somewhere that answers "what is this?"
 
@@ -152,9 +136,7 @@ surface"*.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpMap.test.ts:admin help map builds the href a ? control actually links to`
-
-**Deferred:** #631 — 7b — the ? control beside View Site on Queue Health, clicked, landing in chapter 12 parked on the Worker liveness heading — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpMap.test.ts:admin help map builds the href a ? control actually links to`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lanes, clock, polling, queue rows and sidebar, then the ? lands on chapter 12`
 
 ### 11. The rest of the `?` map is sane
 
@@ -180,9 +162,7 @@ undisturbed.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:generated help content opens every off-manual link in a new tab, and no in-app link`; `artifacts/overhype-me/src/components/admin/helpContent.test.ts:rewrites intra-manual links to in-app routes and off-manual links to GitHub`
-
-**Deferred:** #631 — 7b — clicking a github.com link inside a chapter on /admin/help opening a new tab while the console tab stays on that chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/src/components/admin/helpContent.test.ts:generated help content opens every off-manual link in a new tab, and no in-app link`; `artifacts/overhype-me/src/components/admin/helpContent.test.ts:rewrites intra-manual links to in-app routes and off-manual links to GitHub`; `artifacts/overhype-me/e2e/adminHelp.spec.ts:chapters open in-app by click, in-chapter links keep their section, GitHub opens in a new tab`
 
 ### 13. A stale bookmark fails tidily
 
@@ -195,8 +175,6 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:a stale bookmark fails tidily, with a way back`
 
-**Deferred:** #631 — 7b — /admin/help/no-such-chapter showing the No such chapter panel inside the admin console, its sidebar nav visible beside it — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
-
 ## Regression
 
 ### R1. The admin sidebar is unchanged apart from Help
@@ -207,7 +185,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — kept sidebar items in their existing relative order, with Help as the last item — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:the console around Help: sidebar order, Moderation badge, collapse, phone drawer, View Site, Sign Out`
 
 ### R2. Moderation's pending count still works
 
@@ -217,7 +195,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — Moderation item showing a pending-count badge equal to the review and comment counts — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:the console around Help: sidebar order, Moderation badge, collapse, phone drawer, View Site, Sign Out`
 
 ### R3. The sidebar still collapses
 
@@ -227,7 +205,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the collapse toggle narrowing the sidebar, and a collapsed icon's tooltip naming its page — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:the console around Help: sidebar order, Moderation badge, collapse, phone drawer, View Site, Sign Out`
 
 ### R4. Admin still works on a phone
 
@@ -237,7 +215,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — at phone width the hamburger opening the drawer with the nav items, and closing it again — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:the console around Help: sidebar order, Moderation badge, collapse, phone drawer, View Site, Sign Out`
 
 ### R5. View Site and Sign Out still work
 
@@ -247,7 +225,7 @@ back to the Manual. Not a blank page, not a crash, not the red error screen.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — View Site going to the home page, Sign Out ending the session — `artifacts/overhype-me/e2e/adminHelp.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminHelp.spec.ts:the console around Help: sidebar order, Moderation badge, collapse, phone drawer, View Site, Sign Out`
 
 ### R6. Other admin screens load unchanged
 
@@ -277,9 +255,7 @@ take effect within 60 seconds.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the same Access-Denied selector does match when access is genuinely refused`
-
-**Deferred:** #631 — 7b — signed out and the seeded free account at /admin/help both showing Access Denied — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the same Access-Denied selector does match when access is genuinely refused`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the free account: refused at /admin/help, photo withheld and its selection refused, and a submission confirmed`
 
 ## Not bugs
 

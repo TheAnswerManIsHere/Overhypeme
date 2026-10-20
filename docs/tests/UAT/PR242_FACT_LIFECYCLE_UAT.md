@@ -28,9 +28,7 @@ get the normal "submitted for review" confirmation.
 
 **Lane:** scripted
 
-**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 2: the ordinary free account submits through the submission endpoint and the review is listed in the admin queue at `triage_pending`
-
-**Deferred:** #631 — 7b — /submit showing You're Done! and Your fact is in the queue for review. after a submission as the ordinary free account — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 2: the ordinary free account submits through the submission endpoint and the review is listed in the admin queue at `triage_pending`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the free account: refused at /admin/help, photo withheld and its selection refused, and a submission confirmed`
 
 ### 2. Bulk import reports facts as queued, not imported
 
@@ -42,7 +40,7 @@ JSON/CSV), and import.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the Facts import panel on /admin/facts showing Queued N fact(s) for moderation, the (N skipped as duplicates) note when rows were skipped, and They'll appear after review., never imported — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 2, 3 — a bulk import is queued for moderation, never imported, and stays out of the live Facts list`
 
 ### 3. Imported facts land in the moderation queue at triage, not live
 
@@ -55,9 +53,9 @@ enriched → activated like any submission.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts` — POST /admin/facts/import (the route the Admin Facts import panel calls, facts.tsx:884-890): valid rows become triage_pending reviews and no fact row is written
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts` — POST /admin/facts/import (the route the Admin Facts import panel calls, facts.tsx:884-890): valid rows become triage_pending reviews and no fact row is written; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 2, 3 — a bulk import is queued for moderation, never imported, and stays out of the live Facts list`
 
-**Deferred:** #631 — 7b — after an import on /admin/facts, the imported text absent from the active Facts list — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #628 — Phase 13 (Admin console) — the Moderation screen showing imported facts at Stage 1 (triage) is rebuilt in Phase 13
+**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen showing imported facts at Stage 1 (triage) is rebuilt in Phase 13
 
 ### 4. Re-importing the same text is skipped as a duplicate
 
@@ -81,9 +79,7 @@ instantly.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`
-
-**Deferred:** #631 — 7b — the Variant queued for review alert wording shown after saving a variant, and the variant not appearing at once, is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
 
 ### 6. A queued variant carries its parent and nests only after approval
 
@@ -94,9 +90,9 @@ under the parent after you approve it for production.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:a variant review's approval activates the staging fact with parentId set to the parent fact (inactive before)`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:queues the variant as a Stage-1 review carrying the parent (no active variant fact)`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:a variant review's approval activates the staging fact with parentId set to the parent fact (inactive before)`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
 
-**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen showing the queued variant with its parent fact is rebuilt in Phase 13; #631 — 7b — /admin/facts showing the approved variant nested under its parent row, and not before approval — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen showing the queued variant with its parent fact is rebuilt in Phase 13
 
 ### 7. Toggling an inactive fact to Active is rejected
 
@@ -109,9 +105,7 @@ live again."
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects flipping an INACTIVE fact to active — activation is moderation-only`
-
-**Deferred:** #631 — 7b — the Facts editor showing A fact can only be activated through moderation after an inactive fact is toggled Active and saved — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:rejects flipping an INACTIVE fact to active — activation is moderation-only`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
 
 ### 8. Toggling an active fact to inactive still works
 
@@ -132,7 +126,7 @@ to Review" shows for active facts instead).
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the Resubmit for Moderation button on an inactive fact, where Send Back to Review shows for active facts, is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
 
 ### 10. Resubmitting puts the fact back in the queue at Stage 1
 
@@ -143,9 +137,7 @@ queue at Stage 1."
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:re-enters the SAME fact at prep_pending: no new fact, enrichment job queued`
-
-**Deferred:** #631 — 7b — the Resubmitted for moderation message naming the review and Stage 1 is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:re-enters the SAME fact at prep_pending: no new fact, enrichment job queued`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
 
 ### 11. The resubmitted review reuses the same fact id
 
@@ -184,9 +176,7 @@ Back to Review.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:404 for a missing fact; 409 ALREADY_ACTIVE`; `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:the 409 ALREADY_ACTIVE error tells the admin to use Send Back to Review to refresh it instead`
-
-**Deferred:** #631 — 7b — /admin/facts on an active fact showing Send Back to Review and no Resubmit for Moderation button — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:404 for a missing fact; 409 ALREADY_ACTIVE`; `artifacts/api-server/src/__tests__/routes.resubmitForModeration.test.ts:the 409 ALREADY_ACTIVE error tells the admin to use Send Back to Review to refresh it instead`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones`
 
 ### 14. Production approval is still blocked without a Visual Concept
 

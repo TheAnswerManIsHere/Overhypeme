@@ -208,8 +208,6 @@ started.
 
 **Check:** `artifacts/overhype-me/e2e/testAccounts.spec.ts:a wrong password is refused and leaves no session`
 
-**Deferred:** #631 — 7b — after the wrong-password error the visitor is still on /login — `artifacts/overhype-me/e2e/testAccounts.spec.ts`
-
 ### R6. Registering a new account is unchanged
 
 **Do:** Register a new account.
