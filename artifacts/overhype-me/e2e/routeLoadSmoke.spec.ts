@@ -173,3 +173,335 @@ test.describe("Route-load smoke — no crash/reload loop, no error boundary", ()
     });
   }
 });
+
+// ── #631 7b — the Facts page and the fact lifecycle (PR228, PR242) ──────────
+//
+// The dev stack's database holds no live fact and cannot make one: going live
+// takes the AI prep pipeline, and a staging fact's prep never finishes with no
+// AI key. So the facts these tests open are stubbed reads, and their writes
+// are answered by `stubFactWrites` the way `routes/admin.ts` answers them (the
+// approved-text lock's 409, the staging restart, the resubmit). Bulk import is
+// the exception: it runs against the real server.
+import type { Route } from "@playwright/test";
+import { adminFactRow, enrichmentWithConcept, stubAdminFacts, type AdminFactRow } from "./helpers/adminStubs";
+
+const APPROVED_TEXT_PHRASE = "CHANGE APPROVED FACT TEXT";
+
+interface TextEditEntry {
+  id: number;
+  oldText: string;
+  newText: string;
+  reason: string;
+  createdAt: string;
+  actor: { id: string; name: string | null; email: string | null };
+}
+
+function fulfill(route: Route, body: unknown, status = 200): Promise<void> {
+  return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+}
+
+/**
+ * Answers the Facts editor's writes for stubbed facts as the server does:
+ * a text change on a live fact is refused with the confirmation 409 until the
+ * phrase and a reason come with it, then stored and audited; a staging fact's
+ * text saves at once and restarts prep. Rows are mutated in place, so the
+ * stubbed list reads back what was saved. Register after `stubAdminFacts`.
+ */
+async function stubFactWrites(page: Page, rows: AdminFactRow[], stagingIds: number[] = []) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const history = new Map<number, TextEditEntry[]>();
+  const patches: { id: number; body: Record<string, unknown> }[] = [];
+  await page.route(/\/api\/admin\/facts\/(\d+)(\/[a-z-]+)?(\?.*)?$/, async (route) => {
+    const req = route.request();
+    const m = /\/api\/admin\/facts\/(\d+)(\/[a-z-]+)?$/.exec(new URL(req.url()).pathname)!;
+    const row = byId.get(Number(m[1]));
+    if (!row) return route.fallback();
+    const sub = m[2] ?? "";
+    const method = req.method();
+    if (method === "GET" && sub === "/text-edit-history") {
+      const entries = [...(history.get(row.id) ?? [])].reverse();
+      return fulfill(route, { entries, total: entries.length, limit: 20, offset: 0 });
+    }
+    if (method === "PATCH" && sub === "/enrichment") {
+      const body = req.postDataJSON() as { enrichment: unknown };
+      return fulfill(route, { success: true, enrichment: body.enrichment });
+    }
+    if (method === "POST" && sub === "/variants") return fulfill(route, { success: true, queued: true, reviewId: 4241 }, 201);
+    if (method === "POST" && sub === "/resubmit-for-moderation") {
+      return fulfill(route, { success: true, workflowStage: "prep_pending", reviewId: 4242, factId: row.id });
+    }
+    if (method !== "PATCH" || sub !== "") return route.fallback();
+
+    const body = req.postDataJSON() as Record<string, unknown>;
+    patches.push({ id: row.id, body });
+    const { text, confirmTextEdit, ...rest } = body as { text?: string; confirmTextEdit?: { reason: string } };
+    Object.assign(row, rest, { parentId: row.parentId });
+    const proposed = text?.trim();
+    if (proposed === undefined || proposed === row.text) return fulfill(route, { success: true, fact: row });
+    if (stagingIds.includes(row.id)) {
+      row.text = proposed;
+      const prepDispatch = { factId: row.id, enrichment: { status: "pending", inserted: false }, pexels: { status: "pending", inserted: false } };
+      return fulfill(route, { success: true, prepDispatch, fact: row });
+    }
+    if (!confirmTextEdit) {
+      return fulfill(route, {
+        error: "This fact is approved — editing its text needs explicit confirmation.",
+        code: "TEXT_EDIT_REQUIRES_CONFIRMATION",
+        impact: {
+          protected: true, protectionReason: "active", currentStoredText: row.text, normalizedProposedText: proposed,
+          expectedOldTextHash: `stub-${row.id}`, persistedMemeCount: 0, liveMemeCount: 0, refreshInFlight: false,
+        },
+      }, 409);
+    }
+    const entries = history.get(row.id) ?? [];
+    entries.push({
+      id: entries.length + 1, oldText: row.text, newText: proposed, reason: confirmTextEdit.reason,
+      createdAt: new Date().toISOString(), actor: { id: "dev-admin", name: "Dev Admin", email: null },
+    });
+    history.set(row.id, entries);
+    row.text = proposed;
+    return fulfill(route, { success: true, auditRowId: entries.length, fact: row });
+  });
+  return { patches, history };
+}
+
+/** A CSS property as a Tailwind class resolves it on this page, read through a probe element. */
+async function classValue(page: Page, className: string, property: "color" | "borderTopColor"): Promise<string> {
+  return page.evaluate(([cls, prop]) => {
+    const probe = document.createElement("div");
+    probe.className = cls;
+    document.body.appendChild(probe);
+    const value = getComputedStyle(probe)[prop as "color"];
+    probe.remove();
+    return value;
+  }, [className, property] as const);
+}
+
+async function selectFact(page: Page, id: number, text: string): Promise<void> {
+  await page.getByText(text, { exact: true }).first().click();
+  await expect(page.getByText(`Edit Fact #${id}`, { exact: true })).toBeVisible();
+}
+
+/** A fact's wording as the Facts list shows it (the list row, not the edit box). */
+function listedText(page: Page, text: string) {
+  const exact = new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  return page.locator("p.line-clamp-2").filter({ hasText: exact });
+}
+
+function factTextBox(page: Page) {
+  return page.getByText("Text", { exact: true }).locator("xpath=following-sibling::textarea");
+}
+
+test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
+  test.beforeEach(async ({ context, page }) => {
+    const login = await context.request.post("/api/auth/dev-admin-login");
+    expect(login.ok(), `dev-admin-login should be 200, got ${login.status()}`).toBe(true);
+    await page.setViewportSize({ width: 1280, height: 900 });
+  });
+
+  // The import test's reviews are rejected afterwards, pass or fail: a pending
+  // review shows as a count on the sidebar's Moderation entry, which later specs
+  // read against this same database.
+  let importMarker: string | null = null;
+  test.afterEach(async ({ context }) => {
+    if (!importMarker) return;
+    const marker = importMarker;
+    importMarker = null;
+    const csrf = (await context.cookies()).find((c) => c.name === "csrf_token")?.value ?? "";
+    const queue = await context.request.get("/api/admin/reviews?status=pending&limit=100");
+    const { reviews } = (await queue.json()) as { reviews: { id: number; submittedText: string }[] };
+    for (const review of reviews.filter((r) => r.submittedText.includes(marker))) {
+      const res = await context.request.post(`/api/admin/reviews/${review.id}/reject`, {
+        headers: { "x-csrf-token": csrf },
+        data: { rejectionReason: "lame", adminNote: "e2e cleanup" },
+      });
+      expect(res.ok(), `cleanup: rejecting the imported review #${review.id}`).toBe(true);
+    }
+  });
+
+  test("PR228 1, 6, 7, 9 — a live fact's text change opens the red-bordered modal; Cancel keeps the draft; Confirm saves and records it", async ({ page }) => {
+    const OLD = "{NAME} w1 bench-presses the moon.";
+    const NEW = "{NAME} w1 bench-presses the moon twice.";
+    const REASON = "the approved wording undersold the feat";
+    const row = adminFactRow({ id: 96101, text: OLD });
+    await stubAdminFacts(page, [{ row, enrichment: enrichmentWithConcept("{NAME} lifts the moon overhead.") }]);
+    const server = await stubFactWrites(page, [row]);
+
+    await page.goto("/admin/facts");
+    await selectFact(page, 96101, OLD);
+    await factTextBox(page).fill(NEW);
+    await page.getByRole("button", { name: "Save Changes" }).click();
+
+    // Step 1: the modal, red-bordered — not a silent save, not a Save failed error.
+    const modal = page.getByTestId("approved-fact-text-edit-modal");
+    await expect(modal.getByRole("heading", { name: "Change approved fact text" }), "PR228 step 1: the Change approved fact text modal appears").toBeVisible();
+    const red = await classValue(page, "border border-destructive/40", "borderTopColor");
+    expect(red, "the destructive border token should differ from the plain border").not.toBe(await classValue(page, "border border-border", "borderTopColor"));
+    await expect(modal.locator(":scope > div"), "PR228 step 1: the modal is red-bordered").toHaveCSS("border-top-color", red);
+    await expect(page.getByText(/save failed/i), "PR228 step 1: not a generic Save failed error").toHaveCount(0);
+    await expect(page.getByText("Saved successfully.", { exact: true }), "PR228 step 1: not a silent save").toHaveCount(0);
+
+    // Step 9: Cancel closes the modal, saves nothing, keeps the edited text.
+    await modal.getByRole("button", { name: "Cancel" }).click();
+    await expect(modal, "PR228 step 9: Cancel closes the modal").toHaveCount(0);
+    await page.waitForLoadState("networkidle");
+    await expect(listedText(page, OLD), "PR228 step 9: nothing is saved — the list keeps the stored wording").toBeVisible();
+    expect(server.patches.filter((p) => p.body["confirmTextEdit"]), "PR228 step 9: nothing is saved — no confirmed save was sent").toHaveLength(0);
+    await expect(factTextBox(page), "PR228 step 9: the edited text is still in the box").toHaveValue(NEW);
+
+    // Step 6: confirming saves it — the modal closes, a green Saved shows, the fact reads the new wording.
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await modal.getByTestId("approved-fact-text-edit-phrase").fill(APPROVED_TEXT_PHRASE);
+    await modal.getByTestId("approved-fact-text-edit-reason").fill(REASON);
+    await modal.getByTestId("approved-fact-text-edit-confirm").click();
+    const saved = page.getByText("Saved successfully.", { exact: true });
+    await expect(saved, "PR228 step 6: a Saved confirmation shows").toBeVisible();
+    await expect(saved, "PR228 step 6: the Saved confirmation is green").toHaveCSS("color", await classValue(page, "text-green-400", "color"));
+    await expect(modal, "PR228 step 6: the modal closes").toHaveCount(0);
+    await expect(listedText(page, NEW), "PR228 step 6: the fact now displays the new wording").toBeVisible();
+    await expect(listedText(page, OLD), "PR228 step 6: the old wording is gone from the list").toHaveCount(0);
+
+    // Step 7: the expanded history lists who, when, old → new and the reason.
+    await page.getByTestId("fact-text-edit-history-toggle").click();
+    const entry = page.getByTestId("fact-text-edit-history-toggle").locator("xpath=..").locator("li").first();
+    const when = await page.evaluate((iso) => new Date(iso).toLocaleString(), server.history.get(96101)![0]!.createdAt);
+    await expect(entry.getByText("Dev Admin", { exact: true }), "PR228 step 7: the entry names who made the edit").toBeVisible();
+    await expect(entry.getByText(when, { exact: true }), "PR228 step 7: the entry shows when").toBeVisible();
+    await expect(entry.getByText(OLD, { exact: true }), "PR228 step 7: the entry shows the old wording").toHaveCSS("text-decoration-line", "line-through");
+    await expect(entry.getByText(`→ ${NEW}`, { exact: true }), "PR228 step 7: the entry shows the new wording").toBeVisible();
+    await expect(entry.getByText(`Reason: ${REASON}`, { exact: true }), "PR228 step 7: the entry shows the reason typed").toBeVisible();
+  });
+
+  test("PR228 8, R4, 10 — saves that change no approved text open no modal; a staging fact's text saves with Prep restarted", async ({ page }) => {
+    const LIVE = "{NAME} w1 outran the sunrise.";
+    const STAGING = "{NAME} w1 taught gravity to sit.";
+    const STAGING_EDIT = "{NAME} w1 taught gravity to sit and stay.";
+    const live = adminFactRow({ id: 96201, text: LIVE });
+    const staging = adminFactRow({ id: 96202, text: STAGING, isActive: false });
+    await stubAdminFacts(page, [
+      { row: live, enrichment: enrichmentWithConcept("{NAME} sprints past the rising sun.") },
+      { row: staging, enrichment: enrichmentWithConcept("{NAME} points at a falling apple.") },
+    ]);
+    const server = await stubFactWrites(page, [live, staging], [96202]);
+    const modal = page.getByTestId("approved-fact-text-edit-modal");
+
+    await page.goto("/admin/facts");
+    await selectFact(page, 96201, LIVE);
+
+    // Step 8: a non-text edit saves at once, with no warning modal.
+    await page.getByPlaceholder("e.g. one_line, meme_caption…").fill("one_line");
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await expect(page.getByText("Saved successfully.", { exact: true }), "PR228 step 8: the non-text edit saves").toBeVisible();
+    await expect(modal, "PR228 step 8: no warning modal appears for a save that changes no text").toHaveCount(0);
+    expect(server.patches.at(-1)?.body, "PR228 step 8: the save sends no text").not.toHaveProperty("text");
+
+    // R4: saving the enrichment editor saves plainly, with no text modal.
+    const panel = page.getByTestId("fact-enrichment-panel");
+    await panel.getByRole("button", { name: /visual taxonomy enrichment/i }).click();
+    await expect(panel.getByTestId("visual-concept-card")).toBeVisible();
+    await panel.getByPlaceholder("Add hashtag…").fill("w1tag");
+    await panel.getByRole("button", { name: "Add", exact: true }).last().click();
+    await panel.getByRole("button", { name: "Save enrichment" }).click();
+    await expect(panel.getByText("Saved to server", { exact: true }), "PR228 R4: the enrichment save shows Saved to server").toBeVisible();
+    await expect(modal, "PR228 R4: no text modal appears for an enrichment save").toHaveCount(0);
+
+    // Step 10: a never-approved staging fact's text saves at once and restarts prep.
+    await selectFact(page, 96202, STAGING);
+    await factTextBox(page).fill(STAGING_EDIT);
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    const message = page.getByText(/^Saved\./);
+    await expect(message).toBeVisible();
+    await expect(listedText(page, STAGING_EDIT), "PR228 step 10: it just saves — the list reads the new wording").toBeVisible();
+    await expect(message, "PR228 step 10: the message notes that prep is restarting").toHaveText(/^Saved\. Prep restarted/);
+    await expect(modal, "PR228 step 10: the staging fact's text save opens no dire-warning modal").toHaveCount(0);
+  });
+
+  test("PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones", async ({ page }) => {
+    const ROOT = "{NAME} w1 juggles thunderstorms.";
+    const INACTIVE = "{NAME} w1 once out-stared a glacier.";
+    const VARIANT = "{NAME} w1 juggles thunderstorms one-handed.";
+    const root = adminFactRow({ id: 96301, text: ROOT });
+    const inactive = adminFactRow({ id: 96302, text: INACTIVE, isActive: false });
+    await stubAdminFacts(page, [
+      { row: root, enrichment: enrichmentWithConcept("{NAME} tosses three storm clouds.") },
+      { row: inactive, enrichment: enrichmentWithConcept("{NAME} glares at an iceberg.") },
+    ]);
+    await stubFactWrites(page, [root, inactive]);
+
+    await page.goto("/admin/facts");
+    await selectFact(page, 96301, ROOT);
+
+    // Steps 13 and 9: an active fact shows Send Back to Review, and no Resubmit.
+    await expect(page.getByTestId("send-back-button"), "PR242 steps 9/13: an active fact shows Send Back to Review").toHaveText("Send Back to Review");
+    await expect(page.getByTestId("resubmit-for-moderation-button"), "PR242 step 13: no Resubmit for Moderation button on an active fact").toHaveCount(0);
+
+    // Step 5: adding a variant queues it — the alert says so and nothing appears yet.
+    await page.getByRole("button", { name: "Add variant" }).click();
+    await page.getByPlaceholder("Variant text…").fill(VARIANT);
+    let alertText = "";
+    page.once("dialog", (d) => { alertText = d.message(); void d.accept(); });
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect.poll(() => alertText, { message: "PR242 step 5: an alert follows the save" }).not.toBe("");
+    expect(alertText, "PR242 step 5: the alert reads Variant queued for review").toMatch(
+      /^Variant queued for review\. It'll appear under this fact once it's approved through moderation\./,
+    );
+    await expect(page.getByText("Variants (0)", { exact: true }), "PR242 step 5: the variant does not appear instantly").toBeVisible();
+    await expect(page.getByText(VARIANT, { exact: true }), "PR242 step 5: the variant text is nowhere on the page").toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Expand variants" }), "PR242 step 6: not nested under the parent before approval").toHaveCount(0);
+
+    // Steps 9 and 10: an inactive fact shows Resubmit for Moderation, and resubmitting names the review and Stage 1.
+    await selectFact(page, 96302, INACTIVE);
+    const resubmit = page.getByTestId("resubmit-for-moderation-button");
+    await expect(resubmit, "PR242 step 9: an inactive fact shows a Resubmit for Moderation button").toHaveText("Resubmit for Moderation");
+    await expect(page.getByTestId("send-back-button"), "PR242 step 9: Send Back to Review is not offered on an inactive fact").toHaveCount(0);
+    await resubmit.click();
+    await expect(
+      page.getByText(/^Resubmitted for moderation/),
+      "PR242 step 10: the message reads Resubmitted for moderation — Review #… is back in the queue at Stage 1",
+    ).toHaveText(/^Resubmitted for moderation — Review #4242 is back in the queue at Stage 1\./);
+
+    // Step 6: once approved, the variant is listed nested under its parent row.
+    root.variants = [adminFactRow({ id: 96303, text: VARIANT, parentId: 96301 })];
+    await page.reload();
+    await page.getByRole("button", { name: "Expand variants" }).click();
+    const variantRow = page.locator("div.cursor-pointer").filter({ hasText: VARIANT });
+    await expect(variantRow, "PR242 step 6: after approval the variant appears nested under its parent").toContainText("variant");
+    await expect(variantRow, "PR242 step 6: the nested row is indented under the parent").toHaveClass(/pl-10/);
+  });
+
+  test("PR242 2, 3 — a bulk import is queued for moderation, never imported, and stays out of the live Facts list", async ({ page }) => {
+    const stamp = Date.now();
+    importMarker = `w1 import ${stamp}`;
+    const [A, B, C] = ["folds the ocean", "naps through earthquakes", "alphabetised the stars"].map(
+      (feat) => `{NAME} w1 import ${stamp} ${feat}.`,
+    );
+    await page.goto("/admin/facts");
+    await page.locator("main").getByRole("button", { name: "Utilities", exact: true }).click();
+    const box = page.getByPlaceholder(/can sneeze with their eyes open/);
+    const result = page.getByText(/fact\(s\)/);
+
+    await box.fill([A, B].join("\n"));
+    await page.getByRole("button", { name: "Import Facts" }).click();
+    await expect(result).toBeVisible();
+    await expect(result, "PR242 step 2: the import message does not say imported").not.toHaveText(/imported/i);
+    await expect(result, "PR242 step 2: the message reads Queued N fact(s) for moderation").toHaveText(
+      "Queued 2 fact(s) for moderation. They'll appear after review.",
+    );
+
+    await box.fill([A, C].join("\n"));
+    await page.getByRole("button", { name: "Import Facts" }).click();
+    await expect(result, "PR242 step 2: a re-import notes the duplicates it skipped").toHaveText(
+      "Queued 1 fact(s) for moderation (1 skipped as duplicates). They'll appear after review.",
+    );
+    await expect(result, "PR242 step 2: the import message does not say imported").not.toHaveText(/imported/i);
+
+    // Step 3: the imported text is not in the live (active) Facts list.
+    await page.locator("main").getByRole("button", { name: "Facts", exact: true }).click();
+    const listed = page.waitForResponse((r) => r.url().includes("/api/admin/facts?") && r.url().includes("search="));
+    await page.getByPlaceholder("Search facts…").fill(A);
+    expect((await listed).ok()).toBe(true);
+    await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
+    await expect(listedText(page, A), "PR242 step 3: the imported fact does not appear in the live fact list").toHaveCount(0);
+    await expect(page.getByText("No facts found.", { exact: true }), "PR242 step 3: the live list has nothing for the imported text").toBeVisible();
+  });
+});
