@@ -550,21 +550,24 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
 
     // R8 — the admin's notification preferences are visible and a toggle saves.
     await expect(page.getByRole("heading", { name: "Notification Preferences" }), "PR425 R8: the preferences should be visible on the admin's Profile").toBeVisible();
-    const alerts = page.getByRole("switch").first();
-    const was = await alerts.getAttribute("aria-checked");
-    const flip = async () => {
+    const alerts = page.getByRole("switch", { name: /^Moderation alerts/ });
+    // The stored value, read before anything changes, is what cleanup restores —
+    // never the switch's displayed state, which is the thing under test.
+    const was = (await (await page.context().request.get("/api/users/me")).json()).adminNotifications === true;
+    await expect(alerts).toHaveAttribute("aria-checked", String(was));
+    try {
       const saved = page.waitForResponse((r) => r.url().endsWith("/api/users/me/notifications") && r.request().method() === "PATCH");
       await alerts.click();
       expect((await saved).status(), "PR425 R8: the preference write should succeed").toBe(200);
-    };
-    await flip();
-    try {
       await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(page.getByRole("switch").first(), "PR425 R8: the toggled preference should persist").toHaveAttribute("aria-checked", was === "true" ? "false" : "true");
+      await expect(alerts, "PR425 R8: the toggled preference should persist").toHaveAttribute("aria-checked", String(!was));
     } finally {
-      await flip();
+      const restore = await page.context().request.patch("/api/users/me/notifications", {
+        headers: { "X-CSRF-Token": await csrfToken(page) },
+        data: { adminNotifications: was },
+      });
+      expect(restore.ok(), `cleanup: restoring adminNotifications -> ${restore.status()}`).toBe(true);
     }
-    await expect(page.getByRole("switch").first()).toHaveAttribute("aria-checked", String(was));
 
     expect(await allowed(page, "meme_private_visibility"), "in admin mode the Admin row grants private memes").toBe(true);
     await page.getByRole("button", { name: /Exit Admin/i }).filter({ visible: true }).click();
@@ -607,6 +610,9 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
     expect((await admin.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
     const adminCsrf = (await admin.cookies()).find((c) => c.name === "csrf_token")?.value ?? "";
     const freeId = String((await (await page.context().request.get("/api/users/me")).json()).id);
+    // Read before onboarding is set below, and restored as read: a retained database
+    // may hold this account already onboarded, and the seeder leaves the flag alone.
+    const captchaWas = (await (await page.context().request.get("/api/auth/user")).json()).user?.captchaVerified === true;
     let reviewId: number | null = null;
     try {
       // PR425 step 20 — a stored, unselected photo: the account's own Profile shows the generated icon.
@@ -654,7 +660,7 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
       }
       const reset = await admin.request.patch(`/api/admin/users/${freeId}`, {
         headers: { "X-CSRF-Token": adminCsrf },
-        data: { captchaVerified: false },
+        data: { captchaVerified: captchaWas },
       });
       expect(reset.ok(), `cleanup: restoring captchaVerified -> ${reset.status()}`).toBe(true);
       await admin.close();

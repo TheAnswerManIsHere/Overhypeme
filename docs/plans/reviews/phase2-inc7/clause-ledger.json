@@ -3430,12 +3430,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 645,
+       "line": 651,
        "quote": "PR242 step 1: a normal submission shows the confirmation"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 646,
+       "line": 652,
        "quote": "PR242 step 1: ...saying it is queued for review"
       }
      ],
@@ -5988,27 +5988,27 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 616,
+       "line": 634,
        "quote": "PR287 step 6: the paid account's lifetime row should read Granted"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 617,
+       "line": 635,
        "quote": "PR287 step 6: an admin grant shows no payment-intent link"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 618,
+       "line": 636,
        "quote": "PR287 step 6: an admin grant shows no amount"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 619,
+       "line": 637,
        "quote": "PR287 step 6: the grant names who granted it"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 622,
+       "line": 640,
        "quote": "PR287 step 6: the grant shows why, quoted"
       }
      ],
@@ -6063,12 +6063,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 646,
+       "line": 664,
        "quote": "PR287 step 8: the revoked grant should still be listed, marked Revoked grant"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 649,
+       "line": 667,
        "quote": "PR287 step 8: the revoked grant should name who revoked it"
       }
      ],
@@ -6342,22 +6342,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 606,
+       "line": 624,
        "quote": "PR287 step 23: the paid account's row should show the Legendary icon"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 607,
+       "line": 625,
        "quote": "PR287 step 23: ...and not the Registered one"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 608,
+       "line": 626,
        "quote": "PR287 step 23: the free account's row should show the Registered icon"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 609,
+       "line": 627,
        "quote": "PR287 step 23: ...and not the Legendary one"
       }
      ],
@@ -6566,12 +6566,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 713,
+       "line": 731,
        "quote": "PR287 step 30: after a sweep the strip reads Healthy · last converged N ago"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 716,
+       "line": 734,
        "quote": "PR287 step 30: Healthy is grey text"
       }
      ],
@@ -6605,12 +6605,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 707,
+       "line": 725,
        "quote": "PR287 step 31: before any sweep the strip reads Not yet run · waiting Nm since start"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 708,
+       "line": 726,
        "quote": "PR287 step 31: ...and never Healthy"
       }
      ],
@@ -6631,17 +6631,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 706,
+       "line": 724,
        "quote": "PR287 step 32: the strip should refetch its status on its own after 30 s"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 712,
+       "line": 730,
        "quote": "PR287 step 32: ...and again 30 s later"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 717,
+       "line": 735,
        "quote": "PR287 step 32: the strip refreshed without the page reloading"
       }
      ],
@@ -6675,7 +6675,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 702,
+       "line": 720,
        "quote": "PR287 step 33: a clean database reads No users pending convergence"
       }
      ],
@@ -6688,7 +6688,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 721,
+       "line": 739,
        "quote": "PR287 step 33: a lagging user is counted"
       }
      ],
@@ -6722,17 +6722,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 722,
+       "line": 740,
        "quote": "PR287 step 34: the amber strip says stored tiers are drifting"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 723,
+       "line": 741,
        "quote": "PR287 step 34: ...in amber"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 726,
+       "line": 744,
        "quote": "PR287 step 34: the strip says access is still correct"
       }
      ],
@@ -6878,12 +6878,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 639,
+       "line": 657,
        "quote": "PR287 R8: the form should close once the user is created"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 640,
+       "line": 658,
        "quote": "PR287 R8: the new user should appear in the list"
       }
      ],
@@ -7518,22 +7518,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 804,
+       "line": 822,
        "quote": "PR288 R1: the Email Queue should list its jobs"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 806,
+       "line": 824,
        "quote": "PR288 R1: the real list read should succeed"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 807,
+       "line": 825,
        "quote": "PR288 R1: the Email Queue should show no error"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 808,
+       "line": 826,
        "quote": "PR288 R1: ...and not its render-error panel"
       }
      ],
@@ -8396,7 +8396,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 772,
+       "line": 790,
        "quote": "PR293 step 4: ${e.key} should still hold the saved value after a reload"
       }
      ],
@@ -8417,12 +8417,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 750,
+       "line": 768,
        "quote": "PR293 R1: /admin/config loads normally\""
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 751,
+       "line": 769,
        "quote": "PR293 R1: ...past its loading state"
       }
      ],
@@ -8435,7 +8435,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 753,
+       "line": 771,
        "quote": "PR293 R1: every existing key should still be present on the page"
       }
      ],
@@ -8474,12 +8474,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 767,
+       "line": 785,
        "quote": "PR293 R2: saving ${e.key} should succeed"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 768,
+       "line": 786,
        "quote": "PR293 R2: ${e.key} should show Saved"
       }
      ],
@@ -8671,7 +8671,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 574,
+       "line": 593,
        "quote": "PR308 step 1 / R2: no API response while loading ${path} should be a 429"
       }
      ],
@@ -8697,7 +8697,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 575,
+       "line": 594,
        "quote": "PR308 step 1: ${path} should stay on its own address"
       }
      ],
@@ -8751,7 +8751,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 588,
+       "line": 607,
        "quote": "PR308 step 3 / R6: no API response while ${path} loads should be a 429"
       }
      ],
@@ -8826,7 +8826,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 574,
+       "line": 593,
        "quote": "PR308 step 1 / R2: no API response while loading ${path} should be a 429"
       }
      ],
@@ -8973,7 +8973,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 588,
+       "line": 607,
        "quote": "PR308 step 3 / R6: no API response while ${path} loads should be a 429"
       }
      ],
@@ -10443,7 +10443,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 572,
+       "line": 575,
        "quote": "PR425 step 6: after Exit Admin, Profile should not show the Admin Panel button"
       }
      ],
@@ -10589,7 +10589,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 573,
+       "line": 576,
        "quote": "PR425 step 10: after Exit Admin the admin no longer holds private memes"
       }
      ],
@@ -10669,12 +10669,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 590,
+       "line": 593,
        "quote": "PR425 step 11: the console should still render with every Admin cell off"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 591,
+       "line": 594,
        "quote": "PR425 step 11: ...and never Access Denied"
       }
      ],
@@ -10695,7 +10695,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 577,
+       "line": 580,
        "quote": "PR425 step 12: after Resume Admin the admin holds private memes again"
       }
      ],
@@ -10938,7 +10938,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 623,
+       "line": 629,
        "quote": "PR425 step 17: tapping the locked Photo pill should lead to the upgrade prompt"
       }
      ],
@@ -10977,12 +10977,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 675,
+       "line": 681,
        "quote": "PR425 step 18: the selection should be accepted"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 676,
+       "line": 682,
        "quote": "PR425 step 18: the header avatar should show the photo"
       }
      ],
@@ -11031,7 +11031,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 616,
+       "line": 622,
        "quote": "PR425 step 20: the account's own Profile should show the generated icon"
       }
      ],
@@ -11052,12 +11052,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 567,
+       "line": 586,
        "quote": "PR425 R1: / should render the real feed for a logged-out visitor"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 568,
+       "line": 587,
        "quote": "PR425 R1: / should not put a sign-in wall in front of a logged-out visitor"
       }
      ],
@@ -11213,22 +11213,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 551,
+       "line": 569,
        "quote": "PR425 R7: ${path} should render the AdminLayout nav"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 552,
+       "line": 570,
        "quote": "PR425 R7: ${path} should be authorized"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 554,
+       "line": 572,
        "quote": "PR425 R7: ${path} rendered no content"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 556,
+       "line": 574,
        "quote": "PR425 R7: ${path} hit the error boundary"
       }
      ],
@@ -11272,7 +11272,7 @@
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 558,
+       "line": 561,
        "quote": "PR425 R8: the preference write should succeed"
       },
       {
@@ -12394,7 +12394,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 599,
+       "line": 602,
        "quote": "PR472 R7: /admin/help signed out shows Access Denied"
       }
      ],
@@ -12407,7 +12407,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 603,
+       "line": 606,
        "quote": "PR472 R7: /admin/help as a non-admin shows the same Access Denied"
       }
      ],

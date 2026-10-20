@@ -525,23 +525,41 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
 
 import { FREE_ACCOUNT, PAID_ACCOUNT, csrfToken } from "./helpers/testAccounts";
 
-/** Records every /api/ response status and how many /api/ requests are still in flight. */
+/**
+ * Records every /api/ response status and how many /api/ requests are still in
+ * flight, windowed per navigation: `begin()` before each `goto` opens a route's
+ * window, so a route is judged only on its own responses and cannot borrow an
+ * earlier route's.
+ */
 function trackApi(page: Page) {
   const responses: { url: string; status: number }[] = [];
   let inFlight = 0;
+  let mark = 0;
   const isApi = (url: string) => new URL(url).pathname.startsWith("/api/");
   page.on("request", (r) => { if (isApi(r.url())) inFlight += 1; });
   page.on("requestfinished", (r) => { if (isApi(r.url())) inFlight -= 1; });
   page.on("requestfailed", (r) => { if (isApi(r.url())) inFlight -= 1; });
   page.on("response", (r) => { if (isApi(r.url())) responses.push({ url: r.url(), status: r.status() }); });
+  const mine = () => responses.slice(mark);
   return {
-    responses,
-    /** Waits until every API request the page started has answered — or one was refused 429, which a client may retry forever. */
-    settled: () =>
-      expect
-        .poll(() => inFlight === 0 || responses.some((r) => r.status === 429), { timeout: 30_000, message: "API requests still in flight" })
-        .toBe(true),
-    throttled: () => responses.filter((r) => r.status === 429).map((r) => r.url),
+    begin: () => { mark = responses.length; },
+    /**
+     * Waits until this route has answered at least one API call and nothing has
+     * been in flight across three consecutive polls — a single zero can be the
+     * gap before the page's effects issue their fetches — or a 429 arrived,
+     * which a client may retry forever.
+     */
+    settled: () => {
+      let quiet = 0;
+      return expect
+        .poll(() => {
+          if (mine().some((r) => r.status === 429)) return true;
+          quiet = inFlight === 0 && mine().length > 0 ? quiet + 1 : 0;
+          return quiet >= 3;
+        }, { timeout: 30_000, intervals: [250], message: "this route's API requests never started, or never settled" })
+        .toBe(true);
+    },
+    throttled: () => mine().filter((r) => r.status === 429).map((r) => r.url),
   };
 }
 
@@ -562,6 +580,7 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
   test("logged out, the ordinary and feed routes load with no sign-in wall, no 429 and no redirect", async ({ page }) => {
     const api = trackApi(page);
     for (const path of ["/", "/top-facts", "/library"]) {
+      api.begin();
       await page.goto(path, { waitUntil: "domcontentloaded" });
       if (path === "/") {
         await expect(page.getByText("For you").first(), "PR425 R1: / should render the real feed for a logged-out visitor").toBeVisible({ timeout: 20_000 });
@@ -574,7 +593,6 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
       expect(api.throttled(), `PR308 step 1 / R2: no API response while loading ${path} should be a 429`).toEqual([]);
       expect(new URL(page.url()).pathname, `PR308 step 1: ${path} should stay on its own address`).toBe(path);
     }
-    expect(api.responses.length, "the routes should have made API calls for this to mean anything").toBeGreaterThan(0);
   });
 
   // PR308 step 3 and R6.
@@ -582,12 +600,12 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
     expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
     const api = trackApi(page);
     for (const path of ["/admin/moderation", "/admin/taxonomy-health"]) {
+      api.begin();
       await page.goto(path, { waitUntil: "domcontentloaded" });
       await expect(page.locator("nav").first(), `${path} should render the AdminLayout nav`).toBeVisible({ timeout: 20_000 });
       await api.settled();
       expect(api.throttled(), `PR308 step 3 / R6: no API response while ${path} loads should be a 429`).toEqual([]);
     }
-    expect(api.responses.length).toBeGreaterThan(0);
   });
 
   // PR287 steps 6, 8, 23 and R8, and PR425 R7 for Users. The grant is read on
