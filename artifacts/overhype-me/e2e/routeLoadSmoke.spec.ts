@@ -752,7 +752,7 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
     const shown = await page.locator("code").allInnerTexts();
     expect(expected.filter((k) => !shown.includes(k)), "PR293 R1: every existing key should still be present on the page").toEqual([]);
 
-    const card = (key: string) => page.locator("div.bg-card.rounded-lg.p-5").filter({ has: page.locator("code", { hasText: new RegExp(`^${key.replace(/\./g, "\\.")}$`) }) });
+    const card = (key: string) => page.locator("div.bg-card.rounded-lg.p-5").filter({ has: page.locator("code", { hasText: new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) }) });
     const edits = [
       { key: "share_copy_twitter_hashtags", field: (k: string) => card(k).locator("textarea").first(), next: (v: string) => `${v},e2e7b` },
       { key: "rate_limit_counters.purge_batch_size", field: (k: string) => card(k).locator("input").first(), next: (v: string) => String(Number(v) + 1) },
