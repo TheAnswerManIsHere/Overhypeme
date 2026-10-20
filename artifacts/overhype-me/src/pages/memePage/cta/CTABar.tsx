@@ -14,8 +14,9 @@ import { ArrowRight, Crown, Download, ExternalLink, Library, Share2, ShoppingBag
 import { Link } from "wouter";
 import { useState } from "react";
 import { usePersonName } from "@/hooks/use-person-name";
-import { displayPronouns, PRONOUN_PRESETS } from "@/lib/pronouns";
+import { PRONOUN_PRESETS } from "@/lib/pronouns";
 
+// The builder's picker and the download endpoint take only these three.
 const PRONOUNS: readonly string[] = PRONOUN_PRESETS;
 
 interface OpenBuilderArgs {
@@ -178,13 +179,14 @@ export function CTABarAnonOther({
 }) {
   // The form shows what the browser already holds until the visitor edits it
   // (#732). Pronouns the visitor never supplied stay they/them here, never the
-  // rendering fallback's silent he/him.
+  // rendering fallback's silent he/him; a saved custom set does too, since the
+  // builder cannot download one (#733 round 1; custom-set support is #719's).
   const saved = usePersonName();
   const [editedName, setName] = useState<string | null>(null);
   const [editedPronouns, setPronouns] = useState<string | null>(null);
   const name = editedName ?? saved.name;
-  const pronouns = editedPronouns ?? (saved.pronounsSupplied ? saved.pronouns : "they/them");
-  const pronounOptions = PRONOUNS.includes(pronouns) ? PRONOUNS : [...PRONOUNS, pronouns];
+  const savedPronouns = saved.pronounsSupplied && PRONOUNS.includes(saved.pronouns) ? saved.pronouns : "they/them";
+  const pronouns = editedPronouns ?? savedPronouns;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -215,8 +217,8 @@ export function CTABarAnonOther({
           data-testid="anon-pronouns-input"
           className="w-full h-[44px] px-3 rounded-[10px] bg-background border border-border text-foreground focus:outline-none focus:border-primary"
         >
-          {pronounOptions.map((p) => (
-            <option key={p} value={p}>{displayPronouns(p)}</option>
+          {PRONOUNS.map((p) => (
+            <option key={p} value={p}>{p}</option>
           ))}
         </select>
         <PrimaryButton type="submit" testId="anon-see-with-name" disabled={!factTemplateReady}>

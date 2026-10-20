@@ -89,14 +89,28 @@ describe("CTABarAnonOther pre-fills what the browser holds (#732)", () => {
     expect(onOpenBuilder).toHaveBeenCalledWith({ initialName: "Dana", initialPronouns: "he/him" });
   });
 
-  it("offers a saved custom pronoun set as the selected option", () => {
+  // The builder's picker and the download endpoint take only the three presets,
+  // so any other saved value would reach a download that produces no file (#733).
+  it.each([
+    ["a custom five-form set", "xe|xem|xyr|xyrs|xemself|s"],
+    ["a plural custom set", "fae|faer|faer|faers|faerself|p"],
+    ["a slash form outside the presets", "fae/faer"],
+    ["an allowlisted pair the builder picker lacks", "xe/xem"],
+  ])("falls back to they/them for %s, and sends only a preset", (_label, stored) => {
     localStorage.setItem("fact_db_name", "Rue");
-    localStorage.setItem("fact_db_pronouns", "xe|xem|xyr|xyrs|xemself|s");
+    localStorage.setItem("fact_db_pronouns", stored);
     const onOpenBuilder = renderWithIdentity();
-    expect(pronounsInput().value).toBe("xe|xem|xyr|xyrs|xemself|s");
-    expect(pronounsInput().selectedOptions[0].textContent).toBe("xe/xem");
+    expect(nameInput().value).toBe("Rue");
+    expect(pronounsInput().value).toBe("they/them");
+    expect(Array.from(pronounsInput().options, (o) => o.value)).toEqual(["he/him", "she/her", "they/them"]);
     fireEvent.click(screen.getByTestId("anon-see-with-name"));
-    expect(onOpenBuilder).toHaveBeenCalledWith({ initialName: "Rue", initialPronouns: "xe|xem|xyr|xyrs|xemself|s" });
+    expect(onOpenBuilder).toHaveBeenCalledWith({ initialName: "Rue", initialPronouns: "they/them" });
+  });
+
+  it.each(["he/him", "she/her", "they/them"])("pre-selects the saved preset %s", (stored) => {
+    localStorage.setItem("fact_db_pronouns", stored);
+    renderWithIdentity();
+    expect(pronounsInput().value).toBe(stored);
   });
 
   it("never fills in a silent he/him when only a name is saved", () => {
