@@ -478,13 +478,14 @@ const headerAvatar = (page: Page) => page.getByRole("button", { name: "Open your
 const profileAvatar = (page: Page) => page.locator("img.rounded-full.object-cover").filter({ visible: true }).first();
 const GENERATED_ICON = /^https:\/\/api\.dicebear\.com\//;
 
-/** The resolver's answer for one feature, for this session. */
+/**
+ * The resolver's answer for one feature, for this session. Read through the
+ * context's request client (same session cookie), not an in-page fetch, which
+ * a navigation — Resume Admin's, for one — aborts mid-flight.
+ */
 async function allowed(page: Page, feature: string): Promise<boolean> {
-  if (!page.url().startsWith("http")) await page.goto("/", { waitUntil: "domcontentloaded" });
-  return page.evaluate(async (f) => {
-    const body = await (await fetch("/api/auth/user", { credentials: "include" })).json();
-    return body.entitlements?.[f]?.allowed === true;
-  }, feature);
+  const body = await (await page.context().request.get("/api/auth/user")).json();
+  return body.entitlements?.[feature]?.allowed === true;
 }
 
 /** As establishGridPremise, for any feature: the account's own tier and preview tier off, the Admin row on. */

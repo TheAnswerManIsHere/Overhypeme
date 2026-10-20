@@ -3430,12 +3430,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 644,
+       "line": 645,
        "quote": "PR242 step 1: a normal submission shows the confirmation"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 645,
+       "line": 646,
        "quote": "PR242 step 1: ...saying it is queued for review"
       }
      ],
@@ -10176,7 +10176,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 517,
+       "line": 518,
        "quote": "PR425 step 1: the custom-avatar option should be available to the admin"
       }
      ],
@@ -10220,7 +10220,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 524,
+       "line": 525,
        "quote": "PR425 step 2: with the Admin cell off the custom-avatar selection should be refused (locked)"
       }
      ],
@@ -10233,12 +10233,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 530,
+       "line": 531,
        "quote": "PR425 step 2: the avatar should fall back to the generated icon"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 531,
+       "line": 532,
        "quote": "PR425 step 2: ...on Profile too"
       }
      ],
@@ -10282,7 +10282,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 536,
+       "line": 537,
        "quote": "PR425 step 3: re-checking the Admin cell should make the option available again"
       }
      ],
@@ -10337,7 +10337,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 528,
+       "line": 529,
        "quote": "PR425 step 5: with only its own Admin cell off, the registered-tier admin's option is gone behind the Legendary lock"
       }
      ],
@@ -10443,7 +10443,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 571,
+       "line": 572,
        "quote": "PR425 step 6: after Exit Admin, Profile should not show the Admin Panel button"
       }
      ],
@@ -10589,7 +10589,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 572,
+       "line": 573,
        "quote": "PR425 step 10: after Exit Admin the admin no longer holds private memes"
       }
      ],
@@ -10669,12 +10669,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 589,
+       "line": 590,
        "quote": "PR425 step 11: the console should still render with every Admin cell off"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 590,
+       "line": 591,
        "quote": "PR425 step 11: ...and never Access Denied"
       }
      ],
@@ -10695,7 +10695,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 576,
+       "line": 577,
        "quote": "PR425 step 12: after Resume Admin the admin holds private memes again"
       }
      ],
@@ -10938,7 +10938,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 622,
+       "line": 623,
        "quote": "PR425 step 17: tapping the locked Photo pill should lead to the upgrade prompt"
       }
      ],
@@ -10977,12 +10977,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 674,
+       "line": 675,
        "quote": "PR425 step 18: the selection should be accepted"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 675,
+       "line": 676,
        "quote": "PR425 step 18: the header avatar should show the photo"
       }
      ],
@@ -11031,7 +11031,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 615,
+       "line": 616,
        "quote": "PR425 step 20: the account's own Profile should show the generated icon"
       }
      ],
@@ -11267,17 +11267,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 551,
+       "line": 552,
        "quote": "PR425 R8: the preferences should be visible on the admin's Profile"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 557,
+       "line": 558,
        "quote": "PR425 R8: the preference write should succeed"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 562,
+       "line": 563,
        "quote": "PR425 R8: the toggled preference should persist"
       }
      ],
@@ -12394,7 +12394,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 598,
+       "line": 599,
        "quote": "PR472 R7: /admin/help signed out shows Access Denied"
       }
      ],
@@ -12407,7 +12407,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 602,
+       "line": 603,
        "quote": "PR472 R7: /admin/help as a non-admin shows the same Access Denied"
       }
      ],
