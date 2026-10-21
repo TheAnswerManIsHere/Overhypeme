@@ -1,6 +1,6 @@
 ---
 name: next
-description: Answer "given where we are in our development lifecycle, what is the next thing we should be doing?" — the prioritized recommendation across all work in the active repository only, not one session's state and never other repositories. Use when David says /next, "what's next", "what should I work on", or has just finished something and needs the next task. Ranks work closest to done ahead of new starts, follows Blocked-by chains so an interrupted UAT is never lost, and names which candidates can safely run in parallel sessions. For "where does THIS session stand" use /status; for "what needs me across everything" use /status-all.
+description: Answer "given where we are in our development lifecycle, what is the next thing we should be doing?" — the prioritized recommendation across all work in the active repository only, not one session's state and never other repositories. Use when David says /next, "what's next", "what should I work on", or has just finished something and needs the next task. Ranks work closest to done ahead of new starts, reads every approved plan still being built so the next step of a build is named even where no issue lists it, follows Blocked-by chains so an interrupted UAT is never lost, and names which candidates can safely run in parallel sessions. For "where does THIS session stand" use /status; for "what needs me across everything" use /status-all.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
@@ -139,6 +139,70 @@ scoped to the active repository (see *Scope* above):
     ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md));
     this is narrowly about not ranking a PR by a snapshot that's fallen
     behind it.
+- **Every approved plan still being built, and where the build stands in
+  it.** Labels and checklists say *which* workstream is open; only the plan
+  says what its build does next. David's approval authorizes every
+  increment end to end (`claude-core.md`, *Planning* rule 4), so a build in
+  flight has a known next step that is usually written down nowhere but the
+  plan — an increment with no checklist line, an implementation step inside
+  the current increment, an order the plan fixes and no issue records. A
+  `/next` that reads only issues answers "#412 is at coding" when the
+  question was "what is the build's next step."
+  - **Find the plan from the trusted workstream, never the reverse.** For
+    each workstream past `plan-approval`, the plan is the file named in its
+    PRs' `Oracle source:` line, or in its State of Play's **Artifacts** —
+    `docs/plans/PLAN_<SLUG>.md` on a named branch (Planning rule 3: committed
+    on the feature branch at approval, on `main` once the first increment
+    merges). A workstream claims a plan by its path in a PR's `Oracle
+    source:` line, or by the plan's path **or its branch name** in the State
+    of Play's Artifacts. Read it with `git fetch origin <branch>` and `git
+    show origin/<branch>:<path>`; a branch only collaborators can push to is
+    the same trust boundary as a label. Where the `Oracle source:` line
+    carries a sha256, check `git show … | sha256sum` against it — a mismatch
+    shows the file differs from the text that PR pinned, which is either an
+    amendment the PR predates or a text David did not approve; `/next`
+    cannot tell which, so it is reported, never ranked from.
+  - **Then sweep for plans nothing tracks — reported, never ranked.** A
+    plan ranks only through the open workstream that claims it; a plan found
+    the other way round is the reverse of the rule above. Look at every
+    `docs/plans/PLAN_*.md` on `main` and on every remote branch ahead of it
+    (`git diff --name-only origin/main...origin/<branch> -- docs/plans/`)
+    that no open workstream claims, skipping what `/maintenance` §8 skips —
+    `plan-review/<slug>-combined` — and any `prototype/<feature>` branch the
+    *Feature phases* registry names, which Step 3 already ranks. On `main`
+    it is usually finished: count it in one line. On a branch it gets one
+    line each: branch, file, and that head's PR history (`list_pull_requests`,
+    `head: <owner>:<branch>`, `state: all` — §8's lookup). A PR closed
+    unmerged or a closed workstream is a stopped build, and is said to be
+    one; no PR and no issue ever is the one shape that may be an approved
+    build nothing tracks, and is said to be that — tracking drift, its
+    disposition left to `/maintenance` §8. Where the history does not settle
+    which, say so. A stopped build is never offered as work to restart.
+  - **The plan gives the sequence; the record gives the position.** The
+    sequence is the plan's increments in order (its phases, where it has
+    them) and, inside the current one, its *Implementation Steps*. The
+    position is read from, newest first: the latest build report on the
+    workstream issue (its **Where we are** section — the same fact the
+    hand-back footer's **Next:** states in chat), the State of Play's
+    **Where it actually stands** and **What you need to do**, the scope line
+    of each merged increment's PR, and the commits on the open branch. Only
+    an `author_association: OWNER` comment counts, the same filter as the
+    PR sweep. **The plan's next step is the first one the record does not
+    show done.** Where the record cannot place it — two sources disagree, or
+    none mentions the plan — say so in the report and rank the workstream by
+    its labels alone; never guess a position.
+  - **A plan refines a workstream's candidate; it does not add one** —
+    with one exception. The workstream stays the one candidate, and the
+    plan's next step becomes what the recommendation names. The exception is
+    the plan's next increment when it has no issue and no Phases checklist
+    line: it is a candidate exactly like an unopened phase (Step 3 ranks it
+    at its parent's position), its workstream is not separately one while
+    it is (the phased-parent rule, above), and the missing line is reported
+    as drift for `/maintenance` to correct — this skill stays read-only.
+  - **Where the plan and the tracking disagree, the plan sets the order.**
+    It is the text David approved; the checklist and the State of Play are
+    records of it, and a record that drops a step is the drift. Report the
+    disagreement; recommend from the plan.
 - **`Blocked by:` markers**, anchored `^Blocked by:[ \t]*#(\d+)`
   (multiline), from every trusted issue body. Build the dependency graph.
 
@@ -196,7 +260,14 @@ out of this single rule rather than needing four rules.
 **An unopened phase ranks at its parent's position** (normally `coding`).
 That's what puts "start Phase 5 of NCMEC" above any fresh feature start
 but below a code-review loop someone left hanging — which is the ordering
-David asked for.
+David asked for. **A plan's untracked next increment ranks the same way**
+(Step 1): it is the same thing, a step of an approved build that no issue
+holds yet.
+
+**The plan's next step names the work; it never moves the rank.** A
+workstream at `coding` whose plan says "step 4 of 6" is still at `coding`.
+What the plan adds is the sentence David acts on — what to start, in the
+order he approved — not a new rung on the ladder.
 
 ### A PR's live state can outrank its issue's label
 
@@ -260,9 +331,9 @@ names which candidates are safe to run **at the same time, in separate
 sessions**. Two candidates are independent only if **all** hold:
 
 1. Neither transitively blocks the other.
-2. **They are not two phases of the same parent** — phases merge
-   sequentially by contract, so parallelizing them is a guaranteed
-   conflict, not a risk.
+2. **They are not two phases of the same parent, or two increments of
+   the same plan** — both merge sequentially by contract, so parallelizing
+   them is a guaranteed conflict, not a risk.
 3. They don't touch the same subsystem or files (read the issues'
    `Artifacts` fields and the roadmap's subsystem grouping; this is the
    judgment component — route it to Fable when it isn't obvious).
@@ -313,7 +384,11 @@ next**, and this is a real recommendation, not a menu:
 
 Sparse and scannable. Lead with the answer; David is deciding, not reading.
 The first line names the repository, so a wrong scope is visible at a
-glance.
+glance. **A candidate with a plan carries a `Plan:` line** — the file, the
+increment and step it is at, and which record placed it there — so David
+can see the answer came from the build he approved and not from a label.
+Where the hand-back that preceded this `/next` named a different **Next:**
+for the same workstream, say which wins and why.
 
 ```
 owner/repo
@@ -325,6 +400,8 @@ NEXT — #422 Plan 1b (write-side permission enforcement)
 THEN
   2. #310 NCMEC Phase 4 — provenance capture. Parent at coding, phase not
      yet opened. Unblocks phases 5–8.
+     Plan: PLAN_NCMEC.md, increment 4 of 8, step 1 — the quarantine.ts
+     capture hook. Position from the 2026-10-20 build report.
   3. Stripe livemode column — queue:now, pre-launch hardening. Needs your
      call on backfill semantics before it can start.
 
@@ -359,6 +436,12 @@ looks thin:
 
 - **Work with no issue** — a Discovery conversation that never opened one
   is invisible. If the picture looks emptier than David expects, say this.
+  An *approved plan* with no issue is not wholly in this gap: Step 1's plan
+  sweep finds it on its branch and reports it, though it does not rank it.
+- **A plan that is not on GitHub** — one that took the private path
+  (Planning rule 3) or, against the rule, exists only in a working tree.
+  Its workstream ranks by labels alone, and the report says the plan could
+  not be read.
 - **A prototype branch** — a `prototype/<feature>` branch opens no PR, so
   the PR sweep never finds it; only the registry and the branch itself do.
 - **Sensitive / disclosure-carve-out workstreams**, which are private draft
