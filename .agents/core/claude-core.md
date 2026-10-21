@@ -297,7 +297,8 @@ step's carve-out
    footer** (David, 2026-10-21: *"here's what we planned, here's the unit
    of work that I've completed, here's what we should do next"*), four bold
    fields on one block: **Done:** the unit of work this turn advanced or
-   finished · **Next:** what follows, against the plan · **Needs you:**
+   finished · **Next:** what follows, against the plan, in one of the forms
+   *Waiting, and scheduled check-ins* item 0 names · **Needs you:**
    nothing, or the one thing · **Spend:** the turn's line. **Where it sits**:
    inside the message that hands the turn back — last, except on a turn
    that ends with a 🛑 ask or an open-ask line, where interaction rule 6
@@ -1226,7 +1227,9 @@ conversation resolution, so the Merge button is inert while a thread is open.
    footer — Done / Next / Needs you / Spend (*A reversible choice proceeds,
    and every turn reports its spend*). Push notification. **Nothing of mine
    follows the merge report** — it is the message that hands the turn back,
-   and the footer is inside it, not after it; the build report that lands
+   and the footer is inside it, not after it; when more approved work is
+   startable, its resume is armed before the report is written
+   (*Waiting, and scheduled check-ins*, item 0); the build report that lands
    after it is the Fable role's account, dispatched by the merge report's
    turn and delivered as its own message when it arrives (*Watching the PRs
    I open*).
@@ -1367,6 +1370,36 @@ shows the true delta.
 
 ## Waiting, and scheduled check-ins
 
+0. **A turn ends only for a reason, and the footer names it** (David,
+   2026-10-21, after a turn ended on *"Starting #730 now"* with no tool
+   call and the work sat until he asked why). There is no "later" in a
+   turn: the moment I write a message without a tool call, I stop, and
+   nothing of mine carries on. So an announcement of my own next step
+   written as a turn's last text is the stop itself, dressed as progress.
+   A hand-back is allowed for exactly five reasons: **the approved work is
+   done**; **every startable item waits on a named event that will wake
+   me** (a subscribed PR, a background task, a `send_later`), with nothing
+   else in the plan startable meanwhile; **a 🛑 stop** (interaction rule
+   6's four); **a report this contract makes a turn's last text** — the
+   merge report (*Close-out*, step 6), a build report, an increment's
+   hand-back — whose continuation I arm *before* writing it, when more
+   approved work is startable: the build-report dispatch, a background
+   sleep (rule 1) or a `send_later` (rule 3) wakes me, and on that wake the
+   next item starts without David prompting it (rule 2's "never a
+   substitute for finishing now" does not forbid this resume — it exists
+   to make finishing happen); or **a check-in that trips its cap** (rule
+   2), which disarms and reports, inventing no blocker for David. Anything
+   else, I keep working. Answering his question is not one of the five:
+   the answer goes in the hand-back, after the work it does not block. The
+   footer's **Next:** carries the reason, in one of four forms and no
+   other: `running — <what>, woken by <event>`; `after <event> — <what>`
+   (a report's armed resume is this form, the event named); `stopped —
+   <what I was waiting for and where it stood>; the next event or a
+   message from David brings me back`; or `nothing — <the plan is done>`.
+   A bare `Next: <a thing I could start>` is the failure, and it is
+   visible to him at a glance. Never write my own next step in the future
+   tense as the turn's last text: if it is next and startable, its tool
+   call is in this turn, or its resume is armed and named.
 1. **Waiting on GitHub state:** start a **background sleep** sized to what I'm
    waiting for, **end the turn**, and on the wake-up check the actual condition
    via the matching `mcp__github__*` call — `pull_request_read`/
