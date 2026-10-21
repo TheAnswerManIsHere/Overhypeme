@@ -388,12 +388,21 @@ implemented, so here it is configured, not built. The contract
     after approval*; until then it ran last, gated on #210, which landed at
     AI-Handbook `98999ca` and reached this tree in #701). Why the order
     moved: the verdict turns on the `hidden` tier, whose answers come from
-    the import graph (`deps`, `dependents`, `table`); the only query that
-    reads a header is `purpose` (`scripts/map.mjs`, `cmdPurpose`,
-    `r.purpose`), and no tier's answer is a purpose line — so the 562 headers
-    still to write change nothing the eval measures, while three of #212's
-    four gaps are silent misses on exactly the hidden tier's material. The
-    verdict sets `enabled` in `.agents/map/config.json`.
+    the import graph and the SQL scan (`deps`, `dependents`, `table`), and
+    the keys are compiler-derived — **the 562 headers still to write change
+    neither the dependency answers nor the keys**. They can change an
+    agent's investigation and token use: `purpose` and `subsystem` read the
+    authored tag and purpose text (`scripts/map.mjs`, `cmdPurpose`,
+    `cmdSubsystem`), and reading a file exposes its header. That is a
+    disclosed risk (*Risks*), measured by the transcripts and the recorded
+    header count, not a reason to write 562 headers before learning
+    whether the queries help. And #212 is the readiness gate the eval
+    needs: its SQL-relation gap is a silent miss on exactly the hidden
+    tier's table questions, and its two route gaps (an Express 5 `*name`
+    wildcard, a child-form wouter route) are silent misses on route queries
+    an agent may run while investigating — measuring before they land would
+    charge the tool for known defects. The verdict sets `enabled` in
+    `.agents/map/config.json`.
 
     **The experimental conditions this repository fixes before the first
     measured run** (C7). The protocol leaves them to the consumer, and left
@@ -402,16 +411,23 @@ implemented, so here it is configured, not built. The contract
     - **Both arm commits are recorded** on #683 before any run: arm B is the
       last `main` commit before Phase 0 merged (the parent of `4f77610`);
       arm A is **an eval-only commit on a branch off `main`**, after the
-      #212 re-sync, whose sole change is `"adopted": true` in
-      `.agents/map/config.json` — no header, manifest or baseline change —
-      so the forcing rule binds in arm A exactly as it will after Phase 2
-      (the seeded rule file reads that one flag). It is never merged; its
-      branch is named on #683. The other three configuration files stay
-      unadopted, so arm A's queries print the `UNADOPTED` banner; the eval
-      records that it did. Arm A's tree carries the headers merged so far
-      (87 of 649 after batch 3); the protocol reads none of them, and the
-      result records the count so it is not read as a measurement of a
-      fully-headered tree.
+      #212 re-sync: `"adopted": true` in **all four** configuration files,
+      `enabled` left `true`, and the index and provenance rebuilt and
+      committed; header content, the architecture rules and the size
+      baseline unchanged. That snapshot gives the measured agent the query
+      experience adoption will give it — the forcing rule binds, and no
+      `UNADOPTED` banner invites it to second-guess every answer — without
+      claiming governance is complete or that `check` passes; it never
+      merges, and its branch is named on #683. Before any measured run,
+      `prepare`'s probe succeeds on it and an ordinary query answers with
+      no stale and no unadopted warning. (Astra, round 1, AM2-1: a commit
+      that flipped one flag alone would change the digest's inputs, so
+      every query would refuse as stale and `prepare` would reject the
+      snapshot; and three flags left false would print a warning the
+      eventual adopted tree never shows, a difference between the arms the
+      experiment does not want.) Arm A's tree carries the headers merged so
+      far (87 of 649 after batch 3); the result records the count so it is
+      not read as a measurement of a fully-headered tree.
     - **Every key is valid on both trees.** Adoption spans several merges and
       unrelated product work lands between the two commits, so a key built on
       one tree can be wrong on the other. `keys` is run at both commits
@@ -617,7 +633,13 @@ surface.
   2. write the thirty tasks in the pre-edit or class-sweep framing
      (decision 15);
   3. run `keys` at both commits, replace any task whose keys differ, and
-     verify the resulting set by hand;
+     verify the resulting set by hand. The baseline commit predates Phase 0,
+     so it carries neither the harness nor `.agents/map/config.json`, which
+     `keys` needs for its programs: the baseline's keys are built in a
+     **separate scoring checkout** of that commit, supplied with the current
+     harness, the task file and the program configuration, while the
+     measured arm B repositories are prepared from the bare baseline commit
+     (Astra, round 1, AM2-2);
   4. run both arms, each agent rooted in its prepared run repository, keeping
      transcripts and recording query use;
   5. score, and set `enabled` from the verdict;
@@ -643,11 +665,12 @@ Phase 2.
   gaps, neither of which this tree hits today.
 - **Arm A is measured before the headers are complete** (amendment 2). The
   protocol's three tiers read the import graph and the SQL scan, never a
-  header; `purpose` is the one header-reading query, and no key is a purpose
-  line. Residual risk accepted: an arm A agent that would have used
-  `purpose` to orient gets less than the finished tree offers. The
-  transcripts show whether any run did, and the header count is reported
-  with the result.
+  header, and no key is a purpose line. Residual risk accepted: an arm A
+  agent that would have oriented by `purpose`, by `subsystem` (which filters
+  on the authored tag and returns purpose text) or by reading a header gets
+  less than the finished tree offers, which can show up as investigation
+  effort and tokens rather than as a wrong answer. The transcripts show
+  whether any run did, and the header count is reported with the result.
 - **Agents do not run the query.** The research measured 58% non-use of an
   offered tool. Mitigation: the fleet rule, the seeded path rule, and the eval
   that measures whether either works. Phase 3's mechanical gate comes later.
@@ -692,7 +715,10 @@ digest not commit — David confirmed on 2026-10-15.
       both trees, tasks in the pre-edit or class-sweep framing, each agent
       rooted in its run repository, transcripts kept, the header count
       reported — and its verdict and runs file are on #683 with `enabled`
-      set to match.
+      set to match. **The full-adoption items above describe the `keep`
+      branch.** On `disable`, done is the back-out PR merged, the stopped
+      work named on #683, and no claim that intent items 1–7 were
+      delivered.
 - [ ] Workstream #683's Phases checklist is updated at each merge.
 
 ## Changes from v3
@@ -750,14 +776,24 @@ item-2 amendment and reopened none of C1–C5):
    a fresh container). Three batches of ten had merged and #210 had landed
    and been synced when the question was asked: finish 562 headers and
    Phase 2 first, or measure now. The eval's verdict turns on the `hidden`
-   tier, which the import graph answers and no header affects, so the
-   headers bought no information before the verdict and risked no loss
-   after it; and #212's recogniser gaps are silent misses on that same
-   tier, so measuring before they land would have charged the tool for
-   three known defects. Decision 15 (the arm A commit, the header count,
-   *What the verdict decides*), the eval step, *Sequencing*, *Risks* and
-   *Definition of Done* carry the change; the oracle is unchanged, since
-   item 8's "arm A on the adopted tree" is still literally what runs. The
-   same amendment records that the working contract retired the two-review
-   limit on 2026-10-21; the settled decision naming it stands as agreed
-   text, and the loop's length is now judgement under the ship gate.
+   tier, whose answers and keys no header changes, so the headers bought
+   no information before the verdict; what they can change — an agent's
+   investigation and token use through `purpose`, `subsystem` and file
+   reading — is disclosed in *Risks* and measured by the transcripts. #212
+   is the readiness gate: its SQL-relation gap is a silent miss on
+   hidden-tier table questions and its two route gaps on route queries, so
+   measuring before they land would have charged the tool for known
+   defects. Astra's round 1 (one exchange, 269 s) corrected the arm A
+   commit — all four adoption flags set and the index rebuilt, since a
+   one-flag change would have left every query refusing as stale and
+   `prepare` rejecting the snapshot, and an `UNADOPTED` banner would have
+   been a difference between the arms — and added the baseline scoring
+   checkout for the keys; both are incorporated, with no second exchange,
+   since the correction is Astra's own wording. Decision 15 (the arm A
+   commit, the header count, *What the verdict decides*), the eval step,
+   *Sequencing*, *Risks* and *Definition of Done* carry the change; the
+   oracle is unchanged, since item 8's "arm A on the adopted tree" is still
+   literally what runs. The same amendment records that the working
+   contract retired the two-review limit on 2026-10-21; the settled
+   decision naming it stands as agreed text, and the loop's length is now
+   judgement under the ship gate.
