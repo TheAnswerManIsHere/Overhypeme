@@ -191,10 +191,10 @@ export function WelcomeModal() {
           value={draftName}
           onChange={handleNameChange}
           onKeyDown={handleKeyDown}
-          placeholder="First name"
+          placeholder="Full name"
           data-testid="identity-name-input"
           maxLength={100}
-          autoComplete="given-name"
+          autoComplete="name"
           className="w-full h-[52px] md:h-[56px] px-4 bg-secondary border border-border rounded-[14px] text-[17px] md:text-[18px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
         />
       </div>
@@ -246,10 +246,6 @@ export function WelcomeModal() {
       <h1 className="font-display font-bold text-4xl md:text-[88px] uppercase tracking-tight leading-[1.0] md:leading-[0.95] text-foreground" style={{ textWrap: "pretty" } as React.CSSProperties}>
         <HighlightedFactText template={teaser.template} name={displayName} pronouns={draftPronouns || DEFAULT_PRONOUNS} />
       </h1>
-      <p className="mt-4 text-sm md:text-base text-muted-foreground italic flex items-center gap-3">
-        <span className="hidden md:inline-block w-9 h-px bg-border flex-shrink-0" />
-        Enough about {draftName.trim() || "them"}.
-      </p>
     </>
   );
 
