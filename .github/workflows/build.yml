@@ -468,8 +468,15 @@ jobs:
   # unit tests nor a production build exercise. Outside Replit there is no
   # platform path-router splitting /api from the SPA, so the Vite config's
   # env-gated E2E_API_PROXY_TARGET proxy plays that role here.
-  e2e-smoke:
-    name: E2E Smoke
+  # The browser suites run as four parallel shards, each on its own runner
+  # with its own stack and database (#730, David 2026-10-21: "bring the time
+  # down as much as possible"). The suites are independent of one another, so
+  # sharding changes wall-clock only, never what is tested. Shards are
+  # balanced on measured step times; re-balance from a run's step durations
+  # when one grows. `E2E Smoke` below is the single required check that
+  # stands for all of them.
+  e2e-shard:
+    name: E2E Smoke (${{ matrix.shard }})
     needs: changes
     # `!cancelled() && result != 'success'` (not a bare needs-gate): if the
     # `changes` job fails, plain `needs` would SKIP this job, and a skipped
@@ -481,6 +488,24 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run-heavy == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+
+    strategy:
+      # One shard failing does not cancel the others, so a red run names
+      # every suite that broke rather than only the first.
+      fail-fast: false
+      matrix:
+        include:
+          - shard: screens
+            screens: true
+          - shard: surfaces
+            surfaces: true
+          - shard: smoke
+            smoke: true
+            accounts: true
+          - shard: billing-auth-capture
+            billing: true
+            prodmode: true
+            capture: true
 
     permissions:
       contents: read
@@ -577,6 +602,7 @@ jobs:
       # email queue). It gets its own database so the dev server's queue worker
       # can never claim its email.
       - name: Prepare production-mode database
+        if: matrix.prodmode
         env:
           AUTH_DB: postgres://overhype:overhype@localhost:5432/overhype_e2e_auth
         run: |
@@ -588,7 +614,8 @@ jobs:
           DATABASE_URL="$AUTH_DB" pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
 
       # Two stacks, booted together so the total wait is the slowest boot, not
-      # the sum.
+      # the sum. Every shard boots the dev stack; only the shard that runs the
+      # production-mode journey boots the second.
       #
       # The dev stack: real dev entrypoints, minus the supervisor wrapper (a
       # crash should fail CI, not restart). ENABLE_DEV_ADMIN_LOGIN is safe here
@@ -610,7 +637,7 @@ jobs:
       # Resend key, and email links that do not point at localhost. The captured
       # mail holds live sign-in links for this throwaway database and is never
       # uploaded. Its environment is constructed (see the step below).
-      - name: Start dev and production-mode stacks
+      - name: Start the dev stack, and the production-mode stack where the shard needs it
         env:
           AUTH_DB: postgres://overhype:overhype@localhost:5432/overhype_e2e_auth
           FAKE_STRIPE_DB: postgres://overhype:overhype@localhost:5432/overhype_stripe_fake
@@ -621,34 +648,40 @@ jobs:
             pnpm exec tsx src/index.ts > /tmp/api-server.log 2>&1 &)
           (cd artifacts/overhype-me && PORT=5173 BASE_PATH=/ \
             pnpm exec vite > /tmp/vite.log 2>&1 &)
-          # A constructed environment (#631 increment 6, plan D3): `env -i` passes
-          # only the named settings, and the launcher refuses any variable outside
-          # its allowlist, so no vendor key can reach this server whatever the
-          # runner carries. `node --import tsx/esm`, not `pnpm exec`, because pnpm
-          # adds variables of its own.
-          (cd artifacts/api-server && env -i PATH="$PATH" HOME="$HOME" \
-            DATABASE_URL="$AUTH_DB" PORT=8081 NODE_ENV=production CRON_SECRET=ci-auth-dummy \
-            IP_HASH_SALT=ci-auth-journey-salt-0123456789abcdef \
-            SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
-            E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink \
-            node --import tsx/esm src/testing/productionModeLauncher.ts > /tmp/api-server-prodmode.log 2>&1 &)
-          (cd artifacts/overhype-me && PORT=5174 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8081 \
-            pnpm exec vite > /tmp/vite-prodmode.log 2>&1 &)
+          if [ "${{ matrix.prodmode }}" = "true" ]; then
+            # A constructed environment (#631 increment 6, plan D3): `env -i` passes
+            # only the named settings, and the launcher refuses any variable outside
+            # its allowlist, so no vendor key can reach this server whatever the
+            # runner carries. `node --import tsx/esm`, not `pnpm exec`, because pnpm
+            # adds variables of its own.
+            (cd artifacts/api-server && env -i PATH="$PATH" HOME="$HOME" \
+              DATABASE_URL="$AUTH_DB" PORT=8081 NODE_ENV=production CRON_SECRET=ci-auth-dummy \
+              IP_HASH_SALT=ci-auth-journey-salt-0123456789abcdef \
+              SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
+              E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink \
+              node --import tsx/esm src/testing/productionModeLauncher.ts > /tmp/api-server-prodmode.log 2>&1 &)
+            (cd artifacts/overhype-me && PORT=5174 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8081 \
+              pnpm exec vite > /tmp/vite-prodmode.log 2>&1 &)
+          fi
           wait_for_url() {
             timeout 90 bash -c "until curl -sf $1 > /dev/null; do sleep 2; done" \
               || { echo "::error::$2 never became healthy"; tail -50 "$3"; exit 1; }
           }
           wait_for_url http://localhost:8080/api/config api-server /tmp/api-server.log
           wait_for_url http://localhost:5173/ "Vite-dev-server" /tmp/vite.log
-          wait_for_url http://localhost:8081/api/config "production-mode api-server" /tmp/api-server-prodmode.log
-          wait_for_url http://localhost:5174/ "production-mode Vite" /tmp/vite-prodmode.log
+          if [ "${{ matrix.prodmode }}" = "true" ]; then
+            wait_for_url http://localhost:8081/api/config "production-mode api-server" /tmp/api-server-prodmode.log
+            wait_for_url http://localhost:5174/ "production-mode Vite" /tmp/vite-prodmode.log
+          fi
 
       - name: Run route-load smoke suite
+        if: matrix.smoke
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:smoke
 
       # Admin surfaces drained out of the UAT documents. Its own step, so a red
       # build names which suite broke; shares the trace upload below.
       - name: Run admin-surface suite
+        if: matrix.surfaces
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:surfaces
 
       # Described screens (#631, increment 8): the UAT steps whose Expect is a
@@ -656,18 +689,22 @@ jobs:
       # typed API stubs (the dev database holds no facts); saves reach the real
       # server. Its own step, so a red build names it.
       - name: Run described-screens suite
+        if: matrix.screens
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:screens
 
       - name: Run test-account suite
+        if: matrix.accounts
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:accounts
 
       # The Billing sync flow against the fake Stripe driver (#566): the real
       # sync library, the mirror, the catalog API and the Billing page, with no
       # Stripe credential anywhere. Its own step so a red build names it.
       - name: Run Billing sync suite
+        if: matrix.billing
         run: E2E_BASE_URL=http://localhost:5173 pnpm --filter @workspace/overhype-me run e2e:billing
 
       - name: Run production-mode account journey
+        if: matrix.prodmode
         run: E2E_BASE_URL=http://localhost:5174 E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink pnpm --filter @workspace/overhype-me run e2e:auth
 
       # The UAT capture set (#631 increment 8, plan D5): the shots a UAT
@@ -677,6 +714,7 @@ jobs:
       # CI proves each shot can still be produced; the reading of a shot is
       # Claude's, at UAT time, never this step's exit status.
       - name: Start the acceptance server for the capture set
+        if: matrix.capture
         run: |
           (cd artifacts/api-server && pnpm exec tsx scripts/acceptance-run.ts --mode serve --variant fixture \
             --port 8090 --origin http://localhost:5180 > /tmp/acceptance-serve.log 2>&1 &)
@@ -688,6 +726,7 @@ jobs:
             || { echo "::error::the capture Vite never became healthy"; tail -50 /tmp/vite-capture.log; exit 1; }
 
       - name: Run the UAT capture set
+        if: matrix.capture
         run: |
           E2E_BASE_URL=http://localhost:5180 UAT_CAPTURE_DIR="$RUNNER_TEMP/uat-captures" \
             pnpm --filter @workspace/overhype-me run e2e:capture
@@ -696,7 +735,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: e2e-smoke-traces
+          name: e2e-smoke-traces-${{ matrix.shard }}
           path: |
             artifacts/overhype-me/test-results/
             /tmp/api-server.log
@@ -708,3 +747,35 @@ jobs:
             ${{ runner.temp }}/uat-captures/
           retention-days: 7
           if-no-files-found: ignore
+
+  # The required check. The ruleset on `main` names `E2E Smoke`, and a matrix
+  # job reports one check per shard under its own name, so this job carries the
+  # name for all of them. It is green only when every shard passed, or when the
+  # classifier positively said the suites are not needed (a docs-only PR):
+  # then the shards skip and this job says so. Anything else — a failed,
+  # cancelled or unexpectedly skipped shard, or a classifier that did not
+  # succeed — is red, so a skip can never pass for a run.
+  e2e-smoke:
+    name: E2E Smoke
+    needs: [changes, e2e-shard]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Every shard passed, or the suites were not needed
+        env:
+          CLASSIFY: ${{ needs.changes.result }}
+          RUN_HEAVY: ${{ needs.changes.outputs.run-heavy }}
+          SHARDS: ${{ needs.e2e-shard.result }}
+        run: |
+          echo "classifier: $CLASSIFY, run-heavy: $RUN_HEAVY, shards: $SHARDS"
+          if [ "$CLASSIFY" = "success" ] && [ "$RUN_HEAVY" != "true" ] && [ "$SHARDS" = "skipped" ]; then
+            echo "Docs-only change: the browser suites were not needed."
+            exit 0
+          fi
+          if [ "$SHARDS" = "success" ]; then
+            echo "Every shard passed."
+            exit 0
+          fi
+          echo "::error::E2E shards did not all pass (result: $SHARDS)."
+          exit 1

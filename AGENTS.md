@@ -151,8 +151,8 @@ Full commands, DB isolation, and the production guard are in the canonical
   src/__tests__/<file>.test.ts`.
 - **Never** run api-server tests with raw `node --test` (can't load the `tsx/esm`
   setup — an invalid command, not a failing test).
-- **GitHub CI is the authoritative gate** — required `Build` + `Test` on every PR
-  to `main`; both must pass before merge. If a sandbox can't run a DB-backed test,
+- **GitHub CI is the authoritative gate** — required `Build` + `Test` + `Frontend Test` + `E2E Smoke` on every PR
+  to `main`; all four must pass before merge. If a sandbox can't run a DB-backed test,
   report it as an environment/command failure **deferred-to-CI**, not a product
   failure. Separate valid repo-command failures from invalid-command/environment
   failures in every summary.

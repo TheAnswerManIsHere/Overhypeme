@@ -183,7 +183,7 @@ The suite authenticates via `POST /api/auth/dev-admin-login`, which looks up
 a specific bootstrap admin row — seed it first with
 `pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts`
 (idempotent; imports the canonical email from `src/lib/auth.ts` so it can't
-drift from the login route). See the `E2E Smoke` job in
+drift from the login route). See the `e2e-shard` job in
 `.github/workflows/build.yml` for the full sequence CI runs.
 
 **Admin UI tests** — Frontend tests via Vitest under `artifacts/overhype-me`.
@@ -688,8 +688,13 @@ outright (`docs/ai-context/decisions.md`).
   that separation is a correctness requirement, not tidiness.
 - **`Frontend Test`** — the `@workspace/overhype-me` vitest suite (jsdom; no
   server or DB).
-- **`E2E Smoke`** — Playwright route-load smoke against the real dev stack
-  (api-server + Vite), the regression net for the crash/reload-loop bug class.
+- **`E2E Smoke`** — the Playwright suites against the real dev stack
+  (api-server + Vite): route-load smoke (the regression net for the
+  crash/reload-loop bug class), admin surfaces, described screens, test
+  accounts, Billing sync, the production-mode account journey and the UAT
+  capture set. They run as four parallel shards (`E2E Smoke (<shard>)`, the
+  `e2e-shard` job), each on its own runner with its own stack and database;
+  the `E2E Smoke` job is the one check that stands for all of them (#730).
 
 The last three are gated by the classifier and report success when skipped.
 
@@ -699,8 +704,9 @@ environment-variable changes, reproduce the Build gate locally/sandbox-side with
 a substitute: the repo-level build also loads production Vite config for every
 workspace package.
 
-> Repository settings currently require PRs and require the `Build` and `Test`
-> checks to pass before merging to `main`. This is configured in **GitHub
+> Repository settings currently require PRs and require the `Build`, `Test`,
+> `Frontend Test` and `E2E Smoke` checks to pass before merging to `main`
+> (the last two added by David on 2026-10-21). This is configured in **GitHub
 > repository settings (a ruleset), not in the workflow file** — don't go hunting
 > for it in the tree. If that policy ever changes, update this document and
 > `AGENTS.md` together.

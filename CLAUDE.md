@@ -81,7 +81,9 @@ same rule for every other agent.
   and runs `scripts/setup-test-db.sh` at session start; its `permissions.deny`
   refuses `drizzle-kit push` in every spelling and any `.env*` read. Test
   isolation and the production guard: [`TESTING.md`](docs/tests/TESTING.md).
-- **CI** requires `Build` and `Test` on every PR to `main`. The workflow runs
+- **CI** requires `Build`, `Test`, `Frontend Test` and `E2E Smoke` on every PR
+  to `main` (the last two since 2026-10-21). `E2E Smoke` is one job standing
+  for four parallel browser-suite shards (#730). The workflow runs
   on `pull_request: [opened, synchronize, reopened, edited]` with
   `cancel-in-progress`, so editing a PR body while a run is in flight cancels
   it and starts a replacement — a restart, nothing worse.
