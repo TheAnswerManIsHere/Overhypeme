@@ -25,10 +25,9 @@ ships no UAT doc — that is the documentation bar the phase removes — and its
 *Post-merge verification* section carries exactly one thing: the version's
 `live` check, when its claim depends on the deployed environment or a real
 vendor, as the command and pass criterion I run after the merge's sync and
-before the owner is asked — one that would start a paid AI run waits for
-David's go-ahead for that run (`uat-doc-format.md`, *Lanes*); otherwise
+before the owner is asked — one that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*); otherwise
 "none needed". Its scaled `ci` and
-`scripted` lanes run before the merge (a check that would start a paid AI run is never `ci`; as `scripted` it runs on his go-ahead, as above) and its feedback rail is the only human
+`scripted` lanes run before the merge (a check that would start a paid AI run is never `ci`; as `scripted` it runs within his paid-run budget and asks above it, as above) and its feedback rail is the only human
 lane (working-modes.md, *The prototype phase, per feature*, and *What
 prototype phase keeps of verification*; Codex, DojoOS #8: without that record
 the mandatory live check had no recorded command for close-out to run).
@@ -56,8 +55,7 @@ the mandatory live check had no recorded command for close-out to run).
    two-call sequence in `CLAUDE.md`'s connector policy, read-only scoping
    stated in the prompt), read the results back with `ask_question`, and
    report them — pass or fail — in the close-out merge report. A step that
-   would start a paid AI run is not read-only: it waits for David's go-ahead
-   for that run (`uat-doc-format.md`, *Lanes*). A failure
+   would start a paid AI run is not read-only: it runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*). A failure
    routes through the normal channel and the workstream stays at its
    verification stage until clean. A clearly-labeled mutating deploy step
    in the section (the contract's third permitted write shape) is mine to
@@ -121,8 +119,7 @@ the mandatory live check had no recorded command for close-out to run).
    `uat-doc-format.md`, *Lanes*, *An image an AI model generated*) — with
    its `Expect` written as the screen it should show, never "as before"
    (`uat-doc-format.md`, *Lanes*). A step whose check would start a paid AI
-   run is never `ci`, and in any other lane runs only on David's go-ahead
-   for that run (the same section), so a clause the product's own code draws cites a local
+   run is never `ci`, and in any other lane runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it (the same section), so a clause the product's own code draws cites a local
    capture where the consumer declares one. **The lane is read from the `Expect`'s clauses and
    from who can perform the `Do`, never from the heading or the verb**
    (David, 2026-10-15; the rule's home is the `uat` skill, *Where the

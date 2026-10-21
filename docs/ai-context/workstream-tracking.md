@@ -40,9 +40,9 @@ glyph used for the mid-task interruption banner in chat, deliberately: one
 symbol means "David," everywhere, not only in conversation. **Merge stopped
 being a David-gate on 2026-08-15** (the agent driving the PR merges it once
 the close-out bar in CLAUDE.md is met — for the standard loop, CI green, the
-reviewer's pass returned for the head commit, every thread resolved, the owed
-translations delivered; the two classes and the prototype phase carry their
-own bars there),
+reviewer's pass returned for the head commit, every thread resolved, with the
+build report dispatched at close-out; the two classes and the prototype phase
+carry their own bars there),
 and the **scope-of-work gate** was added
 the same day at the front of Planning (see
 [`working-modes.md`](./working-modes.md#the-scope-of-work-gate-david-2026-08-15)).
@@ -161,9 +161,8 @@ and does so **before** creating a fresh issue. **A prototype-phase feature
 reaches `stage:coding` / `waiting:claude` on its first version's approval**
 (and again on the approval of any later version David asked a loop for),
 and until a version David can use exists, the agent is the
-holder, except while a check that would start a paid AI run waits for his
-go-ahead for that run (`uat-doc-format.md`, *Lanes*): then it is
-`waiting:david`, back to `waiting:claude` once he gives or declines it. It moves to `waiting:david` when a usable version is delivered (on
+holder, except while a paid AI run above David's paid-run budget — $5 a run, $25 a week — waits for his go-ahead (`uat-doc-format.md`, *Lanes*): then it is
+`waiting:david`, back to `waiting:claude` once he gives or declines it. A run within the budget is agent-held work and changes no label. It moves to `waiting:david` when a usable version is delivered (on
 `main`, or on the prototype environment) and back to `waiting:claude` when
 his feedback starts another revision, so the board asks him to act only
 while there is something to act on (a machine check that fails before
@@ -317,6 +316,10 @@ of the workstream issue's body, with these fields:
   stage name alone (the same accuracy bar `/status-all` applies). If nothing's
   blocking, say so.
 - **What you need to do** — the concrete next action, or "nothing right now."
+- **Spend so far** — the build's running total in dollars, updated at every
+  hand-back that changes it, so the build report can state what the build
+  cost (David, 2026-10-21; `claude-core.md`, *A reversible choice proceeds,
+  and every turn reports its spend*). The one ledger line the fleet keeps.
 - **Decisions taken on recommendation** — one line per reversible choice the
   agent proceeded on without asking, with the way back
   ([`agent-working-rules.md`](./agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)),
@@ -414,8 +417,8 @@ work it's already doing — not as a separate reminder to go check the board:
 | --- | --- |
 | `plan-review-loop` | `waiting:claude` for the whole loop — a planning exchange is a local process the builder waits on, so there is no `waiting:codex` state; `stage:plan-approval` + `waiting:david` at the approval ask |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
-| `prototype` | The workstream from `stage:coding` / `waiting:claude` onward for a feature David has declared prototype phase (its first version's issue is opened at `stage:planning` by `plan-review-loop`, above), `mode:feature`; `waiting:david` when a usable version is delivered and back when his feedback starts a revision, and `waiting:david` while a check that would start a paid AI run waits for his go-ahead for that run, back once he gives or declines it; the relabel to `stage:planning` / `waiting:david` before `plan-review-loop` starts, at the flip and for a later version David asked a loop for (*Promotion is a real operation*, above) |
-| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` on escalation, `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (`waiting:david` instead while a step that would start a paid AI run waits for his go-ahead for that run, `uat-doc-format.md`, *Lanes*; the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch. A workstream reaching `stage:close-out` this way (no UAT owed) goes on to `stage:done` and is closed in the same pass (*Closing an issue*, below). Also the labels on a follow-up issue it files from a review round: `gap` and the workstream's `mode:`, with no `queue:` until `/maintenance` triages it (#98; David, 2026-09-28) |
+| `prototype` | The workstream from `stage:coding` / `waiting:claude` onward for a feature David has declared prototype phase (its first version's issue is opened at `stage:planning` by `plan-review-loop`, above), `mode:feature`; `waiting:david` when a usable version is delivered and back when his feedback starts a revision, and `waiting:david` only while a paid AI run above David's paid-run budget — $5 a run, $25 a week — waits for his go-ahead, back once he gives or declines it (a run within budget stays agent-held); the relabel to `stage:planning` / `waiting:david` before `plan-review-loop` starts, at the flip and for a later version David asked a loop for (*Promotion is a real operation*, above) |
+| `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` only on a product decision or the irreversible list (2026-10-21), `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (`waiting:david` instead only while a step that would start a paid AI run above David's paid-run budget — $5 a run, $25 a week — waits for his go-ahead, `uat-doc-format.md`, *Lanes*; a step within budget stays agent-held; the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch. A workstream reaching `stage:close-out` this way (no UAT owed) goes on to `stage:done` and is closed in the same pass (*Closing an issue*, below). Also the labels on a follow-up issue it files from a review round: `gap` and the workstream's `mode:`, with no `queue:` until `/maintenance` triages it (#98; David, 2026-09-28) |
 | `pr-docs` | No stage transition of its own — confirms `mode:feature` is right on the PR this pairing rides on |
 | `/uat` | The exit from `stage:uat` — the one stage no agent could previously move, since only David could run it. `Accepted` and `Accepted with issues` both reach `stage:close-out` (his acceptance is what converts that run's bugs from blockers into independently-tracked work); a `Blocked` run holds at `stage:uat`. `waiting:claude` either way — the next real action is a fix or a close-out, not something David can click. An accepted run drives close-out through to `stage:done` and closes the issue. Also owns the `Blocked by:` + failed-step record at the moment a run finds a bug, executing `bugfix`'s intake contract earlier, while the context is still in front of it — but **not** the `waiting:` flip, which waits until the run actually stops, since a run David chooses to continue is still David-held |
 | `/document` | An **ad-hoc** harvest (one feature, invoked directly) is a **sub-issue** of the parent workstream (GitHub's native sub-issue relationship), not a status value on the parent — it has its own branch, PR, and review loop, so it needs its own row. The **batched** harvest at `/maintenance` gets no sub-issue: it rides the maintenance docs PR, and its tracking is the harvest-notes comments already on each feature's issue ([`documentation-workflow.md`](documentation-workflow.md)) |

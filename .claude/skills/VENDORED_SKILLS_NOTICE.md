@@ -87,9 +87,16 @@ convention as above:
   review before the branch is finished; the flow previously ran it straight
   into `finishing-a-development-branch`.
 
+**Retirement note (2026-10-21).** The two-review limit that the calibration
+blocks above named is retired (David, 2026-10-21). The blocks in
+`requesting-code-review` and `receiving-code-review` now say that iteration is
+bounded by the builder's judgement under the write-gate and the ship gate, with
+a recorded gap the ordinary answer from the second review on; the 2026-09-20
+note above stays as the record of what they said until then.
+
 Rationale and the full policy for the 2026-07-24 delegation calibrations live
-in `CLAUDE.md` → *Model, cost, and routing*; the two-review limit's are in its
-home, linked above.
+in `CLAUDE.md` → *Model, cost, and routing*; the two-review limit's were in
+its home, linked above, which now records its retirement (2026-10-21).
 MIT permits modification; attribution above is unchanged.
 
 Not vendored: the plugin's `hooks/` (a SessionStart hook that auto-loads
@@ -175,7 +182,9 @@ Modification status:
   The 2026-10-17 paid-run sweep (AI-Handbook #219) added one clause to the
   existing notes of `prototype/LOGIC.md`, `prototype/UI.md` and
   `test-driven-development/SKILL.md`: a check that would start a paid AI run
-  waits for David's go-ahead for that run.
+  runs within David's paid-run budget — $5 a run, $25 a week — and asks him
+  only above it (the clause first required his go-ahead for each run; retired
+  2026-10-21).
 - `grill-me/SKILL.md` — **no longer verbatim as of PR #545**: body changed
   from `Run a `/grilling` session.` to upstream's exact delegation form,
   `Call the Skill tool with "grilling".` (it had pointed at a skill that was

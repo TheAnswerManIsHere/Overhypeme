@@ -220,19 +220,20 @@ Explicitly **not** findings on a docs-only PR, even when technically true:
 
 Docs are self-catching and fixed in one commit; pedantic findings on them
 cost more than the defects they describe. This is the *depth* rule. The
-*continuation* rule is the **two-review limit** (David, 2026-09-19 —
-[`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)): on docs
-internal by the change's consequence and recoverability, a clean automatic pass
-is the whole ceremony, and when the pass finds a real defect the pushed fixes
-are re-reviewed, once — a docs change to a contract governing approvals or
+*continuation* rule is the builder's judgement under the write-gate and the
+ship gate (the two-review limit that stood here from 2026-09-19 to
+2026-10-21 is retired;
+[`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+keeps the record): a clean automatic pass is the whole ceremony, and when
+the pass finds a real defect the pushed fixes are re-reviewed, as many times
+as the judgement says is worth it — a docs change to a contract governing approvals or
 publication is weighed like any other change, below. The internal tier (David, 2026-08-21,
 superseding the 2026-08-20 no-rounds carve-out) says what is downstream rather
 than setting a threshold, and is not the continuation rule — this paragraph
 named it as such while handing length to the limit four lines later, so a
-reader who stopped at the bolded clause got the superseded answer. **How long that re-reviewing runs is the two-review limit's**
-([`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) — this sentence used to
-add "there is no round budget and no leash", and while the limit is indeed not a
-round budget, "no leash" is exactly what it removed. The tier's old
+reader who stopped at the bolded clause got the superseded answer. **How long that re-reviewing runs is the builder's to judge** — this
+sentence said "the two-review limit's" from 2026-09-19 to 2026-10-21, and
+before that "there is no round budget and no leash", which is true again. The tier's old
 "only a critical flaw is written for" rubric is retired as a decline quota, and
 the external adjudicator that used to rule went with the #89 cut (2026-09-16)
 and was replaced by two advisory assessments per round (#96) — see
@@ -248,10 +249,9 @@ plan took the private path, assessed against the full text regardless
 (above), and except the prose
 among them that is the Documentation class, and anything David declares
 Trivial, which leave this loop ([`working-modes.md`](../ai-context/working-modes.md#two-classes-outside-the-review-loop-trivial-and-documentation-david-2026-09-25)). Iteration beyond
-that is bounded by the **two-review limit** in
-[`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19) — review, one
-batch of corrections, review, stop — and every changed head still gets its
-review. **That list is where such work usually lives, not what decides it:**
+that is bounded by the builder's judgement under the ship gate, never a
+count (the two-review limit is retired, 2026-10-21) — and every changed head
+still gets its review. **That list is where such work usually lives, not what decides it:**
 the limit is scoped by consequence and recoverability, asked of the change, so
 a change in it governing approvals, publication, credentials or destructive
 operations is weighed on that whatever directory it sits in. A `scripts/`
@@ -478,9 +478,9 @@ and since 2026-08-17 it is a **development stop**, not a stakes-graded
 proceed: **every PR in the standard loop gets a code review, and nothing
 merges until it returns** (a prototype-phase change never enters the loop —
 working-modes.md, *The prototype phase, per feature*).
-How many rounds follow is the **two-review limit**'s
-([`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) on work it
-bounds; nothing governs whether the first one has to come back. The Worth rule
+How many rounds follow is the builder's judgement under the ship gate (the
+two-review limit is retired, 2026-10-21); nothing governs whether the first
+one has to come back. The Worth rule
 per finding and the ship gate shape what is written *within* that bound — this
 sentence used to hand them the length question itself, which is a different
 question than either answers. So an agent that cannot get a

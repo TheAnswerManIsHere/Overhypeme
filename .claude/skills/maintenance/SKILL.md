@@ -52,9 +52,11 @@ PRs") — the discipline stays visible, the report stays short.
    2026-08-15 subsumed by the general self-merge rule in CLAUDE.md's
    close-out contract). If CI is red, diagnose briefly: a flaky run gets
    one re-trigger; a real incompatibility gets flagged, not merged.
-4. **Major-version bumps are never auto-merged.** For each, one line in
+4. **Major-version bumps are merged on my recommendation, never silently.** For each, one line in
    the report: package, old → new, why it matters (or doesn't), and my
-   merge/hold recommendation. David decides.
+   merge/hold recommendation. A merge is reversible, so I proceed on the
+   recommendation and report it (*A reversible choice proceeds*); David
+   decides only what that rule's irreversible list names.
 
 ## 2. Production errors (Sentry)
 
@@ -118,9 +120,10 @@ Read [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-wo
 and re-check **each entry's revisit trigger**:
 
 - **Any trigger that has fired** (a dated cutoff reached, a dependency shipped
-  its fix, a recurrence count hit, a security advisory landed) → surface it to
-  David as a numbered decision item in the report. Don't act on the underlying
-  bump/change here — see Boundaries.
+  its fix, a recurrence count hit, a security advisory landed) → decide on my
+  recommendation and report it (*A reversible choice proceeds*); the
+  underlying bump or change lands through its own PR, never from inside this
+  pass — see Boundaries.
 - **Newly parked items** discovered this pass (a major bump held in step 1, a
   deprecation spotted in a lockfile or CI log) → add them to the doc with the
   four-field entry template, and commit that doc change directly (docs-only,
@@ -194,21 +197,22 @@ stored records. From the merged-PR list for the window:
   incidents that needed David. Do not substitute a proxy for either; say the
   mechanism is gone if anyone asks for the trend.
 
-- **The round translation, two numbers and no more** (David, 2026-09-12). How many round
-  translations ran, and how many flagged a disagreement with the builder's
-  account. **Read them from the close-out harvest comments**, the same source
+- **The build report, two numbers and no more** (David, 2026-09-12, for the
+  round translation it replaced on 2026-10-21). How many build reports ran,
+  and how many flagged a disagreement with the builder's
+  account. **Read them from the workstream issues' build-report comments**, the same source
   plan-loop rounds come from: its receipts are gitignored evidence that dies
   with its session, deliberately — making a gut-level count exact is the
   accounting-precision class the worth rule
   ([`review-judgment.md`](../../../docs/ai-context/review-judgment.md))
   declines. **Say so when a
-  merged loop's harvest comment carries no translation line**, rather than reporting a
+  merged unit of work has no build report comment**, rather than reporting a
   figure that silently omits it.
 
-  The shape to watch is the same one B1 has: a run of loops where the translation never
+  The shape to watch is the same one B1 has: a run of builds where the report never
   disagrees means it is agreeing with every account, which is what the
   zero-for-fifteen retirement rule catches. The opposite shape counts too — a
-  translation disagreeing on every round is not obviously working either, and
+  report disagreeing on every build is not obviously working either, and
   either extreme is worth a sentence to David rather than a number.
 - **Recorded dissents** (David, 2026-09-03). Override entries in the repo's
   `decisions.md` dated inside the window — the entries the advice rule writes
@@ -276,9 +280,9 @@ contract, not a handoff, and is expected to sit there indefinitely; only
 dated handoff files (`<date>-<from>-to-<to>-<topic>.md`) count. Anything
 older than ~7 days (`git log -1 --format=%cd <file>` per file, or
 `git log --diff-filter=A` for when it was added) is a handoff nobody
-addressed and deleted per its contract. Flag each one by name in the
-report as a numbered decision item rather than deleting it yourself — a
-stale handoff usually means the finding inside it needs David's eyes, not
+addressed and deleted per its contract. Delete it on my recommendation and
+name it in the report with what it held (a corrective commit restores it) —
+a stale handoff usually means the finding inside it needs David's eyes, not
 just cleanup.
 
 ## 8. Branch hygiene sweep
@@ -340,8 +344,8 @@ markers, and Phases checklists (see
 all of which decay silently. Nothing else re-checks them, and a stale queue
 produces a confidently wrong recommendation, which is worse than no
 recommendation. David's standing instruction is that he can react well but
-can't track state, so this step brings him a **concrete proposed diff** to
-approve or amend, never an open-ended "is the backlog still right?"
+can't track state, so this step brings him a **concrete diff, applied and
+reported** (item 6, below), never an open-ended "is the backlog still right?"
 
 1. **List every open issue, then sort it into three sets** — those
    carrying a `queue:` label, those carrying a `stage:` label, and **the
@@ -374,8 +378,8 @@ approve or amend, never an open-ended "is the backlog still right?"
    "unlabelled" would miss it, and the revisit David asked for would never
    be asked of it by name. **A gap with no `queue:` label has never been
    triaged**: `pr-watch` files every gap without one so that `/next`
-   cannot recommend it before David has decided (David, 2026-09-28), and
-   this step is where it gets one. **An unlabelled issue's body is read only when
+   cannot recommend it before it has been triaged (David, 2026-09-28), and
+   this step is where it gets one, on my recommendation, reported. **An unlabelled issue's body is read only when
    its author is the repository's owner** — its `user.login` equals, ignoring
    case, the owner in the coordinates this pass already uses, the account
    this session also pushes as; under an organisation owner nothing matches,
@@ -426,9 +430,11 @@ approve or amend, never an open-ended "is the backlog still right?"
    removed. Flag two shapes specifically, because both are the
    UAT-descent stack going wrong rather than working:
    - **A chain deeper than 2**, or **any blocker open longer than two
-     weeks** — surface it with the park-or-continue question. Pre-launch
-     the default is continue, but the call should be *prompted*, not
-     silently defaulted (`workstream-tracking.md`'s escape hatch).
+     weeks** — take *continue* on my recommendation and say so in the
+     report, naming the chain or the blocker, so the call is *visible*
+     rather than silently defaulted (`workstream-tracking.md`'s escape
+     hatch; David, 2026-10-21 — until then this was a park-or-continue
+     question to him).
    - **A cycle** (A blocked by B, B transitively blocked by A) — a real
      data error that would make every item in it permanently
      non-actionable. Report it; don't guess which edge to cut.
@@ -438,10 +444,12 @@ approve or amend, never an open-ended "is the backlog still right?"
 6. **Deliver as a numbered proposed diff**, e.g. "close #431 (superseded by
    #440); drop #418 `queue:now` → `queue:later`; open a backlog issue for
    *Record the Stripe mode on every entitlement source*; remove the stale
-   `Blocked by: #405` from #422." David approves, amends, or declines each
-   line — **then I apply the approved ones in that same session.** Same
-   posture as `/status`: proposed, confirmed, then written, never
-   unattended.
+   `Blocked by: #405` from #422." **I apply it on my recommendation in the
+   same session and the report carries every line applied** (David,
+   2026-10-21; until then each line waited for his approval): every edit is
+   a label, a body or a closure, and a corrective edit undoes any of them.
+   A line that is a product priority call — which gap is wanted at all — is
+   the one kind that stays proposed, since product priority is his.
 7. If nothing's drifted, one line: "backlog hygiene: N queued items, M
    blocked, 0 unlabelled, G gaps revisited, no drift."
 
@@ -477,8 +485,10 @@ How to run it:
    a legitimate outcome, not a failure to find a check** — an unenforceable
    rule that stays in the file is worse than no rule, because it reads as
    coverage.
-3. **Propose, don't apply.** This is a `CLAUDE.md` edit, so it goes in the
-   numbered decision list for David and lands through the normal PR path.
+3. **Apply through a PR, and name it in the report.** This is a `CLAUDE.md`
+   edit, so it lands through the normal PR path on my recommendation, with
+   its latitude line (David, 2026-10-21; until then it was proposed as a
+   decision item).
    Permission and ruleset changes take the same path; their PR body names the
    latitude they grant (David, 2026-09-14).
 4. **Say which rule you picked and why, every pass** — including a pass where
@@ -487,11 +497,14 @@ How to run it:
 
 ## Report delivery
 
-Single message, ten short sections, worst news first. When something needs
-David's decision (major bump, alarming Sentry issue, recurring flake), it
-goes in a numbered question list at the end per the numbered-questions rule,
-with the turn's spend line directly above that list (`claude-core.md`, *A
-reversible choice proceeds, and every turn reports its spend*).
+Single message, ten short sections, worst news first. A major bump is a
+reversible merge, so I proceed on my recommendation and report it; an alarming
+Sentry issue and a recurring flake are reported, not asked. Only what the
+irreversible list names, or a product decision, goes in a numbered question
+list at the end per the numbered-questions rule,
+with the hand-back footer — Done / Next / Needs you / Spend — directly above
+that list (`claude-core.md`, *A reversible choice proceeds, and every turn
+reports its spend*).
 If the report is substantial, also publish it as an Artifact page — the chat
 message remains the canonical copy. (CLAUDE.md's combined Artifact-delivery
 paragraph this used to cite was retired; only its UAT-specific rule survives,
@@ -530,9 +543,8 @@ This is now a standalone maintenance-skill rule.)
   (dependency or Action) still only ever becomes a reported decision item,
   never a direct action, per step 4 above. **Step 9's backlog hygiene is
   not an exception** — it writes only issue labels, bodies, and
-  closures, never code, and only the specific lines David approved from
-  its numbered diff. An unapproved line is not applied, and "I was already
-  in there" is not approval.
+  closures, never code, each named in the report (David, 2026-10-21; until
+  then only lines he approved from the numbered diff were applied).
 - **No scheduled self-wakeups — same conclusion, different reason as of
   2026-08-15.** This used to rest on the blanket no-background-check-ins
   rule. That rule is gone, replaced by the bounded contract in `CLAUDE.md`'s

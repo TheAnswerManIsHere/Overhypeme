@@ -174,12 +174,11 @@ the doc-wrong case below, never a check to run early:
   worktree at the commit under test** (or dispatch the on-demand workflow on
   that commit), or read evidence recorded for that commit, and keep the
   output with the commit it ran at. Output from any other checkout is not
-  evidence, however recent. One that would start a paid AI run waits for
-  his go-ahead for that run, as a paid capture does (below).
+  evidence, however recent. One that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it, as a paid capture does (below).
 - **`live`** — I run the cited check through the live-environment connector,
   **read-only, always**, after confirming the Repl's synced commit is the
   commit under test, and quote what it printed. A check that would start a
-  paid AI run is not read-only: it waits for his go-ahead for that run, as a
+  paid AI run is not read-only: it runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it, as a
   paid capture does (below). State a check needs is a
   Setup `[claude]` line with its `[restore]` (section 2); a probe whose
   refusal is the thing tested writes nothing and is not a write.
@@ -203,13 +202,13 @@ the doc-wrong case below, never a check to run early:
   that reading: a shot that was not produced, or that I cannot read, is
   Blocked, never Pass; a reading that contradicts the `Expect` is a Fail,
   filed before he sees anything (section 4). **A capture that needs a paid
-  vendor runs only on his go-ahead in words for that run** — as does any
-  check, in any lane, that would start a paid AI run (David, 2026-10-17;
-  `uat-doc-format.md`, *Lanes*): I ask, naming the doc, the
-  paid calls and the worst-case cost, and nothing in a run, a resume or a
-  standing approval starts one without that. It runs within the cap the
-  declaration names, and its spend goes on the run's spend line. Without
-  the go-ahead its steps are Blocked on him, or he answers the judgement
+  vendor runs within David's paid-run budget — $5 a run, $25 a week** — as
+  does any check, in any lane, that would start a paid AI run (David,
+  2026-10-17, who set the budget small for that reason; `uat-doc-format.md`,
+  *Lanes*): within it the capture runs, inside the cap the declaration names,
+  and its cost goes in the run record and on the run's spend line. One above
+  it asks, naming the doc, the paid calls and the worst-case cost, and its
+  steps are Blocked on him until he answers, or he answers the judgement
   steps from an image he makes himself in the product. A consumer with no such declaration has no
   capture run, and its `capture` steps are Blocked on that, never handed to
   him. **A real AI render is read only for what anyone would verify the
@@ -573,7 +572,8 @@ Then, in one edit:
   later" is not a reason; a re-run of a merged PR's UAT is written fresh
   from current behavior, not resurrected.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next, that the doc is gone — and, last, the run's spend across its
+  he can do next, that the doc is gone — and, last, the hand-back footer
+  (Done / Next / Needs you / Spend), whose spend is the run's across its
   walkthrough turns, which carried none of their own: the record's `Spend so
   far` plus the turns since its last write, so a run resumed in a fresh
   session reports the whole run, not the segment the current counter saw.
@@ -635,7 +635,7 @@ that is three places:
 **Once a step is fully scriptable, UAT is usually the wrong home for it.** It
 belongs in CI or in the PR's post-merge verification, where it runs on every
 change forever instead of once — unless it calls a paid AI vendor, which
-never runs without David's go-ahead for that run (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
+runs within David's paid-run budget — $5 a run, $25 a week — and asks him only above it (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
 steps out of UAT into the layers that already exist — and scripting whatever
 live-app checks are left over.
 

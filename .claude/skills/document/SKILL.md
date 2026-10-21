@@ -50,8 +50,9 @@ Decide by what "this" refers to (contract's trigger table):
 - Referent is **one** preference / rule / fact / gotcha ("remember this: …") →
   that's **targeted persistence** (CLAUDE.md's "remember this" rule), not this
   skill — persist the single item and stop.
-- Referent **unclear** → ask **one numbered question** (targeted persistence
-  vs. full ceremony) before doing anything.
+- Referent **unclear** → take the lighter reading (targeted persistence) on
+  my recommendation and say so in one line (David, 2026-10-21; until then one
+  numbered question).
 
 ## Claude-specific mechanics the contract leaves to me
 

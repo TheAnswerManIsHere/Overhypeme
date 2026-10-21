@@ -121,7 +121,7 @@ assumption the line rests on, not a reading).
 
 | Role | Model | Proxy rate per million tokens |
 |---|---|---|
-| Main loop on Fable, Fable assessor, round translator | Claude Fable 5.1 | $15 |
+| Main loop on Fable, Fable assessor, build report | Claude Fable 5.1 | $15 |
 | Main loop on Opus, a build session | Claude Opus 5.5 | $6 |
 | Sonnet subagents (sweep readers, investigations) | Claude Sonnet 5.5 | $3 |
 | Haiku subagents, dispatch reported at 100,000 tokens or fewer | Claude Haiku 5.5 | $0.15 |

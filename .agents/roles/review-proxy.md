@@ -155,27 +155,15 @@ alternative is proportionate. Keep the scope to the affected mechanism and
 necessary dependencies.
 
 Recommend no further work when evidence supports the agreed outcome and no
-unresolved finding warrants action. **And know which round you are on**: there
-is no target round count, but on work that is internal **by consequence**
-there is a cap — the two-review limit
-([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) —
-so on a second review a recommendation to write again is one the builder is
-not permitted to act on — and it is not, by itself, a question for David. On
-that review a finding that is none of the limit's three shortfalls is yours
-and the other assessor's to settle, *record the gap* or *ask David to reopen*,
-with the tie-break holder settling a split; say which you recommend rather
-than leaving a bare "write now" for him to route. A change governing approvals, publication,
-credentials or destructive operations is weighed on those consequences and its
-recoverability, whatever directory it sits in, and that can put it outside the
-cap — where a recommendation to write again is actionable. **A pull request
-that changes the review loop itself is the one exception in the other
-direction**: it is capped at two reviews whichever way the consequence test
-falls, and when its second review returns findings the result goes to David
-to triage by hand rather than to the merge button (his ruling, 2026-09-23), so
-a recommendation to write again is not actionable there either. (This
-said "the two-review limit above" until 2026-09-23. It pointed at nothing:
-this file's other statement of the limit is below, not above, and the
-dispatch package never places the limit ahead of this brief either.) **A clean reviewer round does not erase an
+unresolved finding warrants action. **And know which round you are on**: there is no target round count and
+no cap — the two-review limit is retired (David, 2026-10-21;
+[`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+keeps the record). From the second review on, *record the gap* is the
+ordinary answer, and a recommendation to write again is one the builder may
+act on when the judgement says it is worth it; say which you recommend, and
+never leave a bare "write now" for David to route — *ask David to reopen* is
+no longer an option, and a pull request that changes the review loop is
+judged like any other. **A clean reviewer round does not erase an
 outstanding question or David's decision.** An outstanding reviewer finding
 does not itself justify code when incorrect, already addressed, or
 appropriately declined. There is no target round count. Recommendations never
@@ -292,12 +280,9 @@ every other judgement here is a matter of degree, and this one is the only
 question whose answer cannot drift as a loop lengthens. **Once both assessors
 answer yes, the loop's default flips** — findings become recorded gaps unless
 one would make the oracle false or reaches outside the pull request. A `yes`
-changes what a finding is worth by default; it is not what ends a loop — on
-work the limit bounds, internal by the change's consequence and recoverability
-as above, the **two-review limit** is
-([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)): review the
-head, one coherent batch of corrections, review that corrected head, and
-autonomous iteration ends there whatever anyone still thinks is worth writing.
+changes what a finding is worth by default; it is not what ends a loop — what ends one is the builder's judgement, from
+both assessments, that nothing more is worth writing, never a count (the
+two-review limit is retired, David, 2026-10-21).
 The write-gate rule is a different rule answering a different question, what
 must be reviewed — never how long iteration runs. A `no` means the ship gate's
 question is not yet the one to ask. Answer it

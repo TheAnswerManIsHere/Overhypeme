@@ -1546,8 +1546,11 @@ fix is actually cheap. **The floor-tier exemption that stood here is gone**
 keep a "zero-re-request rule", so a post-review fix there moved the head
 without owing a pass — which is a commit merging unreviewed, the one thing the
 write-gate exists to refuse. What bounds those artifacts now is the
-**two-review limit** in [`working-modes.md`](working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19), which caps how
-long iteration runs without ever exempting a changed head from being read. The
+builder's judgement under the ship gate and the Worth rule, which ends
+iteration without ever exempting a changed head from being read (the
+**two-review limit** stood from 2026-09-20 to 2026-10-21;
+[`working-modes.md`](working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+keeps the record). The
 worry that made the exemption (Codex, #518) — that stating the corollary
 universally leaves an artifact unmergeable in principle — was real under the
 old re-request rule and is answered by its replacement: every changed head gets
@@ -1670,10 +1673,12 @@ at intake, not to how the request was phrased
 ([`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05));
 carry pre-registered flip conditions naming an observable read off the round; and
 triage every finding into **fix / accept-and-document / escalate** rather than
-reading "Required Revision" as automatically meaning fix. **And where a change is
-internal by its consequence and recoverability, the sequence is bounded** by
-the two-review limit
-([`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) — this entry's remedies
+reading "Required Revision" as automatically meaning fix. **And the sequence is
+bounded** by the builder's judgement under the ship
+gate and the Worth rule, with "record the gap" the ordinary answer once both
+assessors say the oracle is met; a two-review limit did that from 2026-09-20 to 2026-10-21
+([`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+keeps the record) — this entry's remedies
 were ceremony-sizing, an in-round bound and a per-finding test until
 2026-09-20, none of which answers "there is no natural stopping point", which
 is the entry's own diagnosis. **Overhype:** twice
@@ -1876,10 +1881,11 @@ code the last round added. **Dangerous:** it reads as diligence from inside —
 the reviewer keeps finding real bugs, so stopping feels like shipping known
 defects — and the cost is invisible because no single round is wrong. Before 2026-09-19 the
 loop ended when someone ran out of patience rather than when the code was
-right; what ends it now, where a change is internal by its consequence and
-recoverability, is the two-review limit
-([`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)), which was built from
-this entry's measurement.
+right; what ends it now is the builder's judgement under the ship gate and the
+Worth rule; the two-review limit, which was built from this entry's
+measurement, stood from 2026-09-20 to 2026-10-21
+([`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+keeps the record).
 
 **The tell, recognised by hand:** a round has a finding whose lines sit inside
 the diff of the last commit pushed for a finding, and so did the round before
@@ -2751,9 +2757,11 @@ retry's pass lands — because nothing was written down to be wrong.
    now is the shared judgement — two assessments that read the round
    independently and advise — asking the sharper question the self-policed rule
    never could: whether writing more code for these findings is worth it at
-   all. **And where a change is internal by its consequence and
-   recoverability, the sequence itself is bounded** by the two-review limit ([`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)),
-   which is what actually stops the pattern this item describes; the shared
+   all. **And the sequence itself is bounded** by the builder's judgement under the
+   ship gate and the Worth rule, which is what actually stops the pattern this
+   item describes (a two-review limit did that from 2026-09-20 to 2026-10-21;
+   [`working-modes.md`](./working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+   keeps the record); the shared
    judgement answers what is written *for*, one finding at a time. This item's
    two sibling entries were given that pairing on 2026-09-20 and this one was
    not.

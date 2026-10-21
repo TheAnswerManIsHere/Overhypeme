@@ -74,9 +74,9 @@ not taste, so they are neither `ci` nor `human`. The capture script proves
 only that the image exists; the step passes or fails on Claude's reading of
 it, clause by clause. There is no baseline image to compare against: an
 `Expect` that would say "looks as it did before" is written as the screen it
-should show. A capture that needs a paid vendor runs only on David's
-go-ahead for that run (the paragraph after next), under the spending cap
-the consumer declares, and is never the `live` lane, which stays
+should show. A capture that needs a paid vendor runs within David's
+paid-run budget and asks above it (the paragraph after next), under any
+tighter cap the consumer declares, and is never the `live` lane, which stays
 read-only. (The run-time mechanics are the `uat` skill's, *Where the browser
 automation lives*.)
 
@@ -103,20 +103,27 @@ lanes — since David's words cover *"any tests"*: none of them judges what a
 generated image shows. It narrows nothing else; text, placement, typography
 and framing the product's own code draws stay `capture`.
 
-**No check starts a paid AI run without David's go-ahead in words for that
-run** (David, 2026-10-17: *"There's no point in capping the cost to a few
-dollars if you're going to be running the tests hundreds of times … I don't
-think there's any need for you to automatically be rendering anything
-else"*), whatever its lane — a `capture`, a `scripted` journey, a `live`
+**A paid AI run proceeds within David's budget and is reported with its
+cost; above it, the run asks first** (David, 2026-10-21: *"Limit it to
+$5/run and set a weekly budget of $25 just in case."*, on the irreversible
+list in `agent-working-rules.md`, *A reversible choice proceeds on the
+recommendation*; until then every paid run needed his go-ahead in words —
+David, 2026-10-17: *"There's no point in capping the cost to a few dollars
+if you're going to be running the tests hundreds of times"* — and that
+sentence is why the budget is small and the week's total is counted),
+whatever its lane — a `capture`, a `scripted` journey, a `live`
 check, a prototype's scaled machine lanes, a Post-merge verification step,
 a diagnostic reproduction on the live system. A paid AI run is a call the
 check makes to a paid AI vendor (a real render, a real model call); the
 review loop's own assessors are not checks and keep their own rules.
-Nothing starts one by itself, no approval covers a series of runs, a re-run
-needs its own, and the ask names the paid calls and the worst-case cost. A
-spending cap the consumer declares bounds a run and authorizes none, and a
-check that would start a paid run is never read-only. It is never a `ci`
-check either: CI runs on every push, so no per-run go-ahead can reach it.
+A run that would cost more than $5, or take the week past $25, asks first,
+naming the paid calls and the worst-case cost; one within both proceeds, is
+never run in a loop or a series that would pass the week's total, and
+reports what it cost in the turn's spend line. A spending cap the consumer
+declares bounds a run below the fleet's, never above it, and a check that
+would start a paid run is never read-only. It is never a `ci`
+check either: CI runs on every push, so nothing could keep it inside $5 a
+run or $25 a week.
 Checks that start no paid run carry on as their lane says.
 
 **A step is `human` only when no machine can answer it** — or when it

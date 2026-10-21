@@ -335,8 +335,10 @@ wrong. Do not use it to relitigate something I simply dislike.
 **There is no stop rule to compute and no round budget.** The loop ends when the
 judgement is that nothing more is worth writing, and that judgement is mine,
 stated in an action block. What still stops it for David, at any point: a
-choice that changes intended behaviour, scope, or an accepted user-facing
-consequence; a scope addition; a split; and a disclosure question. A purely
+choice that changes intended behaviour or an accepted user-facing
+consequence; a scope addition the plan cannot be correct without (any other
+is taken as *next* and reported — David, 2026-10-21); a split, which is
+proposed in the plan he approves; and a disclosure question. A purely
 technical fork between two approaches to agreed behaviour is not on that list.
 
 **An assessment that says it could not do the job is not a clean exchange.** The
@@ -357,8 +359,9 @@ material, that is mine to supply and re-run — never convergence.
 - **Anything that changes intended behaviour, scope, or an accepted user-facing
   consequence.** His, always, including his own use of the software factory.
 - **A scope addition.** Any revision that would introduce a new mechanism — a
-  table, a role, a config domain, an endpoint — is a now/next/never question for
-  David, defaulting to *next*.
+  table, a role, a config domain, an endpoint — is taken as *next* and
+  reported; it is a question for David only when the plan cannot be correct
+  without it (David, 2026-10-21; until then a now/next/never question).
 
 **A purely technical disagreement that survives investigation and discussion is
 mine to settle**, with the reasoning recorded, and Astra is not obliged to

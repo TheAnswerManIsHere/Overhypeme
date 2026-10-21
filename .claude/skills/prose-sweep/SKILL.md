@@ -114,10 +114,11 @@ pass against the new one. The second run is cheap and it is the point: every
 batch seeds instances of the class it patched, and a sweep that runs once is
 one batch behind by construction.
 
-**The [two-review limit](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
-counts reviews, not sweep runs.** A re-run after a
+**A sweep re-run is not a review.** A re-run after a
 batch is part of composing the batch, before it is pushed, and is never
-skipped to save a review — it costs none. A shape a *review round* reveals
+skipped to save a review — it costs none. (This was written against the
+[two-review limit](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19),
+which counted reviews and is retired, 2026-10-21; the point stands without it.) A shape a *review round* reveals
 goes into `subShapes` before that re-run, exactly as a reader's does. (#146
 skipped both: two batches, no re-run after either, and the two gaps it shipped
 were a sentence the batch itself added and a shape round 1 had just revealed.)

@@ -13,21 +13,17 @@ Code review requires technical evaluation, not emotional performance.
 
 **Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.
 
-**Local calibration (fleet, 2026-09-20): this skill sets no bound, and the
-fleet does — and on a PR touching only a feature David has declared
-prototype phase, nothing below runs: Codex's automatic pass is read for
-nothing and no finding starts a fix
-([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).** Upstream says review early and often, fix and continue. On
-work that is internal **by consequence** — not by directory — autonomous
-iteration here is bounded at two reviews by the
-**two-review limit** ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)):
-review the head, make **one coherent batch** of corrections, review that
-corrected head, and stop — only David reopens a loop beyond it. **A change
-that governs approvals, publication, credentials or destructive operations is
-weighed on those consequences and its recoverability, whatever directory it
-sits in**, and that can put it outside the limit — the question is what this
-change does, not what the file is for. Outside it, the loop is bounded by the
-Worth rule per finding instead. **And "ask before assuming" below is read
+**Local calibration (fleet, 2026-09-20; the bound retired 2026-10-21): this
+skill sets no bound, and neither does the fleet any more — and on a PR
+touching only a feature David has declared
+prototype phase, nothing below runs: Codex's automatic pass is read for one thing — a finding that reports a
+defect stopping the built feature running and producing reasonable output,
+which is fixed — and no other finding starts a fix
+([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).** Upstream says review early and often, fix and continue. No count bounds iteration here — the two-review limit is retired (David,
+2026-10-21; [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+keeps the record): the loop is bounded by the Worth rule per finding and the
+ship gate, with record-the-gap the ordinary answer from the second review on,
+and the builder decides when to stop. **And "ask before assuming" below is read
 with the fleet's ask/decide boundary** (2026-10-11): a finding whose intent
 is unclear about what the product should do stops for David; a technical
 reading that is mine to recommend and a corrective commit would undo

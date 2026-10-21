@@ -44,8 +44,9 @@ infra/refactor/perf/security changes with no visible behavior ship as code + a
 written verification note ("run X, observe Y"). A prototype-phase feature
 keeps this rule — its surface is the thing the owner uses — with the machine
 lanes proving what a machine can check (never what an AI-generated image
-shows beyond what anyone would verify the same way, which is his, and never
-a paid AI run without his go-ahead for that run: [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
+shows beyond what anyone would verify the same way, which is his, and a
+paid AI run within his budget, $5 a run and $25 a week, on his go-ahead only
+above it: [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
 and the owner's feedback, not a note, standing as the acceptance script for
 the rest
 ([`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
@@ -93,22 +94,24 @@ discipline (`docs/engineering/migrations-and-backfills.md`) reapplies in full.
 - **Decide silently:** naming, file layout, code structure, test approach,
   error-handling patterns, library choices, helper functions, refactor scope — the
   small stuff. The bot reviewers backstop these.
-- **Ask by default:** anything where a *wrong choice could meaningfully damage the
-  product* — schema shapes that affect behavior, irreversible migrations, choices
-  that lock in UX, real trade-offs, anything you're only ~70% sure about. David
-  *likes* answering trade-off questions — it's how he steers. **Inside an
-  approved plan, when the choice is yours to recommend and a corrective commit
-  would undo it, proceed on the recommendation and report it** (*A reversible choice proceeds on the recommendation*, below);
-  what still asks here is what that rule's irreversible list names, and what is
+- **Decide by default, and report** (David, 2026-10-21, replacing "ask by
+  default" for anything a wrong choice could damage): schema shapes that
+  affect behaviour, choices that lock in UX, real trade-offs, the ~70%-sure
+  call — when the choice is yours to recommend and not on the irreversible
+  list, proceed on the recommendation and report it (*A reversible choice
+  proceeds on the recommendation*, below). He used to like answering
+  trade-off questions; he measured that he takes the recommendation nine
+  times in ten and retired the ask. What still asks here is what that rule's
+  irreversible list names (an irreversible migration among them), and what is
   his.
 - **Ask always:** anything about what the product *should do* — product behavior,
   spec ambiguity, UX details, feature scope.
 - **Do not** ask David questions the repo can answer; resolve those yourself and
   record the resolution in the plan.
 
-When in doubt about **whether a choice is his**, lean toward asking — the cost of
-David finding the wrong thing in acceptance testing is high. When it is yours
-and reversible, proceed and report it (*A reversible choice proceeds on the recommendation*, below): a question he would have
+When in doubt about **whether a choice is his**, the test is the irreversible
+list and the plan: on the list, or a change to the plan, ask; otherwise it is
+yours. When it is yours, proceed and report it (*A reversible choice proceeds on the recommendation*, below): a question he would have
 waved through costs him a round trip, which is the cost that rule exists to
 stop paying. Give enough context to answer without scrolling back.
 
@@ -128,8 +131,9 @@ a manufactured objection is as useless to him as a manufactured agreement.
   better. Neither settles a question. When a claim is checkable — grep, run,
   measure — check it before opining, and label what you have not checked.
 - **A question without a recommendation is deference with extra steps.**
-  "Lean toward asking" (above) holds for what is his, and every ask carries
-  your recommendation and its basis.
+  What is his (the irreversible list, the plan, what only he knows or can
+  do) is asked; everything else is decided and reported; and every ask
+  carries your recommendation and its basis.
 - **The first question about anything new is whether it needs to exist.**
   Before *how*: can the problem be dissolved — already handled, delete
   something, do nothing, a smaller thing? Simple is the default; complexity
@@ -142,14 +146,25 @@ records a durable override is that agent's own enactment (Claude Code:
 
 ### A reversible choice proceeds on the recommendation (David, 2026-10-10)
 
+**Widened 2026-10-21** to every decision the agent would otherwise bring David (below).
+
 David takes the agent's recommendation about nine times in ten (*"90% of the
 time I go with your recommendation so it makes sense that we default to you
 going with it and just letting me know that you did, assuming that the build
-is reversible"*), and every ask still costs him a round trip. So inside an
-approved plan the default flips: **when a choice is the agent's to recommend
-and the build is reversible, the agent proceeds on its own recommendation and
-tells him it did.** *"I'd rather you build a bit too much and then we have to
-pivot or undo some of it than constantly stop building while waiting for me."*
+is reversible"*), and every ask still costs him a round trip. So the default flips: **when a choice is the agent's to recommend and it is
+not on the irreversible list, the agent proceeds on its own recommendation
+and tells him it did.** *"I'd rather you build a bit too much and then we
+have to pivot or undo some of it than constantly stop building while waiting
+for me."* Until 2026-10-21 this held only inside an approved plan; David
+widened it to every decision the agent would otherwise bring him (*"9/10
+times you ask me a question and give me a recommendation, I go with your
+recommendation. That means that asking me is futile. Instead, I want you to
+proceed with your recommendation and tell me what you decided. The only
+exception is if the choice is irreversible"*). What still asks: the
+irreversible list below, a plan before it is enacted (below), and what only
+he can supply — information the repository does not hold, an action only he
+can take. A question the agent would answer with a recommendation is not
+asked; the recommendation is taken and reported.
 
 - **Reversible is an observable, not a feeling.** A choice is reversible when
   undoing it is a corrective commit in the same repository and nothing outside
@@ -165,14 +180,29 @@ pivot or undo some of it than constantly stop building while waiting for me."*
   but a reviewed pull request (one landed by PR takes the ordinary bar, with
   its latitude line, as the Claude core's *No PR waits for David's click*
   already says — the list names the live toggle, not the reviewed diff);
-  spend above a per-turn cap once David sets one. The list is closed and
-  grows only by his word.
+  spend above a per-turn cap once David sets one; **a paid AI run, or any
+  cost beyond the session's own tokens, above $5 for one run, and any such
+  spend once the week's total would pass $25** (David, 2026-10-21: *"Include
+  paid AI runs or anything that incurs cost above just the tokens in my
+  plan. Limit it to $5/run and set a weekly budget of $25 just in case."*) —
+  below both, a paid run proceeds and its cost is reported. The list is
+  closed and grows only by his word.
 - **Plans are his, every time** (David, 2026-10-10: *"Don't do anything that's
   not in a plan and don't build new plans and start executing against them
-  without me."*). A reversible choice *inside* an approved plan proceeds; new
-  scope, a new increment, a new feature, a new test plan or a new plan never
-  does, in either phase — that is where his judgement bites, and it is almost
-  always product-facing. Mid-flight scope keeps the now/next/never question.
+  without me."*). A reversible choice *inside* an approved plan proceeds, and
+  **his approval of a plan covers every increment in it**: the agent builds
+  the plan end to end, stopping between increments only for a blocker only
+  he can clear, a UAT step that is his and that the next increment depends
+  on, and the irreversible list, each with a push notification (David,
+  2026-10-21: *"you should be able to autonomously complete all the steps in
+  the plan from start to finish"*). New
+  scope, a new increment the plan does not hold, a new feature, a new test plan or a new plan never
+  proceed, in either phase — that is where his judgement bites, and it is almost
+  always product-facing. Mid-flight scope is taken as **next** — recorded for
+  the following increment, the plan unchanged — and reported; **now** is the
+  one case that still asks, since it changes the plan, and it is asked only
+  when the current plan cannot be correct without the addition (David,
+  2026-10-21: *"Yes, I need to review plans before they're enacted."*).
   A prototype's later versions are already built on his feedback alone —
   with the agent's own repair of a failing machine check before each version
   reaches him (`working-modes.md`, *What prototype phase keeps of
@@ -218,7 +248,7 @@ pivot or undo some of it than constantly stop building while waiting for me."*
   reversible choice proceeds, and every turn reports its spend*), since what
   a harness reports differs by agent.
 
-This narrows *Ask by default* above for the reversible case; *Ask always* —
+This is what *Decide by default, and report* above enacts; *Ask always* —
 what the product should do — is untouched, and reaches him through the plan.
 
 ## Plan-before-implementation rule
@@ -371,13 +401,13 @@ and applying it uniformly is a bug in judgment, not diligence. **Before
 designing, state what tier the thing is and let that set the bar:**
 
 **These tiers set engineering depth and nothing else.** They are not the
-review loop's scope: how long a loop runs is the two-review limit's.
-**Product code is outside that limit outright** — the limit bounds internal
-tooling, and no weighing of a product change's consequence or recoverability
-brings it under the cap. *Within* internal tooling, the limit asks
-"internal?" of **the change** by its consequence and recoverability rather
-than of the artifact it lands in
-([`working-modes.md`](working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)). Editing a
+review loop's scope: how long a loop runs is the builder's judgement under
+the write-gate and the ship gate, never a count (the two-review limit that
+bounded internal tooling is retired, David, 2026-10-21;
+[`working-modes.md`](working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+keeps the record). What the tier still asks of **the change**, by its
+consequence and recoverability rather than the artifact it lands in, is what
+is downstream of it. Editing a
 credential-rotation script to change which credential it rotates is not
 internal by that test; editing the message it prints is, though both land in
 a file this list calls internal tooling. (Codex, #153 round 1, on an earlier
@@ -482,15 +512,18 @@ in the product.
   and [`planning-contract.md`](./planning-contract.md).
 - **Clear mechanical issue** (off-by-one, missing await, dead import, obvious lint,
   a clear logic bug) → fix it, push, mention briefly — on a PR in the
-  standard loop; on a prototype-phase PR Codex's automatic pass is read for
-  nothing and no finding starts a fix
+  standard loop; on a prototype-phase PR Codex's automatic pass is read for one
+  thing — a finding that reports a defect stopping the built feature running
+  and producing reasonable output, which is fixed — and no other finding
+  starts a fix
   ([`working-modes.md`](./working-modes.md#the-prototype-phase-per-feature-david-2026-09-26))
   — and the push owes a
   round, as every write in the standard loop does ([`working-modes.md`](./working-modes.md#the-write-gate-rule-code-written-is-code-reviewed-david-2026-08-22)). **Design/architecture/
-  trade-off** call (which abstraction, whether to refactor more, a behavior change)
-  → summarize your position and escalate to David; don't silently rewrite the
-  design on a reviewer's say-so, even a bot's. David doesn't need to triage every
-  nit, but he weighs in on anything that's a real decision.
+  trade-off** call (which abstraction, whether to refactor more) → decide on
+  your own recommendation and report it; a **behaviour change** → summarize
+  your position and escalate to David. Don't silently rewrite the design on a
+  reviewer's say-so, even a bot's; David weighs in on what the product should
+  do, not on every real decision (2026-10-21).
   **On either loop this bullet stops at the word "behavior"** (2026-09-18):
   two approaches serving the same agreed behaviour, scope and explicit
   constraints are the loop's own to settle — through investigation and
@@ -500,7 +533,7 @@ in the product.
   ([`planning-contract.md`](./planning-contract.md)), the Fable assessor on a
   **code** round (`claude-core.md`'s *Shared judgement on a review round*).
   A purely technical choice a corrective commit would undo proceeds on the
-  recommendation and is reported, inside an approved plan or a bugfix's tier oracle — a bugfix's regression test never among them (*A reversible choice proceeds on the recommendation*, above).
+  recommendation and is reported, wherever it arises — a bugfix's regression test never among them (*A reversible choice proceeds on the recommendation*, above).
   What still reaches David on either is intended behaviour, scope, a knowingly
   accepted user-facing shortfall, and approval; and a constraint he required
   explicitly does not become negotiable for being technical.
