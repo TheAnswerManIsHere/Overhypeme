@@ -9,9 +9,9 @@ description: Use after opening or being re-engaged on any PR, and whenever a git
 
 **Not a prototype-phase PR.** It merges in the same turn it opens (or, on a
 `prototype/<feature>` branch, there is no PR), so nothing here fires for it:
-no subscription, no labels, no rounds — save step 7's interim build report,
-which the `prototype` skill reaches through close-out step 6 for a `main`-regime
-PR, and which a branch-regime version cannot have (step 7). **Nor one of the phase's one-line
+no subscription, no labels, no rounds — save step 7's build report, which
+the `prototype` skill dispatches at each version's close-out, whichever
+regime the version ships under. **Nor one of the phase's one-line
 registry PRs** — at a prototype's start under the branch regime, at its flip
 and at its abandonment — which are Trivial by David's phase declaration,
 carry `Refs #N` rather than `Workstream: #N`, and own no lifecycle: no
@@ -26,9 +26,11 @@ along with the scripts it drove.
 **What is here is what survived the deletion, plus the shared judgement.** The
 two assessments are step 3 and are live (#96); neither of them binds, and what
 happens next is the action step 6 states. What is still deliberately absent —
-the draft-first flow and the shared-vocabulary references — lands with the
-rulebook rewrite, beside #92, so a step below that reads thin is thin on
-purpose.
+the shared-vocabulary references — lands with the rulebook rewrite, beside
+#92, so a step below that reads thin is thin on purpose. (The draft-first
+flow used to be on that list; it is retired with the UAT file it existed to
+name, 2026-10-21 — every PR opens non-draft with its `## UAT` section in the
+body, `uat-doc-format.md`.)
 
 **The restoration, because a strip that overshoots is a deletion nobody
 approved.** Most of the old reply section was a second statement of
@@ -73,9 +75,9 @@ requires it.
   `--codex-clean`). I write one
   batch, answer each Codex thread as review rule 6 answers any finding — fixed
   in a named commit, or declined with the reason and the assessment it rests
-  on — resolve it, and merge on green CI. No
-  translation, no second pass. The merge report says what the batch changed,
-  in my words.
+  on — resolve it, and merge on green CI. No second pass. The merge report
+  says what the batch changed, in my words, and the build report follows it
+  (step 7).
 
 ## The loop
 
@@ -134,8 +136,7 @@ requires it.
 
    1. **Collect this round's findings** from the live state read in step 2,
       bounded to this round by the reviewer's own markers — the same
-      inclusive-current, exclusive-next window the translation step uses, and
-      for the same reason: `get_review_comments` returns every thread on the
+      inclusive-current, exclusive-next window, and for this reason: `get_review_comments` returns every thread on the
       pull request, so an unbounded read on round 2 hands the assessors round
       1's findings again and collects fresh advice on settled work. Write them
       as `[{ id, body, path, line }]`, with GitHub's own comment id.
@@ -153,8 +154,8 @@ requires it.
    3. **Dispatch both, on the same package.** Astra through the script; the
       Fable assessor as the **`fable-review-assessor`** subagent, given the
       package `--prompt-only` emits with `--source fable`, and **dispatched
-      with `model: dispatchModel().agentModel`** the way the round-translation
-      step already does. The agent type is named here because it used to not
+      with `model: dispatchModel().agentModel`** the way the build report
+      (step 7) is. The agent type is named here because it used to not
       be: the step said "as a subagent" and nothing in the payload said which
       one, so every dispatch of the second assessment was improvised (#126).
 
@@ -244,7 +245,7 @@ requires it.
       alias, which is David's one-line edit. A **different** family rules that
       out entirely: `fable` cannot resolve to an Opus model, so the platform
       served something else, which `model-routing` records as a content refusal.
-      `chatReport` applies exactly this test, so the FYI follows the line rather
+      The build report's `chatReport` applies exactly this test, so the FYI follows the line rather
       than second-guessing it. (Before #131 round 4 this said to name the pin
       first "unless something rules it out" without saying what does — a
       judgement where an observable was available, which is the flip-condition
@@ -485,268 +486,96 @@ requires it.
      at. `get_check_runs` returning `total_count: 0` means checks have not
      reported yet, which is not green and must never be reported as green.
 
-7. **The per-round translation is retired; one build report per unit of
-   work replaces it, at close-out** (David, 2026-10-21; `claude-core.md`,
-   *Watching the PRs I open*). Nothing below runs per round any more. Until
-   the build report's own brief and schema exist, the steps below run
-   **once**, at close-out, with `finalRound: true`, as the interim account —
-   where a PR exists: `roundBrief` refuses without a PR and a round, and the
-   role reads Codex's markers on it, so a `prototype/<feature>` branch
-   version gets no interim account and its hand-back says so, and a PR
-   whose only pass is the unrequested one dispatches as round 1 with the
-   thin marker reported as a limitation (Codex and both assessors, #222
-   round 1) —
-   dispatched after the merge report hands back, never before a merge, and
-   its answer posted verbatim in chat and as a comment on the workstream
-   issue. (From 2026-09-19 to 2026-10-21 a round was translated when I
-   declined something, when it smelled wrong, and always before a merge.)
+7. **The build report: one independent account per unit of work, at
+   close-out** (David, 2026-10-21; `claude-core.md`, *Watching the PRs I
+   open*). It replaced the per-round translation, and nothing runs per round
+   any more. A unit is a PR's merge, or a prototype version delivered on its
+   own `prototype/<feature>` branch, which opens no PR. A Trivial PR gets
+   none. It is dispatched **after** the merge report hands back, never before
+   a merge, and never holds one: it is off the critical path by design.
 
-   **The deliverable is a message in chat. There is no page** (David,
-   2026-09-16). There was one, and removing it is what #109 round 3 actually
-   found: it rendered HTML to a gitignored path, so the "delivery" was a file
-   nobody could open, and the contract's "page link posted on the PR" named a
-   link that never existed. Three of that round's four findings were the inside
-   of that hole — no receipt producer, no deploy step, no synchronisation — and
-   all three are gone with it rather than fixed. **Do not rebuild it.** Not an
-   Artifact, not an HTML file, not a receipt store, not a link. David reads
-   chat; a page is something he would have to go and open, and building a
-   delivery system for one agent telling him the answer is undoing the #89 cut
-   by hand.
+   **The deliverable is a message in chat and the same text as a comment on
+   the workstream issue. There is no page** (David, 2026-09-16). There was
+   one, and #109 round 3 found it was HTML written to a gitignored path: a
+   delivery nobody could open. **Do not rebuild it** — not an Artifact, not
+   an HTML file, not a receipt store, not a link.
 
-   **How it runs**, and it is five steps. Everything the translator needs to
-   locate the round is on the pull request; I pin two things and remember
-   nothing between rounds or sessions:
+   **How it runs** (`core/scripts/build-report.mjs` here, `scripts/` in a
+   consumer):
 
-   1. **`prepareAnswerPath(root, pr, round)`** — the answer directory exists
-      and is ignored, and any earlier attempt's answer for this round is gone,
-      so a re-dispatch can never be read as its predecessor. Then **bind the
-      model once**: `dispatch = dispatchModel()`.
-   2. **Dispatch `fable-round-translation`** with `model: dispatch.agentModel`,
-      **passing the brief inline, never as a path.** That role's `tools:` list is
-      `ToolSearch`, the two GitHub readers and `Write` — **no file-reading
-      tool** — so a brief handed to it by path is unreachable. Measured on #131:
-      it could not open the file, reconstructed every coordinate from GitHub
-      correctly, and then wrote its answer to a *guessed* filename, which is the
-      shape `prepareAnswerPath` exists to prevent — a valid answer written where
-      `readAnswer` never looks reports as a FAILED translation of a round that
-      actually ran. A `tools:` list is a hard upper bound, and the assessor role
-      holding `Read` is not evidence that this one does.
-      passing `roundBrief({ root, pr, round, head, finalRound, priorAccounts })`.
-      **The activity window's upper bound is not passed** — `roundBrief` is the
-      moment of the dispatch, so it stamps that moment itself. There is no
-      `until` to capture, forget, or mistype (Codex, #109 round 6).
-      `head` is the branch head at dispatch — **where the evidence stops, not
-      the commit the reviewer reviewed**; the translator reads the reviewed
-      commit off the round's own marker. `run_in_background: false` may be
-      passed and costs nothing; it is **not** the synchronisation (below).
-   3. **Read only after the harness reports the dispatch complete**, whichever
-      way that arrives — in the tool result itself when the call blocked, or
-      as a later task notification when it did not — and never assume which.
-      Then `result = readAnswer(root, pr, round, { finalRound })`.
-   4. **Paste `chatReport(result, { askedModel: dispatch.id })` verbatim**,
-      and say nothing else about the round. If the completion signal lands in
-      a later turn, the paste happens then, under this round's number, even if
-      the next round's trigger has already been posted.
-   5. **Keep `result`** for the final round's `priorAccounts`. It is the
-      report-ready object, round number included, and a **failed** result is
-      passed too: a translation that was owed and did not arrive is a
-      limitation the final round has to be told about. A round the cadence
-      never owed a translation is **not** — `roundBrief` names it as the
-      ordinary case and tells the translator to read its threads directly.
-      **Pass nothing for such a round.** A `{ skipped: true }` object is worse
-      than passing nothing: `roundBrief` does not understand the flag, so it
-      falls through and renders an empty account wearing a clean one's
-      clothes.
+   1. **Write the brief and prepare the answer path in one call**:
+      `node <dir>/build-report.mjs brief --unit <slug> --issue <n> --pr <n> [--pr <n> …]`,
+      or for a branch-regime prototype version
+      `--branch prototype/<feature> --since <sha> --head <sha>` in place of
+      the PRs: `--since` is the previous version's head, read off the
+      *Evidence* line of that version's build report on the issue, or the
+      branch's base for the first version. Add `--private yes` when the
+      workstream's plan took the private path. The unit's slug names the
+      answer file (`pr-231`, `ingest-v2`). Preparing clears any earlier
+      attempt's answer and coordinates, so a re-dispatch that writes nothing
+      reads as a failure, never as its predecessor. **A workstream with no
+      public issue** — on the private path from the start — has no build
+      report yet, and `brief` refuses it by name: write the unit up myself,
+      labelled as my own account, in chat only (a recorded gap, #227).
+   2. **Dispatch `fable-build-report`** with `model:` set to the pin's alias
+      (`dispatchModel().agentModel`, which is `fable` today), and **the
+      printed brief as the whole prompt**. The role holds no file-reading
+      tool, so a brief handed to it as a path is unreachable — measured on
+      #222's interim account, which could not open its brief and rebuilt its
+      coordinates from the PR, and on #131 before it, which then wrote to a
+      guessed filename. The brief carries the schema for the same reason.
+      Announce the dispatch in one line.
+   3. **Read only after the harness reports the dispatch complete**, in the
+      tool result or a later task notification. The completion signal is the
+      synchronisation; `run_in_background: false` is not, having been
+      measured both ways
+      ([`backgrounded-subagent-answer-is-in-its-own-transcript.md`](../../../.agents/memory/backgrounded-subagent-answer-is-in-its-own-transcript.md)).
+      The answer is the file, never the role's closing message. When no
+      signal ever arrives, read once at the next event: no file is a failed
+      report, never a quiet one.
+   4. **Paste the report verbatim**:
+      `node <dir>/build-report.mjs report --unit <slug> --session continue|"hand off" --session-why "<one clause>"`,
+      in chat and as a comment on the workstream issue, and say nothing else
+      about the unit. **A private-path unit's report goes in chat only**,
+      never as an issue comment, and the report says so at its top: the
+      role writes a plain account of the diff, which is what the canonical
+      disclosure check keeps off GitHub (`workstream-tracking.md`,
+      *Sensitive / disclosure-carve-out workstreams*). The report's
+      *Evidence* line names what it covered from the brief's own
+      coordinates, and for a branch unit both ends of the range — the next
+      version's `--since`. The **session** line is mine and printed under a label
+      saying so, because only this session can see its own context: the
+      `handoff` skill's Step 1 judgement, run here without being asked, and
+      when it says hand off, the hand-off prompt follows the report.
 
-   - **The completion signal is the synchronisation. The flag is not.**
-     `run_in_background: false` has been measured **both ways** — it did not
-     block on 2026-09-11 and it did on 2026-09-16, both recorded with dates in
-     [`backgrounded-subagent-answer-is-in-its-own-transcript.md`](../../../.agents/memory/backgrounded-subagent-answer-is-in-its-own-transcript.md)
-     — and the earlier version of this step wrote a rule on the single
-     favourable sample, in the same commit that edited the note saying not
-     to (Codex, #109 round 4). What every observation shares is that **the
-     harness reports completion**, in the tool result when the call blocked
-     and as a later notification when it did not. A read before that signal
-     writes a failed round while the valid answer is still coming; that is
-     the only ordering error, and depending on the signal removes it with no
-     timeout to tune, no poll loop and no state.
-     **When no signal ever arrives** — the agent errored, the session was
-     interrupted — say nothing until the next event on this PR (interaction
-     rule 9 permits silence), then read **once**: a valid file is the answer;
-     no file is a `failed` round whose reason says *no completion signal and
-     no answer file*, never an unanswered one. Never re-dispatch on the
-     strength of a missing signal alone.
-   - **The report is the translator's words, not my summary of them.**
-     `chatReport` composes it from the validated answer's own fields; the only
-     text in it that is not the translator's is the labels — including the
-     deterministic "none reported" labels for an empty `disagreements` or
-     `known_gaps`, which state the field's value and evaluate nothing. **The translation
-     is a second account, not a ban on mine** (David, 2026-09-16: *"There's
-     no need to be so paranoid about the builder writing up an account and
-     giving it to me. That's not an issue at all."*). My own account of a
-     round is welcome beside the report, labelled as mine. What is never done
-     is editing the translator's account or presenting mine as it.
-   - **The answer comes from the file, never from the dispatch's own reply.**
-     Its location in the transcript has moved three times in a month in a
-     harness nobody here controls; a path this module derives cannot move. The
-     dispatch's own closing message arrives first and is not the answer.
-   - **`readAnswer` returns the round `chatReport` consumes** —
-     `{ pr, round, answer }` or `{ pr, round, failed: true, reason }` — so
-     step 3's output *is* step 4's input, with no adapter to forget. It used
-     to return a status object, and the documented flow printed
-     `round undefined` and rendered a FAILED read as "no builder account yet"
-     (Codex, #109 round 4, P1). All three delivery failures — no file,
-     unparseable, schema-invalid — are one honest **failed** state, reported
-     in plain words. **Never as quiet or skipped**: "no findings were raised"
-     over a failed round is a false clean bill of health. One failure is named
-     specially: an answer whose only problems are the final-round sections was
-     read with the wrong `finalRound` flag, and the reason says so rather than
-     blaming the translator.
-   - **Nothing is remembered between rounds, and nothing has to be.** The
-     activity window's lower bound, the commit the reviewer reviewed and the
-     previous round's boundary are all read off **Codex's own markers on the
-     pull request** — a formal review submission when a round has
-     findings, a `**Reviewed commit:**` issue comment when it has none
-     (measured on #115) — and the Nth marker is round N. The receipt store
-     that went with the page had been carrying those coordinates silently,
-     and a resumed session with nothing to pass re-attributed every earlier
-     round to the current one (Codex, #109 round 4). **Two selectors, and
-     they must not be swapped.** Code is selected by **ancestry** — the
-     commits between the markers' commits, and from this round's marker to
-     the head for the fixes claimed in reply; never by timestamp, since a
-     commit's date is its author date and a cherry-pick pushed during a round
-     carries an older one. Review activity is selected by **timestamp**, from
-     this round's marker inclusive to the next round's marker exclusive, and
-     never past `until` — with the role told exactly why each bound is open or
-     closed, because the inclusive-both-ends rule this replaced would have
-     collected 23 findings for #109's round 1 instead of 14 (Astra,
-     2026-09-16).
-   - **The upper bound is stamped, not supplied.** The comment reads are live
-     and this dispatch runs detached by design, so a slow round-N translation
-     can read round N+1's findings and replies — an account of a round that
-     never happened, filed under N's number and indistinguishable from a
-     correct one. `roundBrief` derives that bound because it *is* the moment of
-     the dispatch; accepted as an input, `null` left the window open at the top
-     and `"yesterday"` was interpolated as though it were a timestamp.
-   - **`finalRound` is stated on EVERY round, true or false, and omitting it
-     is refused** at all three entry points. `true` on the stopping round only,
-     which is what asks for `known_gaps` and `what_landed`. It used to default
-     to `false`, which is silently wrong in exactly one direction: omitted on
-     both the dispatch and the read, the two agree on "ordinary", the mismatch
-     check never fires, and the stopping round reads as translated with no
-     cumulative assessment at all (Codex, #109 round 8). The cumulative change that answers
-     `what_landed` is pinned to the head I pass: the live file-list endpoint
-     takes no commit, so the role uses it only after confirming — **in the same
-     breath as the read, never once at the start of the dispatch** — that the
-     pull request has not moved past that head, and otherwise composes the
-     cumulative view from the commits and says so (Codex, #109 round 7; the
-     adjacency is that round's translation correcting my own reply, which
-     claimed a guarantee the first version did not deliver). Pass the earlier rounds' **`readAnswer`
-     results** as `priorAccounts`, whole and unedited — never bare answers,
-     which carry no round number, and never file paths, since the role holds
-     no `Read` tool and cannot be given a narrow one (below). A result from a
-     **different pull request** is refused rather than quoted — one session can
-     hold several, and a foreign account presented as this PR's own earlier
-     work would steer the round David reads most carefully. `roundBrief`
-     quotes each one's `about` line, its findings list in the report's own
-     one-line-per-finding shape (outcome, whether it held, overbuilt),
-     whether the builder had replied, what it could not assess, what it took
-     on trust and every disagreement, and names each round that has no
-     account, so the final round can state the limitation the role requires
-     of it.
-   - **The report's order is David's** (2026-09-19, revising 2026-09-17):
-     `about` leads as his orientation, then the one-line ask, then
-     disagreements, then one line per finding tagged with its outcome and an
-     **OVERBUILT** flag where the builder wrote more than the finding was
-     worth, then the final-round sections. There is **no reasoning paragraph
-     and no trust footer** — he cut both (*"I don't care that you checked
-     everything. I assume you did"*, *"I trust you"*), the schema no longer
-     has `reasoning` and refuses an answer carrying it, and `took_on_trust` is
-     still collected for the next round's translator but never printed. He
-     relies on the per-finding lines to catch over-building in time to stop
-     it; the headline carries the overbuilt count for the same reason.
-     **Never reconstruct a field the schema dropped** — a round that tries
-     fails validation and he is told no account exists.
-   - **`builder_answered` comes from the role, not from a receipt.** "Agrees
-     with the builder's account" prints only when the translator says it saw a
-     builder reply. That used to be read off a receipt field whose only writer
-     was the record builder the #89 cut deleted — after which every round read
-     as answered and the favourable line printed over unanswered ones. An
-     absent or malformed value reads as **unanswered**: of the two wrong
-     accounts, the false favourable is the one that must never print. And an
-     unanswered round with a concern of the translator's own is headed as
-     exactly that — never as a disagreement *with the builder*, who has not
-     spoken (Codex, #109 round 4).
-   - **The model is disclosed, not observed — by choice, not by necessity.**
-     The role reports its own model and `chatReport` mentions it only on a
-     mismatch against `dispatch.id` or when it could not be determined. This
-     bullet used to say a dispatch *cannot* prove what answered it; the harness
-     does record the serving model per turn, independently of the subagent
-     (measured 2026-09-18), so it could. David ruled on 2026-09-19 that reading
-     it is not worth building — small blast radius, easily recoverable, and the
-     self-report gives essentially all of the tracking value. Keep the
-     disclosure honest about being a self-report; do not upgrade its wording to
-     sound like an observation.
-   - **A failed dispatch never blocks the loop.** The translation is off the critical path by
-     design: say so in plain English and carry on.
-
-   **A newly added agent type is not dispatchable immediately, and that is not
-   a broken definition.** Measured 2026-09-16: a dispatch attempted minutes
-   after the definition was created failed with `Agent type 'fable-round-translation' not found`,
-   and the same type became dispatchable later in the **same** session with no
-   restart. **Definitions are also cached against edits** — a dispatch after a
-   frontmatter change ran against the old definition — so a probe of a
-   definition change carries a freshness token planted in the same edit, or a
-   stale definition is indistinguishable from the result being looked for. If a
-   dispatch refuses, paste
-   `chatReport({ pr, round, skipped: true, reason: "the dispatch was refused: <error>" })`
-   so a failure to *launch* is told apart from a failure to *answer*, then
-   write the round up myself, labelled as my own account (David, 2026-09-16,
-   above: a builder-written account is not a concern; a failure notice with
-   no explanation is). Try again next round rather than concluding the file
-   is wrong.
-
-   **What the role actually holds, measured on the real dispatch:**
-   `ToolSearch`, `Write`, the GitHub read methods (deferred — it loads them
-   itself with `ToolSearch`), and the injected `SubagentHandback`. **No `Read`,
-   no `Edit`, no `Bash`, no `Grep`.** Per-method MCP names resolve in the
-   `tools:` list, so *which* tools it holds is a real boundary rather than an
-   asserted one.
-
-   **`Write` is NOT path-scoped, and calling the list "read-only" was wrong.**
-   `Write` is on it — I put it there and then described the list by the tools
-   absent from it. A **path specifier in an agent's `tools:` list is not
-   honoured**: the documentation says a specifier in a subagent's tool config
-   removes the whole tool rather than narrowing it, and what
-   `tools: Write(some/path/**)` grants is undocumented — possibly nothing,
-   which would break the role silently. So the bare grant is what ships, and
-   the exposure is named rather than papered over: **this role reads every
-   comment on the pull request, from anyone**, so an injected instruction could
-   direct its one write tool at any path in the checkout.
-   What actually bounds it, in descending order of how much I would rely on it:
-   the answer directory is `*`-gitignored, so the legitimate output can never
-   be committed; the container is ephemeral; and **the only route from this
-   checkout to `main` is a commit I make**, reaching it through a merged PR like
-   every change (`claude-core.md`, *This environment's git constraints*), so
-   after any translation dispatch, read
-   `git status --porcelain`. That last one is an honest party looking, not a
-   lock on the same ring: the attacker here is a third party, not me.
-
-   **What counts as noise is exactly one thing: an UNTRACKED file inside
-   `.agents/reviews/`.** Everything else in that output is a finding, and in
-   particular **a modification to any TRACKED file is a finding wherever it
-   sits, that directory included**. The earlier rule said "treat anything
-   outside `.agents/reviews/` as a finding", which exempted the whole
-   directory — and `.agents/reviews/.gitignore` is a tracked payload file
-   living in it. So the one file whose contents decide whether answer files
-   can ever be committed was the one file a hostile write could change while
-   the check that exists to catch hostile writes called it noise. The answer
-   files are written from adversarial input, this repository is public, and
-   publication cannot be undone. (Codex, #109 round 9, P1.)
-   **Unable to verify in this session: whether a path specifier would in fact
-   scope `Write`.** Agent definitions are cached, so the probe needs a fresh
-   session. #114 carries it, and if scoping does work the bare grant narrows to
-   one line.
+   - **The report is the role's words, not my summary of them.** `chatReport`
+     composes it from the validated answer's own fields; the only text in it
+     that is not the role's is the labels and my labelled session line. My
+     own account is welcome beside it, labelled as mine (David, 2026-09-16);
+     editing the role's account, or presenting mine as it, is not.
+   - **A failure is honest and never blocks.** No file, unparseable JSON and
+     a schema-invalid answer are each a visible **failed** report, never
+     "nothing to report". If the dispatch itself is refused — a newly added
+     agent type is not dispatchable for some minutes, and an edited one may
+     be served stale (both measured 2026-09-16) — say so in plain English,
+     write the unit up myself labelled as my own account, and try again at
+     the next unit.
+   - **"Agrees" prints only when nothing differs, nothing shipping unfixed is
+     called unreasonable, no decision drew a concern and everything reachable
+     was assessed.** The model is disclosed, not observed: the role reports
+     its own and the report mentions it only on a mismatch or an absence
+     (David, 2026-09-19: observing it is not worth building).
+   - **`Write` is not path-scoped, and this role reads every comment on the
+     pull request, from anyone.** A path specifier in a `tools:` list removes
+     the tool rather than narrowing it, so the bare grant ships and the
+     exposure is named: an injected instruction could direct the one write
+     tool at any path in the checkout. What bounds it: the answer directory is
+     `*`-gitignored; the container is ephemeral; and the only route to `main`
+     is a commit I make. **So after every dispatch, read `git status
+     --porcelain`**: an untracked file inside `.agents/reviews/` is the one
+     kind of noise, and anything else — a tracked file modified anywhere,
+     `.agents/reviews/.gitignore` included — is a finding (Codex, #109
+     round 9, P1).
 
 8. **Merge, sync, report**, per `claude-core.md`'s *Close-out is mine, end to
    end*: re-verify live state with a fresh `pull_request_read` — not cached
@@ -759,7 +588,7 @@ requires it.
    *A reversible choice proceeds, and every turn reports its spend*) — then
    dispatch the build report (step 7).
    **No readiness receipt is minted or quoted**: `pr-ready.mjs` is gone, and
-   the four-item bar is read by eye.
+   the three-item bar is read by eye.
 
 ## One standing stop
 
@@ -792,7 +621,7 @@ tracking*), so it has no labels to keep):
   (step 3.5 above — a purely technical fork is settled in the loop, never
   escalated) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
-- **The close-out bar is met** (CLAUDE.md's *Close-out*, all four items) →
+- **The close-out bar is met** (CLAUDE.md's *Close-out*, all three items) →
   the ready bar is met and **I merge it myself per CLAUDE.md's close-out
   contract (David, 2026-08-15)** — re-verify live state, squash-merge, check and sync the Repl, verify, report — so `stage:merge` is normally a moment, not a resting
   state. There is no carve-out exception any more (David, 2026-09-14): a
@@ -818,28 +647,30 @@ tracking*), so it has no labels to keep):
   PR, self-merged; the label move is likewise mine, since the Action is
   gone.)
 - **The PR merges with "none needed" verification** → `stage:uat` **only
-  after the close-out sync checks pass, and only if a UAT doc
-  exists or is actually due**. The transition moment is the verified Repl
+  after the close-out sync checks pass, and only if the PR body carries a
+  `## UAT` section ([`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md);
+  or a legacy UAT doc still under `docs/tests/UAT/` on `main`) or one is
+  actually due**. The transition moment is the verified Repl
   sync (matching SHA + clean worktree, per CLAUDE.md's close-out
   sequence), not the merge click — a failed sync would otherwise put a
   David-held UAT gate on the board for a build he can't actually reach;
   until the checks pass the workstream stays agent-held in close-out.
-  On the UAT-doc test: pure-docs/pure-devops PRs never have one,
+  On the UAT-section test: pure-docs/pure-devops PRs never have one,
   and neither does a Tier A bugfix or a Tier B bugfix whose only surface is
   internal (per `working-modes.md`'s Tier B exception): all three go
   straight to `stage:close-out` instead, since holding them at `uat` would
   be a gate with nothing to run against it (a prototype-phase PR ships none
   either, and never reaches this step — top of this file). "Has product-visible behavior"
   is *not* the test by itself — a Tier A fix can be product-visible and
-  still ship no UAT doc, which is what makes checking for the doc the right
-  test, not the behavior. **The straight-to-close-out case does not stop
+  still ship no UAT section, which is what makes checking for the section
+  the right test, not the behavior. **The straight-to-close-out case does not stop
   at close-out** (David, 2026-09-25): with no UAT owed there is nothing
   left to verify, so in the same pass I finish whatever close-out items
   remain, set `stage:done`, and close the issue as completed with a comment
   naming the PR, per
   [`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#closing-an-issue)'s
   *Closing an issue*. **When it is a product-visible fix that shipped no
-  UAT doc (the Tier A case), the closing comment aims David** (David,
+  UAT section (the Tier A case), the closing comment aims David** (David,
   2026-08-09, moved from the State of Play): one line — where in the app to
   glance next time he's there, and to reopen the issue if the symptom
   persists. Still never `stage:done` at the merge click: the verified sync

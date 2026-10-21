@@ -1,219 +1,206 @@
 // SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scanDoc, uatFiles, UAT_DIR } from "../check-uat-format.mjs";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { scanBody, uatSection, readBody, UAT_HEADING } from "../check-uat-format.mjs";
 
-const NAME = "docs/tests/UAT/PR472_ADMIN_HELP_SYSTEM_UAT.md";
+const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "check-uat-format.mjs");
 
-const doc = ({ title, setup, steps, regression, tail = "" } = {}) =>
+/** A PR body in the shape pr-docs writes: oracle sections, then `## UAT`, then more sections. */
+const body = ({ setup, steps, regression, tail = "", before = "", after = "" } = {}) =>
   [
-    title ?? "# PR #472 — The Manual — UAT",
+    "## Summary",
+    "",
+    "What changed and why. **Do:** this is prose in another section, not a step.",
+    "",
+    before,
+    UAT_HEADING,
     "",
     "Some framing prose for David.",
     "",
-    "## Setup",
+    "### Setup",
     "",
     setup ?? "- [claude] Confirm the Repl is synced.",
     "",
-    "## Steps",
+    "### Steps",
     "",
-    steps ?? ["### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", "**Lane:** human", "", "**Judgement:** whether it reads well."].join("\n"),
+    steps ?? ["#### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", "**Lane:** human", "", "**Judgement:** whether it reads well."].join("\n"),
     "",
-    "## Regression",
+    "### Regression",
     "",
     regression ??
-      ["### R1. Sidebar unchanged", "", "**Do:** Look at it.", "", "**Expect:** Same items.", "", "**Lane:** human", "", "**Judgement:** whether it reads well."].join("\n"),
+      ["#### R1. Sidebar unchanged", "", "**Do:** Look at it.", "", "**Expect:** Same items.", "", "**Lane:** human", "", "**Judgement:** whether it reads well."].join("\n"),
     "",
     tail,
+    "",
+    "## Decisions taken on my recommendation",
+    "",
+    "none",
+    "",
+    "**Do:** prose after the section, never a step.",
+    after,
   ].join("\n");
 
-test("a doc in the format passes clean", () => {
-  assert.deepEqual(scanDoc(NAME, doc()), []);
+test("a section in the format passes clean", () => {
+  assert.deepEqual(scanBody(body()), []);
+});
+
+test("a body with no ## UAT section has nothing to check", () => {
+  // Whether a UAT is owed is pr-docs' and pr-watch's judgement, not the
+  // guard's: a docs PR, a Tier A fix and a prototype-phase PR all carry none.
+  assert.equal(uatSection("## Summary\n\nprose\n"), null);
+  assert.deepEqual(scanBody("## Summary\n\nprose\n"), []);
+  assert.deepEqual(scanBody(""), []);
+});
+
+test("the heading is matched exactly — a near miss is not the section", () => {
+  // `## UAT run` is the run record's heading on the workstream issue; a body
+  // that quoted one must not be read as carrying the script.
+  assert.equal(uatSection("## UAT run\n\n### Steps\n"), null);
+  assert.equal(uatSection("## UAT notes\n"), null);
+  assert.equal(uatSection("### UAT\n"), null);
+  assert.ok(uatSection("## UAT\n\nx\n") !== null);
+  assert.ok(uatSection("## UAT   \n") !== null, "trailing whitespace is tolerated");
+});
+
+test("the section ends at the next ## heading, so other sections' prose is never read", () => {
+  const found = scanBody(body());
+  assert.deepEqual(found, []);
+  // and a step heading after the section's end is not a step
+  const stray = body({ after: "\n#### 2. Not a step\n\n**Do:** x\n\n**Expect:** y\n" });
+  assert.deepEqual(scanBody(stray), []);
+});
+
+test("line numbers in findings are the body's own, 1-based", () => {
+  const b = body({ steps: "#### 1. Look\n\n**Expect:** Something." });
+  const line = b.split("\n").findIndex((l) => l === "#### 1. Look") + 1;
+  const found = scanBody(b);
+  assert.ok(found.some((p) => p.startsWith(`${line}: `)), found.join("\n"));
 });
 
 test("Not bugs is optional", () => {
-  assert.deepEqual(scanDoc(NAME, doc({ tail: "## Not bugs\n\n- Something.\n" })), []);
-  assert.deepEqual(scanDoc(NAME, doc({ tail: "" })), []);
+  assert.deepEqual(scanBody(body({ tail: "### Not bugs\n\n- Something.\n" })), []);
+  assert.deepEqual(scanBody(body({ tail: "" })), []);
 });
 
-test("the title must match the exact shape", () => {
-  for (const bad of [
-    "# PR 472 — The Manual — UAT",
-    "# PR #472 - The Manual - UAT",
-    "# The Manual — UAT",
-    "# PR #472 — The Manual",
-  ]) {
-    assert.ok(
-      scanDoc(NAME, doc({ title: bad })).some((p) => p.includes("first heading")),
-      `should reject title: ${bad}`,
-    );
-  }
-});
-
-test("the title's PR number must agree with the filename", () => {
-  const found = scanDoc(NAME, doc({ title: "# PR #999 — The Manual — UAT" }));
-  assert.ok(found.some((p) => p.includes("title says PR #999") && p.includes("PR472")));
-});
-
-test("each required section must be present", () => {
-  const full = doc();
-  for (const section of ["## Setup", "## Steps", "## Regression"]) {
+test("each required sub-section must be present", () => {
+  const full = body();
+  for (const section of ["### Setup", "### Steps", "### Regression"]) {
     const without = full.replace(`${section}\n`, "");
     assert.ok(
-      scanDoc(NAME, without).some((p) => p.includes(`missing required section "${section}"`)),
+      scanBody(without).some((p) => p.includes(`missing required section "${section}"`)),
       `should require ${section}`,
     );
   }
 });
 
-test("required sections must appear in order", () => {
+test("required sub-sections must appear in order", () => {
   const outOfOrder = [
-    "# PR #472 — The Manual — UAT",
-    "## Steps",
-    "### 1. Open it",
+    "## UAT",
+    "### Steps",
+    "#### 1. Open it",
     "**Do:** Click.",
     "**Expect:** It opens.",
-    "## Setup",
+    "### Setup",
     "- [claude] Sync.",
-    "## Regression",
-    "### R1. Still fine",
+    "### Regression",
+    "#### R1. Still fine",
     "**Do:** Look.",
     "**Expect:** Fine.",
   ].join("\n");
-  assert.ok(scanDoc(NAME, outOfOrder).some((p) => p.includes("must come after")));
+  assert.ok(scanBody(outOfOrder).some((p) => p.includes("must come after")));
 });
 
 test("step IDs must be consecutive from 1", () => {
-  const steps = [
-    "### 1. First",
-    "**Do:** a",
-    "**Expect:** b",
-    "",
-    "### 3. Third",
-    "**Do:** a",
-    "**Expect:** b",
-  ].join("\n");
-  assert.ok(scanDoc(NAME, doc({ steps })).some((p) => p.includes("consecutively") && p.includes("2.")));
+  const steps = ["#### 1. First", "**Do:** a", "**Expect:** b", "", "#### 3. Third", "**Do:** a", "**Expect:** b"].join("\n");
+  assert.ok(scanBody(body({ steps })).some((p) => p.includes("consecutively") && p.includes("2.")));
 });
 
 test("regression IDs must be R-prefixed and consecutive", () => {
-  const regression = [
-    "### R1. First",
-    "**Do:** a",
-    "**Expect:** b",
-    "",
-    "### R3. Third",
-    "**Do:** a",
-    "**Expect:** b",
-  ].join("\n");
-  assert.ok(scanDoc(NAME, doc({ regression })).some((p) => p.includes("R2.")));
+  const regression = ["#### R1. First", "**Do:** a", "**Expect:** b", "", "#### R3. Third", "**Do:** a", "**Expect:** b"].join("\n");
+  assert.ok(scanBody(body({ regression })).some((p) => p.includes("R2.")));
 
-  const unprefixed = ["### 1. First", "**Do:** a", "**Expect:** b"].join("\n");
-  assert.ok(scanDoc(NAME, doc({ regression: unprefixed })).some((p) => p.includes("R1.")));
+  const unprefixed = ["#### 1. First", "**Do:** a", "**Expect:** b"].join("\n");
+  assert.ok(scanBody(body({ regression: unprefixed })).some((p) => p.includes("R1.")));
+});
+
+test("a step heading at the old level (###) is a sub-section boundary, not a step", () => {
+  // The level shift is the whole difference between a file and a body
+  // section. A script pasted from a legacy doc without re-levelling must be
+  // refused, or /uat would see no steps where the author sees seven.
+  const steps = ["### 1. Open it", "**Do:** a", "**Expect:** b"].join("\n");
+  const found = scanBody(body({ steps }));
+  assert.ok(found.some((p) => p.includes("no #### headings")), found.join("\n"));
 });
 
 test("a compound step is rejected — two Do/Expect pairs under one heading", () => {
-  // The driver presents one step per turn, so a compound step produces a
-  // compound answer and a muddy record. This is the single most common
-  // defect when converting a legacy doc.
-  const steps = [
-    "### 1. Two things at once",
-    "**Do:** First action.",
-    "**Expect:** First result.",
-    "**Do:** Second action.",
-    "**Expect:** Second result.",
-  ].join("\n");
-  const found = scanDoc(NAME, doc({ steps }));
+  const steps = ["#### 1. Two things at once", "**Do:** First action.", "**Expect:** First result.", "**Do:** Second action.", "**Expect:** Second result."].join("\n");
+  const found = scanBody(body({ steps }));
   assert.ok(found.some((p) => p.includes("2 **Do:** lines")));
   assert.ok(found.some((p) => p.includes("2 **Expect:** lines")));
 });
 
 test("a step with no Do or no Expect is rejected", () => {
-  const noDo = ["### 1. Look", "**Expect:** Something."].join("\n");
-  assert.ok(scanDoc(NAME, doc({ steps: noDo })).some((p) => p.includes("0 **Do:** lines")));
-  const noExpect = ["### 1. Look", "**Do:** Something."].join("\n");
-  assert.ok(scanDoc(NAME, doc({ steps: noExpect })).some((p) => p.includes("0 **Expect:** lines")));
+  const noDo = ["#### 1. Look", "**Expect:** Something."].join("\n");
+  assert.ok(scanBody(body({ steps: noDo })).some((p) => p.includes("0 **Do:** lines")));
+  const noExpect = ["#### 1. Look", "**Do:** Something."].join("\n");
+  assert.ok(scanBody(body({ steps: noExpect })).some((p) => p.includes("0 **Expect:** lines")));
 });
 
-test("a step's Do/Expect count stops at the next section, not the next heading anywhere", () => {
-  // Regression guard for the boundary itself: the last step in a section
-  // must not absorb prose from the section that follows it.
-  const clean = doc({ tail: "## Not bugs\n\n- **Do:** this is prose, not a step.\n" });
-  assert.deepEqual(scanDoc(NAME, clean), []);
+test("a step's Do/Expect count stops at the next sub-section, not the next heading anywhere", () => {
+  const clean = body({ tail: "### Not bugs\n\n- **Do:** this is prose, not a step.\n" });
+  assert.deepEqual(scanBody(clean), []);
 });
 
-test("an empty Steps or Regression section is rejected", () => {
-  assert.ok(scanDoc(NAME, doc({ steps: "Some prose but no headings." })).some((p) => p.includes("no ### headings")));
-  assert.ok(
-    scanDoc(NAME, doc({ regression: "Nothing to check." })).some((p) => p.includes("no ### headings")),
-  );
+test("an empty Steps or Regression sub-section is rejected", () => {
+  assert.ok(scanBody(body({ steps: "Some prose but no headings." })).some((p) => p.includes("no #### headings")));
+  assert.ok(scanBody(body({ regression: "Nothing to check." })).some((p) => p.includes("no #### headings")));
 });
 
 test("setup lines must use the fixed tag vocabulary", () => {
-  assert.ok(scanDoc(NAME, doc({ setup: "- Sign in as admin." })).some((p) => p.includes("must start with one of")));
-  assert.ok(scanDoc(NAME, doc({ setup: "- [someone] Do a thing." })).some((p) => p.includes("must start with one of")));
-  assert.ok(scanDoc(NAME, doc({ setup: "Just prose." })).some((p) => p.includes("bullets or the single line")));
+  assert.ok(scanBody(body({ setup: "- Sign in as admin." })).some((p) => p.includes("must start with one of")));
+  assert.ok(scanBody(body({ setup: "- [someone] Do a thing." })).some((p) => p.includes("must start with one of")));
+  assert.ok(scanBody(body({ setup: "Just prose." })).some((p) => p.includes("bullets or the single line")));
 });
 
 test("all three setup tags are accepted, and so is None.", () => {
   for (const tag of ["[claude]", "[david]", "[restore]"]) {
-    assert.deepEqual(scanDoc(NAME, doc({ setup: `- ${tag} A thing.` })), [], `should accept ${tag}`);
+    assert.deepEqual(scanBody(body({ setup: `- ${tag} A thing.` })), [], `should accept ${tag}`);
   }
-  assert.deepEqual(scanDoc(NAME, doc({ setup: "None." })), []);
+  assert.deepEqual(scanBody(body({ setup: "None." })), []);
 });
 
 test("a wrapped setup bullet's continuation line is not read as a new tag", () => {
-  // These docs wrap at 80 columns, so most real bullets have continuations.
   const wrapped = ["- [claude] Something long enough that it wraps onto", "  a second line here."].join("\n");
-  assert.deepEqual(scanDoc(NAME, doc({ setup: wrapped })), []);
-});
-
-test("uatFiles enumerates the UAT directory and skips README", () => {
-  const files = uatFiles();
-  assert.ok(Array.isArray(files));
-  assert.ok(files.every((f) => f.startsWith(`${UAT_DIR}/`) && f.endsWith(".md")));
-  assert.ok(!files.some((f) => f.endsWith("README.md")));
+  assert.deepEqual(scanBody(body({ setup: wrapped })), []);
 });
 
 test('"None." is a legitimate Regression body, but not a legitimate Steps body', () => {
-  // A PR that genuinely couldn't break anything says so rather than padding
-  // the sweep. Requiring a non-empty sweep made three conversions invent
-  // checks nobody had written — the guard should not recreate that pressure.
-  assert.deepEqual(scanDoc(NAME, doc({ regression: "None." })), []);
+  assert.deepEqual(scanBody(body({ regression: "None." })), []);
   assert.ok(
-    scanDoc(NAME, doc({ steps: "None." })).some((p) => p.includes("no ### headings")),
+    scanBody(body({ steps: "None." })).some((p) => p.includes("no #### headings")),
     "a UAT with nothing to test is not a UAT",
   );
 });
 
-test("an empty Regression section names the None. escape in its message", () => {
-  const found = scanDoc(NAME, doc({ regression: "Some prose, no headings." }));
+test("an empty Regression sub-section names the None. escape in its message", () => {
+  const found = scanBody(body({ regression: "Some prose, no headings." }));
   assert.ok(found.some((p) => p.includes('"None."')));
 });
 
-test('"None." may carry a reason after it, in either escapable section', () => {
-  // A bare "None." reads as an oversight and invites a later editor to fill
-  // it with padding, which is what the escape exists to prevent.
+test('"None." may carry a reason after it, in either escapable sub-section', () => {
   const withReason = "None. Steps 1 and 2 are the sweep for this PR.";
-  assert.deepEqual(scanDoc(NAME, doc({ regression: withReason })), []);
-  assert.deepEqual(scanDoc(NAME, doc({ setup: withReason })), []);
-});
-
-test("a filename outside PR<N>_<FEATURE>_UAT.md is a finding, not a silent pass", () => {
-  // A doc can be structurally perfect and still never be offered for a run:
-  // /uat discovers candidates by globbing this exact filename shape. (Codex,
-  // #561 round 1.)
-  assert.ok(scanDoc("docs/tests/UAT/foo.md", doc()).some((p) => p.includes("filename must match")));
-  assert.ok(scanDoc("docs/tests/UAT/PR999_FEATURE.md", doc()).some((p) => p.includes("filename must match")));
-  assert.deepEqual(scanDoc("docs/tests/UAT/PR999_TWO_WORD_FEATURE_UAT.md", doc({ title: "# PR #999 — Two Word Feature — UAT" })), []);
+  assert.deepEqual(scanBody(body({ regression: withReason })), []);
+  assert.deepEqual(scanBody(body({ setup: withReason })), []);
 });
 
 test('a heading after "None." is validated normally, not silently exempted', () => {
-  // "None." only means "there are no headings here" -- once one exists, it
-  // is a real step /uat will enumerate, so it needs a real Do/Expect like
-  // any other. (Codex, #561 round 2.)
-  const withHeading = ["None. Nothing intended.", "", "### broken heading with no body"].join("\n");
-  const found = scanDoc(NAME, doc({ regression: withHeading }));
+  const withHeading = ["None. Nothing intended.", "", "#### broken heading with no body"].join("\n");
+  const found = scanBody(body({ regression: withHeading }));
   assert.ok(found.length > 0, "a heading after None. must still be checked");
   assert.ok(found.some((p) => p.includes("Do:") || p.includes("Expect:")));
 });
@@ -221,9 +208,9 @@ test('a heading after "None." is validated normally, not silently exempted', () 
 // --- lanes ------------------------------------------------------------------
 
 const step = (...fields) =>
-  ["### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", ...fields].join("\n");
+  ["#### 1. Open it", "", "**Do:** Click Help.", "", "**Expect:** The Manual.", "", ...fields].join("\n");
 const real = (rel) => rel === "e2e/help.spec.ts" || rel === "src/__tests__/help.test.ts";
-const scan = (steps) => scanDoc(NAME, doc({ steps }), { exists: real });
+const scan = (steps) => scanBody(body({ steps }), { exists: real });
 
 test("every lane is accepted, and a machine lane with an existing check passes", () => {
   assert.deepEqual(scan(step("**Lane:** human", "**Judgement:** whether it reads well.")), []);
@@ -240,7 +227,7 @@ test("a step with no lane, two lanes, or an unknown lane is a finding", () => {
 });
 
 test("a regression check needs a lane too", () => {
-  const found = scanDoc(NAME, doc({ regression: "### R1. Still there\n\n**Do:** Look.\n\n**Expect:** Yes." }), { exists: real });
+  const found = scanBody(body({ regression: "#### R1. Still there\n\n**Do:** Look.\n\n**Expect:** Yes." }), { exists: real });
   assert.ok(found.some((p) => p.includes('"R1. Still there"') && p.includes("**Lane:**")));
 });
 
@@ -298,6 +285,76 @@ test("a Judgement line on any machine lane is a finding", () => {
 });
 
 test("a regression step in the human lane needs its Judgement line too", () => {
-  const found = scanDoc(NAME, doc({ regression: "### R1. Still there\n\n**Do:** Look.\n\n**Expect:** Yes.\n\n**Lane:** human" }), { exists: real });
+  const found = scanBody(body({ regression: "#### R1. Still there\n\n**Do:** Look.\n\n**Expect:** Yes.\n\n**Lane:** human" }), { exists: real });
   assert.ok(found.some((p) => p.includes('"R1. Still there"') && p.includes("**Judgement:**")));
+});
+
+// --- where the body comes from ---------------------------------------------
+
+test("readBody prefers --body-file, then the pull_request event, and refuses with neither", () => {
+  const dir = mkdtempSync(join(tmpdir(), "uat-body-"));
+  try {
+    const file = join(dir, "body.md");
+    writeFileSync(file, "## UAT\n");
+    assert.equal(readBody({ argv: ["--body-file", file], env: {} }).body, "## UAT\n");
+    assert.match(readBody({ argv: ["--body-file"], env: {} }).error, /needs a path/);
+
+    const pr = join(dir, "pr.json");
+    writeFileSync(pr, JSON.stringify({ pull_request: { number: 7, body: "## UAT\nx" } }));
+    const fromEvent = readBody({ argv: [], env: { GITHUB_EVENT_PATH: pr } });
+    assert.equal(fromEvent.body, "## UAT\nx");
+    assert.match(fromEvent.source, /#7/);
+
+    const nullBody = join(dir, "null.json");
+    writeFileSync(nullBody, JSON.stringify({ pull_request: { number: 8, body: null } }));
+    assert.equal(readBody({ argv: [], env: { GITHUB_EVENT_PATH: nullBody } }).body, "", "an empty description is an empty body, not a crash");
+
+    const push = join(dir, "push.json");
+    writeFileSync(push, JSON.stringify({ ref: "refs/heads/main" }));
+    assert.match(readBody({ argv: [], env: { GITHUB_EVENT_PATH: push, GITHUB_EVENT_NAME: "push" } }).skip, /push event carries no pull request/);
+
+    assert.match(readBody({ argv: [], env: {} }).error, /no PR body to check/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("as a process: a drivable section exits 0, a broken one exits 1, no source refuses, a push event passes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "uat-proc-"));
+  try {
+    const run = (args, env = {}) => {
+      const r = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8", env: { PATH: process.env.PATH, ...env } });
+      return { code: r.status, out: `${r.stdout}${r.stderr}` };
+    };
+    const good = join(dir, "good.md");
+    writeFileSync(good, body({ steps: step("**Lane:** scripted", "**Check:** `node -e 1`") }));
+    const ok = run(["--body-file", good]);
+    assert.equal(ok.code, 0, ok.out);
+    assert.match(ok.out, /drivable/);
+
+    const bad = join(dir, "bad.md");
+    writeFileSync(bad, body({ steps: "#### 1. Look\n\n**Do:** x" }));
+    const fail = run(["--body-file", bad]);
+    assert.equal(fail.code, 1, fail.out);
+    assert.match(fail.out, /0 \*\*Expect:\*\* lines/);
+    assert.match(fail.out, /"## UAT" section/);
+
+    const none = join(dir, "none.md");
+    writeFileSync(none, "## Summary\n\nno UAT owed\n");
+    const noSection = run(["--body-file", none]);
+    assert.equal(noSection.code, 0, noSection.out);
+    assert.match(noSection.out, /no ## UAT section/);
+
+    const refused = run([]);
+    assert.equal(refused.code, 1, refused.out);
+    assert.match(refused.out, /no PR body to check/);
+
+    const push = join(dir, "push.json");
+    writeFileSync(push, JSON.stringify({ ref: "refs/heads/main" }));
+    const skipped = run([], { GITHUB_EVENT_PATH: push, GITHUB_EVENT_NAME: "push" });
+    assert.equal(skipped.code, 0, skipped.out);
+    assert.match(skipped.out, /nothing to check/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

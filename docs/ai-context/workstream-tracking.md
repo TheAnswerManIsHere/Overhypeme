@@ -77,10 +77,11 @@ what the other seven were. The design settled 2026-08-05 and is built as of
   if they land one at a time, and this repo's force-push posture is a
   reason not to reach for them.
 - **UAT is per-phase, and that's the only UAT there is.** Wherever a phase
-  is itself product-visible it ships its own UAT doc — never one deferred
-  to the final phase, which would leave David unable to verify anything for
-  weeks. There is no separate whole-feature UAT step layered on top: no PR
-  belongs to the parent for such a doc to be named after, and per-phase
+  is itself product-visible its PR body carries its own `## UAT` section —
+  never one deferred to the final phase, which would leave David unable to
+  verify anything for weeks. There is no separate whole-feature UAT step
+  layered on top: no PR belongs to the parent for such a section to live
+  in, and per-phase
   verification already covers the feature by the time the last phase
   closes.
 - **A phase PR's oracle section carries a scope line** naming which of the
@@ -319,7 +320,10 @@ of the workstream issue's body, with these fields:
 - **Spend so far** — the build's running total in dollars, updated at every
   hand-back that changes it, so the build report can state what the build
   cost (David, 2026-10-21; `claude-core.md`, *A reversible choice proceeds,
-  and every turn reports its spend*). The one ledger line the fleet keeps.
+  and every turn reports its spend*). The one ledger line a workstream
+  keeps; the other is the repository's `paid-ai-ledger` issue, one comment
+  per paid AI run, which the weekly paid-run budget is read from
+  (`uat-doc-format.md`, *Lanes*).
 - **Decisions taken on recommendation** — one line per reversible choice the
   agent proceeded on without asking, with the way back
   ([`agent-working-rules.md`](./agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)),
@@ -472,12 +476,12 @@ set" `stage:done`, and nothing ever asked him to.)
   the same pass. The closing comment names the PR(s) that did the work. A
   workstream waits at `stage:close-out` only while a named item really
   cannot be finished now, and its State of Play names that item.
-- **Who that is:** `pr-watch` when no UAT doc is owed (at the verified
+- **Who that is:** `pr-watch` when no UAT section is owed (at the verified
   sync, per its transition), `/uat` on an accepted run, `pr-watch` or
   `/uat` for a phased parent when its last phase reaches close-out, and the
   `prototype` skill for a prototype-phase feature David declares abandoned
   (as *not planned*, above).
-- **A product-visible change that shipped no UAT doc** (the Tier A case)
+- **A product-visible change that shipped no UAT section** (the Tier A case)
   still closes. The closing comment carries the one-line pointer the State
   of Play used to: where to look next time David is in the app, and to
   reopen the issue if the symptom persists. Reopening takes one click, so

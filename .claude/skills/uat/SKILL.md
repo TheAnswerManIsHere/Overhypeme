@@ -1,25 +1,32 @@
 ---
 name: uat
-description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, resolve every machine-lane step myself first (a screen fact whose action I can perform is mine to check in a browser, whatever the doc labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT doc — that's `pr-docs`.
+description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, resolve every machine-lane step myself first (a screen fact whose action I can perform is mine to check in a browser, whatever the script labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT script — that's `pr-docs`.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
 
 # /uat — I run the test session, David does the judging
 
-The UAT doc stopped being something David reads and became the **script I
-drive** (David, 2026-08-21). He used to open a markdown file in one window
+The UAT script stopped being something David reads and became the **script
+I drive** (David, 2026-08-21). He used to open a markdown file in one window
 and the app in another, keep his own place, and remember what failed. Now he
 tells me what he saw and I own everything else: the setup, the place, the
 record, the bug intake, and the way back.
 
-**What has not changed:** the doc is still written per
-[`pr-docs`](../pr-docs/SKILL.md), still lands on its PR before merge, still
-the script his judgement steps come from (the machine-lane steps in it are
-mine, section 3), and **I delete it once he confirms the run complete**
-(David, 2026-08-22) — see section 6.
+**What has not changed:** the script is still written per
+[`pr-docs`](../pr-docs/SKILL.md), still on its PR before merge, still the
+script his judgement steps come from (the machine-lane steps in it are
+mine, section 3). **Where it lives changed (David, 2026-10-21): it is the
+`## UAT` section of the PR body**, not a file under `docs/tests/UAT/`, so
+there is nothing to delete when a run completes — the workstream's
+`stage:uat` label says a run is owed, and section 1 reads that. A **legacy
+doc** still in `docs/tests/UAT/` on a consumer's `main` is the one case the
+old file rules survive for: driven from the file, deleted when he confirms
+its run complete (section 6). Everywhere below, "the script" is the body
+section or that legacy file, and the format is the same one heading level
+apart ([`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md)).
 
-**The UAT doc is no longer published as an Artifact page (David,
+**The UAT script is no longer published as an Artifact page (David,
 2026-08-21).** That reading surface existed because he was reading alone; the
 session replaced it. If he ever wants one for a solo run he asks.
 
@@ -27,25 +34,33 @@ session replaced it. If he ever wants one for a solo run he asks.
 
 An invocation may name a PR, an issue, or nothing.
 
-1. **Find the candidate docs on current `origin/main` — not in my checkout.**
-   `git fetch origin main`, then list `docs/tests/UAT/PR<N>_*_UAT.md` as of
-   `origin/main`. Every file still present *there* is unfinished — deletion
-   on his confirmation (section 6) is what completes one. My working tree
-   is the wrong
-   oracle in both directions: an older branch still carries docs he already
-   deleted (so I'd offer a finished run), and a stale checkout misses one
-   that just merged.
-
-   **Then filter by lifecycle: offer only docs whose workstream is at
-   `stage:uat`.** A doc's presence on `main` proves its PR merged, nothing
-   more — `pr-watch` deliberately holds a workstream at `stage:test-run`
-   while post-merge verification is pending or failed, and offering that doc
-   would start David testing a build the lifecycle is withholding. Resolve
-   each candidate's workstream issue (the doc names its PR; the PR body
-   names the issue) and check the label. A doc whose workstream isn't at
-   `stage:uat` is listed as "not ready — held at <stage>", never offered as
-   startable; David can override explicitly, and that override goes in the
-   run record.
+1. **Find the candidates from the lifecycle, not from a directory.** The
+   runs owed are the workstream issues at `stage:uat` (`list_issues` by
+   label): that label is what `pr-watch` sets once the merge's sync is
+   verified and the post-merge checks pass, and it is the only oracle —
+   `pr-watch` deliberately holds a workstream at `stage:test-run` while
+   verification is pending or failed, and offering such a run would start
+   David testing a build the lifecycle is withholding. For each candidate,
+   the script is the `## UAT` section of the PR its State of Play names
+   (`pull_request_read` for the body); a workstream at `stage:uat` whose PR
+   body has no such section is checked for a **legacy doc** on current
+   `origin/main` — `git fetch origin main`, then `docs/tests/UAT/PR<N>_*_UAT.md`
+   as of `origin/main`, never my checkout, which can carry a doc he already
+   deleted or miss one that just merged — and driven from that file; one
+   with neither is listed as "no script found", never run from memory.
+   **Then list what the lifecycle is holding**: every open workstream short
+   of `stage:uat` — at `stage:code-review`, `stage:merge` or
+   `stage:test-run`, wherever the lifecycle left it — whose PR has merged
+   and has a script by the same lookup, the body's `## UAT` section or else
+   a legacy doc on current `origin/main`. Each is listed as "not ready —
+   held at <stage>", never offered as startable, so a close-out interrupted
+   before the label moved, or a PR merged by hand with no session to finish
+   it, still shows its run rather than hiding it; the merged test keeps an
+   ordinary PR still in review out. David can override explicitly, and that
+   override goes in the run record. (Until 2026-10-21 discovery globbed the
+   directory first and filtered by label second, so a merged run not yet at
+   `stage:uat` still surfaced as held, whatever its stage; this second query
+   is what keeps that net now the file is gone.)
 2. **Check for an interrupted run first.** Read the workstream issue body for
    a `## UAT run` section (section 5) whose verdict is `in progress`. If one
    exists, offer to **resume at its recorded step** — and re-do any setup it
@@ -53,10 +68,10 @@ An invocation may name a PR, an issue, or nothing.
 3. **One candidate → start it. Several → ask which**, one numbered question.
    **None → say so** and don't invent a run.
 
-Then give him a **three-line preview before step 1**, never the whole doc:
+Then give him a **three-line preview before step 1**, never the whole script:
 how many machine-lane checks I resolved and how many steps are his, in
-`## Steps` and in `## Regression` (section 3), what I'm setting up for him
-(section 2), and anything he needs on hand — an admin login, a phone, a fresh browser tab. The doc's
+`### Steps` and in `### Regression` (section 3), what I'm setting up for him
+(section 2), and anything he needs on hand — an admin login, a phone, a fresh browser tab. The script's
 narrative preamble is mine to have read, not his to sit through.
 
 ## 2. Setup is mine, and so is putting it back
@@ -86,7 +101,8 @@ Four rules, because setup writes to the live app:
 - **Teardown runs before the run stops — at the end, and equally before a
   pause.** This is not a tidiness rule, it's a production-safety one: real
   UAT scripts put the live app into deliberately wrong states, and
-  `PR443_BUDGET_GATE_FAIL_CLOSED_UAT.md` is the worked example — it lowers
+  Overhype.me PR #443's script (the budget gate failing closed) is the
+  worked example — it lowers
   `budget_limit_legendary_usd`, the **real** Legendary spend limit, and puts
   it back at the end. A run paused mid-bugfix can sit for days, so a pause
   that skipped teardown would leave production mis-configured for exactly
@@ -117,27 +133,31 @@ never written to the deployed build and read locally.
 
 ## 3. The walkthrough — one step, minimal context, cheap pass
 
-**The step list is a lookup, not a judgment.** Every UAT doc is written to
+**The step list is a lookup, not a judgment.** Every UAT script is written to
 [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md), which exists so
 this is true:
 
-> A step is any `### ` heading inside `## Steps` or `## Regression`, in
-> document order. Nothing else in the file is a step.
+> A step is any `#### ` heading inside `### Steps` or `### Regression` of
+> the PR body's `## UAT` section, in document order. Nothing else in the
+> body is a step.
+
+(A legacy doc is the same rule one level up: `### ` inside `## Steps` or
+`## Regression`.)
 
 So enumerate once at the start, say the counts in the preview ("7 steps,
 then 4 regression checks" — each count split by lane, below, since the
 machine-lane ones are resolved before he starts), and present them in order
 — the regression checks are steps in every sense that matters here:
 presented, recorded, and counted toward the verdict in section 6. There is nothing to infer and nothing to
-classify about *which headings are steps*; if a doc doesn't parse this way it
-is not in the format, and the answer is to fix the doc, not to guess. (Which
+classify about *which headings are steps*; if a script doesn't parse this way
+it is not in the format, and the answer is to fix the script, not to guess. (Which
 lane a step is in is a different reading — its `Expect`'s clauses, below —
-and a label that disagrees with them is the doc-wrong case, not the
+and a label that disagrees with them is the script-wrong case, not the
 authority.)
 
 **That determinism is the point, and it was bought the hard way.** The first
 version of this skill tried to infer coverage from whatever shape a doc
-happened to have. It couldn't — six-plus conventions for the regression
+happened to have, back when the script was a file. It couldn't — six-plus conventions for the regression
 section, eleven docs with no numbered steps — and the failure mode was the
 worst available: pass every feature step, declare `Accepted`, never run the
 sweep. A false pass makes this session *worse* than the file it replaced.
@@ -152,7 +172,7 @@ which stays his (the bullet below; *Where the browser automation lives*).
 checked-out commit when the run starts** — the same SHA close-out's sync
 check reads — and it must **contain the PR's merge commit** (an ancestor
 check, `git merge-base --is-ancestor <merge> <deployed>`). Usually it is a
-later commit on `main`, because other PRs merge while a doc waits; that is
+later commit on `main`, because other PRs merge while a run waits; that is
 the build he clicks, so it is the build the machines check. If it does not
 contain the merge, the Repl is behind: the run is Blocked on the sync, never
 run against an older build. I record both SHAs in the run record before the
@@ -164,8 +184,8 @@ commit it ran at rather than becoming evidence for the new one.
 Before the first human step, I resolve every machine-lane step myself, **in
 document order**, and show him the result in one block — never one per turn,
 and never as a question. Machine-lane checks are self-contained by the
-format's rule; a doc whose machine step depends on a human step's state is
-the doc-wrong case below, never a check to run early:
+format's rule; a script whose machine step depends on a human step's state
+is the script-wrong case below, never a check to run early:
 
 - **`ci`** — I confirm the cited check ran and passed **on the commit under
   test** (the check runs of that commit, or the test file run locally at that
@@ -207,7 +227,7 @@ the doc-wrong case below, never a check to run early:
   2026-10-17, who set the budget small for that reason; `uat-doc-format.md`,
   *Lanes*): within it the capture runs, inside the cap the declaration names,
   and its cost goes in the run record and on the run's spend line. One above
-  it asks, naming the doc, the paid calls and the worst-case cost, and its
+  it asks, naming the PR, the paid calls and the worst-case cost, and its
   steps are Blocked on him until he answers, or he answers the judgement
   steps from an image he makes himself in the product. A consumer with no such declaration has no
   capture run, and its `capture` steps are Blocked on that, never handed to
@@ -219,18 +239,19 @@ the doc-wrong case below, never a check to run early:
   whether it is acceptable — unless the answer is as plain and checkable
   as a bubble's text, and none even when an `Expect` asks for one: that
   clause is David's, presented as a judgement step with the shot beside it,
-  and the doc is recorded as wrong (the lane is corrected in a PR).
+  and the script is recorded as wrong (the lane is corrected in the PR
+  body, section 6).
 - **`Deferred:`** — not run; listed as outstanding with its owner. Never a
   pass, never a skip he can wave through. When it is the only evidence for a
   claimed behaviour, the run is Blocked on its owner: `Blocked by: #N` on
   this workstream, recorded as section 4 step 5 does for a bug, so the
   owner landing is what reopens it. The owner's PR replaces the line with
-  its runnable **Check:** in the surviving doc (`pr-docs`), so the resumed
-  run executes it; a doc still carrying the line after #N closed is the
-  doc-wrong case, and closing #N alone is never passing evidence.
+  its runnable **Check:** in the owning PR's body (`pr-docs`), so the
+  resumed run executes it; a script still carrying the line after #N closed
+  is the script-wrong case, and closing #N alone is never passing evidence.
 - **A `human` step whose `Expect` a screen can answer** — an element is
   there, a message reads a given sentence, a status or an error shows, a
-  layout holds at a width — **is mine, whatever lane the doc gave it,
+  layout holds at a width — **is mine, whatever lane the script gave it,
   when its `Do` is one I can perform**: the lane is read from the
   `Expect`'s clauses and from who can perform the `Do`, never from the
   heading or the verb (the rule's home is *Where the browser automation
@@ -262,8 +283,8 @@ the doc-wrong case below, never a check to run early:
   row is Pass only when every clause is, and the preview counts that step
   among his. Such a step was mislabelled
   (`uat-doc-format.md`, *A step is `human` only when no machine can answer
-  it*): it is the doc-wrong case, and the lane fix rides the next PR that
-  touches the doc. Measured once before the rule: Overhype.me #685's run,
+  it*): it is the script-wrong case, and the lane fix is an edit of the PR
+  body at close-out (section 6). Measured once before the rule: Overhype.me #685's run,
   2026-10-15, two `human` steps read from the screen in Chromium in fourteen
   minutes once David asked; the rule removes the ask.
 
@@ -298,7 +319,7 @@ Four statuses, and they mean different things:
 
 | Status | Means |
 | --- | --- |
-| **Pass** | Did it, got what the doc said |
+| **Pass** | Did it, got what the script said |
 | **Fail** | Did it, got something else |
 | **Blocked** | *Couldn't* do it — button missing, app down, precondition absent |
 | **Skipped** | Deliberately not run this time |
@@ -319,22 +340,22 @@ multi-part result; the roll-up in section 6 handles it.
 **Two reports that are not step failures**, and mis-filing them is expensive
 in both directions:
 
-- **"That's what it says, and I don't like it."** The step did what the doc
-  said it would. That's a Pass plus a **product note** — a
+- **"That's what it says, and I don't like it."** The step did what the
+  script said it would. That's a Pass plus a **product note** — a
   behavior-change request, not a defect. It becomes a backlog issue, never a
   bugfix branch. This is the Tier C shape from
   [`working-modes.md`](../../../docs/ai-context/working-modes.md) arriving
   in a testing session, and treating it as a bug is how a design decision
   gets fixed without ever being decided.
-- **The doc's expected result is wrong.** My error, not the product's — and
+- **The script's expected result is wrong.** My error, not the product's — and
   **the step still has to be run against the corrected expectation, in this
-  run, before it counts as anything.** Mark it `Skipped — doc wrong`, say
+  run, before it counts as anything.** Mark it `Skipped — script wrong`, say
   what the expectation should have been, and **re-present the step
   immediately**. A wrong oracle that merely gets skipped lets a real
   regression pass as a clean acceptance, because section 6 counts a
   reasoned Skip toward `Accepted` — the product was never actually checked.
-  Fixing the doc file itself happens at close-out; re-running the step
-  happens now.
+  Fixing the script itself happens at close-out (section 6); re-running the
+  step happens now.
 
 ## 4. When a step fails — file it now, then ask
 
@@ -445,7 +466,7 @@ have no reliable way to tell which is current.
 ```markdown
 ## UAT run — PR #472 · Admin help system
 
-**Doc:** `docs/tests/UAT/PR472_ADMIN_HELP_SYSTEM_UAT.md`
+**Script:** PR #472, `## UAT` (a legacy run names its file: `docs/tests/UAT/PR<N>_…_UAT.md`)
 **Commit under test:** `<Repl's checked-out sha>` (contains merge `<PR merge sha>`)
 **Started:** 2026-08-21 · **Last updated:** 2026-08-21
 **Verdict:** in progress
@@ -453,7 +474,7 @@ have no reliable way to tell which is current.
 | Step | Status | Note |
 | --- | --- | --- |
 | 1 · Manual renders (ci) | Pass | `adminHelp.spec.ts` green on the commit under test |
-| 2 · Deep link (human, run in browser) | Fail | #903 — landed at chapter top, not the heading; a screen fact, read by me at 1440 px, so the lane fix rides the next PR touching the doc |
+| 2 · Deep link (human, run in browser) | Fail | #903 — landed at chapter top, not the heading; a screen fact, read by me at 1440 px, so the lane is corrected in the PR body at close-out |
 | 3 · Search results read as the right answers (human) | Pass | |
 | 4 · Nothing feels missing from the chapter list (human) | — | not yet run |
 | R1 · Sidebar unchanged (ci) | Pass | `adminHelp.spec.ts` green on the commit under test |
@@ -495,7 +516,7 @@ never from a general impression of how it went:
 
 | Verdict | When |
 | --- | --- |
-| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks and machine lanes included**; a `Deferred:` step is never a pass: it is left out of "every step" only when another step in the same run Passed the behaviour it would check; when it is the only evidence for a behaviour the PR claims, the run is **Blocked**, resuming after its owner issue lands. A mechanical step is never turned into a human one to get past a deferral: David's share is judgement only (his words, 2026-10-04: "anything mechanical is truly verified by scripting"). A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The doc-wrong case counts only re-run per section 3 |
+| **Accepted** | Every step executed and Passed — **every step section 3 enumerated, regression checks and machine lanes included**; a `Deferred:` step is never a pass: it is left out of "every step" only when another step in the same run Passed the behaviour it would check; when it is the only evidence for a behaviour the PR claims, the run is **Blocked**, resuming after its owner issue lands. A mechanical step is never turned into a human one to get past a deferral: David's share is judgement only (his words, 2026-10-04: "anything mechanical is truly verified by scripting"). A Skip counts toward this only when **David explicitly called the step not-applicable** — a reason alone doesn't qualify, or a run where he lacked a phone or a test account could skip its way to a clean acceptance without exercising anything. A step he *couldn't* do is `Blocked`, which never counts. The script-wrong case counts only re-run per section 3 |
 | **Accepted with issues** | Failures exist and **David explicitly accepts each one as shippable**. Minor/cosmetic is the normal case; accepting a major is his call to make in so many words, never a default |
 | **Blocked** | Any failure David hasn't accepted — a showstopper or an unaccepted major ends the run here even when more steps were testable — or too much skipped/untestable to honestly call it either way |
 
@@ -552,27 +573,28 @@ Then, in one edit:
   plus a `mode:` label and **no** `stage:` label, per
   `workstream-tracking.md`'s backlog contract. A bare `queue:` shorthand
   creates an item `/next` can't rank and the board can't display.
-- **Fix the doc** if a step's expected result was wrong.
-- **Before deleting, every `Deferred:` step still in the doc is recorded on
-  its owner issue** — one comment there naming the doc, the step and the
-  check still owed — so the obligation survives the file. A step not yet
-  recorded there blocks the deletion.
-- **Delete the UAT doc once he confirms the run is complete** (David,
-  2026-08-22). Deletion is the default, in the same close-out, so
-  `docs/tests/UAT/` never accumulates finished tests and a surviving file
-  always means a run still owed — which is exactly what section 1's
-  discovery assumes. It is a better signal than it was: it used to lag
-  behind a manual click, so a completed run could sit there looking
-  startable for days.
-
-  **The one reason to keep one is content, not sentiment:** a doc that is
-  the only written description of some behavior. That is a gap in the
-  Manual, not a reason to hoard a test — harvest the description into the
-  right chapter, say I've done so, then delete the doc. "It might be useful
-  later" is not a reason; a re-run of a merged PR's UAT is written fresh
-  from current behavior, not resurrected.
+- **Fix the script** where a step's expected result or lane was wrong: an
+  edit of the PR body's `## UAT` section (`update_pull_request`), with the
+  corrected text already quoted on the step's row in the run record, which
+  is the pinned evidence. No PR, no commit — the body is not under the
+  guard after merge, and the record is where the result lives.
+- **Every `Deferred:` step still in the script is recorded on its owner
+  issue** — one comment there naming the PR, the step and the check still
+  owed — so the obligation does not depend on anyone re-reading a merged
+  PR's body. A step not yet recorded there blocks the close-out.
+- **Nothing is deleted** (David, 2026-10-21, retiring the 2026-08-22
+  deletion rule along with the file it deleted). The script stays in the
+  merged PR's body as history; the `stage:uat` label leaving is what says
+  the run is no longer owed, and section 1 discovers from the label. **A
+  legacy doc is the exception**: a run driven from a file under
+  `docs/tests/UAT/` deletes that file once he confirms the run complete, in
+  the same close-out — unless it is the only written description of some
+  behaviour, which is a gap in the Manual, not a reason to keep a test:
+  harvest it into the right chapter, say so, then delete. "It might be
+  useful later" is not a reason; a re-run of a merged PR's UAT is written
+  fresh from current behaviour, not resurrected.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next, that the doc is gone — and, last, the hand-back footer
+  he can do next — and, last, the hand-back footer
   (Done / Next / Needs you / Spend), whose spend is the run's across its
   walkthrough turns, which carried none of their own: the record's `Spend so
   far` plus the turns since its last write, so a run resumed in a fresh

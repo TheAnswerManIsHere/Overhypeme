@@ -203,7 +203,7 @@ the change, with Codex's automatic pass on PR-open as one input to it (since
 home). What follows is the bar for a docs-only PR that stays in the standard
 loop — one that changes the review loop or an agent's latitude.
 
-When a PR changes only documentation — UAT docs, `docs/ai-context/`,
+When a PR changes only documentation — `docs/ai-context/`,
 `docs/engineering/`, skills, READMEs, the manual — the review bar drops to:
 **is it generally correct, with no glaring issues?** A glaring issue means an
 instruction that would lead someone to do something harmful or wrong, a claim

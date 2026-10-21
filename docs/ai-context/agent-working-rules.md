@@ -182,7 +182,8 @@ asked; the recommendation is taken and reported.
   already says — the list names the live toggle, not the reviewed diff);
   spend above a per-turn cap once David sets one; **a paid AI run, or any
   cost beyond the session's own tokens, above $5 for one run, and any such
-  spend once the week's total would pass $25** (David, 2026-10-21: *"Include
+  spend once the week's total — read from the repository's paid-run ledger
+  (`uat-doc-format.md`, *Lanes*) — would pass $25** (David, 2026-10-21: *"Include
   paid AI runs or anything that incurs cost above just the tokens in my
   plan. Limit it to $5/run and set a weekly budget of $25 just in case."*) —
   below both, a paid run proceeds and its cost is reported. The list is
