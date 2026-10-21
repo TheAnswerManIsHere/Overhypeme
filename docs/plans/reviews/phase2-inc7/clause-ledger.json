@@ -28,7 +28,7 @@
        "quote": "assert.ok(review, \"valid row should have been queued as a review\");"
       }
      ],
-     "fails_because": "if the paste-list route stopped accepting a normal batch (a cap misfiring, a 400) or stopped queuing valid rows, queued would be 0 and no triage review row would exist, so lines 849 and 855 fail",
+     "fails_because": "if the paste-list route stopped accepting a normal batch (a cap misfiring, a 400) or stopped queuing valid rows, queued would be 0 and no triage review row would exist, so lines 884 and 890 fail",
      "gap_clause": null
     }
    ]
@@ -50,7 +50,7 @@
       },
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 884,
+       "line": 915,
        "quote": "assert.equal(res.body.queued, 1);"
       },
       {
@@ -59,7 +59,7 @@
        "quote": "assert.ok(review, \"valid line should have been queued as a review\");"
       }
      ],
-     "fails_because": "if the CSV route stopped accepting a normal batch or stopped queuing valid lines, queued would be 0 and no triage review row would exist, so lines 880 and 886 fail",
+     "fails_because": "if the CSV route stopped accepting a normal batch or stopped queuing valid lines, queued would be 0 and no triage review row would exist, so lines 915 and 921 fail",
      "gap_clause": null
     }
    ]
@@ -215,7 +215,7 @@
        "quote": "assert.equal(res.body.failed.length, 2000, \"all 2000 rows must have been processed, not truncated\");"
       }
      ],
-     "fails_because": "an off-by-one cap (refusing 2000) fails line 947, and silent truncation fails line 949",
+     "fails_because": "an off-by-one cap (refusing 2000) fails line 982, and silent truncation fails line 984",
      "gap_clause": null
     }
    ]
@@ -1360,7 +1360,7 @@
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
-     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 404 throws; line 417 throws if equality held for any name",
      "gap_clause": null
     }
    ]
@@ -2843,7 +2843,7 @@
        "quote": "if (withBubbles > 0) throw new JourneyError(\"3\", \"Visual Ideas for a dialogue-free fact\", `${withBubbles} candidate(s) propose a bubble`);"
       }
      ],
-     "fails_because": "a candidate proposing a bubble for the dialogue-free baseline fact makes withBubbles positive, so line 258 throws",
+     "fails_because": "a candidate proposing a bubble for the dialogue-free baseline fact makes withBubbles positive, so line 253 throws",
      "gap_clause": null
     }
    ]
@@ -3489,7 +3489,7 @@
        "quote": "PR242 step 1: ...saying it is queued for review"
       }
      ],
-     "fails_because": "if a free-account submission does not show You're Done! / Your fact is in the queue for review., the expect(s) at line(s) 644, 645 fail",
+     "fails_because": "if a free-account submission does not show You're Done! / Your fact is in the queue for review., the expect(s) at line(s) 651, 652 fail",
      "gap_clause": null
     }
    ]
@@ -3515,7 +3515,7 @@
        "quote": "\"PR242 step 2: a re-import notes the duplicates it skipped\").toHaveText("
       }
      ],
-     "fails_because": "if the import panel's message stops reading exactly Queued 2 fact(s) for moderation. They'll appear after review., line 487 fails; if a re-import stops noting (1 skipped as duplicates), line 493 fails",
+     "fails_because": "if the import panel's message stops reading exactly Queued 2 fact(s) for moderation. They'll appear after review., line 495 fails; if a re-import stops noting (1 skipped as duplicates), line 501 fails",
      "gap_clause": null
     },
     {
@@ -3533,7 +3533,7 @@
        "quote": "\"PR242 step 2: the import message does not say imported\").not.toHaveText(/imported/i)"
       }
      ],
-     "fails_because": "if the import message says imported, line 486 (first import) and line 496 (re-import) fail",
+     "fails_because": "if the import message says imported, line 494 (first import) and line 504 (re-import) fail",
      "gap_clause": null
     }
    ]
@@ -3559,7 +3559,7 @@
        "quote": "\"PR242 step 3: the live list has nothing for the imported text\").toBeVisible()"
       }
      ],
-     "fails_because": "if an import puts the text straight into the active facts, the Facts list (Show: Active, searched for the imported text) shows its row and line 504 fails",
+     "fails_because": "if an import puts the text straight into the active facts, the Facts list (Show: Active, searched for the imported text) shows its row and line 512 fails",
      "gap_clause": null
     },
     {
@@ -3708,7 +3708,7 @@
        "quote": "\"PR242 step 6: the nested row is indented under the parent\").toHaveClass(/pl-10/)"
       }
      ],
-     "fails_because": "if the Facts list stops nesting an approved variant under its parent row (expand toggle, indented row marked variant), line 468 fails; if a queued variant shows nested before approval, line 450 fails",
+     "fails_because": "if the Facts list stops nesting an approved variant under its parent row (expand toggle, indented row marked variant), line 476 fails; if a queued variant shows nested before approval, line 450 fails",
      "gap_clause": null
     }
    ]
@@ -3762,7 +3762,7 @@
        "quote": ").toBeVisible();"
       }
      ],
-     "fails_because": "if the editor let an inactive fact be toggled Active, toBeDisabled at line 460 fails; if the refusal stopped saying activation is through moderation, the caption check at lines 461-464 fails. The server-side 400 for a false→true PATCH is the existing Check (routes.admin.test.ts).",
+     "fails_because": "if the editor let an inactive fact be toggled Active, toBeDisabled at line 460 fails; if the refusal stopped saying activation is through moderation, the caption check at lines 462-464 fails. The server-side 400 for a false→true PATCH is the existing Check (routes.admin.test.ts).",
      "gap_clause": null
     }
    ]
@@ -3871,7 +3871,7 @@
        "quote": ").toHaveText(/^Resubmitted for moderation — Review #4242 is back in the queue at Stage 1\\./)"
       }
      ],
-     "fails_because": "if the message after Resubmit for Moderation stops reading Resubmitted for moderation — Review #<id> is back in the queue at Stage 1., line 461 fails",
+     "fails_because": "if the message after Resubmit for Moderation stops reading Resubmitted for moderation — Review #<id> is back in the queue at Stage 1., line 469 fails",
      "gap_clause": null
     }
    ]
@@ -5243,7 +5243,7 @@
        "quote": "await expect(completeLine.locator(\"..\"), \"PR276 step 2: the Sync complete line should be green\").toHaveClass("
       }
      ],
-     "fails_because": "if the green line stops naming the synced counts or the run's duration, or is not green, line 298 or 301 fails",
+     "fails_because": "if the green line stops naming the synced counts or the run's duration, or is not green, line 301 or 304 fails",
      "gap_clause": null
     },
     {
@@ -5256,7 +5256,7 @@
        "quote": "\"PR276 step 2: the Plans header should read Last synced: just now\","
       }
      ],
-     "fails_because": "if the Plans header stamp does not read '· Last synced: just now' right after the run, the toHaveText at line 312 fails",
+     "fails_because": "if the Plans header stamp does not read '· Last synced: just now' right after the run, the toHaveText at line 315 fails",
      "gap_clause": null
     }
    ]
@@ -5287,7 +5287,7 @@
        "quote": "await expect(summary, \"PR276 step 3: the reloaded summary should say it synced\").toHaveText("
       }
      ],
-     "fails_because": "if after a reload the summary is not the green ok-tone 'Last sync completed — N of 8 resources reported.' / 'Last sync completed successfully.' line, line 342, 343 or 344 fails",
+     "fails_because": "if after a reload the summary is not the green ok-tone 'Last sync completed — N of 8 resources reported.' / 'Last sync completed successfully.' line, line 348, 349 or 350 fails",
      "gap_clause": null
     },
     {
@@ -5305,7 +5305,7 @@
        "quote": "await expect(summary, \"PR276 step 3: it should not revert to a bare product count\").not.toContainText("
       }
      ],
-     "fails_because": "if after a reload only the product count is left (no summary line), line 336 fails; if the summary is replaced by a product count, line 339 fails",
+     "fails_because": "if after a reload only the product count is left (no summary line), line 342 fails; if the summary is replaced by a product count, line 345 fails",
      "gap_clause": null
     }
    ]
@@ -5344,7 +5344,7 @@
        "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
       }
      ],
-     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 506 fails",
+     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 512 fails",
      "gap_clause": null
     },
     {
@@ -5383,7 +5383,7 @@
        "quote": "await expect(summary, \"PR276 step 4: the summary should say what did not complete and why\").toContainText("
       }
      ],
-     "fails_because": "if the red line stops reading 'plans did not complete: Simulated failure for testing.', line 511 fails",
+     "fails_because": "if the red line stops reading 'plans did not complete: Simulated failure for testing.', line 517 fails",
      "gap_clause": null
     },
     {
@@ -5396,7 +5396,7 @@
        "quote": "await expect(summary, \"PR276 step 4: the failure sentence should end Catalog data may be stale.\").toContainText("
       }
      ],
-     "fails_because": "if the failure sentence no longer ends 'Catalog data may be stale.', line 514 fails",
+     "fails_because": "if the failure sentence no longer ends 'Catalog data may be stale.', line 520 fails",
      "gap_clause": null
     }
    ]
@@ -5458,7 +5458,7 @@
        "quote": "\"PR276 step 5: the failed Plans row should show a red ✗\","
       }
      ],
-     "fails_because": "if the failed Plans row's icon is not the red circle-x, the toHaveClass at line 452 fails",
+     "fails_because": "if the failed Plans row's icon is not the red circle-x, the toHaveClass at line 458 fails",
      "gap_clause": null
     }
    ]
@@ -5502,7 +5502,7 @@
        "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
       }
      ],
-     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 506 fails",
+     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 512 fails",
      "gap_clause": null
     },
     {
@@ -5528,7 +5528,7 @@
        "quote": "\"PR276 step 6: the Plans row's red ✗ should survive the reload\","
       }
      ],
-     "fails_because": "if after the reload the failed Plans row's icon is not the red circle-x, the toHaveClass at line 500 fails",
+     "fails_because": "if after the reload the failed Plans row's icon is not the red circle-x, the toHaveClass at line 506 fails",
      "gap_clause": null
     }
    ]
@@ -5598,7 +5598,7 @@
        "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
       }
      ],
-     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 506 fails",
+     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 512 fails",
      "gap_clause": null
     },
     {
@@ -5611,7 +5611,7 @@
        "quote": "await expect(summary, \"PR276 step 8: the Last synced stamp should still appear on the red summary\").toContainText("
       }
      ],
-     "fails_because": "if the red summary drops its 'Last synced …' stamp while Products and Prices are complete, line 521 fails",
+     "fails_because": "if the red summary drops its 'Last synced …' stamp while Products and Prices are complete, line 527 fails",
      "gap_clause": null
     }
    ]
@@ -5650,7 +5650,7 @@
        "quote": "await expect(summary, \"PR276 step 9: the never-synced line should be amber\").toHaveClass(/text-amber-400/);"
       }
      ],
-     "fails_because": "if the never-synced line loses its text-amber-400 class, line 556 fails",
+     "fails_because": "if the never-synced line loses its text-amber-400 class, line 562 fails",
      "gap_clause": null
     },
     {
@@ -5676,7 +5676,7 @@
        "quote": "await expect(summary, \"PR276 step 9: the never-synced line should say what to do\").toContainText("
       }
      ],
-     "fails_because": "if the amber line stops reading 'Never synced — run a full sync to populate the catalog.', line 557 fails",
+     "fails_because": "if the amber line stops reading 'Never synced — run a full sync to populate the catalog.', line 563 fails",
      "gap_clause": null
     }
    ]
@@ -5697,7 +5697,7 @@
        "quote": "\"PR276 step 10: the Plans header stamp should come from the resources' own lastSyncedAt\","
       }
      ],
-     "fails_because": "if the Plans header stamp is derived from finishedAt (null after a restart) instead of per-resource lastSyncedAt, the toHaveText('· Last synced: 3m ago') at line 591 fails",
+     "fails_because": "if the Plans header stamp is derived from finishedAt (null after a restart) instead of per-resource lastSyncedAt, the toHaveText('· Last synced: 3m ago') at line 597 fails",
      "gap_clause": null
     },
     {
@@ -5738,7 +5738,7 @@
        "quote": "await expect(syncButton, \"PR276 R1: the Sync button should be disabled while the run is in flight\").toBeDisabled();"
       }
      ],
-     "fails_because": "if the Sync button stays enabled while Products is running, line 404 fails",
+     "fails_because": "if the Sync button stays enabled while Products is running, line 410 fails",
      "gap_clause": null
     },
     {
@@ -5789,7 +5789,7 @@
        "quote": "`PR276 R2: Full sync should drive the ${label} row to complete`,"
       }
      ],
-     "fails_because": "if Full sync does not run all eight resources, the poll at line 365 (Payment Methods stamp newer than the click) fails; if any of the eight rows is not complete in the panel afterwards, line 371 fails",
+     "fails_because": "if Full sync does not run all eight resources, the poll at line 371 (Payment Methods stamp newer than the click) fails; if any of the eight rows is not complete in the panel afterwards, line 377 fails",
      "gap_clause": null
     }
    ]
@@ -5828,7 +5828,7 @@
        "quote": "await expect(page.getByTestId(\"plans-mode-badge\"), \"PR276 R3: in live mode the badge should read LIVE\").toHaveText("
       }
      ],
-     "fails_because": "if a page loaded in live mode badges the Plans header TEST, line 694 fails",
+     "fails_because": "if a page loaded in live mode badges the Plans header TEST, line 700 fails",
      "gap_clause": null
     }
    ]
@@ -5849,7 +5849,7 @@
        "quote": "await expect(page.getByTestId(\"plans-count\"), \"PR276 R4: the product count should be accurate\").toHaveText("
       }
      ],
-     "fails_because": "if the count stops reading '1 product found' for the fake fixture's one product, line 317 fails",
+     "fails_because": "if the count stops reading '1 product found' for the fake fixture's one product, line 322 fails",
      "gap_clause": null
     }
    ]
@@ -5888,7 +5888,7 @@
        "quote": "\"PR276 R5: the product's description should render\","
       }
      ],
-     "fails_because": "if the product description 'Fake Legendary membership…' is not rendered in the Legendary (fake) card, line 323 fails",
+     "fails_because": "if the product description 'Fake Legendary membership…' is not rendered in the Legendary (fake) card, line 328 fails",
      "gap_clause": null
     },
     {
@@ -5901,7 +5901,7 @@
        "quote": "`PR276 R5: the price ${price} should render`,"
       }
      ],
-     "fails_because": "if any of $4.99/month, $49.00/year, $99.00 one-time is not rendered in the Legendary (fake) card, the loop at line 328 fails",
+     "fails_because": "if any of $4.99/month, $49.00/year, $99.00 one-time is not rendered in the Legendary (fake) card, the loop at line 333 fails",
      "gap_clause": null
     }
    ]
@@ -5927,7 +5927,7 @@
        "quote": "`PR276 R6: \"${text}\" should be ticked for the fake catalog`,"
       }
      ],
-     "fails_because": "if one of the four Setup Checklist rows is missing, line 787 fails; if Stripe products configured / Membership prices available is not ticked for the fake catalog, line 791 fails",
+     "fails_because": "if one of the four Setup Checklist rows is missing, line 793 fails; if Stripe products configured / Membership prices available is not ticked for the fake catalog, line 797 fails",
      "gap_clause": null
     }
    ]
@@ -5971,7 +5971,7 @@
        "quote": "await expect(modeToggle, \"PR276 R7: the button should now offer Switch to Test Mode\").toHaveText("
       }
      ],
-     "fails_because": "if clicking Switch to Live Mode does not flip the chip to LIVE, line 685 fails; if the button does not then offer Switch to Test Mode, line 686 fails",
+     "fails_because": "if clicking Switch to Live Mode does not flip the chip to LIVE, line 691 fails; if the button does not then offer Switch to Test Mode, line 692 fails",
      "gap_clause": null
     }
    ]
@@ -6082,7 +6082,7 @@
        "quote": "PR287 step 6: the grant shows why, quoted"
       }
      ],
-     "fails_because": "if the grant reads as a purchase (payment-intent link, amount) or loses its granter label or quoted reason, the expect(s) at line(s) 276, 277, 278, 279, 282 fail",
+     "fails_because": "if the grant reads as a purchase (payment-intent link, amount) or loses its granter label or quoted reason, the expect(s) at line(s) 672, 673, 674, 675, 678 fail",
      "gap_clause": null
     }
    ]
@@ -6142,7 +6142,7 @@
        "quote": "PR287 step 8: the revoked grant should name who revoked it"
       }
      ],
-     "fails_because": "if the revoked grant stops reading Revoked grant or stops naming the revoker, the expect(s) at line(s) 306, 309 fail",
+     "fails_because": "if the revoked grant stops reading Revoked grant or stops naming the revoker, the expect(s) at line(s) 702, 705 fail",
      "gap_clause": null
     }
    ]
@@ -6436,7 +6436,7 @@
        "quote": "PR287 step 23: ...and not the Legendary one"
       }
      ],
-     "fails_because": "if a row shows the wrong tier icon or none, the expect(s) at line(s) 266, 267, 268, 269 fail",
+     "fails_because": "if a row shows the wrong tier icon or none, the expect(s) at line(s) 662, 663, 664, 665 fail",
      "gap_clause": null
     }
    ]
@@ -6485,7 +6485,7 @@
        "quote": "expect(counts.registeredMembers, \"the seeded free account should count as registered\").toBeGreaterThan(0);"
       }
      ],
-     "fails_because": "if a card shows anything other than the summary route's count (e.g. the two swapped), line 629 or 633 fails; with the seeded accounts both counts must be above zero (lines 625/626)",
+     "fails_because": "if a card shows anything other than the summary route's count (e.g. the two swapped), line 635 or 639 fails; with the seeded accounts both counts must be above zero (lines 631/632)",
      "gap_clause": null
     }
    ]
@@ -6650,7 +6650,7 @@
        "quote": "PR287 step 30: Healthy is grey text"
       }
      ],
-     "fails_because": "if the healthy strip's copy changes or it is not grey, the expect(s) at line(s) 373, 376 fail",
+     "fails_because": "if the healthy strip's copy changes or it is not grey, the expect(s) at line(s) 769, 772 fail",
      "gap_clause": null
     }
    ]
@@ -6689,7 +6689,7 @@
        "quote": "PR287 step 31: ...and never Healthy"
       }
      ],
-     "fails_because": "if the never-run strip stops reading Not yet run · waiting Nm since start, or reads Healthy, the expect(s) at line(s) 367, 368 fail",
+     "fails_because": "if the never-run strip stops reading Not yet run · waiting Nm since start, or reads Healthy, the expect(s) at line(s) 763, 764 fail",
      "gap_clause": null
     }
    ]
@@ -6720,7 +6720,7 @@
        "quote": "PR287 step 32: the strip refreshed without the page reloading"
       }
      ],
-     "fails_because": "if the strip stops polling every 30 s (or only refreshes via a reload), the expect(s) at line(s) 366, 372, 377 fail",
+     "fails_because": "if the strip stops polling every 30 s (or only refreshes via a reload), the expect(s) at line(s) 762, 768, 773 fail",
      "gap_clause": null
     }
    ]
@@ -6754,7 +6754,7 @@
        "quote": "PR287 step 33: a clean database reads No users pending convergence"
       }
      ],
-     "fails_because": "if the zero-drift copy changes, the expect(s) at line(s) 362 fail",
+     "fails_because": "if the zero-drift copy changes, the expect(s) at line(s) 758 fail",
      "gap_clause": null
     },
     {
@@ -6767,7 +6767,7 @@
        "quote": "PR287 step 33: a lagging user is counted"
       }
      ],
-     "fails_because": "if a single drifted user is not shown as 1 user pending convergence, the expect(s) at line(s) 381 fail",
+     "fails_because": "if a single drifted user is not shown as 1 user pending convergence, the expect(s) at line(s) 777 fail",
      "gap_clause": null
     }
    ]
@@ -6811,7 +6811,7 @@
        "quote": "PR287 step 34: the strip says access is still correct"
       }
      ],
-     "fails_because": "if the alerting strip is not amber, stops saying tiers are drifting, or stops saying access is still correct, the expect(s) at line(s) 382, 383, 386 fail",
+     "fails_because": "if the alerting strip is not amber, stops saying tiers are drifting, or stops saying access is still correct, the expect(s) at line(s) 778, 779, 782 fail",
      "gap_clause": null
     },
     {
@@ -6962,7 +6962,7 @@
        "quote": "PR287 R8: the new user should appear in the list"
       }
      ],
-     "fails_because": "if the created user does not appear in the list (or the form does not submit), the expect(s) at line(s) 299, 300 fail",
+     "fails_because": "if the created user does not appear in the list (or the form does not submit), the expect(s) at line(s) 695, 696 fail",
      "gap_clause": null
     },
     {
@@ -7249,7 +7249,7 @@
        "quote": "\"PR288 step 5: rows with none of them should not show them\","
       }
      ],
-     "fails_because": "if a row with skipped / no-more-retries / pending work stops showing those counts and the oldest age, line 365 fails; if rows without them show them, line 371 fails",
+     "fails_because": "if a row with skipped / no-more-retries / pending work stops showing those counts and the oldest age, line 369 fails; if rows without them show them, line 375 fails",
      "gap_clause": null
     },
     {
@@ -7347,7 +7347,7 @@
        "quote": "await expect(failed.getByText(/^Failed$/), \"PR288 step 7: a job should show its state\").toBeVisible();"
       }
      ],
-     "fails_because": "if clicking the row stops expanding it, line 376; if an expanded job loses its id, attempts, error or state, lines 379-382 fail",
+     "fails_because": "if clicking the row stops expanding it, line 380; if an expanded job loses its id, attempts, error or state, lines 383-386 fail",
      "gap_clause": null
     }
    ]
@@ -7373,7 +7373,7 @@
        "quote": "await expect(page.getByText(\"#9004\", { exact: true }), \"PR288 step 8: the collapsed row should hide its jobs\").toHaveCount(0);"
       }
      ],
-     "fails_because": "if a second click stops collapsing the row, line 394 (or the hidden-jobs check at line 395) fails",
+     "fails_because": "if a second click stops collapsing the row, line 398 (or the hidden-jobs check at line 399) fails",
      "gap_clause": null
     }
    ]
@@ -7404,7 +7404,7 @@
        "quote": "expect(spin, \"PR288 step 9: the Working badge should spin\").not.toBe(\"none\");"
       }
      ],
-     "fails_because": "if any of the six states loses its label (or Skipped its reason), the toHaveText at line 386 fails; if Working stops spinning, line 390 fails",
+     "fails_because": "if any of the six states loses its label (or Skipped its reason), the toHaveText at line 390 fails; if Working stops spinning, line 394 fails",
      "gap_clause": null
     }
    ]
@@ -7440,7 +7440,7 @@
        "quote": "expect(r > g + 40 && r > b + 40, `PR288 step 10: the failure should be red, painted rgb(${r},${g},${b})`).toBe(true);"
       }
      ],
-     "fails_because": "if a first-load failure stops showing the red 'Could not load queue health' panel with its sentence and Retry, lines 429-436 fail",
+     "fails_because": "if a first-load failure stops showing the red 'Could not load queue health' panel with its sentence and Retry, lines 433-440 fail",
      "gap_clause": null
     },
     {
@@ -7463,7 +7463,7 @@
        "quote": "\"PR288 step 10: no empty lanes section on a failed load\").toHaveCount(0);"
       }
      ],
-     "fails_because": "if a failed first load falls through to Scheduling cards, all-healthy text or an empty lanes section, lines 425-427 fail",
+     "fails_because": "if a failed first load falls through to Scheduling cards, all-healthy text or an empty lanes section, lines 429-431 fail",
      "gap_clause": null
     }
    ]
@@ -7489,7 +7489,7 @@
        "quote": "\"PR288 step 11: the lane cards should stay too\""
       }
      ],
-     "fails_because": "if a failed poll clears the numbers off screen, line 468 (rows) or 469 (lane cards) fails",
+     "fails_because": "if a failed poll clears the numbers off screen, line 472 (rows) or 473 (lane cards) fails",
      "gap_clause": null
     },
     {
@@ -7517,7 +7517,7 @@
        "quote": "expect(r > b + 20 && g > b, `PR288 step 11: the banner should be amber, painted rgb(${r},${g},${b})`).toBe(true);"
       }
      ],
-     "fails_because": "if the banner is missing, its words change, it shows a time other than the data's, or it is not amber, lines 470-478 fail",
+     "fails_because": "if the banner is missing, its words change, it shows a time other than the data's, or it is not amber, lines 474-482 fail",
      "gap_clause": null
     },
     {
@@ -7545,7 +7545,7 @@
        "quote": "await expect(page.getByText(/refresh the page|reload/i), \"PR288 step 11: the page should never ask for a refresh\").toHaveCount(0);"
       }
      ],
-     "fails_because": "if the page stops retrying, line 483 fails; if it does not recover on its own when the API returns, line 487; if recovery took a reload or the page asks for a refresh, lines 491/493",
+     "fails_because": "if the page stops retrying, line 487 fails; if it does not recover on its own when the API returns, line 491; if recovery took a reload or the page asks for a refresh, lines 495/497",
      "gap_clause": null
     }
    ]
@@ -7576,7 +7576,7 @@
        "quote": "await expect(page.locator(\"main .animate-spin\"), \"PR288 step 12: the loading state should not be a spinner\").toHaveCount(0);"
       }
      ],
-     "fails_because": "if the first load shows other than five bars, line 414; non-grey bars, line 417; a spinner, line 419",
+     "fails_because": "if the first load shows other than five bars, line 418; non-grey bars, line 421; a spinner, line 423",
      "gap_clause": null
     }
    ]
@@ -7612,7 +7612,7 @@
        "quote": "PR288 R1: ...and not its render-error panel"
       }
      ],
-     "fails_because": "if the page stops listing the jobs it was given, the real list read fails, or an error banner/panel shows, the expect(s) at line(s) 464, 466, 467, 468 fail",
+     "fails_because": "if the page stops listing the jobs it was given, the real list read fails, or an error banner/panel shows, the expect(s) at line(s) 860, 862, 863, 864 fail",
      "gap_clause": null
     },
     {
@@ -8475,7 +8475,7 @@
        "quote": "PR293 step 4: ${e.key} should still hold the saved value after a reload"
       }
      ],
-     "fails_because": "if a save reports success but the value does not persist across a reload, the expect(s) at line(s) 432 fail",
+     "fails_because": "if a save reports success but the value does not persist across a reload, the expect(s) at line(s) 828 fail",
      "gap_clause": null
     }
    ]
@@ -8501,7 +8501,7 @@
        "quote": "PR293 R1: ...past its loading state"
       }
      ],
-     "fails_because": "if /admin/config never gets past its loading state or loses its page heading, the expect(s) at line(s) 410, 411 fail",
+     "fails_because": "if /admin/config never gets past its loading state or loses its page heading, the expect(s) at line(s) 806, 807 fail",
      "gap_clause": null
     },
     {
@@ -8514,7 +8514,7 @@
        "quote": "PR293 R1: every existing key should still be present on the page"
       }
      ],
-     "fails_because": "if any key the API returns (bar the four the page routes to Billing/the debug toggle) is missing from the page, the expect(s) at line(s) 413 fail",
+     "fails_because": "if any key the API returns (bar the four the page routes to Billing/the debug toggle) is missing from the page, the expect(s) at line(s) 809 fail",
      "gap_clause": null
     }
    ]
@@ -8558,7 +8558,7 @@
        "quote": "PR293 R2: ${e.key} should show Saved"
       }
      ],
-     "fails_because": "if saving an ordinary key is refused or never shows Saved, the expect(s) at line(s) 427, 428 fail",
+     "fails_because": "if saving an ordinary key is refused or never shows Saved, the expect(s) at line(s) 823, 824 fail",
      "gap_clause": null
     }
    ]
@@ -8694,7 +8694,7 @@
        "quote": "if (!listed.facts.some((f) => f.id === factId)) throw new JourneyError(\"3\", \"the public facts list\", `fact ${factId} is not among the ${listed.facts.length} newest`);"
       }
      ],
-     "fails_because": "if the approved fact were missing from the newest facts list, line 338 throws",
+     "fails_because": "if the approved fact were missing from the newest facts list, line 333 throws",
      "gap_clause": null
     },
     {
@@ -8806,7 +8806,7 @@
        "quote": "PR308 step 1: ${path} should stay on its own address"
       }
      ],
-     "fails_because": "if a route ends up on a different pathname, the expect(s) at line(s) 235 fail",
+     "fails_because": "if a route ends up on a different pathname, the expect(s) at line(s) 629 fail",
      "gap_clause": null
     }
    ]
@@ -8950,7 +8950,7 @@
        "quote": "PR308 step 1 / R2: no API response while loading ${path} should be a 429"
       }
      ],
-     "fails_because": "if any API response while the feed routes load is a 429, the expect(s) at line(s) 234 fail",
+     "fails_because": "if any API response while the feed routes load is a 429, the expect(s) at line(s) 625 fail",
      "gap_clause": null
     },
     {
@@ -9097,7 +9097,7 @@
        "quote": "PR308 step 3 / R6: no API response while ${path} loads should be a 429"
       }
      ],
-     "fails_because": "if any API response while /admin/taxonomy-health loads is a 429, the expect(s) at line(s) 248 fail",
+     "fails_because": "if any API response while /admin/taxonomy-health loads is a 429, the expect(s) at line(s) 642 fail",
      "gap_clause": null
     }
    ]
@@ -9159,7 +9159,7 @@
        "quote": "const unfurled = await readImage(anonymous, \"4\", \"the unfurl page's og:image\", ogPath, \"landscape\");"
       }
      ],
-     "fails_because": "an og:image naming anything but this meme's image route throws at line 450; an image there that does not serve or decode throws inside readImage at line 451",
+     "fails_because": "an og:image naming anything but this meme's image route throws at line 385; an image there that does not serve or decode throws inside readImage at line 386",
      "gap_clause": null
     }
    ]
@@ -9380,7 +9380,7 @@
        "quote": "captions.nameInTop = await twin(\"the name in the top half\", [\"{NAME} counted to infinity\", \"twice.\"], [`${name} counted to infinity`, \"twice.\"]);"
       }
      ],
-     "fails_because": "a top-half name that is not substituted exactly serves an image unequal to its typed twin, so line 469 throws for the pair at line 474",
+     "fails_because": "a top-half name that is not substituted exactly serves an image unequal to its typed twin, so line 404 throws for the pair at line 409",
      "gap_clause": null
     },
     {
@@ -9462,7 +9462,7 @@
        "quote": "throw new JourneyError(\"4\", \"the pronoun guard\", \"they/them wording served the he/him image\");"
       }
      ],
-     "fails_because": "a he/him split drawn as He keep or as the raw tokens is unequal to He keeps typed by hand, so line 469 throws for the pair at line 484; line 486 throws if the pronoun made no difference",
+     "fails_because": "a he/him split drawn as He keep or as the raw tokens is unequal to He keeps typed by hand, so line 404 throws for the pair at line 423; line 425 throws if the pronoun made no difference",
      "gap_clause": null
     }
    ]
@@ -9493,7 +9493,7 @@
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
-     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 404 throws; line 417 throws if equality held for any name",
      "gap_clause": null
     },
     {
@@ -10300,7 +10300,7 @@
        "quote": "PR425 step 1: the custom-avatar option should be available to the admin"
       }
      ],
-     "fails_because": "if a registered-tier admin's Photo pill is locked though the Admin row grants custom_avatar, the expect(s) at line(s) 517 fail",
+     "fails_because": "if a registered-tier admin's Photo pill is locked though the Admin row grants custom_avatar, the expect(s) at line(s) 518 fail",
      "gap_clause": null
     }
    ]
@@ -10344,7 +10344,7 @@
        "quote": "PR425 step 2: with the Admin cell off the custom-avatar selection should be refused (locked)"
       }
      ],
-     "fails_because": "if the Photo pill stays selectable after the Admin cell is unchecked, the expect(s) at line(s) 524 fail",
+     "fails_because": "if the Photo pill stays selectable after the Admin cell is unchecked, the expect(s) at line(s) 525 fail",
      "gap_clause": null
     },
     {
@@ -10362,7 +10362,7 @@
        "quote": "PR425 step 2: ...on Profile too"
       }
      ],
-     "fails_because": "if the avatar keeps showing the photo after the Admin cell is unchecked, the expect(s) at line(s) 530, 531 fail",
+     "fails_because": "if the avatar keeps showing the photo after the Admin cell is unchecked, the expect(s) at line(s) 531, 532 fail",
      "gap_clause": null
     }
    ]
@@ -10406,7 +10406,7 @@
        "quote": "PR425 step 3: re-checking the Admin cell should make the option available again"
       }
      ],
-     "fails_because": "if re-checking the Admin cell does not unlock the Photo pill, the expect(s) at line(s) 536 fail",
+     "fails_because": "if re-checking the Admin cell does not unlock the Photo pill, the expect(s) at line(s) 537 fail",
      "gap_clause": null
     }
    ]
@@ -10461,7 +10461,7 @@
        "quote": "PR425 step 5: with only its own Admin cell off, the registered-tier admin's option is gone behind the Legendary lock"
       }
      ],
-     "fails_because": "if, with only the Admin cell off, the registered-tier admin's Photo pill is not behind the Legendary lock, the expect(s) at line(s) 528 fail",
+     "fails_because": "if, with only the Admin cell off, the registered-tier admin's Photo pill is not behind the Legendary lock, the expect(s) at line(s) 529 fail",
      "gap_clause": null
     },
     {
@@ -10567,7 +10567,7 @@
        "quote": "PR425 step 6: after Exit Admin, Profile should not show the Admin Panel button"
       }
      ],
-     "fails_because": "if the Admin Panel button still shows on Profile after Exit Admin, the expect(s) at line(s) 571 fail",
+     "fails_because": "if the Admin Panel button still shows on Profile after Exit Admin, the expect(s) at line(s) 575 fail",
      "gap_clause": null
     }
    ]
@@ -10653,7 +10653,7 @@
        "quote": "await expect(consoleRail(page), \"the admin console should render again\").toBeVisible({ timeout: 30_000 });"
       }
      ],
-     "fails_because": "a missing or disabled button fails line 290; a button that did not restore admin fails line 315 in the Resume test",
+     "fails_because": "a missing or disabled button fails line 294; a button that did not restore admin fails line 319 in the Resume test",
      "gap_clause": null
     }
    ]
@@ -10713,7 +10713,7 @@
        "quote": "PR425 step 10: after Exit Admin the admin no longer holds private memes"
       }
      ],
-     "fails_because": "if meme_private_visibility stays granted at /api/auth/user while previewing, the expect(s) at line(s) 572 fail",
+     "fails_because": "if meme_private_visibility stays granted at /api/auth/user while previewing, the expect(s) at line(s) 576 fail",
      "gap_clause": null
     },
     {
@@ -10798,7 +10798,7 @@
        "quote": "PR425 step 11: ...and never Access Denied"
       }
      ],
-     "fails_because": "if turning off every Admin-row cell costs the admin the /admin console, the expect(s) at line(s) 589, 590 fail",
+     "fails_because": "if turning off every Admin-row cell costs the admin the /admin console, the expect(s) at line(s) 593, 594 fail",
      "gap_clause": null
     }
    ]
@@ -10819,7 +10819,7 @@
        "quote": "PR425 step 12: after Resume Admin the admin holds private memes again"
       }
      ],
-     "fails_because": "if Resume Admin on Profile does not restore meme_private_visibility, the expect(s) at line(s) 576 fail",
+     "fails_because": "if Resume Admin on Profile does not restore meme_private_visibility, the expect(s) at line(s) 580 fail",
      "gap_clause": null
     },
     {
@@ -10886,7 +10886,7 @@
        "quote": "assert.equal(res.status, 200);"
       }
      ],
-     "fails_because": "if owner-only enforcement also refused the admin, line 128 fails on a 404",
+     "fails_because": "if owner-only enforcement also refused the admin, line 124 fails on a 404",
      "gap_clause": null
     },
     {
@@ -10926,7 +10926,7 @@
        "quote": "assert.equal(res.status, 404);"
       }
      ],
-     "fails_because": "if GET /memes/:slug stopped enforcing owner-only visibility, an anonymous caller would get 200 and line 123 fails",
+     "fails_because": "if GET /memes/:slug stopped enforcing owner-only visibility, an anonymous caller would get 200 and line 131 fails",
      "gap_clause": null
     },
     {
@@ -10982,7 +10982,7 @@
        "quote": "if (!stored.bytes.equals(photo)) throw new JourneyError(\"7\", \"the profile photo is stored\", `${stored.bytes.length} bytes differ from the ${photo.length} uploaded`);"
       }
      ],
-     "fails_because": "a refused avatar upload throws at line 421; a profile photo not set throws at line 424; stored bytes that differ throw at line 426",
+     "fails_because": "a refused avatar upload throws at line 356; a profile photo not set throws at line 359; stored bytes that differ throw at line 361",
      "gap_clause": null
     }
    ]
@@ -11062,7 +11062,7 @@
        "quote": "PR425 step 17: tapping the locked Photo pill should lead to the upgrade prompt"
       }
      ],
-     "fails_because": "if tapping the free account's locked Photo pill is a silent no-op instead of going to /pricing, the expect(s) at line(s) 622 fail",
+     "fails_because": "if tapping the free account's locked Photo pill is a silent no-op instead of going to /pricing, the expect(s) at line(s) 629 fail",
      "gap_clause": null
     }
    ]
@@ -11106,7 +11106,7 @@
        "quote": "PR425 step 18: the header avatar should show the photo"
       }
      ],
-     "fails_because": "if the paid account's photo selection is refused or the header avatar does not show the photo, the expect(s) at line(s) 674, 675 fail",
+     "fails_because": "if the paid account's photo selection is refused or the header avatar does not show the photo, the expect(s) at line(s) 681, 682 fail",
      "gap_clause": null
     }
    ]
@@ -11155,7 +11155,7 @@
        "quote": "PR425 step 20: the account's own Profile should show the generated icon"
       }
      ],
-     "fails_because": "if the account's own Profile shows a stored, unselected/unentitled photo instead of the generated icon, the expect(s) at line(s) 615 fail",
+     "fails_because": "if the account's own Profile shows a stored, unselected/unentitled photo instead of the generated icon, the expect(s) at line(s) 622 fail",
      "gap_clause": null
     }
    ]
@@ -11181,7 +11181,7 @@
        "quote": "PR425 R1: / should not put a sign-in wall in front of a logged-out visitor"
       }
      ],
-     "fails_because": "if / (logged out, no session) shows a sign-in field or not the feed, the expect(s) at line(s) 227, 228 fail",
+     "fails_because": "if / (logged out, no session) shows a sign-in field or not the feed, the expect(s) at line(s) 618, 619 fail",
      "gap_clause": null
     },
     {
@@ -11352,7 +11352,7 @@
        "quote": "PR425 R7: ${path} hit the error boundary"
       }
      ],
-     "fails_because": "if Users, Refunds & Disputes, Config, Engines or Email Queue fails to render inside the AdminLayout (each is opened through expectAdminScreen in its own test), the expect(s) at line(s) 211, 212, 214, 216 fail",
+     "fails_because": "if Users, Refunds & Disputes, Config, Engines or Email Queue fails to render inside the AdminLayout (each is opened through expectAdminScreen in its own test), the expect(s) at line(s) 601, 602, 604, 606 fail",
      "gap_clause": null
     }
    ]
@@ -11401,7 +11401,7 @@
        "quote": "PR425 R8: the toggled preference should persist"
       }
      ],
-     "fails_because": "if the section disappears, the toggle's write fails, or the toggled value does not persist, the expect(s) at line(s) 551, 557, 562 fail",
+     "fails_because": "if the section disappears, the toggle's write fails, or the toggled value does not persist, the expect(s) at line(s) 552, 561, 563 fail",
      "gap_clause": null
     }
    ]
@@ -12040,7 +12040,7 @@
        "quote": ".poll(async () => (await parked()).offset, { message: \"PR472 step 10: the Worker liveness heading should be parked at the top\" })"
       }
      ],
-     "fails_because": "if chapter 12 opens but is not parked on the Worker liveness heading, the scrollTop poll at lines 323-324 or the offset poll at lines 326-327 fails",
+     "fails_because": "if chapter 12 opens but is not parked on the Worker liveness heading, the scrollTop poll at line 324 or the offset poll at lines 326-327 fails",
      "gap_clause": null
     }
    ]
@@ -12518,7 +12518,7 @@
        "quote": "PR472 R7: /admin/help signed out shows Access Denied"
       }
      ],
-     "fails_because": "if /admin/help signed out does not show Access Denied, the expect(s) at line(s) 598 fail",
+     "fails_because": "if /admin/help signed out does not show Access Denied, the expect(s) at line(s) 602 fail",
      "gap_clause": null
     },
     {
@@ -12531,7 +12531,7 @@
        "quote": "PR472 R7: /admin/help as a non-admin shows the same Access Denied"
       }
      ],
-     "fails_because": "if /admin/help as the free account does not show Access Denied, the expect(s) at line(s) 602 fail",
+     "fails_because": "if /admin/help as the free account does not show Access Denied, the expect(s) at line(s) 606 fail",
      "gap_clause": null
     }
    ]
@@ -12583,7 +12583,7 @@
        "quote": "await expect(verification, \"PR577 step 1: the Payments verified box should be green\").toHaveClass("
       }
      ],
-     "fails_because": "if the box stops reading 'Payments verified', line 641 fails; if it is not green, line 644 fails",
+     "fails_because": "if the box stops reading 'Payments verified', line 647 fails; if it is not green, line 650 fails",
      "gap_clause": null
     },
     {
@@ -12601,7 +12601,7 @@
        "quote": "\"PR577 step 1: the box should sit beneath the mode toggle\","
       }
      ],
-     "fails_because": "if the box leaves the Stripe Mode panel holding the toggle, line 649 fails; if it is not below the toggle, line 655 fails",
+     "fails_because": "if the box leaves the Stripe Mode panel holding the toggle, line 655 fails; if it is not below the toggle, line 661 fails",
      "gap_clause": null
     }
    ]
@@ -12687,7 +12687,7 @@
        "quote": "await expect(modeChip, \"PR577 step 3: the Stripe Mode chip should read TEST\").toHaveText(\"TEST\");"
       }
      ],
-     "fails_because": "if the Stripe Mode chip does not read TEST on the test-mode fake, line 636 fails",
+     "fails_because": "if the Stripe Mode chip does not read TEST on the test-mode fake, line 642 fails",
      "gap_clause": null
     },
     {
@@ -12700,7 +12700,7 @@
        "quote": "await expect(verification, \"PR577 step 3: the box on the same panel should report verified\").toHaveAttribute("
       }
      ],
-     "fails_because": "if the verification box on the panel reports anything but verified beside the TEST chip, line 637 fails",
+     "fails_because": "if the verification box on the panel reports anything but verified beside the TEST chip, line 643 fails",
      "gap_clause": null
     }
    ]
@@ -12767,7 +12767,7 @@
        "quote": "await expect(modeChip, \"PR577 step 4: the chip should stay on TEST\").toHaveText(\"TEST\");"
       }
      ],
-     "fails_because": "if the real refusal's reason is not shown, line 725 fails; if it is not red, line 726; if the chip leaves TEST, line 727",
+     "fails_because": "if the real refusal's reason is not shown, line 731 fails; if it is not red, line 732; if the chip leaves TEST, line 733",
      "gap_clause": null
     },
     {
@@ -12780,7 +12780,7 @@
        "quote": "await expect(page.getByText(/Failed to update/), \"PR577 step 4: never the bare words Failed to update\").toHaveCount(0);"
       }
      ],
-     "fails_because": "if the words 'Failed to update' appear anywhere on the page after the refusal, line 728 fails",
+     "fails_because": "if the words 'Failed to update' appear anywhere on the page after the refusal, line 734 fails",
      "gap_clause": null
     },
     {
@@ -12793,7 +12793,7 @@
        "quote": "\"PR577 step 4: the chip should never flip to LIVE while a failure is reported\","
       }
      ],
-     "fails_because": "if the chip shows LIVE at any moment between the click and the refusal, the MutationObserver record checked at line 731 contains LIVE and fails",
+     "fails_because": "if the chip shows LIVE at any moment between the click and the refusal, the MutationObserver record checked at line 737 contains LIVE and fails",
      "gap_clause": null
     },
     {
@@ -12831,7 +12831,7 @@
        "quote": "expect(failedApiCalls, \"PR577 R1: opening the checklist should fail no API call\").toEqual([]);"
       }
      ],
-     "fails_because": "if the section does not open, line 756 fails; if opening it raises a page error, line 772; if an API call fails (>=400) while opening, line 773. Observable chosen for 'no errors': no pageerror and no 4xx/5xx /api/ response from the reload through the checks",
+     "fails_because": "if the section does not open, line 762 fails; if opening it raises a page error, line 778; if an API call fails (>=400) while opening, line 779. Observable chosen for 'no errors': no pageerror and no 4xx/5xx /api/ response from the reload through the checks",
      "gap_clause": null
     },
     {
@@ -12849,7 +12849,7 @@
        "quote": "`PR577 R1: the ${variable} row should carry its checkmark`,"
       }
      ],
-     "fails_because": "if any of the six STRIPE_*_TEST/_LIVE rows is missing, line 766 fails; if a row lacks its check icon, line 769 fails",
+     "fails_because": "if any of the six STRIPE_*_TEST/_LIVE rows is missing, line 772 fails; if a row lacks its check icon, line 775 fails",
      "gap_clause": null
     }
    ]
@@ -12903,7 +12903,7 @@
        "quote": "`PR577 R2: the ${label} row should report this run's sync`,"
       }
      ],
-     "fails_because": "if the click does not start a run (rows are the boot backfill's), the poll at line 272 fails (the page's own status never carries Products/Prices stamps newer than before the click); if Plans does not reach complete, line 281; if the Products/Prices rows do not read 'synced · just now', line 288",
+     "fails_because": "if the click does not start a run (rows are the boot backfill's), the poll at line 275 fails (the page's own status never carries Products/Prices stamps newer than before the click); if Plans does not reach complete, line 284; if the Products/Prices rows do not read 'synced · just now', line 291",
      "gap_clause": null
     }
    ]
@@ -12929,7 +12929,7 @@
        "quote": "await expect(card.locator(\".animate-pulse\"), `PR577 R3: no ${name} spinner should be left`).toHaveCount(0);"
       }
      ],
-     "fails_because": "if the active-subscriber card never resolves to a number (spinner left, or not numeric), the loop at line 618 (number visible) or 621 (no spinner) fails",
+     "fails_because": "if the active-subscriber card never resolves to a number (spinner left, or not numeric), the loop at line 624 (number visible) or 627 (no spinner) fails",
      "gap_clause": null
     },
     {
@@ -12947,7 +12947,7 @@
        "quote": "await expect(card.locator(\".animate-pulse\"), `PR577 R3: no ${name} spinner should be left`).toHaveCount(0);"
       }
      ],
-     "fails_because": "if the registered-member card never resolves to a number (spinner left, or not numeric), the loop at line 618 (number visible) or 621 (no spinner) fails",
+     "fails_because": "if the registered-member card never resolves to a number (spinner left, or not numeric), the loop at line 624 (number visible) or 627 (no spinner) fails",
      "gap_clause": null
     }
    ]
