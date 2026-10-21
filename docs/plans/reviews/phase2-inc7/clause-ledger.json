@@ -128,11 +128,11 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1189,
-       "quote": "assert.equal(res.body.error, \"Invalid input\");"
+       "line": 1197,
+       "quote": "assert.equal(queued.length, 0, \"an over-cap import must queue nothing at all\");"
       }
      ],
-     "fails_because": "the 1001-fact body is not refused with Invalid input (or rows get queued; the queued-length assertion follows)",
+     "fails_because": "if any row of the over-cap batch were written before the refusal, its review would exist and the count would not be 0",
      "gap_clause": null
     },
     {
@@ -786,9 +786,29 @@
        "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
        "line": 2011,
        "quote": "assert.equal(countOccurrences(p, \"giant rubber duck across a packed stadium\"), 1, p);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2012,
+       "quote": "assert.equal(countOccurrences(p, \"fireworks trace a heart in the sky\"), 1, p);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2015,
+       "quote": "assert.doesNotMatch(sectionText(p, \"SUBJECT DETAILS\"), /rubber duck/);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2017,
+       "quote": "assert.doesNotMatch(sectionText(p, \"ENVIRONMENT\"), /fireworks/);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2019,
+       "quote": "assert.doesNotMatch(sectionText(p, \"ROLE DETAILS\"), /packed stadium/);"
       }
      ],
-     "fails_because": "A restated phrase would appear twice (or remain in its section) if the additive de-dupe stopped covering the authored Concept.",
+     "fails_because": "a gag phrase restated in ROLE DETAILS, SUBJECT DETAILS or ENVIRONMENT makes it appear twice, and the section-level doesNotMatch catches which section restated it",
      "gap_clause": null
     },
     {
@@ -797,11 +817,21 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
-       "line": 2011,
-       "quote": "assert.equal(countOccurrences(p, \"giant rubber duck across a packed stadium\"), 1, p);"
+       "line": 2014,
+       "quote": "assert.match(sectionText(p, \"SUBJECT DETAILS\"), /velvet cape with gold trim/);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2016,
+       "quote": "assert.match(sectionText(p, \"ENVIRONMENT\"), /wet asphalt reflecting the lights/);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2018,
+       "quote": "assert.match(sectionText(p, \"ROLE DETAILS\"), /a referee: blowing a whistle near the goalpost/);"
       }
      ],
-     "fails_because": "A restated phrase would appear twice (or remain in its section) if the additive de-dupe stopped covering the authored Concept.",
+     "fails_because": "if the dedup stripped the details the Concept omitted, the velvet cape, wet asphalt or referee detail would be missing from its section",
      "gap_clause": null
     }
    ]
@@ -870,11 +900,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
-       "line": 2045,
-       "quote": "assert.equal(countOccurrences(out.imagePrompt, style), 1, out.imagePrompt);"
+       "line": 2047,
+       "quote": "assert.equal(sectionText(out.imagePrompt, \"LIGHTING\"), \"warm golden-hour rim light.\");"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+       "line": 2048,
+       "quote": "assert.doesNotMatch(sectionText(out.imagePrompt, \"LIGHTING\"), /painterly/);"
       }
      ],
-     "fails_because": "The style phrase would occur twice and LIGHTING would no longer be exactly the light text.",
+     "fails_because": "a style or medium word leaking into LIGHTING makes it differ from the light-and-mood text alone and match painterly",
      "gap_clause": null
     },
     {
@@ -1086,9 +1121,14 @@
        "path": "artifacts/api-server/src/__tests__/styleResolution.test.ts",
        "line": 303,
        "quote": "assert.match(i2i.prompt, /^(Reimagine|Transform) this\\b/, `${s.id} i2i opens with Reimagine/Transform`);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/styleResolution.test.ts",
+       "line": 304,
+       "quote": "assert.doesNotMatch(t2i.prompt, /^(Reimagine|Transform)\\b/, `${s.id} t2i is declarative, not an edit instruction`);"
       }
      ],
-     "fails_because": "Built-in i2i copy must open with Reimagine/Transform and t2i must be declarative, and the resolver must pick the right column per mode.",
+     "fails_because": "an i2i copy not opening Reimagine/Transform this, or a t2i copy phrased as an edit instruction, fails the opening match",
      "gap_clause": null
     },
     {
@@ -1097,11 +1137,11 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/styleResolution.test.ts",
-       "line": 303,
-       "quote": "assert.match(i2i.prompt, /^(Reimagine|Transform) this\\b/, `${s.id} i2i opens with Reimagine/Transform`);"
+       "line": 264,
+       "quote": "assert.equal(r.prompt, NONE_LINE, `${String(styleId)}/${mode}`);"
       }
      ],
-     "fails_because": "Built-in i2i copy must open with Reimagine/Transform and t2i must be declarative, and the resolver must pick the right column per mode.",
+     "fails_because": "with the none style, a RENDER STYLE other than the full photorealistic sentence is unequal to NONE_LINE in every mode",
      "gap_clause": null
     }
    ]
@@ -1653,11 +1693,11 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
-       "line": 374,
-       "quote": "assert.ok(!res.ok && \"code\" in res && res.code === code, JSON.stringify(res));"
+       "line": 373,
+       "quote": "assert.ok(!res.ok && res.retryable === false, \"terminal, not retryable\");"
       }
      ],
-     "fails_because": "Each deterministic failure must return a non-retryable terminal result with its specific code, persist errorCode and enqueue no image_generation job.",
+     "fails_because": "a deterministic failure that is retried comes back retryable, and this fails",
      "gap_clause": null
     },
     {
@@ -1668,9 +1708,14 @@
        "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
        "line": 374,
        "quote": "assert.ok(!res.ok && \"code\" in res && res.code === code, JSON.stringify(res));"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
+       "line": 376,
+       "quote": "assert.equal(row.errorCode, code);"
       }
      ],
-     "fails_because": "Each deterministic failure must return a non-retryable terminal result with its specific code, persist errorCode and enqueue no image_generation job.",
+     "fails_because": "a failure without its specific code, or a row not recording it, is unequal to the expected code",
      "gap_clause": null
     },
     {
@@ -1679,11 +1724,11 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
-       "line": 374,
-       "quote": "assert.ok(!res.ok && \"code\" in res && res.code === code, JSON.stringify(res));"
+       "line": 378,
+       "quote": "assert.equal(await generationJob(attemptId), undefined, \"no image_generation job enqueued\");"
       }
      ],
-     "fails_because": "Each deterministic failure must return a non-retryable terminal result with its specific code, persist errorCode and enqueue no image_generation job.",
+     "fails_because": "if a degraded render were shipped anyway, an image_generation job would be enqueued for the attempt",
      "gap_clause": null
     }
    ]
@@ -2252,11 +2297,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1348,
-       "quote": "assert.equal(review?.stage, \"prep_pending\");"
+       "line": 1351,
+       "quote": "assert.equal(jobs.length, 1, \"exactly one enrichment job must be queued\");"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1352,
+       "quote": "assert.ok([\"pending\", \"processing\"].includes(jobs[0]!.status), \"and it must be nonterminal\");"
       }
      ],
-     "fails_because": "the staging review is not moved to prep_pending after the text edit (job-count assertion covers the single enrichment job)",
+     "fails_because": "if the edit did not re-run enrichment, no nonterminal enrichment job would be queued for the fact",
      "gap_clause": null
     },
     {
@@ -3533,11 +3583,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1245,
-       "quote": "assert.equal(factReviews.length, 0, \"a text matching an existing fact must not get a review\");"
+       "line": 1237,
+       "quote": "assert.equal(res.body.queued, 0, `${text} must not be queued again`);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1238,
+       "quote": "assert.equal(res.body.skipped, 1);"
       }
      ],
-     "fails_because": "a text matching an existing fact (or unresolved review) is queued again instead of skipped",
+     "fails_because": "a re-imported duplicate that was queued instead of skipped gives queued 1 and skipped 0",
      "gap_clause": null
     },
     {
@@ -3559,11 +3614,11 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1245,
-       "quote": "assert.equal(factReviews.length, 0, \"a text matching an existing fact must not get a review\");"
+       "line": 1248,
+       "quote": "assert.equal(reviewRows.length, 1, \"a text matching an unresolved review must not get a second one\");"
       }
      ],
-     "fails_because": "a text matching an existing fact (or unresolved review) is queued again instead of skipped",
+     "fails_because": "if the dedup ignored reviews already in the queue, the review-matching text would get a second review",
      "gap_clause": null
     }
    ]
@@ -4021,11 +4076,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
-       "line": 1199,
-       "quote": "assert.equal(blocked.status, 409, JSON.stringify(blocked.body));"
+       "line": 1211,
+       "quote": "assert.equal(ok.status, 200, JSON.stringify(ok.body));"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+       "line": 1213,
+       "quote": "assert.equal(live.isActive, true);"
       }
      ],
-     "fails_because": "approval no longer 409s with CONCEPT_MISSING for a conceptless fact.",
+     "fails_because": "if approval after adding a concept were still refused or left the fact inactive, the status or isActive check fails",
      "gap_clause": null
     }
    ]
@@ -4457,11 +4517,11 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1406,
+       "line": 1372,
        "quote": "assert.equal(stored?.text, newText);"
       }
      ],
-     "fails_because": "a root edit is blocked or not stored while its variant has a nonterminal enrichment job",
+     "fails_because": "if a variant's unresolved review blocked the root edit, the root's stored text would still be the original",
      "gap_clause": null
     },
     {
@@ -5949,11 +6009,11 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1489,
-       "quote": "assert.equal(entry.stripePaymentIntentId, null, \"a comp is not a payment: no payment id\");"
+       "line": 1484,
+       "quote": "assert.equal(entry.sourceType, \"admin_grant\");"
       }
      ],
-     "fails_because": "the grant entry carries a payment id/amount, or lacks label/reason/history",
+     "fails_because": "a grant recorded as a purchase would carry a sourceType other than admin_grant",
      "gap_clause": null
     },
     {
@@ -5962,11 +6022,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1489,
-       "quote": "assert.equal(entry.stripePaymentIntentId, null, \"a comp is not a payment: no payment id\");"
+       "line": 1486,
+       "quote": "assert.equal(entry.grantedByAdminLabel, adminLabelText());"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1487,
+       "quote": "assert.equal(entry.grantReason, \"comped for the UAT run\");"
       }
      ],
-     "fails_because": "the grant entry carries a payment id/amount, or lacks label/reason/history",
+     "fails_because": "a grant missing who granted it or why would fail the label or reason check",
      "gap_clause": null
     },
     {
@@ -5975,11 +6040,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1488,
+       "quote": "assert.equal(entry.amount, null, \"a comp is not a payment: no amount\");"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
        "line": 1489,
        "quote": "assert.equal(entry.stripePaymentIntentId, null, \"a comp is not a payment: no payment id\");"
       }
      ],
-     "fails_because": "the grant entry carries a payment id/amount, or lacks label/reason/history",
+     "fails_because": "a comp carrying an amount or a payment id would fail the null checks",
      "gap_clause": null
     },
     {
@@ -6123,11 +6193,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
-       "line": 1548,
-       "quote": "assert.equal(second.body.error, \"User already has an active admin grant\");"
+       "line": 1551,
+       "quote": "assert.equal(rows.filter((r) => r.lifecycleStatus === \"active\").length, 1, \"exactly one active grant row\");"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+       "line": 1554,
+       "quote": "assert.equal(await storedTier(userId), \"registered\", \"one revoke must be enough to drop the user\");"
       }
      ],
-     "fails_because": "a duplicate grant is accepted or the message differs",
+     "fails_because": "a silently stacked second grant leaves two active rows, and one revoke leaves the user legendary",
      "gap_clause": null
     }
    ]
@@ -9115,7 +9190,7 @@
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
-     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 404 throws; line 417 throws if equality held for any name",
      "gap_clause": null
     },
     {
@@ -9138,7 +9213,7 @@
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
-     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 404 throws; line 417 throws if equality held for any name",
      "gap_clause": null
     }
    ]
@@ -9204,7 +9279,7 @@
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
-     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 404 throws; line 417 throws if equality held for any name",
      "gap_clause": null
     },
     {
@@ -9227,7 +9302,7 @@
        "quote": "throw new JourneyError(\"4\", \"the caption guard\", \"a different name served the same image\");"
       }
      ],
-     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 469 throws; line 478 throws if equality held for any name",
+     "fails_because": "if the served image kept a token or a brace, shortened the name or misplaced it, it could not be byte-identical to the typed twin, so line 404 throws; line 417 throws if equality held for any name",
      "gap_clause": null
     }
    ]
@@ -9338,7 +9413,7 @@
        "quote": "captions.theyKeep = await twin(\"they/them agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity.\"], [\"They keep counting\", \"to infinity.\"]);"
       }
      ],
-     "fails_because": "a they/them split drawn as They keeps or as the raw tokens is unequal to They keep typed by hand, so line 469 throws for the pair at line 481",
+     "fails_because": "a they/them split drawn as They keeps or as the raw tokens is unequal to They keep typed by hand, so line 404 throws for the pair at line 420",
      "gap_clause": null
     },
     {
@@ -9356,7 +9431,7 @@
        "quote": "captions.theyKeep = await twin(\"they/them agreement\", [\"{Subj} {keeps|keep} counting\", \"to infinity.\"], [\"They keep counting\", \"to infinity.\"]);"
       }
      ],
-     "fails_because": "a they/them split drawn as They keeps or as the raw tokens is unequal to They keep typed by hand, so line 469 throws for the pair at line 481",
+     "fails_because": "a they/them split drawn as They keeps or as the raw tokens is unequal to They keep typed by hand, so line 404 throws for the pair at line 420",
      "gap_clause": null
     }
    ]
@@ -12953,9 +13028,14 @@
        "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
        "line": 533,
        "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 539,
+       "quote": "assert.equal(review.workflowStage, \"concept_review\");"
       }
      ],
-     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "fails_because": "a send-back whose job fails, or whose review stays in prep, fails result.ok or the concept_review check",
      "gap_clause": null
     },
     {
@@ -12975,7 +13055,7 @@
        "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
       }
      ],
-     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "fails_because": "the forEach crash makes the queued job's run return not ok, so a job carrying that error fails this",
      "gap_clause": null
     }
    ]
@@ -12992,11 +13072,11 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
-       "line": 533,
-       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+       "line": 539,
+       "quote": "assert.equal(review.workflowStage, \"concept_review\");"
       }
      ],
-     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "fails_because": "if the override-carrying fact's review stayed in prep, its stage would not be concept_review",
      "gap_clause": null
     },
     {
@@ -13012,11 +13092,16 @@
      "evidence": [
       {
        "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
-       "line": 533,
-       "quote": "assert.equal(result.ok, true, JSON.stringify(result));"
+       "line": 544,
+       "quote": "assert.equal(kept?.coreSceneOverride, legacyOverride.coreSceneOverride);"
+      },
+      {
+       "path": "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+       "line": 545,
+       "quote": "assert.deepEqual(kept?.requiredVisualDetails, legacyOverride.requiredVisualDetails);"
       }
      ],
-     "fails_because": "A fact whose stored override has no list fields must refresh through POST send-back-to-review and enrichmentJobHandler.run to ok, reach concept_review, and keep the core scene and required detail unchanged.",
+     "fails_because": "a refreshed candidate that altered the core scene or the required detail is unequal to the stored override",
      "gap_clause": null
     },
     {
