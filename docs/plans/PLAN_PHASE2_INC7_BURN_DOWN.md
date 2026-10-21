@@ -675,3 +675,24 @@ The text above is sha256 `cb8b199a06bb3d092930164d0a6e73df8911291e9f45fee5e92973
 10. **7b part 2 runs as four PRs by target family**, in the order journeys,
     api, frontend, e2e, and **#692 is fixed before the e2e PR** so PR582's
     Queue Health clause closes inside Phase 2 (David, 2026-10-17).
+11. **`E2E Smoke`'s bound is 12 minutes for the rest of increment 7**
+    (David, 2026-10-19, option 2 of three). Wherever this plan says `E2E
+    Smoke` stays under 7 minutes (D2, the Definition of Done), read 12. The
+    job ran 8m28s–9m19s on the four 7b part 2 PR heads before the e2e PR,
+    with growth from increment 8's described-screens and capture suites; the
+    7 minutes was headroom over the `de15e8f` measurement (4m55s), and the
+    parent's own rule — acceptance journeys do not join the per-PR gate, and
+    `Build` and `Test` keep their budget — still holds. `Test` and `Frontend
+    Test` keep their 3-minute bounds. The speed-up is #730, outside Phase 2.
+12. **`E2E Smoke` stays a required check on every PR, and its numeric bound
+    is dropped** (David, 2026-10-21, option 1 of four, after #736's second
+    review). Wherever this plan or amendment 11 sets a minute bound for `E2E
+    Smoke` (D2, the Definition of Done), read instead: the job's duration is
+    measured on the head and reported in the PR. `Test` and `Frontend Test`
+    keep their 3-minute bounds. The job ran 12m45s and 13m08s on #736's head
+    `040ef61`, against 8m28s–9m19s before it; the growth is the 150 clauses 7b
+    part 2 asserts. The speed-up, running the suites in parallel, is #730, now
+    the PR after #736 (David: *"Let's make sure to do the work to parallelize
+    it and bring the time down as much as possible so we can keep building
+    quickly."*). Weighed and declined: moving the job after merge, keeping 12
+    minutes by trimming tests, and dropping the suite until launch.

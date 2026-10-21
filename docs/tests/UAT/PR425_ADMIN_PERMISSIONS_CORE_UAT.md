@@ -80,9 +80,7 @@ granting it.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics the admin overlay ADDS rather than replaces` `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection resolves the SUBJECT's entitlement — an admin subject gets the overlay`
-
-**Deferred:** #631 — 7b — custom_avatar itself, Profile Photo pill reads unlocked for a registered-tier admin with a stored photo, the spec observes another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics the admin overlay ADDS rather than replaces` `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection resolves the SUBJECT's entitlement — an admin subject gets the overlay`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin cell alone grants a registered-tier admin the custom-avatar photo, and unchecking it takes it away`
 
 ### 2. Unchecking the Admin cell actually removes the capability
 
@@ -95,9 +93,7 @@ decorative and the core of this PR did not land.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin grid row grants a capability the account's own tier does not`
-
-**Deferred:** #631 — 7b — custom_avatar itself, Admin cell off locks the Profile Photo pill and the avatar shows the generated icon, the spec observes another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin grid row grants a capability the account's own tier does not`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin cell alone grants a registered-tier admin the custom-avatar photo, and unchecking it takes it away`
 
 ### 3. Re-checking the Admin cell restores it
 
@@ -108,9 +104,7 @@ about a minute, then reload your Profile.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin grid row grants a capability the account's own tier does not`
-
-**Deferred:** #631 — 7b — custom_avatar itself, re-checking the Admin cell unlocks the Profile Photo pill again, the spec observes another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin grid row grants a capability the account's own tier does not`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin cell alone grants a registered-tier admin the custom-avatar photo, and unchecking it takes it away`
 
 ### 4. A Legendary account keeps the feature independent of the Admin cell
 
@@ -136,9 +130,7 @@ for Legendary can never lose a feature by being an admin.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants`; `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics an admin resolves a superset of what their own tier alone resolves` — the overlay never removes a tier grant; `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:own-tier monotonicity (PR #402) being an admin never makes an account worse off, for any key or tier` — no tier loses a key by being admin
-
-**Deferred:** #631 — 7b — custom_avatar itself, with only the Admin cell off a registered-tier admin's Profile Photo pill is locked — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics turning the admin row off does not remove what the account's own tier grants`; `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:union semantics an admin resolves a superset of what their own tier alone resolves` — the overlay never removes a tier grant; `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:own-tier monotonicity (PR #402) being an admin never makes an account worse off, for any key or tier` — no tier loses a key by being admin; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the Admin cell alone grants a registered-tier admin the custom-avatar photo, and unchecking it takes it away`
 
 ### 6. Exiting admin mode switches you to a normal view
 
@@ -149,9 +141,7 @@ for Legendary can never lose a feature by being an admin.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin drops the Admin row's entitlements, and leaves a way back`
-
-**Deferred:** #631 — 7b — after Exit Admin, the dev admin's Profile no longer shows the Admin Panel button, as a registered member's does not — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin drops the Admin row's entitlements, and leaves a way back`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin hides the Admin Panel and withdraws private memes; Resume Admin on Profile restores them`
 
 ### 7. A way back into admin is always visible
 
@@ -197,9 +187,7 @@ registered member, and registered members don't get private memes.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:principal normalization view-as-user normalizes to registered, not to the account's own paid tier` `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:MemeBuilderWizard visibility control on Step 2 shows a registered creator the upsell instead of letting them pick private`
-
-**Deferred:** #631 — 7b — a previewing admin's meme_private_visibility entitlement reads withdrawn at /api/auth/user after Exit Admin, the spec reads another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:principal normalization view-as-user normalizes to registered, not to the account's own paid tier` `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:MemeBuilderWizard visibility control on Step 2 shows a registered creator the upsell instead of letting them pick private`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin hides the Admin Panel and withdraws private memes; Resume Admin on Profile restores them`
 
 ### 11. Admin console access ignores the preview toggle
 
@@ -212,9 +200,7 @@ no preview state, can ever cost you console access.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:/admin while previewing explains the state instead of refusing` `artifacts/api-server/src/__tests__/tierMiddleware.test.ts:requireRole('admin') — unified middleware calls next for an admin even when adminModeDisabled (realUserRole ignores the toggle)`; `artifacts/api-server/src/__tests__/authMiddleware.fresh.test.ts:realUserRole stays 'admin' even when adminModeDisabled toggle is set (userRole becomes 'registered')` — the session middleware keeps realUserRole admin under the toggle
-
-**Deferred:** #631 — 7b — with every Admin-row cell turned off in Admin → Features, the dev admin still gets the /admin console, not Access Denied — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:/admin while previewing explains the state instead of refusing` `artifacts/api-server/src/__tests__/tierMiddleware.test.ts:requireRole('admin') — unified middleware calls next for an admin even when adminModeDisabled (realUserRole ignores the toggle)`; `artifacts/api-server/src/__tests__/authMiddleware.fresh.test.ts:realUserRole stays 'admin' even when adminModeDisabled toggle is set (userRole becomes 'registered')` — the session middleware keeps realUserRole admin under the toggle; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:with every Admin-row cell off, the admin still gets the console`
 
 ### 12. Resuming admin restores Legendary features
 
@@ -225,9 +211,7 @@ return to the meme builder for the same fact and pick Image again.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:principal normalization an admin not previewing keeps their own tier and the overlay` `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:MemeBuilderWizard visibility control on Step 2 lets a legendary creator choose private before saving`
-
-**Deferred:** #631 — 7b — the admin's meme_private_visibility entitlement reads granted again at /api/auth/user after Resume Admin on Profile, the spec reads another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/featureAccess.integration.test.ts:principal normalization an admin not previewing keeps their own tier and the overlay` `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:MemeBuilderWizard visibility control on Step 2 lets a legendary creator choose private before saving`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin hides the Admin Panel and withdraws private memes; Resume Admin on Profile restores them`
 
 ### 13. Private memes still save private — the #402 regression
 
@@ -291,9 +275,7 @@ and not a generic error.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 rejects a standalone avatarSource:photo selection from an unentitled user`
-
-**Deferred:** #631 — 7b — the free account's locked Profile Photo pill sends a tap to /pricing instead of a silent no-op, only the 403 code is asserted — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 rejects a standalone avatarSource:photo selection from an unentitled user`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the free account: refused at /admin/help, photo withheld and its selection refused, and a submission confirmed`
 
 ### 18. An entitled account can select the same photo
 
@@ -304,9 +286,7 @@ as your avatar.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 allows a standalone avatarSource:photo selection from an entitled user`; `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows an entitled user's selected photo`
-
-**Deferred:** #631 — 7b — the seeded paid account selects its stored photo and the header avatar shows it, only the route and the projection are asserted — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:POST /users/me/profile-image — task #507 allows a standalone avatarSource:photo selection from an entitled user`; `artifacts/api-server/src/__tests__/effectiveAvatar.integration.test.ts:the effective-avatar projection shows an entitled user's selected photo`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the paid account selects its stored photo and the avatar shows it`
 
 ### 19. An unselected identity photo doesn't leak next to a submission or comment
 
@@ -335,7 +315,7 @@ all — a pre-existing bug closed on the way past.)
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the account's own Profile page avatar shows the generated icon for a stored unselected photo, client logic untested — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the free account: refused at /admin/help, photo withheld and its selection refused, and a submission confirmed`
 
 ### 21. Video generation still works before any toggle
 
@@ -384,9 +364,9 @@ out.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement a public meme is visible to anyone`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement a public meme is visible to anyone`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:logged out, the ordinary and feed routes load with no sign-in wall, no error and no redirect`
 
-**Deferred:** #631 — 7b — logged out with no session, / renders real content with no sign-in wall, the smoke spec signs in as admin before every route — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; #628 — Phase 6 (The loop) — the public fact page and meme permalink page get their browser journey there
+**Deferred:** #628 — Phase 6 (The loop) — the public fact page and meme permalink page get their browser journey there
 
 ### R2. Commenting captcha is unchanged for a registered user
 
@@ -447,9 +427,7 @@ one.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
-
-**Deferred:** #631 — 7b — admin Users, Refunds and Disputes, Config, Engines and Email Queue each render the AdminLayout nav with no error boundary for the dev admin, no spec opens them — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:Users shows each tier, an admin grant as a grant, creates a Legendary user, and keeps a revoked grant`
 
 ### R8. Admin notification preferences still work
 
@@ -459,9 +437,7 @@ one.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:PATCH /users/me/notifications updates both flags for admin users`
-
-**Deferred:** #631 — 7b — the admin's Profile Notification Preferences section is visible and its toggle saves, only the PATCH route is tested — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:PATCH /users/me/notifications updates both flags for admin users`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin hides the Admin Panel and withdraws private memes; Resume Admin on Profile restores them`
 
 ### R9. PuLID (stylized photo) memes still work
 

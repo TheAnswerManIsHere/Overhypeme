@@ -33,9 +33,7 @@ Email Queue).
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:shows one card per worker lane, each with its own liveness verdict`
-
-**Deferred:** #631 — 7b — the Worker lanes section on /admin/queue-health holding exactly five lane cards, no sixth — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:shows one card per worker lane, each with its own liveness verdict`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lanes, clock, polling, queue rows and sidebar, then the ? lands on chapter 12`
 
 ### 2. Each lane card reports its own state
 
@@ -46,9 +44,7 @@ fire Xs ago · N in flight".
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:shows one card per worker lane, each with its own liveness verdict`
-
-**Deferred:** #631 — 7b — the Scheduling label's green colour, which no assertion reads — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:shows one card per worker lane, each with its own liveness verdict`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lanes, clock, polling, queue rows and sidebar, then the ? lands on chapter 12`
 
 ### 3. A summary line sits above the cards
 
@@ -59,9 +55,7 @@ HH:MM:SS."
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:summarises lane liveness in words above the cards`
-
-**Deferred:** #631 — 7b — the summary's Last checked value on /admin/queue-health matching a clock time such as 14:03:27, not any text such as Invalid Date — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:summarises lane liveness in words above the cards`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lanes, clock, polling, queue rows and sidebar, then the ? lands on chapter 12`
 
 ### 4. The page polls on its own
 
@@ -73,7 +67,7 @@ never need to refresh the page.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the Last checked timestamp advancing about every 5 seconds with no reload — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lanes, clock, polling, queue rows and sidebar, then the ? lands on chapter 12`
 
 ### 5. The Queues section lists every registered queue
 
@@ -86,9 +80,7 @@ no-more-retries counts, an oldest age when those apply, and a trailing
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run`
-
-**Deferred:** #631 — 7b — each queue row on /admin/queue-health reading N queued · N working · N done · N failed, then skipped, no-more-retries and oldest age when nonzero, ending 24h: N done / N failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lanes, clock, polling, queue rows and sidebar, then the ? lands on chapter 12`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:a queue row shows its conditional counts, expands to labelled jobs, and collapses again`
 
 ### 6. A queue that has never run still appears
 
@@ -100,9 +92,7 @@ never executed once.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run` `artifacts/api-server/src/__tests__/queueHealth.test.ts:reports a registered queue that has never run, rather than omitting it`
-
-**Deferred:** #631 — 7b — a registered queue with no jobs appearing on /admin/queue-health as its own row reading 0 queued · 0 working · 0 done · 0 failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lists every registered queue, including ones that have never run` `artifacts/api-server/src/__tests__/queueHealth.test.ts:reports a registered queue that has never run, rather than omitting it`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lanes, clock, polling, queue rows and sidebar, then the ? lands on chapter 12`
 
 ### 7. A queue row expands to individual jobs
 
@@ -113,7 +103,7 @@ count, and any error.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — clicking a queue row expands it to job id, state, attempt count and error text — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:a queue row shows its conditional counts, expands to labelled jobs, and collapses again`
 
 ### 8. A queue row collapses again
 
@@ -123,7 +113,7 @@ count, and any error.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — a second click on the same queue row collapsing it — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:a queue row shows its conditional counts, expands to labelled jobs, and collapses again`
 
 ### 9. Every job state is a labelled badge
 
@@ -139,9 +129,7 @@ different operator stories now.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/queueHealth.test.ts`
-
-**Deferred:** #631 — 7b — six job states as labelled badges: Queued, Working (spinning), Done, Failed, Skipped (reason), Failed no more retries — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/api-server/src/__tests__/queueHealth.test.ts`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:a queue row shows its conditional counts, expands to labelled jobs, and collapses again`
 
 ### 10. A first-load failure says so, explicitly
 
@@ -157,7 +145,7 @@ page whose entire job is revealing problems.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — first-load failure showing the Could not load queue health panel with Retry and the not-healthy sentence, no green cards — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:first load shows skeleton bars, then a failure says so in words`
 
 ### 11. A failure after data is on screen keeps the stale data visible
 
@@ -172,7 +160,7 @@ up and never asks you to refresh.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — after a load, a failed poll on /admin/queue-health keeping the queue rows and showing the amber banner Showing data from <time>, the last refresh failed and we are still retrying, clearing when the API recovers — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:a failed poll keeps the data on screen, says it is stale, and recovers on its own`
 
 ### 12. Loading looks like loading
 
@@ -183,7 +171,7 @@ page.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — first load showing five grey skeleton bars, not a single spinner — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:first load shows skeleton bars, then a failure says so in words`
 
 ## Regression
 
@@ -200,9 +188,7 @@ Nothing from the Queue Health page appears on it.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminScreens.spec.ts:Email Queue shows its filters, its actions and its table`
-
-**Deferred:** #631 — 7b — /admin/email-queue loads and lists its jobs with no error — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminScreens.spec.ts:Email Queue shows its filters, its actions and its table`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:Email Queue loads and lists its jobs with no error, and Engines loads`
 
 ### R2. Memes still generate end to end
 
@@ -235,9 +221,7 @@ present and working.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:renders inside the admin console for an admin`
-
-**Deferred:** #631 — 7b — every pre-existing sidebar item still present with its route, Queue Health sitting after Email Queue — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:renders inside the admin console for an admin`; `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts:lanes, clock, polling, queue rows and sidebar, then the ? lands on chapter 12`
 
 ### R5. The new endpoints are admin-gated
 

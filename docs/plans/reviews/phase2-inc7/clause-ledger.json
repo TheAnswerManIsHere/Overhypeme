@@ -1763,10 +1763,31 @@
     },
     {
      "text": "a red-bordered Change approved fact text modal appears on the Facts page, not a silent save and not a generic Save failed error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Facts page opening the red-bordered Change approved fact text modal, not a silent save or a Save failed banner — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 337,
+       "quote": "\"PR228 step 1: the Change approved fact text modal appears\").toBeVisible()"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 340,
+       "quote": "\"PR228 step 1: the modal is red-bordered\").toHaveCSS(\"border-top-color\", red)"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 341,
+       "quote": "\"PR228 step 1: not a generic Save failed error\").toHaveCount(0)"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 342,
+       "quote": "\"PR228 step 1: not a silent save\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if a text change on a live fact no longer opens the Change approved fact text modal (silent save or an error instead), the heading assertion at line 337 fails; if the modal loses its red (border-destructive) border, the border-top-color assertion at line 340 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -1957,24 +1978,52 @@
    "clauses": [
     {
      "text": "the modal closes",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after Confirm the modal closes, a green Saved message shows and the fact displays the new wording — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 360,
+       "quote": "\"PR228 step 6: the modal closes\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if the modal stays open after Change the text succeeds, the toHaveCount(0) at line 360 fails",
+     "gap_clause": null
     },
     {
      "text": "a green Saved confirmation shows",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after Confirm the modal closes, a green Saved message shows and the fact displays the new wording — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 358,
+       "quote": "\"PR228 step 6: a Saved confirmation shows\").toBeVisible()"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 359,
+       "quote": "\"PR228 step 6: the Saved confirmation is green\").toHaveCSS(\"color\""
+      }
+     ],
+     "fails_because": "if no Saved successfully. confirmation shows after confirming, line 358 fails; if it is not green (text-green-400), line 359 fails",
+     "gap_clause": null
     },
     {
      "text": "the fact now displays the new wording",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after Confirm the modal closes, a green Saved message shows and the fact displays the new wording — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 361,
+       "quote": "\"PR228 step 6: the fact now displays the new wording\").toBeVisible()"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 362,
+       "quote": "\"PR228 step 6: the old wording is gone from the list\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if the saved fact's row in the Facts list keeps the old wording, line 361 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -1986,24 +2035,52 @@
    "clauses": [
     {
      "text": "the expanded history lists the edit with who made it and when",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the expanded Approved text edit history panel listing who, when, old to new wording and the reason is unasserted (the API test reads only newText and actor) — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 368,
+       "quote": "\"PR228 step 7: the entry names who made the edit\").toBeVisible()"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 369,
+       "quote": "\"PR228 step 7: the entry shows when\").toBeVisible()"
+      }
+     ],
+     "fails_because": "if the expanded history entry stops naming the admin, line 368 fails; if it stops showing the edit's date and time (toLocaleString of createdAt), line 369 fails",
+     "gap_clause": null
     },
     {
      "text": "the entry shows the old to new wording",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the expanded Approved text edit history panel listing who, when, old to new wording and the reason is unasserted (the API test reads only newText and actor) — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 370,
+       "quote": "\"PR228 step 7: the entry shows the old wording\").toHaveCSS(\"text-decoration-line\", \"line-through\")"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 371,
+       "quote": "\"PR228 step 7: the entry shows the new wording\").toBeVisible()"
+      }
+     ],
+     "fails_because": "if the entry drops the struck-through old wording, line 370 fails; if it drops the → new wording, line 371 fails",
+     "gap_clause": null
     },
     {
      "text": "the entry shows the reason typed",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the expanded Approved text edit history panel listing who, when, old to new wording and the reason is unasserted (the API test reads only newText and actor) — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 372,
+       "quote": "\"PR228 step 7: the entry shows the reason typed\").toBeVisible()"
+      }
+     ],
+     "fails_because": "if the entry no longer shows Reason: <the reason typed in the modal>, line 372 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -2038,10 +2115,16 @@
     },
     {
      "text": "no warning modal appears on the Facts page",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a save that changes no text on a live fact sends no text and opens no warning modal, it saves at once — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 395,
+       "quote": "\"PR228 step 8: no warning modal appears for a save that changes no text\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if saving a use-case-only change on a live fact opens the Change approved fact text modal, line 395 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -2053,24 +2136,47 @@
    "clauses": [
     {
      "text": "Cancel closes the modal",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — Cancel closes the modal, saves nothing and leaves the edited text in the box — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 346,
+       "quote": "\"PR228 step 9: Cancel closes the modal\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if Cancel leaves the modal open, line 346 fails",
+     "gap_clause": null
     },
     {
      "text": "nothing is saved",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — Cancel closes the modal, saves nothing and leaves the edited text in the box — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 348,
+       "quote": "\"PR228 step 9: nothing is saved — the list keeps the stored wording\").toBeVisible()"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 349,
+       "quote": "\"PR228 step 9: nothing is saved — no confirmed save was sent\").toHaveLength(0)"
+      }
+     ],
+     "fails_because": "if Cancel saves the edit anyway, the list row stops showing the stored wording and line 348 fails (line 349 also finds the confirmed PATCH)",
+     "gap_clause": null
     },
     {
      "text": "the edited text is still in the box",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — Cancel closes the modal, saves nothing and leaves the edited text in the box — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 350,
+       "quote": "\"PR228 step 9: the edited text is still in the box\").toHaveValue(NEW)"
+      }
+     ],
+     "fails_because": "if Cancel discards the draft, the Text box no longer holds the edited text and line 350 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -2082,24 +2188,42 @@
    "clauses": [
     {
      "text": "the staging fact's text save opens no dire-warning modal",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on /admin/facts, a text save on a never-approved staging fact opening no warning modal and showing the message beginning Saved. Prep restarted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 416,
+       "quote": "\"PR228 step 10: the staging fact's text save opens no dire-warning modal\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if a staging fact's text save opens the Change approved fact text modal, line 416 fails",
+     "gap_clause": null
     },
     {
      "text": "it just saves",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on /admin/facts, a text save on a never-approved staging fact opening no warning modal and showing the message beginning Saved. Prep restarted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 414,
+       "quote": "\"PR228 step 10: it just saves — the list reads the new wording\").toBeVisible()"
+      }
+     ],
+     "fails_because": "if the staging text save does not land (the list row keeps the old wording), line 414 fails",
+     "gap_clause": null
     },
     {
      "text": "the message notes that prep is restarting",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on /admin/facts, a text save on a never-approved staging fact opening no warning modal and showing the message beginning Saved. Prep restarted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 415,
+       "quote": "\"PR228 step 10: the message notes that prep is restarting\").toHaveText(/^Saved\\. Prep restarted/)"
+      }
+     ],
+     "fails_because": "if the message after a staging save stops saying Prep restarted, line 415 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -2335,10 +2459,16 @@
     },
     {
      "text": "no text modal appears",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on /admin/facts, saving the enrichment editor on a live fact showing Saved to server and no Change approved fact text modal — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 406,
+       "quote": "\"PR228 R4: no text modal appears for an enrichment save\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if saving the enrichment editor (a hashtag added, Save enrichment) opens the Change approved fact text modal, line 406 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -3296,10 +3426,21 @@
     },
     {
      "text": "the normal submitted-for-review confirmation shows",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — /submit showing You're Done! and Your fact is in the queue for review. after a submission as the ordinary free account — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 651,
+       "quote": "PR242 step 1: a normal submission shows the confirmation"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 652,
+       "quote": "PR242 step 1: ...saying it is queued for review"
+      }
+     ],
+     "fails_because": "if a free-account submission does not show You're Done! / Your fact is in the queue for review., the expect(s) at line(s) 644, 645 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -3311,17 +3452,39 @@
    "clauses": [
     {
      "text": "the success message reads Queued N fact(s) for moderation (…skipped as duplicates). They'll appear after review.",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Facts import panel on /admin/facts showing Queued N fact(s) for moderation, the (N skipped as duplicates) note when rows were skipped, and They'll appear after review., never imported — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 495,
+       "quote": "\"PR242 step 2: the message reads Queued N fact(s) for moderation\").toHaveText("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 501,
+       "quote": "\"PR242 step 2: a re-import notes the duplicates it skipped\").toHaveText("
+      }
+     ],
+     "fails_because": "if the import panel's message stops reading exactly Queued 2 fact(s) for moderation. They'll appear after review., line 487 fails; if a re-import stops noting (1 skipped as duplicates), line 493 fails",
+     "gap_clause": null
     },
     {
      "text": "it does not say imported",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Facts import panel on /admin/facts showing Queued N fact(s) for moderation, the (N skipped as duplicates) note when rows were skipped, and They'll appear after review., never imported — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 494,
+       "quote": "\"PR242 step 2: the import message does not say imported\").not.toHaveText(/imported/i)"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 504,
+       "quote": "\"PR242 step 2: the import message does not say imported\").not.toHaveText(/imported/i)"
+      }
+     ],
+     "fails_because": "if the import message says imported, line 486 (first import) and line 496 (re-import) fail",
+     "gap_clause": null
     }
    ]
   },
@@ -3333,10 +3496,21 @@
    "clauses": [
     {
      "text": "the imported facts do not appear in the live fact list",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after an import on /admin/facts, the imported text absent from the active Facts list — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 512,
+       "quote": "\"PR242 step 3: the imported fact does not appear in the live fact list\").toHaveCount(0)"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 513,
+       "quote": "\"PR242 step 3: the live list has nothing for the imported text\").toBeVisible()"
+      }
+     ],
+     "fails_because": "if an import puts the text straight into the active facts, the Facts list (Show: Active, searched for the imported text) shows its row and line 504 fails",
+     "gap_clause": null
     },
     {
      "text": "in Admin → Reviews they are at Stage 1 (triage)",
@@ -3402,17 +3576,34 @@
    "clauses": [
     {
      "text": "the alert reads Variant queued for review. It'll appear under this fact once it's approved through moderation.",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Variant queued for review alert wording shown after saving a variant, and the variant not appearing at once, is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 445,
+       "quote": "expect(alertText, \"PR242 step 5: the alert reads Variant queued for review\").toMatch("
+      }
+     ],
+     "fails_because": "if the alert after Add no longer reads Variant queued for review. It'll appear under this fact once it's approved through moderation., the toMatch at line 445 fails",
+     "gap_clause": null
     },
     {
      "text": "the variant no longer appears instantly",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Variant queued for review alert wording shown after saving a variant, and the variant not appearing at once, is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 448,
+       "quote": "\"PR242 step 5: the variant does not appear instantly\").toBeVisible()"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 449,
+       "quote": "\"PR242 step 5: the variant text is nowhere on the page\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if the saved variant is listed at once under the fact (the pre-PR242 instant publish), Variants (0) is gone and line 448 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -3444,10 +3635,26 @@
     },
     {
      "text": "it appears nested under the parent only after that approval",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — /admin/facts showing the approved variant nested under its parent row, and not before approval — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 450,
+       "quote": "\"PR242 step 6: not nested under the parent before approval\").toHaveCount(0)"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 476,
+       "quote": "\"PR242 step 6: after approval the variant appears nested under its parent\").toContainText(\"variant\")"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 477,
+       "quote": "\"PR242 step 6: the nested row is indented under the parent\").toHaveClass(/pl-10/)"
+      }
+     ],
+     "fails_because": "if the Facts list stops nesting an approved variant under its parent row (expand toggle, indented row marked variant), line 468 fails; if a queued variant shows nested before approval, line 450 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -3482,10 +3689,26 @@
     },
     {
      "text": "the rejection shows the message A fact can only be activated through moderation. Deactivated facts must be re-moderated to go live again.",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Facts editor showing A fact can only be activated through moderation after an inactive fact is toggled Active and saved — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 460,
+       "quote": "await expect(activeToggle, \"PR242 step 7: toggling an inactive fact Active is refused\").toBeDisabled();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 462,
+       "quote": "page.getByText(\"Deactivated facts can only go live again through moderation.\", { exact: true }),"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 464,
+       "quote": ").toBeVisible();"
+      }
+     ],
+     "fails_because": "if the editor let an inactive fact be toggled Active, toBeDisabled at line 460 fails; if the refusal stopped saying activation is through moderation, the caption check at lines 461-464 fails. The server-side 400 for a false→true PATCH is the existing Check (routes.admin.test.ts).",
+     "gap_clause": null
     }
    ]
   },
@@ -3528,17 +3751,29 @@
    "clauses": [
     {
      "text": "an inactive fact shows a Resubmit for Moderation button",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Resubmit for Moderation button on an inactive fact, where Send Back to Review shows for active facts, is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 455,
+       "quote": "\"PR242 step 9: an inactive fact shows a Resubmit for Moderation button\").toHaveText(\"Resubmit for Moderation\")"
+      }
+     ],
+     "fails_because": "if an inactive fact's editor stops showing the Resubmit for Moderation button, line 455 fails",
+     "gap_clause": null
     },
     {
      "text": "an active fact shows Send Back to Review in its place",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Resubmit for Moderation button on an inactive fact, where Send Back to Review shows for active facts, is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 435,
+       "quote": "\"PR242 steps 9/13: an active fact shows Send Back to Review\").toHaveText(\"Send Back to Review\")"
+      }
+     ],
+     "fails_because": "if an active fact's editor stops showing Send Back to Review, line 435 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -3573,10 +3808,16 @@
     },
     {
      "text": "the message reads Resubmitted for moderation, Review #… is back in the queue at Stage 1",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Resubmitted for moderation message naming the review and Stage 1 is unasserted — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 469,
+       "quote": ").toHaveText(/^Resubmitted for moderation — Review #4242 is back in the queue at Stage 1\\./)"
+      }
+     ],
+     "fails_because": "if the message after Resubmit for Moderation stops reading Resubmitted for moderation — Review #<id> is back in the queue at Stage 1., line 461 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -3691,17 +3932,29 @@
    "clauses": [
     {
      "text": "the Resubmit button does not appear on an active fact",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — /admin/facts on an active fact showing Send Back to Review and no Resubmit for Moderation button — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 436,
+       "quote": "\"PR242 step 13: no Resubmit for Moderation button on an active fact\").toHaveCount(0)"
+      }
+     ],
+     "fails_because": "if the Resubmit for Moderation button shows on an active fact, line 436 fails",
+     "gap_clause": null
     },
     {
      "text": "Send Back to Review shows instead",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — /admin/facts on an active fact showing Send Back to Review and no Resubmit for Moderation button — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 435,
+       "quote": "\"PR242 steps 9/13: an active fact shows Send Back to Review\").toHaveText(\"Send Back to Review\")"
+      }
+     ],
+     "fails_because": "if Send Back to Review stops showing on an active fact, line 435 fails",
+     "gap_clause": null
     },
     {
      "text": "a direct resubmit attempt on an active fact is rejected",
@@ -4849,17 +5102,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 145,
+       "line": 194,
        "quote": "page.getByTestId(\"sync-progress-panel\"),"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 146,
+       "line": 195,
        "quote": "\"the sync status panel should render on load\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 147,
+       "line": 196,
        "quote": ").toBeVisible({ timeout: 15_000 });"
       }
      ],
@@ -4868,17 +5121,44 @@
     },
     {
      "text": "Products, Prices, Plans, Customers and so on are each shown with its own state",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on first load before any click, all eight rows, Products through Payment Methods, each carrying a data-status, and the sync-summary line carrying a data-tone — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 202,
+       "quote": "await expect(row, `PR276 step 1: the ${label} row should be shown on load`).toContainText(label);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 203,
+       "quote": "await expect(row, `PR276 step 1: the ${label} row should carry its own state`).toHaveAttribute("
+      }
+     ],
+     "fails_because": "if a resource row (e.g. Payment Methods) is missing or carries no state on load, the loop at lines 202/203 fails",
+     "gap_clause": null
     },
     {
      "text": "a coloured summary line sits at the top of the panel",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on first load before any click, all eight rows, Products through Payment Methods, each carrying a data-status, and the sync-summary line carrying a data-tone — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 209,
+       "quote": "await expect(loadSummary, \"PR276 step 1: the summary line should carry a tone\").toHaveAttribute("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 213,
+       "quote": "await expect(loadSummary, \"PR276 step 1: the summary line should be coloured\").toHaveClass("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 218,
+       "quote": "\"PR276 step 1: the summary line should sit at the top of the panel\","
+      }
+     ],
+     "fails_because": "if the summary line is absent, uncoloured, or not first in the panel, line 209, 213 or 218 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -4890,17 +5170,34 @@
    "clauses": [
     {
      "text": "a green line reads Sync complete, naming what was synced and how long it took",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after the Sync Stripe data run, the green line reading Sync complete followed by the synced counts and the run's duration, and the Plans header reading Last synced: just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 301,
+       "quote": "await expect(completeLine, \"PR276 step 2: Sync complete should name the counts and the duration\").toHaveText("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 304,
+       "quote": "await expect(completeLine.locator(\"..\"), \"PR276 step 2: the Sync complete line should be green\").toHaveClass("
+      }
+     ],
+     "fails_because": "if the green line stops naming the synced counts or the run's duration, or is not green, line 298 or 301 fails",
+     "gap_clause": null
     },
     {
      "text": "the Plans header reads Last synced: just now",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after the Sync Stripe data run, the green line reading Sync complete followed by the synced counts and the run's duration, and the Plans header reading Last synced: just now — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 315,
+       "quote": "\"PR276 step 2: the Plans header should read Last synced: just now\","
+      }
+     ],
+     "fails_because": "if the Plans header stamp does not read '· Last synced: just now' right after the run, the toHaveText at line 312 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -4912,17 +5209,44 @@
    "clauses": [
     {
      "text": "after a reload the green line is still there and still says it synced",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and its full text, Last sync completed followed by N of 8 resources reported or successfully as the CI state produces, not the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 348,
+       "quote": "await expect(summary, \"PR276 step 3: the reloaded summary should say it synced\").toHaveAttribute(\"data-tone\", \"ok\");"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 349,
+       "quote": "await expect(summary, \"PR276 step 3: the reloaded summary should be green\").toHaveClass(/text-green-400/);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 350,
+       "quote": "await expect(summary, \"PR276 step 3: the reloaded summary should say it synced\").toHaveText("
+      }
+     ],
+     "fails_because": "if after a reload the summary is not the green ok-tone 'Last sync completed — N of 8 resources reported.' / 'Last sync completed successfully.' line, line 342, 343 or 344 fails",
+     "gap_clause": null
     },
     {
      "text": "it does not revert to a bare product count",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after a successful Sync Stripe data run and page.reload on the Billing page, sync-summary with data-tone ok and its full text, Last sync completed followed by N of 8 resources reported or successfully as the CI state produces, not the N products found count — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 342,
+       "quote": "await expect(summary, \"PR276 step 3: the summary line should still be there after a reload\").toBeVisible({"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 345,
+       "quote": "await expect(summary, \"PR276 step 3: it should not revert to a bare product count\").not.toContainText("
+      }
+     ],
+     "fails_because": "if after a reload only the product count is left (no summary line), line 336 fails; if the summary is replaced by a product count, line 339 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -4938,12 +5262,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 325,
+       "line": 510,
        "quote": "const summary = page.getByTestId(\"sync-summary\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 326,
+       "line": 511,
        "quote": "await expect(summary).toHaveAttribute(\"data-tone\", \"error\");"
       }
      ],
@@ -4952,10 +5276,16 @@
     },
     {
      "text": "the summary line is red",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 512,
+       "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
+      }
+     ],
+     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 506 fails",
+     "gap_clause": null
     },
     {
      "text": "it reads Last sync failed",
@@ -4963,7 +5293,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 327,
+       "line": 515,
        "quote": "await expect(summary).toContainText(/Last sync failed/i);"
       }
      ],
@@ -4976,7 +5306,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 328,
+       "line": 516,
        "quote": "await expect(summary).toContainText(/plans/i);"
       }
      ],
@@ -4985,17 +5315,29 @@
     },
     {
      "text": "it continues 'did not complete: <the error text>'",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after the reload in the failure step, the sync-summary text containing plans did not complete: Simulated failure for testing, and Catalog data may be stale. — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 517,
+       "quote": "await expect(summary, \"PR276 step 4: the summary should say what did not complete and why\").toContainText("
+      }
+     ],
+     "fails_because": "if the red line stops reading 'plans did not complete: Simulated failure for testing.', line 511 fails",
+     "gap_clause": null
     },
     {
      "text": "it ends 'Catalog data may be stale.'",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after the reload in the failure step, the sync-summary text containing plans did not complete: Simulated failure for testing, and Catalog data may be stale. — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 520,
+       "quote": "await expect(summary, \"PR276 step 4: the failure sentence should end Catalog data may be stale.\").toContainText("
+      }
+     ],
+     "fails_because": "if the failure sentence no longer ends 'Catalog data may be stale.', line 514 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5011,7 +5353,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 278,
+       "line": 455,
        "quote": "await waitForResourceError(page, \"Plans\", 30_000);"
       },
       {
@@ -5021,7 +5363,7 @@
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 317,
+       "line": 498,
        "quote": "await expect(progressRow(page, \"Plans\")).toHaveAttribute(\"data-status\", \"error\", {"
       }
      ],
@@ -5034,12 +5376,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 320,
+       "line": 501,
        "quote": "await expect(page.getByTestId(\"sync-row-plans-detail\")).toContainText("
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 321,
+       "line": 502,
        "quote": "/Simulated failure for testing/,"
       }
      ],
@@ -5048,10 +5390,16 @@
     },
     {
      "text": "the Plans row shows a red ✗",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the red cross icon on the failed resource row, only the data-status attribute and error text are asserted — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 458,
+       "quote": "\"PR276 step 5: the failed Plans row should show a red ✗\","
+      }
+     ],
+     "fails_because": "if the failed Plans row's icon is not the red circle-x, the toHaveClass at line 452 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5067,17 +5415,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 309,
+       "line": 490,
        "quote": "await page.reload();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 326,
+       "line": 511,
        "quote": "await expect(summary).toHaveAttribute(\"data-tone\", \"error\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 327,
+       "line": 515,
        "quote": "await expect(summary).toContainText(/Last sync failed/i);"
       }
      ],
@@ -5086,10 +5434,16 @@
     },
     {
      "text": "after a reload the summary line is still red",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 512,
+       "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
+      }
+     ],
+     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 506 fails",
+     "gap_clause": null
     },
     {
      "text": "after a reload the Plans row still reports the failure",
@@ -5097,7 +5451,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 317,
+       "line": 498,
        "quote": "await expect(progressRow(page, \"Plans\")).toHaveAttribute(\"data-status\", \"error\", {"
       }
      ],
@@ -5106,10 +5460,16 @@
     },
     {
      "text": "the Plans row's red ✗ is still there",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after the reload, the red cross icon on the failed Plans row, beyond its data-status and error text — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 506,
+       "quote": "\"PR276 step 6: the Plans row's red ✗ should survive the reload\","
+      }
+     ],
+     "fails_because": "if after the reload the failed Plans row's icon is not the red circle-x, the toHaveClass at line 500 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5125,12 +5485,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 325,
+       "line": 510,
        "quote": "const summary = page.getByTestId(\"sync-summary\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 328,
+       "line": 516,
        "quote": "await expect(summary).toContainText(/plans/i);"
       }
      ],
@@ -5151,17 +5511,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 281,
+       "line": 462,
        "quote": "await waitForResourceComplete(page, \"Products\", 5_000);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 282,
+       "line": 463,
        "quote": "await waitForResourceComplete(page, \"Prices\", 5_000);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 326,
+       "line": 511,
        "quote": "await expect(summary).toHaveAttribute(\"data-tone\", \"error\");"
       }
      ],
@@ -5170,17 +5530,29 @@
     },
     {
      "text": "the summary shows red, not green",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the error-tone sync-summary line carrying the text-destructive class, so it shows red, not only data-tone error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 512,
+       "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
+      }
+     ],
+     "fails_because": "if the failed summary line (after the reload, Products and Prices complete) loses its text-destructive class, line 506 fails",
+     "gap_clause": null
     },
     {
      "text": "the Last synced stamp still appears on that red summary",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Last synced stamp still appearing on the red summary while other rows are complete — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 527,
+       "quote": "await expect(summary, \"PR276 step 8: the Last synced stamp should still appear on the red summary\").toContainText("
+      }
+     ],
+     "fails_because": "if the red summary drops its 'Last synced …' stamp while Products and Prices are complete, line 521 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5196,12 +5568,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 336,
+       "line": 537,
        "quote": "await page.route(\"**/api/admin/stripe/sync/status\", route =>"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 359,
+       "line": 560,
        "quote": "await expect(summary).toHaveAttribute(\"data-tone\", \"never\");"
       }
      ],
@@ -5210,10 +5582,16 @@
     },
     {
      "text": "that line is amber",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the never-tone sync-summary line carrying the text-amber-400 class, so it shows amber, not only data-tone never — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 562,
+       "quote": "await expect(summary, \"PR276 step 9: the never-synced line should be amber\").toHaveClass(/text-amber-400/);"
+      }
+     ],
+     "fails_because": "if the never-synced line loses its text-amber-400 class, line 556 fails",
+     "gap_clause": null
     },
     {
      "text": "it reads Never synced",
@@ -5221,7 +5599,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 360,
+       "line": 561,
        "quote": "await expect(summary).toContainText(/never synced/i);"
       }
      ],
@@ -5230,10 +5608,16 @@
     },
     {
      "text": "it reads run a full sync to populate the catalog",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the amber line's actionable wording, run a full sync to populate the catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 563,
+       "quote": "await expect(summary, \"PR276 step 9: the never-synced line should say what to do\").toContainText("
+      }
+     ],
+     "fails_because": "if the amber line stops reading 'Never synced — run a full sync to populate the catalog.', line 557 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5245,10 +5629,16 @@
    "clauses": [
     {
      "text": "after a server restart and reload, the '· Last synced: …' stamp in the Plans header is still shown and correct",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the plans-last-synced stamp reading Last synced: from per-resource lastSyncedAt when GET /api/admin/stripe/sync/status is stubbed as after a restart, finishedAt null — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 597,
+       "quote": "\"PR276 step 10: the Plans header stamp should come from the resources' own lastSyncedAt\","
+      }
+     ],
+     "fails_because": "if the Plans header stamp is derived from finishedAt (null after a restart) instead of per-resource lastSyncedAt, the toHaveText('· Last synced: 3m ago') at line 591 fails",
+     "gap_clause": null
     },
     {
      "text": "the stamp comes from each resource's own stored timestamp, which survives a restart, not an in-memory value",
@@ -5276,14 +5666,20 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the rows passing pending, syncing… and complete for a run the Sync Stripe data click itself starts, not one the simulate endpoint started with its own status writes — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "gap_clause": "#628 — Phase 10 (Membership and money) — the rows passing pending, syncing… and complete for a run the Sync Stripe data click itself starts: on the fake Stripe driver that run finishes in about 41 ms, inside one tick of the page's one-second status poll, so CI never sees a row mid-run until the fake can be slowed"
     },
     {
      "text": "the button disables while the sync runs",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Sync button being disabled while the run is in flight, only its re-enabling is asserted — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 410,
+       "quote": "await expect(syncButton, \"PR276 R1: the Sync button should be disabled while the run is in flight\").toBeDisabled();"
+      }
+     ],
+     "fails_because": "if the Sync button stays enabled while Products is running, line 404 fails",
+     "gap_clause": null
     },
     {
      "text": "the button re-enables when the sync finishes",
@@ -5291,12 +5687,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 294,
+       "line": 475,
        "quote": "await expect(syncButton).toHaveText(/Sync Stripe data/, { timeout: 10_000 });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 295,
+       "line": 476,
        "quote": "await expect(syncButton).toBeEnabled();"
       }
      ],
@@ -5316,14 +5712,25 @@
      "status": "gap",
      "evidence": [],
      "fails_because": null,
-     "gap_clause": "#631 — 7b — the rows passing syncing… before complete on the Billing page for a run the Full sync click starts, POST /api/admin/stripe/full-sync — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "gap_clause": "#628 — Phase 10 (Membership and money) — the rows passing syncing… before complete on the Billing page for a run the Full sync click starts: on the fake Stripe driver that run finishes in about 45 ms, inside one tick of the page's one-second status poll, so CI never sees a row mid-run until the fake can be slowed"
     },
     {
      "text": "across all eight resources",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — Full sync driving all eight resource rows to complete in the panel, beyond the runner's call order — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 371,
+       "quote": "{ timeout: 30_000, message: \"PR276 R2: the page should read the full run's Payment Methods stamp\" },"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 377,
+       "quote": "`PR276 R2: Full sync should drive the ${label} row to complete`,"
+      }
+     ],
+     "fails_because": "if Full sync does not run all eight resources, the poll at line 365 (Payment Methods stamp newer than the click) fails; if any of the eight rows is not complete in the panel afterwards, line 371 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5339,12 +5746,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 172,
+       "line": 247,
        "quote": "await expect(plansHeaderRow.getByText(/^TEST$/), \"Plans header should show TEST badge\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 173,
+       "line": 248,
        "quote": "await expect(plansHeaderRow.getByText(/^LIVE$/)).toHaveCount(0);"
       }
      ],
@@ -5353,10 +5760,16 @@
     },
     {
      "text": "in live mode the badge shows LIVE (the right mode either way)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the plans-mode-badge reading LIVE, and no TEST, when /api/admin/config is stubbed with stripe_live_mode true, since the fake is test-mode only — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 700,
+       "quote": "await expect(page.getByTestId(\"plans-mode-badge\"), \"PR276 R3: in live mode the badge should read LIVE\").toHaveText("
+      }
+     ],
+     "fails_because": "if a page loaded in live mode badges the Plans header TEST, line 694 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5368,10 +5781,16 @@
    "clauses": [
     {
      "text": "the N products found count after a sync is accurate",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the plans-count text reading 1 product found after Sync Stripe data, matching the fake fixture's one product — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 322,
+       "quote": "await expect(page.getByTestId(\"plans-count\"), \"PR276 R4: the product count should be accurate\").toHaveText("
+      }
+     ],
+     "fails_because": "if the count stops reading '1 product found' for the fake fixture's one product, line 317 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5387,12 +5806,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 154,
+       "line": 229,
        "quote": "if (summaryBody.stripeDriver === \"fake\") {"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 160,
+       "line": 235,
        "quote": "await expect(page.getByText(\"Legendary (fake)\").first(), \"the fake fixture product should be listed\").toBeVisible({"
       }
      ],
@@ -5401,17 +5820,29 @@
     },
     {
      "text": "descriptions render",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the product list's description text, Fake Legendary membership, and the prices $4.99/month, $49.00/year and $99.00 one-time beside Legendary (fake) — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 328,
+       "quote": "\"PR276 R5: the product's description should render\","
+      }
+     ],
+     "fails_because": "if the product description 'Fake Legendary membership…' is not rendered in the Legendary (fake) card, line 323 fails",
+     "gap_clause": null
     },
     {
      "text": "prices render",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the product list's description text, Fake Legendary membership, and the prices $4.99/month, $49.00/year and $99.00 one-time beside Legendary (fake) — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 333,
+       "quote": "`PR276 R5: the price ${price} should render`,"
+      }
+     ],
+     "fails_because": "if any of $4.99/month, $49.00/year, $99.00 one-time is not rendered in the Legendary (fake) card, the loop at line 328 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5423,10 +5854,21 @@
    "clauses": [
     {
      "text": "the Setup Checklist rows are unchanged",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the four Setup Checklist labels rendering, with Stripe products configured in dashboard and Membership prices available ticked for the fake catalog — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 793,
+       "quote": "await expect(label, `PR276 R6: the Setup Checklist row \"${text}\" should render`).toBeVisible({ timeout: 15_000 });"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 797,
+       "quote": "`PR276 R6: \"${text}\" should be ticked for the fake catalog`,"
+      }
+     ],
+     "fails_because": "if one of the four Setup Checklist rows is missing, line 787 fails; if Stripe products configured / Membership prices available is not ticked for the fake catalog, line 791 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5456,10 +5898,21 @@
     },
     {
      "text": "on the page, toggling flips the mode shown, as before",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on the Billing page, Switch to Live Mode with the PATCH to /api/admin/config/stripe_live_mode stubbed to 200 flipping the Stripe Mode chip to LIVE and the button to Switch to Test Mode — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 691,
+       "quote": "await expect(modeChip, \"PR276 R7: toggling should flip the Stripe Mode chip to LIVE\").toHaveText(\"LIVE\");"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 692,
+       "quote": "await expect(modeToggle, \"PR276 R7: the button should now offer Switch to Test Mode\").toHaveText("
+      }
+     ],
+     "fails_because": "if clicking Switch to Live Mode does not flip the chip to LIVE, line 685 fails; if the button does not then offer Switch to Test Mode, line 686 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -5531,10 +5984,36 @@
     },
     {
      "text": "the membership screen shows the entry as an admin grant with who granted it and why, no amount, no payment id",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on /admin/users the Legendary for Life panel reads Granted with (admin: <granter label>) and the quoted reason, and shows no amount or payment-intent link — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 672,
+       "quote": "PR287 step 6: the paid account's lifetime row should read Granted"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 673,
+       "quote": "PR287 step 6: an admin grant shows no payment-intent link"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 674,
+       "quote": "PR287 step 6: an admin grant shows no amount"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 675,
+       "quote": "PR287 step 6: the grant names who granted it"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 678,
+       "quote": "PR287 step 6: the grant shows why, quoted"
+      }
+     ],
+     "fails_because": "if the grant reads as a purchase (payment-intent link, amount) or loses its granter label or quoted reason, the expect(s) at line(s) 276, 277, 278, 279, 282 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -5580,10 +6059,21 @@
     },
     {
      "text": "the membership screen still lists the grant, marked revoked, with who revoked it",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on /admin/users after Revoke the Legendary for Life panel reads Revoked grant and a Revoked line naming the revoker label — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 702,
+       "quote": "PR287 step 8: the revoked grant should still be listed, marked Revoked grant"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 705,
+       "quote": "PR287 step 8: the revoked grant should name who revoked it"
+      }
+     ],
+     "fails_because": "if the revoked grant stops reading Revoked grant or stops naming the revoker, the expect(s) at line(s) 306, 309 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -5799,10 +6289,31 @@
    "clauses": [
     {
      "text": "your own Profile page shows the correct tier",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Profile page showing the Legendary badge for the seeded paid account and Go Legendary for the free one — `artifacts/overhype-me/e2e/testAccounts.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/testAccounts.spec.ts",
+       "line": 40,
+       "quote": "PR287 step 22: the paid account's Profile should show the Legendary badge"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/testAccounts.spec.ts",
+       "line": 41,
+       "quote": "PR287 step 22: ...and no Go Legendary upsell"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/testAccounts.spec.ts",
+       "line": 43,
+       "quote": "PR287 step 22: the free account's Profile should offer Go Legendary"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/testAccounts.spec.ts",
+       "line": 44,
+       "quote": "PR287 step 22: ...and no Legendary badge"
+      }
+     ],
+     "fails_because": "if the paid Profile loses the Legendary badge or the free one the Go Legendary upsell, the expect(s) at line(s) 40, 41, 43, 44 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -5827,10 +6338,31 @@
     },
     {
      "text": "the Admin → Users list shows the correct tier per user",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on /admin/users the seeded paid account's row shows the Legendary icon and the free account's row the Registered icon — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 662,
+       "quote": "PR287 step 23: the paid account's row should show the Legendary icon"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 663,
+       "quote": "PR287 step 23: ...and not the Registered one"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 664,
+       "quote": "PR287 step 23: the free account's row should show the Registered icon"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 665,
+       "quote": "PR287 step 23: ...and not the Legendary one"
+      }
+     ],
+     "fails_because": "if a row shows the wrong tier icon or none, the expect(s) at line(s) 266, 267, 268, 269 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -5855,10 +6387,31 @@
     },
     {
      "text": "the Stripe summary page shows Legendary and Registered counts that look right",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Billing page's Active Subscribers and Registered cards show the summary route's counts, both above zero with the seeded accounts — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 635,
+       "quote": "\"PR287 step 24: Active Subscribers should show the summary's legendary count\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 639,
+       "quote": "\"PR287 step 24: Registered should show the summary's registered count\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 631,
+       "quote": "expect(counts.activeSubscribers, \"the seeded paid account should count as active\").toBeGreaterThan(0);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 632,
+       "quote": "expect(counts.registeredMembers, \"the seeded free account should count as registered\").toBeGreaterThan(0);"
+      }
+     ],
+     "fails_because": "if a card shows anything other than the summary route's count (e.g. the two swapped), line 629 or 633 fails; with the seeded accounts both counts must be above zero (lines 625/626)",
+     "gap_clause": null
     }
    ]
   },
@@ -6009,10 +6562,21 @@
     },
     {
      "text": "the strip shows grey text reading \"Healthy · last converged N ago\"",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Refunds and Disputes strip reads Healthy, last converged N ago, in grey — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 769,
+       "quote": "PR287 step 30: after a sweep the strip reads Healthy · last converged N ago"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 772,
+       "quote": "PR287 step 30: Healthy is grey text"
+      }
+     ],
+     "fails_because": "if the healthy strip's copy changes or it is not grey, the expect(s) at line(s) 373, 376 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -6037,10 +6601,21 @@
     },
     {
      "text": "the strip reads \"Not yet run · waiting Nm since start\", not \"healthy\"",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the strip reads Not yet run, waiting Nm since start, never Healthy — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 763,
+       "quote": "PR287 step 31: before any sweep the strip reads Not yet run · waiting Nm since start"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 764,
+       "quote": "PR287 step 31: ...and never Healthy"
+      }
+     ],
+     "fails_because": "if the never-run strip stops reading Not yet run · waiting Nm since start, or reads Healthy, the expect(s) at line(s) 367, 368 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -6052,10 +6627,26 @@
    "clauses": [
     {
      "text": "the strip refreshes itself every 30 seconds without a reload",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the strip refetches its status every 30 seconds with no reload — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 762,
+       "quote": "PR287 step 32: the strip should refetch its status on its own after 30 s"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 768,
+       "quote": "PR287 step 32: ...and again 30 s later"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 773,
+       "quote": "PR287 step 32: the strip refreshed without the page reloading"
+      }
+     ],
+     "fails_because": "if the strip stops polling every 30 s (or only refreshes via a reload), the expect(s) at line(s) 366, 372, 377 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -6080,17 +6671,29 @@
     },
     {
      "text": "the strip reads \"No users pending convergence\" normally",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the strip reads No users pending convergence on a clean database — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 758,
+       "quote": "PR287 step 33: a clean database reads No users pending convergence"
+      }
+     ],
+     "fails_because": "if the zero-drift copy changes, the expect(s) at line(s) 362 fail",
+     "gap_clause": null
     },
     {
      "text": "the strip shows a number when some users are lagging",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — with one drifted user the strip reads 1 user pending convergence — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 777,
+       "quote": "PR287 step 33: a lagging user is counted"
+      }
+     ],
+     "fails_because": "if a single drifted user is not shown as 1 user pending convergence, the expect(s) at line(s) 381 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -6115,10 +6718,26 @@
     },
     {
      "text": "the strip turns amber and says stored tiers are drifting, and that access is still correct",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the strip turns amber and says stored tiers are drifting while access is correct — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 778,
+       "quote": "PR287 step 34: the amber strip says stored tiers are drifting"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 779,
+       "quote": "PR287 step 34: ...in amber"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 782,
+       "quote": "PR287 step 34: the strip says access is still correct"
+      }
+     ],
+     "fails_because": "if the alerting strip is not amber, stops saying tiers are drifting, or stops saying access is still correct, the expect(s) at line(s) 382, 383, 386 fail",
+     "gap_clause": null
     },
     {
      "text": "access is still correct for a drifted user: the request path serves the effective tier, not the stale stored one",
@@ -6255,10 +6874,21 @@
    "clauses": [
     {
      "text": "creating a user from Admin → Users works",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on /admin/users, the create-user form submits and the new user appears in the list — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 695,
+       "quote": "PR287 R8: the form should close once the user is created"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 696,
+       "quote": "PR287 R8: the new user should appear in the list"
+      }
+     ],
+     "fails_because": "if the created user does not appear in the list (or the form does not submit), the expect(s) at line(s) 299, 300 fail",
+     "gap_clause": null
     },
     {
      "text": "picking Legendary gives them a recorded admin grant",
@@ -6287,7 +6917,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 48,
+       "line": 93,
        "quote": "await expect(page.getByRole(\"heading\", { name: /Worker lanes/i })).toBeVisible({ timeout: 30_000 });"
       }
      ],
@@ -6305,7 +6935,7 @@
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 69,
+       "line": 114,
        "quote": "await expect(card, `lane \"${lane}\" should have exactly one card`).toHaveCount(1);"
       }
      ],
@@ -6314,10 +6944,16 @@
     },
     {
      "text": "exactly five cards, no other lane card",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Worker lanes section on /admin/queue-health holding exactly five lane cards, no sixth — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 222,
+       "quote": "await expect(lanes.locator(\"div.bg-card\"), \"PR288 step 1: Worker lanes should hold exactly five cards\").toHaveCount(LANES.length);"
+      }
+     ],
+     "fails_because": "if the Worker lanes section holds any number of cards other than five, line 222 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -6333,12 +6969,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 76,
+       "line": 121,
        "quote": "card.getByText(/^Scheduling$/),"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 78,
+       "line": 123,
        "quote": ").toHaveCount(1);"
       }
      ],
@@ -6347,10 +6983,16 @@
     },
     {
      "text": "the Scheduling label is green",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Scheduling label's green colour, which no assertion reads — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 229,
+       "quote": "expect(g > r + 40 && g > b + 40, `PR288 step 2: a Scheduling label should be green, painted rgb(${r},${g},${b})`).toBe(true);"
+      }
+     ],
+     "fails_because": "if a Scheduling label is not painted green, line 229 fails",
+     "gap_clause": null
     },
     {
      "text": "each card carries 'N live instances · last fire Xs ago · N in flight'",
@@ -6358,7 +7000,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 87,
+       "line": 132,
        "quote": "card.getByText(/^\\d+ live instances? · last fire .+ ago · \\d+ in flight$/),"
       }
      ],
@@ -6379,12 +7021,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 97,
+       "line": 142,
        "quote": "const summary = page.getByText(/All five lanes are being scheduled\\. Last checked .+/);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 98,
+       "line": 143,
        "quote": "await expect(summary).toBeVisible();"
       }
      ],
@@ -6397,7 +7039,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 114,
+       "line": 159,
        "quote": ").toBeLessThan(cardBox!.y);"
       }
      ],
@@ -6406,10 +7048,21 @@
     },
     {
      "text": "the Last checked value is a time HH:MM:SS (the regex accepts any text after 'Last checked')",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the summary's Last checked value on /admin/queue-health matching a clock time such as 14:03:27, not any text such as Invalid Date — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 234,
+       "quote": "await expect(summary, \"PR288 step 3: Last checked should read as a clock time HH:MM:SS\").toHaveText("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 235,
+       "quote": "/^All five lanes are being scheduled\\. Last checked \\d{1,2}:\\d{2}:\\d{2}( [AP]M)?\\.$/,"
+      }
+     ],
+     "fails_because": "if Last checked shows anything but a clock time (e.g. Invalid Date), the toHaveText at line 234 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -6421,10 +7074,41 @@
    "clauses": [
     {
      "text": "the Last checked timestamp advances roughly every 5 seconds, with no refresh",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Last checked timestamp advancing about every 5 seconds with no reload — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 283,
+       "quote": "await expect"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 284,
+       "quote": ".poll(() => pollPair() !== null, { message: \"PR288 step 4: the page should poll again on its own\", timeout: 9_000 })"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 288,
+       "quote": "expect(gap, `PR288 step 4: the poll should come about every 5 seconds (gap ${gap}ms)`).toBeGreaterThan(4_000);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 289,
+       "quote": "expect(gap, `PR288 step 4: the poll should come about every 5 seconds (gap ${gap}ms)`).toBeLessThan(7_000);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 292,
+       "quote": "await expect(summary, \"PR288 step 4: Last checked should advance to the new poll's time\").toHaveText("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 297,
+       "quote": "\"PR288 step 4: the timestamp should advance with no page reload\","
+      }
+     ],
+     "fails_because": "if the page stops polling about every 5 s, the poll at lines 283-284 or the gap bounds at lines 288-289 fail; if Last checked does not advance to the new poll's time, line 292; if it took a reload, line 297",
+     "gap_clause": null
     }
    ]
   },
@@ -6440,12 +7124,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 126,
+       "line": 171,
        "quote": "await expect(rows, \"one row per registered queue, no more\").toHaveCount(REGISTERED_QUEUES.length);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 133,
+       "line": 178,
        "quote": "rows.filter({ has: page.getByText(queue, { exact: true }) }),"
       }
      ],
@@ -6454,24 +7138,57 @@
     },
     {
      "text": "each row's summary 'N queued · N working · N done · N failed'",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — each queue row on /admin/queue-health reading N queued · N working · N done · N failed, then skipped, no-more-retries and oldest age when nonzero, ending 24h: N done / N failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 263,
+       "quote": "expect(row.summary, `PR288 step 5: ${row.queue} should read N queued · N working · N done · N failed`).toMatch("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 264,
+       "quote": "/^\\d+ queued · \\d+ working · \\d+ done · \\d+ failed( · |$)/,"
+      }
+     ],
+     "fails_because": "if any queue row stops reading N queued · N working · N done · N failed, the toMatch at line 263 fails",
+     "gap_clause": null
     },
     {
      "text": "skipped and no-more-retries counts and an oldest age when those apply",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — each queue row on /admin/queue-health reading N queued · N working · N done · N failed, then skipped, no-more-retries and oldest age when nonzero, ending 24h: N done / N failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 369,
+       "quote": "await expect(row, \"PR288 step 5: skipped, no-more-retries and oldest age should show when they apply\").toContainText("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 370,
+       "quote": "\" · 2 skipped · 1 no more retries · oldest 2m · 24h: \","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 375,
+       "quote": "\"PR288 step 5: rows with none of them should not show them\","
+      }
+     ],
+     "fails_because": "if a row with skipped / no-more-retries / pending work stops showing those counts and the oldest age, line 365 fails; if rows without them show them, line 371 fails",
+     "gap_clause": null
     },
     {
      "text": "a trailing '24h: N done / N failed'",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — each queue row on /admin/queue-health reading N queued · N working · N done · N failed, then skipped, no-more-retries and oldest age when nonzero, ending 24h: N done / N failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 266,
+       "quote": "expect(row.summary, `PR288 step 5: ${row.queue} should end 24h: N done / N failed`).toMatch(/ · 24h: \\d+ done \\/ \\d+ failed$/);"
+      }
+     ],
+     "fails_because": "if a queue row stops ending '24h: N done / N failed', line 266 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -6483,17 +7200,39 @@
    "clauses": [
     {
      "text": "a queue that has never run still appears in the list",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a registered queue with no jobs appearing on /admin/queue-health as its own row reading 0 queued · 0 working · 0 done · 0 failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 258,
+       "quote": "expect(neverRun.length, \"this database should hold at least one queue that has never run\").toBeGreaterThan(0);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 260,
+       "quote": "expect(rows.map((r) => r.queue), `PR288 step 6: never-run queue \"${queue}\" should still appear in the list`).toContain(queue);"
+      }
+     ],
+     "fails_because": "if a registered queue with no jobs (per /api/admin/queue-health/jobs) is missing from the list, line 260 fails",
+     "gap_clause": null
     },
     {
      "text": "it shows zeros",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a registered queue with no jobs appearing on /admin/queue-health as its own row reading 0 queued · 0 working · 0 done · 0 failed — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 270,
+       "quote": "expect(summary.match(/\\S+ (queued|working|done|failed)/g), `PR288 step 6: never-run queue \"${queue}\" should show zeros`).toEqual("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 271,
+       "quote": "[\"0 queued\", \"0 working\", \"0 done\", \"0 failed\", \"0 done\", \"0 failed\"],"
+      }
+     ],
+     "fails_because": "if a never-run queue's row shows anything but zeros, the toEqual at line 270 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -6505,10 +7244,36 @@
    "clauses": [
     {
      "text": "clicking a queue row expands it to individual jobs with id, state, attempt count and any error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking a queue row expands it to job id, state, attempt count and error text — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 380,
+       "quote": "await expect(row, \"PR288 step 7: the row should expand\").toHaveAttribute(\"aria-expanded\", \"true\");"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 383,
+       "quote": "await expect(failed.getByText(\"#9004\", { exact: true }), \"PR288 step 7: a job should show its id\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 384,
+       "quote": "await expect(failed.getByText(\"2/3\", { exact: true }), \"PR288 step 7: a job should show its attempt count\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 385,
+       "quote": "await expect(failed.getByText(\"upstream timed out\"), \"PR288 step 7: a job should show its error\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 386,
+       "quote": "await expect(failed.getByText(/^Failed$/), \"PR288 step 7: a job should show its state\").toBeVisible();"
+      }
+     ],
+     "fails_because": "if clicking the row stops expanding it, line 376; if an expanded job loses its id, attempts, error or state, lines 379-382 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -6520,10 +7285,21 @@
    "clauses": [
     {
      "text": "a second click collapses the row",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a second click on the same queue row collapsing it — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 398,
+       "quote": "await expect(row, \"PR288 step 8: a second click should collapse the row\").toHaveAttribute(\"aria-expanded\", \"false\");"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 399,
+       "quote": "await expect(page.getByText(\"#9004\", { exact: true }), \"PR288 step 8: the collapsed row should hide its jobs\").toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if a second click stops collapsing the row, line 394 (or the hidden-jobs check at line 395) fails",
+     "gap_clause": null
     }
    ]
   },
@@ -6535,10 +7311,26 @@
    "clauses": [
     {
      "text": "each job state is a labelled badge: Queued, Working (spinning), Done, Failed, Skipped (reason), Failed — no more retries, not just a colour",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — six job states as labelled badges: Queued, Working (spinning), Done, Failed, Skipped (reason), Failed no more retries — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 390,
+       "quote": "await expect(badges, \"PR288 step 9: each job state should be a labelled badge\").toHaveText(["
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 391,
+       "quote": "\"Queued\", \"Working\", \"Done\", \"Failed\", \"Skipped(fact inactive)\", \"Failed — no more retries\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 394,
+       "quote": "expect(spin, \"PR288 step 9: the Working badge should spin\").not.toBe(\"none\");"
+      }
+     ],
+     "fails_because": "if any of the six states loses its label (or Skipped its reason), the toHaveText at line 386 fails; if Working stops spinning, line 390 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -6550,17 +7342,54 @@
    "clauses": [
     {
      "text": "an explicit red panel reads 'Could not load queue health' with a Retry button and the not-the-same-as-healthy sentence",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — first-load failure showing the Could not load queue health panel with Retry and the not-healthy sentence, no green cards — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 433,
+       "quote": "await expect(page.getByText(\"Could not load queue health\"), \"PR288 step 10: the red panel should say Could not load queue health\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 436,
+       "quote": "\"PR288 step 10: the panel should say this is not the same as healthy\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 438,
+       "quote": "await expect(page.getByRole(\"button\", { name: \"Retry\" }), \"PR288 step 10: the panel should offer Retry\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 440,
+       "quote": "expect(r > g + 40 && r > b + 40, `PR288 step 10: the failure should be red, painted rgb(${r},${g},${b})`).toBe(true);"
+      }
+     ],
+     "fails_because": "if a first-load failure stops showing the red 'Could not load queue health' panel with its sentence and Retry, lines 429-436 fail",
+     "gap_clause": null
     },
     {
      "text": "no empty page, green Scheduling cards or all-healthy text appears",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — first-load failure showing the Could not load queue health panel with Retry and the not-healthy sentence, no green cards — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 429,
+       "quote": "await expect(page.getByText(/^Scheduling$/), \"PR288 step 10: no green Scheduling cards on a failed load\").toHaveCount(0);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 430,
+       "quote": "\"PR288 step 10: no all-healthy text on a failed load\").toHaveCount(0);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 431,
+       "quote": "\"PR288 step 10: no empty lanes section on a failed load\").toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if a failed first load falls through to Scheduling cards, all-healthy text or an empty lanes section, lines 425-427 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -6572,24 +7401,77 @@
    "clauses": [
     {
      "text": "the numbers stay on screen after a later refresh fails",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after a load, a failed poll on /admin/queue-health keeping the queue rows and showing the amber banner Showing data from <time>, the last refresh failed and we are still retrying, clearing when the API recovers — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 472,
+       "quote": "await expect(queueRows, \"PR288 step 11: the queue rows should stay on screen after a failed poll\").toHaveCount(REGISTERED_QUEUES.length);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 473,
+       "quote": "\"PR288 step 11: the lane cards should stay too\""
+      }
+     ],
+     "fails_because": "if a failed poll clears the numbers off screen, line 468 (rows) or 469 (lane cards) fails",
+     "gap_clause": null
     },
     {
      "text": "an amber banner reads 'Showing data from HH:MM:SS — the last refresh failed and we are still retrying. These numbers are not current.'",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after a load, a failed poll on /admin/queue-health keeping the queue rows and showing the amber banner Showing data from <time>, the last refresh failed and we are still retrying, clearing when the API recovers — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 474,
+       "quote": "await expect(banner, \"PR288 step 11: a failed poll should raise the stale-data banner\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 476,
+       "quote": "await expect(banner.locator(\"xpath=..\"), \"PR288 step 11: the amber banner should read as the step words it\").toHaveText("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 478,
+       "quote": "`^Showing data from ${escapeRegExp(await pageClockTime(page, shownTs))} — the last refresh failed and we are still retrying\\\\. These numbers are not current\\\\.$`,"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 482,
+       "quote": "expect(r > b + 20 && g > b, `PR288 step 11: the banner should be amber, painted rgb(${r},${g},${b})`).toBe(true);"
+      }
+     ],
+     "fails_because": "if the banner is missing, its words change, it shows a time other than the data's, or it is not amber, lines 470-478 fail",
+     "gap_clause": null
     },
     {
      "text": "it keeps retrying and recovers on its own when the API returns, never asking for a refresh",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after a load, a failed poll on /admin/queue-health keeping the queue rows and showing the amber banner Showing data from <time>, the last refresh failed and we are still retrying, clearing when the API recovers — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 487,
+       "quote": "await expect.poll(() => failedPolls, { message: \"PR288 step 11: the page should keep retrying\" }).toBeGreaterThan(before);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 491,
+       "quote": "await expect(banner, \"PR288 step 11: the banner should clear once the API returns\").toHaveCount(0);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 495,
+       "quote": "\"PR288 step 11: recovery should happen with no page reload\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 497,
+       "quote": "await expect(page.getByText(/refresh the page|reload/i), \"PR288 step 11: the page should never ask for a refresh\").toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if the page stops retrying, line 483 fails; if it does not recover on its own when the API returns, line 487; if recovery took a reload or the page asks for a refresh, lines 491/493",
+     "gap_clause": null
     }
    ]
   },
@@ -6601,10 +7483,26 @@
    "clauses": [
     {
      "text": "first load shows five grey skeleton bars, not a single spinner",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — first load showing five grey skeleton bars, not a single spinner — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 418,
+       "quote": "await expect(bars, \"PR288 step 12: the first load should show five skeleton bars\").toHaveCount(5, { timeout: 30_000 });"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 421,
+       "quote": "expect(Math.max(r, g, b) - Math.min(r, g, b), `PR288 step 12: skeleton bar ${i + 1} should be grey, painted rgb(${r},${g},${b})`).toBeLessThan(20);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 423,
+       "quote": "await expect(page.locator(\"main .animate-spin\"), \"PR288 step 12: the loading state should not be a spinner\").toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if the first load shows other than five bars, line 414; non-grey bars, line 417; a spinner, line 419",
+     "gap_clause": null
     }
    ]
   },
@@ -6616,10 +7514,31 @@
    "clauses": [
     {
      "text": "Admin → Email Queue still works",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — /admin/email-queue loads and lists its jobs with no error — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 860,
+       "quote": "PR288 R1: the Email Queue should list its jobs"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 862,
+       "quote": "PR288 R1: the real list read should succeed"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 863,
+       "quote": "PR288 R1: the Email Queue should show no error"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 864,
+       "quote": "PR288 R1: ...and not its render-error panel"
+      }
+     ],
+     "fails_because": "if the page stops listing the jobs it was given, the real list read fails, or an error banner/panel shows, the expect(s) at line(s) 464, 466, 467, 468 fail",
+     "gap_clause": null
     },
     {
      "text": "it looks exactly as before",
@@ -6749,7 +7668,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 159,
+       "line": 204,
        "quote": "await expect(page.getByRole(\"link\", { name: /Queue Health/i }).first()).toBeVisible();"
       }
      ],
@@ -6758,10 +7677,16 @@
     },
     {
      "text": "every existing sidebar item is still present and working",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — every pre-existing sidebar item still present with its route, Queue Health sitting after Email Queue — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 242,
+       "quote": "expect(sidebar, \"PR288 R4: every sidebar item should be present with its route, Queue Health after Email Queue\").toEqual(SIDEBAR);"
+      }
+     ],
+     "fails_because": "if any sidebar item goes missing, changes route, or Queue Health stops sitting right after Email Queue, the toEqual at line 242 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -7199,12 +8124,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/testAccounts.spec.ts",
-       "line": 34,
+       "line": 50,
        "quote": "await submitLoginForm(page, FREE_ACCOUNT.email, `${TEST_ACCOUNT_PASSWORD}-wrong`);"
       },
       {
        "path": "artifacts/overhype-me/e2e/testAccounts.spec.ts",
-       "line": 35,
+       "line": 51,
        "quote": "await expect(page.getByText(\"Invalid email or password\")).toBeVisible();"
       }
      ],
@@ -7213,10 +8138,16 @@
     },
     {
      "text": "you stay on /login",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after the wrong-password error the visitor is still on /login — `artifacts/overhype-me/e2e/testAccounts.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/testAccounts.spec.ts",
+       "line": 53,
+       "quote": "PR292 R5: after a wrong password the visitor should still be on /login"
+      }
+     ],
+     "fails_because": "if a refused sign-in moves the visitor off /login, the expect(s) at line(s) 53 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -7461,10 +8392,16 @@
     },
     {
      "text": "editing and saving those keys from the config page works exactly as before",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — saving unrelated config keys through the config page persists each value — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 828,
+       "quote": "PR293 step 4: ${e.key} should still hold the saved value after a reload"
+      }
+     ],
+     "fails_because": "if a save reports success but the value does not persist across a reload, the expect(s) at line(s) 432 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -7476,17 +8413,34 @@
    "clauses": [
     {
      "text": "/admin/config loads normally",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — /admin/config loads normally with the existing keys listed — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 806,
+       "quote": "PR293 R1: /admin/config loads normally\""
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 807,
+       "quote": "PR293 R1: ...past its loading state"
+      }
+     ],
+     "fails_because": "if /admin/config never gets past its loading state or loses its page heading, the expect(s) at line(s) 410, 411 fail",
+     "gap_clause": null
     },
     {
      "text": "all existing keys are still present",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — /admin/config loads normally with the existing keys listed — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 809,
+       "quote": "PR293 R1: every existing key should still be present on the page"
+      }
+     ],
+     "fails_because": "if any key the API returns (bar the four the page routes to Billing/the debug toggle) is missing from the page, the expect(s) at line(s) 413 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -7516,10 +8470,21 @@
     },
     {
      "text": "editing it from the config page saves normally",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — saving an ordinary key through the config page succeeds — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 823,
+       "quote": "PR293 R2: saving ${e.key} should succeed"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 824,
+       "quote": "PR293 R2: ${e.key} should show Saved"
+      }
+     ],
+     "fails_because": "if saving an ordinary key is refused or never shows Saved, the expect(s) at line(s) 427, 428 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -7702,10 +8667,46 @@
     },
     {
      "text": "no new errors while browsing, opening pages and making a meme",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — no API response while ordinary routes load is a 429 and each route stays on its path — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 625,
+       "quote": "expect(api.throttled(), `PR308 step 1 / R2: no API response while loading ${path} should be a 429`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 626,
+       "quote": "expect(api.failed(), `PR308 step 1: no API call made while loading ${path} should fail`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 627,
+       "quote": "expect(api.pageErrors(), `PR308 step 1: loading ${path} should raise no page error`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 628,
+       "quote": "expect(api.consoleErrors(), `PR308 step 1: loading ${path} should log no console error from the app`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 371,
+       "quote": "\"/api/memes\","
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 377,
+       "quote": "if (permalinkStatus !== 200) throw new JourneyError(\"4\", \"anyone reads the public meme's permalink\", String(permalinkStatus));"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 378,
+       "quote": "const meme = await readImage(anonymous, \"4\", \"anyone reads the public meme image\", `/api/memes/${slug}/image`, \"landscape\");"
+      }
+     ],
+     "fails_because": "if loading /, /top-facts or /library logged out drew a 429 (line 625), any other failed API call outside the one designed empty-catalogue 404 (626), an uncaught page error (627) or a console error from the app's own code (628), the test fails; making a meme is journey 4 of the acceptance run, which throws if the meme save or its permalink read fails (driver.ts 371, 377, 378)",
+     "gap_clause": null
     },
     {
      "text": "no slowdowns",
@@ -7722,10 +8723,16 @@
     },
     {
      "text": "no unexpected redirects",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — no API response while ordinary routes load is a 429 and each route stays on its path — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 629,
+       "quote": "PR308 step 1: ${path} should stay on its own address"
+      }
+     ],
+     "fails_because": "if a route ends up on a different pathname, the expect(s) at line(s) 235 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -7770,10 +8777,31 @@
     },
     {
      "text": "no new errors",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — no API response is answered 429 while /admin/moderation and /admin/taxonomy-health load for the admin — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 642,
+       "quote": "expect(api.throttled(), `PR308 step 3 / R6: no API response while ${path} loads should be a 429`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 643,
+       "quote": "expect(api.failed(), `PR308 step 3: no API call made while ${path} loads should fail`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 644,
+       "quote": "expect(api.pageErrors(), `PR308 step 3: ${path} should raise no page error while it loads`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 645,
+       "quote": "expect(api.consoleErrors(), `PR308 step 3: ${path} should log no console error from the app while it loads`).toEqual([]);"
+      }
+     ],
+     "fails_because": "if /admin/moderation or /admin/taxonomy-health, loaded as the admin, drew a 429 (642), any failed API call (643), an uncaught page error (644) or a console error from the app's own code (645), the test fails",
+     "gap_clause": null
     }
    ]
   },
@@ -7839,10 +8867,16 @@
     },
     {
      "text": "browsing the feed works normally, not refused by the limiter",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — no API request made while the feed routes load is answered 429 — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 625,
+       "quote": "PR308 step 1 / R2: no API response while loading ${path} should be a 429"
+      }
+     ],
+     "fails_because": "if any API response while the feed routes load is a 429, the expect(s) at line(s) 234 fail",
+     "gap_clause": null
     },
     {
      "text": "no slowdown",
@@ -7980,10 +9014,16 @@
     },
     {
      "text": "it loads its data normally",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — no API response is answered 429 while /admin/moderation and /admin/taxonomy-health load for the admin — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 642,
+       "quote": "PR308 step 3 / R6: no API response while ${path} loads should be a 429"
+      }
+     ],
+     "fails_because": "if any API response while /admin/taxonomy-health loads is a 429, the expect(s) at line(s) 248 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -7999,22 +9039,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 45,
+       "line": 90,
        "quote": "const resp = await page.goto(\"/admin/queue-health\", { waitUntil: \"domcontentloaded\" });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 48,
+       "line": 93,
        "quote": "await expect(page.getByRole(\"heading\", { name: /Worker lanes/i })).toBeVisible({ timeout: 30_000 });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 156,
+       "line": 201,
        "quote": "await expect(page.getByText(/Access Denied/i)).toHaveCount(0);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 160,
+       "line": 205,
        "quote": "await expect(page.getByRole(\"heading\", { name: /^Queue Health$/i })).toBeVisible();"
       }
      ],
@@ -9177,10 +10217,16 @@
     },
     {
      "text": "the custom-avatar option is available on the admin's Profile",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — custom_avatar itself, Profile Photo pill reads unlocked for a registered-tier admin with a stored photo, the spec observes another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 518,
+       "quote": "PR425 step 1: the custom-avatar option should be available to the admin"
+      }
+     ],
+     "fails_because": "if a registered-tier admin's Photo pill is locked though the Admin row grants custom_avatar, the expect(s) at line(s) 517 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -9196,17 +10242,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 340,
+       "line": 344,
        "quote": "await toggleGridCellInUi(page, \"disable\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 343,
+       "line": 347,
        "quote": "\"revoking the Admin row should re-gate the account — if not, the column is still decorative\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 345,
+       "line": 349,
        "quote": "expect((await readAuthState(page)).allowed, \"the resolver should now refuse\").toBe(false);"
       }
      ],
@@ -9215,17 +10261,34 @@
     },
     {
      "text": "the custom-avatar selection is now refused",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — custom_avatar itself, Admin cell off locks the Profile Photo pill and the avatar shows the generated icon, the spec observes another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 525,
+       "quote": "PR425 step 2: with the Admin cell off the custom-avatar selection should be refused (locked)"
+      }
+     ],
+     "fails_because": "if the Photo pill stays selectable after the Admin cell is unchecked, the expect(s) at line(s) 524 fail",
+     "gap_clause": null
     },
     {
      "text": "your avatar falls back to the generated icon",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — custom_avatar itself, Admin cell off locks the Profile Photo pill and the avatar shows the generated icon, the spec observes another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 531,
+       "quote": "PR425 step 2: the avatar should fall back to the generated icon"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 532,
+       "quote": "PR425 step 2: ...on Profile too"
+      }
+     ],
+     "fails_because": "if the avatar keeps showing the photo after the Admin cell is unchecked, the expect(s) at line(s) 530, 531 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -9241,17 +10304,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 349,
+       "line": 353,
        "quote": "await toggleGridCellInUi(page, \"enable\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 350,
+       "line": 354,
        "quote": "await expect(await captchaGate(page), \"restoring the Admin row should un-gate it\").toHaveCount(0);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 351,
+       "line": 355,
        "quote": "expect((await readAuthState(page)).allowed, \"the resolver should grant again\").toBe(true);"
       }
      ],
@@ -9260,10 +10323,16 @@
     },
     {
      "text": "the custom-avatar option is available again",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — custom_avatar itself, re-checking the Admin cell unlocks the Profile Photo pill again, the spec observes another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 537,
+       "quote": "PR425 step 3: re-checking the Admin cell should make the option available again"
+      }
+     ],
+     "fails_because": "if re-checking the Admin cell does not unlock the Photo pill, the expect(s) at line(s) 536 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -9309,10 +10378,16 @@
    "clauses": [
     {
      "text": "with only its own Admin cell off, the registered-tier admin's custom-avatar option is gone",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — custom_avatar itself, with only the Admin cell off a registered-tier admin's Profile Photo pill is locked — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 529,
+       "quote": "PR425 step 5: with only its own Admin cell off, the registered-tier admin's option is gone behind the Legendary lock"
+      }
+     ],
+     "fails_because": "if, with only the Admin cell off, the registered-tier admin's Photo pill is not behind the Legendary lock, the expect(s) at line(s) 528 fail",
+     "gap_clause": null
     },
     {
      "text": "an admin's features are its tier plus the Admin row, never the Admin row instead of its tier",
@@ -9369,7 +10444,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 233,
+       "line": 237,
        "quote": ").toHaveURL(/\\/profile\\/?$/, { timeout: 30_000 });"
       }
      ],
@@ -9382,12 +10457,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 245,
+       "line": 249,
        "quote": "await exit.click();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 256,
+       "line": 260,
        "quote": "\"previewing as a user must actually withdraw the Admin row's entitlements, not just relabel the button\","
       }
      ],
@@ -9400,7 +10475,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 262,
+       "line": 266,
        "quote": "\"a previewing admin should meet the same submission gate a registered member meets\","
       }
      ],
@@ -9409,10 +10484,16 @@
     },
     {
      "text": "the admin-only chrome is gone, as a registered user would see it (Profile's Admin Panel button)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after Exit Admin, the dev admin's Profile no longer shows the Admin Panel button, as a registered member's does not — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 575,
+       "quote": "PR425 step 6: after Exit Admin, Profile should not show the Admin Panel button"
+      }
+     ],
+     "fails_because": "if the Admin Panel button still shows on Profile after Exit Admin, the expect(s) at line(s) 571 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -9428,7 +10509,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 250,
+       "line": 254,
        "quote": "await expect(resume, \"leaving admin mode must leave a way back\").toBeVisible({ timeout: 30_000 });"
       }
      ],
@@ -9441,7 +10522,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 251,
+       "line": 255,
        "quote": "await expect(exit, \"...and the way out should be gone\").toHaveCount(0);"
       }
      ],
@@ -9462,7 +10543,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 275,
+       "line": 279,
        "quote": "\"the preview panel should explain the state\","
       }
      ],
@@ -9475,7 +10556,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 282,
+       "line": 286,
        "quote": "\"a real admin previewing as a user must never be told they are denied\","
       }
      ],
@@ -9488,12 +10569,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 290,
+       "line": 294,
        "quote": "await expect(resume).toBeEnabled();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 315,
+       "line": 319,
        "quote": "await expect(consoleRail(page), \"the admin console should render again\").toBeVisible({ timeout: 30_000 });"
       }
      ],
@@ -9514,12 +10595,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 310,
+       "line": 314,
        "quote": "await page.getByTestId(\"admin-resume\").click();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 315,
+       "line": 319,
        "quote": "await expect(consoleRail(page), \"the admin console should render again\").toBeVisible({ timeout: 30_000 });"
       }
      ],
@@ -9532,7 +10613,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 316,
+       "line": 320,
        "quote": "await expect(page.getByRole(\"heading\", { name: \"Viewing as a user\" })).toHaveCount(0);"
       }
      ],
@@ -9549,10 +10630,16 @@
    "clauses": [
     {
      "text": "after Exit Admin the admin no longer holds the private-meme entitlement",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — a previewing admin's meme_private_visibility entitlement reads withdrawn at /api/auth/user after Exit Admin, the spec reads another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 576,
+       "quote": "PR425 step 10: after Exit Admin the admin no longer holds private memes"
+      }
+     ],
+     "fails_because": "if meme_private_visibility stays granted at /api/auth/user while previewing, the expect(s) at line(s) 572 fail",
+     "gap_clause": null
     },
     {
      "text": "the Private pill is locked for a viewer without the entitlement (the registered-member view)",
@@ -9586,12 +10673,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 275,
+       "line": 279,
        "quote": "\"the preview panel should explain the state\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
-       "line": 282,
+       "line": 286,
        "quote": "\"a real admin previewing as a user must never be told they are denied\","
       }
      ],
@@ -9623,10 +10710,21 @@
     },
     {
      "text": "nothing you can toggle in Features can cost you console access",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — with every Admin-row cell turned off in Admin → Features, the dev admin still gets the /admin console, not Access Denied — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 593,
+       "quote": "PR425 step 11: the console should still render with every Admin cell off"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 594,
+       "quote": "PR425 step 11: ...and never Access Denied"
+      }
+     ],
+     "fails_because": "if turning off every Admin-row cell costs the admin the /admin console, the expect(s) at line(s) 589, 590 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -9638,10 +10736,16 @@
    "clauses": [
     {
      "text": "after Resume Admin the admin holds the private-meme entitlement again",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the admin's meme_private_visibility entitlement reads granted again at /api/auth/user after Resume Admin on Profile, the spec reads another feature — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 580,
+       "quote": "PR425 step 12: after Resume Admin the admin holds private memes again"
+      }
+     ],
+     "fails_because": "if Resume Admin on Profile does not restore meme_private_visibility, the expect(s) at line(s) 576 fail",
+     "gap_clause": null
     },
     {
      "text": "the Private pill is available for a viewer holding the entitlement",
@@ -9875,10 +10979,16 @@
     },
     {
      "text": "the Profile screen shows a clear refusal with an upgrade prompt, not a silent no-op",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the free account's locked Profile Photo pill sends a tap to /pricing instead of a silent no-op, only the 403 code is asserted — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 629,
+       "quote": "PR425 step 17: tapping the locked Photo pill should lead to the upgrade prompt"
+      }
+     ],
+     "fails_because": "if tapping the free account's locked Photo pill is a silent no-op instead of going to /pricing, the expect(s) at line(s) 622 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -9908,10 +11018,21 @@
     },
     {
      "text": "the avatar shows the photo",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the seeded paid account selects its stored photo and the header avatar shows it, only the route and the projection are asserted — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 681,
+       "quote": "PR425 step 18: the selection should be accepted"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 682,
+       "quote": "PR425 step 18: the header avatar should show the photo"
+      }
+     ],
+     "fails_because": "if the paid account's photo selection is refused or the header avatar does not show the photo, the expect(s) at line(s) 674, 675 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -9951,10 +11072,16 @@
    "clauses": [
     {
      "text": "the account's own Profile shows the generated icon",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the account's own Profile page avatar shows the generated icon for a stored unselected photo, client logic untested — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 622,
+       "quote": "PR425 step 20: the account's own Profile should show the generated icon"
+      }
+     ],
+     "fails_because": "if the account's own Profile shows a stored, unselected/unentitled photo instead of the generated icon, the expect(s) at line(s) 615 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -9966,10 +11093,21 @@
    "clauses": [
     {
      "text": "/ loads normally logged out, no login wall",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — logged out with no session, / renders real content with no sign-in wall, the smoke spec signs in as admin before every route — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 618,
+       "quote": "PR425 R1: / should render the real feed for a logged-out visitor"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 619,
+       "quote": "PR425 R1: / should not put a sign-in wall in front of a logged-out visitor"
+      }
+     ],
+     "fails_because": "if / (logged out, no session) shows a sign-in field or not the feed, the expect(s) at line(s) 227, 228 fail",
+     "gap_clause": null
     },
     {
      "text": "a fact page loads normally logged out",
@@ -10116,10 +11254,31 @@
     },
     {
      "text": "the other admin screens in regular use load as before",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — admin Users, Refunds and Disputes, Config, Engines and Email Queue each render the AdminLayout nav with no error boundary for the dev admin, no spec opens them — `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 601,
+       "quote": "PR425 R7: ${path} should render the AdminLayout nav"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 602,
+       "quote": "PR425 R7: ${path} should be authorized"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 604,
+       "quote": "PR425 R7: ${path} rendered no content"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 606,
+       "quote": "PR425 R7: ${path} hit the error boundary"
+      }
+     ],
+     "fails_because": "if Users, Refunds & Disputes, Config, Engines or Email Queue fails to render inside the AdminLayout (each is opened through expectAdminScreen in its own test), the expect(s) at line(s) 211, 212, 214, 216 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -10149,10 +11308,26 @@
     },
     {
      "text": "the preferences are visible and editable on the admin's Profile",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the admin's Profile Notification Preferences section is visible and its toggle saves, only the PATCH route is tested — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 552,
+       "quote": "PR425 R8: the preferences should be visible on the admin's Profile"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 561,
+       "quote": "PR425 R8: the preference write should succeed"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 563,
+       "quote": "PR425 R8: the toggled preference should persist"
+      }
+     ],
+     "fails_because": "if the section disappears, the toggle's write fails, or the toggled value does not persist, the expect(s) at line(s) 551, 557, 562 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -10250,7 +11425,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 40,
+       "line": 104,
        "quote": "await expect(main.getByRole(\"heading\", { name: /The Overhype\\.me Manual/i })).toBeVisible({ timeout: 30_000 });"
       }
      ],
@@ -10263,12 +11438,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 43,
+       "line": 107,
        "quote": "await expect(main.locator(\"table\").first()).toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 44,
+       "line": 108,
        "quote": "await expect(main.getByText(/^\\|.*\\|$/m)).toHaveCount(0);"
       }
      ],
@@ -10277,10 +11452,26 @@
     },
     {
      "text": "that table is bordered and lists chapters 1–12",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the table listing chapters 1-12 (the first table is a different one), bordered cells, chapter list left of the content — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 126,
+       "quote": "chapterTable.locator(\"tbody tr td:first-child\")"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 128,
+       "quote": ").toHaveText(Array.from({ length: CHAPTER_COUNT }, (_, i) => String(i + 1)));"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 133,
+       "quote": "expect(cellBorder, \"PR472 step 1: the chapter table's cells should be bordered\").toMatch("
+      }
+     ],
+     "fails_because": "if the chapter table stops listing 1-12 in order, toHaveText at line 128 fails; if its cells lose their borders, the cellBorder toMatch at line 133 fails",
+     "gap_clause": null
     },
     {
      "text": "a search box",
@@ -10288,7 +11479,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 55,
+       "line": 119,
        "quote": "await expect(page.getByTestId(\"help-search-input\")).toBeVisible();"
       }
      ],
@@ -10301,12 +11492,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 48,
+       "line": 112,
        "quote": "const chapterNav = page.getByRole(\"navigation\", { name: /Manual chapters/i });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 53,
+       "line": 117,
        "quote": ").toHaveCount(CHAPTER_COUNT);"
       }
      ],
@@ -10315,10 +11506,21 @@
     },
     {
      "text": "the chapter list sits down the left on a wide screen",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the table listing chapters 1-12 (the first table is a different one), bordered cells, chapter list left of the content — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 142,
+       "quote": "navBox!.x + navBox!.width,"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 144,
+       "quote": ").toBeLessThanOrEqual(articleBox!.x);"
+      }
+     ],
+     "fails_because": "if the chapter list stops sitting left of the content on a wide screen, toBeLessThanOrEqual at line 144 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10330,10 +11532,26 @@
    "clauses": [
     {
      "text": "clicking into Chapter 3 · Moderation from the front page opens that chapter (the spec cold-loads chapter 11 instead)",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking Chapter 3 · Moderation in the /admin/help chapter list opening /admin/help/3-moderation in-app with its chapter body rendered — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 261,
+       "quote": "toHaveURL(/\\/admin\\/help\\/3-moderation$/)"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 263,
+       "quote": "name: /Chapter 3 · Moderation/"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 266,
+       "quote": "\"PR472 step 2: the chapter should open in-app, not by a page load\""
+      }
+     ],
+     "fails_because": "if clicking Chapter 3 in the list stops opening /admin/help/3-moderation in-app (a full page load, or another page), the URL check at line 261, the heading check at line 263 or the same-document check at line 266 fails",
+     "gap_clause": null
     },
     {
      "text": "the chapter renders headings",
@@ -10341,12 +11559,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 77,
+       "line": 166,
        "quote": "await expect(body.locator(\"h2\"), \"a chapter should have section headings\").not.toHaveCount(0);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 78,
+       "line": 167,
        "quote": "await expect(body.locator(\"h3\"), \"a chapter should have sub-headings\").not.toHaveCount(0);"
       }
      ],
@@ -10355,10 +11573,36 @@
     },
     {
      "text": "bullet lists, bold text and the occasional table or quoted block render",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — bold text, bullet lists and a table or quoted block rendering inside a chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 270,
+       "quote": "expect(strongWeight, \"PR472 step 2: bold text should render bold\")"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 272,
+       "quote": "expect(bullet, \"PR472 step 2: bullet lists should render with bullets\")"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 275,
+       "quote": "body.locator(\"table, blockquote\").first(),"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 276,
+       "quote": "\"PR472 step 2: a table or quoted block should render inside the chapter\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 277,
+       "quote": ").toBeVisible();"
+      }
+     ],
+     "fails_because": "if bold stops rendering bold, line 270 fails; if bullet lists lose their bullets, line 272 fails; if the chapter's table/quoted block stops rendering, the toBeVisible at lines 275-277 fails",
+     "gap_clause": null
     },
     {
      "text": "it reads like a page, not a text file (no raw markdown markers)",
@@ -10366,7 +11610,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 80,
+       "line": 169,
        "quote": "await expect(body.getByText(/^#{1,6}\\s/m), \"no raw markdown heading markers\").toHaveCount(0);"
       }
      ],
@@ -10387,12 +11631,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 88,
+       "line": 177,
        "quote": "await page.goto(`/admin/help/${CHAPTER}#${FRAGMENT}`, { waitUntil: \"domcontentloaded\" });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 112,
+       "line": 201,
        "quote": ").toBeGreaterThan(0);"
       }
      ],
@@ -10405,12 +11649,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 123,
+       "line": 212,
        "quote": ").toBeLessThan(viewport!.height / 2);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 124,
+       "line": 213,
        "quote": "expect(box!.y, `the heading should not be scrolled off the top (y=${box!.y})`).toBeGreaterThan(-1);"
       }
      ],
@@ -10427,17 +11671,54 @@
    "clauses": [
     {
      "text": "clicking a chapter, then an in-chapter link to another chapter, navigates inside the console",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking a chapter then an in-chapter link to another chapter navigating in-app and landing on its section — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 293,
+       "quote": ".poll(() => new URL(page.url()).pathname, { message: \"PR472 step 4: the link should open the other chapter\" })"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 295,
+       "quote": "\"PR472 step 4: the link should navigate inside the console, not reload the page\""
+      }
+     ],
+     "fails_because": "if the in-chapter link to another chapter stops navigating in-app (full reload) or goes elsewhere, the same-document check at line 295 (or the pathname poll at line 293) fails",
+     "gap_clause": null
     },
     {
      "text": "a link pointing at a section lands on that section",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking a chapter then an in-chapter link to another chapter navigating in-app and landing on its section — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 53,
+       "quote": "await expect"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 54,
+       "quote": ".poll(async () => (await paneScroll(heading)).scrollTop, { message: `${step}: the pane should have scrolled off the chapter top` })"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 57,
+       "quote": ".poll(async () => (await paneScroll(heading)).offset, { message: `${step}: the heading should be parked at the top of the pane` })"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 296,
+       "quote": "await expect(page, \"PR472 step 4: the address should carry the section\").toHaveURL(new RegExp(`#${targetFragment.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\")}$`));"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 297,
+       "quote": "await expectParkedOn(body.locator(`[id=\"${targetFragment}\"]`), \"PR472 step 4\");"
+      }
+     ],
+     "fails_because": "if the link lands on the chapter but not on its section, the hash check at line 296 or expectParkedOn (its polls at lines 53-57, called at line 297) fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10449,10 +11730,31 @@
    "clauses": [
     {
      "text": "typing visual concept shows a list of results, each naming a section and its chapter",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — typing visual concept in the search box showing result rows that each name a section and its chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 346,
+       "quote": "expect(fragment, `${step}: \"${term}\" row \"${row.text}\" should point at a section`).toBeTruthy();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 347,
+       "quote": "expect(row.section, `${step}: \"${term}\" row \"${row.text}\" should name its section`).not.toBe(\"\");"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 348,
+       "quote": "expect(row.chapter, `${step}: \"${term}\" row \"${row.text}\" should name its chapter`).toBe(titleBySlug.get(slug));"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 354,
+       "quote": "expectRowsNameLocation(visual, \"visual concept\", \"PR472 step 5\");"
+      }
+     ],
+     "fails_because": "if a 'visual concept' result row stops naming its section or its chapter (the chapter it links to), the helper's expects at lines 346-348, called at line 354 with 'PR472 step 5', fail",
+     "gap_clause": null
     }
    ]
   },
@@ -10464,10 +11766,26 @@
    "clauses": [
     {
      "text": "clicking a result lands on that section of that chapter, not the chapter top or another chapter",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking a search result navigating in-app to that section of that chapter, parked on its heading — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 364,
+       "quote": ".poll(() => new URL(page.url()).pathname, { message: \"PR472 step 6: the result should open its own chapter\" })"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 366,
+       "quote": "expect(new URL(page.url()).hash, \"PR472 step 6: the address should carry the result's section\").toBe(`#${chosenFragment}`);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 368,
+       "quote": "await expectParkedOn(page.locator(\"main article\").locator(`[id=\"${chosenFragment}\"]`), \"PR472 step 6\");"
+      }
+     ],
+     "fails_because": "if clicking a result opens another chapter, the pathname poll at line 364 fails; if it lands on the chapter top rather than its section, the hash check at line 366 or expectParkedOn at line 368 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10479,24 +11797,52 @@
    "clauses": [
     {
      "text": "searching moderation shows results in step 5's shape",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — typing moderation, then stale, in the /admin/help search box showing result rows, each naming a section and its chapter and containing the term — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 348,
+       "quote": "expect(row.chapter, `${step}: \"${term}\" row \"${row.text}\" should name its chapter`).toBe(titleBySlug.get(slug));"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 373,
+       "quote": "expectRowsNameLocation(rows, term, \"PR472 step 7\");"
+      }
+     ],
+     "fails_because": "if 'moderation' result rows stop naming section and chapter, the helper's chapter expect at line 348, called at line 373 with 'PR472 step 7', fails",
+     "gap_clause": null
     },
     {
      "text": "searching stale shows results in step 5's shape",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — typing moderation, then stale, in the /admin/help search box showing result rows, each naming a section and its chapter and containing the term — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 348,
+       "quote": "expect(row.chapter, `${step}: \"${term}\" row \"${row.text}\" should name its chapter`).toBe(titleBySlug.get(slug));"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 373,
+       "quote": "expectRowsNameLocation(rows, term, \"PR472 step 7\");"
+      }
+     ],
+     "fails_because": "if 'stale' result rows stop naming section and chapter, the helper's chapter expect at line 348, called at line 373 with 'PR472 step 7', fails",
+     "gap_clause": null
     },
     {
      "text": "the results are relevant to each term",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — typing moderation, then stale, in the /admin/help search box showing result rows, each naming a section and its chapter and containing the term — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 375,
+       "quote": "expect(row.text.toLowerCase(), `PR472 step 7: \"${term}\" row \"${row.text}\" should contain the term`).toContain(term);"
+      }
+     ],
+     "fails_because": "if a 'moderation' or 'stale' result row does not contain the term, the toContain at line 375 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10508,10 +11854,21 @@
    "clauses": [
     {
      "text": "searching ai-context/glossary.md in the search box shows no results",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — typing ai-context/glossary.md in the /admin/help search box showing No matches for “ai-context/glossary.md” and no result rows — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 382,
+       "quote": "await expect(results.getByText(`No matches for “${term}”.`), `${step}: searching \"${term}\" should say No matches`)"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 383,
+       "quote": "await expect(results.locator(\"a\"), `${step}: searching \"${term}\" should show no result rows`).toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if searching ai-context/glossary.md shows results, the No-matches check at line 382 (or the zero-rows check at line 383) fails with 'PR472 step 8'",
+     "gap_clause": null
     }
    ]
   },
@@ -10523,10 +11880,21 @@
    "clauses": [
     {
      "text": "searching Chapter quality bar in the search box shows no results",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — typing Chapter quality bar in the /admin/help search box showing No matches for “Chapter quality bar” and no result rows — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 382,
+       "quote": "await expect(results.getByText(`No matches for “${term}”.`), `${step}: searching \"${term}\" should say No matches`)"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 383,
+       "quote": "await expect(results.locator(\"a\"), `${step}: searching \"${term}\" should show no result rows`).toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if searching Chapter quality bar shows results (the front page indexed), the No-matches check at line 382 (or the zero-rows check at line 383) fails with 'PR472 step 9'",
+     "gap_clause": null
     },
     {
      "text": "the front page is still readable",
@@ -10534,7 +11902,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 40,
+       "line": 104,
        "quote": "await expect(main.getByRole(\"heading\", { name: /The Overhype\\.me Manual/i })).toBeVisible({ timeout: 30_000 });"
       }
      ],
@@ -10551,17 +11919,54 @@
    "clauses": [
     {
      "text": "clicking the ? beside View Site on Queue Health opens chapter 12",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the ? control beside View Site on Queue Health, clicked, landing in chapter 12 parked on the Worker liveness heading — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 304,
+       "quote": "expect((await help.boundingBox())!.x, \"PR472 step 10: the ? should sit beside View Site\").toBeLessThan("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 308,
+       "quote": "await expect"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 309,
+       "quote": ".poll(() => new URL(page.url()).pathname, { message: \"PR472 step 10: the ? on Queue Health should open chapter 12\" })"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 312,
+       "quote": "await expect(heading, \"PR472 step 10: chapter 12 should render its Worker liveness heading\").toBeVisible({ timeout: 30_000 });"
+      }
+     ],
+     "fails_because": "if the ? beside View Site on Queue Health stops opening chapter 12, the pathname poll at lines 308-309 fails",
+     "gap_clause": null
     },
     {
      "text": "it is parked on the Worker liveness and the Queue Health surface heading",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the ? control beside View Site on Queue Health, clicked, landing in chapter 12 parked on the Worker liveness heading — `artifacts/overhype-me/e2e/adminQueueHealth.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 324,
+       "quote": ".poll(async () => (await parked()).scrollTop, { message: \"PR472 step 10: chapter 12 should be scrolled to the heading, not at its top\" })"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 326,
+       "quote": "await expect"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
+       "line": 327,
+       "quote": ".poll(async () => (await parked()).offset, { message: \"PR472 step 10: the Worker liveness heading should be parked at the top\" })"
+      }
+     ],
+     "fails_because": "if chapter 12 opens but is not parked on the Worker liveness heading, the scrollTop poll at lines 323-324 or the offset poll at lines 326-327 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10672,17 +12077,44 @@
     },
     {
      "text": "clicking it opens GitHub in a new tab",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking a github.com link inside a chapter on /admin/help opening a new tab while the console tab stays on that chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 311,
+       "quote": "expect(popup, \"PR472 step 12: a link out of the Manual should open a new tab\").not.toBeNull();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 312,
+       "quote": "await expect(popup!, \"PR472 step 12: the new tab should be GitHub\").toHaveURL(/^https:\\/\\/github\\.com\\//);"
+      }
+     ],
+     "fails_because": "if a GitHub link inside a chapter stops opening a new tab, the popup check at line 311 fails; if the new tab is not GitHub, line 312 fails",
+     "gap_clause": null
     },
     {
      "text": "the reader's place in the console is undisturbed",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — clicking a github.com link inside a chapter on /admin/help opening a new tab while the console tab stays on that chapter — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 314,
+       "quote": "expect(page.url(), \"PR472 step 12: the console tab should stay on the same chapter and section\").toBe(urlBefore);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 318,
+       "quote": ").toBe(placeBefore.scrollTop);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 319,
+       "quote": "await expect(body.getByRole(\"heading\", { level: 1 }), \"PR472 step 12: the chapter should still be on screen\").toBeVisible();"
+      }
+     ],
+     "fails_because": "if clicking the GitHub link also moves the console tab (URL or scroll position), line 314 or the scrollTop check at line 318 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10698,12 +12130,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 134,
+       "line": 223,
        "quote": "await expect(panel).toBeVisible({ timeout: 30_000 });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 135,
+       "line": 224,
        "quote": "await expect(panel.getByText(/No such chapter/i)).toBeVisible();"
       }
      ],
@@ -10716,12 +12148,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 138,
+       "line": 241,
        "quote": "await expect(back, \"the panel should offer a link back to the manual\").toHaveCount(1);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
-       "line": 143,
+       "line": 246,
        "quote": ").toBeVisible({ timeout: 30_000 });"
       }
      ],
@@ -10730,10 +12162,36 @@
     },
     {
      "text": "the message sits inside the console",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — /admin/help/no-such-chapter showing the No such chapter panel inside the admin console, its sidebar nav visible beside it — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 228,
+       "quote": "page.locator(\"aside nav\").first().getByRole(\"link\", { name: \"Dashboard\" }),"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 229,
+       "quote": "\"PR472 step 13: the admin sidebar should still be beside the No such chapter panel\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 230,
+       "quote": ").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 233,
+       "quote": "\"PR472 step 13: the panel should sit under the console's own header\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 237,
+       "quote": "\"PR472 step 13: the panel should be inside the console's content area\","
+      }
+     ],
+     "fails_because": "if the No such chapter panel renders outside the console, the sidebar check at lines 227-230 (then the header check at 231-233 and content-area check at 235-237) fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10745,17 +12203,29 @@
    "clauses": [
     {
      "text": "the sidebar keeps the same items in the same order",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — kept sidebar items in their existing relative order, with Help as the last item — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 406,
+       "quote": "expect(labels.filter((l) => l !== \"Help\"), \"PR472 R1: the sidebar should keep its items in the same order\").toEqual(KEPT_SIDEBAR);"
+      }
+     ],
+     "fails_because": "if any kept sidebar item goes missing or changes order, the toEqual at line 406 fails",
+     "gap_clause": null
     },
     {
      "text": "Help is added at the bottom",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — kept sidebar items in their existing relative order, with Help as the last item — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 407,
+       "quote": "expect(labels[labels.length - 1], \"PR472 R1: Help should be the last sidebar item\").toBe(\"Help\");"
+      }
+     ],
+     "fails_because": "if Help is not the last sidebar item, line 407 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10767,10 +12237,21 @@
    "clauses": [
     {
      "text": "the Moderation pending-count badge is there and still counting",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — Moderation item showing a pending-count badge equal to the review and comment counts — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 417,
+       "quote": "sidebar.locator('nav a[href=\"/admin/moderation\"] span.rounded-full'),"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 419,
+       "quote": ").toHaveText(String(pending));"
+      }
+     ],
+     "fails_because": "if the Moderation badge is missing or does not equal pending reviews + pending comments, the toHaveText at line 419 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10782,17 +12263,39 @@
    "clauses": [
     {
      "text": "the sidebar collapses",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the collapse toggle narrowing the sidebar, and a collapsed icon's tooltip naming its page — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 424,
+       "quote": "await expect"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 425,
+       "quote": ".poll(async () => (await sidebar.boundingBox())!.width, { message: `PR472 R3: the sidebar (was ${wide}px) should collapse` })"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 427,
+       "quote": "await expect(sidebar.locator(\"nav a span.flex-1\"), \"PR472 R3: collapsed, the labels should be gone\").toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if the collapse toggle stops narrowing the sidebar, the width poll at lines 424-425 fails",
+     "gap_clause": null
     },
     {
      "text": "collapsed icons still have tooltips",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the collapse toggle narrowing the sidebar, and a collapsed icon's tooltip naming its page — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 429,
+       "quote": "expect(tooltips, \"PR472 R3: every collapsed icon should have a tooltip naming its page\").toEqual([...KEPT_SIDEBAR, \"Help\"]);"
+      }
+     ],
+     "fails_because": "if a collapsed icon loses its tooltip (title naming its page), the toEqual at line 429 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10804,10 +12307,26 @@
    "clauses": [
     {
      "text": "on a phone the hamburger opens the drawer as before",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — at phone width the hamburger opening the drawer with the nav items, and closing it again — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 436,
+       "quote": "await expect(drawer, \"PR472 R4: the hamburger should open the drawer\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 438,
+       "quote": "await expect(drawer.locator(\"nav a\"), \"PR472 R4: the drawer should list every nav item\").toHaveText("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 442,
+       "quote": "await expect(drawer, \"PR472 R4: the drawer should close again\").toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if at 390px the hamburger stops opening the drawer, line 436 fails; if the drawer lacks the nav items, line 438; if it will not close, line 442",
+     "gap_clause": null
     }
    ]
   },
@@ -10819,17 +12338,54 @@
    "clauses": [
     {
      "text": "View Site is where it was and works",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — View Site going to the home page, Sign Out ending the session — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 449,
+       "quote": "await expect(viewSite, \"PR472 R5: View Site should be in the top bar\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 451,
+       "quote": "expect((await viewSite.boundingBox())!.x, \"PR472 R5: View Site should sit left of Sign Out\")"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 453,
+       "quote": "await expect"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 454,
+       "quote": ".poll(() => new URL(page.url()).pathname, { message: \"PR472 R5: View Site should go to the home page\" })"
+      }
+     ],
+     "fails_because": "if View Site leaves the top bar or its place before Sign Out, lines 449/451 fail; if it stops going to the home page, the pathname poll at lines 453-454 fails",
+     "gap_clause": null
     },
     {
      "text": "Sign Out is where it was and works",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — View Site going to the home page, Sign Out ending the session — `artifacts/overhype-me/e2e/adminHelp.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 450,
+       "quote": "await expect(signOut, \"PR472 R5: Sign Out should be in the top bar\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 458,
+       "quote": "await expect"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminHelp.spec.ts",
+       "line": 460,
+       "quote": "message: \"PR472 R5: Sign Out should end the session\","
+      }
+     ],
+     "fails_because": "if Sign Out leaves the top bar, line 450 fails; if it stops ending the session (/api/auth/user still returns a user), the poll at lines 458-460 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -10879,17 +12435,29 @@
    "clauses": [
     {
      "text": "/admin/help while signed out shows the same Access Denied",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — signed out and the seeded free account at /admin/help both showing Access Denied — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 602,
+       "quote": "PR472 R7: /admin/help signed out shows Access Denied"
+      }
+     ],
+     "fails_because": "if /admin/help signed out does not show Access Denied, the expect(s) at line(s) 598 fail",
+     "gap_clause": null
     },
     {
      "text": "/admin/help as a non-admin shows the same Access Denied",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — signed out and the seeded free account at /admin/help both showing Access Denied — `artifacts/overhype-me/e2e/adminPermissions.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+       "line": 606,
+       "quote": "PR472 R7: /admin/help as a non-admin shows the same Access Denied"
+      }
+     ],
+     "fails_because": "if /admin/help as the free account does not show Access Denied, the expect(s) at line(s) 602 fail",
+     "gap_clause": null
     }
    ]
   },
@@ -10927,17 +12495,39 @@
     },
     {
      "text": "the box reads Payments verified",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the green box reading Payments verified, directly beneath the mode toggle on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 647,
+       "quote": "await expect(verification, \"PR577 step 1: the box should read Payments verified\").toContainText("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 650,
+       "quote": "await expect(verification, \"PR577 step 1: the Payments verified box should be green\").toHaveClass("
+      }
+     ],
+     "fails_because": "if the box stops reading 'Payments verified', line 641 fails; if it is not green, line 644 fails",
+     "gap_clause": null
     },
     {
      "text": "it sits directly beneath the mode toggle on the Billing page",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the green box reading Payments verified, directly beneath the mode toggle on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 655,
+       "quote": "\"PR577 step 1: the box should sit in the Stripe Mode panel with the toggle\","
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 661,
+       "quote": "\"PR577 step 1: the box should sit beneath the mode toggle\","
+      }
+     ],
+     "fails_because": "if the box leaves the Stripe Mode panel holding the toggle, line 649 fails; if it is not below the toggle, line 655 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -11014,17 +12604,29 @@
    "clauses": [
     {
      "text": "the Stripe Mode chip reads TEST",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Stripe Mode chip reading TEST and stripe-verification at data-state verified with Payments verified, together on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 642,
+       "quote": "await expect(modeChip, \"PR577 step 3: the Stripe Mode chip should read TEST\").toHaveText(\"TEST\");"
+      }
+     ],
+     "fails_because": "if the Stripe Mode chip does not read TEST on the test-mode fake, line 636 fails",
+     "gap_clause": null
     },
     {
      "text": "the green box on the same panel reports verified",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Stripe Mode chip reading TEST and stripe-verification at data-state verified with Payments verified, together on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 643,
+       "quote": "await expect(verification, \"PR577 step 3: the box on the same panel should report verified\").toHaveAttribute("
+      }
+     ],
+     "fails_because": "if the verification box on the panel reports anything but verified beside the TEST chip, line 637 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -11072,24 +12674,52 @@
     },
     {
      "text": "on the page, the chip stays on TEST and a red error message shows that reason",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on the page, a refused Switch to Live Mode leaving the Stripe Mode chip on TEST and a red error showing the server's refusal text, such as STRIPE_SECRET_KEY_LIVE, never Failed to update — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 731,
+       "quote": "await expect(errorLine, \"PR577 step 4: a red error should show the server's reason\").toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 732,
+       "quote": "await expect(errorLine, \"PR577 step 4: the refusal message should be red\").toHaveClass(/text-destructive/);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 733,
+       "quote": "await expect(modeChip, \"PR577 step 4: the chip should stay on TEST\").toHaveText(\"TEST\");"
+      }
+     ],
+     "fails_because": "if the real refusal's reason is not shown, line 725 fails; if it is not red, line 726; if the chip leaves TEST, line 727",
+     "gap_clause": null
     },
     {
      "text": "the bare words Failed to update never appear",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on the page, a refused Switch to Live Mode leaving the Stripe Mode chip on TEST and a red error showing the server's refusal text, such as STRIPE_SECRET_KEY_LIVE, never Failed to update — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 734,
+       "quote": "await expect(page.getByText(/Failed to update/), \"PR577 step 4: never the bare words Failed to update\").toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if the words 'Failed to update' appear anywhere on the page after the refusal, line 728 fails",
+     "gap_clause": null
     },
     {
      "text": "the chip never flips to LIVE while something reports a failure",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — on the page, a refused Switch to Live Mode leaving the Stripe Mode chip on TEST and a red error showing the server's refusal text, such as STRIPE_SECRET_KEY_LIVE, never Failed to update — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 737,
+       "quote": "\"PR577 step 4: the chip should never flip to LIVE while a failure is reported\","
+      }
+     ],
+     "fails_because": "if the chip shows LIVE at any moment between the click and the refusal, the MutationObserver record checked at line 731 contains LIVE and fails",
+     "gap_clause": null
     },
     {
      "text": "otherwise the chip flips to LIVE and the verification box re-reports for live mode",
@@ -11108,17 +12738,44 @@
    "clauses": [
     {
      "text": "the Setup Checklist section opens with no errors",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Setup Checklist section rendering the six STRIPE_*_TEST and _LIVE CheckRows with no missing row and no error, via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 762,
+       "quote": "await expect(checklistBody, \"PR577 R1: the Setup Checklist should open\").toBeVisible({ timeout: 15_000 });"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 778,
+       "quote": "expect(pageErrors, \"PR577 R1: opening the checklist should raise no page error\").toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 779,
+       "quote": "expect(failedApiCalls, \"PR577 R1: opening the checklist should fail no API call\").toEqual([]);"
+      }
+     ],
+     "fails_because": "if the section does not open, line 756 fails; if opening it raises a page error, line 772; if an API call fails (>=400) while opening, line 773. Observable chosen for 'no errors': no pageerror and no 4xx/5xx /api/ response from the reload through the checks",
+     "gap_clause": null
     },
     {
      "text": "the list of environment-variable checkmarks renders with no missing rows",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Setup Checklist section rendering the six STRIPE_*_TEST and _LIVE CheckRows with no missing row and no error, via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 772,
+       "quote": "await expect(label, `PR577 R1: the ${variable} row should render`).toBeVisible();"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 775,
+       "quote": "`PR577 R1: the ${variable} row should carry its checkmark`,"
+      }
+     ],
+     "fails_because": "if any of the six STRIPE_*_TEST/_LIVE rows is missing, line 766 fails; if a row lacks its check icon, line 769 fails",
+     "gap_clause": null
     }
    ]
   },
@@ -11134,18 +12791,18 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 183,
+       "line": 262,
        "quote": "await syncButton.click();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 184,
+       "line": 263,
        "quote": "expect((await syncResponse).ok(), \"POST /api/admin/stripe/sync should succeed\").toBe(true);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 197,
-       "quote": "page.getByText(/^Sync complete —/),"
+       "line": 300,
+       "quote": "await expect(completeLine, \"green Sync complete banner should appear\").toBeVisible({ timeout: 5_000 });"
       }
      ],
      "fails_because": "if the button stopped posting or POST /api/admin/stripe/sync refused to start, the response check fails, and without a started run the page never begins polling, so the Sync complete banner never appears",
@@ -11153,10 +12810,26 @@
     },
     {
      "text": "it reports progress per resource, as it always has, for the run the click starts",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — after the Sync Stripe data click starts a real run, the Products and Prices rows showing a lastSyncedAt newer than the click and Plans reaching complete, not rows the boot backfill already completed — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 275,
+       "quote": "{ timeout: 30_000, message: \"PR577 R2: the page should read Products and Prices stamps from the run the click started\" },"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 284,
+       "quote": "await expect(progressRow(page, \"Plans\"), \"PR577 R2: the Plans row should reach complete\").toHaveAttribute("
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 291,
+       "quote": "`PR577 R2: the ${label} row should report this run's sync`,"
+      }
+     ],
+     "fails_because": "if the click does not start a run (rows are the boot backfill's), the poll at line 272 fails (the page's own status never carries Products/Prices stamps newer than before the click); if Plans does not reach complete, line 281; if the Products/Prices rows do not read 'synced · just now', line 288",
+     "gap_clause": null
     }
    ]
   },
@@ -11168,17 +12841,39 @@
    "clauses": [
     {
      "text": "the active-subscriber number shows, not a spinner and not an error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Active Subscribers and Registered numbers rendering as numbers, with no spinner left and no error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 624,
+       "quote": "await expect(card.getByText(/^\\d+$/), `PR577 R3: the ${name} number should show`).toBeVisible({"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 627,
+       "quote": "await expect(card.locator(\".animate-pulse\"), `PR577 R3: no ${name} spinner should be left`).toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if the active-subscriber card never resolves to a number (spinner left, or not numeric), the loop at line 618 (number visible) or 621 (no spinner) fails",
+     "gap_clause": null
     },
     {
      "text": "the registered-member number shows, not a spinner and not an error",
-     "status": "gap",
-     "evidence": [],
-     "fails_because": null,
-     "gap_clause": "#631 — 7b — the Active Subscribers and Registered numbers rendering as numbers, with no spinner left and no error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`"
+     "status": "asserted",
+     "evidence": [
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 624,
+       "quote": "await expect(card.getByText(/^\\d+$/), `PR577 R3: the ${name} number should show`).toBeVisible({"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
+       "line": 627,
+       "quote": "await expect(card.locator(\".animate-pulse\"), `PR577 R3: no ${name} spinner should be left`).toHaveCount(0);"
+      }
+     ],
+     "fails_because": "if the registered-member card never resolves to a number (spinner left, or not numeric), the loop at line 618 (number visible) or 621 (no spinner) fails",
+     "gap_clause": null
     }
    ]
   },
@@ -12531,8 +14226,8 @@
  ],
  "counts": {
   "steps": 324,
-  "asserted": 483,
-  "gap": 279,
+  "asserted": 633,
+  "gap": 129,
   "live": 1
  }
 }

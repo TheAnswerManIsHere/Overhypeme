@@ -42,9 +42,7 @@ toggle still works and now explains itself, and that paying still works exactly 
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 16 — pending becomes verified without a manual refresh`; `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:the verified box carries the text-green-400 class so it shows green, not only data-state verified`
-
-**Deferred:** #631 — 7b — the green box reading Payments verified, directly beneath the mode toggle on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Check:** `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:test 16 — pending becomes verified without a manual refresh`; `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:the verified box carries the text-green-400 class so it shows green, not only data-state verified`; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:mode panel, verification, subscriber counts and setup checklist`
 
 ### 2. That report says which instance it speaks for
 
@@ -68,9 +66,7 @@ confirmed.
 
 **Lane:** live
 
-**Check:** `ask_question` via the Replit connector: read-only, report `stripe_live_mode` and the boot-log line confirming the Stripe account was verified for that mode
-
-**Deferred:** #631 — 7b — the Stripe Mode chip reading TEST and stripe-verification at data-state verified with Payments verified, together on the Billing page — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Check:** `ask_question` via the Replit connector: read-only, report `stripe_live_mode` and the boot-log line confirming the Stripe account was verified for that mode; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:mode panel, verification, subscriber counts and setup checklist`
 
 ### 4. The mode toggle still works, and explains itself either way
 
@@ -86,9 +82,9 @@ something reports a failure.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5 — a refused target leaves the stored mode unchanged and returns a non-success naming the mismatch`; `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5c — a valid toggle still works end to end`; `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:uses the server's message rather than the hardcoded fallback`; `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:a target mode with no credentials is refused rather than switched into` asserts the missing-variable refusal
+**Check:** `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5 — a refused target leaves the stored mode unchanged and returns a non-success naming the mismatch`; `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:test 5c — a valid toggle still works end to end`; `artifacts/overhype-me/src/pages/admin/stripeVerification.test.tsx:uses the server's message rather than the hardcoded fallback`; `artifacts/api-server/src/__tests__/stripeModeToggle.test.ts:a target mode with no credentials is refused rather than switched into` asserts the missing-variable refusal; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:mode panel, verification, subscriber counts and setup checklist`
 
-**Deferred:** #631 — 7b — on the page, a refused Switch to Live Mode leaving the Stripe Mode chip on TEST and a red error showing the server's refusal text, such as STRIPE_SECRET_KEY_LIVE, never Failed to update — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`; #628 — Phase 20 (Full launch (US)) — the chip flipping to LIVE and the box re-reporting needs the real live account, verified on the deployed site
+**Deferred:** #628 — Phase 20 (Full launch (US)) — the chip flipping to LIVE and the box re-reporting needs the real live account, verified on the deployed site
 
 ### 5. Paying still works, unchanged
 
@@ -114,7 +110,7 @@ rows and no errors.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the Setup Checklist section rendering the six STRIPE_*_TEST and _LIVE CheckRows with no missing row and no error, via a page.route stub of /api/admin/stripe/summary, since the fake shows stripe-fake-env-note — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:mode panel, verification, subscriber counts and setup checklist`
 
 ### R2. A manual Stripe sync still runs
 
@@ -124,9 +120,7 @@ rows and no errors.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:success path: a real sync drives all rows to complete` — runs in CI against the fake Stripe driver; and `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:intermediate transitions: rows progress pending → syncing… → complete in order` for the per-resource presentation, on a run the simulate endpoint starts and writes its own row states for
-
-**Deferred:** #631 — 7b — after the Sync Stripe data click starts a real run, the Products and Prices rows showing a lastSyncedAt newer than the click and Plans reaching complete, not rows the boot backfill already completed — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:success path: a real sync drives all rows to complete` — runs in CI against the fake Stripe driver; and `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:intermediate transitions: rows progress pending → syncing… → complete in order` for the per-resource presentation, on a run the simulate endpoint starts and writes its own row states for; `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:renders per-resource progress and final banner for both success and failure`
 
 ### R3. The subscriber counts still load
 
@@ -136,7 +130,7 @@ rows and no errors.
 
 **Lane:** ci
 
-**Deferred:** #631 — 7b — the Active Subscribers and Registered numbers rendering as numbers, with no spinner left and no error — `artifacts/overhype-me/e2e/adminBillingSync.spec.ts`
+**Check:** `artifacts/overhype-me/e2e/adminBillingSync.spec.ts:mode panel, verification, subscriber counts and setup checklist`
 
 ## Not bugs
 
