@@ -223,6 +223,9 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
     const summaryRes = await context.request.get("/api/admin/stripe/summary");
     expect(summaryRes.ok(), `summary should be 200, got ${summaryRes.status()}`).toBe(true);
     const summaryBody = (await summaryRes.json()) as { stripeDriver?: string };
+    // CI runs this suite on the fake driver only, so there the fixture-gated
+    // assertions below must run rather than skip.
+    if (process.env["CI"]) expect(summaryBody.stripeDriver, "CI runs the Billing suite on the fake Stripe driver").toBe("fake");
     if (summaryBody.stripeDriver === "fake") {
       await expect(page.getByTestId("stripe-fake-notice")).toBeVisible();
       // The test-webhook action needs payment flows the fake refuses, so it is
@@ -313,20 +316,23 @@ test.describe("Admin Billing — Stripe sync progress UI", () => {
       ).toHaveText("· Last synced: just now");
 
       // PR276 R4/R5: the count and the product list match the fake fixture's
-      // one product and its three prices.
-      await expect(page.getByTestId("plans-count"), "PR276 R4: the product count should be accurate").toHaveText(
-        "1 product found",
-      );
-      const productCard = page.getByText("Legendary (fake)", { exact: true }).locator("xpath=..");
-      await expect(
-        productCard.getByText("Fake Legendary membership", { exact: false }),
-        "PR276 R5: the product's description should render",
-      ).toBeVisible();
-      for (const price of ["$4.99/month", "$49.00/year", "$99.00 one-time"]) {
+      // one product and its three prices. Gated like the fixture check above:
+      // a local run against the real driver lists that account's own catalog.
+      if (summaryBody.stripeDriver === "fake") {
+        await expect(page.getByTestId("plans-count"), "PR276 R4: the product count should be accurate").toHaveText(
+          "1 product found",
+        );
+        const productCard = page.getByText("Legendary (fake)", { exact: true }).locator("xpath=..");
         await expect(
-          productCard.getByText(price, { exact: true }),
-          `PR276 R5: the price ${price} should render`,
+          productCard.getByText("Fake Legendary membership", { exact: false }),
+          "PR276 R5: the product's description should render",
         ).toBeVisible();
+        for (const price of ["$4.99/month", "$49.00/year", "$99.00 one-time"]) {
+          await expect(
+            productCard.getByText(price, { exact: true }),
+            `PR276 R5: the price ${price} should render`,
+          ).toBeVisible();
+        }
       }
     });
 

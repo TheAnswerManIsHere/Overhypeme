@@ -338,8 +338,12 @@ test.describe("Admin · Queue Health", () => {
       if (new URL(route.request().url()).pathname !== "/api/admin/queue-health") return route.continue();
       const res = await route.fetch();
       const body = (await res.json()) as { queues: Record<string, unknown>[] };
+      // Every other queue is cleared of the three conditional fields, so the
+      // "not when they do not" check below cannot be tripped by work an earlier
+      // run left on a reused database.
       for (const q of body.queues) {
         if (q.queue === QUEUE) Object.assign(q, { pending: 1, skipped: 2, abandonedNoRetry: 1, oldestPendingAgeSeconds: 125 });
+        else Object.assign(q, { skipped: 0, abandonedNoRetry: 0, oldestPendingAgeSeconds: null });
       }
       await route.fulfill({ response: res, json: body });
     });

@@ -526,40 +526,72 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
 import { FREE_ACCOUNT, PAID_ACCOUNT, csrfToken } from "./helpers/testAccounts";
 
 /**
- * Records every /api/ response status and how many /api/ requests are still in
- * flight, windowed per navigation: `begin()` before each `goto` opens a route's
- * window, so a route is judged only on its own responses and cannot borrow an
- * earlier route's.
+ * The one non-2xx answer an ordinary load gets on this stack, by design: the
+ * home page's hero pick answers 404 "No facts available" while the catalogue
+ * is empty, as the test database's is (routes/facts.ts, GET /facts/hero).
+ */
+const EXPECTED_NON_2XX = [{ method: "GET", path: "/api/facts/hero", status: 404 }];
+
+/**
+ * Records every /api/ response, every uncaught page error and every console
+ * error, and how many /api/ requests are still in flight, windowed per
+ * navigation: `begin()` before each `goto` opens a route's window, so a route
+ * is judged only on what happened while it loaded and cannot borrow an earlier
+ * route's.
  */
 function trackApi(page: Page) {
-  const responses: { url: string; status: number }[] = [];
+  const responses: { method: string; url: string; status: number }[] = [];
+  const pageErrors: string[] = [];
+  const consoleErrors: { text: string; url: string }[] = [];
   let inFlight = 0;
-  let mark = 0;
+  let mark = { responses: 0, pageErrors: 0, consoleErrors: 0 };
   const isApi = (url: string) => new URL(url).pathname.startsWith("/api/");
+  const expected = (r: { method: string; url: string; status: number }) =>
+    EXPECTED_NON_2XX.some((e) => e.method === r.method && e.path === new URL(r.url).pathname && e.status === r.status);
   page.on("request", (r) => { if (isApi(r.url())) inFlight += 1; });
   page.on("requestfinished", (r) => { if (isApi(r.url())) inFlight -= 1; });
   page.on("requestfailed", (r) => { if (isApi(r.url())) inFlight -= 1; });
-  page.on("response", (r) => { if (isApi(r.url())) responses.push({ url: r.url(), status: r.status() }); });
-  const mine = () => responses.slice(mark);
+  page.on("response", (r) => { if (isApi(r.url())) responses.push({ method: r.request().method(), url: r.url(), status: r.status() }); });
+  page.on("pageerror", (e) => pageErrors.push(e.message));
+  page.on("console", (m) => { if (m.type() === "error") consoleErrors.push({ text: m.text(), url: m.location().url }); });
+  const mine = () => responses.slice(mark.responses);
   return {
-    begin: () => { mark = responses.length; },
+    begin: () => { mark = { responses: responses.length, pageErrors: pageErrors.length, consoleErrors: consoleErrors.length }; },
     /**
      * Waits until this route has answered at least one API call and nothing has
      * been in flight across three consecutive polls — a single zero can be the
-     * gap before the page's effects issue their fetches — or a 429 arrived,
-     * which a client may retry forever.
+     * gap before the page's effects issue their fetches — or a 429 or another
+     * unexpected failure arrived, which a client may retry forever.
      */
     settled: () => {
       let quiet = 0;
       return expect
         .poll(() => {
-          if (mine().some((r) => r.status === 429)) return true;
+          if (mine().some((r) => r.status === 429 || (r.status >= 400 && !expected(r)))) return true;
           quiet = inFlight === 0 && mine().length > 0 ? quiet + 1 : 0;
           return quiet >= 3;
         }, { timeout: 30_000, intervals: [250], message: "this route's API requests never started, or never settled" })
         .toBe(true);
     },
     throttled: () => mine().filter((r) => r.status === 429).map((r) => r.url),
+    /** API calls this route made that failed (4xx or 5xx), other than the expected ones above. */
+    failed: () => mine().filter((r) => r.status >= 400 && !expected(r)).map((r) => `${r.status} ${r.method} ${r.url}`),
+    pageErrors: () => pageErrors.slice(mark.pageErrors),
+    /**
+     * Console errors from the app's own origin. Third-party scripts (analytics,
+     * ads) are left out: they can fail on a CI runner for reasons unrelated to
+     * the app. The browser's own "Failed to load resource" line for an expected
+     * answer is left out too; for any other failed call it stays, beside `failed()`.
+     */
+    consoleErrors: () => {
+      const origin = new URL(page.url()).origin;
+      const expectedUrls = new Set(mine().filter(expected).map((r) => r.url));
+      return consoleErrors
+        .slice(mark.consoleErrors)
+        .filter((c) => !c.url || new URL(c.url).origin === origin)
+        .filter((c) => !(c.text.startsWith("Failed to load resource") && expectedUrls.has(c.url)))
+        .map((c) => `${c.text} (${c.url || "no source"})`);
+    },
   };
 }
 
@@ -577,7 +609,7 @@ async function expectAdminScreen(page: Page, path: string) {
 test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, PR425)", () => {
   // PR425 R1, PR308 step 1 and R2. Deliberately NOT signed in: the smoke above
   // signs in as admin before every route, so it never sees what a visitor sees.
-  test("logged out, the ordinary and feed routes load with no sign-in wall, no 429 and no redirect", async ({ page }) => {
+  test("logged out, the ordinary and feed routes load with no sign-in wall, no error and no redirect", async ({ page }) => {
     const api = trackApi(page);
     for (const path of ["/", "/top-facts", "/library"]) {
       api.begin();
@@ -591,12 +623,15 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
         .toBeGreaterThan(20);
       await api.settled();
       expect(api.throttled(), `PR308 step 1 / R2: no API response while loading ${path} should be a 429`).toEqual([]);
+      expect(api.failed(), `PR308 step 1: no API call made while loading ${path} should fail`).toEqual([]);
+      expect(api.pageErrors(), `PR308 step 1: loading ${path} should raise no page error`).toEqual([]);
+      expect(api.consoleErrors(), `PR308 step 1: loading ${path} should log no console error from the app`).toEqual([]);
       expect(new URL(page.url()).pathname, `PR308 step 1: ${path} should stay on its own address`).toBe(path);
     }
   });
 
   // PR308 step 3 and R6.
-  test("the admin moderation and taxonomy-health screens load with no API response answered 429", async ({ page, context }) => {
+  test("the admin moderation and taxonomy-health screens load with no error and no API response answered 429", async ({ page, context }) => {
     expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
     const api = trackApi(page);
     for (const path of ["/admin/moderation", "/admin/taxonomy-health"]) {
@@ -605,6 +640,9 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
       await expect(page.locator("nav").first(), `${path} should render the AdminLayout nav`).toBeVisible({ timeout: 20_000 });
       await api.settled();
       expect(api.throttled(), `PR308 step 3 / R6: no API response while ${path} loads should be a 429`).toEqual([]);
+      expect(api.failed(), `PR308 step 3: no API call made while ${path} loads should fail`).toEqual([]);
+      expect(api.pageErrors(), `PR308 step 3: ${path} should raise no page error while it loads`).toEqual([]);
+      expect(api.consoleErrors(), `PR308 step 3: ${path} should log no console error from the app while it loads`).toEqual([]);
     }
   });
 

@@ -5174,12 +5174,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 298,
+       "line": 301,
        "quote": "await expect(completeLine, \"PR276 step 2: Sync complete should name the counts and the duration\").toHaveText("
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 301,
+       "line": 304,
        "quote": "await expect(completeLine.locator(\"..\"), \"PR276 step 2: the Sync complete line should be green\").toHaveClass("
       }
      ],
@@ -5192,7 +5192,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 312,
+       "line": 315,
        "quote": "\"PR276 step 2: the Plans header should read Last synced: just now\","
       }
      ],
@@ -5213,17 +5213,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 342,
+       "line": 348,
        "quote": "await expect(summary, \"PR276 step 3: the reloaded summary should say it synced\").toHaveAttribute(\"data-tone\", \"ok\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 343,
+       "line": 349,
        "quote": "await expect(summary, \"PR276 step 3: the reloaded summary should be green\").toHaveClass(/text-green-400/);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 344,
+       "line": 350,
        "quote": "await expect(summary, \"PR276 step 3: the reloaded summary should say it synced\").toHaveText("
       }
      ],
@@ -5236,12 +5236,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 336,
+       "line": 342,
        "quote": "await expect(summary, \"PR276 step 3: the summary line should still be there after a reload\").toBeVisible({"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 339,
+       "line": 345,
        "quote": "await expect(summary, \"PR276 step 3: it should not revert to a bare product count\").not.toContainText("
       }
      ],
@@ -5262,12 +5262,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 504,
+       "line": 510,
        "quote": "const summary = page.getByTestId(\"sync-summary\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 505,
+       "line": 511,
        "quote": "await expect(summary).toHaveAttribute(\"data-tone\", \"error\");"
       }
      ],
@@ -5280,7 +5280,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 506,
+       "line": 512,
        "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
       }
      ],
@@ -5293,7 +5293,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 509,
+       "line": 515,
        "quote": "await expect(summary).toContainText(/Last sync failed/i);"
       }
      ],
@@ -5306,7 +5306,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 510,
+       "line": 516,
        "quote": "await expect(summary).toContainText(/plans/i);"
       }
      ],
@@ -5319,7 +5319,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 511,
+       "line": 517,
        "quote": "await expect(summary, \"PR276 step 4: the summary should say what did not complete and why\").toContainText("
       }
      ],
@@ -5332,7 +5332,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 514,
+       "line": 520,
        "quote": "await expect(summary, \"PR276 step 4: the failure sentence should end Catalog data may be stale.\").toContainText("
       }
      ],
@@ -5353,7 +5353,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 449,
+       "line": 455,
        "quote": "await waitForResourceError(page, \"Plans\", 30_000);"
       },
       {
@@ -5363,7 +5363,7 @@
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 492,
+       "line": 498,
        "quote": "await expect(progressRow(page, \"Plans\")).toHaveAttribute(\"data-status\", \"error\", {"
       }
      ],
@@ -5376,12 +5376,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 495,
+       "line": 501,
        "quote": "await expect(page.getByTestId(\"sync-row-plans-detail\")).toContainText("
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 496,
+       "line": 502,
        "quote": "/Simulated failure for testing/,"
       }
      ],
@@ -5394,7 +5394,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 452,
+       "line": 458,
        "quote": "\"PR276 step 5: the failed Plans row should show a red ✗\","
       }
      ],
@@ -5415,17 +5415,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 484,
+       "line": 490,
        "quote": "await page.reload();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 505,
+       "line": 511,
        "quote": "await expect(summary).toHaveAttribute(\"data-tone\", \"error\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 509,
+       "line": 515,
        "quote": "await expect(summary).toContainText(/Last sync failed/i);"
       }
      ],
@@ -5438,7 +5438,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 506,
+       "line": 512,
        "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
       }
      ],
@@ -5451,7 +5451,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 492,
+       "line": 498,
        "quote": "await expect(progressRow(page, \"Plans\")).toHaveAttribute(\"data-status\", \"error\", {"
       }
      ],
@@ -5464,7 +5464,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 500,
+       "line": 506,
        "quote": "\"PR276 step 6: the Plans row's red ✗ should survive the reload\","
       }
      ],
@@ -5485,12 +5485,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 504,
+       "line": 510,
        "quote": "const summary = page.getByTestId(\"sync-summary\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 510,
+       "line": 516,
        "quote": "await expect(summary).toContainText(/plans/i);"
       }
      ],
@@ -5511,17 +5511,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 456,
+       "line": 462,
        "quote": "await waitForResourceComplete(page, \"Products\", 5_000);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 457,
+       "line": 463,
        "quote": "await waitForResourceComplete(page, \"Prices\", 5_000);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 505,
+       "line": 511,
        "quote": "await expect(summary).toHaveAttribute(\"data-tone\", \"error\");"
       }
      ],
@@ -5534,7 +5534,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 506,
+       "line": 512,
        "quote": "await expect(summary, \"PR276 steps 4, 6, 8: the failed summary line should be red\").toHaveClass("
       }
      ],
@@ -5547,7 +5547,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 521,
+       "line": 527,
        "quote": "await expect(summary, \"PR276 step 8: the Last synced stamp should still appear on the red summary\").toContainText("
       }
      ],
@@ -5568,12 +5568,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 531,
+       "line": 537,
        "quote": "await page.route(\"**/api/admin/stripe/sync/status\", route =>"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 554,
+       "line": 560,
        "quote": "await expect(summary).toHaveAttribute(\"data-tone\", \"never\");"
       }
      ],
@@ -5586,7 +5586,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 556,
+       "line": 562,
        "quote": "await expect(summary, \"PR276 step 9: the never-synced line should be amber\").toHaveClass(/text-amber-400/);"
       }
      ],
@@ -5599,7 +5599,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 555,
+       "line": 561,
        "quote": "await expect(summary).toContainText(/never synced/i);"
       }
      ],
@@ -5612,7 +5612,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 557,
+       "line": 563,
        "quote": "await expect(summary, \"PR276 step 9: the never-synced line should say what to do\").toContainText("
       }
      ],
@@ -5633,7 +5633,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 591,
+       "line": 597,
        "quote": "\"PR276 step 10: the Plans header stamp should come from the resources' own lastSyncedAt\","
       }
      ],
@@ -5674,7 +5674,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 404,
+       "line": 410,
        "quote": "await expect(syncButton, \"PR276 R1: the Sync button should be disabled while the run is in flight\").toBeDisabled();"
       }
      ],
@@ -5687,12 +5687,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 469,
+       "line": 475,
        "quote": "await expect(syncButton).toHaveText(/Sync Stripe data/, { timeout: 10_000 });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 470,
+       "line": 476,
        "quote": "await expect(syncButton).toBeEnabled();"
       }
      ],
@@ -5720,12 +5720,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 365,
+       "line": 371,
        "quote": "{ timeout: 30_000, message: \"PR276 R2: the page should read the full run's Payment Methods stamp\" },"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 371,
+       "line": 377,
        "quote": "`PR276 R2: Full sync should drive the ${label} row to complete`,"
       }
      ],
@@ -5746,12 +5746,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 244,
+       "line": 247,
        "quote": "await expect(plansHeaderRow.getByText(/^TEST$/), \"Plans header should show TEST badge\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 245,
+       "line": 248,
        "quote": "await expect(plansHeaderRow.getByText(/^LIVE$/)).toHaveCount(0);"
       }
      ],
@@ -5764,7 +5764,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 694,
+       "line": 700,
        "quote": "await expect(page.getByTestId(\"plans-mode-badge\"), \"PR276 R3: in live mode the badge should read LIVE\").toHaveText("
       }
      ],
@@ -5785,7 +5785,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 317,
+       "line": 322,
        "quote": "await expect(page.getByTestId(\"plans-count\"), \"PR276 R4: the product count should be accurate\").toHaveText("
       }
      ],
@@ -5806,12 +5806,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 226,
+       "line": 229,
        "quote": "if (summaryBody.stripeDriver === \"fake\") {"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 232,
+       "line": 235,
        "quote": "await expect(page.getByText(\"Legendary (fake)\").first(), \"the fake fixture product should be listed\").toBeVisible({"
       }
      ],
@@ -5824,7 +5824,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 323,
+       "line": 328,
        "quote": "\"PR276 R5: the product's description should render\","
       }
      ],
@@ -5837,7 +5837,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 328,
+       "line": 333,
        "quote": "`PR276 R5: the price ${price} should render`,"
       }
      ],
@@ -5858,12 +5858,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 787,
+       "line": 793,
        "quote": "await expect(label, `PR276 R6: the Setup Checklist row \"${text}\" should render`).toBeVisible({ timeout: 15_000 });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 791,
+       "line": 797,
        "quote": "`PR276 R6: \"${text}\" should be ticked for the fake catalog`,"
       }
      ],
@@ -5902,12 +5902,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 685,
+       "line": 691,
        "quote": "await expect(modeChip, \"PR276 R7: toggling should flip the Stripe Mode chip to LIVE\").toHaveText(\"LIVE\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 686,
+       "line": 692,
        "quote": "await expect(modeToggle, \"PR276 R7: the button should now offer Switch to Test Mode\").toHaveText("
       }
      ],
@@ -5988,27 +5988,27 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 634,
+       "line": 672,
        "quote": "PR287 step 6: the paid account's lifetime row should read Granted"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 635,
+       "line": 673,
        "quote": "PR287 step 6: an admin grant shows no payment-intent link"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 636,
+       "line": 674,
        "quote": "PR287 step 6: an admin grant shows no amount"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 637,
+       "line": 675,
        "quote": "PR287 step 6: the grant names who granted it"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 640,
+       "line": 678,
        "quote": "PR287 step 6: the grant shows why, quoted"
       }
      ],
@@ -6063,12 +6063,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 664,
+       "line": 702,
        "quote": "PR287 step 8: the revoked grant should still be listed, marked Revoked grant"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 667,
+       "line": 705,
        "quote": "PR287 step 8: the revoked grant should name who revoked it"
       }
      ],
@@ -6342,22 +6342,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 624,
+       "line": 662,
        "quote": "PR287 step 23: the paid account's row should show the Legendary icon"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 625,
+       "line": 663,
        "quote": "PR287 step 23: ...and not the Registered one"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 626,
+       "line": 664,
        "quote": "PR287 step 23: the free account's row should show the Registered icon"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 627,
+       "line": 665,
        "quote": "PR287 step 23: ...and not the Legendary one"
       }
      ],
@@ -6391,22 +6391,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 629,
+       "line": 635,
        "quote": "\"PR287 step 24: Active Subscribers should show the summary's legendary count\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 633,
+       "line": 639,
        "quote": "\"PR287 step 24: Registered should show the summary's registered count\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 625,
+       "line": 631,
        "quote": "expect(counts.activeSubscribers, \"the seeded paid account should count as active\").toBeGreaterThan(0);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 626,
+       "line": 632,
        "quote": "expect(counts.registeredMembers, \"the seeded free account should count as registered\").toBeGreaterThan(0);"
       }
      ],
@@ -6566,12 +6566,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 731,
+       "line": 769,
        "quote": "PR287 step 30: after a sweep the strip reads Healthy · last converged N ago"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 734,
+       "line": 772,
        "quote": "PR287 step 30: Healthy is grey text"
       }
      ],
@@ -6605,12 +6605,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 725,
+       "line": 763,
        "quote": "PR287 step 31: before any sweep the strip reads Not yet run · waiting Nm since start"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 726,
+       "line": 764,
        "quote": "PR287 step 31: ...and never Healthy"
       }
      ],
@@ -6631,17 +6631,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 724,
+       "line": 762,
        "quote": "PR287 step 32: the strip should refetch its status on its own after 30 s"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 730,
+       "line": 768,
        "quote": "PR287 step 32: ...and again 30 s later"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 735,
+       "line": 773,
        "quote": "PR287 step 32: the strip refreshed without the page reloading"
       }
      ],
@@ -6675,7 +6675,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 720,
+       "line": 758,
        "quote": "PR287 step 33: a clean database reads No users pending convergence"
       }
      ],
@@ -6688,7 +6688,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 739,
+       "line": 777,
        "quote": "PR287 step 33: a lagging user is counted"
       }
      ],
@@ -6722,17 +6722,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 740,
+       "line": 778,
        "quote": "PR287 step 34: the amber strip says stored tiers are drifting"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 741,
+       "line": 779,
        "quote": "PR287 step 34: ...in amber"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 744,
+       "line": 782,
        "quote": "PR287 step 34: the strip says access is still correct"
       }
      ],
@@ -6878,12 +6878,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 657,
+       "line": 695,
        "quote": "PR287 R8: the form should close once the user is created"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 658,
+       "line": 696,
        "quote": "PR287 R8: the new user should appear in the list"
       }
      ],
@@ -7160,17 +7160,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 365,
+       "line": 369,
        "quote": "await expect(row, \"PR288 step 5: skipped, no-more-retries and oldest age should show when they apply\").toContainText("
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 366,
+       "line": 370,
        "quote": "\" · 2 skipped · 1 no more retries · oldest 2m · 24h: \","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 371,
+       "line": 375,
        "quote": "\"PR288 step 5: rows with none of them should not show them\","
       }
      ],
@@ -7248,27 +7248,27 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 376,
+       "line": 380,
        "quote": "await expect(row, \"PR288 step 7: the row should expand\").toHaveAttribute(\"aria-expanded\", \"true\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 379,
+       "line": 383,
        "quote": "await expect(failed.getByText(\"#9004\", { exact: true }), \"PR288 step 7: a job should show its id\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 380,
+       "line": 384,
        "quote": "await expect(failed.getByText(\"2/3\", { exact: true }), \"PR288 step 7: a job should show its attempt count\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 381,
+       "line": 385,
        "quote": "await expect(failed.getByText(\"upstream timed out\"), \"PR288 step 7: a job should show its error\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 382,
+       "line": 386,
        "quote": "await expect(failed.getByText(/^Failed$/), \"PR288 step 7: a job should show its state\").toBeVisible();"
       }
      ],
@@ -7289,12 +7289,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 394,
+       "line": 398,
        "quote": "await expect(row, \"PR288 step 8: a second click should collapse the row\").toHaveAttribute(\"aria-expanded\", \"false\");"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 395,
+       "line": 399,
        "quote": "await expect(page.getByText(\"#9004\", { exact: true }), \"PR288 step 8: the collapsed row should hide its jobs\").toHaveCount(0);"
       }
      ],
@@ -7315,17 +7315,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 386,
+       "line": 390,
        "quote": "await expect(badges, \"PR288 step 9: each job state should be a labelled badge\").toHaveText(["
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 387,
+       "line": 391,
        "quote": "\"Queued\", \"Working\", \"Done\", \"Failed\", \"Skipped(fact inactive)\", \"Failed — no more retries\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 390,
+       "line": 394,
        "quote": "expect(spin, \"PR288 step 9: the Working badge should spin\").not.toBe(\"none\");"
       }
      ],
@@ -7346,22 +7346,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 429,
+       "line": 433,
        "quote": "await expect(page.getByText(\"Could not load queue health\"), \"PR288 step 10: the red panel should say Could not load queue health\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 432,
+       "line": 436,
        "quote": "\"PR288 step 10: the panel should say this is not the same as healthy\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 434,
+       "line": 438,
        "quote": "await expect(page.getByRole(\"button\", { name: \"Retry\" }), \"PR288 step 10: the panel should offer Retry\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 436,
+       "line": 440,
        "quote": "expect(r > g + 40 && r > b + 40, `PR288 step 10: the failure should be red, painted rgb(${r},${g},${b})`).toBe(true);"
       }
      ],
@@ -7374,17 +7374,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 425,
+       "line": 429,
        "quote": "await expect(page.getByText(/^Scheduling$/), \"PR288 step 10: no green Scheduling cards on a failed load\").toHaveCount(0);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 426,
+       "line": 430,
        "quote": "\"PR288 step 10: no all-healthy text on a failed load\").toHaveCount(0);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 427,
+       "line": 431,
        "quote": "\"PR288 step 10: no empty lanes section on a failed load\").toHaveCount(0);"
       }
      ],
@@ -7405,12 +7405,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 468,
+       "line": 472,
        "quote": "await expect(queueRows, \"PR288 step 11: the queue rows should stay on screen after a failed poll\").toHaveCount(REGISTERED_QUEUES.length);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 469,
+       "line": 473,
        "quote": "\"PR288 step 11: the lane cards should stay too\""
       }
      ],
@@ -7423,22 +7423,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 470,
+       "line": 474,
        "quote": "await expect(banner, \"PR288 step 11: a failed poll should raise the stale-data banner\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 472,
+       "line": 476,
        "quote": "await expect(banner.locator(\"xpath=..\"), \"PR288 step 11: the amber banner should read as the step words it\").toHaveText("
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 474,
+       "line": 478,
        "quote": "`^Showing data from ${escapeRegExp(await pageClockTime(page, shownTs))} — the last refresh failed and we are still retrying\\\\. These numbers are not current\\\\.$`,"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 478,
+       "line": 482,
        "quote": "expect(r > b + 20 && g > b, `PR288 step 11: the banner should be amber, painted rgb(${r},${g},${b})`).toBe(true);"
       }
      ],
@@ -7451,22 +7451,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 483,
+       "line": 487,
        "quote": "await expect.poll(() => failedPolls, { message: \"PR288 step 11: the page should keep retrying\" }).toBeGreaterThan(before);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 487,
+       "line": 491,
        "quote": "await expect(banner, \"PR288 step 11: the banner should clear once the API returns\").toHaveCount(0);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 491,
+       "line": 495,
        "quote": "\"PR288 step 11: recovery should happen with no page reload\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 493,
+       "line": 497,
        "quote": "await expect(page.getByText(/refresh the page|reload/i), \"PR288 step 11: the page should never ask for a refresh\").toHaveCount(0);"
       }
      ],
@@ -7487,17 +7487,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 414,
+       "line": 418,
        "quote": "await expect(bars, \"PR288 step 12: the first load should show five skeleton bars\").toHaveCount(5, { timeout: 30_000 });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 417,
+       "line": 421,
        "quote": "expect(Math.max(r, g, b) - Math.min(r, g, b), `PR288 step 12: skeleton bar ${i + 1} should be grey, painted rgb(${r},${g},${b})`).toBeLessThan(20);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminQueueHealth.spec.ts",
-       "line": 419,
+       "line": 423,
        "quote": "await expect(page.locator(\"main .animate-spin\"), \"PR288 step 12: the loading state should not be a spinner\").toHaveCount(0);"
       }
      ],
@@ -7518,22 +7518,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 822,
+       "line": 860,
        "quote": "PR288 R1: the Email Queue should list its jobs"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 824,
+       "line": 862,
        "quote": "PR288 R1: the real list read should succeed"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 825,
+       "line": 863,
        "quote": "PR288 R1: the Email Queue should show no error"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 826,
+       "line": 864,
        "quote": "PR288 R1: ...and not its render-error panel"
       }
      ],
@@ -8396,7 +8396,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 790,
+       "line": 828,
        "quote": "PR293 step 4: ${e.key} should still hold the saved value after a reload"
       }
      ],
@@ -8417,12 +8417,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 768,
+       "line": 806,
        "quote": "PR293 R1: /admin/config loads normally\""
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 769,
+       "line": 807,
        "quote": "PR293 R1: ...past its loading state"
       }
      ],
@@ -8435,7 +8435,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 771,
+       "line": 809,
        "quote": "PR293 R1: every existing key should still be present on the page"
       }
      ],
@@ -8474,12 +8474,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 785,
+       "line": 823,
        "quote": "PR293 R2: saving ${e.key} should succeed"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 786,
+       "line": 824,
        "quote": "PR293 R2: ${e.key} should show Saved"
       }
      ],
@@ -8671,11 +8671,41 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 593,
-       "quote": "PR308 step 1 / R2: no API response while loading ${path} should be a 429"
+       "line": 625,
+       "quote": "expect(api.throttled(), `PR308 step 1 / R2: no API response while loading ${path} should be a 429`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 626,
+       "quote": "expect(api.failed(), `PR308 step 1: no API call made while loading ${path} should fail`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 627,
+       "quote": "expect(api.pageErrors(), `PR308 step 1: loading ${path} should raise no page error`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 628,
+       "quote": "expect(api.consoleErrors(), `PR308 step 1: loading ${path} should log no console error from the app`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 371,
+       "quote": "\"/api/memes\","
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 377,
+       "quote": "if (permalinkStatus !== 200) throw new JourneyError(\"4\", \"anyone reads the public meme's permalink\", String(permalinkStatus));"
+      },
+      {
+       "path": "artifacts/api-server/src/testing/acceptance/driver.ts",
+       "line": 378,
+       "quote": "const meme = await readImage(anonymous, \"4\", \"anyone reads the public meme image\", `/api/memes/${slug}/image`, \"landscape\");"
       }
      ],
-     "fails_because": "if any API response while /, /top-facts or /library load (logged out) is a 429, the expect(s) at line(s) 234 fail",
+     "fails_because": "if loading /, /top-facts or /library logged out drew a 429 (line 625), any other failed API call outside the one designed empty-catalogue 404 (626), an uncaught page error (627) or a console error from the app's own code (628), the test fails; making a meme is journey 4 of the acceptance run, which throws if the meme save or its permalink read fails (driver.ts 371, 377, 378)",
      "gap_clause": null
     },
     {
@@ -8697,7 +8727,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 594,
+       "line": 629,
        "quote": "PR308 step 1: ${path} should stay on its own address"
       }
      ],
@@ -8751,11 +8781,26 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 607,
-       "quote": "PR308 step 3 / R6: no API response while ${path} loads should be a 429"
+       "line": 642,
+       "quote": "expect(api.throttled(), `PR308 step 3 / R6: no API response while ${path} loads should be a 429`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 643,
+       "quote": "expect(api.failed(), `PR308 step 3: no API call made while ${path} loads should fail`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 644,
+       "quote": "expect(api.pageErrors(), `PR308 step 3: ${path} should raise no page error while it loads`).toEqual([]);"
+      },
+      {
+       "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+       "line": 645,
+       "quote": "expect(api.consoleErrors(), `PR308 step 3: ${path} should log no console error from the app while it loads`).toEqual([]);"
       }
      ],
-     "fails_because": "if any API response while /admin/moderation or /admin/taxonomy-health loads is a 429, the expect(s) at line(s) 248 fail",
+     "fails_because": "if /admin/moderation or /admin/taxonomy-health, loaded as the admin, drew a 429 (642), any failed API call (643), an uncaught page error (644) or a console error from the app's own code (645), the test fails",
      "gap_clause": null
     }
    ]
@@ -8826,7 +8871,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 593,
+       "line": 625,
        "quote": "PR308 step 1 / R2: no API response while loading ${path} should be a 429"
       }
      ],
@@ -8973,7 +9018,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 607,
+       "line": 642,
        "quote": "PR308 step 3 / R6: no API response while ${path} loads should be a 429"
       }
      ],
@@ -11052,12 +11097,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 586,
+       "line": 618,
        "quote": "PR425 R1: / should render the real feed for a logged-out visitor"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 587,
+       "line": 619,
        "quote": "PR425 R1: / should not put a sign-in wall in front of a logged-out visitor"
       }
      ],
@@ -11213,22 +11258,22 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 569,
+       "line": 601,
        "quote": "PR425 R7: ${path} should render the AdminLayout nav"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 570,
+       "line": 602,
        "quote": "PR425 R7: ${path} should be authorized"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 572,
+       "line": 604,
        "quote": "PR425 R7: ${path} rendered no content"
       },
       {
        "path": "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
-       "line": 574,
+       "line": 606,
        "quote": "PR425 R7: ${path} hit the error boundary"
       }
      ],
@@ -12454,12 +12499,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 641,
+       "line": 647,
        "quote": "await expect(verification, \"PR577 step 1: the box should read Payments verified\").toContainText("
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 644,
+       "line": 650,
        "quote": "await expect(verification, \"PR577 step 1: the Payments verified box should be green\").toHaveClass("
       }
      ],
@@ -12472,12 +12517,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 649,
+       "line": 655,
        "quote": "\"PR577 step 1: the box should sit in the Stripe Mode panel with the toggle\","
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 655,
+       "line": 661,
        "quote": "\"PR577 step 1: the box should sit beneath the mode toggle\","
       }
      ],
@@ -12563,7 +12608,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 636,
+       "line": 642,
        "quote": "await expect(modeChip, \"PR577 step 3: the Stripe Mode chip should read TEST\").toHaveText(\"TEST\");"
       }
      ],
@@ -12576,7 +12621,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 637,
+       "line": 643,
        "quote": "await expect(verification, \"PR577 step 3: the box on the same panel should report verified\").toHaveAttribute("
       }
      ],
@@ -12633,17 +12678,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 725,
+       "line": 731,
        "quote": "await expect(errorLine, \"PR577 step 4: a red error should show the server's reason\").toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 726,
+       "line": 732,
        "quote": "await expect(errorLine, \"PR577 step 4: the refusal message should be red\").toHaveClass(/text-destructive/);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 727,
+       "line": 733,
        "quote": "await expect(modeChip, \"PR577 step 4: the chip should stay on TEST\").toHaveText(\"TEST\");"
       }
      ],
@@ -12656,7 +12701,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 728,
+       "line": 734,
        "quote": "await expect(page.getByText(/Failed to update/), \"PR577 step 4: never the bare words Failed to update\").toHaveCount(0);"
       }
      ],
@@ -12669,7 +12714,7 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 731,
+       "line": 737,
        "quote": "\"PR577 step 4: the chip should never flip to LIVE while a failure is reported\","
       }
      ],
@@ -12697,17 +12742,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 756,
+       "line": 762,
        "quote": "await expect(checklistBody, \"PR577 R1: the Setup Checklist should open\").toBeVisible({ timeout: 15_000 });"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 772,
+       "line": 778,
        "quote": "expect(pageErrors, \"PR577 R1: opening the checklist should raise no page error\").toEqual([]);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 773,
+       "line": 779,
        "quote": "expect(failedApiCalls, \"PR577 R1: opening the checklist should fail no API call\").toEqual([]);"
       }
      ],
@@ -12720,12 +12765,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 766,
+       "line": 772,
        "quote": "await expect(label, `PR577 R1: the ${variable} row should render`).toBeVisible();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 769,
+       "line": 775,
        "quote": "`PR577 R1: the ${variable} row should carry its checkmark`,"
       }
      ],
@@ -12746,17 +12791,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 259,
+       "line": 262,
        "quote": "await syncButton.click();"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 260,
+       "line": 263,
        "quote": "expect((await syncResponse).ok(), \"POST /api/admin/stripe/sync should succeed\").toBe(true);"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 297,
+       "line": 300,
        "quote": "await expect(completeLine, \"green Sync complete banner should appear\").toBeVisible({ timeout: 5_000 });"
       }
      ],
@@ -12769,17 +12814,17 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 272,
+       "line": 275,
        "quote": "{ timeout: 30_000, message: \"PR577 R2: the page should read Products and Prices stamps from the run the click started\" },"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 281,
+       "line": 284,
        "quote": "await expect(progressRow(page, \"Plans\"), \"PR577 R2: the Plans row should reach complete\").toHaveAttribute("
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 288,
+       "line": 291,
        "quote": "`PR577 R2: the ${label} row should report this run's sync`,"
       }
      ],
@@ -12800,12 +12845,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 618,
+       "line": 624,
        "quote": "await expect(card.getByText(/^\\d+$/), `PR577 R3: the ${name} number should show`).toBeVisible({"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 621,
+       "line": 627,
        "quote": "await expect(card.locator(\".animate-pulse\"), `PR577 R3: no ${name} spinner should be left`).toHaveCount(0);"
       }
      ],
@@ -12818,12 +12863,12 @@
      "evidence": [
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 618,
+       "line": 624,
        "quote": "await expect(card.getByText(/^\\d+$/), `PR577 R3: the ${name} number should show`).toBeVisible({"
       },
       {
        "path": "artifacts/overhype-me/e2e/adminBillingSync.spec.ts",
-       "line": 621,
+       "line": 627,
        "quote": "await expect(card.locator(\".animate-pulse\"), `PR577 R3: no ${name} spinner should be left`).toHaveCount(0);"
       }
      ],

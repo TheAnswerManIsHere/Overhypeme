@@ -364,7 +364,7 @@ out.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement a public meme is visible to anyone`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:logged out, the ordinary and feed routes load with no sign-in wall, no 429 and no redirect`
+**Check:** `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts` `artifacts/api-server/src/__tests__/memes.privacy-cache.test.ts:GET /memes/:slug — private-meme owner-only enforcement a public meme is visible to anyone`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:logged out, the ordinary and feed routes load with no sign-in wall, no error and no redirect`
 
 **Deferred:** #628 — Phase 6 (The loop) — the public fact page and meme permalink page get their browser journey there
 
