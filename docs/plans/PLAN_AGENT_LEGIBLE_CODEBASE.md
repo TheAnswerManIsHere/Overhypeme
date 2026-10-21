@@ -9,9 +9,10 @@
 > approval*). v4 reconciled v3 with the tool as it
 > shipped in the AI Handbook (#209, `ed60621`); v5 incorporated round 1; what
 > changed in each version is listed in *Changes from v3* and *Changes from
-> v4* at the end. **Amendment 2, 2026-10-21 — DRAFT, under Astra's review,
-> not yet approved:** the eval runs before the remaining header batches and
-> before Phase 2, gated on #212 (*Changes after approval*, item 2).
+> v4* at the end. **Amendment 2, approved by David 2026-10-21
+> ("Approved"),** after the planning loop's round 1 of that day (Astra, one
+> exchange): the eval runs before the remaining header batches and before
+> Phase 2, gated on #212 (*Changes after approval*, item 2).
 
 Workstream: #683. Research notes: `docs/plans/agent-legible-codebase-research.md`
 (committed on this branch). Handbook plan, approved 2026-10-14:
@@ -773,7 +774,7 @@ item-2 amendment and reopened none of C1–C5):
 2. **The eval runs before the rest of Phase 1b and before Phase 2, gated on
    #212 instead of #210** (David, 2026-10-21, option 1 of the order
    question; drafted on Fable, assessed by Astra in this loop's round 1 in
-   a fresh container). Three batches of ten had merged and #210 had landed
+   a fresh container; approved by David the same day, "Approved"). Three batches of ten had merged and #210 had landed
    and been synced when the question was asked: finish 562 headers and
    Phase 2 first, or measure now. The eval's verdict turns on the `hidden`
    tier, whose answers and keys no header changes, so the headers bought
