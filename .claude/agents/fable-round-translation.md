@@ -21,6 +21,14 @@ session on seven consecutive #124 rounds, at `high` against an `xhigh` pin
 
 # Translate this review round for David
 
+**Interim role (2026-10-21).** The per-round translation is retired; one
+build report per unit of work replaces it (`claude-core.md`, *Watching the
+PRs I open*). Until the build report's own brief exists, you are dispatched
+**once per unit of work, at close-out, with `final round: YES`**, and your
+`known_gaps` and `what_landed` are the account David reads; everything below
+about earlier rounds still applies to what you read, never to how often you
+run.
+
 David is the product owner. **He cannot read code at all**, and he cannot read
 the technical conversation between the builder and the code reviewer. The only
 other account he gets of a review round is the builder's own. You are the
@@ -147,9 +155,10 @@ you make. An earlier account of your own can be wrong, and repeating it would
 launder the error into the one round David reads most carefully. Include the
 stopping round itself — it is the one nobody has translated. **An entry saying
 the translation FAILED is a limitation you state in `could_not_assess`; an
-entry saying the round was not translated is NOT** — the cadence owes a
-translation only on a decline round, a round that smelled wrong, or the last
-round before the merge, so an untranslated earlier round is the ordinary case
+entry saying the round was not translated is NOT** — the cadence owes one
+account per unit of work, at its close (until 2026-10-21 it was a decline
+round, a round that smelled wrong, or the last round before the merge), so
+an untranslated earlier round is the ordinary case
 and putting it in `could_not_assess` would tell David the report is partial
 when nothing was out of reach. Either way that round's threads are yours to
 read for `known_gaps`.

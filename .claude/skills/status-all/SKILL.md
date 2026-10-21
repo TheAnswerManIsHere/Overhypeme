@@ -319,9 +319,9 @@ the agent through the Replit connector inside close-out, so a workstream
 sitting at `waiting:replit` is agent-held work — it buckets and
 stall-detects like `waiting:claude`, and a lingering one means a close-out
 some session needs to finish, which is exactly what the stalled bucket
-exists to surface. A Post-merge step that would start a paid AI run waits
-for David's go-ahead for that run (`uat-doc-format.md`, *Lanes*), so it is labelled
-`waiting:david` and reported under 🛑 NEEDS YOU, never as stalled agent work. `/status`'s five-state table
+exists to surface. A Post-merge step that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week — and asks him only above it (`uat-doc-format.md`, *Lanes*): within budget it is agent work
+(`waiting:claude`), not `waiting:david` and not reported under 🛑 NEEDS YOU; only a run above the budget is labelled
+`waiting:david` and reported there, never as stalled agent work. `/status`'s five-state table
 (`.claude/skills/status/SKILL.md`) made the matching move.
 
 A workstream is **stalled** when `waiting` is NOT a David-gate (per the

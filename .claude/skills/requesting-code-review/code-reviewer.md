@@ -110,7 +110,7 @@ Subagent (general-purpose):
 merge once they are applied: the corrected head gets its own review. That is
 the write-gate rule, which has no tier and holds for every kind of work
 reviewed here. It is not the two-review limit, which this cited until
-2026-09-23 — that rule answers how long iteration runs and to whom it applies,
+2026-09-23 — that rule, retired 2026-10-21, answered how long iteration ran and to whom it applied,
 and this template has no idea what it is reviewing.]
 
     **Reasoning:** [1-2 sentence technical assessment]

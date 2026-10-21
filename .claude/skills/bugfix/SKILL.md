@@ -386,13 +386,16 @@ What is *bugfix-specific* about the loop:
   a fix.** A fix to product code is a product loop. But routed entry means a
   bug can be *in the docs*: when the whole diff is agent-facing markdown or
   process tooling, the
+  internal loop applies to a fix that is internal by its consequence and
+  recoverability — the automatic pass, a coherent batch of corrections if any
+  are warranted, and a review of that corrected head — and what ends it is the
+  builder's judgement under the ship gate, with "record the gap" the ordinary
+  answer from the second review on; no count ends it (the
   [two-review limit](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
-  applies to a fix that is internal by its consequence and recoverability —
-  the automatic pass, one coherent batch of corrections if any are warranted,
-  and a review of that corrected head. It is scoped that way and not by the
-  tier, so a fix to process tooling governing approvals, publication,
-  credentials or destructive operations is weighed on both, and can fall
-  outside it. This read "the internal tier
+  that said so stood from 2026-09-20 to 2026-10-21 and keeps the record). It is
+  scoped by consequence and not by the tier, so a fix to process tooling
+  governing approvals, publication, credentials or destructive operations is
+  weighed on its consequence and recoverability. This read "the internal tier
   governs (David, 2026-08-21) … the two-review limit, the same as everywhere"
   until 2026-09-23: the tier named as the classifier, and the limit named as
   universal, in one sentence that cited neither. The tier itself only says nobody's money or data is downstream,

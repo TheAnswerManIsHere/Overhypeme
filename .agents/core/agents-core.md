@@ -42,12 +42,13 @@ plan until David has explicitly approved that plan.** An ambiguous nudge or anot
 agent's approval is not David's approval. A feature David has declared
 **prototype phase** has a short plan to approve for its **first version**
 only; later versions have none unless he asks (below, and working-modes.md
-*The prototype phase, per feature*). Inside an approved plan — or, for a
-Tier A or B bugfix, inside its tier oracle, which is that rule's plan — a
-choice that is yours to recommend and a corrective commit would undo proceeds
-on the recommendation and is reported; what the irreversible list names, and
-what the product should do, still ask, and a bugfix's regression test is never
-such a choice (`working-modes.md`, *Per bug — the loop*, step 3 and its carve-out)
+*The prototype phase, per feature*). A choice that is yours to recommend and
+not on the irreversible list proceeds on the recommendation and is reported,
+wherever it arises — in a plan, a bugfix, a review round, a merge (David,
+2026-10-21, widening the 2026-10-10 rule from "inside an approved plan");
+what the irreversible list names, a plan before it is enacted, and what the
+product should do still ask, mid-flight scope is taken as *next* and
+reported, and a bugfix's regression test is never such a choice (`working-modes.md`, *Per bug — the loop*, step 3 and its carve-out)
 ([`agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
 Full working rules:
 [`docs/ai-context/agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md).
@@ -222,10 +223,13 @@ For non-trivial implementation work, create or update a plan using
 approves the plan.** A feature in **prototype phase** meets this standard
 once, for its first version — a short plan, Astra's review, David's
 approval — and is outside it for later versions unless he asks; no version
-gets a code review, and after the first the only reviewer is the product
-owner using it — after the version's scaled machine lanes have passed, any
-failing one repaired by the agent first, and any that would start a paid AI
-run only on David's go-ahead for that run (`uat-doc-format.md`, *Lanes*)
+gets a code-review loop, and after the first the only feedback that changes
+it is the product owner's — after the version's scaled machine lanes have
+passed, any failing one repaired by the agent first, any that would start a
+paid AI run within David's per-run and weekly budget (`uat-doc-format.md`,
+*Lanes*), and with one fix owed whoever finds it, Codex's automatic pass
+included: a defect that stops the built feature running and producing
+reasonable output (David, 2026-10-20)
 ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 
 **Planning (not code review).** A planning loop does not run on a pull request

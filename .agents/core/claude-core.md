@@ -112,7 +112,7 @@ where I put it and treat it as binding.
    connector at close-out — never a chat instruction to him. A prototype-phase
    PR's section carries only its version's `live` check, run through the
    connector after the merge's sync, under the same rule — one that would
-   start a paid AI run only on his go-ahead for that run (`uat-doc-format.md`, *Lanes*).
+   start a paid AI run within his per-run and weekly budget (`uat-doc-format.md`, *Lanes*).
 2. **David never reads diffs or commits.** Checkpoints are product intent, real
    decisions, or a testable surface — never code milestones. I never offer or
    pause for code review by him.
@@ -123,9 +123,14 @@ where I put it and treat it as binding.
    unambiguous).
 5. **Sparse chat.** Short status lines, no essays, no play-by-play. Governs my
    chat messages, not Codex threads or PR artifacts.
-6. **Blocking asks get the 🛑 banner and always notify.** Shape: a rule,
-   `🛑 **NEED YOU** — <one-line ask>`, what David must supply (information I
-   cannot obtain, a decision reserved for him, an action only he can take),
+6. **Blocking asks get the 🛑 banner and always notify — and only four
+   things are blocking asks** (David, 2026-10-21): the irreversible list,
+   a plan before it is enacted, information only he holds, and an action
+   only he can take (a sign-in code, `/model`). Everything else I decide on
+   my recommendation and report (*A reversible choice proceeds*, below) —
+   *"9/10 times you ask me a question and give me a recommendation, I go
+   with your recommendation. That means that asking me is futile."* Shape:
+   a rule, `🛑 **NEED YOU** — <one-line ask>`, what David must supply,
    numbered options with ramifications where there is a choice, a
    `Recommendation:` line naming the preferred option or next action and
    why, a closing rule. What the repository can answer is
@@ -137,18 +142,24 @@ where I put it and treat it as binding.
    doesn't. Text between
    tool calls reaches him paraphrased
    ([`chat-text-between-tool-calls-is-summarised.md`](../../.agents/memory/chat-text-between-tool-calls-is-summarised.md)).
-   Major completions that hand the turn back also notify; routine progress
-   doesn't. **An ask is shown once:** the banner alone
+   **A push notification means "read this", and fires for exactly four
+   things** (David, 2026-10-21): the three stops between increments — a
+   blocker only he can clear, a UAT step the next increment depends on, the
+   irreversible list — and a unit of work completed (its build report).
+   Routine progress never notifies. **An ask is shown once:** the banner alone
    carries the options and recommendation; a later turn leaving it unchanged
    re-notifies and, if it has other text, ends with `Still waiting on you:
    <one-line ask>, above.`, else writes nothing; a changed ask replaces the
-   banner. **A bundled banner marks which questions are his under every rule
-   and which exist only because a loop hit a limit** (the ask-to-reopen of
-   [`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
-   step 3, or a review-loop PR's hand triage, *The ship gate*); a
-   limit-induced question the shared judgement could settle is not asked.
+   banner. **A bundled banner carries only questions that are his under every
+   rule**; no loop limit exists to induce one (the two-review limit, its
+   ask-to-reopen and the review-loop PR's hand triage are retired, David,
+   2026-10-21).
 7. **👀 FYI for non-blocking things he'd want to know.** A rule, then
-   `👀 **FYI** — <one-line summary>`, the specifics, a closing rule. Work
+   `👀 **FYI** — <one-line summary>`, the specifics, a closing rule. **The
+   summary and the first words of each specific are bold**, so a decision
+   can be found by scrolling (David, 2026-10-21: *"include bold formatting as
+   you generate a LOT of text in the chat and quickly scrolling through
+   hundreds of lines needs to be as easy as possible"*). Work
    continues; no reply needed. Clears the bar: a security/data-integrity
    concern found along the way, a systemic issue beyond the one PR, a scope
    surprise, a process gap, anything contradicting stated product intent,
@@ -192,7 +203,7 @@ where I put it and treat it as binding.
     (product, design, correctness) are weighed on the merits — and **Codex
     code-review findings keep their full fix-or-decline force** on
     production-phase code; on a prototype-phase feature its automatic pass is
-    read for nothing (*Two classes and a phase that leave the loop*).
+    read for one thing, a defect that stops the feature working (*Two classes and a phase that leave the loop*).
 13. **Every reply to a message of his opens by quoting it.** A blockquote of
     his first line, truncated at ~90 characters with `…`, before anything
     else. His messages and my answers are routinely separated by a dozen tool
@@ -232,11 +243,14 @@ first question about anything new is whether it needs to exist. My enactment:
 
 The rule is
 [`agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10):
-inside an approved plan — or, for a Tier A or B bugfix, inside its tier
-oracle, which is that rule's plan (David, 2026-10-11) — a choice that is
-mine to recommend and whose undo is a corrective commit proceeds on my
-recommendation; the irreversible list there asks first, every time; plans,
-scope and new increments are David's, every time; and a bugfix's regression
+a choice that is mine to recommend and not on the irreversible list
+proceeds on my recommendation, wherever it arises — inside an approved plan,
+inside a bugfix's tier oracle (David, 2026-10-11), in a review round, at a
+merge, in close-out (David, 2026-10-21, widening the 2026-10-10 rule from
+"inside an approved plan" to every decision I would otherwise bring him);
+the irreversible list there asks first, every time; plans and new
+increments are David's, every time, and mid-flight scope is taken as *next*
+and reported; and a bugfix's regression
 test is never such a choice — step 3 of the bugfix loop, waived only by that
 step's carve-out
 ([`working-modes.md`](../../docs/ai-context/working-modes.md#per-bug--the-loop)). My enactment (David,
@@ -244,7 +258,7 @@ step's carve-out
 
 1. **Proceeding is a 👀 FYI, in the turn it happens** — the choice, the
    recommendation I took, and the commit that would undo it, in one line
-   each. It is also a line in the workstream issue's State of Play and an
+   each, the choice in bold. It is also a line in the workstream issue's State of Play and an
    entry under **Decisions taken on my recommendation** in the PR body; a PR
    with none says `none`. All three records are under the canonical
    disclosure check (`workstream-tracking.md`, *Sensitive /
@@ -274,8 +288,17 @@ step's carve-out
    none; the line carries the label `through last tool call` rather
    than presenting a partial figure as the turn's total (Codex, DojoOS #8). **A figure I have no reading for — a turn with no tool call,
    a harness that prints no count — is `unable to verify`, never estimated**:
-   these are the numbers he sets a cap from and cannot check. No ledger; the
-   harness's running count is the source. **Where it sits**:
+   these are the numbers he sets a cap from and cannot check. The harness's
+   running count is the source, and **one line is kept from it**: the
+   workstream issue's *Spend so far*, updated at every hand-back that
+   changes it, so the build report can state the build's total (David,
+   2026-10-21). That is the one ledger line the #89 cut's "no ledger"
+   admits, at that size and no larger. **Every hand-back ends with a fixed
+   footer** (David, 2026-10-21: *"here's what we planned, here's the unit
+   of work that I've completed, here's what we should do next"*), four bold
+   fields on one block: **Done:** the unit of work this turn advanced or
+   finished · **Next:** what follows, against the plan · **Needs you:**
+   nothing, or the one thing · **Spend:** the turn's line. **Where it sits**:
    inside the message that hands the turn back — last, except on a turn
    that ends with a 🛑 ask or an open-ask line, where interaction rule 6
    keeps the ask last and the spend line sits directly above it; a turn that
@@ -369,8 +392,10 @@ announcement is David's veto surface); `/bugfix` is the explicit override.
   the overlay marks sensitive add the specialist review (a prototype-phase
   feature touching one is still in prototype phase, and the branch regime is
   what protects production's process and data).
-  If the class is unclear I ask one numbered question, and I do **not** default
-  upward: the expensive mistake in this repo has been over-ceremony.
+  If the class is unclear I take the lighter one on my recommendation and
+  say so — the one-line announcement is his veto surface — and I do **not**
+  default upward: the expensive mistake in this repo has been over-ceremony
+  (David, 2026-10-21; until then this asked one numbered question).
 - **Bug-fixing drops the planning ceremony, not the verification.**
   Diagnose-classify-fix-ship on a fresh branch off `origin/main`, **one bug per
   branch per PR**, opened as soon as the fix is verified. No plan file, no plan
@@ -383,10 +408,8 @@ announcement is David's veto surface); `/bugfix` is the explicit override.
   still reviews every bugfix diff. My enactment: `.claude/skills/bugfix/`.
 
 Both modes: pause and ask on genuine product ambiguity — a technical one
-that is mine and reversible proceeds under *A reversible choice proceeds*,
-above, inside the approved plan in feature mode and inside the tier oracle in
-bugfix mode, which is that rule's plan for a Tier A or B fix (David,
-2026-10-11), its regression test excepted as above — (a "bug" that's really a
+that is mine proceeds under *A reversible choice proceeds*, above, in either
+mode (a Tier A or B fix's regression test excepted, as above) — (a "bug" that's really a
 behavior change is feature work), verify before committing, and keep the
 squash-merge / never-force-push / bot-review discipline — the last where a
 review is owed, which a prototype-phase feature never is.
@@ -471,11 +494,22 @@ enactment is `.claude/skills/document/`.
    boundaries, ceremony tier — goes to David as a 🛑 banner; for a
    prototype's version, the short plan's four items stand in for intent,
    must-not-change and settled decisions. His explicit
-   agreement is what authorizes the loop to run autonomously.
-5. **Mid-flight scope gets the now/next/never question** — three options with
-   ramifications, default **next**. A two-option scope question is a bug in the
-   question. Override only when the current plan cannot be *correct* without the
-   addition.
+   agreement is what authorizes the loop to run autonomously — **and his
+   approval of the plan authorizes every increment in it, end to end**
+   (David, 2026-10-21: *"once we've built and agreed on a plan, even if it
+   has many phases, you should be able to autonomously complete all the
+   steps in the plan from start to finish"*). Between increments I stop for
+   three things only, each with a push notification: a blocker only he can
+   clear (a key, a sign-in, a purchase), a UAT step that is his and that
+   the next increment depends on, and the irreversible list. A UAT the next
+   increment does not depend on never pauses the build: the machine lanes
+   run, the judgement steps are handed to him, and the next increment
+   starts; a failed UAT is a fix on a fresh branch, as *Close-out* says.
+5. **Mid-flight scope is taken as *next* and reported** (David, 2026-10-21)
+   — recorded for the following increment, the plan unchanged. The one case
+   that still asks is *now*, and only when the current plan cannot be
+   *correct* without the addition, since that changes a plan, which is his.
+   (This was a three-option question to him until 2026-10-21.)
 6. **Chat is the plan's delivery surface** (David, 2026-09-18, retiring the
    private Artifact page of 2026-09-09, which in turn replaced the plan-review
    PR). A readout per exchange; at approval, a short readout and then **the
@@ -486,7 +520,8 @@ enactment is `.claude/skills/document/`.
    delivery; the file committed at approval (rule 3) is the durable copy, and
    neither replaces the other. **v1 is shown and the loop proceeds without waiting** —
    it changes anyway.
-7. **Choices that change intended behaviour, scope, or an accepted user-facing
+7. **Choices that change intended behaviour, the plan's scope (a mid-flight
+   addition is rule 5's, taken as *next*), or an accepted user-facing
    consequence escalate to David** as numbered questions carrying Astra's view
    and mine side by side — never absorbed into a revision. **A purely technical
    design fork is not one of them**: two approaches serving the same agreed
@@ -526,16 +561,22 @@ for the two classes and in
 [its phase section](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26) for the third exemption;
 this is my enactment. Everything else in this section is the **standard**
 loop, and each of its rules below — the write-gate, shared judgement, review
-rule 4's "any changed head gets its review", translation and the close-out bar
-— applies to the standard loop only.
+rule 4's "any changed head gets its review" and the close-out bar
+— applies to the standard loop only; the build report at close-out applies
+to every unit of work but a Trivial PR.
 
 - **Trivial: only David declares it**, in words, for that change; I never
   assign it, and the PR body quotes him. His phase declaration for a feature
   is that declaration for the one-line registry PR recording it (David,
   2026-09-28; the phase bullet below). I request no review of any kind and
-  merge on green CI. Codex's automatic pass is read for one thing: **a P1
-  holds the merge and goes to David**, and I do nothing further until he
-  answers. Each Codex thread is resolved with one line citing his ruling.
+  merge on green CI. Codex's automatic pass is read for one thing: **a P1,
+  which I judge and report** — fixed in a named commit, or merged with the
+  reason in the merge report (David, 2026-10-21; until then it held the
+  merge for him) — **except on a phase registry PR, where it is read for
+  nothing**,
+  P1s included (David, 2026-10-20: *"I'm not
+  sure why you keep listening to Codex during prototyping."*). Each Codex
+  thread is resolved with one line citing his ruling.
 - **Documentation: one Astra and Fable pass, with Codex's automatic pass as
   one input** (David, 2026-10-04, after a seven-PR trial without it). For
   prose: contracts, skills, memory notes, docs sweeps, harvests, Manual
@@ -557,14 +598,16 @@ rule 4's "any changed head gets its review", translation and the close-out bar
   a later version only when he asks in words; it gets no code-review loop, no
   UAT doc and no hardening bar until David declares it production — and it
   keeps the machine lanes, scaled to a prototype, as my proof that a version
-  works before the owner is asked — a check that would start a paid AI run only
-  on his go-ahead for that run (`uat-doc-format.md`, *Lanes*) (David, 2026-10-10;
+  works before the owner is asked — a check that would start a paid AI run within
+  his per-run and weekly budget (`uat-doc-format.md`, *Lanes*) (David, 2026-10-10;
   [`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26),
   *What prototype phase keeps of verification*)
   (David, 2026-09-28: *"What we're cutting out is the code review loop once
   we've built it."*). Where nothing is
   downstream of `main` it lives on `main` and its PR merges in the same turn,
-  Codex's automatic pass read for nothing; where users are, it lives on a
+  Codex's automatic pass read for one thing — the one fix a prototype owes,
+  whoever finds it, is a defect that stops the built feature running and
+  producing reasonable output (David, 2026-10-20); where users are, it lives on a
   `prototype/<feature>` branch with its own environment and database, and
   opens no PR at all. Any production-phase feature in the same PR puts the
   whole PR in the standard loop. The rule is
@@ -598,23 +641,18 @@ statement of that test, which sets no target rate in either direction. But a
 system of per-finding filters has no opinion about the length of the sequence
 it produces, and measurement on 2026-09-19 says the sequence is the problem:
 across five loops, **57% of the findings from round two onward landed on lines
-an earlier round's fix had just changed**, and 67% were written for. So, on
-internal tooling, **autonomous iteration is bounded at two reviews** — review
-the head, one coherent batch of corrections, review the corrected head, stop.
-
-**A cap on further EDITING is never an exemption from REVIEWING what was
-edited**, and ending iteration is not "merge regardless": a corrected head that
-still violates an agreed requirement, fails a required check, or carries a
-finding of consequential harm David has not accepted goes **to David with the
-shortfall and a choice**, never to the merge button. **A second-review finding
-that is none of those is not his question**: the shared judgement settles it —
-record the gap, or ask him to reopen — with the Fable tie-break on a surviving
-technical split (David, 2026-10-10; the measurement is in the home). **I cannot
-award myself a third review** — that is the whole operational difference from the round budget
-the #89 cut deleted. The rule, its scope by consequence and recoverability rather than
-by directory, and what it costs are in
-[`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19); this is only my
-enactment of it. (David, 2026-09-19, on Astra's recommendation.)
+an earlier round's fix had just changed**, and 67% were written for. From
+2026-09-19 to 2026-10-21 that bounded internal tooling at two reviews; David
+retired the limit (*"everything that stops you from working is a problem for
+me"*), and the measurement is now a prior I apply rather than a count that
+applies itself: **from the second review on, record the gap is the ordinary
+answer**, a further batch is written when the judgement says it is worth it,
+and I say in the merge report what was recorded and why. **No round brings
+findings to David**: a corrected head that still violates an agreed
+requirement or fails a required check is mine to fix or cut, and only a
+product decision or the irreversible list is his. The retired rule's text is
+in git history at
+[`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19).
 
 ### The ship gate: when the Worth rule stops being asked (David, 2026-09-19)
 
@@ -637,11 +675,9 @@ approach still serves David's goal"* and *"the change still does what you
 agreed"* — the signal was already being emitted every round and nothing
 consumed it. David stopped that loop by hand.
 
-**Where the two-review limit applies, it caps this carve-out**: reach across future pull
-requests can keep the gate from ending a loop early, and can never authorise a
-third review (both assessors, #140 round 1). **The carve-out survives,
-capped** — David, 2026-09-23, closing the question this line had left open
-since #140 round 1.
+**Reach across future pull requests can keep the gate from ending a loop
+early**, and that is all it does (both assessors, #140 round 1; the
+two-review cap that used to bound it is retired, 2026-10-21).
 
 **On a PR that changes the review loop itself, the gate cannot end the loop
 alone**, and that is a limit rather than a defect: the second exception
@@ -651,29 +687,15 @@ pull request runs. There the Worth rule still does the work, and a loop that
 runs on past a `yes` for that reason says so rather than looking like the gate
 failed. (Named on #134 round 1 by both assessors, from the inside.)
 
-**And such a pull request, once its second review returns findings, comes to
-David rather than to the merge button** (David, 2026-09-23). **This is his
-ruling for that class, not a reading of the consequence test** — the review
-loop is machinery governing approvals, so the home's test
-([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)) could
-well put a change to it outside the limit and buy it further rounds. He capped
-it at two anyway and takes the result himself: the findings, declines and all
-go to him to triage by hand, rather than my judging the stop alone on the one
-artifact whose blast radius is every future loop. **A clean review merges like
-anything else** (David, 2026-09-25): *"If reviews are clean, there's nothing
-for me to interpret."* He is brought in where there is a judgement to make —
-doubt, a smell, a loop that is dragging, a question about how prose is worded
-— and such a pull request, one that changes the loop, still carrying findings
-after its second review is that.
-**This binds whether or not the consequence test would have exempted the
-change** — the enactment asks it before the ordinary gate, not after (Codex,
-#153 round 1: the `Otherwise` branch sent an outside-the-limit change to the
-ordinary loop, where it could have written another batch instead of stopping).
-His reasoning bounds where the rest of this section is aimed and is worth
-carrying: **the autonomy being built here is for product-facing builds**, and
-harness work of this shape should be close to done. It is cheap because it
-should be rare — and if it stops being rare, that is the thing to bring back
-to him, not a reason to widen the autonomy.
+**Such a pull request's findings are mine to decide like any other's**
+(David, 2026-10-21, retiring the 2026-09-23 rule that sent a
+review-loop-changing PR to him after its second review: *"everything that
+stops you from working is a problem for me"*). What survives of that rule
+is its aim, worth carrying: **the autonomy being built here is for
+product-facing builds**, and harness work of this shape should be close to
+done; if it stops being rare, that is the thing to bring back to him, not a
+reason to widen the autonomy. *"If reviews are clean, there's nothing for me
+to interpret"* (David, 2026-09-25) now holds for every review.
 
 **The question is yes/no against text agreed before the loop began**, which is
 what keeps it from becoming another thing I reinterpret. "Would this change
@@ -691,13 +713,13 @@ reason to write.
 
 **A round that returns findings is the unit of spend, and its cost does not
 vary with WHICH finding it returns.** Two assessments that each re-read the
-repository, a translation when one is owed, and my own turns to package, post,
+repository and my own turns to package, post,
 reply and resolve — the same bill for a label's wording as for a role running
 as the wrong model, and the Worth rule is applied only after it has been paid.
 **A clean round is not that bill** (save the one clean round of a PR whose
 plan took the private path, assessed regardless, below): neither assessor is dispatched when there
-is nothing to assess, so the cost is my turns plus the translation the last
-round before a merge always owes. Stating it otherwise overstates the
+is nothing to assess, so the cost is my turns plus the build report the
+close-out owes. Stating it otherwise overstates the
 commonest way a loop ends, which corrupts the very decision the disclosure
 exists to inform. My main loop is the larger half and the
 invisible one: every artifact I read into context is re-billed on every
@@ -721,10 +743,9 @@ what is downstream of *this* change: **a change to machinery that governs
 approvals, publication, credentials or destructive operations is weighed on
 its consequence and its recoverability**, whatever directory it lives in. One
 whose effect on what that machinery approves, publishes, grants or destroys
-could not be trivially undone falls outside the two-review limit and under the
-ordinary loop the tier it earns carries; one that could — a printed message, a
-formatting change to what gets published — does not
-([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)). (Until
+could not be trivially undone earns the tier its consequence names and is
+on the irreversible list where it is a live toggle; one that could — a
+printed message, a formatting change to what gets published — stays internal. (Until
 2026-09-23 this said the machinery "is classified on that consequence … which
 puts it outside" — the category settling what the home only weighs, #148 —
 and its first fix made "alters what is published" the whole test, dropping
@@ -747,8 +768,8 @@ nearly all of it — stays internal:
   only the sanitized oracle, so its clean pass says nothing about the
   restricted requirements, and Astra and the Fable assessor read the change
   against the full text once before merge, clean pass or not (`pr-watch`;
-  until its script mode exists, AI-Handbook #206, that round is a 🛑 to
-  David instead).
+  until its script mode exists, AI-Handbook #206, that round is a 👀 FYI
+  and my own decision, reported — David, 2026-10-21).
 - **Every finding is judged on what it is worth, and the tier says what is
   downstream rather than setting a threshold** (David, 2026-09-17). The old
   rubric here reserved a write for "a very high chance of a critical flaw" and
@@ -822,17 +843,10 @@ The loop:
 - **Both assessors read the live checkout, so the dispatch refuses unless the
   tree is at the reviewed commit and clean.** Advice about code the reviewer
   never saw is worse than no advice.
-- **A loop stops at six hours and asks David to resume.** The clock is **the
-  PR's `created_at`, or David's last explicit resume, whichever is later** — one
-  quantity, readable from GitHub, needing no judgement about what counted as
-  attended. Expiry pauses and asks; never convergence, never an automatic
-  extension.
-  **This rule was written on #120 and #120 was its first counter-example.** Its
-  earlier form said "six hours of unattended wall-clock" and, in the same
-  breath, "read from the PR's age" — two different quantities, so it could not
-  be obeyed as written and was never once consulted across seven rounds. A
-  stopping rule whose reading is arguable is one I will argue with, which is the
-  same lesson the flip-condition rule already carries: **name an observable, not
+- **No clock stops a loop** (David, 2026-10-21, retiring the six-hour stop
+  of #120: *"I'm not sure how the six-hour clock really helps. Basically,
+  everything that stops you from working is a problem for me."*). What that
+  rule taught survives in the flip-condition rule: **name an observable, not
   an adjective.**
 
 The judgement itself — the Worth rule both assessors and I apply — is
@@ -858,13 +872,12 @@ the readiness receipt never ran at all, and the delivery gate's only firing was
 on its own breakage. Twelve thousand lines made a fuzzy process *measurable*
 without making it *shorter*.
 
-**What decides a loop's length, on work it bounds, is the two-review limit**, above. **Rules 4
+**What decides a loop's length is my judgement under the write-gate and the
+ship gate**, above; no count does (David, 2026-10-21). **Rules 4
 through 6 below bound what a single round is for** — which heads are reviewable,
 the pre-registered flip conditions carried with a request, and the worth test at
 triage, which lives in
-[`review-judgment.md`](../../docs/ai-context/review-judgment.md). Neither they
-nor the Worth rule can authorise another batch after review two where the
-limit applies. **What
+[`review-judgment.md`](../../docs/ai-context/review-judgment.md). **What
 replaces the adjudicator is the shared judgement**, stated above: the
 per-finding call is no longer made *alone*, which closes the weakest link this
 section named. It is still mine — two assessments advise and I decide from
@@ -887,8 +900,8 @@ in the file that every session loads.
    conditions**: what finding, count, or change of shape would make me stop,
    written before the round runs. **Within a round** it is the device with a
    working record, and it works because it collides with an event instead of
-   waiting to be recalled — it was the only one until the two-review limit,
-   which bounds the sequence rather than the round.
+   waiting to be recalled — the sequence is bounded by the ship gate, not by a
+   count.
    **Each one names an OBSERVABLE, never a judgement** (AI-Handbook #85,
    2026-09-13): something read off the round, not something I decide in the
    moment having just read the finding. **A condition I have to interpret is
@@ -909,8 +922,9 @@ in the file that every session loads.
    than to the class the example belongs to reads as careful engineering while
    resting on a boundary nobody drew. State the class before the consequence,
    and answer the consequence of that class at its worst.
-   Product forks, scope additions, splits and disclosure questions go to
-   David, as do intended behaviour and any shortfall he or a user would feel.
+   Product forks, disclosure questions, intended behaviour and a user-facing
+   shortfall he has not accepted go to David; a scope addition is taken as
+   *next* and reported, and a split is proposed in the plan (Planning rule 5).
    A purely technical design fork is not his: it is settled in the loop
    (Planning rule 7; on a code round the Fable assessor holds the tie-break).
 
@@ -945,22 +959,45 @@ fires at all:
   call) and decide from that. Webhooks lag, drop CI successes, and arrive out of
   order, so silence is never "all clear."
 
-**A round is translated for David when I declined something in it, or when
-something about it smells wrong** (David, 2026-09-19, narrowing the
-every-round rule of 2026-09-12). Those are the rounds where an independent
-reading has caught things — on #131 both of the translator's real
-disagreements came on rounds carrying a decline, and one was a defect no
-assessor had found. A round where I wrote for every finding has less to catch
-and costs the same, and four translations on #131 were the single largest
-token line in the loop. **In the standard loop, the last round before a merge is always translated**,
-whatever its shape, so nothing merges unaccounted. The translation reads the
-round itself — findings, my replies, the diff — not my account of it, and
-comes **after** the trigger is posted, never before: a translation I could act
-on is an in-loop advisor reading my own prose.
+**The round translation is retired; a build report replaces it** (David,
+2026-10-21: *"The translation of each loop should stop and be replaced with
+an AI summary in plain english of exactly what happened from start to
+finish in the build ... what was built, what decisions were made, what the
+ramifications are, how much money was spent"*). One account per unit of
+work — a PR's merge, or a prototype version delivered — written at its
+close by the same independent Fable role, reading the whole build from
+GitHub (the plan or the prompt, the workstream issue, every PR and round,
+the decisions) rather than my account of it, in fixed sections in a fixed
+order so he can scan: **What was built**; **Decisions taken on my
+recommendation**, each with its undo, so a reversal is one line from him;
+**Ramifications and what ships unfixed**; **Spend**, the build's total, read
+from the issue's *Spend so far* line (*A reversible choice proceeds*, rule
+2); **Where we are** — what we planned, the unit just completed, what is
+next; **Session** — continue here, or archive and hand off, with the
+hand-off prompt ready when the answer is archive (the `handoff` skill's
+Step 1 judgement, run here without being asked); **Needs you** — nothing,
+or the one external thing. Delivered twice, verbatim: in chat, and as a
+comment on the workstream issue, so one place per feature holds the record
+without the chat. A Trivial PR gets none. Until its brief and schema exist
+(the PR after this one), the close-out dispatches the final-round
+translation as the interim account, once per unit of work and never per
+round — **where a PR exists**: that role locates its evidence by Codex's
+review markers on a PR, so a prototype version on a `prototype/<feature>`
+branch, which opens none, gets no interim account, and its hand-back says
+so, my own labelled account being its only one until the brief lands (the
+brief must read such a version from the issue and its commits — the next
+PR's requirement, named here so it is not forgotten); a PR whose only pass
+is the unrequested one dispatches as round 1 and the role reports the
+thin marker as the limitation it is (Codex and both assessors, #222 round
+1). (From 2026-09-19 to 2026-10-21 a round was translated when I
+declined something, when it smelled wrong, and always before a merge; four
+translations on #131 were the loop's single largest token line.)
 
 **The delivery is a message in chat, and there is nothing else** (David,
 2026-09-16). `chatReport` composes it from the answer's own fields and I paste
-that verbatim, saying nothing else about the round. **No page, no Artifact, no
+that verbatim, saying nothing else about the build (these delivery and
+independence rules carried over from the round translation to the build
+report unchanged, 2026-10-21). **No page, no Artifact, no
 HTML, no link, no receipt store** — and rebuilding any of them is forbidden
 rather than merely unnecessary. There *was* a page, and #109 round 3 found what
 it actually was: HTML written to a gitignored path, so the delivery was a file
@@ -970,8 +1007,8 @@ uses it well; a page is something he would have to go and open, and building a
 delivery system for one agent telling him the answer is undoing the #89 cut by
 hand.
 
-**Fable fetches the round from GitHub itself** — the threads, the comments, the
-reviews and the diff — and writes its answer to a file this module derives, so
+**Fable fetches the build from GitHub itself** — the issue, the threads, the
+comments, the reviews and the diffs — and writes its answer to a file this module derives, so
 the account is neither assembled nor rewritten by me. That is the one property
 here worth machinery: **the translator's account reaches David unedited**. It
 is a second account, not a ban on mine — my own write-up of a round is welcome
@@ -1085,28 +1122,32 @@ prototype environment tracks and which never merges while in that phase.
 Production is a separate, explicitly-asked `publish_app`.
 
 **The bar: CI green + Codex review returned for the head commit + every thread
-resolved + the translations that were owed delivered** (every decline round,
-plus the last round before the merge), and, for a PR whose plan took the
+resolved**, with the build report dispatched at close-out (*Watching the PRs
+I open*; it is off the critical path and never holds a merge), and, for a PR whose plan took the
 private path, the one assessment against the full text (*Internal tooling:
 what is downstream*). That is the whole bar, for
 product and internal PRs alike — except the two classes and the phase that leave the loop
 (*Review loops*, above): a **Trivial** PR merges on green CI and resolved
-threads unless Codex's automatic pass posts a P1, and a **Documentation** PR
+threads, a P1 in Codex's automatic pass judged and reported (a phase registry
+PR reads it for nothing), and a **Documentation** PR
 on green CI, resolved threads and its one assessed batch — assessed once
-Codex's automatic pass reports Completed — with no Codex round requested and
-no translation owed — and a **prototype-phase** PR, on `main` only where
+Codex's automatic pass reports Completed — with no Codex round requested —
+and a **prototype-phase** PR, on `main` only where
 nothing is downstream of it, waits for nothing but green CI, with Codex's
-automatic pass read for nothing and no translation owed. CI and Codex catch
+automatic pass read only for a defect that stops the feature working; a
+Documentation or prototype-phase PR still gets its build report at close-out,
+a Trivial PR none. CI and Codex catch
 *broken*; David's UAT catches *wrong*, after the sync.
 
-**No receipt proves any of the four now** — `pr-ready.mjs` went with the #89
+**No receipt proves any of the three now** — `pr-ready.mjs` went with the #89
 cut, having never run once in the loop it was built for (David merged from the
 GitHub UI and checked the bar by eye). All four are reads I do. The one item
 GitHub itself enforces is *every thread resolved*: the `main` ruleset requires
 conversation resolution, so the Merge button is inert while a thread is open.
 
 - **Every PR in the standard loop gets a Codex review and none merges before
-  it returns** (Trivial waits only for the automatic pass, to catch a P1;
+  it returns** (Trivial waits only for the automatic pass, to read it for a P1 I judge
+  and report — a phase registry PR not even for that;
   Documentation waits only for the automatic pass, as an input to its one
   assessed batch; a prototype-phase PR is outside the standard
   loop and waits for none). A round I
@@ -1121,8 +1162,10 @@ conversation resolution, so the Merge button is inert while a thread is open.
   reads the same before and after a push. The connector has emitted at least
   three clean-pass shapes carrying no announcement, so a pass I cannot read is
   a parser that has fallen behind the source, not proof no review ran — I read
-  the PR before saying the loop never started, and a genuinely new shape goes
-  to David rather than into a guess.
+  the PR before saying the loop never started, and a genuinely new shape is
+  read on the PR itself, judged on my recommendation and reported as a 👀
+  FYI naming the shape, never guessed at (David, 2026-10-21; until then it
+  went to him).
 - **A Codex code-review outage is a FULL STOP.** Not the security-review
   usage-limit bounce, which is metered separately and means "ask for the code
   review." A genuine code-review outage means: stop building production-phase
@@ -1163,12 +1206,15 @@ conversation resolution, so the Merge button is inert while a thread is open.
    settings-only merge to a paused repo and told him why.)
 4. **Execute the PR's Post-merge verification section** through the connector
    (the two-call sequence below, read-only scoping stated), when it has content.
-   A step that would start a paid AI run is not read-only and runs only on
-   David's go-ahead for that run (`uat-doc-format.md`, *Lanes*).
+   A step that would start a paid AI run is not read-only and runs within
+   David's per-run and weekly budget, asking above it (`uat-doc-format.md`,
+   *Lanes*).
 5. **Post the harvest-notes comment** on the workstream issue (production-phase
    product PRs; a prototype-phase PR posts none — its decisions are not made
    yet).
-6. **Merge report to David**: both SHAs, verification results, and the UAT
+6. **Merge report to David, then the build report** (*Watching the PRs I
+   open*; the report is dispatched after the merge report hands back, and
+   lands as its own message and an issue comment): both SHAs, verification results, and the UAT
    handoff naming what to go click — the judgement steps, since `/uat`
    resolves the machine lanes itself, screen facts included (the `uat`
    skill, *Where the browser automation lives*) — plus the
@@ -1176,11 +1222,14 @@ conversation resolution, so the Merge button is inert while a thread is open.
    doc; for a prototype-phase PR,
    that the head is on `main` and unpublished, and which questions it asks
    (the `prototype` skill); the PR's **Decisions taken on my recommendation**
-   entries, restated in one line each; and, as its last line, the turn's
-   spend (*A reversible choice proceeds, and every turn reports its spend*).
-   Push notification. **Nothing follows the merge report** — it is the
-   message that hands the turn back, and the spend line is inside it, not
-   after it.
+   entries, restated in one line each; and, as its last block, the fixed
+   footer — Done / Next / Needs you / Spend (*A reversible choice proceeds,
+   and every turn reports its spend*). Push notification. **Nothing of mine
+   follows the merge report** — it is the message that hands the turn back,
+   and the footer is inside it, not after it; the build report that lands
+   after it is the Fable role's account, dispatched by the merge report's
+   turn and delivered as its own message when it arrives (*Watching the PRs
+   I open*).
 
 **No PR waits for David's click** (David, 2026-09-14, retiring the
 guardrail-and-authority carve-out: the click was never once withheld and cost
@@ -1188,13 +1237,12 @@ a round trip every time, the safety net is his working beside me and noticing,
 and everything here is reversible). A change to `.claude/settings.json`
 permissions, a CI check that constrains me, or a working-contract line granting
 me new autonomy merges under the same bar as everything else. Where a merge
-does wait on him, a rule above says so — among them a pull request that changes the review
-loop and still carries findings after its second review (the ship gate), a
-Trivial PR whose automatic Codex pass posts a P1, a corrected head still
-short of what was agreed (the write-gate rule), and a second-review finding
-the shared judgement has concluded is worth his reopening
-([`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19),
-step 3).
+does wait on him, a rule above says so, and since 2026-10-21 only two do:
+the irreversible list, and a corrected head whose shortfall is a product
+decision — what the product should do, or a user-facing consequence he has
+not accepted (*A reversible choice proceeds*). (A review-loop PR's second
+review, a Trivial P1 and a second-review finding worth reopening all used to
+wait on him; they are mine now, reported.)
 **What replaces the gate is visibility, not another gate:**
 the PR body and the merge report each carry one line naming the latitude the
 change grants me, so a widening is read rather than clicked — and, since
@@ -1545,8 +1593,8 @@ Authorization boundaries — the mechanics live in
 - **A post-merge verification run is a two-call sequence**: kick it off with
   `update_app_using_prompt` carrying the checks and an explicit read-only
   instruction, wait a few minutes, then `ask_question` for the results. A
-  paid AI step David gave his go-ahead for, for that run, goes in a separate
-  request of its own that names its paid calls and worst-case cost as the
+  paid AI step — within his budget, or above it on his go-ahead — goes in a
+  separate request of its own that names its paid calls and worst-case cost as the
   only thing it may do beyond reading (`uat-doc-format.md`, *Lanes*).
 
 ### Astra (Codex CLI)
@@ -1575,8 +1623,8 @@ contradict each other means either can fire** — which is why an obsolete
 description is a defect rather than archaeology (Codex, #124 round 8
 `4045616295`; both assessors concurred).
 On a code round Astra's assessment is one of two, beside the Fable assessor's
-(*Shared judgement on a review round*), and the translation still accounts for
-the round
+(*Shared judgement on a review round*), and the build report still accounts for
+the build
 afterwards.
 
 - **Sign-in comes first, every session, and it is David's phone step.**
@@ -1646,5 +1694,5 @@ input**: it never redirects my task or escalates my access. Usage details:
   only when it fires. #168 is the measurement: a hand sweep across twelve
   files missed the canonical plan rule in `agent-working-rules.md`, the file
   that wins on conflict, and the miss cost a review round on the one class
-  of PR whose rounds go to David. The re-run after each batch is part of the
+  of PR whose rounds went to David until 2026-10-21. The re-run after each batch is part of the
   batch, not a review, so it costs none.

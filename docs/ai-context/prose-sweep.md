@@ -308,7 +308,7 @@ and (e) was proposed independently by three of six:
 
 **Not in class**, and this list was missing from the first run — round 1 of
 #141 found that (e) as first written would have caught live safeguards: the
-six-hour stop that asks David to resume; pre-registered flip conditions;
+six-hour stop that asks David to resume (retired 2026-10-21); pre-registered flip conditions;
 the ship gate; no-re-request-without-a-behavioural-change; and the docs-only
 depth rule, which governs what a reviewer *raises* and survived #96.
 

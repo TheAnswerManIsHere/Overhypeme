@@ -295,7 +295,8 @@ pre-registered thresholds are in
 [`agent-legible-codebase-eval.md`](agent-legible-codebase-eval.md). In short:
 **keep** if hidden-dependency recall improves by at least 20 points with median
 tokens up by at most 10%; **disable** if it improves by fewer than 10 points
-or tokens rise more than 25%; anything between goes to David with the numbers.
+or tokens rise more than 25%; anything between is the agent's call on its
+recommendation, reported with the numbers (David, 2026-10-21).
 
 ## What it does not do
 

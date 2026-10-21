@@ -13,15 +13,14 @@ description: Use when implementing any feature or bugfix, before writing impleme
 > version still carries the machine lanes — `ci`, `scripted`, and `live` where
 > its claim needs the deployed environment — scaled to a prototype, timed per
 > regime in `working-modes.md`'s *What prototype phase keeps of verification*
-> (David, 2026-10-10), a check that would start a paid AI run only on his
-> go-ahead for that run (`uat-doc-format.md`, *Lanes*) — and the `prototype`
+> (David, 2026-10-10), a check that would start a paid AI run within his
+> paid-run budget, $5 a run and $25 a week (`uat-doc-format.md`, *Lanes*) — and the `prototype`
 > skill is the entry point
 > ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 > The other "ask your human partner" rows below, and the closing "no
 > exceptions without your human partner's permission" — generated code,
 > configuration files, not knowing how to test — are the agent's own
-> reversible choices inside an approved plan: decide, and report the choice
-> rather than asking
+> reversible choices: decide, and report the choice rather than asking
 > ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
 > **For a Tier A or B bugfix none of those three rows is a reversible
 > choice** — not generated code, not a configuration file, not "I do not

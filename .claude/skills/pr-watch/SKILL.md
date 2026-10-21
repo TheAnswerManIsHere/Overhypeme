@@ -9,7 +9,9 @@ description: Use after opening or being re-engaged on any PR, and whenever a git
 
 **Not a prototype-phase PR.** It merges in the same turn it opens (or, on a
 `prototype/<feature>` branch, there is no PR), so nothing here fires for it:
-no subscription, no labels, no rounds. **Nor one of the phase's one-line
+no subscription, no labels, no rounds — save step 7's interim build report,
+which the `prototype` skill reaches through close-out step 6 for a `main`-regime
+PR, and which a branch-regime version cannot have (step 7). **Nor one of the phase's one-line
 registry PRs** — at a prototype's start under the branch regime, at its flip
 and at its abandonment — which are Trivial by David's phase declaration,
 carry `Refs #N` rather than `Workstream: #N`, and own no lifecycle: no
@@ -46,8 +48,12 @@ Codex thread is still resolved, because the ruleset
 requires it.
 
 - **Trivial**, declared by David alone: no review requested of anyone. Read
-  Codex's automatic pass for a P1 only; a P1 holds the merge and goes to
-  David. Resolve each thread with one line citing his ruling, then merge on
+  Codex's automatic pass for a P1 only; a P1 I judge and report — fixed in a
+  named commit, or merged with the reason in the merge report (David,
+  2026-10-21; until then it held the merge for him) — except on a phase
+  registry PR, where the pass is read for nothing,
+  P1s included (David, 2026-10-20; `working-modes.md`, *The prototype phase,
+  per feature*). Resolve each thread with one line citing his ruling, then merge on
   green CI.
 - **Documentation**: one pass, `review-proxy.mjs --documentation --round 1`,
   with the Fable assessor dispatched on the same package (`--prompt-only
@@ -96,9 +102,10 @@ requires it.
 3. **Get two independent assessments, then decide.** Every round that returns
    findings, before anything is written for them, on every tier. The rule is
    `claude-core.md`'s *Shared judgement on a review round*; what is here is how
-   it runs. What ends the loop is not here at all: on internal tooling it is
-   the **two-review limit** ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)),
-   and step 4 below is where this skill enacts it. The write-gate rule
+   it runs. What ends the loop is my judgement from the two assessments, under
+   the write-gate and the ship gate — never a count: the two-review limit is
+   retired (David, 2026-10-21; [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
+   keeps the record) — and step 4 below is where that judgement is made. The write-gate rule
    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-write-gate-rule-code-written-is-code-reviewed-david-2026-08-22))
    answers the other question — which heads must be reviewed, so that no
    commit merges unreviewed — and every step below serves both.
@@ -118,9 +125,9 @@ requires it.
    *Internal tooling: what is downstream*). **No script mode runs that
    assessment yet** (AI-Handbook #206), and the documentation mode is not a
    substitute: it declares the Documentation class and applies its rubric to
-   code. Until the mode exists, such a PR's clean round is a 🛑 to David,
-   saying the assessment it is owed cannot run, and he decides how it
-   proceeds.
+   code. Until the mode exists, such a PR's clean round is a 👀 FYI to David
+   saying the assessment it is owed cannot run, and I decide how it proceeds
+   on my recommendation and report it (David, 2026-10-21).
    `assessmentBrief` refuses
    without one. **Reaching round 1 with no agreed oracle is a 🛑 to David, not
    a package I write myself.**
@@ -335,103 +342,39 @@ requires it.
    device code expires in about fifteen minutes, so the ask and the code go to
    David in the same turn.
 
-   **A loop stops at six hours and asks David to resume.** The clock is the PR's
-   `created_at`, or his last explicit resume, whichever is later — one quantity,
-   read from GitHub, with no judgement about what counted as attended. It covers
-   waits and retries and does not reset per dispatch. Expiry pauses and asks;
-   never convergence. **Check it at the top of every round**, because #120 wrote
-   this rule and then ran seven rounds without once reading it.
+   **No clock stops a loop** (David, 2026-10-21, retiring #120's six-hour
+   stop: *"everything that stops you from working is a problem for me"*).
 
-4. **Check the limit BEFORE writing anything, then batch the fixes.** This
-   gate is first in this step because its whole job is to prevent a commit
-   that cannot then be reviewed. It has **exactly two branches, and the
-   predicate is stated once** — an earlier shape split it across three
-   sibling bullets and restated the complement as the negation of one
-   conjunct, which silently dropped product code at its second review. With
-   one predicate and one `Otherwise` there is nothing left to restate, so
-   nothing to restate wrong. (Codex, #143 round 1; both assessors, who also
-   caught that the disposition paragraph below had escaped the predicate
-   entirely and so applied to every round.) **A predicate may carry a
-   disjunct; what it may not do is grow a third bullet.** The review-loop
-   class is a disjunct *inside* the one predicate, asked first, and its
-   destination sits in the disposition where a destination is actually
-   decided. Written instead as a sibling bullet ahead of the two, it named no
-   round and changed no branch beneath it, so the reader either stopped at
-   round 1 with nothing corrected or read on and reached `Otherwise` and
-   close-out — neither of which is the ruling it was enacting. (Both
-   assessors, #154 round 1: three generations of this paragraph's bugs all
-   came of adding a predicate as new sibling text instead of into the one
-   stated predicate.)
-
-   - **Is this its SECOND review, AND is it either a change to the review loop
-     itself OR internal tooling by consequence?** **Ask the review-loop half
-     first**: its answer does not depend on the other, and asking it first is
-     what keeps the consequence test from being consulted for that class at
-     all — a review-loop change the test would put *outside* the limit
-     otherwise falls through to `Otherwise` and writes another batch (Codex,
-     #153 round 1; both assessors, #154 round 1).
-     **Answer the internal half by asking what THIS CHANGE does and how
-     recoverable it is** —
-     neither its directory nor the file's job title
-     ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)).
-     A change that governs approvals, publication, credentials or destructive
-     operations is weighed on those consequences whatever folder it sits in,
-     and that weighing can put it outside the limit. **It is the change, not
-     the file**: editing `sync.mjs`, which publishes the payload to every
-     consumer, is outside when it changes what gets published in a way that could
-     not be trivially undone, and inside when it changes a dry-run message
-     or the formatting of what it publishes, because those are trivially
-     recoverable. A consumer overlay marking a subsystem sensitive is one
-     route to the classification and not the only one, and its silence is not
-     a classification. Reach is not consequence: "this changes how future
-     agents work" disqualifies nothing, or every line in this repository would
-     be exempt. If this change is outside **and** it does not change the
-     review loop, the gate does not apply and the loop continues under the
-     Worth rule.
-     If yes — its second review, and either a review-loop change or internal
-     by consequence — **write nothing**; iteration is over. A batch written
-     here would be a changed head I am forbidden to request a review for,
-     which is a pull request that can neither merge nor move. (Codex, #140 round 2 — the ordering bug was
-     mine: this check sat in step 6, *after* the batching it exists to
-     prevent.)
-
-     **Then, of that corrected head, decide where it goes. If the diff
-     changes the review loop, it goes to David** — the findings, the declines
-     and all — for him to triage by hand. That is his ruling for the class
-     (2026-09-23) and it holds whichever way the consequence test fell, so
-     the three questions below are not asked of it: they choose between the
-     merge button and David, and for this class the answer is already David
-     ([`claude-core.md`](../../../.agents/core/claude-core.md#the-ship-gate-when-the-worth-rule-stops-being-asked-david-2026-09-19)).
-
-     **For every other change, ask the three questions that decide whether it
-     stops.** Ending iteration and declaring the work not ready are
-     two different things. The limit's **"what ending iteration does NOT mean"**
-     paragraph in [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19) is the authority and
-     the only statement of these three; they are enumerated here because this
-     is the moment of action. (It is not step 3, which this cited until
-     2026-09-23: step 3 says to review the corrected head and turn acceptable
-     imperfections into recorded gaps. A reader who followed the citation to
-     check found a step that says something else.) Does it violate an agreed
-     requirement, does a required check fail, or does a finding establish
-     consequential harm David has not accepted? **Any one of those and it does
-     not merge** — the concrete shortfall goes to him with a choice: continue,
-     cut the scope, or stop. **None of them and the round's remaining findings
-     are the shared judgement's to settle, not his**: both assessors say
-     record-the-gap or ask-David-to-reopen, the Fable tie-break settles a
-     split, and only a judgement that a write is worth his reopening brings
-     it to him (the limit's step 3, same section). The usual outcome is
-     **recorded gaps and follow-up issues**, and the pull request goes to
-     close-out like any other. **A follow-up issue is filed with its labels**:
+4. **Decide what is worth writing, then batch the fixes.** No count ends
+   iteration and no round sends findings to David: the two-review limit, its
+   three-question shortfall exit, its ask-to-reopen and the review-loop PR's
+   hand triage are all retired (David, 2026-10-21: *"everything that stops
+   you from working is a problem for me ... I'd much rather have you use up
+   too many tokens accidentally occasionally than keep delaying our ability
+   to build"*). What decides, every round, is the judgement from both
+   assessments under the Worth rule and the ship gate: once both say the
+   oracle is met, a finding is a recorded gap unless it is a regression or
+   reaches outside this pull request. From the second review on,
+   record-the-gap is the ordinary answer — the 2026-09-19 measurement (57%
+   of later findings landed on an earlier round's fix) is the prior — and a
+   further batch is written when the judgement says it is worth it, with the
+   merge report saying what was recorded and why. A corrected head that still
+   violates an agreed requirement or fails a required check does not merge:
+   I fix it or cut it, and report. What goes to David is only what step 3.5
+   names — intended behaviour, an accepted user-facing shortfall — and a
+   change to the review loop is judged like any other. The usual outcome is
+   **recorded gaps and follow-up issues**, and the pull request goes to
+   close-out like any other. **A follow-up issue is filed with its labels**:
      `gap` and the workstream's `mode:`, and **no `queue:` label** — so it
-     stays out of `/next` until David has triaged it (David, 2026-09-28: a
-     recorded gap is not a candidate for work before he has said it is).
-     The triage call is his, made through `/maintenance` step 9's proposed
-     diff, never applied unattended; that step finds every gap by its `gap`
+     stays out of `/next` until it has been triaged (David, 2026-09-28: a
+     recorded gap is not a candidate for work before that).
+     The triage is `/maintenance` step 9's, applied on my recommendation
+     and reported there (2026-10-21; until then each line waited for his
+     approval); that step finds every gap by its `gap`
      label, which is why the missing `queue:` label cannot lose one. If the
      finding's consequence argues for sooner, that case goes in the body for
-     step 9 to propose; anything establishing consequential harm he has not
-     accepted was already his under the three questions above and never
-     reaches this sentence. (Until 2026-09-28 a gap was filed with
+     step 9 to propose; a user-facing consequence he has not accepted is his under step 3.5 and
+     never reaches this sentence. (Until 2026-09-28 a gap was filed with
      `queue:later`, which `/next` reads as wanted work, so an untriaged gap
      could be recommended — Codex on Overhype #622.) The label is in the
      shared vocabulary
@@ -442,13 +385,10 @@ requires it.
      finding, so a routine round-two nit would have turned each internal pull
      request into a David-gated stop. An enactment that interrupts him more
      often than the design it replaced is a worse answer than doing nothing,
-     and this whole limit exists because he said the looping overhead was
-     slowing him down.)
+     and the limit this step enacted until 2026-10-21 existed because he said
+     the looping overhead was slowing him down.)
 
-   - **Otherwise** — any pull request's first review; and at any later round,
-     product code, or machinery the consequence test above puts outside the
-     limit, **the review loop excepted** — everything being written for goes
-     in one push, with
+   - **Everything being written for goes in one push**, with
      the repo's own fast checks run first: lint, format, typecheck, the
      changed suites. One validated push beats three speculative ones, because
      each push costs a full round.
@@ -499,14 +439,11 @@ requires it.
      nothing behavioural behind it could never merge at all (#125 waited a week
      on that reading). What is refused is re-requesting on a head already
      reviewed as it stands, to get a different answer. (Astra, 2026-09-19.)
-   - **On internal tooling — judged by consequence, per step 4's gate and
-     [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19) — or on a pull request that
-     changes the review loop, the second review is the last one I request.**
-     Step 4's gate is what enforces that, before anything is written; by the
-     time a head exists here it is always reviewable. So this bullet has no
-     decision left to make — it records the shape: round 1, one coherent
-     batch, the review of that corrected head, and no more. Only David
-     reopens a loop beyond it.
+   - **No review is the last one by number** (David, 2026-10-21, retiring the
+     two-review limit): the second review is where record-the-gap becomes the
+     ordinary answer, and a further batch is written when the judgement says
+     it is worth it. Only a changed head gets a review, so by the time a head
+     exists here it is always reviewable.
    - **Pre-registered flip conditions, in the request itself.** Name, before
      the round runs, what would stop the loop. **Each names an OBSERVABLE,
      never a judgement** (#85, 2026-09-13) — something read off the round ("a
@@ -522,9 +459,9 @@ requires it.
      the findings**: two assessments at roughly a hundred and fifty thousand
      tokens each **only if the round returns findings**, since step 3
      dispatches neither on a clean round — save the one clean round of a PR
-     whose plan took the private path, which step 3 assesses anyway; a translation when one is owed,
-     which the last round before a merge always is, so a clean terminal round
-     is not free; and my own turns either way. Then what is downstream if this
+     whose plan took the private path, which step 3 assesses anyway; the
+     build report the close-out owes, once per unit of work; and my own
+     turns either way. Then what is downstream if this
      round finds nothing. When that reads "a sentence in a
      comment two agents read", the disproportion is legible to both of us
      *before* it is spent rather than after. The token counts are already
@@ -548,13 +485,21 @@ requires it.
      at. `get_check_runs` returning `total_count: 0` means checks have not
      reported yet, which is not green and must never be reported as green.
 
-7. **Translate the round for David when I declined something in it, or when
-   something about it smells wrong — and always on the last round before a
-   merge** (David, 2026-09-19). Not every round: four translations on #131 were
-   the loop's single largest token line, and both of the translator's real
-   disagreements came on rounds carrying a decline. **After the trigger is
-   posted**, never before: a translation I could act on is an in-loop advisor
-   reading my own prose.
+7. **The per-round translation is retired; one build report per unit of
+   work replaces it, at close-out** (David, 2026-10-21; `claude-core.md`,
+   *Watching the PRs I open*). Nothing below runs per round any more. Until
+   the build report's own brief and schema exist, the steps below run
+   **once**, at close-out, with `finalRound: true`, as the interim account —
+   where a PR exists: `roundBrief` refuses without a PR and a round, and the
+   role reads Codex's markers on it, so a `prototype/<feature>` branch
+   version gets no interim account and its hand-back says so, and a PR
+   whose only pass is the unrequested one dispatches as round 1 with the
+   thin marker reported as a limitation (Codex and both assessors, #222
+   round 1) —
+   dispatched after the merge report hands back, never before a merge, and
+   its answer posted verbatim in chat and as a comment on the workstream
+   issue. (From 2026-09-19 to 2026-10-21 a round was translated when I
+   declined something, when it smelled wrong, and always before a merge.)
 
    **The deliverable is a message in chat. There is no page** (David,
    2026-09-16). There was one, and removing it is what #109 round 3 actually
@@ -807,11 +752,12 @@ requires it.
    end*: re-verify live state with a fresh `pull_request_read` — not cached
    green — then squash-merge, check the Repl for its own commits and then sync and verify it (close-out step 3), execute the
    Post-merge verification section (a step that would start a paid AI run
-   only on David's go-ahead for that run (`uat-doc-format.md`, *Lanes*)), post the harvest-notes comment, and send
+   within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*)), post the harvest-notes comment, and send
    the merge report with both SHAs, the latitude line, the PR's **Decisions
    taken on my recommendation** entries, the UAT handoff and, as its last
-   line, the turn's spend (`claude-core.md`, *A reversible choice proceeds,
-   and every turn reports its spend*).
+   block, the fixed footer — Done / Next / Needs you / Spend (`claude-core.md`,
+   *A reversible choice proceeds, and every turn reports its spend*) — then
+   dispatch the build report (step 7).
    **No readiness receipt is minted or quoted**: `pr-ready.mjs` is gone, and
    the four-item bar is read by eye.
 
@@ -844,24 +790,19 @@ tracking*), so it has no labels to keep):
 - **I post the next round's `@codex review` trigger** → `waiting:codex`.
 - **Intended behaviour or an accepted user-facing shortfall goes to David**
   (step 3.5 above — a purely technical fork is settled in the loop, never
-  escalated), **or step 4 exits to him** — a shortfall under its three
-  questions, a review-loop PR after its second review, or an
-  ask-to-reopen the shared judgement concluded is worth his reopening →
-  `waiting:david`; `stage:code-review` stays put — the stage
+  escalated) → `waiting:david`; `stage:code-review` stays put — the stage
   hasn't moved, but the turn has.
 - **The close-out bar is met** (CLAUDE.md's *Close-out*, all four items) →
   the ready bar is met and **I merge it myself per CLAUDE.md's close-out
   contract (David, 2026-08-15)** — re-verify live state, squash-merge, check and sync the Repl, verify, report — so `stage:merge` is normally a moment, not a resting
   state. There is no carve-out exception any more (David, 2026-09-14): a
   guardrail- or authority-widening PR merges the same way, with the latitude
-  it grants named in the report. The PRs that do not are the ones step 4
-  sends to David: a shortfall under its three questions, a change to the
-  review loop still carrying findings after its second review, and an
-  ask-to-reopen.
+  it grants named in the report. The PRs that do not are the ones whose shortfall is a product decision
+  (step 3.5); no count and no class sends one to him (David, 2026-10-21).
 - **The PR merges with a Post-merge verification section that has real
   content** → `stage:test-run`, `waiting:replit` — or `waiting:david` while
-  a step in it that would start a paid AI run waits for his go-ahead for
-  that run (`uat-doc-format.md`, *Lanes*) — the lifecycle's own
+  a step in it that would start a paid AI run above his budget waits for his
+  go-ahead (`uat-doc-format.md`, *Lanes*) — the lifecycle's own
   Test-run stage, between Merge and UAT, not a step to skip past. Per the
   `pr-docs` contract this stage is now **executed inside close-out**: I
   drive the section through the connector, read the results, and on a
@@ -988,6 +929,7 @@ this is the UAT-descent shape:
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
+`Spend so far` whenever the turn's spend changed it,
 and `Where it actually stands`/`What's blocking` whenever there's real
 narrative to add (a round's findings, an escalation's actual question, what
 shipped at merge), all of it under the canonical disclosure check — on a
