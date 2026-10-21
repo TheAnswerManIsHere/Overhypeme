@@ -580,7 +580,9 @@ says how that is resolved:
 - **`/next`** (`.claude/skills/next/SKILL.md`) — **what should we pick up
   now** in the active repository, ranked. The only one of the three that takes a position rather
   than reporting state. It reads everything above plus the backlog,
-  `Blocked by:` chains, and Phases checklists, ranks by **closest to done
+  `Blocked by:` chains, Phases checklists, and every approved plan still
+  being built — where the build stands in it, so a build's next step is
+  named even when no issue lists it — ranks by **closest to done
   wins** with rank inheriting down each blocked chain, and names which
   candidates are safe to run in parallel sessions. **Read-only**, like
   `/status-all` — it recommends, it never starts work or fixes tracking.

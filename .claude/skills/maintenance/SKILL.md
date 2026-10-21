@@ -339,9 +339,10 @@ it doesn't cover: **closed-but-unmerged** PR branches, and branches with
 
 This is the half that makes `/next` trustworthy. `/next` computes its
 recommendation from backlog issues, `queue:` priorities, `Blocked by:`
-markers, and Phases checklists (see
-[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)) —
-all of which decay silently. Nothing else re-checks them, and a stale queue
+markers, Phases checklists (see
+[`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md)),
+and the approved plans it reads a build's next step from — all of which
+decay silently. Nothing else re-checks them, and a stale queue
 produces a confidently wrong recommendation, which is worse than no
 recommendation. David's standing instruction is that he can react well but
 can't track state, so this step brings him a **concrete diff, applied and
@@ -440,7 +441,10 @@ reported** (item 6, below), never an open-ended "is the backlog still right?"
      non-actionable. Report it; don't guess which edge to cut.
 5. **Sweep Phases checklists** — for each parent issue carrying one, does
    it match reality? A phase whose PR merged but whose checkbox is
-   unticked makes `/next` recommend work that's already done.
+   unticked makes `/next` recommend work that's already done. And does
+   it match the approved plan it records? An increment the plan carries
+   and the checklist omits is one `/next` can only report as drift; add
+   the line.
 6. **Deliver as a numbered proposed diff**, e.g. "close #431 (superseded by
    #440); drop #418 `queue:now` → `queue:later`; open a backlog issue for
    *Record the Stripe mode on every entitlement source*; remove the stale
