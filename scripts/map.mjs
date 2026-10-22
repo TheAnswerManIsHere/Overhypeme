@@ -40,7 +40,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const TOOL_VERSION = "map.mjs/1";
+export const TOOL_VERSION = "map.mjs/2";
 const DOC = "docs/ai-context/agent-legible-codebase.md";
 const MAP_DIR = ".agents/map";
 const CONFIG_FILES = {
@@ -147,10 +147,18 @@ export function relationsInSql(text) {
   const exprs = [];
   const ident = String.raw`(?:"[^"]+"|[A-Za-z_][\w$]*|\u0000\d+\u0000)`;
   const re = new RegExp(
-    String.raw`\b(from|join|into|update|truncate|table)\s+(?:only\s+)?(?:if\s+(?:not\s+)?exists\s+)?(${ident}(?:\s*\.\s*${ident})?)`,
+    String.raw`\b(from|join|into|update|truncate|table|references)\s+(?:only\s+)?(?:if\s+(?:not\s+)?exists\s+)?(${ident}(?:\s*\.\s*${ident})?)`,
     "gi",
   );
-  for (const m of text.matchAll(re)) {
+  // `CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS] [name] ON [ONLY] rel`.
+  // ON is read only after INDEX: in `JOIN x ON a = b` it introduces a
+  // condition, and `a` is a column.
+  const onIndex = new RegExp(
+    String.raw`\bindex\s+(?:concurrently\s+)?(?:if\s+not\s+exists\s+)?(?:(?!on\b)${ident}(?:\s*\.\s*${ident})?\s+)?(on)\s+(?:only\s+)?(${ident}(?:\s*\.\s*${ident})?)`,
+    "gi",
+  );
+  const matches = [...text.matchAll(re), ...[...text.matchAll(onIndex)].map((m) => Object.assign([m[0], m[1], m[2]], { index: m.index }))];
+  for (const m of matches) {
     const kw = m[1].toLowerCase();
     const raw = m[2];
     const after = text.slice(m.index + m[0].length);
@@ -182,7 +190,7 @@ export function looksLikeSql(text) {
     /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|TRUNCATE|WITH)\b/.test(text) ||
     /\bselect\s+(?:\*|distinct\b|count\s*\(|[\w."]+(?:\s*,|\s+from\b))/i.test(text) ||
     /\b(?:insert\s+into|delete\s+from|create\s+table|alter\s+table|truncate\s+(?:table\s+)?[\w."]+|update\s+[\w."]+\s+set)\b/i.test(text);
-  return statement && /\b(from|into|table|set|join)\b/i.test(text);
+  return statement && (/\b(from|into|table|set|join|references)\b/i.test(text) || /\bindex\b[^;]*?\bon\b/i.test(text));
 }
 
 /** Join an Express mount prefix and a route path. */
@@ -212,6 +220,10 @@ export function routeMatches(registered, query) {
     if (seg.startsWith(":") && seg.endsWith("?")) body += "(?:/[^/]+)?";
     else if (seg.startsWith(":")) body += "/[^/]+";
     else if (seg === "*") body += "(?:/.*)?";
+    // Express 5 named wildcards: `*name` takes one or more segments, and the
+    // braced `{*name}` makes them optional.
+    else if (/^\{\*[A-Za-z_$][\w$]*\}$/.test(seg)) body += "(?:/.*)?";
+    else if (/^\*[A-Za-z_$][\w$]*$/.test(seg)) body += "/.+";
     else body += "/" + escapeRe(seg).replace(/\*/g, ".*");
   }
   return new RegExp("^" + body + "/?$").test(query);
@@ -917,6 +929,16 @@ function extractFile(ts, prog, sf, ctx) {
           if (an === "component" && a.initializer && ts.isJsxExpression(a.initializer) && a.initializer.expression) {
             handler = ctx.handlerOf(prog, sf, a.initializer.expression);
           }
+        }
+        // The child form, `<Route path="…"><Page /></Route>`: a single element
+        // child is the handler. Any other children (a render function, several
+        // elements) are reported, since the page they render is not resolved.
+        if (!handler && ts.isJsxOpeningElement(node) && ts.isJsxElement(node.parent)) {
+          const kids = node.parent.children.filter((c) => !(ts.isJsxText(c) && c.containsOnlyTriviaWhiteSpaces));
+          const only = kids.length === 1 ? kids[0] : null;
+          const tag = only && (ts.isJsxSelfClosingElement(only) ? only.tagName : ts.isJsxElement(only) ? only.openingElement.tagName : null);
+          if (tag) handler = ctx.handlerOf(prog, sf, tag);
+          else if (kids.length && !dynamic) rec.unresolved.push({ kind: "route", line: lineOf(node), reason: "unsupported-form", detail: `Route ${path}'s children are not a single element, so its page is not resolved` });
         }
         if (dynamic) rec.unresolved.push({ kind: "route", line: lineOf(node), reason: "dynamic-target", detail: "Route path is computed" });
         else ctx.routes.push({ router: `${rel}#Router`, method: "PAGE", path, file: rel, line: lineOf(node), handler: handler ?? { file: rel, line: lineOf(node), inline: true } });

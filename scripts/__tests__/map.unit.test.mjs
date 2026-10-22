@@ -60,6 +60,16 @@ test("SQL relations: keywords, schemas, quotes, placeholders, and the shapes tha
   assert.deepEqual(relationsInSql("SELECT * FROM \u00000\u0000 WHERE x").exprs, [0]);
   assert.deepEqual(relationsInSql("DELETE FROM stripe.\u00000\u0000").exprs, [-1]);
   assert.deepEqual(relationsInSql("INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE SET x = 1").names, ["t"]);
+  // DDL that names a relation only after INDEX … ON or REFERENCES (#212), and an
+  // ON that introduces a join condition, which names a column, not a relation.
+  assert.deepEqual(relationsInSql("CREATE INDEX idx_x ON ncmec_reports (reported_at)").names, ["ncmec_reports"]);
+  assert.deepEqual(relationsInSql('CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "i" ON ONLY public.facts (id)').names, ["facts"]);
+  assert.deepEqual(relationsInSql("CREATE INDEX ON stripe.products (id)").names, ["stripe.products"]);
+  assert.deepEqual(relationsInSql("ALTER TABLE audits ADD FOREIGN KEY (r) REFERENCES appeals(id)").names, ["appeals", "audits"]);
+  assert.deepEqual(relationsInSql("SELECT * FROM a JOIN b ON a.x = b.y").names, ["a", "b"]);
+  assert.deepEqual(relationsInSql("SELECT * FROM a JOIN b ON x = y").names, ["a", "b"]);
+  assert.ok(looksLikeSql("CREATE INDEX idx_x ON ncmec_reports (reported_at)"));
+  assert.ok(looksLikeSql("ALTER TABLE a ADD CONSTRAINT c FOREIGN KEY (b) REFERENCES u(id)"));
   assert.ok(looksLikeSql("select id from users"));
   assert.ok(!looksLikeSql("Select the option you want from the list above"));
 });
@@ -75,6 +85,12 @@ test("routes: mount composition and matching", () => {
   assert.ok(routeMatches("/wear/:slug?", "/wear"));
   assert.ok(routeMatches("regex:/^\\/m\\/([a-z]+)$/", "/m/abc"));
   assert.ok(routeMatches("prefix:/share/", "/share/x"));
+  // Express 5 named wildcards (#212): `*name` takes one or more segments, `{*name}` any.
+  assert.ok(routeMatches("/storage/public-objects/*filePath", "/storage/public-objects/foo.png"));
+  assert.ok(routeMatches("/storage/public-objects/*filePath", "/storage/public-objects/a/b.png"));
+  assert.ok(!routeMatches("/storage/public-objects/*filePath", "/storage/public-objects"));
+  assert.ok(routeMatches("/files/{*rest}", "/files"));
+  assert.ok(routeMatches("/files/{*rest}", "/files/a/b"));
 });
 
 test("serialization is deterministic: key order never changes the bytes", () => {
@@ -132,6 +148,13 @@ test("eval scoring: recall, precision, medians, and the pre-registered verdict",
   assert.equal(s.A.hidden.recall, 1);
   assert.equal(s.A.keyword.recall, 0);
   assert.equal(s.A.medianTokens, 20);
+  // Tool calls and seconds are reported beside tokens, never thresholded (#212).
+  assert.equal(s.A.medianToolCalls, null, "no run recorded them");
+  const t = summarize([
+    { task: "h1", arm: "A", files: [], tokens: 1, toolCalls: 4, seconds: 30 },
+    { task: "k1", arm: "A", files: [], tokens: 1, toolCalls: 8, seconds: 50 },
+  ], tasks, keys);
+  assert.deepEqual([t.A.medianToolCalls, t.A.medianSeconds], [6, 40]);
 });
 
 test("eval: a relation pattern matches quoted and schema forms, and grading material is named", () => {
