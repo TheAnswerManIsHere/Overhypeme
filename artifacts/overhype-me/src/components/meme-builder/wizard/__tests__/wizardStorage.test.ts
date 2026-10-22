@@ -103,12 +103,27 @@ describe("wizardStorage", () => {
       source: {
         kind: "self-upload",
         image: { kind: "fresh", objectPath: "/objects/uploads/abc.jpg" },
-        stylizeWithAi: true,
       },
       framingOffset: { x: 12, y: -8 },
       advancedOptions: { imageEngineId: "nano-banana-pro" },
     });
     captureWizardState(captured);
     expect(restoreWizardState(FACT_ID)).toEqual(captured);
+  });
+
+  // Launch Phase 4, removal 3: AI styling went with PuLID. A draft saved before
+  // it may still carry the stylize flag or an AI-styling pick.
+  it("drops a pre-removal draft's AI pick, and keeps a plain photo without its stale flag", () => {
+    const legacy = (source: unknown) =>
+      ({ ...fixture({ mode: "self-upload" }), source }) as unknown as PendingWizardState;
+
+    captureWizardState(legacy({ kind: "self-upload", image: { kind: "ai-styling", objectPath: "/objects/ai.jpg" }, stylizeWithAi: false }));
+    expect(restoreWizardState(FACT_ID)?.source).toBeUndefined();
+
+    captureWizardState(legacy({ kind: "self-upload", image: { kind: "fresh", objectPath: "/objects/f.jpg" }, stylizeWithAi: true }));
+    expect(restoreWizardState(FACT_ID)?.source).toBeUndefined();
+
+    captureWizardState(legacy({ kind: "self-upload", image: { kind: "library", objectPath: "/objects/l.jpg" }, stylizeWithAi: false }));
+    expect(restoreWizardState(FACT_ID)?.source).toEqual({ kind: "self-upload", image: { kind: "library", objectPath: "/objects/l.jpg" } });
   });
 });

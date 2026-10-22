@@ -25,8 +25,6 @@ export interface BuilderInternalState {
   stockImageUrl: string | null;
   /** Selected self-upload source when sourceArea === "my-image". */
   myImage: MyImageSource | null;
-  /** When mode === "self-upload" and the user is legendary, did they request stylize. */
-  stylizeWithAi: boolean;
   textOptions: MemeTextOptions;
   aspectRatio: AspectRatio;
 }
@@ -36,7 +34,6 @@ export type BuilderAction =
   | { type: "set-pronouns"; pronouns: string }
   | { type: "set-stock-image"; stockImageId: string | null; stockImageUrl?: string | null }
   | { type: "set-my-image"; myImage: MyImageSource | null }
-  | { type: "set-stylize"; stylizeWithAi: boolean }
   | { type: "set-text-options"; textOptions: MemeTextOptions }
   | { type: "set-aspect-ratio"; aspectRatio: AspectRatio }
   | { type: "hydrate-from-pending"; pending: PendingBuilderState };
@@ -55,7 +52,6 @@ export function buildInitialState(args: BuilderInitArgs): BuilderInternalState {
     stockImageId: args.initialStockImageId ?? null,
     stockImageUrl: null,
     myImage: null,
-    stylizeWithAi: false,
     textOptions: {},
     aspectRatio: "landscape",
   };
@@ -81,8 +77,6 @@ export function reducer(state: BuilderInternalState, action: BuilderAction): Bui
       };
     case "set-my-image":
       return { ...state, myImage: action.myImage };
-    case "set-stylize":
-      return { ...state, stylizeWithAi: action.stylizeWithAi };
     case "set-text-options":
       return { ...state, textOptions: action.textOptions };
     case "set-aspect-ratio":
@@ -101,7 +95,6 @@ export function reducer(state: BuilderInternalState, action: BuilderAction): Bui
           next.myImage = null;
         } else {
           next.myImage = p.source.image;
-          next.stylizeWithAi = p.source.stylizeWithAi;
           next.stockImageId = null;
         }
       }
@@ -130,7 +123,7 @@ export function snapshotPendingState(args: {
   if (mode === "stock" && state.stockImageId) {
     source = { kind: "stock", stockImageId: state.stockImageId };
   } else if (mode === "self-upload" && state.myImage) {
-    source = { kind: "self-upload", image: state.myImage, stylizeWithAi: state.stylizeWithAi };
+    source = { kind: "self-upload", image: state.myImage };
   }
   return {
     schemaVersion: 1,

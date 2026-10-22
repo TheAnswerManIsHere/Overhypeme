@@ -16,11 +16,6 @@ export const HEADER_COPY: Record<HeaderCopyKey, { eyebrow: string; title: string
     title: "See this fact with YOUR face",
     subtitle: "Upload a photo or pick one from your library.",
   },
-  "see-yourself-ai": {
-    eyebrow: "Legendary mode",
-    title: "See yourself as the AI subject",
-    subtitle: "Upload once, restyle endlessly. We'll never re-bill you for the same image.",
-  },
   "make-this-your-own": {
     eyebrow: "Remix",
     title: "Make this meme your own",
@@ -38,7 +33,6 @@ export const ACTION_COPY = {
   save: "Save meme",
   share: "Share",
   signupCta: "Save and share — sign up free",
-  tryAiMode: "Try AI mode",
 } as const;
 
 /**
@@ -76,16 +70,6 @@ export const TIER_LOCK_COPY = {
     title: "Go Legendary to unlock this",
     actionLabel: "Upgrade",
   },
-} as const;
-
-export const STYLIZE_TOGGLE_COPY = {
-  label: "Stylize me with AI",
-  helper: "Generates an AI caricature from your photo. We won't re-bill you for the same image.",
-  inProgress: "Generating your AI version…",
-  inProgressNote: "This usually takes 30–60 seconds. Don't close the page.",
-  cancel: "Cancel",
-  fallbackNotice:
-    "We couldn't find a face in that photo, so we generated a stylized scene instead. You can still use it.",
 } as const;
 
 export const ZERO_STOCK_COPY = {

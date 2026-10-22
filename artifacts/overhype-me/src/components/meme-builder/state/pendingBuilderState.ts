@@ -79,6 +79,18 @@ export function restorePendingState(factId: string): PendingBuilderState | null 
     state = { ...state, source: undefined };
   }
 
+  // Launch Phase 4, removal 3: AI styling went with PuLID. A draft that picked
+  // an AI styling loses that pick (the user lands back on the picker); a draft
+  // on an ordinary photo keeps it, without its stale stylize flag.
+  if (state.source?.kind === "self-upload") {
+    const legacy = state.source as { image: { kind: string }; stylizeWithAi?: boolean };
+    if (legacy.image.kind === "ai-styling" || legacy.stylizeWithAi) {
+      state = { ...state, source: undefined };
+    } else {
+      state = { ...state, source: { kind: "self-upload", image: state.source.image } };
+    }
+  }
+
   return state;
 }
 

@@ -6,10 +6,8 @@ import {
   CTABarAnonOther,
   CTABarAnonOwnTransient,
   CTABarLegendaryOther,
-  CTABarLegendaryOwnPulid,
-  CTABarLegendaryOwnStock,
+  CTABarOwn,
   CTABarRegisteredOther,
-  CTABarRegisteredOwn,
 } from "@/pages/memePage/cta/CTABar";
 import { act } from "@testing-library/react";
 import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
@@ -172,43 +170,41 @@ describe("CTABarAnonOwnTransient", () => {
   });
 });
 
-describe("CTABarRegisteredOwn", () => {
-  it("renders download, custom-share, legendary upsell with subject, and merch", () => {
+describe("CTABarOwn", () => {
+  it("download and custom share are primary, merch secondary; no PuLID turn-up and no upsell (removal 3)", () => {
     const onDownload = vi.fn();
     const onCustomShare = vi.fn();
     renderWithRouter(
-      <CTABarRegisteredOwn
+      <CTABarOwn
         onDownload={onDownload}
         onCustomShare={onCustomShare}
         wearHref="/wear/abc?source=meme-page"
-        legendaryUpsellSubject="Alice"
       />,
     );
-    expect(screen.getByTestId("own-download")).toBeTruthy();
-    expect(screen.getByTestId("own-custom-share")).toBeTruthy();
-    expect(screen.getByTestId("legendary-upsell")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("own-download"));
+    fireEvent.click(screen.getByTestId("own-custom-share"));
+    expect(onDownload).toHaveBeenCalledOnce();
+    expect(onCustomShare).toHaveBeenCalledOnce();
     expect(screen.getByTestId("merch-wear")).toBeTruthy();
-    // Concrete legendary copy mentions creator name
-    expect(screen.getByTestId("legendary-upsell").textContent).toContain("Alice");
-    // No remix CTA
+    expect(screen.queryByTestId("turn-up-to-11")).toBeNull();
+    expect(screen.queryByTestId("legendary-upsell")).toBeNull();
     expect(screen.queryByTestId("make-this-about-me")).toBeNull();
   });
 });
 
 describe("CTABarRegisteredOther", () => {
-  it("primary is make-this-about-me; secondary is browse; legendary upsell present", () => {
+  it("primary is make-this-about-me; secondary is browse; no face-in-scene upsell (removal 3)", () => {
     const onMakeAboutMe = vi.fn();
     renderWithRouter(
       <CTABarRegisteredOther
         onMakeAboutMe={onMakeAboutMe}
-        legendaryUpsellSubject="Bob"
         factTemplateReady={true}
       />,
     );
     fireEvent.click(screen.getByTestId("make-this-about-me"));
     expect(onMakeAboutMe).toHaveBeenCalledOnce();
     expect(screen.getByTestId("browse-more-facts")).toBeTruthy();
-    expect(screen.getByTestId("legendary-upsell").textContent).toContain("Bob");
+    expect(screen.queryByTestId("legendary-upsell")).toBeNull();
   });
 
   it("disables make-this-about-me until the fact template is loaded", () => {
@@ -216,7 +212,6 @@ describe("CTABarRegisteredOther", () => {
     renderWithRouter(
       <CTABarRegisteredOther
         onMakeAboutMe={onMakeAboutMe}
-        legendaryUpsellSubject="Bob"
         factTemplateReady={false}
       />,
     );
@@ -224,61 +219,6 @@ describe("CTABarRegisteredOther", () => {
     expect(cta.disabled).toBe(true);
     fireEvent.click(cta);
     expect(onMakeAboutMe).not.toHaveBeenCalled();
-  });
-});
-
-describe("CTABarLegendaryOwnStock", () => {
-  it("primary is turn-up-to-11; download/share secondary; merch tertiary", () => {
-    const onTurnUp = vi.fn();
-    renderWithRouter(
-      <CTABarLegendaryOwnStock
-        onTurnUp={onTurnUp}
-        onDownload={() => {}}
-        onCustomShare={() => {}}
-        wearHref="/wear/abc"
-        factTemplateReady={true}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("turn-up-to-11"));
-    expect(onTurnUp).toHaveBeenCalledOnce();
-    expect(screen.getByTestId("own-download")).toBeTruthy();
-    expect(screen.getByTestId("own-custom-share")).toBeTruthy();
-    expect(screen.getByTestId("merch-wear")).toBeTruthy();
-  });
-
-  it("disables turn-up-to-11 until the fact template is loaded", () => {
-    const onTurnUp = vi.fn();
-    renderWithRouter(
-      <CTABarLegendaryOwnStock
-        onTurnUp={onTurnUp}
-        onDownload={() => {}}
-        onCustomShare={() => {}}
-        wearHref="/wear/abc"
-        factTemplateReady={false}
-      />,
-    );
-    const cta = screen.getByTestId("turn-up-to-11") as HTMLButtonElement;
-    expect(cta.disabled).toBe(true);
-    fireEvent.click(cta);
-    expect(onTurnUp).not.toHaveBeenCalled();
-    // Download/Share remain enabled — they don't need the fact template.
-    expect((screen.getByTestId("own-download") as HTMLButtonElement).disabled).toBe(false);
-  });
-});
-
-describe("CTABarLegendaryOwnPulid", () => {
-  it("hides turn-up-to-11; download/share are primary", () => {
-    renderWithRouter(
-      <CTABarLegendaryOwnPulid
-        onDownload={() => {}}
-        onCustomShare={() => {}}
-        wearHref="/wear/abc"
-      />,
-    );
-    expect(screen.queryByTestId("turn-up-to-11")).toBeNull();
-    expect(screen.getByTestId("own-download")).toBeTruthy();
-    expect(screen.getByTestId("own-custom-share")).toBeTruthy();
-    expect(screen.getByTestId("merch-wear")).toBeTruthy();
   });
 });
 

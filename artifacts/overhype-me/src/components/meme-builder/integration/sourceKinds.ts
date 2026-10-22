@@ -66,7 +66,6 @@ export function resolveBackgroundUrl(
       return source.stockImageUrl;
     case "library":
     case "fresh":
-    case "ai-styling":
       return toStorageUrl(source.objectPath);
   }
 }
@@ -93,21 +92,8 @@ export function toServerImageSource(
       return { type: "stock", pexelsPhotoId: parseInt(source.stockImageId, 10) };
     case "library":
     case "fresh":
-    case "ai-styling":
       return { type: "upload", uploadKey: source.objectPath };
   }
-}
-
-/**
- * Resolve the storage object_path of a `self-upload` source — used by the
- * stylize flow which needs the upload key before deciding whether to call
- * the AI generator.
- */
-export function selfUploadObjectPath(
-  source: MyImageSource,
-  _viewer: BuilderViewerCtx,
-): string | null {
-  return source.objectPath;
 }
 
 function toStorageUrl(objectPath: string): string {

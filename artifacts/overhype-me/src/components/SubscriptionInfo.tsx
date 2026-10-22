@@ -194,7 +194,7 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
           <Crown className={`w-6 h-6 shrink-0 ${isLifetime ? "text-amber-400" : "text-primary"}`} />
           <div>
             <p className="font-bold text-foreground flex items-center gap-2 flex-wrap">
-              AI memes of you
+              Legendary
               <span className={`text-xs px-2 py-0.5 rounded-sm uppercase tracking-wide ${
                 cancelAtPeriodEnd && !isLifetime
                   ? "bg-orange-500/20 text-orange-400"

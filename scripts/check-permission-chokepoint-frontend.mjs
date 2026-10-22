@@ -66,18 +66,17 @@ const ALLOWLIST = [
     reason:
       "roleToIdentity() is the identity-prerequisite mapper itself — it collapses " +
       "role into a legacy tier label for downstream UX-default pickers, and " +
-      "deliberately does not gate any feature. The actual gate it feeds (AI " +
-      "stylize) resolves through can().",
+      "deliberately does not gate any feature. (The AI stylize gate it once " +
+      "fed went with PuLID, launch Phase 4 removal 3.)",
   },
   {
     file: "artifacts/overhype-me/src/pages/memePage/useViewerCell.ts",
     pattern: /role === "legendary" \|\| role === "admin"/,
     reason:
-      "isLegendaryRole() now feeds ONLY the 'other' branches (viewing someone " +
-      "else's meme) — whether a marketing upsell card is shown, not any actual " +
-      "capability. The OWN-meme branch, which used to share this same role check " +
-      "and really did gate the PuLID flow, now takes canPulidStylize (the " +
-      "resolved meme_pulid_stylize entitlement) as an input instead.",
+      "isLegendaryRole() feeds ONLY the 'other' branches (viewing someone " +
+      "else's meme) — the remix button's styling, not any actual capability. " +
+      "The OWN-meme branch, which once gated the PuLID flow, is one 'own' cell " +
+      "for every owner since PuLID's removal (launch Phase 4, removal 3).",
   },
   {
     file: "artifacts/overhype-me/src/components/layout/AccountMenu.tsx",
@@ -111,23 +110,6 @@ const ALLOWLIST = [
     file: "artifacts/overhype-me/src/pages/admin/users.tsx",
     pattern: /membershipTier === "legendary"/,
     reason: "Admin user-list tier badge/label rendering, not a feature gate.",
-  },
-  {
-    file: "artifacts/overhype-me/src/components/meme-builder/behaviorMatrix.ts",
-    pattern: /const granted = tier === "legendary"/,
-    reason:
-      "demoEntitlementsForTier() is a test/demo-only fixture generator (the matrix " +
-      "harness and the enumerateMatrix() test helper) — production behavior reads " +
-      "entitlementsFromViewerContext() off the server-resolved grid, never this " +
-      "function.",
-  },
-  {
-    file: "artifacts/overhype-me/src/components/meme-builder/wizard/step2-image/SourceSegmentedControl.tsx",
-    pattern: /if \(tier === "legendary"\) return "ai-you"/,
-    reason:
-      "pickDefaultSourceTab() only picks which tab shows first — a UX default, not " +
-      "a gate. The control's actual lock reads canPulidStylize, the resolved " +
-      "entitlement.",
   },
 ];
 

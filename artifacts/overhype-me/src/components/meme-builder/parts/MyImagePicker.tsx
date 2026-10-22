@@ -8,16 +8,13 @@ import { SelfUploadZone } from "./SelfUploadZone";
 import type { MyImageSource } from "../types";
 
 interface Props {
-  factId: string;
-  /** Show the AI stylings tab. */
-  showAiStylings: boolean;
   selected: MyImageSource | null;
   onSelect: (next: MyImageSource) => void;
   /** Tabs to hide entirely. Useful when a parent wants to restrict available choices. */
   hideTabs?: Tab[];
 }
 
-type Tab = "library" | "ai" | "upload";
+type Tab = "library" | "upload";
 
 /**
  * Task #507 — the "Profile photo" tab is gone. The user's profile photo now
@@ -26,24 +23,12 @@ type Tab = "library" | "ai" | "upload";
  * sorts it first). The library tab auto-selects whichever image is first
  * (so the profile photo is the implicit default on tab activation).
  */
-export function MyImagePicker({ factId, showAiStylings, selected, onSelect, hideTabs }: Props) {
-  const [tab, setTab] = useState<Tab>(() => {
-    const preferred: Tab = "library";
-    if (!hideTabs?.includes(preferred)) return preferred;
-    const candidates: Tab[] = ["library", "ai", "upload"];
-    return (
-      candidates.find((t) => {
-        if (hideTabs?.includes(t)) return false;
-        if (t === "ai") return showAiStylings;
-        return true;
-      }) ?? "upload"
-    );
-  });
+export function MyImagePicker({ selected, onSelect, hideTabs }: Props) {
+  const [tab, setTab] = useState<Tab>(() => (hideTabs?.includes("library") ? "upload" : "library"));
   const [reloadKey, setReloadKey] = useState(0);
   const isDesktop = useDesktopModality();
 
-  const library = useMyImages({ enabled: tab === "library", transform: "raw", reloadKey });
-  const stylings = useMyImages({ enabled: tab === "ai", transform: "ai", factId, reloadKey });
+  const library = useMyImages({ enabled: tab === "library", reloadKey });
 
   // Auto-pick the first library image on tab activation so the preview lights
   // up immediately without an extra tap. The server already sorts the profile
@@ -58,12 +43,10 @@ export function MyImagePicker({ factId, showAiStylings, selected, onSelect, hide
   });
 
   const isSelectedObject = (objectPath: string) =>
-    selected !== null && (selected.kind === "library" || selected.kind === "fresh" || selected.kind === "ai-styling")
-      && selected.objectPath === objectPath;
+    selected !== null && selected.objectPath === objectPath;
 
   const tabs: { value: Tab; label: string; visible: boolean }[] = [
     { value: "library", label: "My photos",   visible: !hideTabs?.includes("library") },
-    { value: "ai",      label: "AI stylings", visible: showAiStylings && !hideTabs?.includes("ai") },
     { value: "upload",  label: "Upload new",  visible: !hideTabs?.includes("upload") },
   ];
 
@@ -94,18 +77,6 @@ export function MyImagePicker({ factId, showAiStylings, selected, onSelect, hide
           isSelected={isSelectedObject}
           onSelect={(objectPath) => onSelect({ kind: "library", objectPath })}
           emptyText="You haven't uploaded any photos yet."
-        />
-      )}
-
-      {tab === "ai" && (
-        <ImageGrid
-          isDesktop={isDesktop}
-          isLoading={stylings.isLoading}
-          isError={stylings.isError}
-          rows={stylings.rows.map((r) => ({ objectPath: r.objectPath, url: storageUrlFor(r.objectPath), isProfile: false }))}
-          isSelected={isSelectedObject}
-          onSelect={(objectPath) => onSelect({ kind: "ai-styling", objectPath })}
-          emptyText="No AI stylings for this fact yet."
         />
       )}
 

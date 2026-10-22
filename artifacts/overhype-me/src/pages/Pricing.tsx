@@ -3,12 +3,14 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, Sparkles, UserCircle, Crown, CalendarDays } from "lucide-react";
+import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, UserCircle, Crown, CalendarDays } from "lucide-react";
 import { selectPlanPrices, type StripePlan } from "./pricingPlans";
 
-// Pricing framing: "cost-as-gate"
-//   Free  = anything that doesn't cost us money to run for you
-//   Legendary = the AI work that costs real money per generation (AI memes of YOU)
+// Pricing framing: Free is the whole loop (browse, vote, submit, make and share
+// memes with your own photo); Legendary is the perks the entitlement grid
+// grants it — private memes, no CAPTCHAs, higher limits, a photo avatar, no
+// ads. AI memes of you went with PuLID (launch Phase 4, removal 3), so nothing
+// here sells them.
 const FREE_FEATURES = [
   { icon: <Check className="w-4 h-4" />,         text: "Browse all Facts" },
   { icon: <ThumbsUp className="w-4 h-4" />,      text: "Vote on Facts" },
@@ -22,7 +24,8 @@ const FREE_FEATURES = [
 
 const LEGENDARY_FEATURES = [
   { icon: <Check className="w-4 h-4" />,        text: "Everything in Free" },
-  { icon: <Sparkles className="w-4 h-4" />,     text: "AI Memes of You in impossible scenarios" },
+  { icon: <Lock className="w-4 h-4" />,         text: "Private memes, only you can see them" },
+  { icon: <UserCircle className="w-4 h-4" />,   text: "Your photo as your avatar" },
   { icon: <ShieldOff className="w-4 h-4" />,    text: "No CAPTCHAs" },
   { icon: <CalendarDays className="w-4 h-4" />, text: "Fact of the Day email" },
 ];
@@ -137,28 +140,25 @@ export default function Pricing() {
 
       {/* ── DESKTOP: Two-column upsell layout ──────────────────────── */}
       <div className="hidden md:grid" style={{ gridTemplateColumns: "1fr 1fr", minHeight: "calc(100vh - 64px)" }}>
-        {/* Left: pitch + AI vibes */}
+        {/* Left: pitch + perks */}
         <div className="bg-background border-r border-border flex flex-col justify-center px-16 py-20">
           <div className="flex items-center gap-2 mb-4">
             <Crown className="w-5 h-5 text-primary" />
             <span className="text-[11px] font-bold tracking-[0.2em] text-primary uppercase font-display">Legendary</span>
           </div>
           <h1 className="font-display font-bold text-[54px] uppercase tracking-tight leading-[0.95] mb-4">
-            See yourself as the<br /><span className="text-primary">actual subject.</span>
+            Make every meme<br /><span className="text-primary">yours alone.</span>
           </h1>
-          <p className="text-[15px] text-muted-foreground mb-4 leading-relaxed max-w-sm">
-            AI generates a scene where you literally star in the fact. Not just your name — you, dramatized.
-          </p>
-          <p className="text-[12px] text-muted-foreground/80 mb-10 leading-relaxed max-w-sm italic">
-            Free covers everything that doesn't cost us money. Legendary covers the AI image generations of you — that part has a real per-render cost.
+          <p className="text-[15px] text-muted-foreground mb-10 leading-relaxed max-w-sm">
+            Keep memes private, skip the CAPTCHAs, post at higher limits, and wear your own photo as your avatar.
           </p>
 
-          {/* AI vibe cards */}
+          {/* Perk cards */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: "Cosmic", emoji: "🌌", sub: "Universal scale" },
-              { label: "Galactic", emoji: "⚡", sub: "Epic energy" },
-              { label: "Mythic", emoji: "👑", sub: "Legendary status" },
+              { label: "Private", emoji: "🔒", sub: "Memes only you see" },
+              { label: "Unlocked", emoji: "⚡", sub: "No CAPTCHAs, higher limits" },
+              { label: "You", emoji: "👑", sub: "Your photo as avatar" },
             ].map(v => (
               <div key={v.label} className="rounded-[16px] bg-card border border-border p-4 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
                 <div className="text-2xl mb-2">{v.emoji}</div>
@@ -280,10 +280,7 @@ export default function Pricing() {
             <h1 className="text-2xl font-display uppercase tracking-widest text-foreground">Go Legendary</h1>
           </div>
           <p className="text-sm text-muted-foreground max-w-xl mx-auto leading-snug">
-            AI memes <span className="text-foreground font-semibold">of you</span>.
-          </p>
-          <p className="text-[11px] text-muted-foreground/80 max-w-xs mx-auto mt-2 italic leading-snug">
-            Free covers everything that doesn't cost us money. Legendary covers the AI generations of you.
+            Private memes, no CAPTCHAs, <span className="text-foreground font-semibold">your photo</span> as your avatar.
           </p>
         </div>
 

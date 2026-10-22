@@ -757,10 +757,9 @@ export default function Profile() {
     setPhotoError("");
     setPhotoUploading(true);
     try {
-      // The profile photo becomes the user's reusable identity asset (memes,
-      // AI images), and the downstream face-ref pipelines
-      // expect a square face crop — except for GIFs, which are sent verbatim
-      // so animation is preserved.
+      // The profile photo becomes the user's reusable identity asset (their
+      // photo memes and avatar), stored as a square face crop — except for
+      // GIFs, which are sent verbatim so animation is preserved.
       const { objectPath } = await uploadUserImage(file, {
         kind: "avatar",
         preprocess: file.type === "image/gif" ? "none" : "square",
@@ -898,8 +897,7 @@ export default function Profile() {
 
         {/* ── Identity-first card ─────────────────────────────────────
             The profile photo + display name are the user's reusable
-            identity asset. Every meme and AI image
-            reuses them, so prompt the user to set them up the moment
+            identity asset. Every photo meme reuses them, so prompt the user to set them up the moment
             they land here. Free for everyone — no upgrade gate. */}
         {identityIncomplete && (
           <div className="bg-card border-2 border-primary/40 rounded-sm p-5 md:p-6 mb-6 shadow-[0_0_24px_rgba(249,115,22,0.12)]">
@@ -924,7 +922,7 @@ export default function Profile() {
                 <div className="hidden md:block text-[11px] font-display uppercase tracking-[0.18em] text-primary mb-1">Complete your identity</div>
                 <h2 className="hidden md:block text-xl font-display uppercase tracking-wide text-foreground mb-1">Your face is the meme</h2>
                 <p className="text-xs md:text-sm text-muted-foreground leading-snug">
-                  Add your <strong className="text-foreground">name</strong> and a <strong className="text-foreground">photo of you</strong> — we reuse them everywhere: photo memes and AI memes of you in impossible scenarios. Free for everyone.
+                  Add your <strong className="text-foreground">name</strong> and a <strong className="text-foreground">photo of you</strong> — we reuse them everywhere: in your photo memes and as your avatar. Free for everyone.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {!hasCustomPhoto && (
@@ -1441,8 +1439,8 @@ export default function Profile() {
                 {photoError && <p className="text-xs text-destructive mt-1">{photoError}</p>}
                 <p className="text-xs text-muted-foreground mt-1">
                   {profile.profileImageUrl
-                    ? "Toggle between your avatar style and your custom photo, or upload a new photo. We reuse this photo as your face for memes and AI generation."
-                    : "Upload a photo of your face. We reuse it for memes and AI images of you. JPEG, PNG, WebP or GIF, max 5 MB."}
+                    ? "Toggle between your avatar style and your custom photo, or upload a new photo. We reuse this photo as your face for memes."
+                    : "Upload a photo of your face. We reuse it for memes of you. JPEG, PNG, WebP or GIF, max 5 MB."}
                 </p>
 
                 {/* Task #507 — thumbnail picker.

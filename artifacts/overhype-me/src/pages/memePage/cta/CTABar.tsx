@@ -154,7 +154,7 @@ function TierLadderTeasers() {
             Legendary
           </div>
           <div className="text-[10px] text-muted-foreground leading-tight">
-            See yourself in it
+            Keep memes private
           </div>
         </div>
       </Link>
@@ -255,21 +255,19 @@ export function CTABarAnonOwnTransient({
   );
 }
 
-/* ─── registered-own ─────────────────────────────────────────────────────── */
+/* ─── own ──────────────────────────────────────────────────────────────── */
 
-export function CTABarRegisteredOwn({
+export function CTABarOwn({
   onDownload,
   onCustomShare,
   wearHref,
-  legendaryUpsellSubject,
 }: {
   onDownload: () => void;
   onCustomShare: () => void;
   wearHref: string;
-  legendaryUpsellSubject: string;
 }) {
   return (
-    <div className="space-y-3" data-testid="cta-registered-own">
+    <div className="space-y-3" data-testid="cta-own">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <PrimaryButton onClick={onDownload} testId="own-download">
           <Download className="w-4 h-4" /> Download
@@ -278,24 +276,6 @@ export function CTABarRegisteredOwn({
           <Share2 className="w-4 h-4" /> Custom share
         </PrimaryButton>
       </div>
-      <Link
-        href="/pricing"
-        data-testid="legendary-upsell"
-        className="block rounded-[14px] bg-card border border-primary/40 p-4 hover:border-primary transition"
-      >
-        <div className="flex items-start gap-3">
-          <Crown className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <div className="font-display text-[14px] uppercase tracking-wider text-primary mb-1">
-              Turn this up to 11
-            </div>
-            <div className="text-[12px] text-muted-foreground leading-snug">
-              See yourself in this meme like {legendaryUpsellSubject}, not just your name.
-            </div>
-          </div>
-          <ArrowRight className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-        </div>
-      </Link>
       <SecondaryButton href={wearHref} testId="merch-wear">
         <ShoppingBag className="w-4 h-4" /> Wear this meme <ExternalLink className="w-3 h-3 opacity-70" />
       </SecondaryButton>
@@ -307,11 +287,9 @@ export function CTABarRegisteredOwn({
 
 export function CTABarRegisteredOther({
   onMakeAboutMe,
-  legendaryUpsellSubject,
   factTemplateReady,
 }: {
   onMakeAboutMe: () => void;
-  legendaryUpsellSubject: string;
   factTemplateReady: boolean;
 }) {
   return (
@@ -325,91 +303,6 @@ export function CTABarRegisteredOther({
       </PrimaryButton>
       <SecondaryButton href="/" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts
-      </SecondaryButton>
-      <Link
-        href="/pricing"
-        data-testid="legendary-upsell"
-        className="block rounded-[14px] bg-card border border-primary/40 p-4 hover:border-primary transition"
-      >
-        <div className="flex items-start gap-3">
-          <Crown className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <div className="font-display text-[14px] uppercase tracking-wider text-primary mb-1">
-              Turn this up to 11
-            </div>
-            <div className="text-[12px] text-muted-foreground leading-snug">
-              See yourself in this meme like {legendaryUpsellSubject}, not just your name.
-            </div>
-          </div>
-          <ArrowRight className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-        </div>
-      </Link>
-    </div>
-  );
-}
-
-/* ─── legendary-own-stock ────────────────────────────────────────────────── */
-
-export function CTABarLegendaryOwnStock({
-  onTurnUp,
-  onDownload,
-  onCustomShare,
-  wearHref,
-  factTemplateReady,
-}: {
-  onTurnUp: () => void;
-  onDownload: () => void;
-  onCustomShare: () => void;
-  wearHref: string;
-  factTemplateReady: boolean;
-}) {
-  return (
-    <div className="space-y-3" data-testid="cta-legendary-own-stock">
-      <PrimaryButton
-        onClick={factTemplateReady ? onTurnUp : undefined}
-        disabled={!factTemplateReady}
-        testId="turn-up-to-11"
-      >
-        <Crown className="w-4 h-4" /> {factTemplateReady ? "Turn this up to 11" : "Loading…"}
-      </PrimaryButton>
-      <div className="grid grid-cols-2 gap-3">
-        <SecondaryButton onClick={onDownload} testId="own-download">
-          <Download className="w-4 h-4" /> Download
-        </SecondaryButton>
-        <SecondaryButton onClick={onCustomShare} testId="own-custom-share">
-          <Share2 className="w-4 h-4" /> Custom share
-        </SecondaryButton>
-      </div>
-      <SecondaryButton href={wearHref} testId="merch-wear">
-        <ShoppingBag className="w-4 h-4" /> Wear this meme <ExternalLink className="w-3 h-3 opacity-70" />
-      </SecondaryButton>
-    </div>
-  );
-}
-
-/* ─── legendary-own-pulid ────────────────────────────────────────────────── */
-
-export function CTABarLegendaryOwnPulid({
-  onDownload,
-  onCustomShare,
-  wearHref,
-}: {
-  onDownload: () => void;
-  onCustomShare: () => void;
-  wearHref: string;
-}) {
-  return (
-    <div className="space-y-3" data-testid="cta-legendary-own-pulid">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <PrimaryButton onClick={onDownload} testId="own-download">
-          <Download className="w-4 h-4" /> Download
-        </PrimaryButton>
-        <PrimaryButton onClick={onCustomShare} testId="own-custom-share">
-          <Share2 className="w-4 h-4" /> Custom share
-        </PrimaryButton>
-      </div>
-      <SecondaryButton href={wearHref} testId="merch-wear">
-        <ShoppingBag className="w-4 h-4" /> Wear this meme <ExternalLink className="w-3 h-3 opacity-70" />
       </SecondaryButton>
     </div>
   );
