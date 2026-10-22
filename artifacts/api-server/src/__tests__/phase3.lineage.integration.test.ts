@@ -213,58 +213,27 @@ describe("Phase 3 — GET /users/me/uploads filters", () => {
     assert.equal(paths[0], rawPath);
   });
 
-  it("transform=ai returns only AI derivatives", async () => {
+  it("the AI-styling filters went with PuLID: transform=ai and transform=pulid fall back to raw uploads", async () => {
     const userId = await createTestUser();
     const sid = await bearerForUser(userId);
     const factId = await createTestFact(userId);
 
     const rawPath = `t/${randomUUID()}/raw.jpg`;
     const pulidPath = `t/${randomUUID()}/p.jpg`;
-    const fbPath = `t/${randomUUID()}/f.jpg`;
     await db.insert(uploadImageMetadataTable).values([
       { objectPath: rawPath, width: 1, height: 1, fileSizeBytes: 1, userId },
       { objectPath: pulidPath, width: 1, height: 1, fileSizeBytes: 1, userId,
         transform: "pulid", sourceObjectPath: rawPath, factId, transformParamsHash: "h1" },
-      { objectPath: fbPath, width: 1, height: 1, fileSizeBytes: 1, userId,
-        transform: "pulid_fallback_text", sourceObjectPath: rawPath, factId, transformParamsHash: "h2" },
     ]);
 
-    const res = await request(makeApp())
-      .get("/users/me/uploads?transform=ai")
-      .set("authorization", `Bearer ${sid}`);
-    assert.equal(res.status, 200);
-    const transforms: string[] = res.body.uploads.map((u: { transform: string }) => u.transform);
-    transforms.sort();
-    assert.deepEqual(transforms, ["pulid", "pulid_fallback_text"]);
-  });
-
-  it("transform=pulid + factId scopes to one fact's PuLID stylings", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const factA = await createTestFact(userId);
-    const factB = await createTestFact(userId);
-
-    const sourcePath = `t/${randomUUID()}/src.jpg`;
-    await db.insert(uploadImageMetadataTable).values({
-      objectPath: sourcePath, width: 1, height: 1, fileSizeBytes: 1, userId,
-    });
-
-    const aPath = `t/${randomUUID()}/A.jpg`;
-    const bPath = `t/${randomUUID()}/B.jpg`;
-    await db.insert(uploadImageMetadataTable).values([
-      { objectPath: aPath, width: 1, height: 1, fileSizeBytes: 1, userId,
-        transform: "pulid", sourceObjectPath: sourcePath, factId: factA, transformParamsHash: "ha" },
-      { objectPath: bPath, width: 1, height: 1, fileSizeBytes: 1, userId,
-        transform: "pulid", sourceObjectPath: sourcePath, factId: factB, transformParamsHash: "hb" },
-    ]);
-
-    const res = await request(makeApp())
-      .get(`/users/me/uploads?transform=pulid&factId=${factA}`)
-      .set("authorization", `Bearer ${sid}`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.uploads.length, 1);
-    assert.equal(res.body.uploads[0].objectPath, aPath);
-    assert.equal(res.body.uploads[0].factId, factA);
+    for (const transform of ["ai", "pulid"]) {
+      const res = await request(makeApp())
+        .get(`/users/me/uploads?transform=${transform}`)
+        .set("authorization", `Bearer ${sid}`);
+      assert.equal(res.status, 200);
+      const paths: string[] = res.body.uploads.map((u: { objectPath: string }) => u.objectPath);
+      assert.deepEqual(paths, [rawPath], `transform=${transform} lists only the raw upload`);
+    }
   });
 
   it("transform=all returns raw + AI rows together", async () => {

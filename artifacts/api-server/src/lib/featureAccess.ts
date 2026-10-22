@@ -59,16 +59,15 @@ import { logger } from "./logger";
  * so photo-upload meme creation is an identity prerequisite, not an
  * entitlement. Every row in this grid should be a real dial.
  *
- * `meme_ai_background` nearly went the same way and should NOT. Its only
- * *reader* was an unreachable gate in `render.ts`, which makes it look dead —
- * but the capability is real and reachable: the AI Background Picker's generate
- * button hits four `requireLegendary` routes in `memes.ts`. A row whose reader
- * is dead is not the same as a row whose capability is dead, and the plan's
- * instruction to rewire it "to reachable routes" meant exactly those four.
+ * `meme_ai_background` was kept here once, rightly: a row whose reader is dead
+ * is not the same as a row whose capability is dead, and its capability (the
+ * AI Background Picker's generate routes) was live. Launch Phase 4 then
+ * deleted the capability itself — the picker with the legacy studio (removal
+ * 1), the last route it gated with PuLID (removal 3) — so migration 0104
+ * retired it beside `meme_pulid_stylize`.
  */
 export const FEATURE_KEYS = [
   "comment_captcha_bypass",
-  "meme_ai_background",
   "meme_private_visibility",
   "meme_rate_limit_high",
   "fact_submit_captcha_bypass",

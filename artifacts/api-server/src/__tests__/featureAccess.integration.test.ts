@@ -221,22 +221,21 @@ describe("grid completeness", () => {
     assert.equal(perms.length, 0, "meme_upload_photo tier rows should have been retired");
   });
 
-  it("meme_ai_background is NOT retired — a dead reader is not a dead capability", async () => {
-    // The distinction that nearly cost us this row: its only reader was an
-    // unreachable gate in render.ts, which makes it look like a second
-    // meme_upload_photo. But the capability is live and user-facing — the AI
-    // Background Picker's generate button — and was gated by requireLegendary
-    // in memes.ts, which is precisely the inline-role-check category this plan
-    // moves INTO the grid.
-    const [flag] = await db
-      .select({ key: featureFlagsTable.key })
-      .from(featureFlagsTable)
-      .where(eq(featureFlagsTable.key, "meme_ai_background"));
-    assert.ok(flag, "meme_ai_background must remain a real dial");
-    assert.ok(
-      (FEATURE_KEYS as readonly string[]).includes("meme_ai_background"),
-      "and the resolver must consult it",
-    );
+  it("meme_pulid_stylize and meme_ai_background are retired with PuLID", async () => {
+    // A dead reader is not a dead capability, which is why meme_ai_background
+    // once survived meme_upload_photo's retirement. Launch Phase 4 deleted the
+    // capability itself (removals 1 and 3), so both rows go (migration 0104).
+    for (const key of ["meme_pulid_stylize", "meme_ai_background"]) {
+      const flags = await db
+        .select({ key: featureFlagsTable.key })
+        .from(featureFlagsTable)
+        .where(eq(featureFlagsTable.key, key));
+      assert.equal(flags.length, 0, `${key} should have been retired`);
+      assert.ok(
+        !(FEATURE_KEYS as readonly string[]).includes(key),
+        `and the resolver must not consult ${key}`,
+      );
+    }
   });
 });
 
