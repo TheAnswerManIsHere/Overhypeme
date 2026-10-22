@@ -240,7 +240,7 @@ ceiling** and is what the rest of this section describes. `enforceGovernance`
 (`resourceGovernance.ts`) runs *first* on the synchronous image routes
 (`routes/memes.ts`) and independently rejects on
 `DAILY_SPEND_CAP_EXCEEDED` / `MONTHLY_SPEND_CAP_EXCEEDED` plus request-rate,
-concurrency, duration and payload caps. Its accounting is **in-memory and
+concurrency and payload caps. Its accounting is **in-memory and
 per-process**, so like the global rate limiter it is a per-instance backstop
 rather than a fleet-wide guarantee — see the
 [decision record](./decisions.md) for that layer.
@@ -280,11 +280,11 @@ predating Release B are `NULL`** until Release C's classification backfill
 runs — a query or review that treats `NULL` as impossible is wrong today. A writer that
 cannot obtain its figure skips the row and increments `ledger_write_failures`
 rather than substituting a constant; a fabricated figure, and especially a
-zero, is worse than an absent row because it exists and hides itself. **With one
-known live exception:** `recordStage2Cost` reads its engine *before* its own
-`try`, so a failure there omits a paid generation **and** skips the counter —
-see the 2026-08-18 skip-and-count entry in [`decisions.md`](./decisions.md) and
-#511. Do not read the counter as a complete census of omitted rows.
+zero, is worse than an absent row because it exists and hides itself. (The one
+known exception, `recordStage2Cost`, which read its engine before its own `try`
+— the 2026-08-18 skip-and-count entry in [`decisions.md`](./decisions.md) and
+#511 — lived in the video pipeline and went with it in launch Phase 4; ledger
+[`docs/retired/README.md`](../retired/README.md).)
 
 `checkBudget`'s contract, established across #409 / PR #443 / PR #474:
 
@@ -329,10 +329,10 @@ see the 2026-08-18 skip-and-count entry in [`decisions.md`](./decisions.md) and
 - **The ledger records how a figure was arrived at, from Release B onward.**
   `is_estimated` distinguishes a provider-resolved rate (`false`) from an
   estimate (`true`); **no row is a reconciled provider charge either way** — see
-  the glossary, and never call the `false` side "measured". Two live residuals,
-  both stated above rather than repeated here: rows predating Release B are
-  `NULL` until Release C's backfill, and the `recordStage2Cost` path can omit a
-  paid generation without incrementing the counter (#511). **What Release B
+  the glossary, and never call the `false` side "measured". One live residual,
+  stated above rather than repeated here: rows predating Release B are `NULL`
+  until Release C's backfill. (A second, the `recordStage2Cost` path of #511,
+  went with video in launch Phase 4.) **What Release B
   changed for this gate:** an unpriced generation on a synchronous path is now
   recorded from a fallback estimate rather than skipped, so a sustained pricing
   outage no longer freezes recorded spend while generations continue — the
@@ -419,7 +419,8 @@ and the bulk backfill launchers); **scoping/rotating it is an open item**
 `z.object` + `safeParse` idiom (from `routes/reviews.ts`); the sweep hardened the
 genuinely-risky inputs (a **path-traversal** in the video-style preview-gif
 storage key — sanitized via `safeStylePreviewKey`, not rejected, so legacy ids
-aren't orphaned; bulk-import size caps; the API-key `set-password` email). Lower-
+weren't orphaned; that surface went with video in launch Phase 4, ledger
+[`docs/retired/README.md`](../retired/README.md); bulk-import size caps; the API-key `set-password` email). Lower-
 risk field-length tidying and `confirm`/`limit` gates on the backfill launchers
 are deferred follow-ups (the latter would break existing API-key automation).
 

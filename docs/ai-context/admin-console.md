@@ -18,7 +18,7 @@
 
 ## Page inventory
 
-Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 16 `NAV_ITEMS`:
+Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 15 `NAV_ITEMS`:
 
 | Route | File | What it's for |
 | --- | --- | --- |

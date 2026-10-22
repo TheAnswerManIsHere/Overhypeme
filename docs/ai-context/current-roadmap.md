@@ -104,8 +104,10 @@ handbook work a launch phase needs and a second app would need identically;
   nullable column; Release B closed the pricing branches — a writer no longer
   skips because a price was missing — and made each one record **provenance**:
   a provider-resolved rate or an operator-configured estimate. (Not *every*
-  omission is closed: `recordStage2Cost` has a known uncounted failure path,
-  recorded with the 2026-08-18 skip-and-count decision and tracked in #511.)
+  omission was closed: `recordStage2Cost` had a known uncounted failure path,
+  recorded with the 2026-08-18 skip-and-count decision and tracked in #511; it
+  lived in the video pipeline and went with it in launch Phase 4, ledger
+  [`docs/retired/README.md`](../retired/README.md).)
   Estimated rows count toward the ceiling exactly like provider-resolved ones —
   excluding them would
   have reopened the fail-open PR #474 closed. Two new CI guards join the
@@ -119,7 +121,7 @@ handbook work a launch phase needs and a second app would need identically;
   **Next:** Release C — the operator-run preflight, then the classification
   backfill for rows written before this — after B deploys and old instances
   drain. **Also opened:** #507 (stage-1 PuLID double charge, pre-existing,
-  over-counts) and #508 (a timing-fragile `cliJobPoller` test).
+  over-counts; moot since video's deletion in launch Phase 4) and #508 (a timing-fragile `cliJobPoller` test).
 
 - **The generation spend gate now runs even when pricing can't be resolved**
   (2026-08-16, PR #474). Found by the auth/entitlement/spend security pass:
