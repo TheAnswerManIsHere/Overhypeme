@@ -1,4 +1,295 @@
 {
   "_README": "Seeded once by the AI-Handbook sync and owned by this repository from then on. The question set for the eval that decides whether the map earns its keep here: thirty tasks, ten per tier (keyword, structural, hidden). Answer keys are built by node scripts/map-eval.mjs keys, never by the map, and verified by hand before scoring. Protocol: docs/ai-context/agent-legible-codebase-eval.md.",
-  "tasks": []
+  "tasks": [
+    {
+      "id": "k01",
+      "tier": "keyword",
+      "question": "You are about to add a required parameter to `enqueueFactPexels` in `artifacts/api-server/src/lib/factPexelsJobs.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/factPexelsJobs.ts#enqueueFactPexels"
+      }
+    },
+    {
+      "id": "k02",
+      "tier": "keyword",
+      "question": "You are about to replace the object returned by `objectStorageClient` in `artifacts/api-server/src/lib/objectStorage.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/objectStorage.ts#objectStorageClient"
+      }
+    },
+    {
+      "id": "k03",
+      "tier": "keyword",
+      "question": "You are about to change the key format produced by `aiBackgroundKey` in `artifacts/api-server/src/lib/storageKeys.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/storageKeys.ts#aiBackgroundKey"
+      }
+    },
+    {
+      "id": "k04",
+      "tier": "keyword",
+      "question": "You are about to rename a method on `stripeStorage` in `artifacts/api-server/src/lib/stripeStorage.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/stripeStorage.ts#stripeStorage"
+      }
+    },
+    {
+      "id": "k05",
+      "tier": "keyword",
+      "question": "You are about to make asynchronous `clearEngineCaches` in `artifacts/api-server/src/lib/engineInterpreter.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/engineInterpreter.ts#clearEngineCaches"
+      }
+    },
+    {
+      "id": "k06",
+      "tier": "keyword",
+      "question": "You are about to change the return shape of `resolveRenderReviewInput` in `artifacts/api-server/src/lib/imagePrompt/resolveRenderReviewInput.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/imagePrompt/resolveRenderReviewInput.ts#resolveRenderReviewInput"
+      }
+    },
+    {
+      "id": "k07",
+      "tier": "keyword",
+      "question": "You are about to remove a field from the payload built by `buildRenderStatusPayload` in `artifacts/api-server/src/lib/imagePromptAttempts.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/imagePromptAttempts.ts#buildRenderStatusPayload"
+      }
+    },
+    {
+      "id": "k08",
+      "tier": "keyword",
+      "question": "You are about to change the error thrown by `checkBudget` in `artifacts/api-server/src/lib/budgetGate.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/budgetGate.ts#checkBudget"
+      }
+    },
+    {
+      "id": "k09",
+      "tier": "keyword",
+      "question": "You are about to add a required parameter to `buildEngineInput` in `artifacts/api-server/src/lib/engineInterpreter.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/engineInterpreter.ts#buildEngineInput"
+      }
+    },
+    {
+      "id": "k10",
+      "tier": "keyword",
+      "question": "You are about to change the return type of `getCachedPrice` in `artifacts/api-server/src/lib/falPricing.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "artifacts/api-server/src/lib/falPricing.ts#getCachedPrice"
+      }
+    },
+    {
+      "id": "s01",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to change the value of `BRAND_ORANGE` in `lib/api-zod/src/brandTokens.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/api-zod/src/brandTokens.ts#BRAND_ORANGE"
+      }
+    },
+    {
+      "id": "s02",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to rename a column of `videoJobsTable` in `lib/db/src/schema/videoJobs.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/db/src/schema/videoJobs.ts#videoJobsTable"
+      }
+    },
+    {
+      "id": "s03",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to rename a column of `motionPresetsTable` in `lib/db/src/schema/motionPresets.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/db/src/schema/motionPresets.ts#motionPresetsTable"
+      }
+    },
+    {
+      "id": "s04",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to change the comparison semantics of `overrideValuesEqual` in `lib/api-zod/src/enrichmentOverrides.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/api-zod/src/enrichmentOverrides.ts#overrideValuesEqual"
+      }
+    },
+    {
+      "id": "s05",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to change the normalisation performed by `normalizeHashtag` in `lib/api-zod/src/taxonomy.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/api-zod/src/taxonomy.ts#normalizeHashtag"
+      }
+    },
+    {
+      "id": "s06",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to rename a column of `stripeCheckoutRequestLedgerTable` in `lib/db/src/schema/memberships.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/db/src/schema/memberships.ts#stripeCheckoutRequestLedgerTable"
+      }
+    },
+    {
+      "id": "s07",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to rename a column of `membershipLeasesTable` in `lib/db/src/schema/membershipEntitlements.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/db/src/schema/membershipEntitlements.ts#membershipLeasesTable"
+      }
+    },
+    {
+      "id": "s08",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to change the rule implemented by `canProductionApprove` in `lib/api-zod/src/moderationWorkflow.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/api-zod/src/moderationWorkflow.ts#canProductionApprove"
+      }
+    },
+    {
+      "id": "s09",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to change the return shape of `resolveEnrichment` in `lib/api-zod/src/enrichmentOverrides.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/api-zod/src/enrichmentOverrides.ts#resolveEnrichment"
+      }
+    },
+    {
+      "id": "s10",
+      "tier": "structural",
+      "hops": 2,
+      "question": "You are about to change the return shape of `resolveEvalColumns` in `lib/api-zod/src/eval.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it.",
+      "target": {
+        "kind": "symbol",
+        "ref": "lib/api-zod/src/eval.ts#resolveEvalColumns"
+      }
+    },
+    {
+      "id": "h01",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `adminConfigTable` in `lib/db/src/schema/adminConfig.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "admin_config",
+        "symbol": "lib/db/src/schema/adminConfig.ts#adminConfigTable"
+      }
+    },
+    {
+      "id": "h02",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `uploadImageMetadataTable` in `lib/db/src/schema/memes.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "upload_image_metadata",
+        "symbol": "lib/db/src/schema/memes.ts#uploadImageMetadataTable"
+      }
+    },
+    {
+      "id": "h03",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `externalLinksTable` in `lib/db/src/schema/links.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "external_links",
+        "symbol": "lib/db/src/schema/links.ts#externalLinksTable"
+      }
+    },
+    {
+      "id": "h04",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `userAiImagesTable` in `lib/db/src/schema/userAiImages.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "user_ai_images",
+        "symbol": "lib/db/src/schema/userAiImages.ts#userAiImagesTable"
+      }
+    },
+    {
+      "id": "h05",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `activityFeedTable` in `lib/db/src/schema/activity-feed.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "activity_feed",
+        "symbol": "lib/db/src/schema/activity-feed.ts#activityFeedTable"
+      }
+    },
+    {
+      "id": "h06",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `userFactPreferencesTable` in `lib/db/src/schema/userFactPreferences.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "user_fact_preferences",
+        "symbol": "lib/db/src/schema/userFactPreferences.ts#userFactPreferencesTable"
+      }
+    },
+    {
+      "id": "h07",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `affiliateClicksTable` in `lib/db/src/schema/affiliate.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "affiliate_clicks",
+        "symbol": "lib/db/src/schema/affiliate.ts#affiliateClicksTable"
+      }
+    },
+    {
+      "id": "h08",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `hashtagsTable` in `lib/db/src/schema/hashtags.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "hashtags",
+        "symbol": "lib/db/src/schema/hashtags.ts#hashtagsTable"
+      }
+    },
+    {
+      "id": "h09",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `rateLimitCountersTable` in `lib/db/src/schema/rateLimit.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "rate_limit_counters",
+        "symbol": "lib/db/src/schema/rateLimit.ts#rateLimitCountersTable"
+      }
+    },
+    {
+      "id": "h10",
+      "tier": "hidden",
+      "question": "You are about to rename a column of the table declared as `transientRendersTable` in `lib/db/src/schema/transientRenders.ts`. Do not make the change. List every file in this repository, other than the one named, that must be checked or updated because of it. That includes every file that reads or writes the table, however it does so.",
+      "target": {
+        "kind": "relation",
+        "name": "transient_renders",
+        "symbol": "lib/db/src/schema/transientRenders.ts#transientRendersTable"
+      }
+    }
+  ]
 }

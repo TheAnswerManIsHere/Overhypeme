@@ -1,0 +1,544 @@
+{
+  "k01": {
+    "files": [
+      "artifacts/api-server/scripts/backfill-pexels.ts",
+      "artifacts/api-server/src/__tests__/factPexelsJobs.test.ts",
+      "artifacts/api-server/src/lib/firstTimeStagingPrep.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/scripts/backfill-fact-pexels.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k02": {
+    "files": [
+      "artifacts/api-server/scripts/fix-ai-backgrounds-db.ts",
+      "artifacts/api-server/scripts/list-all-storage.ts",
+      "artifacts/api-server/scripts/list-storage.ts",
+      "artifacts/api-server/scripts/migrate-ai-backgrounds-v2.ts",
+      "artifacts/api-server/scripts/migrate-ai-backgrounds.ts",
+      "artifacts/api-server/scripts/migrate-storage-keys.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k03": {
+    "files": [
+      "artifacts/api-server/scripts/fix-ai-backgrounds-db.ts",
+      "artifacts/api-server/scripts/migrate-storage-keys.ts",
+      "artifacts/api-server/src/__tests__/helpers/legacyFixtureSeed.ts",
+      "artifacts/api-server/src/__tests__/storageKeys.test.ts",
+      "artifacts/api-server/src/lib/aiMemePipeline.ts",
+      "artifacts/api-server/src/testing/legacyFixture/media.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k04": {
+    "files": [
+      "artifacts/api-server/src/__tests__/accessRevocationNotice.test.ts",
+      "artifacts/api-server/src/__tests__/stripeFakeDriver.test.ts",
+      "artifacts/api-server/src/jobs/factOfTheDay.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/facts.ts",
+      "artifacts/api-server/src/routes/stripe.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k05": {
+    "files": [
+      "artifacts/api-server/src/__tests__/adminEngines.test.ts",
+      "artifacts/api-server/src/__tests__/engineReconcile.test.ts",
+      "artifacts/api-server/src/__tests__/factEnrichmentEngine.test.ts",
+      "artifacts/api-server/src/__tests__/imagePromptEngine.test.ts",
+      "artifacts/api-server/src/lib/engines/reconcile.ts",
+      "artifacts/api-server/src/routes/adminEngines.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k06": {
+    "files": [
+      "artifacts/api-server/src/__tests__/adminReviewRenderTools.test.ts",
+      "artifacts/api-server/src/__tests__/resolveRenderReviewSubject.test.ts",
+      "artifacts/api-server/src/lib/eval/evalRunJobs.ts",
+      "artifacts/api-server/src/lib/reviewRenderScenarios.ts",
+      "artifacts/api-server/src/routes/adminImagePrompt.ts",
+      "artifacts/api-server/src/routes/reviews.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k07": {
+    "files": [
+      "artifacts/api-server/src/__tests__/adminReviewRenderTools.test.ts",
+      "artifacts/api-server/src/lib/eval/dashboard.ts",
+      "artifacts/api-server/src/lib/eval/evalRunJobs.ts",
+      "artifacts/api-server/src/lib/factRenderScenarios.ts",
+      "artifacts/api-server/src/lib/reviewRenderScenarios.ts",
+      "artifacts/api-server/src/routes/memes.ts",
+      "artifacts/api-server/src/routes/reviews.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k08": {
+    "files": [
+      "artifacts/api-server/src/__tests__/budgetGate.test.ts",
+      "artifacts/api-server/src/lib/aiMemePipeline.ts",
+      "artifacts/api-server/src/lib/videoPipelineRunner.ts",
+      "artifacts/api-server/src/routes/videos.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k09": {
+    "files": [
+      "artifacts/api-server/src/__tests__/engineInterpreter.test.ts",
+      "artifacts/api-server/src/lib/imagePromptJobs.ts",
+      "artifacts/api-server/src/lib/videoPipelineRunner.ts",
+      "artifacts/api-server/src/routes/adminEngines.ts",
+      "artifacts/api-server/src/routes/videos.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "k10": {
+    "files": [
+      "artifacts/api-server/src/__tests__/falPricing.test.ts",
+      "artifacts/api-server/src/lib/aiMemePipeline.ts",
+      "artifacts/api-server/src/lib/videoPipelineRunner.ts",
+      "artifacts/api-server/src/routes/videos.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s01": {
+    "files": [
+      "artifacts/api-server/scripts/generate-email-preview.ts",
+      "artifacts/api-server/src/jobs/factOfTheDay.ts",
+      "artifacts/api-server/src/lib/adminNotify.ts",
+      "artifacts/api-server/src/lib/email.ts",
+      "artifacts/api-server/src/lib/memeGenerator.ts",
+      "artifacts/overhype-me/src/components/MemeBuilder.tsx",
+      "artifacts/overhype-me/src/components/SentryFallback.tsx",
+      "artifacts/overhype-me/src/components/VideoBuilder.tsx"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s02": {
+    "files": [
+      "artifacts/api-server/scripts/migrate-storage-keys.ts",
+      "artifacts/api-server/src/__tests__/videoJobs.test.ts",
+      "artifacts/api-server/src/lib/videoPipelineRunner.ts",
+      "artifacts/api-server/src/routes/videos.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s03": {
+    "files": [
+      "artifacts/api-server/src/__tests__/adminEngines.test.ts",
+      "artifacts/api-server/src/lib/videoPipelineRunner.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/adminEngines.ts",
+      "artifacts/api-server/src/routes/videos.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s04": {
+    "files": [
+      "artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts",
+      "artifacts/api-server/src/lib/enrichmentOverrideLayers.ts",
+      "artifacts/api-server/src/lib/factActivation.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/reviews.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s05": {
+    "files": [
+      "artifacts/api-server/src/__tests__/factEnrichment.test.ts",
+      "artifacts/api-server/src/lib/hashtags.ts",
+      "artifacts/api-server/src/testing/legacyFixture/walker.ts",
+      "artifacts/overhype-me/src/components/admin/EnrichmentEditor.tsx",
+      "artifacts/overhype-me/src/components/admin/FinalHashtagsEditor.tsx"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s06": {
+    "files": [
+      "artifacts/api-server/src/__tests__/helpers/purgeTestData.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/stripe.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s07": {
+    "files": [
+      "artifacts/api-server/src/__tests__/membershipLease.test.ts",
+      "artifacts/api-server/src/lib/membershipLease.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s08": {
+    "files": [
+      "artifacts/api-server/src/__tests__/moderationWorkflow.guards.test.ts",
+      "artifacts/api-server/src/lib/enrichmentVersioning.ts",
+      "artifacts/api-server/src/routes/reviews.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s09": {
+    "files": [
+      "artifacts/api-server/src/__tests__/enrichmentOverridesResolver.test.ts",
+      "artifacts/api-server/src/lib/enrichmentOverrideLayers.ts",
+      "artifacts/api-server/src/lib/factEnrichment.ts",
+      "artifacts/api-server/src/testing/legacyFixture/export.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "s10": {
+    "files": [
+      "artifacts/api-server/src/__tests__/eval.unit.test.ts",
+      "artifacts/api-server/src/routes/eval.ts",
+      "artifacts/api-server/src/routes/reviews.ts"
+    ],
+    "method": "language-service findReferences",
+    "verified": true
+  },
+  "h01": {
+    "files": [
+      "artifacts/api-server/src/__tests__/asyncJobs.test.ts",
+      "artifacts/api-server/src/__tests__/budgetGate.test.ts",
+      "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+      "artifacts/api-server/src/__tests__/factEnrichmentEngine.test.ts",
+      "artifacts/api-server/src/__tests__/imagePromptEngine.test.ts",
+      "artifacts/api-server/src/__tests__/legacyFixture.integration.test.ts",
+      "artifacts/api-server/src/__tests__/legacyKeyRetirement.test.ts",
+      "artifacts/api-server/src/__tests__/membershipConfigRoute.test.ts",
+      "artifacts/api-server/src/__tests__/migration.stripRetiredTextModifiers.test.ts",
+      "artifacts/api-server/src/__tests__/migrations.0097.test.ts",
+      "artifacts/api-server/src/__tests__/moderation.uploadRateLimit.test.ts",
+      "artifacts/api-server/src/__tests__/referenceResearchConfig.migration.test.ts",
+      "artifacts/api-server/src/__tests__/routes.admin.test.ts",
+      "artifacts/api-server/src/__tests__/routes.adminTaxonomyHealth.markMajorUpdate.test.ts",
+      "artifacts/api-server/src/__tests__/routes.shareCopy.test.ts",
+      "artifacts/api-server/src/__tests__/scenePromptConfig.test.ts",
+      "artifacts/api-server/src/__tests__/stripeAccountGuard.test.ts",
+      "artifacts/api-server/src/__tests__/stripeFakeDriver.test.ts",
+      "artifacts/api-server/src/__tests__/stripeModeToggle.test.ts",
+      "artifacts/api-server/src/__tests__/videoDirection.test.ts",
+      "artifacts/api-server/src/lib/adminConfig.ts",
+      "artifacts/api-server/src/lib/budgetGate.ts",
+      "artifacts/api-server/src/lib/factEnrichmentConfig.ts",
+      "artifacts/api-server/src/lib/imagePromptConfig.ts",
+      "artifacts/api-server/src/lib/membershipTiming.ts",
+      "artifacts/api-server/src/lib/pulidExpectedRunMs.ts",
+      "artifacts/api-server/src/lib/referenceResearchConfig.ts",
+      "artifacts/api-server/src/lib/scenePromptConfig.ts",
+      "artifacts/api-server/src/lib/seed.ts",
+      "artifacts/api-server/src/lib/videoDirection.ts",
+      "artifacts/api-server/src/lib/visualConceptsConfig.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/adminTaxonomyHealth.ts",
+      "artifacts/api-server/src/testing/acceptance/inner.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "artifacts/api-server/src/testing/legacyFixture/export.ts",
+      "lib/db/src/stripeFakeDatabase.test.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/src/__tests__/membershipConfigSeeds.test.ts",
+      "artifacts/api-server/src/__tests__/membershipTiming.test.ts",
+      "artifacts/api-server/src/__tests__/rateLimitCounterPurgerSeeds.test.ts",
+      "artifacts/api-server/src/routes/adminTaxonomyHealth.ts",
+      "artifacts/api-server/src/testing/legacyFixture/load.ts",
+      "lib/db/scripts/rebuild-snapshots.ts",
+      "lib/db/src/schema/adminConfig.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true,
+    "verificationNote": "added testing/legacyFixture/export.ts by hand: it reads named columns of this table's rows through dynamic SQL (export.ts:569-577), which neither the SQL-literal scan nor findReferences sees"
+  },
+  "h02": {
+    "files": [
+      "artifacts/api-server/scripts/migrate-storage-keys.ts",
+      "artifacts/api-server/src/__tests__/helpers/legacyFixtureSeed.ts",
+      "artifacts/api-server/src/__tests__/phase3.lineage.integration.test.ts",
+      "artifacts/api-server/src/__tests__/routes.users.test.ts",
+      "artifacts/api-server/src/__tests__/videoJobs.test.ts",
+      "artifacts/api-server/src/__tests__/videos.security.test.ts",
+      "artifacts/api-server/src/lib/aiMemePipeline.ts",
+      "artifacts/api-server/src/lib/imagePromptJobs.ts",
+      "artifacts/api-server/src/lib/objectAccess.ts",
+      "artifacts/api-server/src/lib/seed.ts",
+      "artifacts/api-server/src/lib/sourceImageAnalysis/index.ts",
+      "artifacts/api-server/src/lib/userImageUpload.ts",
+      "artifacts/api-server/src/lib/videoPipelineRunner.ts",
+      "artifacts/api-server/src/routes/memes.ts",
+      "artifacts/api-server/src/routes/pulidJobs.ts",
+      "artifacts/api-server/src/routes/render.ts",
+      "artifacts/api-server/src/routes/users.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "artifacts/api-server/src/testing/legacyFixture/export.ts",
+      "scripts/one-shot-cleanup-test-data.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/src/__tests__/legacyFixtureAllowlist.test.ts",
+      "artifacts/api-server/src/lib/imagePromptJobs.ts",
+      "lib/db/scripts/rebuild-snapshots.ts",
+      "lib/db/src/schema/memes.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true,
+    "verificationNote": "added testing/legacyFixture/export.ts by hand: it reads named columns of this table's rows through dynamic SQL (export.ts:569-577), which neither the SQL-literal scan nor findReferences sees"
+  },
+  "h03": {
+    "files": [
+      "artifacts/api-server/src/__tests__/helpers/legacyFixtureSeed.ts",
+      "artifacts/api-server/src/__tests__/helpers/purgeTestData.ts",
+      "artifacts/api-server/src/__tests__/routes.facts.test.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/facts.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "scripts/src/reseed-facts.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/src/__tests__/helpers/purgeTestData.ts",
+      "lib/db/src/schema/links.ts",
+      "scripts/src/reseed-facts.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true
+  },
+  "h04": {
+    "files": [
+      "artifacts/api-server/scripts/migrate-ai-backgrounds-v2.ts",
+      "artifacts/api-server/scripts/migrate-storage-keys.ts",
+      "artifacts/api-server/src/__tests__/helpers/legacyFixtureSeed.ts",
+      "artifacts/api-server/src/__tests__/legacyFixture.integration.test.ts",
+      "artifacts/api-server/src/__tests__/routes.users.test.ts",
+      "artifacts/api-server/src/__tests__/videos.security.test.ts",
+      "artifacts/api-server/src/lib/aiMemePipeline.ts",
+      "artifacts/api-server/src/lib/imagePromptJobs.ts",
+      "artifacts/api-server/src/lib/objectAccess.ts",
+      "artifacts/api-server/src/lib/seed.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/memes.ts",
+      "artifacts/api-server/src/routes/users.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "artifacts/api-server/src/testing/legacyFixture/export.ts",
+      "scripts/one-shot-cleanup-test-data.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/scripts/migrate-ai-backgrounds-v2.ts",
+      "artifacts/api-server/scripts/migrate-storage-keys.ts",
+      "artifacts/api-server/src/__tests__/legacyFixtureAllowlist.test.ts",
+      "artifacts/api-server/src/__tests__/videos.security.test.ts",
+      "lib/db/scripts/rebuild-snapshots.ts",
+      "lib/db/src/schema/userAiImages.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true,
+    "verificationNote": "added testing/legacyFixture/export.ts by hand: it reads named columns of this table's rows through dynamic SQL (export.ts:569-577), which neither the SQL-literal scan nor findReferences sees"
+  },
+  "h05": {
+    "files": [
+      "artifacts/api-server/src/__tests__/activity.test.ts",
+      "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+      "artifacts/api-server/src/__tests__/helpers/legacyFixtureSeed.ts",
+      "artifacts/api-server/src/__tests__/helpers/purgeTestData.ts",
+      "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+      "artifacts/api-server/src/lib/activity.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/reviews.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "scripts/one-shot-cleanup-test-data.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/src/__tests__/activity.test.ts",
+      "artifacts/api-server/src/__tests__/helpers/purgeTestData.ts",
+      "lib/db/src/schema/activity-feed.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true
+  },
+  "h06": {
+    "files": [
+      "artifacts/api-server/src/__tests__/routes.facts.hero.test.ts",
+      "artifacts/api-server/src/__tests__/routes.memes.test.ts",
+      "artifacts/api-server/src/routes/facts.ts",
+      "artifacts/api-server/src/routes/memes.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "scripts/one-shot-cleanup-test-data.ts"
+    ],
+    "incidental": [
+      "lib/db/scripts/rebuild-snapshots.ts",
+      "lib/db/src/schema/userFactPreferences.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true
+  },
+  "h07": {
+    "files": [
+      "artifacts/api-server/src/__tests__/helpers/purgeTestData.ts",
+      "artifacts/api-server/src/__tests__/routes.affiliate.test.ts",
+      "artifacts/api-server/src/routes/admin.ts",
+      "artifacts/api-server/src/routes/affiliate.ts",
+      "artifacts/api-server/src/routes/memes.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/src/__tests__/helpers/purgeTestData.ts",
+      "lib/db/scripts/rebuild-snapshots.ts",
+      "lib/db/src/schema/affiliate.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true
+  },
+  "h08": {
+    "files": [
+      "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+      "artifacts/api-server/src/__tests__/helpers/legacyFixtureSeed.ts",
+      "artifacts/api-server/src/__tests__/routes.facts.test.ts",
+      "artifacts/api-server/src/__tests__/routes.hashtags.test.ts",
+      "artifacts/api-server/src/lib/seed.ts",
+      "artifacts/api-server/src/routes/facts.ts",
+      "artifacts/api-server/src/routes/hashtags.ts",
+      "artifacts/api-server/src/routes/reviews.ts",
+      "artifacts/api-server/src/routes/users.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "scripts/one-shot-cleanup-test-data.ts",
+      "scripts/src/list-facts.ts",
+      "scripts/src/reseed-facts.ts",
+      "scripts/src/seed.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/src/__tests__/acceptanceRun.test.ts",
+      "artifacts/api-server/src/__tests__/adminEngines.test.ts",
+      "artifacts/api-server/src/__tests__/aiDouble.test.ts",
+      "artifacts/api-server/src/__tests__/enrichmentVersioning.refresh.test.ts",
+      "artifacts/api-server/src/__tests__/factEnrichment.test.ts",
+      "artifacts/api-server/src/__tests__/factRenderScenarios.test.ts",
+      "artifacts/api-server/src/__tests__/hashtags.test.ts",
+      "artifacts/api-server/src/__tests__/imagePromptGeneration.validate.test.ts",
+      "artifacts/api-server/src/__tests__/imagePromptJobs.test.ts",
+      "artifacts/api-server/src/__tests__/imagePromptPreview.test.ts",
+      "artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts",
+      "artifacts/api-server/src/__tests__/legacyFixtureAllowlist.test.ts",
+      "artifacts/api-server/src/__tests__/nanoBanana2Compiler.test.ts",
+      "artifacts/api-server/src/__tests__/referenceResearch.validate.test.ts",
+      "artifacts/api-server/src/__tests__/routes.adminFactsEnrichment.test.ts",
+      "artifacts/api-server/src/__tests__/routes.ai.test.ts",
+      "artifacts/api-server/src/__tests__/routes.facts.test.ts",
+      "artifacts/api-server/src/__tests__/routes.hashtags.test.ts",
+      "artifacts/api-server/src/__tests__/routes.import.test.ts",
+      "artifacts/api-server/src/__tests__/routes.reviews.test.ts",
+      "artifacts/api-server/src/__tests__/routes.shareCopy.test.ts",
+      "artifacts/api-server/src/lib/factEnrichment.ts",
+      "artifacts/api-server/src/lib/imagePrompt/generator.ts",
+      "artifacts/api-server/src/lib/imagePromptConfig.ts",
+      "artifacts/api-server/src/lib/referenceResearchConfig.ts",
+      "artifacts/api-server/src/routes/ai.ts",
+      "artifacts/api-server/src/routes/hashtags.ts",
+      "artifacts/api-server/src/routes/import.ts",
+      "artifacts/api-server/src/routes/index.ts",
+      "artifacts/api-server/src/routes/reviews.ts",
+      "artifacts/api-server/src/routes/shareCopy.ts",
+      "artifacts/api-server/src/testing/acceptance/coverage.ts",
+      "artifacts/api-server/src/testing/acceptance/driver.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "artifacts/api-server/src/testing/legacyFixture/export.ts",
+      "artifacts/api-server/src/testing/legacyFixture/shapes.ts",
+      "artifacts/api-server/src/testing/legacyFixture/walker.ts",
+      "artifacts/overhype-me/e2e/adminPermissions.spec.ts",
+      "artifacts/overhype-me/e2e/identityFlow.spec.ts",
+      "artifacts/overhype-me/e2e/publicScreens.spec.ts",
+      "artifacts/overhype-me/src/App.tsx",
+      "artifacts/overhype-me/src/components/admin/EnrichmentEditor.dualMode.test.tsx",
+      "artifacts/overhype-me/src/components/admin/EnrichmentEditor.tsx",
+      "artifacts/overhype-me/src/components/admin/FinalHashtagsEditor.test.tsx",
+      "artifacts/overhype-me/src/components/admin/FinalHashtagsEditor.tsx",
+      "artifacts/overhype-me/src/components/admin/fieldDocs/classification.ts",
+      "artifacts/overhype-me/src/components/layout/Navbar.tsx",
+      "artifacts/overhype-me/src/components/share/__tests__/MemeShareModal.test.tsx",
+      "artifacts/overhype-me/src/generated/help/content/2-content-lifecycle.ts",
+      "artifacts/overhype-me/src/generated/help/content/4-taxonomy-and-enrichment.ts",
+      "artifacts/overhype-me/src/generated/help/content/6-meme-and-video-studio.ts",
+      "artifacts/overhype-me/src/generated/help/content/7-public-site-and-sharing.ts",
+      "artifacts/overhype-me/src/generated/help/content/_index.ts",
+      "artifacts/overhype-me/src/generated/help/searchIndex.ts",
+      "artifacts/overhype-me/src/pages/Hashtags.tsx",
+      "artifacts/overhype-me/src/pages/Home.tsx",
+      "artifacts/overhype-me/src/pages/SubmitFact.tsx",
+      "artifacts/overhype-me/src/pages/admin/moderation.tsx",
+      "lib/api-client-react/src/generated/api.ts",
+      "lib/api-zod/src/generated/api.ts",
+      "lib/api-zod/src/imagePromptGeneration.ts",
+      "lib/api-zod/src/referenceResearch.ts",
+      "lib/api-zod/src/visualPromptStrategies.ts",
+      "lib/db/src/schema/hashtags.ts",
+      "lib/db/src/schema/index.ts",
+      "lib/db/src/schema/reviews.ts",
+      "scripts/src/reseed-facts.ts",
+      "scripts/src/seed.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true
+  },
+  "h09": {
+    "files": [
+      "artifacts/api-server/src/__tests__/helpers/legacyFixtureSeed.ts",
+      "artifacts/api-server/src/__tests__/localAuth.security.test.ts",
+      "artifacts/api-server/src/__tests__/moderation.uploadRateLimit.test.ts",
+      "artifacts/api-server/src/__tests__/rateLimitCounterPurger.test.ts",
+      "artifacts/api-server/src/__tests__/routes.localAuth.test.ts",
+      "artifacts/api-server/src/jobs/rateLimitCounterPurger.ts",
+      "artifacts/api-server/src/lib/seed.ts",
+      "artifacts/api-server/src/lib/sharedRateLimiter.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/src/__tests__/legacyFixtureAllowlist.test.ts",
+      "artifacts/api-server/src/__tests__/rateLimitCounterPurgerSeeds.test.ts",
+      "artifacts/api-server/src/index.ts",
+      "artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts",
+      "lib/db/scripts/rebuild-snapshots.ts",
+      "lib/db/src/schema/rateLimit.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true
+  },
+  "h10": {
+    "files": [
+      "artifacts/api-server/src/__tests__/phase4.purger.test.ts",
+      "artifacts/api-server/src/__tests__/phase4.render.routes.test.ts",
+      "artifacts/api-server/src/jobs/transientRenderPurger.ts",
+      "artifacts/api-server/src/lib/transientRenderLog.ts",
+      "artifacts/api-server/src/testing/legacyFixture/allowlist.ts",
+      "scripts/one-shot-cleanup-test-data.ts"
+    ],
+    "incidental": [
+      "artifacts/api-server/src/__tests__/legacyFixtureAllowlist.test.ts",
+      "artifacts/api-server/src/__tests__/phase4.render.routes.test.ts",
+      "artifacts/api-server/src/index.ts",
+      "artifacts/api-server/src/jobs/transientRenderPurger.ts",
+      "lib/db/src/schema/transientRenders.ts"
+    ],
+    "method": "SQL-like literals carrying the name + findReferences on the table symbol",
+    "verified": true
+  }
+}
