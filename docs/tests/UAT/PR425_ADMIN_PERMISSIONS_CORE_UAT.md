@@ -400,15 +400,7 @@ _Step R5 retired with the legacy meme studio, which launch Phase 4 deleted (remo
 
 **Check:** `artifacts/api-server/src/__tests__/routes.users.test.ts:PATCH /users/me/notifications updates both flags for admin users`; `artifacts/overhype-me/e2e/adminPermissions.spec.ts:Exit Admin hides the Admin Panel and withdraws private memes; Resume Admin on Profile restores them`
 
-### R9. PuLID (stylized photo) memes still work
-
-**Do:** Create a stylized photo meme as admin or Legendary.
-
-**Expect:** Works.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — PuLID is on the cut list and retired there
+_Step R9 retired with PuLID, which launch Phase 4 deleted (removal 3, #744; ledger: `docs/retired/README.md`)._
 
 ### R10. Profile edits still save
 

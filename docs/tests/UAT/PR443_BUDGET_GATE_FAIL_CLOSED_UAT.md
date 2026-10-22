@@ -63,16 +63,7 @@ the right thing to the person reading them.
 
 _Step 1 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
-### 2. Reference-photo (PuLID) generation still works
-
-**Do:** Generate a meme image using a **reference photo** (the PuLID /
-face path).
-
-**Expect:** Generates normally, same as before.
-
-**Lane:** live
-
-**Deferred:** #628 — Phase 4 (cut and prune) — PuLID / reference-photo generation is retired with the cut
+_Step 2 retired with PuLID, which launch Phase 4 deleted (removal 3, #744; ledger: `docs/retired/README.md`)._
 
 _Step 3 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 

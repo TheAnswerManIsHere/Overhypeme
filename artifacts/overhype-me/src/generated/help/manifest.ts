@@ -404,8 +404,8 @@ export const HELP_DOCS: HelpDocMeta[] = [
         "depth": 2
       },
       {
-        "id": "two-ways-to-build-a-background",
-        "title": "Two ways to build a background",
+        "id": "building-a-background",
+        "title": "Building a background",
         "depth": 3
       },
       {

@@ -56,18 +56,7 @@ is not slowed by the limiter.
 
 **Check:** `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:the documented concurrent-poller load receives zero 429s under the default ceiling`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:home, Top Facts and a fact page show their usual layout and content`; `artifacts/api-server/src/__tests__/globalRateLimit.integration.test.ts:an ordinary API request spends well under the bound inside the limiter itself`; `artifacts/overhype-me/e2e/routeLoadSmoke.spec.ts:logged out, the ordinary and feed routes load with no sign-in wall, no error and no redirect`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: making a meme, its save and its permalink read
 
-### 2. A PuLID image generation completes normally
-
-**Do:** Start a real PuLID image generation and let it run to completion,
-the way you normally would. (Its video half retired with video, launch
-Phase 4 removal 2.)
-
-**Expect:** The loading screen behaves exactly as before — progress bar
-moves, stages transition, and it lands on the finished result.
-
-**Lane:** scripted
-
-**Deferred:** #628 — Phase 4 (cut and prune; PuLID generation retired with the cut)
+_Step 2 retired with PuLID, which launch Phase 4 deleted (removal 3, #744; ledger: `docs/retired/README.md`)._
 
 ### 3. Admin pages still load
 
