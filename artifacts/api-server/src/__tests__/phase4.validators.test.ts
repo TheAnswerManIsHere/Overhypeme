@@ -4,7 +4,7 @@
  * Pure (no DB, no canvas) coverage of:
  *   - Pronoun allowlist enforcement
  *   - Name length, character class, control-char rejection
- *   - Mode derivation from imageSource + imageTransform
+ *   - Mode derivation from imageSource
  *   - SaveMemeBody / RenderRequestBody round-trips
  */
 
@@ -108,26 +108,11 @@ describe("Phase 4 — deriveRenderMode", () => {
   it("returns stock for stock imageSource", () => {
     assert.equal(deriveRenderMode({ type: "stock", pexelsPhotoId: 123 }), "stock");
   });
-  it("returns self-upload for upload imageSource without pulid transform", () => {
+  it("returns self-upload for upload imageSource", () => {
     assert.equal(deriveRenderMode({ type: "upload", uploadKey: "/objects/foo" }), "self-upload");
   });
   it("returns self-upload for identity imageSource", () => {
     assert.equal(deriveRenderMode({ type: "identity" }), "self-upload");
-  });
-  it("returns pulid when imageTransform is pulid, regardless of imageSource", () => {
-    assert.equal(
-      deriveRenderMode({ type: "upload", uploadKey: "/objects/foo" }, "pulid"),
-      "pulid",
-    );
-  });
-  it("returns the imageSource-derived mode for pulid_fallback_text", () => {
-    // pulid_fallback_text means the PuLID generator hit a no-face fallback —
-    // the resulting image is text-only, so it isn't a real PuLID render and
-    // is gated as self-upload, not legendary-only.
-    assert.equal(
-      deriveRenderMode({ type: "upload", uploadKey: "/objects/foo" }, "pulid_fallback_text"),
-      "self-upload",
-    );
   });
 });
 
@@ -200,12 +185,13 @@ describe("Phase 4 — SaveMemeBody", () => {
     assert.equal(r.success, false);
   });
 
-  it("accepts imageTransform = pulid", () => {
+  it("strips a stale imageTransform: no save writes a PuLID label since removal 3", () => {
     const r = SaveMemeBody.safeParse({
       factId: 1,
       imageSource: { type: "upload", uploadKey: "/objects/foo" },
       imageTransform: "pulid",
     });
     assert.equal(r.success, true);
+    assert.equal(r.success && "imageTransform" in r.data, false);
   });
 });

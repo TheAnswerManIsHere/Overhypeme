@@ -86,7 +86,6 @@ export interface CreateMemeRecordInput {
   framingTransform?: { offsetX: number; offsetY: number } | null;
   aspectRatio?: "landscape" | "square" | "portrait";
   isPublic?: boolean;
-  imageTransform?: "pulid" | "pulid_fallback_text";
   name?: string;
   pronouns?: AllowedPronouns;
   /**
@@ -114,7 +113,6 @@ export interface CreateMemeRecordInput {
 export const MEME_GATED_FEATURES = [
   "meme_private_visibility",
   "meme_rate_limit_high",
-  "meme_pulid_stylize",
 ] as const;
 
 export type MemeAuthorizationDecisions = {
@@ -128,15 +126,13 @@ export type MemeAuthorizationDecisions = {
  * the grid says *then*.
  */
 export async function resolveMemeDecisions(principal: Principal): Promise<MemeAuthorizationDecisions> {
-  const [privateVisibility, rateLimitHigh, pulid] = await Promise.all([
+  const [privateVisibility, rateLimitHigh] = await Promise.all([
     can(principal, "meme_private_visibility"),
     can(principal, "meme_rate_limit_high"),
-    can(principal, "meme_pulid_stylize"),
   ]);
   return {
     meme_private_visibility: privateVisibility,
     meme_rate_limit_high: rateLimitHigh,
-    meme_pulid_stylize: pulid,
   };
 }
 
@@ -174,7 +170,6 @@ export async function createMemeRecord(
   const { userId, factId, textOptions, framingTransform, previewImageBase64 } = input;
   let imageSource = input.imageSource;
   const aspectRatio = input.aspectRatio ?? "landscape";
-  const imageTransform = input.imageTransform;
 
   // ── Authorization: decided by the caller, at submission time ────────
   // This function no longer resolves its own gates. It used to read the user
@@ -186,14 +181,8 @@ export async function createMemeRecord(
   // decisions arrive already made. What survives here is only the *application*
   // of those decisions.
   const { decisions } = input;
-  const canPulid = decisions.meme_pulid_stylize;
   const canPrivate = decisions.meme_private_visibility;
   const highRateLimit = decisions.meme_rate_limit_high;
-
-  // ── Gate: PuLID-stylised memes ───────────────────────────────────────
-  if (imageTransform === "pulid" && !canPulid) {
-    throw new CreateMemeError(403, { error: "tier_mismatch" });
-  }
 
   // ── Gate: private visibility ─────────────────────────────────────────
   // Fail CLOSED on an explicit private request we cannot honour. Coercing it
@@ -261,7 +250,6 @@ export async function createMemeRecord(
     framingTransform: framingTransform ?? null,
     aspectRatio,
     isPublic,
-    imageTransform: imageTransform ?? null,
   });
   const idemHit = idempotencyMap.get(idemKey);
   if (idemHit && idemHit.expiresAt > now) {
@@ -410,7 +398,6 @@ export async function createMemeRecord(
     renderedFactText: renderedFactText ?? null,
     nsfwClassifierScore: classifierScoreForMeme != null ? classifierScoreForMeme.toFixed(4) : null,
     isNsfw: isNsfwForMeme,
-    imageTransform: imageTransform ?? null,
     artifactType: "image",
   };
 

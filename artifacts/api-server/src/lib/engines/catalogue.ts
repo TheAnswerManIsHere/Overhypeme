@@ -10,7 +10,6 @@ import { NANO_BANANA_PRO } from "./nano-banana-pro";
 import { NANO_BANANA_PRO_T2I } from "./nano-banana-pro-t2i";
 import { NANO_BANANA_2 } from "./nano-banana-2";
 import { NANO_BANANA_2_EDIT } from "./nano-banana-2-edit";
-import { PULID_FLUX } from "./pulid-flux";
 import { FLUX_PRO_V1_1 } from "./flux-pro-v1-1";
 import { FLUX_2_PRO } from "./flux-2-pro";
 import { GPT_IMAGE_2 } from "./gpt-image-2";
@@ -31,7 +30,6 @@ export const ALL_ENGINES: EngineDefinition[] = [
   NANO_BANANA_PRO_T2I,
   NANO_BANANA_2,
   NANO_BANANA_2_EDIT,
-  PULID_FLUX,
   FLUX_PRO_V1_1,
   FLUX_2_PRO,
   GPT_IMAGE_2,
