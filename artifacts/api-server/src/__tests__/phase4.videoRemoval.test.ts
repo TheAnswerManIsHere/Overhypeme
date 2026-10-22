@@ -291,4 +291,14 @@ describe("migration 0103 retires video's data and schema", () => {
     const memes = await db.select({ deletedAt: memesTable.deletedAt, artifactType: memesTable.artifactType }).from(memesTable).where(inArray(memesTable.permalinkSlug, memeSlugs));
     assert.equal(memes.filter((m) => m.deletedAt !== null).length, 1, "still exactly the one video meme retired");
   });
+
+  it("retires a video meme even when a schema push already dropped the video columns", async () => {
+    // The state after `push-force` then `migrate`: the columns are gone (the
+    // first case dropped them) but a live video meme survives.
+    const slug = `p4w${randomUUID().slice(0, 8)}`;
+    await meme(slug, "video");
+    await db.execute(sql.raw(MIGRATION_SQL));
+    const [row] = await db.select({ deletedAt: memesTable.deletedAt }).from(memesTable).where(eq(memesTable.permalinkSlug, slug));
+    assert.ok(row?.deletedAt, "the video meme is soft-deleted without its video columns present");
+  });
 });

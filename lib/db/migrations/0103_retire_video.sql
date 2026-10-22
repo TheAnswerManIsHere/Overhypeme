@@ -44,13 +44,13 @@ DECLARE
   v_hero integer := 0;
   v_deleted jsonb;
 BEGIN
-  -- 1. Retire video memes (soft delete), counted.
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name = 'memes' AND column_name = 'video_object_path') THEN
-    UPDATE memes SET deleted_at = now()
-      WHERE artifact_type = 'video' AND deleted_at IS NULL;
-    GET DIAGNOSTICS v_video_memes = ROW_COUNT;
-  END IF;
+  -- 1. Retire video memes (soft delete), counted. Unconditional: it reads only
+  -- columns this migration keeps, and deleted_at IS NULL makes a re-run a
+  -- no-op. It must not depend on a video column, which a schema push run
+  -- before migrate (the test-database sequence) has already dropped.
+  UPDATE memes SET deleted_at = now()
+    WHERE artifact_type = 'video' AND deleted_at IS NULL;
+  GET DIAGNOSTICS v_video_memes = ROW_COUNT;
 
   IF to_regclass('public.video_jobs') IS NOT NULL THEN
     EXECUTE 'SELECT count(*)::integer FROM video_jobs' INTO v_video_jobs;
