@@ -42,7 +42,6 @@ import { canViewMeme } from "../lib/memeVisibility";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { buildZazzleUrl } from "../lib/zazzle";
 import type { MemeAspectRatio } from "@workspace/api-zod";
-import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // In production the build script copies src/assets → dist/assets and all
