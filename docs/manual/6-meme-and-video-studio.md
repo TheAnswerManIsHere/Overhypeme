@@ -26,9 +26,9 @@ saves it as your meme.
   [stock image](../ai-context/glossary.md#stock-image) or one of the built-in templates. This is available to
   anyone signed in — no paid plan required.
 - **An AI-generated image.** Legendary members can style a source photo
-  into the fact's scene, or pick from the fact's shared gallery of AI
-  images. Every AI image starts from a photo of yours; there is no
-  generating from a description alone.
+  into the fact's scene. Every AI image starts from a photo of yours; there
+  is no generating from a description alone, and no shared per-fact gallery
+  of AI images to pick from (that picker went with the older studio).
 - **An AI-generated video.** Legendary members can also generate a short
   video meme, built the same way — starting from a source photo, styling
   it, then animating it. This runs as a background job with real progress
@@ -51,14 +51,9 @@ An AI-generated image or video, by contrast, *is* a real file, since
 generating it is the expensive part — the meme recipe just points at that
 already-generated file.
 
-The fact's shared gallery of AI images is visible to anyone who makes a meme
-from the same fact, the same way a
-[Visual Concept](../ai-context/glossary.md#visual-concept) a moderator
-authors is shared by everyone who sees that fact
-(see [`5-visual-pipeline.md`](./5-visual-pipeline.md)). An AI-generated video is never pooled into a
-shared gallery either way — it's tied to the meme you made with it — but
-that's a storage fact, not a privacy one: like any other meme, it's public
-unless you turn the privacy option on yourself.
+An AI-generated image or video is tied to the meme you made with it. That's a
+storage fact, not a privacy one: like any other meme, it's public unless you
+turn the privacy option on yourself.
 
 ### Where your media lives
 

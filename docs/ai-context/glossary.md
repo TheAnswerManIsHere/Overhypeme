@@ -767,8 +767,8 @@ costs nothing extra per meme to produce.
 ### AI image meme
 
 A Legendary-gated meme whose background is AI-generated. In the live wizard
-that means a source photo styled into the scene; the shared per-fact gallery
-of moderation renders is the other AI source a user picks from. There is no
+that means a source photo styled into the scene. The shared per-fact AI
+gallery picker was the legacy studio's and went with it. There is no
 description-only user generation: the legacy studio's `/generate-v2` and
 no-photo `/generate` went with it in launch Phase 4, and `/generate` now serves
 only the remix builder's photo stylise until PuLID goes

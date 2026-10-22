@@ -80,9 +80,10 @@ discriminated union, `ImageSourceSchema` (`memeBuilder.ts:77-114`):
 | `"identity"` | "Use my profile photo" | Resolved server-side into `"upload"` pointing at the stored profile photo (`createMemeRecord.ts:205-219`); 400 if none exists |
 | `"video"` | AI video meme | Pointer (`videoJobId`, `videoObjectPath`, `stillObjectPath`, `lookStyleId`, `motionPresetId`) — bytes already produced by the video pipeline |
 
-An AI-*generated* image background is just a file in object storage the
-user picks via the AI Gallery — it re-enters `createMemeRecord` as an
-`"upload"`-shaped `imageSource`, same as any other upload. The separate
+An AI-*generated* image background is just a file in object storage — it
+re-enters `createMemeRecord` as an `"upload"`-shaped `imageSource`, same as
+any other upload. (The per-fact AI gallery picker was the legacy studio's and
+was deleted with it.) The separate
 `imageTransform: "pulid"` flag marks a meme as PuLID-stylized for
 analytics/tier-gating (`createMemeRecord.ts:417`), independent of
 `imageSource.type`. `templateId` is derived server-side from the source
@@ -158,8 +159,9 @@ tokenize-fact, admin enrichment tokenization), not a meme-creation surface.
 ### A. Legacy synchronous single-shot: `POST /videos/generate`
 
 Its only caller, the legacy studio's video tab, was deleted in launch Phase 4,
-removal 1; the route itself goes with video in removal 2, and is not verified
-meanwhile ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
+removal 1 ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)); the route itself goes with video
+in removal 2 (`docs/plans/PLAN_PHASE4_CUT_AND_PRUNE.md`) and, as studio-only
+work, is not verified meanwhile ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 
 `routes/videos.ts:354-796`. The deleted `MemeStudioVideoTab.tsx` used it for
 both its Magic and Manual paths. Gated by one
