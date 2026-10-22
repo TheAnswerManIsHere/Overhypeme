@@ -13,6 +13,65 @@
 
 ---
 
+### 2026-10-22 · The legacy meme studio is deleted; the user generate route survives photo-only until PuLID goes
+- **Decision:** launch Phase 4, removal 1 deletes the legacy meme studio
+  (`MemeStudio.tsx` and everything only it mounted, the vestigial
+  `VITE_MBFO_WIZARD` flag, and the routes only it called: the user AI image
+  and delete routes, the admin scene-prompt pair, `analyze-source`,
+  `generate-v2` and the user render poll). One route named in the 2026-10-17
+  entries as studio-only is not: `POST /memes/ai/:factId/generate` is also
+  called by the meme page's remix builder (`components/meme-builder/MemeBuilder.tsx`,
+  its PuLID stylise toggle). It survives, photo-only: a request with no
+  reference photo is refused with `reference_image_required` before the
+  governance gate, and the route goes with PuLID (removal 3). The studio's
+  nonterminal user render jobs are retired by provenance (migration 0102).
+- **Why:** the plan keeps the product whole (*the removal unit*, rule 4); the
+  remix builder is live. Refusing the no-photo branch now closes the exposure
+  the 2026-10-17 dissent recorded — that path had no budget gate.
+- **Reference:** #744; `docs/plans/PLAN_PHASE4_CUT_AND_PRUNE.md`;
+  `docs/retired/README.md`.
+- **Revisit if:** never; removal 3 deletes the route.
+
+### 2026-10-21 · The dev-admin-login backdoor stays through Phase 4; Phase 15 redesigns it
+- **Decision:** the dev-admin-login route (POST and GET) and its wordmark
+  triple-tap are **not** removed in Phase 4. Phase 15 (security hardening)
+  owns them and redesigns them as a safe, easy admin entry. David,
+  2026-10-21: *"I still want an easy way to get in and see admin screens
+  without having to log in the standard way."* Supersedes the 2026-10-14
+  entry's "removed before launch (Phase 4)"; its fail-closed gate (2026-07
+  entry) still governs until Phase 15.
+- **Dissent (Claude), recorded:** the recommendation was to remove the
+  gesture and the GET redirect in Phase 4 and keep only the POST seam the
+  E2E specs and acceptance driver sign in through. Overridden.
+- **Why:** David wants a fast way in to admin screens; the redesign belongs
+  with the phase that reviews the auth surface.
+- **Reference:** #744 (pre-plan decision 1); `launch-definition.md`, *Cut,
+  deleted or deferred*; `PLAN_PHASE4_CUT_AND_PRUNE.md`.
+- **Revisit if:** Phase 15 opens.
+
+### 2026-10-21 · A cut feature's record is a ledger row, plus a lessons page only where a rebuild needs one
+- **Decision:** every feature the launch programme deletes keeps its
+  `pre-cut/<feature>` git tag and gets **one row** in the ledger
+  `docs/retired/README.md` (feature, date, the decision it rests on, the
+  tag, the deleting PR, and the paths of its Manual chapter, subsystem doc
+  and UAT docs at the tag). A lessons page `docs/retired/<feature>.md` is
+  written **only** where a rebuild would otherwise have to rediscover
+  something the existing docs do not hold — for an agent reader: facts,
+  decisions that still stand, what failed. The Manual gets **no** *Retired*
+  section: retired narrative lives at the tag, and the live chapter is
+  rewritten to describe what exists. Supersedes the 2026-10-06 entry's
+  "a record under `docs/retired/<feature>.md`" per cut and its Manual move.
+- **Why:** git and the tag already hold the code and the docs; what a
+  deletion actually loses is the lessons, so authoring is spent only there.
+  The Manual ships into the in-app admin help, so a *Retired* section would
+  either ship retired narrative to admins or need generator work. Locations
+  derivable from the deleting diff are not hand-written. (David's question,
+  2026-10-21: whether the ceremony was worth its tokens; he chose this
+  shape.)
+- **Reference:** #744 (pre-plan decision 4); `PLAN_PHASE4_CUT_AND_PRUNE.md`,
+  *Retirement record*.
+- **Revisit if:** a rebuild finds a ledger row insufficient.
+
 ### 2026-10-17 · Verification work tied to the legacy meme studio is killed
 - **Decision:** no test, journey assertion or UAT step is written, kept open
   or run for the legacy meme studio, or for a route only it calls. Its
@@ -54,6 +113,9 @@
   until the route goes. Overridden; not to be re-raised.
 - **Reference:** #631, #720 (Codex `4304829031`).
 - **Revisit if:** the route is still deployed when Phase 4 closes.
+  (2026-10-22: its no-photo branch, the unbudgeted one, is refused from
+  removal 1; the route itself goes with PuLID in removal 3. See the
+  2026-10-22 entry above.)
 
 ### 2026-10-17 · No paid AI run happens without David's go-ahead for that run
 - **Decision:** every run that spends real money on an AI vendor (the UAT

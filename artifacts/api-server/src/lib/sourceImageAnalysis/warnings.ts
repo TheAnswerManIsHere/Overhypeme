@@ -3,10 +3,10 @@
  *
  * Per subjectKind, surfaces a short message + button choices. Verbatim text
  * from the Phase 2 update doc's "User-facing behavior" section. Nothing imports
- * these strings beyond index.ts's re-export: SourceImageConfirmModal keeps its
- * own copy, which can drift from this one (#703).
+ * these strings beyond index.ts's re-export. The legacy meme studio's confirm
+ * modal, which kept its own copy (#703), was deleted in launch Phase 4.
  *
- * @purpose Server copy of the per-subject-kind warning text and choices (getSubjectWarning); nothing imports it beyond the analyzer's re-export, and SourceImageConfirmModal keeps its own copy (#703).
+ * @purpose Server copy of the per-subject-kind warning text and choices (getSubjectWarning); nothing imports it beyond the analyzer's re-export.
  * @subsystem visual-pipeline
  */
 
