@@ -132,7 +132,8 @@ a manufactured objection is as useless to him as a manufactured agreement.
   measure — check it before opining, and label what you have not checked.
 - **A question without a recommendation is deference with extra steps.**
   What is his (the irreversible list, the plan, what only he knows or can
-  do) is asked; everything else is decided and reported; and every ask
+  do) is asked; everything else is decided and reported (*A reversible
+  choice proceeds on the recommendation*, below); and every ask
   carries your recommendation and its basis.
 - **The first question about anything new is whether it needs to exist.**
   Before *how*: can the problem be dissolved — already handled, delete
@@ -220,6 +221,37 @@ asked; the recommendation is taken and reported.
   found this rule stating its bugfix scope without that exclusion, and four
   restatements inheriting the omission); Tier C still stops, since it is not
   a bugfix.
+- **A consequence a settled decision already covers is not a new
+  consequence, and is not asked** (David, 2026-10-21, on Overhype.me #744,
+  after a planning loop stopped on one: *"I thought we determined that these
+  types of questions should be answered by you because they're reversible
+  and don't need my judgement"*). *Ask always* above sends what the product
+  should do to him — intended behaviour, scope, a user-facing consequence he
+  has not accepted — and a consequence that follows from a decision he has
+  already made (a plan's Settled Decisions, a `decisions.md` entry, a
+  direction given in words) was answered when that decision was. The agent
+  proceeds, names the decision it follows in the report, and asks only
+  about a consequence no settled decision reaches. Whether a decision
+  reaches it is a judgement with a premise: the decision is quoted, and
+  the report says it was.
+- **A question about a plan's content that is his goes into the approval
+  readout as a named item, never as a separate mid-loop interrupt.** The
+  plan is his to approve in any case, so a question the loop raises that
+  only he can answer — an item the irreversible list names (a deletion
+  against a shared database, say), a user-facing consequence no settled
+  decision covers, information only he holds — is written into the plan
+  and named in the approval ask, numbered, with the recommendation beside
+  it, and his approval answers it with the plan. Nothing stops the loop
+  for it. The one stop a planning loop keeps before approval is the plan
+  itself. The named item settles *whether*; it is not the irreversible
+  list's own ask, which is made again at the moment the action runs, in
+  words, as the list says above — his approval of a plan covers its
+  increments, and the build still stops for the list between them.
+- **A change to how an oracle's requirement is verified is a technical
+  choice; a change to the requirement is his.** Two checks that prove the
+  same agreed property are two approaches to agreed behaviour, settled in
+  the loop and recorded; a requirement added, dropped or reworded is a
+  change to what he agreed, and only his words make it.
 - **Production and prototype both run under it, production more sensitively**:
   the same observable in both phases, and the same closed list — no phase or
   subsystem adds an ask of its own. Production asks more often because more
@@ -536,7 +568,9 @@ in the product.
   A purely technical choice a corrective commit would undo proceeds on the
   recommendation and is reported, wherever it arises — a bugfix's regression test never among them (*A reversible choice proceeds on the recommendation*, above).
   What still reaches David on either is intended behaviour, scope, a knowingly
-  accepted user-facing shortfall, and approval; and a constraint he required
+  accepted user-facing shortfall — where no settled decision already covers
+  them, and through the approval readout rather than a stop (the same
+  section) — and approval; and a constraint he required
   explicitly does not become negotiable for being technical.
   **This paragraph asserted the opposite for one round.** Added at #124 round 7
   to fix the planning half, it went on to say the code review loop "has no

@@ -1115,7 +1115,8 @@ record and its shortfall rule, is in git history at this heading.
 assessor advise independently and the builder decides from both**, investigating
 disputed facts itself; a purely technical disagreement that survives is the
 Fable assessor's to settle, and intended behaviour or an accepted user-facing
-shortfall is David's. Neither assessment binds, and neither substitutes for his
+shortfall is David's where no settled decision already covers it
+([`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)). Neither assessment binds, and neither substitutes for his
 answer.
 
 On a **planning** loop (David, 2026-09-18) there is no triage to perform,
@@ -1209,7 +1210,9 @@ prototype phase, per feature*, above).
   advance collides with an event instead of waiting to be recalled. The
   sequence is bounded by the ship gate, not by a count.
 - **A product decision goes to David immediately**, at any round, and is never
-  ground through mechanically.
+  ground through mechanically — a product decision being one no settled
+  decision already covers; a consequence a settled decision reaches is settled
+  with it, and the reply names the decision ([`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
 
 ### Findings are triaged against the artifact's real risk
 
@@ -1221,8 +1224,10 @@ one of three responses, stated explicitly:
 2. **Accept and document it** — the finding is correct, and the cost of fixing
    exceeds the risk *for this artifact*. Say so, in the thread and in the file.
 3. **Escalate it** — it changes intended behaviour or accepts a user-facing
-   shortfall. That's David's. A purely technical fork is not, and is settled in
-   the loop.
+   shortfall that no settled decision already covers. That's David's
+   ([`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)). A purely technical fork is not, and is settled in
+   the loop; nor is a consequence a settled decision reaches, which is answered
+   by naming the decision.
 
 Response 2 is legitimate, and nothing here sets a rate for it in either
 direction — the Worth rule decides per finding
@@ -1304,12 +1309,14 @@ David's control point at the front of the loop, paired with explicit plan
 approval at the back. **The agreed scope of work is also the review oracle
 itself** — it is handed to the reviewer verbatim, every round, as the thing the
 plan is checked against. The corollary is the escalation rule: anything that
-would *change* the agreed scope of work — a change to intended behaviour, a user-facing shortfall being knowingly
-accepted, or a mid-loop addition the plan cannot be correct without — is
-outside the loop's authority and goes to David; a scope addition the plan
-can do without is taken as *next* and reported, and a split is proposed in
-the plan (David, 2026-10-21), however the loop
-is otherwise pacing itself. (Claude's enactment of the gate's mechanics lives in
+would *change* the agreed scope of work — a change to intended behaviour, a
+user-facing shortfall being knowingly accepted — is outside the loop's
+authority and is David's where no settled decision already covers it: written
+into the plan and named in the approval readout, never a mid-loop stop
+([`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)); a mid-loop addition the plan cannot be correct without
+asks, a scope addition the plan can do without is taken as *next* and
+reported, and a split is proposed in the plan (David, 2026-10-21), however
+the loop is otherwise pacing itself. (Claude's enactment of the gate's mechanics lives in
 the `plan-review-loop` skill.)
 
 **A purely technical design fork is not one of them** (2026-09-18). Two
@@ -1353,11 +1360,15 @@ does not make that call alone:
 self-policing is precisely what the 0-for-15 record measured, and
 eleven-for-eleven on #91 measured it again after the worth rule was written.
 
-What still stops the loop for David, whatever the assessors say: a genuine
-product or behaviour fork, a disclosure question, and any change to intended
-behaviour or knowingly accepted user-facing shortfall; a scope addition is
-taken as *next* and reported, and a split is proposed in the plan (David,
-2026-10-21). **A purely technical design fork is not among them** — it is
+What is David's whatever the assessors say: a genuine product or behaviour
+fork, and any change to intended behaviour or knowingly accepted user-facing
+shortfall, where no settled decision already covers it — on a code round a
+🛑 that stays open until he answers, since the plan is already approved and
+there is no readout to carry it (the Claude core's *Shared judgement on a
+review round*, rule 5; [`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)); a consequence a settled
+decision reaches is settled with it, and the reply names the decision; a
+disclosure question is his; a scope addition is taken as *next* and reported,
+and a split is proposed in the plan (David, 2026-10-21). **A purely technical design fork is not among them** — it is
 settled in the loop, with the Fable assessor holding the tie-break on a code
 round. This list read "a product or design fork" until 2026-09-20, which a
 technical fork also satisfies: the same defect, and the same sentence, that
@@ -1836,7 +1847,9 @@ first version plans there, and after that no mode at all (*The prototype
 phase, per feature*, above). Guessing wrong is
 expensive in both directions (skipping a plan a feature or a non-trivial
 schema change needed, or piling ceremony onto a one-line fix), and the
-confirm costs one question.
+confirm costs one question — the ask here is Tier C's and the irreversible
+list's, a behaviour change or a schema change the diagnosis has found, not
+the mode choice, which the entry rule above takes on the recommendation.
 
 ## When NOT to use bugfix mode
 

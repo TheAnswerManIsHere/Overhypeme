@@ -301,7 +301,8 @@ pre-registered thresholds are in
 **keep** if hidden-dependency recall improves by at least 20 points with median
 tokens up by at most 10%; **disable** if it improves by fewer than 10 points
 or tokens rise more than 25%; anything between is the agent's call on its
-recommendation, reported with the numbers (David, 2026-10-21).
+recommendation, reported with the numbers (David, 2026-10-21;
+[`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
 
 ## What it does not do
 

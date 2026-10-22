@@ -60,8 +60,10 @@ Decide by what "this" refers to (contract's trigger table):
   anything during harvest/report.
 - **Report timing** — for unambiguous, session/repo-grounded routing I write
   the docs and report the completed routing in my summary (no pre-approval
-  pause); I stop and ask only on claims needing product judgment, or when David
-  asked to see routing first.
+  pause); a claim needing product judgment is marked **Needs David
+  confirmation** and carried to the report as a numbered question, never a
+  stop (`documentation-workflow.md`, Step 5); I pause only when David asked
+  to see routing first.
 - **Commit / PR discipline** — I follow the shared contract's placement rule
   (`documentation-workflow.md`, Step 5) exactly, so this stays a thin
   enactment, not a second copy. **Two delivery paths, split by how this was

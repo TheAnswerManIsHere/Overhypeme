@@ -52,7 +52,12 @@ the other is not obliged to agree.
 
 **What belongs to David**, and to no agent agreement: questions about intended
 behaviour, scope, or accepted user-facing shortfalls — including his own use of
-the software factory.
+the software factory — where no decision he has already made covers them. A
+consequence a settled decision already reaches is settled with it: name the
+decision. A question that is his is written into the plan and named in the
+approval readout as a numbered item with the recommendation beside it; it does
+not stop the loop (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*, the authority for every statement of this
+in this contract).
 
 A useful plan carries David's intent accurately into implementation. It
 establishes intended behaviour, consequential design choices, affected scope,
@@ -110,13 +115,20 @@ implementation, state what is open, how it will be resolved, and whether the
 result could require reconsideration or a decision from David.
 
 When ambiguity changes intended behaviour, scope, or an accepted user-facing
-consequence, ask David in plain English with the practical choice and your
-recommendation. Continue work that does not depend on his answer; do not treat
-an unresolved choice as settled.
+consequence that no settled decision already covers, it is David's: write the
+practical choice and your recommendation into the plan, in plain English, as a
+named item for the approval readout, and continue — nothing stops the loop for
+it, and work that does not depend on his answer proceeds. Do not treat an
+unresolved choice as settled, and do not raise it as a separate interrupt. A
+consequence a settled decision covers is answered by that decision; name it
+(`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*).
 
-David's later explicit decisions update the relevant parts of the oracle.
-Preserve requirements those decisions do not change, and align the plan and
-acceptance criteria. **Agent agreement cannot silently amend the oracle.** The
+David's later explicit decisions update the relevant requirements in the
+oracle. Preserve requirements those decisions do not change, and align the plan
+and acceptance criteria. **Agent agreement cannot silently amend a requirement
+in the oracle.** How a requirement is verified may change while the property
+it proves does not; that is a technical choice, settled between you and
+recorded in the plan (the same section of `agent-working-rules.md`). The
 plan brought for approval must make clear what will be built, what remains
 outside scope, how success will be recognised, and any consequential
 uncertainty David is being asked to accept.
@@ -223,7 +235,7 @@ risks deserve proportionate investigation and protection.
 | Resolve before approval | An issue materially undermines the outcome, feasibility, consequential design choices, or David's ability to make an informed decision. |
 | Resolve during implementation | A bounded question the builder can answer without choosing new product behaviour or reopening a consequential design decision. State what would require reconsideration. |
 | Optional improvement | A useful refinement whose absence does not undermine the plan. |
-| Decision for David | A choice about intended behaviour, scope, or an accepted user-facing shortfall. |
+| Decision for David | A choice about intended behaviour, scope, or an accepted user-facing shortfall that no settled decision covers; it is named in the plan for the approval readout, not raised as an interrupt (section 2). |
 
 **These are recommendations for discussion, not commands to run another
 exchange.** Do not promote preferences to prerequisites to secure attention, and
@@ -331,7 +343,8 @@ requires no plan edit, no commit, and no new full assessment.
 Seek agreement through evidence and reasoning. If a purely technical
 disagreement remains, the party your role block names may choose the approach
 and record the rationale and the material concern; the other is not required to
-declare agreement afterwards. Decisions reserved for David remain his.
+declare agreement afterwards. Decisions reserved for David (section 1) remain
+his, and reach him through the approval readout.
 
 **Recognise useful discovery and unproductive expansion.** Evaluate concerns on
 their merits regardless of when they are raised. **A serious omission discovered

@@ -1,6 +1,6 @@
 ---
 name: status
-description: Answer "what is THIS session working on, where does it stand, and how does it fit the bigger picture" — scoped to one workstream, not the fleet. Use when David says /status, "where are we", "what's the state of this", or picks this session back up and needs re-orienting. Reports one of five states and offers to fix the workstream issue when its stored tracking is out of date. For the repo-wide "what needs me across everything", use /status-all instead.
+description: Answer "what is THIS session working on, where does it stand, and how does it fit the bigger picture" — scoped to one workstream, not the fleet. Use when David says /status, "where are we", "what's the state of this", or picks this session back up and needs re-orienting. Reports one of five states and corrects the workstream issue on its own recommendation when its stored tracking is out of date, saying so. For the repo-wide "what needs me across everything", use /status-all instead.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
@@ -109,7 +109,7 @@ WATCHING — #334 /status skill split
 🛑 WAITING ON YOU — #328 Bash guard
   PR #329 merged. Stored state says code-review/codex — that's stale.
   Next: you — 🛑 UAT.
-  Want me to correct the issue to uat/david?
+  Corrected the issue to uat/david (it said code-review/codex).
 ```
 
 Not the `🛑 **NEED YOU**` banner ritual — this is a report, not a mid-task

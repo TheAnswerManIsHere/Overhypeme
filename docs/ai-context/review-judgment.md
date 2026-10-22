@@ -98,5 +98,8 @@ review burden and the complexity it adds.
 **7. Explain accepted consequences.** A decline states what remains possible
 and why intervention is unwarranted. If it would knowingly accept a
 user-facing shortfall from agreed behaviour, including David's own use of the
-software factory, the decision is his. A previously declined class that returns
+software factory, the decision is his — a shortfall a decision of his already
+accepts is agreed behaviour, not a departure from it, and is named rather than
+asked (`agent-working-rules.md`, *A reversible choice proceeds on the
+recommendation*). A previously declined class that returns
 is re-examined on its new evidence and scope; repetition alone does not decide.

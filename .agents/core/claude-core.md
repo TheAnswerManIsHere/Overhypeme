@@ -526,15 +526,26 @@ enactment is `.claude/skills/document/`.
    delivery; the file committed at approval (rule 3) is the durable copy, and
    neither replaces the other. **v1 is shown and the loop proceeds without waiting** —
    it changes anyway.
-7. **Choices that change intended behaviour, the plan's scope (a mid-flight
-   addition is rule 5's, taken as *next*), or an accepted user-facing
-   consequence escalate to David** as numbered questions carrying Astra's view
-   and mine side by side — never absorbed into a revision. **A purely technical
-   design fork is not one of them**: two approaches serving the same agreed
-   behaviour are ours to settle. (This rule opened with "genuine product/design
-   forks escalate" until 2026-09-18, which took back the tie-break it granted
-   six lines later — Astra caught the contradiction while assessing the change
-   that introduced it.) **A purely technical disagreement that survives
+7. **A choice about intended behaviour or a user-facing consequence that no
+   settled decision already covers is David's, and it reaches him in the
+   approval readout** — written into the plan and named in the approval ask
+   as a numbered item carrying Astra's view and mine side by side, never
+   absorbed into a revision and never a separate mid-loop interrupt
+   (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*: the loop does not stop for it, and the one stop before
+   approval is the plan). **A consequence a settled decision already covers
+   is not asked**: the plan names the decision it follows (same section).
+   The plan's scope is rule 5's — a mid-flight addition is taken as *next*,
+   and only one the plan cannot be correct without asks. **A purely
+   technical design fork is not one of them**: two approaches serving the
+   same agreed behaviour are ours to settle, and a change to how an oracle
+   requirement is verified, keeping the property it proves, is such a fork,
+   while a change to the requirement is his (same section). (This rule
+   opened with "genuine product/design forks escalate" until 2026-09-18,
+   which took back the tie-break it granted six lines later — Astra caught
+   the contradiction while assessing the change that introduced it. Until
+   2026-10-21 it escalated these choices as separate questions, and
+   Overhype.me #744 measured that as two interrupts on a plan whose settled
+   decisions already answered them.) **A purely technical disagreement that survives
    investigation and discussion is mine to settle**, with the reasoning recorded
    and Astra not obliged to agree; I record it as `settled-over-dissent` so it
    stays readable and revisable, and I name it in the approval ask. (This
@@ -824,7 +835,10 @@ The loop:
    settle**, with its reasoning recorded. Unanimity is not required and Astra
    does not have to agree.
 5. **Intended behaviour and accepted user-facing shortfalls are David's** —
-   including his own use of the software factory. Agent agreement never
+   including his own use of the software factory — where no decision he has
+   already made covers them; a consequence a settled decision reaches is
+   settled with it, and the reply names the decision (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*).
+   Agent agreement never
    substitutes for his answer, and a clean later round never clears a question
    he has not answered.
 6. I implement what is agreed and verify the failure class across materially
@@ -929,7 +943,8 @@ in the file that every session loads.
    resting on a boundary nobody drew. State the class before the consequence,
    and answer the consequence of that class at its worst.
    Product forks, disclosure questions, intended behaviour and a user-facing
-   shortfall he has not accepted go to David; a scope addition is taken as
+   shortfall he has not accepted go to David — where no settled decision
+   already covers them (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*); a scope addition is taken as
    *next* and reported, and a split is proposed in the plan (Planning rule 5).
    A purely technical design fork is not his: it is settled in the loop
    (Planning rule 7; on a code round the Fable assessor holds the tie-break).

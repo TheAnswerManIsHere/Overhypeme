@@ -81,7 +81,7 @@ The decisive factor is the **referent**, not just the phrase:
 | --- | --- | --- |
 | `/document`, "document this feature", "lock in the learnings from this feature", "write up what we learned", "commit this feature's learnings to memory" | a **feature, PR, slice, build, or set of learnings** | **Full ceremony** (this doc) |
 | "remember this: …", "commit this to memory" | **one** specific preference, rule, fact, or gotcha | **Targeted persistence** (mechanism 1 — persist that item now) |
-| "document this" / "commit this to memory" with **no clear referent** | unclear | Ask **one numbered question**: targeted persistence, or the full ceremony? |
+| "document this" / "commit this to memory" with **no clear referent** | unclear | Take the lighter reading — **targeted persistence** — on the agent's recommendation and say so in one line (David, 2026-10-21; until then one numbered question; `agent-working-rules.md`, *A reversible choice proceeds on the recommendation*) |
 
 Worked classifier examples (a fresh agent should sort these without guessing):
 
@@ -89,7 +89,8 @@ Worked classifier examples (a fresh agent should sort these without guessing):
   persistence** (one rule).
 - "Commit this feature's learnings to memory." → **full ceremony** (a build's
   worth of learnings).
-- "Document this." (bare, no referent) → **ask one numbered question.**
+- "Document this." (bare, no referent) → **targeted persistence, announced
+  in one line** (the lighter reading; David, 2026-10-21).
 
 ## Step 1 — Harvest
 
@@ -235,8 +236,11 @@ commits ambiguous truth:
   the docs and report the *completed* routing (file → one-line gist) in the
   final summary. No mandatory pause for mechanical doc routing.
 - If any claim needs **product judgment** — an unverifiable product claim, a
-  "was that a decision or a deferral?" call — stop before committing *that*
-  claim and ask David, as **numbered** questions.
+  "was that a decision or a deferral?" call — it is information only David
+  holds: mark *that* claim **Needs David confirmation** (above), never commit
+  it as fact, and carry it to the final summary as a **numbered** question.
+  The run does not stop for it (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*: a question that is his is
+  named in the report, not raised as an interrupt).
 - If David explicitly asks to **review the proposed routing before commits**,
   report the plan first and wait.
 

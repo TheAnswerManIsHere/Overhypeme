@@ -27,8 +27,10 @@ explicit-only invocation).** I classify each work request by its shape:
   otherwise hesitate. It is still a hypothesis, not a verdict: Tier C exits
   the workflow regardless of how it was entered.
 - **Ambiguous** — the "bug" could really be a behavior change ("fix the
-  ranking, it feels wrong") → one numbered question, per the pause-and-ask
-  rule. No entry design settles these; they were always going to be asked.
+  ranking, it feels wrong") → one numbered question: whether behaviour
+  changes is product intent, the one ambiguity the lighter-mode rule keeps
+  as an ask (`working-modes.md`, *How each agent enters / exits a mode*). No
+  entry design settles these; they were always going to be asked.
 
 **Classification is per-request — there is no sticky mode state.** "Here's
 another one" is bugfix-shaped on its face and needs no re-invocation; a
@@ -418,9 +420,14 @@ classification announcement makes the switch visible. Two cases
 still deserve care:
 
 - **A request that could be either** — a "fix" that might really mean
-  re-designing the behavior — gets one numbered question, not a guess
-  (the pause-and-ask rule,
-  [`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#mid-build-ambiguity-pause-and-ask)):
+  re-designing the behavior — gets one numbered question, not a guess:
+  whether behaviour changes is product intent, which still asks even where
+  the mode itself is taken on the lighter reading
+  ([`working-modes.md`](../../../docs/ai-context/working-modes.md#how-each-agent-enters--exits-a-mode),
+  *How each agent enters / exits a mode*; what the product should do is
+  *Ask always* in `agent-working-rules.md`, and a consequence a settled
+  decision already covers is not asked — *A reversible choice proceeds on
+  the recommendation* there):
   guessing wrong is expensive in both directions — either I skip a plan the
   work needed, or I pile ceremony onto a one-line fix.
 - **Tier C** is the same call arriving from the other direction: the request
@@ -450,4 +457,6 @@ and batching them recreates exactly what one-bug-per-PR banned — PR #334
 findings, 72% self-inflicted, no breaker fired) is the measured cost. Each
 real defect gets its own classification and its own PR.
 
-When unsure, ask.
+When unsure whether behaviour changes, ask; when unsure only which mode
+applies, take the lighter one and say so (`working-modes.md`, *How each
+agent enters / exits a mode*).

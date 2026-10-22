@@ -104,7 +104,10 @@ skip UAT), and when an issue is closed instead.
 When asked to **plan**:
 1. Inspect the repo first.
 2. Identify source-of-truth boundaries.
-3. Call out product ambiguities (ask David; don't guess intent).
+3. Call out product ambiguities — what the product should do is David's and
+   reaches him as a named item in the plan's approval readout; a consequence a
+   settled decision already covers is not asked (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*). Don't guess
+   intent.
 4. Propose a phased plan.
 5. Include tests and migration/backfill handling where relevant.
 

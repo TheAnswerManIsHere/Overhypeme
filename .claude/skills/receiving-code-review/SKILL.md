@@ -25,7 +25,9 @@ keeps the record): the loop is bounded by the Worth rule per finding and the
 ship gate, with record-the-gap the ordinary answer from the second review on,
 and the builder decides when to stop. **And "ask before assuming" below is read
 with the fleet's ask/decide boundary** (2026-10-11): a finding whose intent
-is unclear about what the product should do stops for David; a technical
+is unclear about what the product should do goes to David — where no settled
+decision already covers it; one a settled decision reaches is answered by
+naming the decision — a technical
 reading that is mine to recommend and a corrective commit would undo
 proceeds on the recommendation and is reported, never asked
 ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)). This block said "on internal
