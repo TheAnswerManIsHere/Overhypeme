@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, AlertCircle, GitBranch, ArrowLeft, Flame, Video, Play, ExternalLink } from "lucide-react";
+import { ThumbsUp, ThumbsDown, AlertCircle, GitBranch, ArrowLeft, Flame } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { cn } from "@/components/ui/Button";
@@ -48,24 +48,6 @@ const MEME_ASPECT_CLASS: Record<string, string> = {
   square: "aspect-square",
   portrait: "aspect-[9/16]",
 };
-
-type VideoItem = {
-  id: number;
-  factId: number;
-  imageUrl: string;
-  videoUrl: string | null;
-  motionPrompt: string | null;
-  styleId: string | null;
-  isPrivate: boolean;
-  userId: string | null;
-  createdAt: string;
-};
-
-async function fetchVideos(factId: number): Promise<{ videos: VideoItem[] }> {
-  const res = await fetch(`/api/videos/${factId}`, { credentials: "include" });
-  if (!res.ok) throw new Error("Failed to fetch videos");
-  return res.json() as Promise<{ videos: VideoItem[] }>;
-}
 
 type MemeSort = "top" | "new";
 
@@ -164,15 +146,6 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
               <Flame className="w-4 h-4" />
               MAKE MEME
             </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowStudio(true)}
-              className="gap-2"
-            >
-              <Video className="w-4 h-4" />
-              MAKE VIDEO
-            </Button>
             <Link href={`/facts/${id}`} className="ml-auto text-xs text-muted-foreground hover:text-primary transition-colors font-medium underline underline-offset-4">
               View discussion →
             </Link>
@@ -183,61 +156,12 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   );
 }
 
-// ── VideoCardItem ─────────────────────────────────────────────────────────────
-// Isolated component so each video card tracks its own playback dimensions
-
-function VideoCardItem({ video }: { video: VideoItem }) {
-  const [dims, setDims] = useState<{ width: number; height: number } | null>(null);
-  return (
-    <div className="space-y-1.5">
-      <div className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all">
-        <div className="aspect-video relative bg-black">
-          <video
-            src={video.videoUrl ?? ""}
-            poster={video.imageUrl}
-            controls
-            preload="metadata"
-            className="w-full h-full object-cover"
-            onLoadedMetadata={(e) => {
-              const v = e.currentTarget;
-              if (v.videoWidth > 0) setDims({ width: v.videoWidth, height: v.videoHeight });
-            }}
-          />
-          {!video.videoUrl && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Play className="w-10 h-10 text-white/40" />
-            </div>
-          )}
-        </div>
-        {video.motionPrompt && (
-          <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
-            <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
-          </div>
-        )}
-      </div>
-      {video.videoUrl && (
-        <AdminMediaInfo
-          fileName={getFileNameFromUrl(video.videoUrl)}
-          fileSizeBytes={null}
-          mimeType={getMimeTypeFromUrl(video.videoUrl)}
-          width={dims?.width ?? null}
-          height={dims?.height ?? null}
-        />
-      )}
-      <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-        <ExternalLink className="w-3 h-3" /> Open
-      </Link>
-    </div>
-  );
-}
-
 // ── FactDetail ────────────────────────────────────────────────────────────────
 
 export default function FactDetail() {
   const [, params] = useRoute("/facts/:id/:sub?");
   const factId = parseInt(params?.id || "0", 10);
   const isMemeRoute = params?.sub === "meme";
-  const isVideoRoute = params?.sub === "video";
   const [, setLocation] = useLocation();
   const { isAuthenticated, user, role, entitlements } = useAuth();
 
@@ -246,7 +170,6 @@ export default function FactDetail() {
   });
 
   const [galleryTab, setGalleryTab] = useState<"community" | "mine">("community");
-  const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">("all");
   const [memeSort, setMemeSort] = useState<MemeSort>("top");
   const [belowFoldMounted, setBelowFoldMounted] = useState(false);
   const queryClient = useQueryClient();
@@ -328,12 +251,6 @@ export default function FactDetail() {
   const myPublicMemes = myPublicMemesData?.memes ?? [];
   const myPrivateMemes = myPrivateMemesData?.memes ?? [];
 
-  const { data: videosData } = useQuery({
-    queryKey: ["listFactVideos", factId],
-    queryFn: () => fetchVideos(factId),
-    enabled: !!factId && belowFoldMounted,
-  });
-
   const { name, pronouns } = usePersonName();
 
   // Meme builder open state is derived from URL (/facts/:id/meme)
@@ -342,13 +259,12 @@ export default function FactDetail() {
   // A builder copies the identity once at mount, so a builder reached by its
   // route waits until the identity sheet has a complete identity (#719).
   const { builderReady } = useIdentityGate();
-  const showMemeStudio = (isMemeRoute || isVideoRoute) && builderReady;
+  const showMemeStudio = isMemeRoute && builderReady;
   const openMemeStudio = () => {
     setLocation(`/facts/${factId}/meme`);
   };
   const closeMemeStudio = () => {
     setLocation(`/facts/${factId}`);
-    void queryClient.invalidateQueries({ queryKey: ["listFactVideos", factId] });
     void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
   };
 
@@ -384,8 +300,7 @@ export default function FactDetail() {
               initialPronouns={pronouns ?? undefined}
               onComplete={(result) => {
                 if (result.kind === "saved" && result.permalinkUrl) {
-                  void queryClient.invalidateQueries({ queryKey: ["listFactVideos", factId] });
-                  void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
+                                void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
                   setLocation(result.permalinkUrl);
                 } else {
                   closeMemeStudio();
@@ -498,22 +413,8 @@ export default function FactDetail() {
             )}
           </div>
 
-          {/* Image / Video sub-toggle + Top/Newest sort */}
+          {/* Top/Newest sort */}
           <div className="flex flex-wrap items-center gap-2 mb-6">
-            {(["all", "image", "video"] as const).map(v => (
-              <button
-                key={v}
-                onClick={() => setMediaFilter(v)}
-                className={cn(
-                  "px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors",
-                  mediaFilter === v
-                    ? "bg-foreground text-background border-foreground"
-                    : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                )}
-              >
-                {v === "all" ? "All" : v === "image" ? "Images" : "Videos"}
-              </button>
-            ))}
             <div className="ml-auto flex items-center gap-2 text-xs">
               <span className="text-muted-foreground font-display tracking-wider uppercase">Sort</span>
               <select
@@ -529,7 +430,7 @@ export default function FactDetail() {
           </div>
 
           {/* Meme image grid */}
-          {(mediaFilter === "all" || mediaFilter === "image") && (() => {
+          {(() => {
             const memes = galleryTab === "community"
               ? communityMemes
               : [...myPublicMemes, ...myPrivateMemes];
@@ -602,34 +503,6 @@ export default function FactDetail() {
                 </p>
               </div>
             );
-          })()}
-
-          {/* Video grid */}
-          {(mediaFilter === "all" || mediaFilter === "video") && (() => {
-            const allVideos = videosData?.videos ?? [];
-            const videos = galleryTab === "community"
-              ? allVideos.filter(v => !v.isPrivate && v.userId !== user?.id)
-              : allVideos.filter(v => v.userId === user?.id);
-
-            return videos.length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start mb-6">
-                {videos.map(video => <VideoCardItem key={video.id} video={video} />)}
-              </div>
-            ) : mediaFilter === "video" ? (
-              <div className="py-12 text-center border-2 border-dashed border-border rounded-2xl mb-6">
-                <p className="text-muted-foreground mb-4">
-                  {galleryTab === "community" ? "No community videos yet." : "You haven't made any videos for this fact yet."}
-                </p>
-                {galleryTab === "mine" && (
-                  <button
-                    onClick={() => openMemeStudio()}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity"
-                  >
-                    <Video className="w-4 h-4" /> Create your first video
-                  </button>
-                )}
-              </div>
-            ) : null;
           })()}
 
           {/* Private-by-default hint — only shown in Mine tab when there's content */}

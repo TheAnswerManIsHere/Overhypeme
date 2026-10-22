@@ -6,7 +6,6 @@
  * of redirecting to /pricing.
  *
  * Used by:
- *   - Wizard Step 1 video card (free / unregistered)
  *   - Wizard Step 2 AI source tab (free / unregistered)  — MBFO-3
  *   - Phase-5 detail-page upsells                          — MBFO-5
  *
@@ -24,7 +23,6 @@ import {
 import { Button } from "@/components/ui/Button";
 
 export type UpgradeModalContext =
-  | "video-card"
   | "ai-tab"
   | "private-meme"
   | "detail-upsell";
@@ -53,7 +51,6 @@ function navigateToUpgrade() {
 }
 
 const CONTEXT_HEADLINES: Record<UpgradeModalContext, string> = {
-  "video-card": "Go Legendary to make videos.",
   "ai-tab": "Go Legendary to stylize with AI.",
   "private-meme": "Go Legendary to keep memes private.",
   "detail-upsell": "Go Legendary to unlock the full kit.",
@@ -61,7 +58,6 @@ const CONTEXT_HEADLINES: Record<UpgradeModalContext, string> = {
 
 const VALUE_PROPS = [
   "AI-stylized images that put your face in the meme",
-  "Video memes — your likeness, in motion, with captions",
   "Higher monthly generation budget",
   "First access to new engines and styles",
 ];

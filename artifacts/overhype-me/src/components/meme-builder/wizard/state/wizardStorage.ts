@@ -2,9 +2,9 @@
  * sessionStorage-backed capture/restore for the MBFO wizard's in-progress state.
  *
  * Sibling to `meme-builder/state/pendingBuilderState.ts` (schemaVersion 1, used
- * by the Phase-3 single-screen builder). This is schemaVersion 2 with a
- * separate key prefix so the two coexist without collision while the Phase-3
- * builder is still in production behind the wizard flag.
+ * by the meme page's remix builder), under a separate key prefix so the two
+ * never collide. schemaVersion 3 dropped the artifact-type step with video
+ * (launch Phase 4); a version-2 draft is discarded on restore.
  *
  * 1-hour TTL, factId-scoped. Generation status is intentionally NOT persisted
  * — it is reconstructed from the server on remount.
@@ -18,49 +18,21 @@ import type {
   MyImageSource,
 } from "../../types";
 
-export type ArtifactType = "image" | "video";
-export type WizardStep = 1 | 2;
-
 export interface FramingOffset {
   x: number;
   y: number;
 }
 
-export type VideoSourceMode =
-  | "stylize-then-video"
-  | "use-photo-as-is"
-  | "use-existing-ai-image";
-
 export interface WizardAdvancedOptions {
   /** Image engine id (e.g. "fal-ai/flux-pulid"). Populated in later phases. */
   imageEngineId?: string;
-  /** Video engine id (e.g. "xai/grok-imagine-video/image-to-video"). */
-  videoEngineId?: string;
-  /** Video length in seconds. */
-  videoLengthSeconds?: number;
-  /** Video resolution label (e.g. "480p", "720p"). */
-  videoResolution?: string;
-  /** How the source still is produced (defaults to "stylize-then-video"). */
-  videoSourceMode?: VideoSourceMode;
-  /** Look style id (server-driven catalogue, defaults to "cinematic"). */
-  videoLookStyleId?: string;
-  /** Motion preset id (server-driven catalogue, null = generic baseline). */
-  videoMotionPresetId?: string | null;
-  /** Engine mode (e.g. "normal", "fun", "custom"); shown when engine supports modes. */
-  videoEngineMode?: string;
-  /** Custom motion-prompt direction; only used when engineMode === "custom". */
-  videoCustomModePrompt?: string;
-  /** Override toggle: when source is pre-stylized AI, use a different style for the video. */
-  videoOverrideLookForSource?: boolean;
 }
 
 export interface PendingWizardState {
-  schemaVersion: 2;
+  schemaVersion: 3;
   capturedAt: number;
   factId: string;
   entryFlow: EntryFlow;
-  currentStep: WizardStep;
-  artifactType: ArtifactType | null;
   mode?: Mode;
   source?:
     | { kind: "stock"; stockImageId: string }
@@ -170,17 +142,9 @@ export function clearAllWizardStates(): void {
 function isPendingWizardState(v: unknown): v is PendingWizardState {
   if (!v || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;
-  if (o.schemaVersion !== 2) return false;
+  if (o.schemaVersion !== 3) return false;
   if (typeof o.capturedAt !== "number") return false;
   if (typeof o.factId !== "string") return false;
   if (typeof o.entryFlow !== "string") return false;
-  if (o.currentStep !== 1 && o.currentStep !== 2) return false;
-  if (
-    o.artifactType !== null &&
-    o.artifactType !== "image" &&
-    o.artifactType !== "video"
-  ) {
-    return false;
-  }
   return true;
 }

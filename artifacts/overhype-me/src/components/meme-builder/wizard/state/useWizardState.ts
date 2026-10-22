@@ -3,10 +3,10 @@
  * mutation to sessionStorage via wizardStorage.
  *
  * Runtime-only fields (e.g. generation status) live on this hook but are NOT
- * persisted. Persisted shape is `PendingWizardState` (schemaVersion 2).
+ * persisted. Persisted shape is `PendingWizardState` (schemaVersion 3).
  *
  * Hydrates from sessionStorage on mount; if nothing is stored (or it's stale)
- * we start from a clean initial state on Step 1.
+ * we start from a clean initial state.
  */
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
@@ -21,11 +21,9 @@ import {
   captureWizardState,
   clearWizardState,
   restoreWizardState,
-  type ArtifactType,
   type FramingOffset,
   type PendingWizardState,
   type WizardAdvancedOptions,
-  type WizardStep,
 } from "./wizardStorage";
 
 export type GenerationStatus =
@@ -34,8 +32,6 @@ export type GenerationStatus =
   | { status: "error"; errorCode: string };
 
 export interface WizardRuntimeState {
-  currentStep: WizardStep;
-  artifactType: ArtifactType | null;
   mode?: Mode;
   source?: PendingWizardState["source"];
   aspectRatio?: AspectRatio;
@@ -50,9 +46,6 @@ export interface WizardRuntimeState {
 }
 
 export type WizardAction =
-  | { type: "select-artifact-type"; artifactType: ArtifactType }
-  | { type: "advance" }
-  | { type: "back" }
   | { type: "set-mode"; mode: Mode }
   | { type: "set-source"; source: PendingWizardState["source"] }
   | { type: "set-aspect-ratio"; aspectRatio: AspectRatio }
@@ -63,47 +56,17 @@ export type WizardAction =
   | { type: "set-advanced-options"; advancedOptions: WizardAdvancedOptions }
   | { type: "set-is-public"; isPublic: boolean }
   | { type: "set-generation"; generation: GenerationStatus }
-  | { type: "set-video-source-mode"; videoSourceMode: NonNullable<WizardAdvancedOptions["videoSourceMode"]> }
-  | { type: "set-video-look-style-id"; videoLookStyleId: string }
-  | { type: "set-video-motion-preset-id"; videoMotionPresetId: string | null }
-  | { type: "set-video-engine-id"; videoEngineId: string }
-  | { type: "set-video-engine-mode"; videoEngineMode: string }
-  | { type: "set-video-custom-mode-prompt"; videoCustomModePrompt: string }
-  | { type: "set-video-override-look"; videoOverrideLookForSource: boolean }
   | { type: "hydrate"; pending: PendingWizardState }
   | { type: "reset" };
 
-function mergeAdvanced(
-  state: WizardRuntimeState,
-  patch: Partial<WizardAdvancedOptions>,
-): WizardRuntimeState {
-  return {
-    ...state,
-    advancedOptions: { ...(state.advancedOptions ?? {}), ...patch },
-  };
-}
-
 function initialState(): WizardRuntimeState {
   return {
-    currentStep: 1,
-    artifactType: null,
     generation: { status: "idle" },
   };
 }
 
 function reducer(state: WizardRuntimeState, action: WizardAction): WizardRuntimeState {
   switch (action.type) {
-    case "select-artifact-type":
-      // Selecting an artifact type on Step 1 advances forward.
-      return {
-        ...state,
-        artifactType: action.artifactType,
-        currentStep: 2,
-      };
-    case "advance":
-      return state.currentStep === 2 ? state : { ...state, currentStep: 2 };
-    case "back":
-      return state.currentStep === 1 ? state : { ...state, currentStep: 1 };
     case "set-mode":
       return { ...state, mode: action.mode };
     case "set-source":
@@ -124,20 +87,6 @@ function reducer(state: WizardRuntimeState, action: WizardAction): WizardRuntime
       return { ...state, isPublic: action.isPublic };
     case "set-generation":
       return { ...state, generation: action.generation };
-    case "set-video-source-mode":
-      return mergeAdvanced(state, { videoSourceMode: action.videoSourceMode });
-    case "set-video-look-style-id":
-      return mergeAdvanced(state, { videoLookStyleId: action.videoLookStyleId });
-    case "set-video-motion-preset-id":
-      return mergeAdvanced(state, { videoMotionPresetId: action.videoMotionPresetId });
-    case "set-video-engine-id":
-      return mergeAdvanced(state, { videoEngineId: action.videoEngineId });
-    case "set-video-engine-mode":
-      return mergeAdvanced(state, { videoEngineMode: action.videoEngineMode });
-    case "set-video-custom-mode-prompt":
-      return mergeAdvanced(state, { videoCustomModePrompt: action.videoCustomModePrompt });
-    case "set-video-override-look":
-      return mergeAdvanced(state, { videoOverrideLookForSource: action.videoOverrideLookForSource });
     case "hydrate": {
       const { schemaVersion, capturedAt, factId, entryFlow, ...rest } = action.pending;
       void schemaVersion;
@@ -188,12 +137,10 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
   useEffect(() => {
     if (!hydratedRef.current) return;
     const snapshot: PendingWizardState = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       capturedAt: Date.now(),
       factId,
       entryFlow,
-      currentStep: state.currentStep,
-      artifactType: state.artifactType,
       mode: state.mode,
       source: state.source,
       aspectRatio: state.aspectRatio,
@@ -208,8 +155,6 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
   }, [
     factId,
     entryFlow,
-    state.currentStep,
-    state.artifactType,
     state.mode,
     state.source,
     state.aspectRatio,

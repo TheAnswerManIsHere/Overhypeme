@@ -34,7 +34,7 @@ export function FactCard({
       label, and by variants for the use-case pill. */
   headerSlot?: ReactNode;
   /** Replaces the default FactActionCluster row entirely. Used by variant
-      cards to render their bespoke MAKE MEME / MAKE VIDEO controls. */
+      cards to render their bespoke MAKE MEME control. */
   actionsSlot?: ReactNode;
   /** When provided, the comment icon in the default action cluster calls
       this instead of toggling inline expansion. Used by the detail page

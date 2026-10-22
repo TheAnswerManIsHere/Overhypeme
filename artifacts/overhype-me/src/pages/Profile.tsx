@@ -758,7 +758,7 @@ export default function Profile() {
     setPhotoUploading(true);
     try {
       // The profile photo becomes the user's reusable identity asset (memes,
-      // AI images, AI video memes), and the downstream face-ref pipelines
+      // AI images), and the downstream face-ref pipelines
       // expect a square face crop — except for GIFs, which are sent verbatim
       // so animation is preserved.
       const { objectPath } = await uploadUserImage(file, {
@@ -898,7 +898,7 @@ export default function Profile() {
 
         {/* ── Identity-first card ─────────────────────────────────────
             The profile photo + display name are the user's reusable
-            identity asset. Every meme, AI image, and AI video meme
+            identity asset. Every meme and AI image
             reuses them, so prompt the user to set them up the moment
             they land here. Free for everyone — no upgrade gate. */}
         {identityIncomplete && (
@@ -924,7 +924,7 @@ export default function Profile() {
                 <div className="hidden md:block text-[11px] font-display uppercase tracking-[0.18em] text-primary mb-1">Complete your identity</div>
                 <h2 className="hidden md:block text-xl font-display uppercase tracking-wide text-foreground mb-1">Your face is the meme</h2>
                 <p className="text-xs md:text-sm text-muted-foreground leading-snug">
-                  Add your <strong className="text-foreground">name</strong> and a <strong className="text-foreground">photo of you</strong> — we reuse them everywhere: photo memes, AI memes of you in impossible scenarios, and AI video memes. Free for everyone.
+                  Add your <strong className="text-foreground">name</strong> and a <strong className="text-foreground">photo of you</strong> — we reuse them everywhere: photo memes and AI memes of you in impossible scenarios. Free for everyone.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {!hasCustomPhoto && (
@@ -1442,7 +1442,7 @@ export default function Profile() {
                 <p className="text-xs text-muted-foreground mt-1">
                   {profile.profileImageUrl
                     ? "Toggle between your avatar style and your custom photo, or upload a new photo. We reuse this photo as your face for memes and AI generation."
-                    : "Upload a photo of your face. We reuse it for memes, AI images, and AI video memes of you. JPEG, PNG, WebP or GIF, max 5 MB."}
+                    : "Upload a photo of your face. We reuse it for memes and AI images of you. JPEG, PNG, WebP or GIF, max 5 MB."}
                 </p>
 
                 {/* Task #507 — thumbnail picker.

@@ -37,10 +37,10 @@ describe("isSuppressedPath", () => {
 });
 
 describe("isLandingExceptionPath", () => {
-  it.each(["/m/abc", "/video/12", "/facts/7"])("treats %s as a landing page", (p) =>
+  it.each(["/m/abc", "/facts/7"])("treats %s as a landing page", (p) =>
     expect(isLandingExceptionPath(p)).toBe(true),
   );
-  it.each(["/facts/7/meme", "/m", "/", "/search", "/video"])("does not treat %s as a landing page", (p) =>
+  it.each(["/facts/7/meme", "/m", "/", "/search", "/video/12"])("does not treat %s as a landing page", (p) =>
     expect(isLandingExceptionPath(p)).toBe(false),
   );
 });
@@ -79,7 +79,6 @@ describe("shouldAskForIdentity", () => {
   it("does not ask on the shared-content page the visit landed on", () => {
     expect(ask({ location: "/m/abc", landingLocation: "/m/abc" })).toBe(false);
     expect(ask({ location: "/facts/7", landingLocation: "/facts/7" })).toBe(false);
-    expect(ask({ location: "/video/3", landingLocation: "/video/3" })).toBe(false);
   });
 
   it("asks once the visitor leaves the landing page", () => {

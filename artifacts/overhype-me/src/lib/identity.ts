@@ -24,12 +24,12 @@ export function isSuppressedPath(path: string): boolean {
 
 /**
  * The shared-content pages whose first landing shows its content before
- * asking: `/m/:slug`, `/video/:id` and `/facts/:id` itself. A builder
+ * asking: `/m/:slug` and `/facts/:id` itself. A builder
  * sub-route such as `/facts/:id/meme` is already an action and is excluded.
  */
 export function isLandingExceptionPath(path: string): boolean {
   const s = segments(path);
-  return s.length === 2 && (s[0] === "m" || s[0] === "video" || s[0] === "facts");
+  return s.length === 2 && (s[0] === "m" || s[0] === "facts");
 }
 
 export interface IdentityCompleteness {

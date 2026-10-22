@@ -48,7 +48,6 @@ export function normalizePathToRouteKey(path: string): string | null {
     case "onboard": return "onboard";
     case "activity":return "activity";
     case "m":       return "meme";
-    case "video":   return "video";
     case "pricing": return "pricing";
     case "login":   return "login";
     default:        return null; // admin, auth flows, redirects — skip
