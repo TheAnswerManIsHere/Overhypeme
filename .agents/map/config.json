@@ -3,7 +3,7 @@
   "_sets": "Indexed: every source file under the six areas below; artifacts/mockup-sandbox is a design space with no production consumer and is left out. Headered: indexed minus tests and e2e (their purpose is the describe block), vendored components/ui, the type templates patch-generated.mjs copies verbatim into generated output, codegen-owned paths, .d.ts and synced files (the last three by the tool itself). Sized: the headered set.",
   "_codegenOwned": "Every generated source-output family, with the command that owns it. lib/api-zod/src/index.ts is rewritten by the api-spec codegen (measured 2026-10-15 by planting a comment and running codegen); lib/api-client-react/src/index.ts is not, and is handwritten.",
   "adopted": false,
-  "enabled": true,
+  "enabled": false,
   "programs": [
     {
       "tsconfig": "artifacts/api-server/tsconfig.json"
