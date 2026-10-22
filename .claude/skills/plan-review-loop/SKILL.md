@@ -229,7 +229,9 @@ with nobody noticing. The pin is a mistake catch on a file I author, which is
 all the rule allows it to be (`agents-core.md`, *Important product
 principles*): it is not a defence against my changing the oracle on purpose,
 since I could as easily not run the loop. A deliberate change is still
-possible, with `--oracle-changed "<what David agreed to change>"`, and it is
+possible, with `--oracle-changed "<why>"` — a requirement David changed, in
+his words, or a verification method changed with the property it still
+proves, which is mine to settle and record (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*) — and it is
 stamped on the exchange so David reads it. Silence is what is refused.
 
 ### Discussing before revising
@@ -320,7 +322,7 @@ wrong. Do not use it to relitigate something I simply dislike.
    ```plan-action
    action: revise
    concerns: C1, C3
-   note: C2 goes to David; C4 withdrawn on the evidence
+   note: C2 for-david, named in the approval readout; C4 withdrawn on the evidence
    ```
    ````
 
@@ -334,12 +336,15 @@ wrong. Do not use it to relitigate something I simply dislike.
 
 **There is no stop rule to compute and no round budget.** The loop ends when the
 judgement is that nothing more is worth writing, and that judgement is mine,
-stated in an action block. What still stops it for David, at any point: a
-choice that changes intended behaviour or an accepted user-facing
-consequence; a scope addition the plan cannot be correct without (any other
-is taken as *next* and reported — David, 2026-10-21); a split, which is
-proposed in the plan he approves; and a disclosure question. A purely
-technical fork between two approaches to agreed behaviour is not on that list.
+stated in an action block. Nothing stops the loop for David before the plan
+itself: a choice that changes intended behaviour or a user-facing consequence
+no settled decision covers is written into the plan and named in the approval
+readout, not asked mid-loop, and a consequence a settled decision reaches is
+not asked at all (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*); a scope addition is taken as *next* and
+reported, and only one the plan cannot be correct without asks (David,
+2026-10-21); a split is proposed in the plan he approves; and a disclosure
+question is his (`workstream-tracking.md`, the canonical check). A purely
+technical fork between two approaches to agreed behaviour is none of these.
 
 **An assessment that says it could not do the job is not a clean exchange.** The
 old loop had two status labels that computed this; now it is prose I read. If
@@ -348,16 +353,21 @@ material, that is mine to supply and re-run — never convergence.
 
 ## What never gets settled inside the loop
 
-- **Choices that change intended behaviour, scope, or an accepted user-facing
-  consequence.** Astra may critique the idea itself, and when it does, that goes
-  to David as a **numbered question carrying its view and mine side by side** —
-  never absorbed into a revision. **A purely technical design fork is not one of
+- **A choice that changes intended behaviour or a user-facing consequence no
+  settled decision already covers.** Astra may critique the idea itself, and
+  when it does, that goes into the plan as a **numbered item in the approval
+  readout carrying its view and mine side by side** — never absorbed into a
+  revision, and never a separate mid-loop question; a consequence a settled
+  decision reaches is settled with it, and the plan names the decision
+  (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*). **A purely technical design fork is not one of
   these**: two approaches serving the same agreed behaviour are ours to settle,
   and calling every design question David's would take back the tie-break
   granted three paragraphs below. (Astra, assessing this change: the two
-  instructions contradicted each other and either could fire.)
-- **Anything that changes intended behaviour, scope, or an accepted user-facing
-  consequence.** His, always, including his own use of the software factory.
+  instructions contradicted each other and either could fire.) A change to
+  how an oracle requirement is verified, keeping the property it proves, is
+  such a fork; a change to the requirement is his (same section).
+- **Approval of the plan itself, and his own use of the software factory.**
+  His, always — given on the readout, which is why the items above go there.
 - **A scope addition.** Any revision that would introduce a new mechanism — a
   table, a role, a config domain, an endpoint — is taken as *next* and
   reported; it is a question for David only when the plan cannot be correct

@@ -677,8 +677,10 @@ needed · Substantive technical concerns · Strong disagreement on direction · 
 clarification required · Repo context required.* For each finding: what, why (tied
 to a priority above), and a concrete suggestion. Separate **must-fix** from
 **nice-to-have**. Escalate product and behaviour calls — anything that would
-change intended behaviour or accept a user-facing shortfall — to David rather
-than deciding them; a purely technical design fork is settled inside the loop.
+change intended behaviour or accept a user-facing shortfall that no settled
+decision already covers — to David rather than deciding them, naming the
+decision where one covers it (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*); a purely technical design fork
+is settled inside the loop.
 
 ### Structured defect pass — GitHub structured review (the `@codex review` transport)
 

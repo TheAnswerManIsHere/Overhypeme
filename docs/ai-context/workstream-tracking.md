@@ -598,14 +598,16 @@ They are computed from the `stage:`/`waiting:` labels plus live GitHub state.
 They never become labels, never become board fields, and nothing reads them
 back. Labels remain the sole source of truth.
 
-**`/status` reports; it does not write unattended.** When stored labels or the
-issue's `## State of Play` block disagree with live GitHub, it says so and
-**offers** to correct them — David confirms, and only then does it write.
-That keeps the ownership model in the table above intact: `/status` is not a
-standing background writer, it is a David-confirmed correction at a moment he
-is already present for. (An unattended write-through version was designed and
-rejected — it needed conflict detection and write-target authentication the
-GitHub API can't cleanly provide, for a status check. See
+**`/status` reports, and corrects stored state on its own recommendation.**
+When stored labels or the issue's `## State of Play` block disagree with live
+GitHub, it says so, corrects them, and reports the correction in the same
+message (David, 2026-10-21; from 2026-08-05 until then it offered and he
+confirmed — [`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10) is what retired the confirmation). A fresh
+read immediately before the write is what makes a label and a status block
+safe enough to correct unattended, since a corrective edit undoes either;
+`/status` is still not a standing background writer, it writes at a moment
+David invoked it. (The 2026-08-05 reasoning that an unattended write-through
+needed conflict detection the GitHub API can't provide is in
 [`decisions.md`](./decisions.md).)
 
 **`WATCHING` may never be claimed from memory** — only after a live check in

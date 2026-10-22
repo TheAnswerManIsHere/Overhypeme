@@ -241,7 +241,8 @@ export const CONCERN_STATES = [
 
 /**
  * States whose reasoning is rendered in full on every exchange: still live,
- * waiting on David, or settled over an objection that can still be revisited.
+ * named for David in the approval readout (`for-david` blocks nothing else),
+ * or settled over an objection that can still be revisited.
  */
 const ALWAYS_FULL = new Set(["open", "for-david", "settled-over-dissent"]);
 
@@ -584,7 +585,7 @@ export function roleBlock(role) {
     astra
       ? "- **A purely technical disagreement that survives investigation and discussion is your counterpart's to settle**, with its reasoning recorded. You are not obliged to agree, and you are not asked to declare agreement afterwards."
       : "- **A purely technical disagreement that survives investigation and discussion is yours to settle.** Record the reasoning and the material concern that remains. Astra is not obliged to agree.",
-    "- **Neither of you can settle what is reserved for David**: intended behaviour, scope, whether a user-facing shortfall is acceptable, and approval of the plan itself. If a disagreement turns out to rest on one of those, say so and stop.",
+    "- **Neither of you can settle what is reserved for David**: a requirement — intended behaviour, scope, whether a user-facing shortfall is acceptable — that no decision he has already made covers, and approval of the plan itself. A consequence a settled decision already reaches is settled with it: name the decision. A question that is his goes into the plan as a named item for the approval readout, not a stop: say so, write it in, and continue (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*). If a disagreement turns out to rest on approval itself, say so and stop.",
     astra
       // KIND-NEUTRAL, DELIBERATELY. This said "return the complete assessment",
       // which every `--kind discuss` package then carried alongside
@@ -1168,8 +1169,11 @@ export function pinOracle(dir, oracle, { changedReason = null } = {}) {
     throw new Error(
       `the oracle differs from the one pinned at ${path.relative(process.cwd(), file)} when this loop started, and ` +
         `nothing says why. The oracle is what David agreed BEFORE the plan was written; if it can be edited as the ` +
-        `plan is revised, the plan is being measured against itself. Restore it, or pass ` +
-        `--oracle-changed "<what David agreed to change>" so the change is recorded.`,
+        `plan is revised, the plan is being measured against itself. Restore it, or pass --oracle-changed "<why>" ` +
+        `so the change is recorded, naming which of two things changed: a REQUIREMENT, which only David changes ` +
+        `-- quote his words; or the METHOD by which a requirement is verified, with the property it still proves ` +
+        `-- a technical choice taken on the recommendation and reported (agent-working-rules.md, "A reversible ` +
+        `choice proceeds on the recommendation").`,
     );
   }
   return { pinned: sha256Full(oracle), changed: true, changedReason, firstPin: false, commit };
@@ -1281,7 +1285,8 @@ export const USAGE = [
   "  --concerns    ids rendered in FULL for a discussion, whatever state they are in",
   "  --prompt-only print the package and run nothing — how I get my own copy",
   "  --dry-run     assemble the package, write it, spawn nothing",
-  "  --oracle-changed <reason>   the oracle differs from the pinned one, deliberately",
+  "  --oracle-changed <reason>   the oracle differs from the pinned one, deliberately: a requirement David",
+  "                changed (his words), or a verification method changed with the property it keeps",
   "",
   `  Astra is PINNED to the strongestCodex tier in \`.agents/machinery.json\`, in a ${DEFAULT_SANDBOX} sandbox.`,
   "  --model / --effort / --sandbox are refused unless --unpinned <reason> is given,",
@@ -1413,7 +1418,7 @@ export function main(argv = process.argv.slice(2), { root = REPO_ROOT, run = spa
             `it last saw and that everything it is not asked about keeps its state -- both of which are measured ` +
             `against the pinned oracle, and nothing in the package or the live log would say the boundary moved. ` +
             `A changed boundary belongs in an assessment: run --kind assess --round ${round + 1} --oracle-changed ` +
-            `"<what David agreed to change>". An UNCHANGED --oracle file is still fine on a discussion.`,
+            `"<why>" (the pin's own refusal says what the reason names). An UNCHANGED --oracle file is still fine on a discussion.`,
         );
       }
     } else {

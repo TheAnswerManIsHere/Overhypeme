@@ -123,7 +123,8 @@ reaches a pull request; it does not cap the per-task reviews here.*
   ship gate. A head that still violates an agreed requirement or fails a
   required check does not merge: the builder fixes or cuts it. Only a product
   decision (intended behaviour, an accepted user-facing shortfall or a harm
-  David has not accepted) goes to him*
+  David has not accepted, where no settled decision already covers it —
+  `agent-working-rules.md`, *A reversible choice proceeds on the recommendation*) goes to him*
 - Argue with valid technical feedback
 
 **If reviewer wrong:**

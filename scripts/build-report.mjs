@@ -182,6 +182,19 @@ export function buildBrief({
         "workstream has an issue, pass --issue <n>.",
     );
   }
+  if (privatePath === true && privateSource === null) {
+    // THE PRIVATE FLAG ALONE IS NOT A ROUTE. On the private path the issue,
+    // if there is one, is sanitized: the plan, the decisions and the spend
+    // line are on the draft Project item, so a brief built from the flag
+    // would tell the role to read them from an issue that does not hold
+    // them, and the report would claim a check it never made (#231's build
+    // report). The relay is the only source of that side.
+    throw new Error(
+      "build-report: --private yes was given without a private source. On the private path the plan, the " +
+        "decisions and the spend line live on the draft Project item, not the issue: ask David to paste its " +
+        "text, write it to your scratchpad, and pass --private-source <file> (which marks the unit private by itself).",
+    );
+  }
   if (!noIssue) assertPositiveInt("issue", issue);
   if (!Array.isArray(prs)) throw new Error("build-report: prs must be an array of pull request numbers.");
   for (const n of prs) assertPositiveInt("each pull request number", n);

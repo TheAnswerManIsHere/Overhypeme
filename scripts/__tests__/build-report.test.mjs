@@ -217,10 +217,20 @@ test("the report names the evidence the brief carried, both ends of a branch ran
   assert.doesNotMatch(out, /chat only/);
 });
 
+test("the private flag without the relayed source is refused, since the sanitized issue holds no plan", () => {
+  const root = tmp();
+  assert.throws(
+    () => buildBrief({ root, unit: "p0", issue: 5, prs: [12], privatePath: true, io }),
+    /--private yes was given without a private source/,
+  );
+});
+
 test("a private-path unit is marked for chat-only delivery, and preparing clears stale coordinates", () => {
   const root = tmp();
   const stdout = { write: () => {} };
-  main({ argv: ["brief", "--unit", "p1", "--issue", "5", "--pr", "12", "--private", "yes"], root, io, stdout });
+  const src = path.join(os.tmpdir(), `relay-p1-${process.pid}.md`);
+  fs.writeFileSync(src, "Plan: x. Decisions: none. Spend so far: $1.\n");
+  main({ argv: ["brief", "--unit", "p1", "--issue", "5", "--pr", "12", "--private", "yes", "--private-source", src], root, io, stdout });
   assert.equal(readUnit(root, "p1").private, true);
   fs.writeFileSync(answerPath(root, "p1"), JSON.stringify(answer()));
   const text = chatReport(readAnswer(root, "p1"), { coords: readUnit(root, "p1") });

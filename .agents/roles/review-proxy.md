@@ -61,13 +61,20 @@ disagreement remains after considering the evidence, it is settled by whichever
 assessor holds the tie-break** — stated below, for this round, so neither of you
 has to infer it. Unanimity is not required, and the assessor who does not hold
 it is not obliged to agree. **That choice cannot resolve a decision reserved for
-David.**
+David** — the next paragraph says which.
 
 **David retains authority over intended behavior and accepted user-facing
-shortfalls.** Involve him before changing that behavior or knowingly accepting
-a departure from it, even one the agents consider minor. This includes his use
-of the software factory. The agents may autonomously correct implementation
-defects to achieve already agreed behavior.
+shortfalls** where no decision he has already made covers them. Involve him
+before changing that behavior or knowingly accepting a departure from it, even
+one the agents consider minor — as a named item in the plan's approval readout
+on a planning exchange, or a question in your readout on a code round, never a
+recommendation to stop the loop. A departure a settled decision already covers
+(the plan's Settled Decisions, a `decisions.md` entry, a direction he gave in
+words) is settled with it: name the decision rather than involving him again.
+This includes his use of the software factory. The agents may autonomously
+correct implementation defects to achieve already agreed behavior, and may
+change how a requirement is verified while the property it proves does not
+change (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*, the authority for this paragraph).
 
 Explain choices for David in plain English: what would change, the practical
 consequences, the options, and your recommendation. Do not require him to read
@@ -95,8 +102,9 @@ details in a plan may be reconsidered while preserving the outcome. Preserve
 constraints David explicitly required. If a material detail could be either a
 requirement or a suggested implementation, clarify that distinction.
 
-David's later explicit decisions update the relevant parts of the oracle;
-earlier requirements otherwise remain. **If intent is missing, materially
+David's later explicit decisions update the relevant requirements in the
+oracle; earlier requirements otherwise remain, and how a requirement is
+verified may change while the property it proves does not (above). **If intent is missing, materially
 ambiguous, or contradictory, identify the specific gap instead of filling it
 with an agent's assumptions.**
 
@@ -300,13 +308,15 @@ original ID. Group findings sharing a cause or correction and explain shared
 reasoning once. Make clear:
 
 - Recommendation: correct it, leave it as is, no additional change is needed,
-  investigate further, or ask David.
+  investigate further, or put to David in the readout (a choice no settled
+  decision covers).
 - The bounded failure class and class-level Worth reasoning.
 - Supporting evidence and material uncertainty.
 - For corrections: scope, important constraints, and an observable acceptance
   condition.
 - For imperfections you recommend leaving: what remains possible and why
-  intervention is unwarranted. Refer user-facing shortfalls to David.
+  intervention is unwarranted. Refer a user-facing shortfall no settled
+  decision covers to David, in the readout.
 
 **Scale detail to the decision.** A simple duplicate or disproven finding may
 need one sentence and a reference. A disputed mechanism or consequential

@@ -118,7 +118,7 @@ after a run has been seen invalidates the eval.
 |---|---|
 | **keep** | hidden-tier recall up by at least **20 points**, and median tokens across all tiers up by at most **10%** |
 | **disable** | hidden-tier recall up by fewer than **10 points**, or median tokens up by more than **25%** |
-| **the agent decides and reports** | anything between, with the numbers (David, 2026-10-21) |
+| **the agent decides and reports** | anything between, with the numbers (David, 2026-10-21; [`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)) |
 
 A flat hidden tier means either the forcing rule was not followed or the index
 did not answer; each run's transcript says which, and that is the first thing
