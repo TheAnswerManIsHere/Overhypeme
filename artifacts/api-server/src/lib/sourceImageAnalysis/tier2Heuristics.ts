@@ -2,7 +2,7 @@
  * Tier-2 heuristics — turn flat detector output into a structured
  * `SourceImageAnalysis`.
  *
- * Deterministic scoring picks the dominant detection:
+ * After a qualifying face or person, which wins first, deterministic scoring picks the dominant detection:
  *   score = confidence * boxAreaFraction * centralityWeight
  * Tier-2 also decides whether escalation to Tier-3 (AI vision) is warranted
  * via `shouldEscalate()`.
@@ -13,7 +13,7 @@
  * intentionally lossy — Tier-2 only needs to be GOOD ENOUGH for routing;
  * Tier-3 rescues low-confidence cases.
  *
- * @purpose Tier-2 heuristics: buckets detector labels into subject kinds, picks the dominant detection by confidence, box area and centrality, suggests a render mode, and decides whether to escalate to Tier 3.
+ * @purpose Tier-2 heuristics: bucket detector labels into subject kinds; a qualifying face, then a qualifying person, takes precedence; otherwise the dominant detection by confidence, box area and centrality decides; suggest a render mode and decide whether to escalate to Tier 3.
  * @subsystem visual-pipeline
  */
 

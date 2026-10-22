@@ -1,5 +1,5 @@
 /**
- * Per-user daily upload cap.
+ * Daily upload cap, per user and IP address (#710).
  *
  *   Free tier (registered/unregistered):  upload_rate_limit_registered_per_day  (default 20)
  *   Legendary tier:                       upload_rate_limit_legendary_per_day   (default 200)
@@ -9,7 +9,7 @@
  * NSFW classifier calls on rate-limited users. Counter is shared with
  * the rest of the rate-limit infrastructure via `checkSharedRateLimit`.
  *
- * @purpose Per-user daily image-upload cap on the shared rate limiter, with separate admin_config limits for Legendary and for everyone else and admins effectively uncapped; returns the counter result and leaves the 429 to the caller.
+ * @purpose Daily image-upload cap on the shared rate limiter, counted per user and IP address together, so a new address starts a fresh allowance (#710); separate admin_config limits apply for Legendary and for everyone else, admins are effectively uncapped, and it returns the counter result, leaving the 429 to the caller.
  * @subsystem legal-safety
  */
 
