@@ -51,8 +51,8 @@ export const PAYLOAD_ROOTS = [".agents/", ".claude/", "docs/ai-context/", "docs/
 /**
  * Single payload files under a directory the payload shares with the consumer.
  * `docs/tests/` holds the shipped UAT format beside a consumer's own TESTING.md
- * and every product UAT doc; a root there would fan cold readers across a
- * product's whole acceptance corpus (Codex, #194 round 2).
+ * and any legacy UAT doc still running out there; a root there would fan cold
+ * readers across a product's acceptance corpus (Codex, #194 round 2).
  */
 export const PAYLOAD_FILES = ["docs/tests/uat-doc-format.md"];
 /** Directories a docs-shaped scope misses and this one must not (prose-sweep.md, *Scope*). */

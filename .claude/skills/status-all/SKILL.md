@@ -428,9 +428,9 @@ David-gate definition above):
   of the four is a merge gate any more:
   "scope agreed in outline, waiting on your go-ahead before the plan is
   drafted" / "plan v3 delivered in chat, waiting on your approval" /
-  "merged — UAT doc at `docs/tests/UAT/PR<N>_..._UAT.md`, not
-  yet run". Search for the UAT doc filename before claiming one doesn't
-  exist.
+  "merged — UAT section on PR #<N>, not yet run". Read the PR body for
+  its `## UAT` section (or `docs/tests/UAT/` on `main` for a PR merged
+  before 2026-10-21) before claiming no script exists.
 - **Never assert a reviewer's state from a gate.** The middle example above
   once read "plan v3 delivered in chat, **nothing outstanding with Astra**,
   waiting on your approval", and that sentence is false in a state the planning
@@ -461,7 +461,7 @@ a wrong scope is visible at a glance:
 ```
 owner/repo
 🛑 NEEDS YOU (n)
-#311 — CodeQL rate-limiter: merged, UAT doc ready at docs/tests/UAT/PR308_..._UAT.md, not yet run
+#311 — CodeQL rate-limiter: merged, UAT section on PR #308, not yet run
 #281 — Evidence retention plan: [specific restated question from the thread]
 
 ⚠️ STALLED (n) — no activity >48h, nobody currently blocked on David

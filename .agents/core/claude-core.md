@@ -292,8 +292,10 @@ step's carve-out
    running count is the source, and **one line is kept from it**: the
    workstream issue's *Spend so far*, updated at every hand-back that
    changes it, so the build report can state the build's total (David,
-   2026-10-21). That is the one ledger line the #89 cut's "no ledger"
-   admits, at that size and no larger. **Every hand-back ends with a fixed
+   2026-10-21). That and the repository's `paid-ai-ledger` issue — one
+   comment per paid AI run, so the weekly paid-run budget is read rather
+   than remembered (`uat-doc-format.md`, *Lanes*) — are the two ledgers the
+   #89 cut's "no ledger" admits, at that size and no larger. **Every hand-back ends with a fixed
    footer** (David, 2026-10-21: *"here's what we planned, here's the unit
    of work that I've completed, here's what we should do next"*), four bold
    fields on one block: **Done:** the unit of work this turn advanced or
@@ -378,7 +380,7 @@ Otherwise entry is routed by request shape and announced in one line (the
 announcement is David's veto surface); `/bugfix` is the explicit override.
 
 - **Feature-building is the default** — pre-plan conversation, plan, plan
-  review, build, post-merge verification, UAT doc, ship-the-UI-surface gate —
+  review, build, post-merge verification, UAT section, ship-the-UI-surface gate —
   for a feature in **production phase**; one David has declared prototype
   phase keeps the pre-plan conversation, the plan and the plan review for its
   **first version** (and for a later one only when he asks in words), then
@@ -402,7 +404,7 @@ announcement is David's veto surface); `/bugfix` is the explicit override.
   branch per PR**, opened as soon as the fix is verified. No plan file, no plan
   review. **Tier A** ships a regression test, a blast-radius note, and the
   bugfix oracle in the PR body; **Tier B** (sensitive subsystem or structurally
-  risky fix) I write myself — not routable to a subagent — and adds a UAT doc
+  risky fix) I write myself — not routable to a subagent — and adds a UAT section
   if behavior is product-visible; **Tier C** means it isn't a bug fix: it
   stops and goes to David, and the one path that continues is a trivial
   database schema fix he green-lights, straight to migration ceremony. Codex
@@ -452,8 +454,9 @@ enactment is `.claude/skills/document/`.
 - **The bridge:** at close-out of a production-phase product feature I post
   a **harvest-notes comment on the workstream issue** — decisions made and
   why, alternatives rejected, gotcha candidates. Cheap, always there, no PR;
-  a prototype-phase PR's close-out is the sync and the merge report alone,
-  since it has no decisions to harvest yet (*Close-out*, below). The batched pass reads
+  a prototype-phase PR's close-out posts none, since it has no decisions to
+  harvest yet — its close-out is the sync, the merge report and the build
+  report (*Close-out*, below). The batched pass reads
   those comments plus the diffs, so session context survives without a ceremony
   per merge.
 
@@ -597,7 +600,7 @@ to every unit of work but a Trivial PR.
   `overlay-declarations.md`, gets the planning loop for its first version —
   pre-plan conversation, a short plan, Astra's review, his approval — and for
   a later version only when he asks in words; it gets no code-review loop, no
-  UAT doc and no hardening bar until David declares it production — and it
+  UAT section and no hardening bar until David declares it production — and it
   keeps the machine lanes, scaled to a prototype, as my proof that a version
   works before the owner is asked — a check that would start a paid AI run within
   his per-run and weekly budget (`uat-doc-format.md`, *Lanes*) (David, 2026-10-10;
@@ -965,40 +968,39 @@ fires at all:
 an AI summary in plain english of exactly what happened from start to
 finish in the build ... what was built, what decisions were made, what the
 ramifications are, how much money was spent"*). One account per unit of
-work — a PR's merge, or a prototype version delivered — written at its
-close by the same independent Fable role, reading the whole build from
-GitHub (the plan or the prompt, the workstream issue, every PR and round,
-the decisions) rather than my account of it, in fixed sections in a fixed
-order so he can scan: **What was built**; **Decisions taken on my
-recommendation**, each with its undo, so a reversal is one line from him;
-**Ramifications and what ships unfixed**; **Spend**, the build's total, read
-from the issue's *Spend so far* line (*A reversible choice proceeds*, rule
-2); **Where we are** — what we planned, the unit just completed, what is
-next; **Session** — continue here, or archive and hand off, with the
-hand-off prompt ready when the answer is archive (the `handoff` skill's
-Step 1 judgement, run here without being asked); **Needs you** — nothing,
-or the one external thing. Delivered twice, verbatim: in chat, and as a
-comment on the workstream issue, so one place per feature holds the record
-without the chat. A Trivial PR gets none. Until its brief and schema exist
-(the PR after this one), the close-out dispatches the final-round
-translation as the interim account, once per unit of work and never per
-round — **where a PR exists**: that role locates its evidence by Codex's
-review markers on a PR, so a prototype version on a `prototype/<feature>`
-branch, which opens none, gets no interim account, and its hand-back says
-so, my own labelled account being its only one until the brief lands (the
-brief must read such a version from the issue and its commits — the next
-PR's requirement, named here so it is not forgotten); a PR whose only pass
-is the unrequested one dispatches as round 1 and the role reports the
-thin marker as the limitation it is (Codex and both assessors, #222 round
-1). (From 2026-09-19 to 2026-10-21 a round was translated when I
-declined something, when it smelled wrong, and always before a merge; four
-translations on #131 were the loop's single largest token line.)
+work — a PR's merge, or a prototype version delivered on its own branch —
+written at its close by the independent Fable role `fable-build-report`,
+reading the whole unit from GitHub (the workstream issue and the plan or
+scope it holds, every PR and round, or the prototype branch's commits)
+rather than my account of it, in fixed sections in a fixed order so he can
+scan: **Needs you** — nothing, or the one external thing; **What was
+built**; **Decisions taken on my recommendation**, each with its undo, so a
+reversal is one line from him; **Ramifications**; **Shipping unfixed**;
+**Where it disagrees with the builder**; **Spend** — the build's total from
+the issue's *Spend so far* line, and the week's paid AI runs from the
+repository's paid-run ledger (*A reversible choice proceeds*, rule 2;
+`uat-doc-format.md`, *Lanes*); **Where we are** — what we planned, the unit
+just completed, what is next; and **Session** — continue here, or archive
+and hand off. The session line is **mine, under a label saying so**: only
+this session can see its own context, so it is the `handoff` skill's Step 1
+judgement, run here without being asked, with the hand-off prompt following
+the report when the answer is hand off. Delivered twice, verbatim: in chat,
+and as a comment on the workstream issue, so one place per feature holds
+the record without the chat — **except a workstream on the private path,
+whose report goes in chat only**, since an account of its diff is what the
+disclosure check keeps off GitHub; one with no public issue at all has no
+report yet, and gets my own labelled account (a recorded gap, #227). A
+Trivial PR gets none. (From 2026-09-19 to
+2026-10-21 a round was translated when I declined something, when it
+smelled wrong, and always before a merge; four translations on #131 were
+the loop's single largest token line. From #222 to the PR that built the
+report, the final-round translation stood in, once per unit.)
 
 **The delivery is a message in chat, and there is nothing else** (David,
 2026-09-16). `chatReport` composes it from the answer's own fields and I paste
-that verbatim, saying nothing else about the build (these delivery and
-independence rules carried over from the round translation to the build
-report unchanged, 2026-10-21). **No page, no Artifact, no
+that verbatim, saying nothing else about the unit (these delivery and
+independence rules carried over from the round translation unchanged,
+2026-10-21). **No page, no Artifact, no
 HTML, no link, no receipt store** — and rebuilding any of them is forbidden
 rather than merely unnecessary. There *was* a page, and #109 round 3 found what
 it actually was: HTML written to a gitignored path, so the delivery was a file
@@ -1008,20 +1010,22 @@ uses it well; a page is something he would have to go and open, and building a
 delivery system for one agent telling him the answer is undoing the #89 cut by
 hand.
 
-**Fable fetches the build from GitHub itself** — the issue, the threads, the
-comments, the reviews and the diffs — and writes its answer to a file this module derives, so
-the account is neither assembled nor rewritten by me. That is the one property
-here worth machinery: **the translator's account reaches David unedited**. It
-is a second account, not a ban on mine — my own write-up of a round is welcome
+**Fable fetches the unit from GitHub itself** — the issue, the threads, the
+comments, the reviews and the diffs — from a brief passed inline in the
+dispatch (the role holds no file-reading tool), and writes its answer to a
+file the script derives, so the account is neither assembled nor rewritten
+by me. That is the one property here worth machinery: **the role's account
+reaches David unedited**. It
+is a second account, not a ban on mine — my own write-up of a unit is welcome
 beside it, labelled as mine (David, 2026-09-16: a builder-written account is
 *"not an issue at all"*; the earlier prohibition here was over-caution). **It is an independent assessment, and it is not a guarantee**: I launch
 the dispatch, choose the coordinates and paste the result, so it defends against
 my being *wrong*, never against my being deliberately misleading. The account
 says what it verified and what it took on trust, and that honesty is the value —
 not a claim of immunity. **A dispatch that fails is disclosed in plain English
-and never blocks the loop**: the translation is off the critical path by
-design. Mechanics:
-`pr-watch`.
+and never blocks the loop**: the report is off the critical path by
+design. Mechanics: `pr-watch`, step 7; `core/scripts/build-report.mjs`
+here, `scripts/build-report.mjs` in a consumer.
 
 ## Pull requests
 
@@ -1093,23 +1097,23 @@ design. Mechanics:
    format document are retired. Nothing had read the block at runtime since
    the #89 cut, and its fixed grammar forced a false declaration on work
    agreed in conversation with no plan file, #110.)
-5. **Post-merge verification + UAT doc** for product-visible feature PRs in
-   production phase — a prototype-phase PR ships no UAT doc, its Post-merge
+5. **Post-merge verification + UAT section** for product-visible feature PRs in
+   production phase — a prototype-phase PR ships no UAT section, its Post-merge
    verification section carries only its version's `live` check, and its
    scaled machine lanes and feedback rail are its verification — per the `pr-docs` skill and
    [`test-run-contract.md`](../../docs/tests/test-run-contract.md). A production-phase PR is not done
    until the verification section has real content (or an explicit "none
-   needed") and `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` exists and is linked —
-   PR-first, added to the same PR before merge, never a later PR; a
-   prototype-phase PR is done on green CI with its verification section
-   filled, and never carries that doc. **David
-   confirms a run complete and I delete the doc in that same close-out**
-   (David, 2026-08-22) — unless it carries behavior recorded nowhere else, in
-   which case that content is harvested into the Manual first. Bugfix mode does not
-   inherit this pairing. **Running** a UAT is the `uat` skill (David,
-   2026-08-21): the doc is a script I drive step by step in chat — I own the
+   needed") and the body carries its `## UAT` section, written to
+   `uat-doc-format.md` before the PR opens, never a later PR (David,
+   2026-10-21: the section replaces the `docs/tests/UAT/` file, its PR-first
+   naming dance and its deletion PR; the `stage:uat` label alone says a run
+   is owed, and a legacy file still on a consumer's `main` runs out under
+   the `uat` skill's old rule); a prototype-phase PR is done on green CI
+   with its verification section filled, and never carries that section.
+   Bugfix mode does not inherit this pairing. **Running** a UAT is the `uat` skill (David,
+   2026-08-21): the script is one I drive step by step in chat — I own the
    setup, the per-step record, and filing any bug the moment it's found — not
-   a file he reads alone, and no longer an Artifact page.
+   a page he reads alone, and no longer an Artifact page.
 
 ## Close-out is mine, end to end
 
@@ -1142,7 +1146,7 @@ a Trivial PR none. CI and Codex catch
 
 **No receipt proves any of the three now** — `pr-ready.mjs` went with the #89
 cut, having never run once in the loop it was built for (David merged from the
-GitHub UI and checked the bar by eye). All four are reads I do. The one item
+GitHub UI and checked the bar by eye). All three are reads I do. The one item
 GitHub itself enforces is *every thread resolved*: the `main` ruleset requires
 conversation resolution, so the Merge button is inert while a thread is open.
 
@@ -1220,7 +1224,7 @@ conversation resolution, so the Merge button is inert while a thread is open.
    resolves the machine lanes itself, screen facts included (the `uat`
    skill, *Where the browser automation lives*) — plus the
    reminder that `/uat` walks him through it rather than leaving him to the
-   doc; for a prototype-phase PR,
+   script; for a prototype-phase PR,
    that the head is on `main` and unpublished, and which questions it asks
    (the `prototype` skill); the PR's **Decisions taken on my recommendation**
    entries, restated in one line each; and, as its last block, the fixed
@@ -1452,7 +1456,7 @@ shows the true delta.
     "this looks small" is not: the repo's one-line-that-broke-everything is on
     file (#582), and cheap-looking is exactly when the tier matters.
   - The named judgements — the plan reviewer, the review proxy's two
-    assessors, the round translator and `/next`'s three judgement steps — run
+    assessors, the build report's role and `/next`'s three judgement steps — run
     at the strongest available tier regardless.
     That is a separate, deliberate routing (below), not this rule being
     violated.
@@ -1473,7 +1477,7 @@ shows the true delta.
   those** (David, 2026-10-04,
   narrowing the 2026-08-17 "every judgement, no exceptions"): the plan
   reviewer and Astra's code-round assessment, resolving `strongestCodex`; the
-  Fable assessor and the round translator, resolving `strongestClaude`; and
+  Fable assessor and the build report's role, resolving `strongestClaude`; and
   `/next`'s three judgement steps, which name Fable by alias rather than
   reading the pin, inline or dispatched. The four roles resolve their tier
   through `.agents/machinery.json`. Any other
@@ -1536,7 +1540,7 @@ shows the true delta.
 
 - **Fable dispatches as a subagent whose instructions I do not write.** The
   role is an agent definition under `core/.claude/agents/`, loaded by the
-  harness; I pass only the round's coordinates. **A `tools:` list there is a
+  harness; I pass only the round's package or the unit's brief. **A `tools:` list there is a
   hard upper bound** — measured 2026-09-16: an agent declaring four tools held
   exactly those plus the injected `SubagentHandback`, with no `Write`, no MCP
   and no `ToolSearch`. That makes **which** tools a role holds a real boundary

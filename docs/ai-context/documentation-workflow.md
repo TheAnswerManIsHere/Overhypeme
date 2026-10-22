@@ -129,7 +129,7 @@ collaborator need this to work in the area?* Qualifying kinds:
 - Roadmap movement: a slice shipped, a new open question.
 
 **Do NOT document:** transient run details, speculation about undecided future
-work, per-PR checklists (that's what the PR's verification section and UAT docs are for), restatements
+work, per-PR checklists (that's what the PR's verification and UAT sections are for), restatements
 of already-documented truth (link instead), or anything invented rather than
 observed — an unverifiable product claim is marked **Needs David confirmation**,
 same as the roadmap does.
@@ -268,7 +268,7 @@ separation aids review). Placement:
   first: `git fetch origin main`, restart the branch fresh off `origin/main`
   (same branch name is fine — GitHub auto-deletes the merged one), and open a
   **new**, small docs-only PR. Docs PRs have no product-visible behavior, so
-  **no UAT doc and "none needed" post-merge verification** — a short
+  **no UAT section and "none needed" post-merge verification** — a short
   verification note in the PR body suffices. If a stale remote ref of the old feature branch exists (a
   same-name push can recreate one GitHub already auto-deleted), confirm the
   owning PR is actually merged/closed before deleting that stale ref, and

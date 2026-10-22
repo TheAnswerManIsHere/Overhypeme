@@ -1,14 +1,35 @@
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
 
-# The UAT document format
+# The UAT format
 
 **One shape, so driving a run is a lookup rather than a parse (David,
-2026-08-22).**
+2026-08-22). One home, the pull request body, so the script has no file
+lifecycle of its own (David, 2026-10-21).**
 
-The `/uat` session walks David through a UAT doc step by step. For that to be
-reliable, the driver has to know *exactly* what the steps are — and the way to
-guarantee that is not a cleverer parser. It is a format we control and always
-write.
+The `/uat` session walks David through a UAT script step by step. For that to
+be reliable, the driver has to know *exactly* what the steps are — and the way
+to guarantee that is not a cleverer parser. It is a format we control and
+always write.
+
+**Where it lives: the `## UAT` section of the PR body**, written with the
+diff and reviewed with it in the same Codex pass, exactly as the Post-merge
+verification section is. Until 2026-10-21 the script was a file,
+`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`, and the file carried a lifecycle
+the script never needed: a PR-first dance to learn the number for its name,
+a deletion PR per completed run (every change to `main` arrives through a
+pull request), a correction PR for a wrong `Expect`, a later PR editing
+other PRs' docs to retire a `Deferred:` line, and a guard that went on
+policing finished-but-undeleted docs whose cited files had since been
+renamed. The `uat` skill had already stopped trusting the file as a signal
+— *"a doc's presence on `main` proves its PR merged, nothing more"* — and
+read the workstream's `stage:uat` label instead, which is the oracle now.
+Nothing else moved: the lanes, the step shape, the run record on the
+workstream issue and the verdict roll-up are unchanged. David's reasons are
+the TEST_RUN file's (`pr-docs`, 2026-08-15): the script is part of the PR's
+claim, and a separate near-zero-stakes artifact with its own lifecycle is
+ceremony. A **legacy doc** still in a consumer's `docs/tests/UAT/` on
+`main` is driven from the file and deleted when its run completes, under
+the rules this format carried before; no new file is written.
 
 **Why this document exists.** The first version of `/uat` tried to infer the
 step list from whatever shape a doc happened to have. It couldn't: across the
@@ -21,18 +42,23 @@ the redesign is what shipped).
 
 ## The rule that makes it deterministic
 
-> **A step is any `### ` heading inside `## Steps` or `## Regression`, in
-> document order. Nothing else in the file is a step.**
+> **A step is any `#### ` heading inside `### Steps` or `### Regression` of
+> the PR body's `## UAT` section, in document order. Nothing else in the
+> body is a step.**
 
 That is the whole contract between the author and the driver. `/uat`
-enumerates steps with a heading scan bounded by those two sections, and needs
-no judgment about what is "actionable." Everything else in the doc is context
-for David or for me, and never produces a prompt.
+enumerates steps with a heading scan bounded by those two sub-sections,
+inside the one section bounded by the next `## ` heading, and needs no
+judgment about what is "actionable." Everything else in the body — the
+oracle, the verification section, the decisions, the framing prose inside
+the section itself — is context for David or for me, and never produces a
+prompt. (A legacy doc under `docs/tests/UAT/` is the same rule one heading
+level up: `### ` inside `## Steps` or `## Regression`.)
 
 Two consequences worth stating, because they are what the rule buys:
 
 - **Coverage is countable.** "7 steps and 4 regression checks" is a fact the
-  driver reads off the file, not an estimate. The acceptance roll-up in
+  driver reads off the section, not an estimate. The acceptance roll-up in
   `/uat` quantifies over exactly this list.
 - **Regression checks cannot be silently dropped.** They are steps, in the
   same list, with the same statuses. The failure that motivated this format
@@ -45,7 +71,7 @@ Two consequences worth stating, because they are what the rule buys:
 David is the slowest verifier in the system; a mechanical step that reaches
 him spends his time on something a machine does better. The lane is chosen
 when the step is written, not when the run starts; a `human` label over a
-screen fact is a doc error, and `/uat` runs that step itself rather than
+screen fact is an authoring error, and `/uat` runs that step itself rather than
 hand it to him (the rule's home: the `uat` skill, *Where the browser
 automation lives*). What an image an AI model generated shows is not a
 screen fact beyond what anyone would verify the same way; the rest is
@@ -119,7 +145,14 @@ review loop's own assessors are not checks and keep their own rules.
 A run that would cost more than $5, or take the week past $25, asks first,
 naming the paid calls and the worst-case cost; one within both proceeds, is
 never run in a loop or a series that would pass the week's total, and
-reports what it cost in the turn's spend line. A spending cap the consumer
+reports what it cost in the turn's spend line. **The week's total is read,
+never remembered** (2026-10-21, after the first build report found the $25
+had no record any session could read): each repository keeps one open issue
+labelled `paid-ai-ledger`, opened at its first paid run, and every paid run
+adds one comment to it — the date, what ran, and what it cost. Before a paid
+run, the comments from the trailing seven days are totalled; that total plus
+the run's worst case is what is held against $25. A run whose cost was not
+recorded is counted at its worst case. A spending cap the consumer
 declares bounds a run below the fleet's, never above it, and a check that
 would start a paid run is never read-only. It is never a `ci`
 check either: CI runs on every push, so nothing could keep it inside $5 a
@@ -145,7 +178,7 @@ self-contained rule above). A step
 whose heading is a judgement over a mechanical `Expect` is the shape that
 puts a screen check in front of David (Overhype.me PR #687, steps 4 and 5,
 2026-10-15); `/uat` runs such a step itself, in a real browser at the
-commit under test, and records the doc as wrong. The rule's home, with the
+commit under test, and records the script as wrong. The rule's home, with the
 run-time mechanics, is the `uat` skill, *Where the browser automation
 lives*; this paragraph is the authoring half.
 
@@ -167,35 +200,39 @@ yet. It names the issue that owns it. A deferred step is **never a pass**:
 behaviour the PR claims, the run cannot be Accepted. A deferred machine-lane
 step may omit its `**Check:**`; one it does carry (partial evidence kept for
 the owner) is validated like any other. The PR that lands #N replaces the line with
-its runnable `**Check:**` in every doc still deferring to it. A behaviour a
-*later* PR delivers has no step here at all: it belongs in the oracle's scope line, not in this doc.
+its runnable `**Check:**` in every script still deferring to it — an edit
+of the owning PR's body, one call, said on #N — and a legacy doc the same
+way, in its file. A behaviour a
+*later* PR delivers has no step here at all: it belongs in the oracle's scope line, not in this section.
 
 **Three records, never merged.** The **lane** (where and how a step is
-verified) lives in this doc. Whether the obligation is met now, deferred, or
+verified) lives in the script. Whether the obligation is met now, deferred, or
 retired — the **disposition** — is the `**Deferred:**` line or its absence.
 The **result** (what actually ran, on which commit, with what evidence) lives
-in the run record `/uat` writes, never in this doc.
+in the run record `/uat` writes on the workstream issue, never in the script.
 
 ## The template
 
-```markdown
-# PR #<N> — <Feature in David's words> — UAT
+The section sits in the PR body among the body's other sections — after the
+oracle and the Post-merge verification section is the usual place — and ends
+where the next `## ` heading begins.
 
-**Workstream:** #<issue>
+```markdown
+## UAT
 
 <One or two short paragraphs: what changed and why he cares. If he made a
 decision that a step deliberately checks, say so here so the result reads as
 his decision rather than a gap.>
 
-## Setup
+### Setup
 
 - [claude] <something I do before he starts>
 - [david] <something only his own session or device can do>
 - [restore] <what I put back when the run ends or pauses>
 
-## Steps
+### Steps
 
-### 1. <Short imperative title>
+#### 1. <Short imperative title>
 
 **Do:** <the exact action — where to click, what to type>
 
@@ -205,7 +242,7 @@ his decision rather than a gap.>
 
 **Judgement:** <what only he can judge or do, and why no machine can>
 
-### 2. <…>
+#### 2. <…>
 
 **Do:** <…>
 
@@ -215,7 +252,7 @@ his decision rather than a gap.>
 
 **Check:** `<path/to/the.test.ts>`
 
-### 3. <…>
+#### 3. <…>
 
 **Do:** <…>
 
@@ -225,11 +262,11 @@ his decision rather than a gap.>
 
 **Check:** `<path/to/capture.spec.ts:shot name>`
 
-### 4. <…>
+#### 4. <…>
 
-## Regression
+### Regression
 
-### R1. <Short title>
+#### R1. <Short title>
 
 **Do:** <…>
 
@@ -239,18 +276,19 @@ his decision rather than a gap.>
 
 **Check:** `<path/to/acceptance.spec.ts>`
 
-## Not bugs
+### Not bugs
 
 - <something that looks wrong but is out of scope or intended>
 ```
 
 ## Rules for each part
 
-**Title line.** `# PR #<N> — <Feature> — UAT`. The PR number is also in the
-filename (`PR<N>_<FEATURE>_UAT.md`, SCREAMING_SNAKE slug), and the two must
-agree.
+**The heading.** Exactly `## UAT`, once per body. The guard and the driver
+match it exactly, so `## UAT run` (the run record's heading on the
+workstream issue) and `## UAT notes` are not it. The PR's own number and
+title identify the script; it carries neither.
 
-**`## Setup`** — every line is one of exactly three tags, or `None.` on the
+**`### Setup`** — every line is one of exactly three tags, or `None.` on the
 first line, optionally followed by a sentence saying why.
 
 - **`[claude]`** — mine to execute before he starts. Seeding rows, putting
@@ -265,7 +303,7 @@ first line, optionally followed by a sentence saying why.
   captured before the write: `budget_limit_legendary_usd — restore to the
   value captured before step 1's change`.
 
-  **It must not name the value itself.** A doc is written before the run, so
+  **It must not name the value itself.** A script is written before the run, so
   it cannot know what the live setting will be; a number written here is a
   guess, and restoring a live limit to a guessed number is worse than not
   restoring it at all. The captured value belongs in the run record, which
@@ -273,11 +311,11 @@ first line, optionally followed by a sentence saying why.
   exists because the first version of this spec demanded the value, and a
   conversion duly invented one from a seed file.)
 
-**`## Steps`** — the feature under test. One `### <n>. <title>` per step,
+**`### Steps`** — the feature under test. One `#### <n>. <title>` per step,
 numbered from 1, each with exactly one **Do:**, one **Expect:** and one
 **Lane:**, plus a **Check:** for a machine lane, exactly one **Judgement:**
 for a `human` step and none on any other, and at most one **Deferred:**. For a machine-lane step, **Do:** and **Expect:** still say
-what the check does and asserts, in words, so the doc reads the same for a
+what the check does and asserts, in words, so the script reads the same for a
 human and the check's coverage can be reviewed against it.
 
 - **One action per step.** If a step needs "then also check", it is two steps.
@@ -291,7 +329,7 @@ human and the check's coverage can be reviewed against it.
   step 3 created, say so in step 4's **Do:**, because a resumed run may start
   at 4.
 
-**`## Regression`** — what must still work, unchanged by this PR. Same shape,
+**`### Regression`** — what must still work, unchanged by this PR. Same shape,
 IDs `R1…Rn`. These are steps in every sense that matters: they are presented,
 recorded, and counted toward the verdict.
 
@@ -306,30 +344,39 @@ recorded, and counted toward the verdict.
   beats padding. (Also learned the hard way: requiring a non-empty sweep made
   three conversions invent checks nobody had written.)
 
-**`## Not bugs`** — known limitations, out-of-scope oddities, anything that
+**`### Not bugs`** — known limitations, out-of-scope oddities, anything that
 looks wrong and isn't. Bullets, no steps. This is what stops David reporting
 the same non-issue twice.
 
 ## What the format deliberately does not have
 
 - **No bug-report template.** `/uat` files the bug during the run, with the
-  evidence in front of it. A template was for reading the doc alone.
+  evidence in front of it. A template was for reading the script alone.
 - **No "if something's wrong" section.** Same reason.
 - **No timings, no "~4 min" annotations.** They were always guesses and they
   age badly.
 - **No Parts, Tests, Sections, or any second naming scheme.** One list of
-  steps and one list of regression checks. If a doc feels like it needs
-  parts, it is testing two things and wants two docs.
+  steps and one list of regression checks. If a script feels like it needs
+  parts, it is testing two things and wants two PRs.
+- **No file.** The script is the PR body's `## UAT` section (above). There is
+  nothing to name after the PR number, nothing to delete when the run
+  completes, and nothing to keep drivable after it: a merged PR's body is
+  history, and the run record on the workstream issue is where the result
+  lives.
 
 ## Who writes one
 
 `pr-docs` — every feature-mode PR with product-visible behavior **in
-production phase** (a prototype-phase version ships no UAT doc; its scaled
-machine lanes and the owner's feedback are its verification —
+production phase** (a prototype-phase version ships no UAT section; its
+scaled machine lanes and the owner's feedback are its verification —
 [`working-modes.md`](../ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26),
-*What prototype phase keeps of verification*), PR-first, on the same PR
-before merge, with the checks for its machine-lane steps written
-in that same PR. See [`pr-docs`](../../.claude/skills/pr-docs/SKILL.md).
+*What prototype phase keeps of verification*), in the PR body before the
+PR opens, with the checks for its machine-lane steps written in that same
+PR; a Tier B bugfix with product-visible behaviour writes one the same way
+(`bugfix`, step 3). The workstream issue's State of Play names the PR as
+carrying the UAT, which is where `/uat` reads the script from once the
+`stage:uat` label says a run is owed — the label discovers the run, the
+field locates the script. See [`pr-docs`](../../.claude/skills/pr-docs/SKILL.md).
 `/uat` **consumes** this format and never authors it.
 
 ## The guard
@@ -338,13 +385,30 @@ in that same PR. See [`pr-docs`](../../.claude/skills/pr-docs/SKILL.md).
 lane per step, a backticked check for every non-deferred machine-lane step,
 every supplied check non-empty and backticked with any cited file existing,
 deferred or not, an owner on every deferral, and exactly one non-empty
-`**Judgement:**` on every `human` step and none on any other lane. It checks formatting and
-file existence only — not that a named test exists in the file, not
-whether a cited check really asserts what the step expects, and not whether
-a `Judgement` is true; that stays with review.
+`**Judgement:**` on every `human` step and none on any other lane. It checks
+formatting and file existence only — not that a named test exists in the
+file, not whether a cited check really asserts what the step expects, and
+not whether a `Judgement` is true; that stays with review.
 
-**A UAT doc is deleted when David confirms its run is complete** (David,
-2026-08-22) — by `/uat`, in the same close-out, unless it carries behavior
-recorded nowhere else, which gets harvested into the Manual first. A surviving
-file in `docs/tests/UAT/` therefore means the run is still owed, which is why
-the format has to stay drivable for as long as the file lives.
+**It reads the PR body.** In CI it takes the body from the `pull_request`
+event payload (`GITHUB_EVENT_PATH`) and checks cited files against the
+checkout; locally and in its tests, `--body-file <file>`. A run that is not
+a pull request event has no body and passes, saying so; a run with no
+source at all refuses, since a guard that reports success having evaluated
+nothing is the worst available failure. A body with no `## UAT` section
+passes: whether one is owed is `pr-docs`' and `pr-watch`'s judgement, and
+a docs PR, a Tier A fix and a prototype-phase PR all owe none. **The
+consumer's workflow lists `edited` among its `pull_request` trigger types**,
+so an edit to the body after the last push re-runs the guard on the head
+that would merge; without it the guard's last verdict is the body as of the
+last push. After the merge nothing polices the section again — a merged
+body is history, and the run record on the workstream issue holds what was
+actually run.
+
+**Nothing is deleted when a run completes.** Until 2026-10-21 the file was
+deleted on David's confirmation, so a surviving file meant a run still owed;
+the workstream's `stage:uat` label carries that state now, and `/uat`
+discovers runs from it. A legacy doc still in `docs/tests/UAT/` keeps the
+old rule — driven from the file, deleted by `/uat` when its run completes
+— and the guard no longer reads that directory: its citations are checked
+at run time, where a missing check Blocks the step.

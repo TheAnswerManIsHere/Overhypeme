@@ -758,7 +758,7 @@ never infers the ask. A UI or UX fix on a prototype is one of those versions.
 
 **What prototype phase removes.** For a PR that touches only prototype-phase
 features: no code-review loop of any kind (no requested Codex round, no
-shared judgement), no `/simplify`, no UAT doc, and none of
+shared judgement), no `/simplify`, no UAT section, and none of
 security, performance, observability or documentation as a bar — *"We must
 not care about security, performance, observability, documentation, etc.
 until we've locked a design and the feature spec."* and *"I don't care about
@@ -838,7 +838,7 @@ defect whenever it is found (David, 2026-10-20). They are the
 agent's proof that the version works; they are not a review bar, and no
 failing check starts a hardening fix — the repair is to the prototype, at
 its depth, never a production-bar fix. **The human lane is the owner's feedback through the rail,
-never a UAT script**: a prototype ships no UAT doc, and David's time goes to
+never a UAT script**: a prototype ships no UAT section, and David's time goes to
 the question the prototype asks and to nothing a machine could answer — and
 what an AI-generated image shows, beyond what anyone would verify the same
 way, is his, never a machine lane's
@@ -1543,14 +1543,16 @@ workflows).
 
 Fix + regression test + one commit + PR, with the bugfix oracle and blast-radius
 note below. Verification lives in the PR body ("how to verify" steps), which is
-the miniature UAT. No separate docs.
+the miniature UAT. No `## UAT` section.
 
 ### Tier B — elevated fix
 
 Everything in Tier A, plus:
 
-- **A real UAT doc** (`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`) — the
-  acceptance script, written to the lane rules
+- **A real UAT section** (the PR body's `## UAT`,
+  [`uat-doc-format.md`](../tests/uat-doc-format.md); a file under
+  `docs/tests/UAT/` until 2026-10-21) — the acceptance script, written to
+  the lane rules
   ([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07):
   a screen fact is a machine-lane step — an assertion, or a `capture` read
   when only pixels hold it — and David's share is the judgement residue), so his product-verification net is restored for exactly the
@@ -1573,14 +1575,14 @@ Everything in Tier A, plus:
   names no model itself because this file binds Codex too, which cannot
   choose a Claude model.
 
-**Internal/infra-only exception on the UAT doc.** The test is **whether the
+**Internal/infra-only exception on the UAT section.** The test is **whether the
 fix has any product-visible behavior at all — not which Q1/Q2 trigger(s)
 fired.** A CI-workflow or dev-supervisor fix routinely trips a Q2 shape
 trigger too (a retry predicate, a dedupe condition) without gaining any
 in-app surface, so gating the exception on "the only trigger was Q1" would
 disqualify exactly the fixes it's meant to cover. If nothing about the fix is
 product-visible, ship a written verification note in the PR body instead of
-a click-through UAT doc, regardless of how many or which triggers fired —
+a click-through UAT section, regardless of how many or which triggers fired —
 the same ship-the-UI-surface exception feature mode already grants pure
 infra/refactor changes (see
 [`../tests/TESTING.md`](../tests/TESTING.md) and
@@ -1695,7 +1697,7 @@ oracle and the Tier A/B bugfix oracle below.
    a [`known-failure-patterns.md`](./known-failure-patterns.md) entry, a
    CI-guard candidate (the standing recurring-failure-patterns rule), or a
    one-line `/document` nudge to David. Tier A fixes especially — with no
-   plan and no UAT doc, the merge is the only moment their learning exists
+   plan and no UAT section, the merge is the only moment their learning exists
    anywhere but the diff.
 
 > **Narrow carve-out on step 3:** if a fix is genuinely untestable at reasonable
@@ -1755,7 +1757,7 @@ this miss a caller?*
 - No plan file, no pre-plan ceremony, no plan-review loop.
 - No forced "ship a new UI surface" gate for a pure fix (include UI only if the fix
   genuinely needs it to be testable).
-- No UAT doc and no post-merge verification checks on **Tier A**. On
+- No UAT section and no post-merge verification checks on **Tier A**. On
   **Tier B**, a UAT ships only if the fix has product-visible behavior (a
   written verification note otherwise — see the internal/infra-only
   exception above), and the PR-body verification section gets real content
