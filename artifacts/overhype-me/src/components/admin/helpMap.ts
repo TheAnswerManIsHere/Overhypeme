@@ -43,7 +43,6 @@ export const ADMIN_HELP_MAP: Record<string, HelpTarget> = {
   "/admin/eval": { chapter: "5-visual-pipeline" },
   "/admin/billing": { chapter: "10-payments-and-membership", anchor: "for-the-admin" },
   "/admin/refunds-disputes": { chapter: "10-payments-and-membership", anchor: "for-the-admin" },
-  "/admin/affiliate": { chapter: "7-public-site-and-sharing", anchor: "turning-a-meme-into-merch" },
   // Engines, Features and Configuration genuinely share one section — that is
   // what the Manual currently covers them under, not a mapping shortcut.
   "/admin/engines": { chapter: "11-admin-console", anchor: "tuning-how-the-product-behaves" },

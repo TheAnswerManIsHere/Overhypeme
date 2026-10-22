@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, UserCircle, Crown, CalendarDays } from "lucide-react";
+import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShieldOff, UserCircle, Crown, CalendarDays } from "lucide-react";
 import { selectPlanPrices, type StripePlan } from "./pricingPlans";
 
 // Pricing framing: Free is the whole loop (browse, vote, submit, make and share
@@ -19,7 +19,6 @@ const FREE_FEATURES = [
   { icon: <UserCircle className="w-4 h-4" />,    text: "Profile Photo (your face, reused everywhere)" },
   { icon: <Image className="w-4 h-4" />,         text: "Photo Memes of You (your face on meme templates)" },
   { icon: <Share2 className="w-4 h-4" />,        text: "Share Memes" },
-  { icon: <ShoppingBag className="w-4 h-4" />,   text: "Purchase Meme Merch" },
 ];
 
 const LEGENDARY_FEATURES = [

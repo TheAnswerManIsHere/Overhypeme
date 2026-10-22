@@ -171,21 +171,21 @@ describe("CTABarAnonOwnTransient", () => {
 });
 
 describe("CTABarOwn", () => {
-  it("download and custom share are primary, merch secondary; no PuLID turn-up and no upsell (removal 3)", () => {
+  it("offers download and custom share only: no merch (removal 4), no PuLID turn-up and no upsell (removal 3)", () => {
     const onDownload = vi.fn();
     const onCustomShare = vi.fn();
     renderWithRouter(
       <CTABarOwn
         onDownload={onDownload}
         onCustomShare={onCustomShare}
-        wearHref="/wear/abc?source=meme-page"
       />,
     );
     fireEvent.click(screen.getByTestId("own-download"));
     fireEvent.click(screen.getByTestId("own-custom-share"));
     expect(onDownload).toHaveBeenCalledOnce();
     expect(onCustomShare).toHaveBeenCalledOnce();
-    expect(screen.getByTestId("merch-wear")).toBeTruthy();
+    expect(screen.queryByTestId("merch-wear")).toBeNull();
+    expect(screen.queryByText(/wear this meme/i)).toBeNull();
     expect(screen.queryByTestId("turn-up-to-11")).toBeNull();
     expect(screen.queryByTestId("legendary-upsell")).toBeNull();
     expect(screen.queryByTestId("make-this-about-me")).toBeNull();

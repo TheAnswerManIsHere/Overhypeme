@@ -18,7 +18,7 @@ export interface MemeVisibility {
  *
  * The single source of truth for meme visibility, shared by every surface that
  * resolves a meme by slug/id (detail JSON, rendered image, OG shell, share
- * copy/intents, Zazzle export). Callers MUST:
+ * copy/intents). Callers MUST:
  *   - return **404** (not 403) to non-viewers, so a private meme's existence is
  *     not disclosed, and
  *   - keep private responses out of the public/edge cache (`no-store`), so the

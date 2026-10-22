@@ -161,7 +161,6 @@ export default function MemePage() {
     justCreated,
   });
 
-  const wearHref = `/wear/${slug}?source=meme-page`;
   const initialStockImageId =
     meme.imageSource?.type === "stock" && typeof meme.imageSource.pexelsPhotoId === "number"
       ? String(meme.imageSource.pexelsPhotoId)
@@ -238,7 +237,6 @@ export default function MemePage() {
         <CTABarOwn
           onDownload={handleDownload}
           onCustomShare={handleCustomShare}
-          wearHref={wearHref}
         />
       );
       break;

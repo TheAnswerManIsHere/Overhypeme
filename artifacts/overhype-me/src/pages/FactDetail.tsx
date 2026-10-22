@@ -458,9 +458,8 @@ export default function FactDetail() {
                         alt="Meme"
                         href={`/m/${meme.permalinkSlug}`}
                         aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                        actions={isMyMeme ? ["delete", "copyLink", "openFull", "makeMerch"] : ["copyLink", "openFull", "makeMerch"]}
+                        actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
                         onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
-                        zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?source=fact-detail&returnUrl=${encodeURIComponent(window.location.href)}`}
                         deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                         permalink={memePermalink}
                         footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}

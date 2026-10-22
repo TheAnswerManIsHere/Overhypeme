@@ -7,18 +7,6 @@
  */
 
 export * from "./addCommentRequest";
-export * from "./affiliateClickRequest";
-export * from "./affiliateClickRequestDestination";
-export * from "./affiliateClickRequestSourceType";
-export * from "./affiliateClickResponse";
-export * from "./affiliateClickRow";
-export * from "./affiliateClickRowDestination";
-export * from "./affiliateClickRowSourceType";
-export * from "./affiliateDestinationTotal";
-export * from "./affiliateDestinationTotalDestination";
-export * from "./affiliateSourceDailyPoint";
-export * from "./affiliateSourceTotal";
-export * from "./affiliateStatsResponse";
 export * from "./authorizationSessionHeaderParameter";
 export * from "./authUser";
 export * from "./authUserEnvelope";
@@ -49,7 +37,6 @@ export * from "./factSummary";
 export * from "./factSummaryUserRating";
 export * from "./getAdminFlaggedComments200";
 export * from "./getAdminFlaggedComments200CommentsItem";
-export * from "./getAffiliateStatsParams";
 export * from "./getHeroFactParams";
 export * from "./handleBrowserLoginCallbackParams";
 export * from "./hashtag";

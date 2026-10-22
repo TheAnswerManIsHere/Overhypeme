@@ -374,11 +374,6 @@ export default function AdminDashboard() {
               </a>
             </li>
             <li>
-              <a href="/admin/affiliate" className="text-primary hover:underline">
-                → Affiliate click-throughs
-              </a>
-            </li>
-            <li>
               <a href="/admin/billing" className="text-primary hover:underline">
                 → Billing overview
               </a>

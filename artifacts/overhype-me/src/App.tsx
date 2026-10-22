@@ -26,7 +26,6 @@ const AdminFacts = lazy(() => import("@/pages/admin/facts"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminBilling = lazy(() => import("@/pages/admin/billing"));
 const AdminRefundsDisputes = lazy(() => import("@/pages/admin/refundsDisputes"));
-const AdminAffiliate = lazy(() => import("@/pages/admin/affiliate"));
 const AdminModeration = lazy(() => import("@/pages/admin/moderation"));
 const AdminEvalDashboard = lazy(() => import("@/pages/admin/evalDashboard"));
 const AdminConfig = lazy(() => import("@/pages/admin/config"));
@@ -45,7 +44,6 @@ const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
 const TopFacts = lazy(() => import("@/pages/TopFacts"));
 const Library = lazy(() => import("@/pages/Library"));
-const WearIt = lazy(() => import("@/pages/WearIt"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -178,7 +176,6 @@ const ROUTE_IMPORT_MAP: Record<string, () => Promise<unknown>> = {
   meme:     () => import("@/pages/MemePage"),
   pricing:      () => import("@/pages/Pricing"),
   "top-facts": () => import("@/pages/TopFacts"),
-  "wear":         () => import("@/pages/WearIt"),
 };
 
 /** Route keys used when no visit data has been recorded yet. */
@@ -340,7 +337,6 @@ function Router() {
         <Route path="/admin/eval" component={AdminEvalDashboard} />
         <Route path="/admin/comments"><AdminModerationRedirect /></Route>
         <Route path="/admin/reviews"><AdminModerationRedirect /></Route>
-        <Route path="/admin/affiliate" component={AdminAffiliate} />
         <Route path="/admin/config" component={AdminConfig} />
         <Route path="/admin/engines" component={AdminEngines} />
         <Route path="/admin/taxonomy-health" component={AdminTaxonomyHealth} />
@@ -355,7 +351,6 @@ function Router() {
         <Route path="/library" component={Library} />
         <Route path="/hall-of-fame"><HallOfFameRedirect /></Route>
         <Route path="/activity" component={ActivityFeed} />
-        <Route path="/wear/:slug?" component={WearIt} />
         <Route path="/m/:slug" component={MemePage} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />

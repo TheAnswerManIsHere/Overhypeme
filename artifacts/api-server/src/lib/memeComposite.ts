@@ -115,7 +115,8 @@ export interface StoredMemeCreatorRow {
  * the literal `{NAME}` in the finished image. Both must be personalised with
  * the SAME identity — which is why this lives in one helper rather than being
  * re-derived at each render endpoint (`/memes/:slug/image` and the two Zazzle
- * exports each had their own copy, and each had the same hole).
+ * exports, deleted with merch in launch Phase 4, each had their own copy, and
+ * each had the same hole).
  *
  * When the creator is gone (deleted/inactive user, or an anonymous meme) the
  * caption falls back to the fact's canonical rendering, and the split halves

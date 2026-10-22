@@ -412,6 +412,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // retires PuLID's engine, pricing, config and feature rows. No DDL, so there
   // is no schema change for a snapshot to record.
   "0104_retire_pulid",
+
+  // Launch Phase 4, removal 4 (#744): a hand-authored data-only migration that
+  // deletes the Zazzle settings. No DDL, so there is no schema change for a
+  // snapshot to record.
+  "0105_retire_zazzle",
 ]);
 
 interface JournalEntry {

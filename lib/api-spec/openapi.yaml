@@ -28,8 +28,6 @@ tags:
     description: User profile operations
   - name: memes
     description: Meme generator and permalink operations
-  - name: affiliate
-    description: Affiliate click-through tracking and admin stats
   - name: Storage
     description: Object storage upload and serving endpoints.
 paths:
@@ -950,69 +948,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/MemeListResponse"
 
-  /affiliate/click:
-    post:
-      operationId: logAffiliateClick
-      tags: [affiliate]
-      summary: Log an affiliate click and get the destination URL
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AffiliateClickRequest"
-      responses:
-        "200":
-          description: Affiliate redirect URL
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AffiliateClickResponse"
-        "400":
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
-  /affiliate/stats:
-    get:
-      operationId: getAffiliateStats
-      tags: [affiliate]
-      summary: Get affiliate click stats (admin only)
-      parameters:
-        - name: from
-          in: query
-          required: false
-          schema:
-            type: string
-          description: "Filter clicks from this date, inclusive (YYYY-MM-DD)"
-        - name: to
-          in: query
-          required: false
-          schema:
-            type: string
-          description: "Filter clicks up to this date, inclusive (YYYY-MM-DD)"
-      responses:
-        "200":
-          description: Affiliate click stats
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AffiliateStatsResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Forbidden — admin only
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
   /admin/import/facts:
     post:
       operationId: bulkImportFacts
@@ -1241,114 +1176,6 @@ components:
           type: integer
         matchingFactText:
           type: string
-
-    AffiliateClickRequest:
-      type: object
-      required: [sourceType, sourceId, destination, text]
-      properties:
-        sourceType:
-          type: string
-          enum: [fact, meme]
-        sourceId:
-          type: string
-        destination:
-          type: string
-          enum: [zazzle]
-        text:
-          type: string
-        imageUrl:
-          type: string
-          nullable: true
-        returnUrl:
-          type: string
-          nullable: true
-          description: The page URL where the user clicked "Make Merch", passed as continueUrl to Zazzle.
-
-    AffiliateClickResponse:
-      type: object
-      required: [url]
-      properties:
-        url:
-          type: string
-          format: uri
-
-    AffiliateClickRow:
-      type: object
-      required: [sourceType, sourceId, destination, source, clicks, lastClicked]
-      properties:
-        sourceType:
-          type: string
-          enum: [fact, meme]
-        sourceId:
-          type: string
-        destination:
-          type: string
-          enum: [zazzle]
-        source:
-          type: string
-          nullable: true
-          description: Where in the product the click originated (e.g. "meme-page", "wear-page", "fact-detail"). Null for legacy rows.
-        clicks:
-          type: integer
-        lastClicked:
-          type: string
-          format: date-time
-
-    AffiliateDestinationTotal:
-      type: object
-      required: [destination, total]
-      properties:
-        destination:
-          type: string
-          enum: [zazzle]
-        total:
-          type: integer
-
-    AffiliateSourceTotal:
-      type: object
-      required: [source, total]
-      properties:
-        source:
-          type: string
-          nullable: true
-        total:
-          type: integer
-
-    AffiliateSourceDailyPoint:
-      type: object
-      required: [source, day, total]
-      properties:
-        source:
-          type: string
-          nullable: true
-        day:
-          type: string
-          format: date
-          description: UTC calendar day for this bucket (YYYY-MM-DD).
-        total:
-          type: integer
-
-    AffiliateStatsResponse:
-      type: object
-      required: [rows, totals, bySource, bySourceDaily]
-      properties:
-        rows:
-          type: array
-          items:
-            $ref: "#/components/schemas/AffiliateClickRow"
-        totals:
-          type: array
-          items:
-            $ref: "#/components/schemas/AffiliateDestinationTotal"
-        bySource:
-          type: array
-          items:
-            $ref: "#/components/schemas/AffiliateSourceTotal"
-        bySourceDaily:
-          type: array
-          description: Daily click counts bucketed by `source`, ordered by day ascending.
-          items:
-            $ref: "#/components/schemas/AffiliateSourceDailyPoint"
 
     ErrorEnvelope:
       type: object
@@ -1599,8 +1426,8 @@ components:
           nullable: true
         emailVerified:
           type: boolean
-        # Billing/fulfillment fields: used for Stripe customer name on invoices
-        # and Zazzle order personalization. Distinct from displayName.
+        # Billing fields: used for Stripe customer name on invoices. Distinct
+        # from displayName.
         firstName:
           type: string
           nullable: true
@@ -1710,8 +1537,8 @@ components:
           type: string
           minLength: 1
           maxLength: 80
-        # Billing/fulfillment fields: used for Stripe customer name on invoices
-        # and Zazzle order personalization. Distinct from displayName.
+        # Billing fields: used for Stripe customer name on invoices. Distinct
+        # from displayName.
         firstName:
           type: string
           maxLength: 80
