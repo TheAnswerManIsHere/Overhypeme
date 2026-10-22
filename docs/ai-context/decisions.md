@@ -99,6 +99,9 @@
   same ground.
 - **Revisit if:** the legacy studio is revived, or the wizard is wired to
   one of those routes.
+  (2026-10-22: the studio is deleted; `POST /memes/ai/:factId/generate` was
+  not studio-only, since the meme page's remix builder calls it, and it
+  survives photo-only until PuLID goes. See the 2026-10-22 entry above.)
 
 ### 2026-10-17 · Acceptance journeys 5 and 6 are removed with the legacy studio
 - **Decision:** journeys 5 (a free account refused paid generation) and 6 (a
