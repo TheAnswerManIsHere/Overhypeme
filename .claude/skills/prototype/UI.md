@@ -17,7 +17,7 @@
 > read-only `live` check where the claim needs the deployed environment —
 > scaled, with the timing per regime in *What prototype phase keeps of
 > verification* in the same home (David, 2026-10-10); a check that would start
-> a paid AI run runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*).
+> a paid AI run runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*).
 
 Generate **several radically different UI variations** on a single route, switchable from a floating bottom bar. The user flips between variants in the browser, picks one (or steals bits from each), then throws the rest away.
 

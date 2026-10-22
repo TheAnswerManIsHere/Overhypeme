@@ -93,8 +93,9 @@ one that has repeatedly caught what nobody else did.
   real and often correct answer**; never pad it, never suppress an item.
 - **`spend`** — quoted as found: the `Spend so far` line from the issue, or
   from the private source when the brief carries one, and the
-  paid AI runs in the seven days before **until** from the repository's open
-  issue labelled `paid-ai-ledger` (one comment per run), totalled. `null`
+  paid AI runs in the seven days before **until** from the fleet's open
+  issue labelled `paid-ai-ledger`, in the repository the brief names (one
+  comment per run, in any product), totalled across every product. `null`
   when the line or the ledger is not there; never an estimate.
 - **`where_we_are`** — against the plan or agreed scope the issue records:
   what was planned, what this unit leaves finished, and the next unit.
@@ -110,9 +111,10 @@ one that has repeatedly caught what nobody else did.
   context. `null`, never prose, when you cannot tell: any string is relayed
   as a model name.
 
-**The session line is not yours.** Whether this session should continue or
-hand off depends on the builder's own context, which you cannot see; the
-builder states it under its own label. Do not write about it.
+**The session line is not yours.** Whether this session should continue,
+hand off or be archived depends on the builder's own context, which you
+cannot see; the builder states it under its own label. Do not write about
+it.
 
 **Write the answer to the path in your brief, as a single JSON object, and
 nothing else in that file.** Do not rely on your closing message reaching
@@ -166,8 +168,10 @@ Load your tools first if they are not already available: `ToolSearch` with
    brief's: nothing after the head is in reach, and nothing at or before
    `since` is this version's. `main` is merged into the branch from time to
    time; commits that arrived by such a merge are not this version's work.
-4. **The paid-run ledger**: `list_issues` with label `paid-ai-ledger`, state
-   open; then `issue_read` `get_comments` on it.
+4. **The paid-run ledger**: `list_issues` on the ledger repository the
+   brief names, with label `paid-ai-ledger`, state open; then `issue_read`
+   `get_comments` on it. It is the fleet's one ledger, so it may sit in a
+   different repository from the unit.
 
 **Nothing after `until` is in your unit.** Activity that lands while you read
 belongs to a later report.

@@ -147,16 +147,24 @@ naming the paid calls and the worst-case cost; one within both proceeds, is
 never run in a loop or a series that would pass the week's total, and
 reports what it cost in the turn's spend line. **The week's total is read,
 never remembered** (2026-10-21, after the first build report found the $25
-had no record any session could read): each repository keeps one open issue
-labelled `paid-ai-ledger`, opened at its first paid run, and every paid run
-adds one comment to it — the date, what ran, and what it cost. Before a paid
-run, the comments from the trailing seven days are totalled; that total plus
-the run's worst case is what is held against $25. A run whose cost was not
-recorded is counted at its worst case. A spending cap the consumer
+had no record any session could read). **The $25 is one total across every
+product** (David, 2026-10-22: *"$25/week is across all products."*), so there
+is **one ledger for the fleet**: an open issue in the handbook's repository
+(`PAID_RUN_LEDGER_REPO` in `machinery.mjs`) labelled `paid-ai-ledger`, opened
+at the fleet's first paid run, and every paid run in any product adds one
+comment to it — the date, the product, what ran, and what it cost, under the
+disclosure check, since that repository is public. Before a paid run, every
+comment from the trailing seven days is totalled, whichever product it
+names; that total plus the run's worst case is what is held against $25. A
+run whose cost was not recorded is counted at its worst case. A session
+whose GitHub access does not reach the handbook attaches it (`add_repo`,
+push access, since it writes the comment) before the run; one that still
+cannot read the ledger cannot know the week's total, so the run asks first,
+as one above the budget would. A spending cap the consumer
 declares bounds a run below the fleet's, never above it, and a check that
 would start a paid run is never read-only. It is never a `ci`
 check either: CI runs on every push, so nothing could keep it inside $5 a
-run or $25 a week.
+run or $25 a week across every product.
 Checks that start no paid run carry on as their lane says.
 
 **A step is `human` only when no machine can answer it** — or when it

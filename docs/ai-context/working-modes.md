@@ -821,7 +821,7 @@ owner is asked for feedback**, so a failing one is a version that is not yet
 ready, said so in the report, and the owner is not yet asked. A check that
 would start a paid AI run is never a `ci` check, and in `scripted` or `live`
 it is not read-only and runs within David's paid-run budget — $5 a run, $25
-a week — and only on his go-ahead above it, never in a loop that would pass
+a week across every product — and only on his go-ahead above it, never in a loop that would pass
 the week's total ([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)). **A failing
 machine check is repaired by the agent, before the owner is asked**: a
 further commit of the same version at prototype depth — a `ci` or `scripted`

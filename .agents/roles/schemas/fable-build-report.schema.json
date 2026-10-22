@@ -70,10 +70,10 @@
     },
     "spend": {
       "type": "object",
-      "description": "Read from the workstream issue's State of Play (or the private source the brief carries) and the repository's paid-run ledger issue, quoted as found. null in a field means the line was not there.",
+      "description": "Read from the workstream issue's State of Play (or the private source the brief carries) and the fleet's paid-run ledger issue in the handbook's repository, quoted as found. null in a field means the line was not there.",
       "properties": {
         "build_total": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "The 'Spend so far' line, as written, from the workstream issue or from the private source when the brief carries one." },
-        "paid_runs_this_week": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "The paid AI runs in the trailing seven days from the ledger issue, totalled, or null when there is no ledger issue." }
+        "paid_runs_this_week": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "The paid AI runs in the trailing seven days from the fleet ledger issue, totalled across every product, or null when there is no ledger issue." }
       },
       "required": ["build_total", "paid_runs_this_week"],
       "additionalProperties": false

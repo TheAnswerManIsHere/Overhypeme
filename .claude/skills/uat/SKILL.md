@@ -194,11 +194,11 @@ is the script-wrong case below, never a check to run early:
   worktree at the commit under test** (or dispatch the on-demand workflow on
   that commit), or read evidence recorded for that commit, and keep the
   output with the commit it ran at. Output from any other checkout is not
-  evidence, however recent. One that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it, as a paid capture does (below).
+  evidence, however recent. One that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it, as a paid capture does (below).
 - **`live`** — I run the cited check through the live-environment connector,
   **read-only, always**, after confirming the Repl's synced commit is the
   commit under test, and quote what it printed. A check that would start a
-  paid AI run is not read-only: it runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it, as a
+  paid AI run is not read-only: it runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it, as a
   paid capture does (below). State a check needs is a
   Setup `[claude]` line with its `[restore]` (section 2); a probe whose
   refusal is the thing tested writes nothing and is not a write.
@@ -222,11 +222,11 @@ is the script-wrong case below, never a check to run early:
   that reading: a shot that was not produced, or that I cannot read, is
   Blocked, never Pass; a reading that contradicts the `Expect` is a Fail,
   filed before he sees anything (section 4). **A capture that needs a paid
-  vendor runs within David's paid-run budget — $5 a run, $25 a week** — as
+  vendor runs within David's paid-run budget — $5 a run, $25 a week across every product** — as
   does any check, in any lane, that would start a paid AI run (David,
   2026-10-17, who set the budget small for that reason; `uat-doc-format.md`,
   *Lanes*): within it the capture runs, inside the cap the declaration names,
-  and its cost goes in the run record and on the run's spend line. One above
+  and its cost goes in the run record, on the run's spend line and as a comment on the fleet's paid-run ledger, which is read before the run. One above
   it asks, naming the PR, the paid calls and the worst-case cost, and its
   steps are Blocked on him until he answers, or he answers the judgement
   steps from an image he makes himself in the product. A consumer with no such declaration has no
@@ -657,7 +657,7 @@ that is three places:
 **Once a step is fully scriptable, UAT is usually the wrong home for it.** It
 belongs in CI or in the PR's post-merge verification, where it runs on every
 change forever instead of once — unless it calls a paid AI vendor, which
-runs within David's paid-run budget — $5 a run, $25 a week — and asks him only above it (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
+runs within David's paid-run budget — $5 a run, $25 a week across every product — and asks him only above it (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
 steps out of UAT into the layers that already exist — and scripting whatever
 live-app checks are left over.
 

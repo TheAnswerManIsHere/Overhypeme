@@ -229,8 +229,8 @@ approval — and is outside it for later versions unless he asks; no version
 gets a code-review loop, and after the first the only feedback that changes
 it is the product owner's — after the version's scaled machine lanes have
 passed, any failing one repaired by the agent first, any that would start a
-paid AI run within David's per-run and weekly budget (`uat-doc-format.md`,
-*Lanes*), and with one fix owed whoever finds it, Codex's automatic pass
+paid AI run within David's per-run and weekly budget, the weekly one across
+every product (`uat-doc-format.md`, *Lanes*), and with one fix owed whoever finds it, Codex's automatic pass
 included: a defect that stops the built feature running and producing
 reasonable output (David, 2026-10-20)
 ([`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
