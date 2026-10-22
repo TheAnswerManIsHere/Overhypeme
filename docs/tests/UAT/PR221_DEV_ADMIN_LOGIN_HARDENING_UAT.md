@@ -42,7 +42,7 @@ triple-tap the **wordmark** (the "overhype.me" logo in the top bar).
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — grants when enabled (non-prod preview)`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
+**Deferred:** #628 — Phase 15 (Security hardening) — the dev admin login backdoor and its wordmark triple-tap stay through Phase 4 and are redesigned in Phase 15 as a safe, easy admin entry (David, 2026-10-21; `docs/ai-context/decisions.md`), so the browser gesture is not scripted now
 
 ### 2. Triple-tap does nothing when the secret is unset
 
@@ -56,7 +56,7 @@ the fail-closed default.
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — inert when disabled`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
+**Deferred:** #628 — Phase 15 (Security hardening) — the dev admin login backdoor and its wordmark triple-tap stay through Phase 4 and are redesigned in Phase 15 as a safe, easy admin entry (David, 2026-10-21; `docs/ai-context/decisions.md`), so the browser gesture is not scripted now
 
 ### 3. Triple-tap does nothing in production, regardless
 
@@ -69,7 +69,7 @@ reachable there. (To be admin in production, use a real admin login.)
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set` `artifacts/overhype-me/e2e/authJourney.spec.ts`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
+**Deferred:** #628 — Phase 15 (Security hardening) — the dev admin login backdoor and its wordmark triple-tap stay through Phase 4 and are redesigned in Phase 15 as a safe, easy admin entry (David, 2026-10-21; `docs/ai-context/decisions.md`), so the browser gesture is not scripted now
 
 ## Regression
 
@@ -84,7 +84,7 @@ triple-tap the wordmark.
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — grants when enabled (non-prod preview)`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
+**Deferred:** #628 — Phase 15 (Security hardening) — the dev admin login backdoor and its wordmark triple-tap stay through Phase 4 and are redesigned in Phase 15 as a safe, easy admin entry (David, 2026-10-21; `docs/ai-context/decisions.md`), so the browser gesture is not scripted now
 
 ### R2. Preview with the secret unset does nothing
 
@@ -97,7 +97,7 @@ triple-tap the wordmark.
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:dev-admin-login route — inert when disabled`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
+**Deferred:** #628 — Phase 15 (Security hardening) — the dev admin login backdoor and its wordmark triple-tap stay through Phase 4 and are redesigned in Phase 15 as a safe, easy admin entry (David, 2026-10-21; `docs/ai-context/decisions.md`), so the browser gesture is not scripted now
 
 ### R3. Production deploy does nothing regardless of the variable
 
@@ -110,7 +110,7 @@ env var is set to.
 
 **Check:** `artifacts/api-server/src/__tests__/localAuth.devAdminLogin.security.test.ts:stays disabled in production even when the flag is set` `artifacts/overhype-me/e2e/authJourney.spec.ts`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — the dev admin login backdoor and its wordmark triple-tap are removed for launch (David, 2026-10-14), so the browser gesture is not scripted
+**Deferred:** #628 — Phase 15 (Security hardening) — the dev admin login backdoor and its wordmark triple-tap stay through Phase 4 and are redesigned in Phase 15 as a safe, easy admin entry (David, 2026-10-21; `docs/ai-context/decisions.md`), so the browser gesture is not scripted now
 
 ### R4. Normal login is unaffected
 

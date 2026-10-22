@@ -495,7 +495,8 @@ requires it.
    a merge, and never holds one: it is off the critical path by design.
 
    **The deliverable is a message in chat and the same text as a comment on
-   the workstream issue. There is no page** (David, 2026-09-16). There was
+   the workstream issue — chat only on the private path (step 4). There is
+   no page** (David, 2026-09-16). There was
    one, and #109 round 3 found it was HTML written to a gitignored path: a
    delivery nobody could open. **Do not rebuild it** — not an Artifact, not
    an HTML file, not a receipt store, not a link.
@@ -508,15 +509,25 @@ requires it.
       or for a branch-regime prototype version
       `--branch prototype/<feature> --since <sha> --head <sha>` in place of
       the PRs: `--since` is the previous version's head, read off the
-      *Evidence* line of that version's build report on the issue, or the
-      branch's base for the first version. Add `--private yes` when the
+      *Evidence* line of that version's build report — on the issue, or,
+      on the private path, in the private item, which David relays — or
+      the branch's base for the first version. Add `--private yes` when the
       workstream's plan took the private path. The unit's slug names the
       answer file (`pr-231`, `ingest-v2`). Preparing clears any earlier
       attempt's answer and coordinates, so a re-dispatch that writes nothing
-      reads as a failure, never as its predecessor. **A workstream with no
-      public issue** — on the private path from the start — has no build
-      report yet, and `brief` refuses it by name: write the unit up myself,
-      labelled as my own account, in chat only (a recorded gap, #227).
+      reads as a failure, never as its predecessor. **A workstream whose
+      plan is on a private draft Project item** — no public issue at all, or
+      one that turned sensitive and keeps only sanitized tracking — is
+      reported from **the item's text, relayed by David** (#227): the item
+      is write-only to agents, so I ask him to paste it (the plan, the
+      decisions taken on recommendation, the *Spend so far* line), write it
+      to the scratchpad, never the repository, and pass `--private-source
+      <file>` with `--private-ref <the item's reference>`, in place of
+      `--issue` or beside a sanitized one. `brief` refuses a source inside
+      the checkout, quotes it inline under its provenance, and marks the
+      unit private. The role still reads the PRs or branch from GitHub
+      itself; only the plan side is relayed. With no issue and no source,
+      `brief` refuses by name and says to ask for the relay.
    2. **Dispatch `fable-build-report`** with `model:` set to the pin's alias
       (`dispatchModel().agentModel`, which is `fable` today), and **the
       printed brief as the whole prompt**. The role holds no file-reading
@@ -537,8 +548,10 @@ requires it.
       `node <dir>/build-report.mjs report --unit <slug> --session continue|"hand off" --session-why "<one clause>"`,
       in chat and as a comment on the workstream issue, and say nothing else
       about the unit. **A private-path unit's report goes in chat only**,
-      never as an issue comment, and the report says so at its top: the
-      role writes a plain account of the diff, which is what the canonical
+      never as an issue comment, and the report says so at its top, asking
+      David to paste it into the private item, which is where it is kept:
+      the role writes a plain account of the diff, and from a relayed
+      source the restricted plan too, which is what the canonical
       disclosure check keeps off GitHub (`workstream-tracking.md`,
       *Sensitive / disclosure-carve-out workstreams*). The report's
       *Evidence* line names what it covered from the brief's own

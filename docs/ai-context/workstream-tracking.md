@@ -318,7 +318,9 @@ of the workstream issue's body, with these fields:
   blocking, say so.
 - **What you need to do** — the concrete next action, or "nothing right now."
 - **Spend so far** — the build's running total in dollars, updated at every
-  hand-back that changes it, so the build report can state what the build
+  hand-back that changes it (on the private path it lives in the private
+  item, with the plan, and reaches the build report by David's relay), so
+  the build report can state what the build
   cost (David, 2026-10-21; `claude-core.md`, *A reversible choice proceeds,
   and every turn reports its spend*). The one ledger line a workstream
   keeps; the other is the repository's `paid-ai-ledger` issue, one comment

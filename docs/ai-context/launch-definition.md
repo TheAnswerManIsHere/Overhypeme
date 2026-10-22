@@ -155,22 +155,28 @@ migrations written backward-compatible so deploys need no window.
 
 ## Cut, deleted or deferred
 
-Deleted features keep a **retired-feature record** under `docs/retired/<feature>.md` (a directory the cut phase creates) and a
-`pre-cut/<feature>` git tag, so nothing is lost with the code (David,
-2026-10-06: *"don't want to throw the baby out with the bathwater"*).
+Deleted features keep a `pre-cut/<feature>` git tag and a row in the ledger
+[`docs/retired/README.md`](../retired/README.md), plus a lessons page
+`docs/retired/<feature>.md` only where a rebuild would otherwise rediscover
+something, so nothing is lost with the code (David, 2026-10-06: *"don't want
+to throw the baby out with the bathwater"*; the record's shape, David,
+2026-10-21: [decision](./decisions.md#2026-10-21--a-cut-features-record-is-a-ledger-row-plus-a-lessons-page-only-where-a-rebuild-needs-one)).
 
 Video (pipeline, legacy path, PuLID stage, video engines); PuLID everywhere;
 annual and lifetime as new sales; Zazzle/merch and the Affiliate screen; Video
 Styles; templates; stock photos and **Pexels entirely**; the standalone
-hashtags page; dead admin files; Debug mode; the dev-admin-login
-backdoor and its wordmark triple-tap (David, 2026-10-14: "We're going to
-remove that functionality for launch"); route-visit counters; the tester
+hashtags page; dead admin files; Debug mode; route-visit counters; the tester
 role (gone from the docs; the invite gate is the Seed gate, and a beta
 overlay follows post-launch); NSFW mode is post-launch (the audience flag and
 verified-adult state are designed now, nothing ships); Legendary Pro; data
 export (lands with GDPR readiness at Global); public growth surfaces beyond
 the loop; R2; new content formats; multi-role RBAC; new vendors beyond PostHog
 and Turnstile.
+
+**Not cut, though once listed here:** the dev-admin-login backdoor and its
+wordmark triple-tap. They stay through Phase 4, and Phase 15 redesigns them as
+a safe, easy admin entry (David, 2026-10-21;
+[decision](./decisions.md#2026-10-21--the-dev-admin-login-backdoor-stays-through-phase-4-phase-15-redesigns-it)).
 
 ## Hard gates that used to be waivable
 

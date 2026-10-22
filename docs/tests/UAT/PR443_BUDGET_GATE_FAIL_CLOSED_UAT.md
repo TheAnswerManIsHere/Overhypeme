@@ -61,16 +61,7 @@ the right thing to the person reading them.
 
 ## Steps
 
-### 1. The standard AI meme image path is unaffected
-
-**Do:** Log in as your Legendary account with budget remaining, and
-generate an **AI meme image** (the standard, no-reference path).
-
-**Expect:** It generates exactly as before — no new error, no new delay.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
+_Step 1 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
 ### 2. Reference-photo (PuLID) generation still works
 

@@ -148,21 +148,41 @@ export function dispatchModel(io = undefined) {
  * the translation this replaced could not report on one for exactly that
  * reason (Codex, #222 round 1).
  */
-export function buildBrief({ root, unit, issue, prs = [], branch = null, privatePath = false, io = undefined, now = () => new Date() }) {
+export function buildBrief({
+  root,
+  unit,
+  issue,
+  prs = [],
+  branch = null,
+  privatePath = false,
+  privateSource = null,
+  privateRef = null,
+  io = undefined,
+  now = () => new Date(),
+}) {
   assertUnit(unit);
-  if (issue === undefined || issue === null || Number.isNaN(issue)) {
+  const noIssue = issue === undefined || issue === null || Number.isNaN(issue);
+  if (privateSource !== null && (typeof privateSource !== "string" || privateSource.trim() === "")) {
+    throw new Error(
+      "build-report: the private source is empty. It is the text David relayed from the workstream's draft " +
+        "Project item -- the plan, the decisions and the spend line -- and an empty one would leave the report " +
+        "with nothing to hold the work against.",
+    );
+  }
+  if (noIssue && privateSource === null) {
     // A WORKSTREAM WITH NO PUBLIC ISSUE IS A REAL CASE, NOT A TYPO: one that
     // is sensitive from the start lives on a private draft Project item the
     // role cannot read (workstream-tracking.md, *Sensitive /
-    // disclosure-carve-out workstreams*). Its report has no route yet, so the
-    // refusal says so and names the fallback (#224 round 1, recorded gap).
+    // disclosure-carve-out workstreams*). Its route is the relay (#227):
+    // David pastes the item's text, the builder passes it here.
     throw new Error(
-      "build-report: no workstream issue was given. A workstream with no public issue (one on the private path " +
-        "from the start) has no build report yet: write the unit up yourself, labelled as your own account, in " +
-        "chat only. If this workstream does have an issue, pass --issue <n>.",
+      "build-report: no workstream issue and no private source were given. A workstream with no public issue " +
+        "(one on the private path from the start) is reported from the text David relays from its draft Project " +
+        "item: ask him to paste it, write it to your scratchpad, and pass --private-source <file>. If this " +
+        "workstream has an issue, pass --issue <n>.",
     );
   }
-  assertPositiveInt("issue", issue);
+  if (!noIssue) assertPositiveInt("issue", issue);
   if (!Array.isArray(prs)) throw new Error("build-report: prs must be an array of pull request numbers.");
   for (const n of prs) assertPositiveInt("each pull request number", n);
   if (branch !== null) {
@@ -193,7 +213,22 @@ export function buildBrief({ root, unit, issue, prs = [], branch = null, private
   // THE COORDINATES ARE RECORDED HERE, where they are validated, for `report`
   // to print. Written beside the answer, in the ignored directory.
   ensureReviewsIgnored(root);
-  fs.writeFileSync(unitPath(root, unit), JSON.stringify({ issue, prs, branch, private: privatePath === true }) + "\n");
+  // A PRIVATE SOURCE MAKES THE UNIT PRIVATE, whatever the flag says: the
+  // report will be written from the restricted text, so it may carry it.
+  // The source's TEXT is never recorded here -- only that one was used and
+  // the reference the builder gave the item.
+  const isPrivate = privatePath === true || privateSource !== null;
+  fs.writeFileSync(
+    unitPath(root, unit),
+    JSON.stringify({
+      issue: noIssue ? null : issue,
+      prs,
+      branch,
+      private: isPrivate,
+      privateSource: privateSource !== null,
+      privateRef: typeof privateRef === "string" && privateRef.trim() ? privateRef.trim() : null,
+    }) + "\n",
+  );
   const until = now().toISOString();
   const schema = loadSchema();
   const lines = [
@@ -202,14 +237,25 @@ export function buildBrief({ root, unit, issue, prs = [], branch = null, private
     "## This unit of work",
     "",
     `- **Repository:** \`${repo}\``,
-    `- **Workstream issue:** #${issue} — the plan or agreed scope, the State of Play, the decisions taken on recommendation and the \`Spend so far\` line live here.`,
   ];
+  if (!noIssue) {
+    lines.push(
+      privateSource === null
+        ? `- **Workstream issue:** #${issue} — the plan or agreed scope, the State of Play, the decisions taken on recommendation and the \`Spend so far\` line live here.`
+        : `- **Workstream issue:** #${issue} — public, and sanitized: it carries labels and tracking only. The plan, the decisions and the spend line are in the private source below.`,
+    );
+  }
   if (prs.length) {
     lines.push(`- **Pull requests:** ${prs.map((n) => `#${n}`).join(", ")} — read each one whole: body, reviews, threads, comments, commits and the cumulative change.`);
   }
   if (branch) {
     lines.push(
       `- **Prototype branch:** \`${branch.name}\`, evidence from after \`${branch.since}\` through \`${branch.head}\` — it opens no pull request, so read its commits (\`list_commits\` on that branch from the head back to \`${branch.since}\`, exclusive) and the full patch of each. \`main\` is merged into the branch from time to time; commits that arrived by such a merge are not this version's work.`,
+    );
+  }
+  if (privateSource !== null) {
+    lines.push(
+      `- **Private workstream${privateRef ? ` (${privateRef})` : ""}:** its plan, its decisions taken on recommendation and its \`Spend so far\` line live on a draft Project item no tool can read. David relayed its text and the builder quotes it below, verbatim. Read the plan, the decisions and the spend from it, and fetch no issue for them. It is David's own record relayed through the builder: weigh it as his, and say in \`took_on_trust\` that you could not check the relay against the item. Your answer is delivered in chat only, so it may refer to what the source says.`,
     );
   }
   lines.push(
@@ -224,6 +270,16 @@ export function buildBrief({ root, unit, issue, prs = [], branch = null, private
     JSON.stringify(schema, null, 2),
     "```",
   );
+  if (privateSource !== null) {
+    lines.push(
+      "",
+      "## The private source (relayed by David from the draft Project item, quoted verbatim by the builder)",
+      "",
+      "<private-source>",
+      privateSource.trim(),
+      "</private-source>",
+    );
+  }
   return lines.join("\n");
 }
 
@@ -286,7 +342,10 @@ export function readUnit(root, unit) {
  */
 export function evidenceLine(coords) {
   if (!coords) return "*Evidence:* *not recorded — this report was read without its brief's coordinates.*";
-  const parts = [`workstream #${coords.issue}`];
+  const parts = [
+    coords.issue ? `workstream #${coords.issue}` : `private workstream${coords.privateRef ? ` (${coords.privateRef})` : ""}`,
+  ];
+  if (coords.privateSource) parts.push("plan, decisions and spend from the private source David relayed");
   if (Array.isArray(coords.prs) && coords.prs.length) parts.push(`PRs ${coords.prs.map((n) => `#${n}`).join(", ")}`);
   if (coords.branch) parts.push(`branch \`${coords.branch.name}\` from after \`${coords.branch.since}\` through \`${coords.branch.head}\``);
   return `*Evidence:* ${parts.join(" · ")}`;
@@ -344,7 +403,10 @@ export function chatReport(report, { askedModel = null, session = null, coords =
   // wherever it appears (workstream-tracking.md). So the report says so at its
   // top, where the builder pasting it cannot miss it (#224 round 1).
   if (coords && coords.private === true) {
-    out.push("*Private-path workstream: deliver this report in chat only, never as an issue comment.*", "");
+    out.push(
+      "*Private-path workstream: this report is delivered in chat only, never as an issue comment. David: paste it into the workstream's private item to keep it.*",
+      "",
+    );
   }
   if (f.failed) {
     out.push(
@@ -426,9 +488,31 @@ export function chatReport(report, { askedModel = null, session = null, coords =
 }
 
 /**
+ * Read the relayed private text, refusing a file inside the checkout.
+ *
+ * THE RELAY LIVES IN THE SCRATCHPAD, NEVER THE REPOSITORY
+ * (workstream-tracking.md: "the session writes the relayed text to its
+ * scratchpad, never the repository"). A copy inside the checkout is one
+ * `git add -A` from a public commit, and a commit cannot be unpublished.
+ * A cheap check on a path the builder chooses, which catches the slip.
+ */
+export function readPrivateSource(root, file) {
+  const abs = path.resolve(root, file);
+  const rel = path.relative(path.resolve(root), abs);
+  if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+    throw new Error(
+      `build-report: the private source ${JSON.stringify(file)} is inside the checkout. Relayed private text lives ` +
+        "in the session's scratchpad, never the repository, where one `git add -A` would publish it. Move it out " +
+        "and pass that path.",
+    );
+  }
+  return fs.readFileSync(abs, "utf8");
+}
+
+/**
  * The command line.
  *
- *   node build-report.mjs brief  --unit <slug> --issue <n> [--pr <n> ...] [--branch <name> --since <sha> --head <sha>] [--private yes]
+ *   node build-report.mjs brief  --unit <slug> (--issue <n> | --private-source <file> [--private-ref <ref>]) [--pr <n> ...] [--branch <name> --since <sha> --head <sha>] [--private yes]
  *   node build-report.mjs prepare --unit <slug>
  *   node build-report.mjs report --unit <slug> [--session continue|"hand off"] [--session-why <text>]
  *
@@ -451,7 +535,20 @@ export function main({ argv = process.argv.slice(2), root = process.cwd(), io = 
     prepareAnswerPath(root, opts.unit);
     const branch = opts.branch ? { name: opts.branch, since: opts.since, head: opts.head } : null;
     const issue = opts.issue === undefined ? undefined : Number(opts.issue);
-    stdout.write(buildBrief({ root, unit: opts.unit, issue, prs: opts.pr, branch, privatePath: opts.private === "yes", io }) + "\n");
+    const privateSource = opts["private-source"] === undefined ? null : readPrivateSource(root, opts["private-source"]);
+    stdout.write(
+      buildBrief({
+        root,
+        unit: opts.unit,
+        issue,
+        prs: opts.pr,
+        branch,
+        privatePath: opts.private === "yes",
+        privateSource,
+        privateRef: opts["private-ref"] ?? null,
+        io,
+      }) + "\n",
+    );
     return 0;
   }
   if (cmd === "prepare") {

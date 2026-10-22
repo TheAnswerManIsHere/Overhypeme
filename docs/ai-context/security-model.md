@@ -31,7 +31,9 @@ highest-severity finding (unauthenticated privilege escalation). It is now
 The local dev entrypoint (`artifacts/api-server/scripts/dev-run.sh`) sets the flag, so the Replit
 preview and the Playwright e2e admin flows keep working; production
 (`pnpm start`, `REPLIT_DEPLOYMENT=1`) can never enable it. See the decision in
-[`decisions.md`](./decisions.md).
+[`decisions.md`](./decisions.md). **Lifecycle:** the route and the triple-tap
+stay through launch Phase 4, and Phase 15 redesigns them as a safe, easy admin
+entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-admin-login-backdoor-stays-through-phase-4-phase-15-redesigns-it)).
 
 ## Authentication & sessions
 

@@ -51,11 +51,12 @@ docs/                this documentation
   [`public-site-and-sharing.md`](./public-site-and-sharing.md#profiles-and-library--the-self-view-split)),
   `ActivityFeed.tsx`, fact detail + comments, merch (`WearIt.tsx`). The
   meme/video builders live under
-  `artifacts/overhype-me/src/components/` (not `pages/`): `components/meme-builder/`,
-  `MemeStudio.tsx`, `MemeBuilder.tsx`, `VideoBuilder.tsx`, `MemeMagicVideo.tsx`. The live
-  builder is `components/meme-builder/wizard/`; the other four make up the legacy
-  studio, pinned off and deleted in #628 Phase 4, and not verified
-  ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+  `artifacts/overhype-me/src/components/meme-builder/` (not `pages/`): the
+  fact page's wizard in `meme-builder/wizard/`, and the meme page's remix
+  builder `meme-builder/MemeBuilder.tsx` (mounted by
+  `pages/memePage/BuilderOverlay.tsx`). The legacy studio that sat beside them
+  was deleted in launch Phase 4
+  ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
   Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
   Affiliate, Video Styles, Engines, Taxonomy Health, Email Queue, Features,

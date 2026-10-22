@@ -61,21 +61,20 @@ model receives.** Enrichment is an input, not the prompt (see
 ## Frozen render inputs: identity + style (reproducibility)
 
 **A render's identity and style are frozen ONCE, at the moment the user clicks
-generate — never re-resolved live by the async worker (PR #223).** Only the
-user generate routes, which only the legacy studio calls, run this step
-(`routes/memes.ts:1520`, `:1878`); it is not verified, and goes with that
-studio in #628 Phase 4 ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
-`prepareImagePromptAttemptInputs()` (`imagePrompt/prepareAttemptInputs.ts`)
-resolves a `PromptIdentitySnapshot` (`promptIdentity.ts`) and a
+generate — never re-resolved live by the async worker (PR #223).** No live
+path runs this step now: its only callers were the legacy studio's user
+generate paths, deleted in launch Phase 4 with the freeze helper
+`prepareImagePromptAttemptInputs()`
+([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)). What
+remains is the worker side, for attempt rows that carry snapshots. The helper
+resolved a `PromptIdentitySnapshot` (`promptIdentity.ts`) and a
 `ResolvedRenderStyleSnapshot` (`styleResolution.ts`), renders the fact text
 from that SAME identity (so the frozen fact text and the compiler's later
 token gate can never diverge), and persists both snapshots onto
 `render_controls`. The `image_prompt_generation` worker reads the frozen
 snapshots (`isValidPromptIdentitySnapshot` / `isValidRenderStyleSnapshot`)
 instead of re-querying the user/style tables, falling back to live resolution
-only for attempt rows that predate this change. Wired into both user-facing
-generate routes (`/memes/ai/:factId/generate-v2`, and the generic branch of
-`/generate`); moderation/eval renders use fixed sample identities and no live
+only for attempt rows that predate this change. Moderation/eval renders use fixed sample identities and no live
 style, so they were already reproducible and are intentionally left on their
 existing `reviewRenderSubject` mechanism.
 

@@ -40,7 +40,7 @@ routes, delete, git keeps it) · **your call**.
 | A18 | OG preview cards | Meme permalinks only; **#592: og:image "Image not found"** | doc; bug | fix for launch (meme pages); fact-page OG is `next` |
 | A19 | Fact share modal | Copy link + social popups with name/pronouns baked in; **email invite always fails in prod** (#374; allowlist is `example.com`) | doc; bug | ship; your call on the email option: remove it for launch (recommended) or fix it |
 | A20 | Meme share modal (per-platform copy, share intents) | Native share / platform popups / mailto | doc | ship, verify |
-| A21 | Post-create share screen | Platform list, merch teaser, download | doc | ship minus the merch teaser if merch is cut |
+| A21 | Post-create share screen | Platform list, merch teaser, download | doc | ship minus the merch teaser if merch is cut. *Deleted 2026-10-22 with the legacy studio, its only mounter; the wizard sends a saved meme to its permalink, whose share surface is `MemeShareModal` ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
 | A22 | Merch "Wear it" `/wear`, Zazzle export + redirect | Product preview → affiliate redirect; pickers cosmetic; **#598 broken** | doc; bug | cut: remove CTA, route, export, redirect, admin Affiliate page |
 | A23 | Hero example media | Example images in the builder entry step | code only | ship (plumbing) |
 | A24 | `/library` | Self-view only; no public profiles | doc | see Journey C |
@@ -93,7 +93,7 @@ routes, delete, git keeps it) · **your call**.
 | B23 | Spend view | The user's own generation spend | code only | ship, verify it's meaningful to a user, else hide |
 | B24 | Self-service account deletion | **Does not exist**; admin-only | doc | your call: "email us to delete" in the privacy policy + admin flow for launch (recommended), self-service `next` |
 | B25 | Sessions | No sliding expiry, unlimited concurrent, no "my sessions" UI | doc | ship as-is for launch |
-| B26 | Admin "view as user"; dev admin login | Operator tools | PR425, PR221 UATs | ship (ops) for "view as user"; **dev admin login cut** (David, 2026-10-14; `decisions.md`) |
+| B26 | Admin "view as user"; dev admin login | Operator tools | PR425, PR221 UATs | ship (ops) for "view as user"; **dev admin login cut** (David, 2026-10-14), then kept through Phase 4 for a Phase 15 redesign as a safe easy admin entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-admin-login-backdoor-stays-through-phase-4-phase-15-redesigns-it)) |
 
 ### Decisions — Journey B (David, 2026-10-05)
 
@@ -159,7 +159,7 @@ routes, delete, git keeps it) · **your call**.
 
 | # | Feature | Recommendation |
 |---|---|---|
-| D1 | Meme Builder Wizard (only live builder) | ship (core); delete legacy `MemeStudio.tsx` / `components/MemeBuilder.tsx` (unreachable, flag pinned on) |
+| D1 | Meme Builder Wizard (only live builder) | ship (core); delete legacy `MemeStudio.tsx` / `components/MemeBuilder.tsx` (unreachable, flag pinned on). *Deleted 2026-10-22 (Phase 4, removal 1); the meme page's remix builder is the other live builder ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
 | D2 | Template/gradient backgrounds | ship, verify |
 | D3 | Pexels stock photos | ship, verify (licence terms noted for compliance phase) |
 | D4 | Photo upload (free tier), JPEG only | fix for launch: accept PNG + HEIC with server-side conversion; verify on iPhone; delete vestigial `meme_upload_photo` flag |
@@ -198,7 +198,7 @@ routes, delete, git keeps it) · **your call**.
 - **D16** → **engine evaluation** item (latest image models compared on the same facts via the eval dashboard), then presets reviewed/tuned against the winner. Planner/compiler split is settled; the engine is not; compiler is engine-specific.
 - **D17/D18** **PuLID removed everywhere** (image stylise toggle, video stage one, engine catalogue, docs, Manual) — prose-sweep, not a patch. "We're going to be using a much stronger model."
 - **D24** Upgrade messaging written after Journey F defines the tier.
-- **D7, D8 (the user render poll) and D10**: their routes are called only by the legacy studio, which D1 deletes; no verification is done on them (David, 2026-10-17; [`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+- **D7, D8 (the user render poll) and D10**: their routes are called only by the legacy studio, which D1 deletes; no verification is done on them (David, 2026-10-17; [`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)). Deleted in launch Phase 4, removal 1, except D7's route, which the meme page's remix builder also calls: it survives photo-only until PuLID goes. D9's gallery picker and D11's delete route were the studio's too and went with it ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **D27** **"My content"**: one place showing every upload/generation with per-item delete; B24 builds on it. Launch.
 - **D14** Speech bubbles: "crucial … never finished building and testing." Scope pending: moderation-side only (recommended) vs end-user editing too.
 - **D21** Option (b): anonymous preview only; download/save/share need a verified account ("part of the upsell").

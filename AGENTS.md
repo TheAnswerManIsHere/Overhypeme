@@ -77,8 +77,8 @@ For **the meme/video studio, AI image/video generation entry points, or
 media storage** work, also read:
 
 - [`docs/ai-context/meme-and-video-studio.md`](docs/ai-context/meme-and-video-studio.md) —
-  the live builder wizard and the switched-off legacy studio (its
-  verification is killed: [`decisions.md`](docs/ai-context/decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)),
+  the fact page's builder wizard and the meme page's remix builder (the
+  legacy studio is deleted: [`decisions.md`](docs/ai-context/decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)),
   the shared recipe/`imageSource` model, the video-generation systems,
   tier gates, and where media lives
 

@@ -207,7 +207,10 @@ stored records. From the merged-PR list for the window:
   ([`review-judgment.md`](../../../docs/ai-context/review-judgment.md))
   declines. **Say so when a
   merged unit of work has no build report comment**, rather than reporting a
-  figure that silently omits it.
+  figure that silently omits it — except a private-path unit, whose report
+  goes to chat only and is kept on its private item
+  ([`claude-core.md`](../../../.agents/core/claude-core.md), *Watching the PRs I
+  open*): count those as *private, not counted* rather than as missing.
 
   The shape to watch is the same one B1 has: a run of builds where the report never
   disagrees means it is agreeing with every account, which is what the

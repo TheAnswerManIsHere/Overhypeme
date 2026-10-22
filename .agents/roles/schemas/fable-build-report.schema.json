@@ -19,7 +19,7 @@
     },
     "decisions": {
       "type": "array",
-      "description": "Every choice the builder took on its own recommendation in this unit, read from the PR bodies' 'Decisions taken on my recommendation' sections and the issue's State of Play. Empty when there were none.",
+      "description": "Every choice the builder took on its own recommendation in this unit, read from the PR bodies' 'Decisions taken on my recommendation' sections and the issue's State of Play (or the private source the brief carries). Empty when there were none.",
       "items": {
         "type": "object",
         "properties": {
@@ -70,9 +70,9 @@
     },
     "spend": {
       "type": "object",
-      "description": "Read from the workstream issue's State of Play and the repository's paid-run ledger issue, quoted as found. null in a field means the line was not there.",
+      "description": "Read from the workstream issue's State of Play (or the private source the brief carries) and the repository's paid-run ledger issue, quoted as found. null in a field means the line was not there.",
       "properties": {
-        "build_total": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "The issue's 'Spend so far' line, as written." },
+        "build_total": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "The 'Spend so far' line, as written, from the workstream issue or from the private source when the brief carries one." },
         "paid_runs_this_week": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "The paid AI runs in the trailing seven days from the ledger issue, totalled, or null when there is no ledger issue." }
       },
       "required": ["build_total", "paid_runs_this_week"],

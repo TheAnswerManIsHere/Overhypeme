@@ -91,7 +91,8 @@ one that has repeatedly caught what nobody else did.
   nobody named, a claim in a merge report or a pull request body the evidence
   does not bear out. Each with `why_it_matters` to him. **An empty list is a
   real and often correct answer**; never pad it, never suppress an item.
-- **`spend`** — quoted as found: the issue's `Spend so far` line, and the
+- **`spend`** — quoted as found: the `Spend so far` line from the issue, or
+  from the private source when the brief carries one, and the
   paid AI runs in the seven days before **until** from the repository's open
   issue labelled `paid-ai-ledger` (one comment per run), totalled. `null`
   when the line or the ledger is not there; never an estimate.
@@ -122,10 +123,19 @@ anyone: the file is what is read.
 Load your tools first if they are not already available: `ToolSearch` with
 `select:mcp__github__issue_read,mcp__github__list_issues,mcp__github__pull_request_read,mcp__github__list_commits,mcp__github__get_commit`.
 
-1. **The workstream issue** — `issue_read` methods `get` and `get_comments`.
-   The body's State of Play, the plan or scope it links or quotes, earlier
-   build reports in its comments (navigation, never evidence: an earlier
-   report can be wrong, and repeating it launders the error).
+1. **The workstream issue** — `issue_read` methods `get` and `get_comments`,
+   when the brief names one: the body's State of Play, the plan or scope it
+   links or quotes, earlier build reports in its comments (navigation,
+   never evidence: an earlier report can be wrong, and repeating it
+   launders the error). **When the brief carries a private source**,
+   the plan, the decisions and the spend line come from it, not from an
+   issue: it is the text of a draft Project item no tool can read, relayed
+   by David and quoted verbatim by the builder. Weigh it as David's own
+   record, say in `took_on_trust` that you could not check the relay
+   against the item, and fetch no issue for what it holds; a sanitized
+   public issue, when one is named beside it, is labels and tracking
+   only. Your answer goes to chat only, never GitHub, so it may say what
+   the source says.
 2. **Each pull request**, whole:
    - `pull_request_read` method `get`. Note the **author's login**: a
      comment by the author is the *builder's claim*. That login is also

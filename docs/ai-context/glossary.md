@@ -690,7 +690,7 @@ The render identity (name + pronouns, reduced to a short prompt-safe form)
 resolved ONCE at attempt-construction and frozen on `render_controls`, so the
 async worker never re-queries the live user. Distinct from the profile's own
 stored name and the meme caption, which are untouched.
-Only the legacy studio's generate routes build it; not verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+Only the legacy studio's user generate paths built it, and they were deleted with it in launch Phase 4; worker support stays for attempt rows that carry one ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 → [visual-pipeline](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
 
 ### Resolved-style snapshot
@@ -698,7 +698,7 @@ Only the legacy studio's generate routes build it; not verified ([`decisions.md`
 The selected look-style's suffix, frozen at attempt-construction alongside the
 prompt-identity snapshot, so a style edited or deactivated after a user clicks
 generate can't change the pending render.
-Only the legacy studio's generate routes build it; not verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+Only the legacy studio's user generate paths built it, and they were deleted with it in launch Phase 4; worker support stays for attempt rows that carry one ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 → [visual-pipeline](./visual-pipeline.md#frozen-render-inputs-identity--style-reproducibility)
 
 ### Engine
@@ -721,10 +721,10 @@ Free tier = photo memes; Legendary = AI image and video memes.
 ### Studio
 
 Where a user actually builds a meme from a fact — choosing a background,
-composing it with the fact's text, and saving it. The live studio is the
-guided builder wizard, in every build. An older studio, the legacy studio,
-is still in the code but pinned off in every build; it is deleted in #628
-Phase 4, and verification tied to it is killed ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+composing it with the fact's text, and saving it. Two builders are live: the
+guided builder wizard on a fact's page, and the single-screen remix builder
+that a shared meme's page opens. The older legacy studio was deleted in launch
+Phase 4 ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ### Recipe
@@ -767,12 +767,12 @@ costs nothing extra per meme to produce.
 ### AI image meme
 
 A Legendary-gated meme whose background is AI-generated. In the live wizard
-that means a source photo styled into the scene; the shared per-fact gallery
-of moderation renders is the other AI source a user picks from. The user
-generate routes `/generate` and `/generate-v2`, and the description-only
-images they produce, are called only by the legacy studio: pinned off in
-every build, deleted in #628 Phase 4, and nothing is verified on them
-([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+that means a source photo styled into the scene. The shared per-fact AI
+gallery picker was the legacy studio's and went with it. There is no
+description-only user generation: the legacy studio's `/generate-v2` and
+no-photo `/generate` went with it in launch Phase 4, and `/generate` now serves
+only the remix builder's photo stylise until PuLID goes
+([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 An AI *video* meme runs its own separate system (PuLID-based, not this
 pipeline) and is never added to any shared gallery — tied to the one meme
 you made with it. That's a storage fact, not an access-control one: like any

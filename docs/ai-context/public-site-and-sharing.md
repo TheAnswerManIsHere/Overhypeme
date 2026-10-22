@@ -243,7 +243,7 @@ generic sitewide fallback.
   `routes.memes.test.ts` explicitly notes those paths are out of scope for
   that batch (need sharp/canvas + external APIs).
 
-## Sharing mechanics — three distinct surfaces
+## Sharing mechanics — two live surfaces (a third was deleted)
 
 1. **Fact-level `ShareModal`** — captures the recipient's name/pronouns
    first, then builds a share URL that rewrites the personalization query
@@ -284,19 +284,17 @@ generic sitewide fallback.
    the OS share sheet was ultimately used with is unobservable, per the
    route's own doc comment.
 
-3. **`PostCreateShareScreen`** — the post-creation screen, widest platform
-   list, plus a merch teaser and download. **It does not call
-   `logShareIntent`** (or write to any other tracking table) — unlike
-   `MemeShareModal`, none of its share actions are logged anywhere.
-   Whether more shares actually originate from this screen than from the
-   other two isn't something the code establishes either way; **Needs
-   David confirmation** rather than asserted.
+3. **`PostCreateShareScreen`** — deleted in launch Phase 4 with the legacy
+   meme studio, its only mounter
+   ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)). The
+   wizard sends a saved meme to its permalink, where `MemeShareModal` is the
+   share surface.
 
 **Tracking summary:** `factsTable.shareCount`, `affiliateClicksTable`,
 `shareIntentsTable` each log a different local action (a fact share, a
 Zazzle click, a successful meme-share action) — none of them, and nothing
 else on the site, tracks a share all the way to "someone actually opened
-the link." `PostCreateShareScreen` writes to none of these tables at all.
+the link."
 
 ## Files to inspect before public-site/sharing work
 
@@ -305,7 +303,6 @@ the link." `PostCreateShareScreen` writes to none of these tables at all.
   unreachable), `WearIt.tsx`.
 - `artifacts/overhype-me/src/components/ShareModal.tsx`,
   `components/share/MemeShareModal.tsx`,
-  `components/PostCreateShareScreen.tsx`,
   `components/merch/GarmentPreview.tsx`.
 - `artifacts/api-server/src/routes/facts.ts` (hero, list/search, share
   count), `hashtags.ts`, `og.ts`, `share.ts` (broken email invite),

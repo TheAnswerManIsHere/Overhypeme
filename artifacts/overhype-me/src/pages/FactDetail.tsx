@@ -11,24 +11,17 @@ import { Button } from "@/components/ui/Button";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, AlertCircle, GitBranch, ArrowLeft, Flame, Video, Play, ExternalLink, Check } from "lucide-react";
+import { ThumbsUp, ThumbsDown, AlertCircle, GitBranch, ArrowLeft, Flame, Video, Play, ExternalLink } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
-import { renderFact } from "@/lib/render-fact";
 import { useIdentityGate } from "@/hooks/use-identity-gate";
-import type { FactPexelsImages } from "@/types/pexels";
 
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { roleToIdentity } from "@/components/meme-builder/integration/studioAdapter";
 
-const MemeStudio = lazyWithRetry(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
-
-// MBFO wizard mount: behind an env flag while the Phase-3 builder is still on
-// the production path. Flip VITE_MBFO_WIZARD=1 in .env.local to swap in.
-const MBFO_WIZARD_ENABLED = import.meta.env.VITE_MBFO_WIZARD === "1";
 const MemeBuilderWizard = lazyWithRetry(() =>
   import("@/components/meme-builder/wizard").then(m => ({ default: m.MemeBuilderWizard })),
 );
@@ -88,7 +81,6 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   const { rateFact } = useAppMutations();
   const { name, pronouns } = usePersonName();
   const [showStudio, setShowStudio] = useState(false);
-  const [studioDefaultTab, setStudioDefaultTab] = useState<"image" | "video">("image");
 
   const { data: fact, isLoading } = useGetFact(id, {
     query: { queryKey: getGetFactQueryKey(id), enabled: true }
@@ -109,14 +101,11 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
     );
   }
 
-  const renderedText = renderFact(fact.text, name, pronouns);
-
   return (
     <>
       {showStudio && (
         <Suspense fallback={null}>
-          {MBFO_WIZARD_ENABLED ? (
-            <MemeBuilderWizard
+          <MemeBuilderWizard
               factId={String(id)}
               factText={fact.text}
               viewerContext={{
@@ -133,16 +122,6 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
               onComplete={() => setShowStudio(false)}
               onCancel={() => setShowStudio(false)}
             />
-          ) : (
-            <MemeStudio
-              factId={id}
-              factText={renderedText}
-              rawFactText={fact.text}
-              aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/types/meme").AiMemeImages | null })?.aiMemeImages ?? null}
-              onClose={() => setShowStudio(false)}
-              defaultTab={studioDefaultTab}
-            />
-          )}
         </Suspense>
       )}
 
@@ -179,7 +158,7 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
             <Button
               variant="primary"
               size="sm"
-              onClick={() => { setStudioDefaultTab("image"); setShowStudio(true); }}
+              onClick={() => setShowStudio(true)}
               className="gap-2"
             >
               <Flame className="w-4 h-4" />
@@ -188,7 +167,7 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => { setStudioDefaultTab("video"); setShowStudio(true); }}
+              onClick={() => setShowStudio(true)}
               className="gap-2"
             >
               <Video className="w-4 h-4" />
@@ -359,20 +338,15 @@ export default function FactDetail() {
 
   // Meme builder open state is derived from URL (/facts/:id/meme)
   // so that mobile browsers reloading the tab re-open the builder automatically.
-  const [memeBuilderDefaultPrivate, setMemeBuilderDefaultPrivate] = useState(false);
-  const [studioDefaultTab, setStudioDefaultTab] = useState<"image" | "video">("image");
 
   // A builder copies the identity once at mount, so a builder reached by its
   // route waits until the identity sheet has a complete identity (#719).
   const { builderReady } = useIdentityGate();
   const showMemeStudio = (isMemeRoute || isVideoRoute) && builderReady;
-  const openMemeStudio = (tab: "image" | "video" = "image") => {
-    setStudioDefaultTab(tab);
+  const openMemeStudio = () => {
     setLocation(`/facts/${factId}/meme`);
   };
-  const openMemeStudioPrivate = () => { setMemeBuilderDefaultPrivate(true); openMemeStudio("image"); };
   const closeMemeStudio = () => {
-    setMemeBuilderDefaultPrivate(false);
     setLocation(`/facts/${factId}`);
     void queryClient.invalidateQueries({ queryKey: ["listFactVideos", factId] });
     void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
@@ -384,49 +358,17 @@ export default function FactDetail() {
     await queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
   }
 
-  const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
-  const aiMemeImages = ((fact as unknown as { aiMemeImages?: import("@/types/meme").AiMemeImages | null })?.aiMemeImages) ?? null;
 
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
 
-  const renderedText = renderFact(fact.text, name, pronouns);
   const isVariant = !!fact.parentId;
 
   return (
     <Layout>
-      {/* Desktop Meme Creator stepper — fixed bar below the nav.
-          The wizard owns its own progress chrome, so this is hidden when
-          VITE_MBFO_WIZARD=1 to free up viewport real estate for Step 2. */}
-      {showMemeStudio && !MBFO_WIZARD_ENABLED && (
-        <div className="hidden md:flex fixed top-16 left-0 right-0 z-[200] bg-background/95 backdrop-blur border-b border-border items-center justify-center h-10 gap-0">
-          <div className="flex items-center gap-1.5 px-5">
-            <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-              <Check className="w-2.5 h-2.5 text-white" />
-            </div>
-            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-green-500 font-display">Pick a fact</span>
-          </div>
-          <span className="text-muted-foreground/30 text-xs">›</span>
-          <div className="flex items-center gap-1.5 px-5">
-            <div className="w-4 h-4 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-[8px] font-bold text-white leading-none">2</span>
-            </div>
-            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-foreground font-display">Add your face</span>
-          </div>
-          <span className="text-muted-foreground/30 text-xs">›</span>
-          <div className="flex items-center gap-1.5 px-5">
-            <div className="w-4 h-4 rounded-full border border-border flex items-center justify-center flex-shrink-0">
-              <span className="text-[8px] font-bold text-muted-foreground leading-none">3</span>
-            </div>
-            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-muted-foreground font-display">Style &amp; share</span>
-          </div>
-        </div>
-      )}
-
       {showMemeStudio && (
         <Suspense fallback={null}>
-          {MBFO_WIZARD_ENABLED ? (
-            <MemeBuilderWizard
+          <MemeBuilderWizard
               factId={String(factId)}
               factText={fact.text}
               viewerContext={{
@@ -442,7 +384,6 @@ export default function FactDetail() {
               initialPronouns={pronouns ?? undefined}
               onComplete={(result) => {
                 if (result.kind === "saved" && result.permalinkUrl) {
-                  setMemeBuilderDefaultPrivate(false);
                   void queryClient.invalidateQueries({ queryKey: ["listFactVideos", factId] });
                   void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
                   setLocation(result.permalinkUrl);
@@ -452,18 +393,6 @@ export default function FactDetail() {
               }}
               onCancel={closeMemeStudio}
             />
-          ) : (
-            <MemeStudio
-              factId={factId}
-              factText={renderedText}
-              rawFactText={fact.text}
-              pexelsImages={pexelsImages}
-              aiMemeImages={aiMemeImages}
-              onClose={closeMemeStudio}
-              defaultPrivate={memeBuilderDefaultPrivate}
-              defaultTab={isVideoRoute ? "video" : studioDefaultTab}
-            />
-          )}
         </Suspense>
       )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
@@ -510,7 +439,7 @@ export default function FactDetail() {
           <Button
             variant="primary"
             size="lg"
-            onClick={() => openMemeStudio("image")}
+            onClick={() => openMemeStudio()}
             className="w-full h-14 gap-3 shadow-[0_8px_20px_rgba(255,101,0,0.22)] tracking-widest"
           >
             <Flame className="w-5 h-5" />
@@ -659,7 +588,7 @@ export default function FactDetail() {
                 <Button
                   variant="primary"
                   size="lg"
-                  onClick={() => openMemeStudio("image")}
+                  onClick={() => openMemeStudio()}
                   className="gap-3 tracking-widest shadow-[0_8px_20px_rgba(255,101,0,0.22)]"
                 >
                   <Flame className="w-5 h-5" />
@@ -693,7 +622,7 @@ export default function FactDetail() {
                 </p>
                 {galleryTab === "mine" && (
                   <button
-                    onClick={() => openMemeStudio("video")}
+                    onClick={() => openMemeStudio()}
                     className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity"
                   >
                     <Video className="w-4 h-4" /> Create your first video
@@ -719,7 +648,7 @@ export default function FactDetail() {
           <Button
             variant="primary"
             size="lg"
-            onClick={() => openMemeStudio("image")}
+            onClick={() => openMemeStudio()}
             className="w-full h-14 gap-3 shadow-[0_8px_20px_rgba(255,101,0,0.22)] tracking-widest"
           >
             <Flame className="w-5 h-5" />
