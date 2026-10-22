@@ -779,8 +779,9 @@ the point visibility is *known* — one shared choke point that runs after the A
 resolves — and derive any storage key from a sanitized/hashed form, never the raw
 input. **Overhype:** cross-origin CORP is set in `setPublicCors()`
 (`cacheHeaders.ts`), called *only* on confirmed-public responses; private
-responses call `setNoStore` and stay `same-origin`. The style preview key goes
-through `safeStylePreviewKey()`. See
+responses call `setNoStore` and stay `same-origin`. The style preview key went
+through `safeStylePreviewKey()` until that surface went with video in launch
+Phase 4 (ledger [`docs/retired/README.md`](../retired/README.md)). See
 `security-model.md` (C5/C9).
 
 ## Trusting self-set mutable metadata as a security assertion across a deploy
