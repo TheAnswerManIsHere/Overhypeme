@@ -132,9 +132,11 @@ test.describe("Public described screens", () => {
     await expect(page.getByText("No community memes yet. Be the first!")).toBeVisible();
 
     await openImageStep(page, 522);
-    // The AI source is the viewer's own AI stylings, locked for a visitor; nothing of the root's is offered.
+    // Nothing of the root's is offered. The AI source went with PuLID (launch Phase 4,
+    // removal 3), so the step offers only Your photo and Stock.
     const source = page.getByRole("tablist", { name: "Source" });
-    await expect(source.getByRole("tab", { name: /ai you/i })).toBeDisabled();
+    await expect(source.getByRole("tab", { name: "Your photo" })).toBeVisible();
+    await expect(source.getByRole("tab", { name: /ai you/i })).toHaveCount(0);
     await expect(source.getByRole("tab", { name: "Your photo" })).toHaveAttribute("aria-selected", "true");
     const rendered = await page.locator("img").evaluateAll((els) => els.map((e) => new URL((e as HTMLImageElement).src).pathname));
     for (const p of rootImagePaths) {
