@@ -393,6 +393,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // rather than treated as nothing to record.
   // Source of truth: lib/db/src/schema/falPricing.ts.
   "0101_user_generation_costs_is_estimated",
+
+  // Launch Phase 4, removal 1 (#744): a hand-authored data-only migration that
+  // retires the deleted legacy meme studio's nonterminal render jobs. No DDL,
+  // so there is no schema change for a snapshot to record.
+  "0102_retire_legacy_studio_render_jobs",
 ]);
 
 interface JournalEntry {

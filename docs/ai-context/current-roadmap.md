@@ -780,7 +780,8 @@ handbook work a launch phase needs and a second app would need identically;
   styling; a "Use scene only" partial candidate-pick action; OCR-based
   exactness scoring (PR #229).
 - **Video**, rebuilt post-launch on top of the image pipeline (the current
-  pipeline is deleted, with a retired-feature record and a `pre-cut/` tag).
+  pipeline is deleted, with a `pre-cut/` tag, a ledger row and a lessons
+  page in [`docs/retired/`](../retired/README.md)).
 - Public-growth surfaces beyond the share loop and free→Legendary conversion
   optimization; Legendary Pro; NSFW mode; the beta opt-in overlay; annual and
   lifetime membership as new sales; data export (lands at the Global stage).

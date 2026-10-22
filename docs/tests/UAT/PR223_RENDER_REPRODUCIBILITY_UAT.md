@@ -46,33 +46,9 @@ photo is step 7's, yours.
 
 **Check:** `artifacts/api-server/src/__tests__/memeCaptionPersonalization.test.ts:personalizes the sentence AND both halves with the creator's identity`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-reference`; `artifacts/api-server/src/testing/acceptance/captureJourneys.ts:pr223-s1-result`; `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 4: the free account saves the same split twice, once tokenised and once typed by hand with its display name, and the two served images are byte-identical, while a different typed name serves a different image
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — driving a reference-photo generate through acceptance journey 6. Killed: journey 6 runs the user generate route, which only the legacy meme studio calls and which is deleted for launch (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*); the reference-photo render itself is this step's capture
+_Step 2 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
-### 2. Generate without a reference photo
-
-**Do:** Generate a meme for the same fact, this time with no reference photo
-uploaded (the text-to-image path).
-
-**Expect:** the render completes as before, and the caption reads your full
-display name exactly as stored.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
-
-### 3. A long display name doesn't leak into the caption
-
-**Do:** Set your profile display name to something long and multi-word
-(e.g. "David Franklin The Third"), then generate a meme.
-
-**Expect:** the render completes normally and the caption shows the full
-name you set, exactly ("David Franklin The Third"). The caption is
-independent of what the image model receives either way, so this alone
-does not prove the split — step 3b is what actually checks it.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
+_Step 3 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
 ### 4. The compiled prompt itself only carries the first name
 
@@ -89,28 +65,9 @@ actual oracle for the split; step 3's caption is a red herring for it.
 
 **Deferred:** #693 — the compiled prompt from the preview route naming only the first name of a multi-word previewName is unasserted, only the reducer and the prepare helper are; the preview route uses the typed name in full while a real generation reduces it (POST /admin/image-prompt/preview with "David Franklin" compiles "David Franklin")
 
-### 5. A disabled style is rejected, not silently dropped
+_Step 5 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
-**Do:** As admin, deactivate a look-style, then try to generate a meme
-selecting that style.
-
-**Expect:** a clear "style unavailable" rejection — not enqueued — instead
-of the old behavior where it quietly rendered with no style at all.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
-
-### 6. Re-enabling the style lets the same generate succeed
-
-**Do:** Re-enable the style you deactivated in step 5, then repeat the same
-generate.
-
-**Expect:** it succeeds and the style is applied as normal.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
+_Step 6 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
 ### 7. The reference-photo result shows you, in a scene that fits
 
@@ -130,37 +87,11 @@ scene that fits the fact.
 
 ## Regression
 
-### R1. A valid selected style still applies
+_Step R1 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
-**Do:** Generate a meme selecting an active, valid look-style.
+_Step R2 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
-**Expect:** the style is applied as before.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
-
-### R2. An anonymous / no-profile render still falls back
-
-**Do:** Generate a meme without a signed-in profile (or from an account with
-no display name set).
-
-**Expect:** it falls back to the canonical test identity and still renders.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
-
-### R3. Older renders still display correctly
-
-**Do:** Open an older, already-completed render (or re-poll one from before
-this PR).
-
-**Expect:** it still displays correctly — legacy attempts are untouched.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
+_Step R3 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
 ## Not bugs
 

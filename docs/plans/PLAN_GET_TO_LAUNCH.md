@@ -438,30 +438,34 @@ scope:
 - **Outcome:** every cut feature is gone from UI, routes, jobs, config,
   engines, docs and Manual; nothing reachable promises deferred
   functionality.
-- **Scope (one PR per removal, in this order):** video pipeline, legacy
+- **Scope (one PR per removal):** the order and its reasons are the phase's
+  own plan, `docs/plans/PLAN_PHASE4_CUT_AND_PRUNE.md` (#744, approved by
+  David 2026-10-22), which supersedes the order first written here: legacy
+  meme studio, builders and vestigial flag (D1, D4; the user generate route
+  outlives it photo-only until PuLID goes, `decisions.md` 2026-10-22); video pipeline, legacy
   one-shot video, video engines and styles, video permalinks (E); PuLID
-  everywhere (prose-sweep); merch/Zazzle, affiliate screen and routes (A22,
-  K1); templates, stock photos, **Pexels entirely**, the per-user image
-  preferences (D2, D3, K2, C12/C13); legacy builders and vestigial flag
-  (D1, D4); standalone hashtags page, dead admin files, dead profile tab
-  (A8, H); Debug mode (two columns + five-file sweep; migration review
-  because of the payments path); route-visit counters (K8); dead leaderboard
-  pills (A14); orphan endpoints after verification (A27, I); Zazzle config
-  keys; `moderateComment` stays (Phase 9 wires it).
-- **Nothing is thrown away (David, 2026-10-06):** every removal PR carries a
-  **retired-feature record** at `docs/retired/<feature>.md` — what it did and
-  how it behaved (the product definition, not the code), what was tried and
-  learned, the decisions it rested on, the files and routes it owned, its
-  UAT doc and Manual chapter, and the commit SHA immediately before removal.
-  A git tag `pre-cut/<feature>` marks that commit so the code is one checkout
-  away. The Manual chapter moves to a *Retired* section rather than being
-  deleted. A future rebuild starts from the record, whether or not it reuses
-  the code.
+  everywhere (prose-sweep); merch/Zazzle, affiliate screen and routes, and the
+  Zazzle config keys (A22, K1); templates (D2); stock photos, **Pexels
+  entirely**, the per-user image preferences (D3, K2, C12/C13); standalone
+  hashtags page, dead admin files, dead profile tab (A8, H); Debug mode
+  (migration review because of the payments path); route-visit counters (K8);
+  dead leaderboard pills (A14); orphan endpoints after verification (A27, I).
+  `moderateComment` stays (Phase 9 wires it). The dev-admin-login backdoor is
+  **not** cut here: it stays through Phase 4 and Phase 15 redesigns it
+  (David, 2026-10-21; `decisions.md`).
+- **Nothing is thrown away (David, 2026-10-06; its shape, David,
+  2026-10-21):** every removal keeps a git tag `pre-cut/<feature>` on the
+  last commit carrying it, so the code and its docs as they stood are one
+  checkout away, and a row in the ledger `docs/retired/README.md`. A lessons
+  page `docs/retired/<feature>.md` is written only where a rebuild would
+  otherwise rediscover something the docs at the tag do not hold. The Manual
+  has no *Retired* section: the live chapter is rewritten to describe what
+  exists (`decisions.md`, 2026-10-21).
 - **Depends on:** Phase 1.
 - **David's batch:** none.
 - **Exit evidence:** route and page inventory re-run shows no cut item; CI
-  green; Manual and docs swept; one retired-feature record and one tag per
-  removal.
+  green; Manual and docs swept; one ledger row and one tag per removal, and a
+  lessons page where the rule calls for one.
 - **Tier:** internal, except Debug mode (sensitive). **Lane:** Foundations.
 
 ### Phase 5 — Account and identity
@@ -681,7 +685,10 @@ scope:
 ### Phase 15 — Security hardening
 
 - **Outcome:** no known high finding on the launch scope before real money.
-- **Scope:** `ADMIN_API_KEY` scoped (#455; the shape is in *Placements*);
+- **Scope:** the dev-admin-login backdoor and its wordmark triple-tap
+  redesigned as a safe, easy admin entry (David, 2026-10-21: *"I still want an
+  easy way to get in and see admin screens without having to log in the
+  standard way"*; `decisions.md`); `ADMIN_API_KEY` scoped (#455; the shape is in *Placements*);
   `sharp` upgrade (done in Phase 7) confirmed; the web app's CSP added and
   enforced after report-only observation, the API's enforced; HSTS from
   Cloudflare alone; `pnpm audit --prod` with no High or Critical; secrets

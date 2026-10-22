@@ -53,17 +53,7 @@ independent of its root's.
 
 **Deferred:** #628 — Phase 4 (Cut and prune) — the variant's own stock images are Pexels images, removed with Pexels, and the cited check shows the request is accepted but not that images were generated
 
-### 4. A variant can generate its own AI meme background
-
-**Do:** As a legendary user, try generating an AI meme background for a
-variant fact.
-
-**Expect:** It's accepted and generates — previously rejected with "AI meme
-generation only supported on root facts."
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — this step can be done only through the legacy meme studio or a route only it calls, which is deleted for launch, so its verification is killed (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*)
+_Step 4 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
 ### 5. Editing a root's text no longer blocks on its variants
 

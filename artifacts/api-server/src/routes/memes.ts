@@ -21,20 +21,18 @@ import {
   MEME_TEMPLATES,
   type BackgroundSource,
 } from "../lib/memeGenerator";
-import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import { ObjectStorageService } from "../lib/objectStorage";
 import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { resolveStoredMemeCaption } from "../lib/memeComposite";
-import { compositeAiMeme } from "../lib/aiMemeCompositor";
-import { generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
+import { generateAiMemeBackgroundFromReference, isUserAtImageLimit } from "../lib/aiMemePipeline";
 import { memeKey } from "../lib/storageKeys";
 import { BudgetExceededError, BudgetGateError } from "../lib/budgetGate";
 import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
 import { quarantineImage } from "../lib/moderation/quarantine";
 import { ModerationRejectedError, GENERIC_REJECT_MESSAGE } from "../lib/moderation/types";
-import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { principalFromRequest } from "../lib/featureAccess";
 import { resolveMemeDecisions } from "../lib/createMemeRecord";
 import { isAtLeastLegendary, deriveUserRole } from "../lib/userRole";
@@ -43,7 +41,6 @@ import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 import { canViewMeme } from "../lib/memeVisibility";
 import { getSiteBaseUrl } from "../lib/siteUrl";
-import { logger } from "../lib/logger";
 import { buildZazzleUrl } from "../lib/zazzle";
 import type { MemeAspectRatio } from "@workspace/api-zod";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
@@ -1042,127 +1039,6 @@ router.get("/memes/:slug/zazzle-redirect-raw", requireAdmin, async (req: Request
 // ─── AI Meme endpoints ─────────────────────────────────────────────────────────
 
 /**
- * GET /memes/ai/:factId/image
- *
- * Composites the AI meme on-the-fly:
- * - Loads the appropriate AI background from object storage
- * - Renders the personalized fact text as bold, all-caps white text with outline
- * - Streams back a JPEG
- *
- * Query params:
- *   userId     — user ID to personalize the fact text for
- *   gender     — "male" | "female" | "neutral" (defaults to "neutral")
- *   imageIndex — 0..2 (defaults to 0)
- *   raw        — if "true", streams the raw background PNG without text overlay (for thumbnails)
- */
-router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).end(); return; }
-
-  const gender = (["male", "female", "neutral"].includes(String(req.query["gender"] ?? ""))
-    ? req.query["gender"]
-    : "neutral") as "male" | "female" | "neutral";
-
-  const imageIndex = Math.max(0, Math.min(999, parseInt(String(req.query["imageIndex"] ?? "0"), 10) || 0));
-  const rawMode = req.query["raw"] === "true";
-
-  try {
-    const [fact] = await db
-      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText, aiMemeImages: factsTable.aiMemeImages, updatedAt: factsTable.updatedAt })
-      .from(factsTable)
-      .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
-      .limit(1);
-
-    if (!fact) { res.status(404).end(); return; }
-
-    const aiImages = fact.aiMemeImages as AiMemeImages | null;
-    if (!aiImages || !aiImages[gender]?.[imageIndex]) {
-      res.status(404).json({ error: "AI meme background not yet generated for this fact" });
-      return;
-    }
-
-    const backgroundPath = aiImages[gender][imageIndex]!;
-
-    if (rawMode) {
-      // Serve the raw background PNG directly (used for gallery thumbnails)
-      const objectStorageService = new ObjectStorageService();
-      const normalizedPath = objectStorageService.normalizeObjectEntityPath(backgroundPath);
-      let objectFile: import("@google-cloud/storage").File;
-      try {
-        objectFile = await objectStorageService.getObjectEntityFile(normalizedPath);
-      } catch (e) {
-        if (e instanceof ObjectNotFoundError) {
-          // Prune the stale path from the DB so it stops appearing in the gallery
-          const pruned: AiMemeImages = {
-            male:    (aiImages.male    ?? []).filter(p => p !== backgroundPath),
-            female:  (aiImages.female  ?? []).filter(p => p !== backgroundPath),
-            neutral: (aiImages.neutral ?? []).filter(p => p !== backgroundPath),
-          };
-          const isEmpty = !pruned.male.length && !pruned.female.length && !pruned.neutral.length;
-          await db.update(factsTable)
-            .set({ aiMemeImages: isEmpty ? null : pruned, updatedAt: new Date() })
-            .where(eq(factsTable.id, factId));
-          res.status(404).json({ error: "AI meme background not found", pruned: true });
-          return;
-        }
-        throw e;
-      }
-      // ETag includes updatedAt so it invalidates automatically after regen overwrites the image
-      const aiEtag = `"ai-bg-${factId}-${gender}-${imageIndex}-${fact.updatedAt.getTime()}"`;
-      if (checkConditional(req, res, aiEtag)) return;
-      const response = await objectStorageService.downloadObject(objectFile, 86400);
-      setPublicCache(res, CACHE.MEME_TEMPLATE, aiEtag);
-      setPublicCors(res);
-      response.headers.forEach((value: string, key: string) => {
-        if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
-      });
-      res.status(200);
-      if (response.body) {
-        const { Readable } = await import("stream");
-        const nodeStream = Readable.fromWeb(response.body as import("stream/web").ReadableStream<Uint8Array>);
-        nodeStream.pipe(res);
-      } else {
-        res.end();
-      }
-      return;
-    }
-
-    // Personalize fact text for the user if userId provided
-    let factText: string;
-    const userId = String(req.query["userId"] ?? "").trim();
-    if (userId) {
-      const [user] = await db
-        .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
-        .from(usersTable)
-        .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))
-        .limit(1);
-      const rawTemplate = fact.text ?? fact.canonicalText ?? "";
-      factText = user?.displayName && rawTemplate
-        ? renderPersonalized(rawTemplate, user.displayName, user.pronouns)
-        : (fact.canonicalText ?? fact.text ?? "");
-    } else {
-      factText = fact.canonicalText ?? fact.text ?? "";
-    }
-
-    const jpegBuffer = await compositeAiMeme(backgroundPath, factText);
-
-    res.setHeader("Content-Type", "image/jpeg");
-    res.setHeader("Cache-Control", CACHE.NO_STORE);
-    res.setHeader("Content-Length", jpegBuffer.length);
-    res.status(200).send(jpegBuffer);
-
-  } catch (err) {
-    if (err instanceof ObjectNotFoundError) {
-      res.status(404).json({ error: "AI meme background not found" });
-      return;
-    }
-    req.log.error({ err, factId }, "AI meme compositing failed");
-    res.status(502).end();
-  }
-});
-
-
-/**
  * GET /facts/:factId/ai-meme-preference — get user's AI meme image index preference
  */
 router.get("/facts/:factId/ai-meme-preference", async (req: Request, res: Response) => {
@@ -1199,103 +1075,21 @@ router.put("/facts/:factId/ai-meme-preference", async (req: Request, res: Respon
   res.json({ success: true, aiMemeImageIndex });
 });
 
-// GET /memes/ai/:factId/prompts — return stored scene prompts + live admin config values for debugging (admin only)
-// Query params: styleId (optional), isRef=1 (optional)
-router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: Response) => {
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
-  const [fact] = await db
-    .select({ aiScenePrompts: factsTable.aiScenePrompts })
-    .from(factsTable)
-    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
-    .limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  // Resolve style suffix from the `look_styles` DB table. The legacy
-  // `style_suffix_*` admin_config keys were retired in the admin-panel
-  // cleanup; look_styles is now the single source of truth for visual
-  // prompt content. videoPipelineRunner reads from the same table.
-  const rawStyleId = String(req.query["styleId"] ?? "");
-  const isRef = req.query["isRef"] === "1";
-  let styleSuffix: string | null = null;
-  if (rawStyleId && rawStyleId !== "none") {
-    const [row] = await db
-      .select({
-        promptSuffix: lookStylesTable.promptSuffix,
-        promptSuffixReference: lookStylesTable.promptSuffixReference,
-      })
-      .from(lookStylesTable)
-      .where(eq(lookStylesTable.id, rawStyleId))
-      .limit(1);
-    if (row) {
-      styleSuffix = (isRef ? row.promptSuffixReference : row.promptSuffix) || null;
-    }
-  }
-
-  // Build a preview of the full fal.ai call — reads all config values, returns model + input object
-  // without actually invoking fal.ai. Accept optional modelOverride and paramsOverride as query params.
-  const modelOverrideQ = String(req.query["modelOverride"] ?? "").trim() || undefined;
-  let paramsOverrideQ: Record<string, string> | undefined;
-  try {
-    const raw = req.query["paramsOverride"];
-    if (raw && typeof raw === "string") {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        paramsOverrideQ = Object.fromEntries(
-          Object.entries(parsed as Record<string, unknown>)
-            .filter(([, v]) => typeof v === "string" || typeof v === "number")
-            .map(([k, v]) => [k, String(v)])
-        );
-      }
-    }
-  } catch { /* ignore malformed paramsOverride */ }
-
-  // Compute the finalPrompt for the preview — mirror generateAiMemeBackgrounds logic:
-  // genderKey defaults to "neutral" if not provided (abstract facts generate 1 image)
-  const genderKey = (["male", "female", "neutral"].includes(String(req.query["gender"] ?? "")) ?
-    String(req.query["gender"]) : "neutral") as "male" | "female" | "neutral";
-  const storedPrompts = fact.aiScenePrompts as Record<string, string> | null | undefined;
-  const sceneBase = storedPrompts?.[genderKey] ?? "(scene prompt will be generated on first run)";
-  const promptWithSuffix = styleSuffix ? `${sceneBase.trim()} ${styleSuffix}` : sceneBase;
-  const previewPrompt = promptWithSuffix;
-
-  let falCallPreview: { model: string; input: Record<string, unknown> } | null = null;
-  try {
-    falCallPreview = await buildFalInputPreview(previewPrompt, {
-      modelOverride: modelOverrideQ,
-      isReference: isRef,
-      paramsOverride: paramsOverrideQ,
-    });
-  } catch { /* non-fatal — omit from response */ }
-
-  res.json({
-    prompts: fact.aiScenePrompts ?? null,
-    styleSuffix,
-    falCallPreview,
-  });
-});
-
-// POST /memes/ai/:factId/regenerate-scene-prompts — admin force-refreshes stored scene prompts for a fact
-router.post("/memes/ai/:factId/regenerate-scene-prompts", requireAdmin, async (req: Request, res: Response) => {
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
-  const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text })
-    .from(factsTable)
-    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
-    .limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  const { generateScenePrompts } = await import("../lib/aiMemePipeline.js");
-  const prompts = await generateScenePrompts(fact.text);
-  await db.update(factsTable).set({ aiScenePrompts: prompts }).where(eq(factsTable.id, factId));
-  res.json({ success: true, prompts });
-});
-
-// POST /memes/ai/:factId/generate — legendary user triggers AI image generation for a fact
+// POST /memes/ai/:factId/generate — Legendary user stylises their own photo into
+// the fact (PuLID). Its one caller is the meme-page remix builder's stylise
+// toggle. The no-photo (text-to-image) branch was the legacy meme studio's and
+// went with it (launch Phase 4, removal 1); this route goes with PuLID (removal 3).
 router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
   errorCode: "legendary_required",
   message: "This feature requires a Legendary membership.",
 }), async (req: Request, res: Response) => {
+  // Refused before the governance gate so a request this route no longer
+  // serves never counts against the caller's budget or the provider's health.
+  const requestedReference = (req.body as Record<string, unknown> | undefined)?.["referenceImagePath"];
+  if (requestedReference === undefined || requestedReference === null) {
+    res.status(400).json({ error: "reference_image_required" });
+    return;
+  }
   const estimatedCostUsd = 0.04;
   const gate = enforceGovernance(req, res, {
     path: "meme",
@@ -1322,7 +1116,6 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
   const body = req.body as Record<string, unknown>;
-  const isAbstractScope = body["scope"] === "abstract";
 
   // Optional reference image path for reference-based generation.
   // If the caller provides *any* referenceImagePath value, validate strictly — no silent fallback.
@@ -1366,26 +1159,6 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
   }
 
   const existingPrompts = fact.aiScenePrompts as import("../lib/aiMemePipeline").AiScenePrompts | undefined;
-
-  // Derive the requesting user's gender from their pronouns so we only generate
-  // for their gender slot instead of all three simultaneously.
-  // he/* → male, she/* → female, anything else → neutral.
-  // The requester's gender slot (he/* → male, she/* → female, else neutral) is
-  // still derived from their pronouns for `fallbackSubjectGender`. The rendered
-  // protagonist identity itself is no longer read here — it is resolved+frozen
-  // as a prompt-identity snapshot below (see prepareImagePromptAttemptInputs).
-  let userGender: "male" | "female" | "neutral" = "neutral";
-  if (req.user?.id) {
-    const [userRow] = await db
-      .select({ pronouns: usersTable.pronouns })
-      .from(usersTable)
-      .where(eq(usersTable.id, req.user.id))
-      .limit(1);
-    const pronounSubj = (userRow?.pronouns ?? "they/them").toLowerCase().trim().split("/")[0] ?? "they";
-    if (pronounSubj === "he") userGender = "male";
-    else if (pronounSubj === "she") userGender = "female";
-    else userGender = "neutral";
-  }
 
   // Resolve optional style suffix from the look_styles table (replaces
   // the retired style_suffix_* admin_config keys).
@@ -1497,72 +1270,6 @@ router.post("/memes/ai/:factId/generate", requireFeature("meme_ai_background", {
       }
       return;
     }
-  } else {
-    // Generic (no reference image): the render-time prompt engine + Nano Banana 2,
-    // via the SAME async attempt pipeline as /generate-v2 (t2i fallback). Requires
-    // valid enrichment — the legacy scene-prompt fallback is gone.
-    const ev = _validateEnrichment_v2(fact.enrichment);
-    if (!ev.ok) {
-      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
-      return;
-    }
-    const analysis = noImageAnalysis_v2();
-    // No source image → resolves to t2i_fallback.
-    const subjectRenderMode = resolveSubjectRenderMode_v2(analysis, undefined);
-    const generationMode = generationModeFromSubjectRenderMode_v2(subjectRenderMode);
-
-    // Resolve + FREEZE the reproducible inputs ONCE — the prompt-identity
-    // snapshot (prompt-reduced name), the fact text rendered FROM that same
-    // identity, and the resolved style snapshot — so an edit to the requester's
-    // profile or the selected style between enqueue and render can't diverge
-    // this queued render. This is the SAME contract the reference (generate-v2)
-    // path uses; both user-facing meme entry points now freeze identically.
-    const prepared = await prepareImagePromptAttemptInputs_v2({
-      factTemplate: fact.text,
-      identity: { kind: "user", userId: req.user?.id ?? null },
-      styleId: normalizeStyleId(rawStyleId),
-      generationMode,
-    });
-    if (!prepared.ok) {
-      if (prepared.error === "style_invalid") {
-        res.status(400).json({ error: "style_invalid", styleId: prepared.styleId, reason: prepared.reason });
-      } else {
-        res.status(422).json({ error: "fact_template_unresolved" });
-      }
-      return;
-    }
-    const { promptIdentity, renderedFactText, resolvedRenderStyle } = prepared.prepared;
-
-    const identityPolicy = _defaultIdentityPolicyForRenderMode_v2(subjectRenderMode);
-    const renderControls = {
-      aspectRatio: parseAspectRatio(body["aspectRatio"]),
-      contentMode: "sfw" as const,
-      negativeSpacePreference: undefined,
-      // Abstract facts have no personal subject → neutral; otherwise the
-      // requester's pronoun-derived gender, preserving legacy slot semantics.
-      fallbackSubjectGender: isAbstractScope ? ("neutral" as const) : userGender,
-      styleId: normalizeStyleId(rawStyleId),
-      referenceImageUrl: null,
-      // Frozen reproducibility snapshots — the worker consumes these instead of
-      // re-resolving live (see resolveAttemptIdentity / resolveStylePrompt).
-      promptIdentity,
-      resolvedRenderStyle,
-    };
-
-    const { renderJobId, attemptId } = await buildAndEnqueueImagePromptAttempt({
-      factId: fact.id,
-      userId: req.user?.id ?? null,
-      enrichment: ev.data,
-      renderedFactText,
-      analysis,
-      subjectRenderMode,
-      userSelectedSubjectRenderMode: null,
-      identityPolicy,
-      renderControls,
-    });
-
-    res.status(202).json({ renderJobId, attemptId });
-    return;
   }
 
   res.json({ success: true, objectPath: generatedObjectPath });
@@ -1609,379 +1316,6 @@ router.delete("/memes/:slug", async (req: Request, res: Response) => {
     .where(eq(memesTable.id, meme.id));
 
   res.json({ success: true });
-});
-
-// DELETE /memes/ai/:factId/image — hard-delete an AI background image slot (owner only)
-// Query params: gender (male|female|neutral), imageIndex (0-based)
-router.delete("/memes/ai/:factId/image", requireFeature("meme_ai_background", {
-  errorCode: "legendary_required",
-  message: "This feature requires a Legendary membership.",
-}), async (req: AuthenticatedRequest, res: Response) => {
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
-
-  const gender = String(req.query["gender"] ?? "") as "male" | "female" | "neutral";
-  if (!["male", "female", "neutral"].includes(gender)) {
-    res.status(400).json({ error: "gender must be male, female, or neutral" }); return;
-  }
-  const imageIndex = parseInt(String(req.query["imageIndex"] ?? ""), 10);
-  if (isNaN(imageIndex) || imageIndex < 0) {
-    res.status(400).json({ error: "imageIndex must be a non-negative integer" }); return;
-  }
-
-  const [fact] = await db
-    .select({ id: factsTable.id, aiMemeImages: factsTable.aiMemeImages })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .limit(1);
-
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  const images = (fact.aiMemeImages ?? {}) as AiMemeImages;
-  const genderImages: string[] = Array.isArray(images[gender]) ? [...images[gender]] : [];
-  const storagePath = genderImages[imageIndex];
-
-  if (!storagePath) { res.status(404).json({ error: "Image slot not found" }); return; }
-
-  // Ownership check: only the user who generated this image can delete it
-  const ownerRows = await db.execute(sql`
-    SELECT id FROM user_ai_images
-    WHERE user_id = ${req.user.id} AND storage_path = ${storagePath}
-    LIMIT 1
-  `);
-  if (!ownerRows.rows.length) {
-    res.status(403).json({ error: "You do not own this AI background image" }); return;
-  }
-
-  // Hard-delete from storage FIRST — if this fails, do not touch DB (strict hard-delete)
-  try {
-    await objectStorageService.deleteObject(storagePath);
-  } catch (e) {
-    logger.error({ err: e }, "[DELETE /memes/ai/:factId/image] Storage delete failed");
-    res.status(500).json({ error: "Failed to delete image from storage. Please try again." }); return;
-  }
-
-  // Null out the slot to preserve array indices of remaining images
-  genderImages[imageIndex] = "";
-  const updatedImages: AiMemeImages = { ...images, [gender]: genderImages };
-  await db
-    .update(factsTable)
-    .set({ aiMemeImages: updatedImages })
-    .where(eq(factsTable.id, factId));
-
-  // Remove from user tracking table
-  await db.execute(sql`
-    DELETE FROM user_ai_images WHERE id = (
-      SELECT id FROM user_ai_images WHERE user_id = ${req.user.id} AND storage_path = ${storagePath} LIMIT 1
-    )
-  `);
-
-  res.json({ success: true });
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// Phase 2 — new render-time prompt pipeline.
-//
-//   POST /memes/ai/:factId/analyze-source     run Tier-1+2(+3) on an upload
-//   POST /memes/ai/:factId/generate-v2        enqueue prompt+image jobs, return renderJobId
-//   GET  /memes/ai/renders/:renderJobId       poll status / fetch result
-//
-// Reference-photo uploads always use this flow. The legacy /generate route
-// stays live for Generic (no-upload) generation.
-// ────────────────────────────────────────────────────────────────────────────
-
-import {
-  validateEnrichment as _validateEnrichment_v2,
-  defaultIdentityPolicyForRenderMode as _defaultIdentityPolicyForRenderMode_v2,
-  SOURCE_IMAGE_ANALYZER_VERSION as SOURCE_IMAGE_ANALYZER_VERSION_v2,
-  type RenderControls as RenderControls_v2,
-  type SubjectRenderMode as SubjectRenderMode_v2,
-  type FactEnrichment as FactEnrichment_v2,
-  type SourceImageAnalysis as SourceImageAnalysis_v2,
-} from "@workspace/api-zod";
-import { hasUnresolvedFactTokens as hasUnresolvedFactTokens_v2 } from "../lib/renderCanonical";
-import {
-  analyzeSourceImage as analyzeSourceImage_v2,
-  resolveSubjectRenderMode as resolveSubjectRenderMode_v2,
-  generationModeFromSubjectRenderMode as generationModeFromSubjectRenderMode_v2,
-  noImageAnalysis as noImageAnalysis_v2,
-} from "../lib/sourceImageAnalysis";
-import {
-  imagePromptAttemptsTable as imagePromptAttemptsTable_v2,
-  uploadImageMetadataTable as uploadImageMetadataTable_v2,
-} from "@workspace/db";
-import { enqueueJob as enqueueJob_v2 } from "../lib/asyncJobs";
-import { buildAndEnqueueImagePromptAttempt, parseAspectRatio, normalizeStyleId, buildRenderStatusPayload } from "../lib/imagePromptAttempts";
-import { prepareImagePromptAttemptInputs as prepareImagePromptAttemptInputs_v2 } from "../lib/imagePrompt/prepareAttemptInputs";
-
-const PUBLIC_OBJECT_PREFIX_v2 = "/objects/";
-
-// Resolve a stored uploadedObjectPath to a public URL the fal detector + image
-// engines can fetch. Reuse the existing public path convention.
-function resolvePublicUrlForUpload_v2(uploadedObjectPath: string): string {
-  // Existing convention: uploadedObjectPath already starts with /objects/.
-  // Image engines / fal can fetch it via SERVER_PUBLIC_URL + path.
-  const publicBase = process.env["PUBLIC_BASE_URL"] ?? process.env["SERVER_PUBLIC_URL"] ?? "";
-  if (publicBase) {
-    return `${publicBase.replace(/\/$/, "")}${uploadedObjectPath}`;
-  }
-  return uploadedObjectPath;
-}
-
-router.post("/memes/ai/:factId/analyze-source", requireFeature("meme_ai_background", {
-  errorCode: "legendary_required",
-  message: "This feature requires a Legendary membership.",
-}), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-    if (isNaN(factId)) {
-      res.status(400).json({ error: "Invalid factId" });
-      return;
-    }
-    const body = req.body as { uploadedObjectPath?: unknown };
-    const uploadedObjectPath = typeof body.uploadedObjectPath === "string" ? body.uploadedObjectPath : "";
-    if (!uploadedObjectPath || !uploadedObjectPath.startsWith(PUBLIC_OBJECT_PREFIX_v2)) {
-      res.status(400).json({ error: "uploadedObjectPath required (must start with /objects/)" });
-      return;
-    }
-    // Ownership check: the upload row must belong to req.user.
-    const [meta] = await db
-      .select({ userId: uploadImageMetadataTable_v2.userId })
-      .from(uploadImageMetadataTable_v2)
-      .where(eq(uploadImageMetadataTable_v2.objectPath, uploadedObjectPath))
-      .limit(1);
-    if (!meta) {
-      res.status(404).json({ error: "upload_not_found" });
-      return;
-    }
-    if (meta.userId !== req.user?.id) {
-      res.status(403).json({ error: "upload_not_owned" });
-      return;
-    }
-
-    const analysis = await analyzeSourceImage_v2(
-      {
-        uploadedObjectPath,
-        imageUrl: resolvePublicUrlForUpload_v2(uploadedObjectPath),
-      },
-    );
-    res.json({
-      analysis,
-      defaultIdentityPolicy: _defaultIdentityPolicyForRenderMode_v2(analysis.suggestedRenderMode),
-    });
-  } catch (err) {
-    logger.warn({ err }, "[memes.v2/analyze-source] failed");
-    res.status(502).json({ error: "analyze_failed", details: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-router.post("/memes/ai/:factId/generate-v2", requireFeature("meme_ai_background", {
-  errorCode: "legendary_required",
-  message: "This feature requires a Legendary membership.",
-}), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-    if (isNaN(factId)) {
-      res.status(400).json({ error: "Invalid factId" });
-      return;
-    }
-    const body = (req.body && typeof req.body === "object" ? req.body : {}) as {
-      sourceImageAnalysis?: SourceImageAnalysis_v2;
-      userSelectedSubjectRenderMode?: SubjectRenderMode_v2;
-      identityPolicyOverrides?: Record<string, unknown>;
-      renderControls?: Partial<RenderControls_v2>;
-      lookStyleId?: string | null;
-      uploadedObjectPath?: string | null;
-    };
-
-    const [factRow] = await db
-      .select({ text: factsTable.text, enrichment: factsTable.enrichment })
-      .from(factsTable)
-      .where(eq(factsTable.id, factId))
-      .limit(1);
-    if (!factRow) {
-      res.status(404).json({ error: "fact_not_found" });
-      return;
-    }
-    const ev = _validateEnrichment_v2(factRow.enrichment);
-    if (!ev.ok) {
-      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
-      return;
-    }
-    const enrichment: FactEnrichment_v2 = ev.data;
-
-    const uploadedObjectPath =
-      typeof body.uploadedObjectPath === "string" && body.uploadedObjectPath ? body.uploadedObjectPath : null;
-
-    // Resolve the source-image analysis. When an upload is involved we verify
-    // ownership and DISTRUST the client-supplied analysis blob: accept it only
-    // if it pins to this exact upload (sha) and the current analyzer version,
-    // otherwise re-derive server-side (cached by sha, so cheap on repeats). No
-    // upload → text-to-image only; ignore any client analysis.
-    let analysis: SourceImageAnalysis_v2;
-    if (uploadedObjectPath) {
-      const [meta] = await db
-        .select({
-          userId: uploadImageMetadataTable_v2.userId,
-          sha256: uploadImageMetadataTable_v2.arachnidSha256Hex,
-        })
-        .from(uploadImageMetadataTable_v2)
-        .where(eq(uploadImageMetadataTable_v2.objectPath, uploadedObjectPath))
-        .limit(1);
-      if (!meta) {
-        res.status(404).json({ error: "upload_not_found" });
-        return;
-      }
-      if (meta.userId !== req.user?.id) {
-        res.status(403).json({ error: "upload_not_owned" });
-        return;
-      }
-      const client = body.sourceImageAnalysis;
-      const clientTrusted =
-        !!client &&
-        !!meta.sha256 &&
-        client.sourceImageSha256 === meta.sha256 &&
-        client.analyzerVersion === SOURCE_IMAGE_ANALYZER_VERSION_v2;
-      analysis = clientTrusted
-        ? client!
-        : await analyzeSourceImage_v2({
-            uploadedObjectPath,
-            imageUrl: resolvePublicUrlForUpload_v2(uploadedObjectPath),
-          });
-    } else {
-      analysis = noImageAnalysis_v2();
-    }
-
-    const subjectRenderMode = resolveSubjectRenderMode_v2(analysis, body.userSelectedSubjectRenderMode);
-    const generationMode = generationModeFromSubjectRenderMode_v2(subjectRenderMode);
-
-    // Reject impossible render-mode selections before enqueueing any work.
-    if (generationMode === "i2i" && !uploadedObjectPath) {
-      res.status(400).json({ error: "i2i_requires_uploaded_object_path" });
-      return;
-    }
-    if (subjectRenderMode === "human_identity_i2i" && !analysis.hasUsableHumanFace) {
-      res.status(400).json({ error: "human_i2i_requires_usable_face" });
-      return;
-    }
-    if (subjectRenderMode === "nonhuman_subject_i2i" && !analysis.hasUsableSubject) {
-      res.status(400).json({ error: "nonhuman_i2i_requires_usable_subject" });
-      return;
-    }
-
-    // Resolve + FREEZE the reproducible inputs ONCE: the prompt-identity
-    // snapshot (prompt-reduced name), the fact text rendered FROM that same
-    // identity (so the token gate can never diverge from the frozen fact text),
-    // and the resolved style snapshot (so a style edited/deactivated between
-    // enqueue and render can't change this render). A profile edit after this
-    // point no longer affects the queued render.
-    const prepared = await prepareImagePromptAttemptInputs_v2({
-      factTemplate: factRow.text,
-      identity: { kind: "user", userId: req.user?.id ?? null },
-      styleId: body.lookStyleId ?? null,
-      generationMode,
-    });
-    if (!prepared.ok) {
-      if (prepared.error === "style_invalid") {
-        res.status(400).json({ error: "style_invalid", styleId: prepared.styleId, reason: prepared.reason });
-      } else {
-        res.status(422).json({
-          error: "fact_template_unresolved",
-          details: "rendered fact text still contains unresolved template tokens",
-        });
-      }
-      return;
-    }
-    const { promptIdentity, renderedFactText, resolvedRenderStyle } = prepared.prepared;
-
-    const identityPolicy = {
-      ..._defaultIdentityPolicyForRenderMode_v2(subjectRenderMode),
-      ...(body.identityPolicyOverrides ?? {}),
-    };
-
-    const renderControls = {
-      aspectRatio: body.renderControls?.aspectRatio ?? "portrait",
-      contentMode: body.renderControls?.contentMode ?? "sfw",
-      negativeSpacePreference: body.renderControls?.negativeSpacePreference,
-      fallbackSubjectGender: body.renderControls?.fallbackSubjectGender,
-      styleId: body.lookStyleId ?? null,
-      referenceImageUrl: body.uploadedObjectPath ? resolvePublicUrlForUpload_v2(body.uploadedObjectPath) : null,
-      // Frozen reproducibility snapshots — the worker consumes these instead of
-      // re-resolving live (see resolveAttemptIdentity / resolveStylePrompt).
-      promptIdentity,
-      resolvedRenderStyle,
-    };
-
-    const renderJobId = crypto.randomUUID();
-    const [attempt] = await db
-      .insert(imagePromptAttemptsTable_v2)
-      .values({
-        factId,
-        userId: req.user?.id ?? null,
-        renderJobId,
-        generationMode,
-        subjectRenderMode,
-        userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
-        targetEngine: "nano_banana_2",
-        sourceImageAnalysis: analysis,
-        sourceImageSha256: analysis.sourceImageSha256 ?? null,
-        identityPolicy,
-        renderControls,
-        factEnrichmentSnapshot: enrichment,
-        renderedFactText,
-        archetypeStrategyVersion: "v2",
-      })
-      .returning({ id: imagePromptAttemptsTable_v2.id });
-
-    await enqueueJob_v2({
-      queue: "image_prompt_generation",
-      payload: { attemptId: attempt!.id },
-      dedupeKey: `image_prompt:attempt:${attempt!.id}`,
-    });
-
-    res.status(202).json({ renderJobId, attemptId: attempt!.id });
-  } catch (err) {
-    logger.warn({ err }, "[memes.v2/generate-v2] failed");
-    res.status(500).json({ error: "generate_v2_failed", details: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-router.get("/memes/ai/renders/:renderJobId", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const renderJobId = String(req.params["renderJobId"] ?? "");
-    if (!renderJobId) {
-      res.status(400).json({ error: "renderJobId required" });
-      return;
-    }
-    const [attempt] = await db
-      .select()
-      .from(imagePromptAttemptsTable_v2)
-      .where(eq(imagePromptAttemptsTable_v2.renderJobId, renderJobId))
-      .limit(1);
-    if (!attempt) {
-      res.status(404).json({ error: "render_not_found" });
-      return;
-    }
-    // Admin moderation review renders are intentionally userId:null (so the
-    // ownership check below would NOT gate them). They carry unpublished
-    // staging-fact prompt/result data and MUST only be read through the
-    // admin-gated /admin/reviews/:id/renders/:renderJobId route — never here.
-    if ((attempt.renderControls as { reviewAudit?: unknown } | null)?.reviewAudit) {
-      res.status(404).json({ error: "render_not_found" });
-      return;
-    }
-    // Ownership check.
-    if (attempt.userId && attempt.userId !== req.user?.id) {
-      res.status(403).json({ error: "render_not_owned" });
-      return;
-    }
-    // Status mapping (incl. the deliberate `blocked` product state for a poor
-    // subject↔fact compatibility) is shared with the admin moderation poll route.
-    res.json(buildRenderStatusPayload(attempt));
-  } catch (err) {
-    logger.warn({ err }, "[memes.v2/renders] failed");
-    res.status(500).json({ error: "render_status_failed" });
-  }
 });
 
 export default router;

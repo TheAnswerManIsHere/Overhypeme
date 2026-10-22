@@ -417,9 +417,12 @@ describe("GET /admin/reviews/:id/renders/:renderJobId", () => {
   });
 });
 
-// ── Security: the public poll route must NOT serve review renders ─────────────
+// ── Security: no public poll route serves review renders ──────────────────────
+// The public user poll went with the legacy meme studio (launch Phase 4,
+// removal 1). Review renders are read only through the admin-gated route; this
+// pins that the public path stays gone rather than reappearing ungated.
 
-describe("public /memes/ai/renders/:renderJobId vs review attempts", () => {
+describe("public /memes/ai/renders/:renderJobId is gone (review attempts stay admin-only)", () => {
   function memesApp(): Express {
     const app = express();
     app.use(express.json());
@@ -440,12 +443,13 @@ describe("public /memes/ai/renders/:renderJobId vs review attempts", () => {
     return renderJobId;
   }
 
-  it("returns 404 for a userId:null attempt that carries reviewAudit (no leak)", async () => {
+  it("answers 404 for a review attempt's renderJobId, anonymously and as an admin", async () => {
     const { reviewId, stagingFactId } = await seedReview({ submittedById: plainId });
     const renderJobId = await seedReviewAttempt(reviewId, stagingFactId!);
-    // Even anonymously (no ownership gate would fire on userId:null) it must 404.
-    const res = await request(memesApp()).get(`/memes/ai/renders/${renderJobId}`);
-    assert.equal(res.status, 404);
-    assert.equal(res.body.error, "render_not_found");
+    const anon = await request(memesApp()).get(`/memes/ai/renders/${renderJobId}`);
+    assert.equal(anon.status, 404);
+    assert.equal(anon.body.visualPlan, undefined, "no attempt data may leak through the public path");
+    const asAdmin = await request(memesApp()).get(`/memes/ai/renders/${renderJobId}`).set("Authorization", `Bearer ${adminSid}`);
+    assert.equal(asAdmin.status, 404);
   });
 });

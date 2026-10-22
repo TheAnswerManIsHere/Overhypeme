@@ -406,11 +406,6 @@ describe("the legacy fixture", { skip: skipReason }, () => {
         assert.ok([401, 403].includes(asUser.status), `a review render as an ordinary user answered ${asUser.status}`);
       }
 
-      const [galleryFact] = await query<{ id: number; slots: string[] }>(target, "SELECT id, ARRAY(SELECT jsonb_array_elements_text(ai_meme_images->'male')) AS slots FROM facts WHERE jsonb_array_length(COALESCE(ai_meme_images->'male', '[]')) > 0 LIMIT 1");
-      if (galleryFact) {
-        const i = galleryFact.slots.findIndex((s) => s !== "");
-        if (i >= 0) await image(anon, `/api/memes/ai/${galleryFact.id}/image?gender=male&imageIndex=${i}`, 200, "a gallery image");
-      }
     } finally {
       server.kill("SIGTERM");
     }

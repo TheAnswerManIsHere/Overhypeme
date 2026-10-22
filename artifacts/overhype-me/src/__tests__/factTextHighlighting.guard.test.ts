@@ -28,11 +28,7 @@ const SRC = join(process.cwd(), "src");
  * if you are adding one to put text on screen, use `<HighlightedFactText>`
  * instead, or the name will silently render unhighlighted.
  */
-const FLAT_RENDER_ALLOWLIST: Record<string, string> = {
-  "pages/FactDetail.tsx":
-    "passes personalized text to MemeStudio as `factText` (a prop, not DOM). " +
-    "The meme canvas highlights from `rawFactText` via renderFactSegments.",
-};
+const FLAT_RENDER_ALLOWLIST: Record<string, string> = {};
 
 /**
  * `file:line` (the `.split(` line) entries permitted to have a `text-primary`
