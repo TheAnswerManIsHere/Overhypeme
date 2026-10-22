@@ -1,8 +1,10 @@
 # Chapter 5 · Visual Pipeline
 
 > How a fact becomes an AI-rendered image, whoever it's personalized for —
-> the shared pipeline behind moderation's [test renders](../ai-context/glossary.md#test-renders) and an end user's AI
-> image memes. It isn't the only way Overhype.me produces a meme;
+> the shared pipeline behind moderation's [test renders](../ai-context/glossary.md#test-renders) and the admin
+> renders. (End users' AI image memes went with PuLID in launch Phase 4 and
+> return in Phase 7; ledger [`docs/retired/README.md`](../retired/README.md).)
+> It isn't the only way Overhype.me produces a meme;
 > [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md) covers the other
 > paths. The
 > moderator's experience of *using* this machinery — writing and approving
@@ -165,6 +167,6 @@ it for a given fact.
   [`decisions.md`](../ai-context/decisions.md).
 
 **Next:** chapter 6 — [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md),
-what an end user actually makes with this pipeline.
+what an end user actually makes: photo memes, built outside this pipeline.
 
 *Verified against `0ea4ed8` (2026-08-08) · claim inventory in PR #361.*

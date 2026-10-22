@@ -16,7 +16,6 @@ import {
   hasNoLikelySubjectReference,
 } from "../lib/factTokenizer";
 import { renderCanonical } from "../lib/renderCanonical";
-import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
 import { logger } from "../lib/logger";
 import { requireRole } from "../middlewares/tierMiddleware";
 import {

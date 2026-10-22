@@ -20,7 +20,7 @@ const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "capture-test-"));
 const KEYS = { FAL_AI_API_KEY: "x", OPENAI_API_KEY: "x" };
 const base = (over: Partial<Parameters<typeof captureRefusals>[0]> = {}) =>
-  captureRefusals({ env: KEYS, allowance: "2", raisedBy: undefined, out: path.join(tmp(), "new"), doc: "PR223_RENDER_REPRODUCIBILITY_UAT", variant: "fixture", control: undefined, ...over });
+  captureRefusals({ env: KEYS, allowance: "2", raisedBy: undefined, out: path.join(tmp(), "new"), doc: "PR229_BUBBLE_CONTROLS_UAT", variant: "fixture", control: undefined, ...over });
 
 describe("the capture manifest", () => {
   it("has exactly the browser capture kit's keys, in its order", () => {
@@ -35,11 +35,11 @@ describe("the capture manifest", () => {
   it("writes the bytes unaltered beside an appended manifest line, and refuses an empty image", () => {
     const dir = tmp();
     const bytes = Buffer.alloc(5000, 7);
-    writeShot(dir, "pr223-s1-result", bytes, "jpeg", { doc: "PR223_RENDER_REPRODUCIBILITY_UAT", step: "1", shows: "x" }, "c1");
-    writeShot(dir, "pr223-s1-reference", bytes, "png", { doc: "PR223_RENDER_REPRODUCIBILITY_UAT", step: "1", shows: "y" }, "c1");
-    assert.ok(fs.readFileSync(path.join(dir, "pr223-s1-result.jpg")).equals(bytes));
+    writeShot(dir, "pr229-s6-render", bytes, "jpeg", { doc: "PR229_BUBBLE_CONTROLS_UAT", step: "6", shows: "x" }, "c1");
+    writeShot(dir, "pr229-s6-second", bytes, "png", { doc: "PR229_BUBBLE_CONTROLS_UAT", step: "6", shows: "y" }, "c1");
+    assert.ok(fs.readFileSync(path.join(dir, "pr229-s6-render.jpg")).equals(bytes));
     const lines = fs.readFileSync(path.join(dir, "manifest.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    assert.deepEqual(lines.map((l) => l.file), ["pr223-s1-result.jpg", "pr223-s1-reference.png"]);
+    assert.deepEqual(lines.map((l) => l.file), ["pr229-s6-render.jpg", "pr229-s6-second.png"]);
     assert.throws(() => writeShot(dir, "empty", Buffer.alloc(10), "png", { doc: "d", step: "1", shows: "z" }, "c1"), /is 10 bytes/);
     assert.equal(fs.existsSync(path.join(dir, "empty.png")), false);
     assert.equal(extForFormat("webp"), "webp");
@@ -72,7 +72,7 @@ describe("the capture run's refusals", () => {
   });
 
   it("refuses a run that names no one UAT doc, or a doc it has no captures for", () => {
-    assert.match(base({ doc: undefined }).join("\n"), /needs --doc <UAT doc stem>, one of: PR223_RENDER_REPRODUCIBILITY_UAT, PR229_BUBBLE_CONTROLS_UAT$/m);
+    assert.match(base({ doc: undefined }).join("\n"), /needs --doc <UAT doc stem>, one of: PR229_BUBBLE_CONTROLS_UAT$/m);
     assert.match(base({ doc: "PR398_MEME_SPLIT_CAPTION_PERSONALIZATION_UAT" }).join("\n"), /\(got PR398_MEME_SPLIT_CAPTION_PERSONALIZATION_UAT\)/);
     assert.match(base({ doc: "toString" }).join("\n"), /needs --doc/);
     assert.deepEqual(base({ doc: "PR229_BUBBLE_CONTROLS_UAT" }), []);
@@ -109,7 +109,7 @@ describe("the capture run's verdict", () => {
   });
 
   it("is red on a missing shot, a setup or inner failure, or journeys that never ran", () => {
-    assert.deepEqual(captureRedReasons({ capture: { problems: ["pr223-s1-result: no image was produced"] } }), ["pr223-s1-result: no image was produced"]);
+    assert.deepEqual(captureRedReasons({ capture: { problems: ["pr229-s6-render: no image was produced"] } }), ["pr229-s6-render: no image was produced"]);
     assert.deepEqual(captureRedReasons({ setupError: "no db", capture: { problems: [] } }), ["setup: no db"]);
     assert.deepEqual(captureRedReasons({ innerError: "boom\nstack", capture: { problems: [] } }), ["the inner program failed: boom"]);
     assert.deepEqual(captureRedReasons({}), ["the capture journeys never ran"]);

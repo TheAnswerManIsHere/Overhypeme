@@ -20,11 +20,13 @@
 
 Overhype.me is a consumer web app that generates personalized, over-the-top
 "facts" about a named person, rendered as shareable meme images.
-Users sign in, personalize facts, generate/render memes (AI image
-generation), share them publicly, and can pay for a Legendary membership via
-Stripe. There are **no consumer credits today** — paid rendering is gated by
-membership plus server-side budget caps; a separate purchasable-credits
-product is future scope only (see `product-brief.md`).
+Users sign in, personalize facts, render memes from their own photo or a
+built-in background, share them publicly, and can pay for a Legendary
+membership via Stripe. No user path generates an AI image since launch Phase 4
+deleted PuLID (ledger `docs/retired/README.md`); paid AI calls are the
+moderation, enrichment and admin machinery's. There are **no consumer credits
+today**; a separate purchasable-credits product is future scope only (see
+`product-brief.md`).
 
 | Component | What it is |
 |---|---|
@@ -49,9 +51,9 @@ target, not an auth provider, here.
    equivalent to full application compromise.
 3. **User accounts and sessions** — credentials, session tokens, password-reset
    flow, OAuth linkage.
-4. **Private user content** — private/owner-only memes, uploaded reference
-   images of real people's faces (identity-bound rendering), and their derived
-   assets. Leakage is both a privacy harm and a product-trust harm.
+4. **Private user content** — private/owner-only memes, uploaded photos of
+   real people's faces, and the AI images earlier rendered from them.
+   Leakage is both a privacy harm and a product-trust harm.
 5. **Secrets** — Stripe keys/webhook secret, `ADMIN_API_KEY`, OpenAI/fal/Resend
    keys, session/DB credentials. Env-only, never committed.
 6. **Content/moderation integrity** — the staged moderation pipeline decides
@@ -63,7 +65,8 @@ target, not an auth provider, here.
    reporting client. This is the single most sensitive stored content in the
    system; unauthorized access or a broken audit trail is a legal-exposure
    event, not just a privacy one.
-8. **Availability/cost** — AI render endpoints spend real vendor money per
+8. **Availability/cost** — AI calls (enrichment, tokenizing, hashtag
+   suggestions, moderation and admin renders) spend real vendor money per
    call; abuse is a financial DoS even when nothing "breaks."
 
 ## Trust boundaries and entry points
@@ -103,10 +106,10 @@ target, not an auth provider, here.
 
 - **Anonymous internet user** — scraping private content, credential stuffing,
   abusing unauthenticated endpoints (OG shells, share surfaces, auth, webhook
-  URL), burning paid AI renders.
+  URL), burning paid AI calls.
 - **Authenticated free user** — the main adversary for authorization bugs:
   IDOR on memes/objects, membership-grant bypass, tier-gate evasion,
-  moderation bypass, abusing another user's identity-bound images.
+  moderation bypass, abusing another user's uploaded photos.
 - **Paying member** — same as above plus refund/downgrade asymmetry games
   (keeping Legendary after cancel).
 - **Malicious content author** — weaponizing user-supplied text/images:
@@ -196,7 +199,7 @@ these is a finding regardless of how it arises:
    endpoints built on `checkSharedRateLimit`** (login, registration) —
    `ipFromRequest()` there deliberately ignores spoofable
    `X-Forwarded-For`. **`createRateLimiter`/`createFactSubmitRateLimiter`
-   (AI generation, fact submission) key on `req.ip` instead**, which honors
+   (AI tokenizing and hashtag suggestions, fact submission) key on `req.ip` instead**, which honors
    `X-Forwarded-For` under `trust proxy`, so those limiters do not carry the
    same spoof-resistance guarantee today — tracked below, not a guarantee to
    assume when reviewing those routes.
@@ -216,11 +219,11 @@ roadmap — report regressions against them, but they are not new findings:
   purge.
 - Admin field-length bounding and backfill `confirm`/`limit` gates are
   deferred follow-ups.
-- The AI-generation and fact-submission rate limiters (`createRateLimiter`,
+- The AI tokenizing/hashtag and fact-submission rate limiters (`createRateLimiter`,
   `createFactSubmitRateLimiter`) key on `req.ip`, not the spoof-resistant
   `CF-Connecting-IP` path the login/registration limiters use — a caller can
   forge `X-Forwarded-For` to work around these two limits specifically.
-  Financial-abuse risk (burns paid render spend), not an auth bypass. Not yet
+  Financial-abuse risk (burns paid AI spend), not an auth bypass. Not yet
   scheduled; report as a known gap, not a new finding, until it's fixed.
 
 ## Maintenance

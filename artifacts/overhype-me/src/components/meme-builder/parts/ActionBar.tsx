@@ -4,26 +4,22 @@ import type { Action } from "../types";
 
 interface Props {
   visibleActions: Action[];
-  showTryAiUpsell: boolean;
   saveDisabled?: boolean;
   downloadDisabled?: boolean;
   onDownload: () => void;
   onSave: () => void;
   onShare: () => void;
   onSignupCta: () => void;
-  onTryAiMode?: () => void;
 }
 
 export function ActionBar({
   visibleActions,
-  showTryAiUpsell,
   saveDisabled,
   downloadDisabled,
   onDownload,
   onSave,
   onShare,
   onSignupCta,
-  onTryAiMode,
 }: Props) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
@@ -49,11 +45,6 @@ export function ActionBar({
           </Button>
         )}
       </div>
-      {showTryAiUpsell && onTryAiMode && (
-        <Button type="button" variant="ghost" onClick={onTryAiMode}>
-          {ACTION_COPY.tryAiMode}
-        </Button>
-      )}
     </div>
   );
 }

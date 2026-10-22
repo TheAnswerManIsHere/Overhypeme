@@ -442,7 +442,7 @@ scope:
   own plan, `docs/plans/PLAN_PHASE4_CUT_AND_PRUNE.md` (#744, approved by
   David 2026-10-22), which supersedes the order first written here: legacy
   meme studio, builders and vestigial flag (D1, D4; the user generate route
-  outlives it photo-only until PuLID goes, `decisions.md` 2026-10-22); video pipeline, legacy
+  outlived it photo-only and went with PuLID, `decisions.md` 2026-10-22); video pipeline, legacy
   one-shot video, video engines and styles, video permalinks (E); PuLID
   everywhere (prose-sweep); merch/Zazzle, affiliate screen and routes, and the
   Zazzle config keys (A22, K1); templates (D2); stock photos, **Pexels

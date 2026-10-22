@@ -38,73 +38,24 @@ the right thing to the person reading them.
 
 - [claude] Confirm the app is up before you start. There's no feature
   flag — it's live everywhere once merged and synced.
-- [david] In Admin → Config, note the current value of
-  `budget_limit_legendary_usd` (the **real** Legendary spend limit), then
-  set it to `0.01` for steps 4 and 5. This is admin-gated setup: I hold no
-  admin session, so it's yours to do, not mine.
-- [david] Have ready a **Legendary** account and your **admin** account.
-  **Not a plain registered account** — image and video generation are both
-  switched off for `registered` in the current permission grid, entirely
-  unrelated to this PR. A registered account would get blocked before ever
-  reaching the code below, and you'd wrongly read that as a regression.
-- [david] For steps 4 and 5, generate using a reference photo, not the
-  standard no-reference "AI meme image" flow. The standard flow doesn't go
-  through the budget gate at all — a separate, pre-existing gap this PR
-  didn't touch (found while building this UAT, tracked separately) — so it
-  won't respond to the tiny limit set above. (Step 1, its "nothing regressed"
-  check, is killed with the legacy meme studio: `docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*.)
-- [restore] `budget_limit_legendary_usd` — restore to the value noted in
-  the setup step above. This is the **real** Legendary spend limit, so
-  that captured number is the only correct one; do not restore to a
-  default or a remembered value. Admin-gated like the setup above, so
-  David's to execute.
+- Every step below is retired, so nothing else is set up. The budget and
+  account setup, the reference-photo instruction and the matching restore
+  line went with the last two steps they served, which PuLID's deletion
+  retired (launch Phase 4, removal 3, #744; ledger: `docs/retired/README.md`).
 
 ## Steps
 
 _Step 1 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
-### 2. Reference-photo (PuLID) generation still works
-
-**Do:** Generate a meme image using a **reference photo** (the PuLID /
-face path).
-
-**Expect:** Generates normally, same as before.
-
-**Lane:** live
-
-**Deferred:** #628 — Phase 4 (cut and prune) — PuLID / reference-photo generation is retired with the cut
+_Step 2 retired with PuLID, which launch Phase 4 deleted (removal 3, #744; ledger: `docs/retired/README.md`)._
 
 _Step 3 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 
-### 4. Being genuinely out of budget still says "out of budget" — image
-
-**Do:** In another browser/incognito, as your Legendary account (with
-`budget_limit_legendary_usd` set to `0.01` from Setup), try to generate an
-AI meme image **using a reference photo**.
-
-**Expect:** You're refused, and the message is about **being over
-budget** — the usual out-of-budget wording, pointing you at upgrading.
-It is *not* a "try again" message, and *not* a generic server error.
-
-**Lane:** live
-
-**Deferred:** #628 — Phase 11 (spend controls) — budget gate is rebuilt there, and the reference-photo path it exercises is retired with the cut
+_Step 4 retired with PuLID, which launch Phase 4 deleted (removal 3, #744; ledger: `docs/retired/README.md`). The budget gate itself is rebuilt in #628 Phase 11 (spend controls)._
 
 _Step 5 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 
-### 6. Admins are still exempt
-
-**Do:** With `budget_limit_legendary_usd` still set low, log in as
-**admin** and generate an AI meme image **using a reference photo**.
-
-**Expect:** It generates. Admins are exempt from budget limits, and still
-are.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/budgetGate.test.ts:admins are exempt and always allowed with infinite limit`
-
-**Deferred:** #628 — Phase 11 (spend controls) — the admin exemption is reworked there, and the reference-photo generation the step runs is retired with the cut
+_Step 6 retired with PuLID, which launch Phase 4 deleted (removal 3, #744; ledger: `docs/retired/README.md`). Its automated check, `budgetGate.test.ts:admins are exempt and always allowed with infinite limit`, still runs; the admin exemption is reworked in #628 Phase 11._
 
 ## Regression
 
@@ -118,8 +69,8 @@ PuLID cut, so no runnable regression step remains here.
 
 - **The standard no-reference "AI meme image" path never had a budget gate
   to fail closed.** Found while writing this doc, not by this PR's
-  original scope — it's a separate, live, unlimited-spend gap, not another
-  instance of the fail-open bug this PR fixes, so fixing it belongs to its
-  own issue rather than growing this one. That route is called only by the legacy meme studio and
-  is deleted in #628 Phase 4 (`docs/ai-context/decisions.md`, *Verification work tied to the legacy meme studio is killed*); until then a signed-in
-  Legendary account can still call it directly.
+  original scope — a separate, unlimited-spend gap, not another instance of
+  the fail-open bug this PR fixes. It is closed: the route was called only
+  by the legacy meme studio, and launch Phase 4 deleted it (removal 1 refused
+  the no-photo path; removal 3 deleted the route with PuLID; ledger:
+  `docs/retired/README.md`).

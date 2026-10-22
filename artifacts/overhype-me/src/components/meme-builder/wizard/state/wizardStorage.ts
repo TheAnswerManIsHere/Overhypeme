@@ -24,7 +24,7 @@ export interface FramingOffset {
 }
 
 export interface WizardAdvancedOptions {
-  /** Image engine id (e.g. "fal-ai/flux-pulid"). Populated in later phases. */
+  /** Image engine id. Populated in later phases. */
   imageEngineId?: string;
 }
 
@@ -36,7 +36,7 @@ export interface PendingWizardState {
   mode?: Mode;
   source?:
     | { kind: "stock"; stockImageId: string }
-    | { kind: "self-upload"; image: MyImageSource; stylizeWithAi: boolean };
+    | { kind: "self-upload"; image: MyImageSource };
   aspectRatio?: AspectRatio;
   framingOffset?: FramingOffset;
   name?: string;
@@ -104,6 +104,17 @@ export function restoreWizardState(factId: string): PendingWizardState | null {
   if (Date.now() - parsed.capturedAt > TTL_MS) {
     clearWizardState(factId);
     return null;
+  }
+
+  // Launch Phase 4, removal 3: AI styling went with PuLID. A draft that picked
+  // an AI styling loses that pick (the user lands back on the picker); a draft
+  // on an ordinary photo keeps it, without its stale stylize flag.
+  if (parsed.source?.kind === "self-upload") {
+    const legacy = parsed.source as { image: { kind: string }; stylizeWithAi?: boolean };
+    if (legacy.image.kind === "ai-styling" || legacy.stylizeWithAi) {
+      return { ...parsed, source: undefined };
+    }
+    return { ...parsed, source: { kind: "self-upload", image: parsed.source.image } };
   }
 
   return parsed;

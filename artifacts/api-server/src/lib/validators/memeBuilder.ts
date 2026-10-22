@@ -143,7 +143,6 @@ export const SaveMemeBody = z.object({
   aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
   isPublic: z.boolean().optional(),
   previewImageBase64: z.string().max(700_000).optional(),
-  imageTransform: z.enum(["pulid", "pulid_fallback_text"]).optional(),
 });
 export type SaveMemeRequest = z.infer<typeof SaveMemeBody>;
 
@@ -152,15 +151,10 @@ export type SaveMemeRequest = z.infer<typeof SaveMemeBody>;
  * structured `imageSource`. Tier rules:
  *   stock         → free + legendary
  *   self-upload   → free + legendary
- *   pulid         → legendary only
  */
-export type RenderMode = "stock" | "self-upload" | "pulid";
+export type RenderMode = "stock" | "self-upload";
 
-export function deriveRenderMode(
-  imageSource: ImageSource,
-  imageTransform?: "pulid" | "pulid_fallback_text" | null,
-): RenderMode {
-  if (imageTransform === "pulid") return "pulid";
+export function deriveRenderMode(imageSource: ImageSource): RenderMode {
   if (imageSource.type === "stock" || imageSource.type === "template") return "stock";
   return "self-upload";
 }

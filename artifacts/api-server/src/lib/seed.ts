@@ -343,7 +343,7 @@ export async function ensureSchema(): Promise<void> {
       label: "admin_config seed fal_active_endpoints",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
             VALUES ('fal_active_endpoints',
-                    '["fal-ai/flux-pro/v1.1","fal-ai/flux-pulid"]',
+                    '["fal-ai/flux-pro/v1.1"]',
                     'string',
                     'fal.ai Active Endpoint IDs',
                     'JSON array of fal.ai endpoint IDs to cache pricing for at startup and refresh hourly.',

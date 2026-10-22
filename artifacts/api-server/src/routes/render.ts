@@ -17,7 +17,7 @@
  * flow lets a not-yet-signed-up user try the meme builder once before being
  * asked to register. To keep the abuse surface small, anonymous callers are
  * restricted to `imageSource.type === "stock" | "template"` — uploaded assets
- * and PuLID-stylised images both require auth + ownership checks.
+ * require auth + ownership checks.
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -101,9 +101,8 @@ async function validateAndResolve(
 
   const mode = deriveRenderMode(parsed.data.imageSource);
 
-  // Anonymous callers may only use stock-mode renders. Self-upload, identity,
-  // and PuLID-stylised images all carry per-user ownership state and require
-  // a session.
+  // Anonymous callers may only use stock-mode renders. Self-upload and
+  // identity images carry per-user ownership state and require a session.
   if (!isAuthenticated && mode !== "stock") {
     res.status(403).json({ error: "mode_requires_auth" });
     void logTransientRender({
@@ -116,15 +115,6 @@ async function validateAndResolve(
     });
     return null;
   }
-
-  // The PuLID gate that used to sit here is GONE, and its removal is not a
-  // weakening: it was unreachable. `deriveRenderMode` is called on line 103
-  // with one argument, so its `imageTransform` parameter is always `undefined`
-  // and `mode` can never be `"pulid"` — the branch never ran. It also checked
-  // the wrong key (`meme_ai_background`) for the capability it named.
-  //
-  // PuLID's real, reachable gate is `meme_pulid_stylize`, enforced where PuLID
-  // is actually requested: `pulidJobs.ts` and `createMemeRecord`.
 
   // Look up the fact. Soft-deleted / inactive facts are treated as missing.
   const [fact] = await db

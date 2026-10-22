@@ -269,7 +269,7 @@ In reading order. A chapter file appears only once it holds real content, so
 | 3 | [`3-moderation.md`](./3-moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
 | 4 | [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
 | 5 | [`5-visual-pipeline.md`](./5-visual-pipeline.md) | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | ✅ written |
-| 6 | [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md) | **Render** — what an end user actually makes: photo memes, AI image memes, tier gates, where media lives (video was deleted in launch Phase 4) | ✅ written |
+| 6 | [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md) | **Render** — what an end user actually makes: photo memes, tier gates, where media lives (AI image memes and video were deleted in launch Phase 4) | ✅ written |
 | 7 | [`7-public-site-and-sharing.md`](./7-public-site-and-sharing.md) | **Share** — home, search, hashtags, leaderboard, profiles, OG cards, merch — the surfaces the loop closes through | ✅ written |
 | 8 | [`8-community-and-engagement.md`](./8-community-and-engagement.md) | Ratings, comments, comment hearts, meme hearts, and the activity feed | ✅ written |
 | 9 | [`9-accounts-and-auth.md`](./9-accounts-and-auth.md) | Sign-in methods, the account lifecycle, verification and password journeys | ✅ written |

@@ -2,13 +2,12 @@
  * Launch Phase 4, removal 1 — the legacy meme studio is gone (#744; plan
  * docs/plans/PLAN_PHASE4_CUT_AND_PRUNE.md, approved by David 2026-10-22).
  *
- * Pins three things:
+ * Pins two things:
  *   1. Every route only the studio called answers 404 through the whole app.
- *   2. The user generate route survives for its one live caller (the meme-page
- *      remix builder's stylise toggle), photo-only: a request with no reference
- *      photo is refused before the governance gate, and one with a photo still
- *      reaches the reference branch.
- *   3. Migration 0102 retires exactly the studio's nonterminal render jobs, by
+ *      (The user generate route survived this removal photo-only for the meme
+ *      page's remix builder, then went with PuLID in removal 3; its 404 is
+ *      phase4.pulidRemoval.test.ts's.)
+ *   2. Migration 0102 retires exactly the studio's nonterminal render jobs, by
  *      provenance, and leaves moderation, single-review and eval renders in the
  *      same queues alone. Idempotent.
  */
@@ -114,26 +113,6 @@ describe("routes only the legacy studio called are gone", () => {
       assert.equal(res.status, 404);
     });
   }
-});
-
-describe("the user generate route is photo-only", () => {
-  it("refuses a request with no reference photo, before any provider work", async () => {
-    const res = await request(createApp())
-      .post(`/api/memes/ai/${activeFactId}/generate`)
-      .set("Authorization", `Bearer ${legendarySid}`)
-      .send({ styleId: "none" });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.error, "reference_image_required");
-  });
-
-  it("still serves the remix builder's photo path (an unowned photo is refused by the reference branch)", async () => {
-    const res = await request(createApp())
-      .post(`/api/memes/ai/${activeFactId}/generate`)
-      .set("Authorization", `Bearer ${legendarySid}`)
-      .send({ referenceImagePath: `/objects/uploads/${randomUUID()}.jpg`, targetGender: "neutral" });
-    assert.equal(res.status, 403);
-    assert.match(String(res.body.error), /not found in your uploads/);
-  });
 });
 
 describe("migration 0102 retires the studio's render jobs by provenance", () => {

@@ -101,7 +101,8 @@
   one of those routes.
   (2026-10-22: the studio is deleted; `POST /memes/ai/:factId/generate` was
   not studio-only, since the meme page's remix builder calls it, and it
-  survives photo-only until PuLID goes. See the 2026-10-22 entry above.)
+  survived photo-only until PuLID went in removal 3, which deleted it. See
+  the 2026-10-22 entry above and the ledger, `docs/retired/README.md`.)
 
 ### 2026-10-17 · Acceptance journeys 5 and 6 are removed with the legacy studio
 - **Decision:** journeys 5 (a free account refused paid generation) and 6 (a
@@ -119,8 +120,8 @@
 - **Reference:** #631, #720 (Codex `4304829031`).
 - **Revisit if:** the route is still deployed when Phase 4 closes.
   (2026-10-22: its no-photo branch, the unbudgeted one, is refused from
-  removal 1; the route itself goes with PuLID in removal 3. See the
-  2026-10-22 entry above.)
+  removal 1, and the route itself went with PuLID in removal 3. See the
+  2026-10-22 entry above and the ledger, `docs/retired/README.md`.)
 
 ### 2026-10-17 · No paid AI run happens without David's go-ahead for that run
 - **Decision:** every run that spends real money on an AI vendor (the UAT

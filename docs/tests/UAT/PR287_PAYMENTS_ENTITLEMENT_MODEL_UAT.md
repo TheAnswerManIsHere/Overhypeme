@@ -331,15 +331,7 @@ is permanent.
 
 **Check:** `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:rejects an explicit private request from a registered non-admin instead of publishing it`; `artifacts/api-server/src/__tests__/phase4.memes.save.test.ts:stores isPublic=false for a legendary user` — the Legendary success side, stored private
 
-### 26. PuLID / identity memes are still Legendary-only
-
-**Do:** Try PuLID / identity memes.
-
-**Expect:** Legendary-only, as before.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (cut and prune) — PuLID / identity memes are retired with the cut
+_Step 26 retired with PuLID, which launch Phase 4 deleted (removal 3, #744; ledger: `docs/retired/README.md`)._
 
 ### 27. Daily upload limits still favor Legendary
 

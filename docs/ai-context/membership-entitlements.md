@@ -429,14 +429,15 @@ rather than silently matching nothing.
 Enumerated by searching the *column*, not the middleware — an earlier revision
 secured `authMiddleware`/`tierMiddleware` and reasoned as though those were all
 the readers. They weren't: `createMemeRecord.ts` (private-meme visibility, rate
-limits, PuLID gate) and `budgetGate.ts` (spend limit) both read
+limits; its PuLID gate went with PuLID in launch Phase 4, ledger
+[`docs/retired/README.md`](../retired/README.md)) and `budgetGate.ts` (spend limit) both read
 `users.membership_tier` directly and are easy to miss because neither name
 suggests "membership."
 
 | Site | Reads for |
 |---|---|
 | `artifacts/api-server/src/middlewares/authMiddleware.ts` | everything downstream (~20 sites) |
-| `artifacts/api-server/src/lib/createMemeRecord.ts` | private visibility, rate limit, PuLID gate |
+| `artifacts/api-server/src/lib/createMemeRecord.ts` | private visibility, rate limit |
 | `artifacts/api-server/src/lib/budgetGate.ts` | spend limit (period is `budget_period`-configured: monthly or rolling 30-day) |
 | `artifacts/api-server/src/lib/stripeStorage.ts` | the fact-of-the-day mailing list, the revocation notice |
 | `artifacts/api-server/src/routes/admin.ts` | dashboard counts, the admin user list |

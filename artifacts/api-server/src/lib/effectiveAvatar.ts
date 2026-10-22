@@ -21,8 +21,8 @@
  *    reverts to the generated icon on the next read. No migration touches
  *    existing `avatar_source = 'photo'` rows.
  *
- * `profileImageUrl` stays a PRIVATE field. It remains available to the studio
- * and PuLID paths as the identity photo; what changes is that no *public*
+ * `profileImageUrl` stays a PRIVATE field. It remains available to the meme
+ * builder as the user's own photo; what changes is that no *public*
  * projection emits it directly.
  *
  * @purpose Resolves a user's public avatar URL: the uploaded photo only when avatarSource is photo and the subject holds custom_avatar, else the DiceBear generated icon; routes/facts.ts is its one route caller.

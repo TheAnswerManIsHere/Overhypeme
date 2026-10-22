@@ -145,20 +145,6 @@ async function readPexelsMeme(databaseUrl: string, base: string): Promise<Record
   return check.ok ? { ok: true, slug: rows[0].slug, ...check.image } : { ok: false, slug: rows[0].slug, problem: check.problem };
 }
 
-/** The active fixture fact the PR223 capture generates for: the first whose text personalises the name. */
-async function captureFact(databaseUrl: string): Promise<{ id: number; text: string } | null> {
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
-  try {
-    const { rows } = await client.query<{ id: number; text: string }>(
-      `SELECT id, text FROM facts WHERE is_active AND text LIKE '%{NAME}%' ORDER BY id LIMIT 1`,
-    );
-    return rows[0] ?? null;
-  } finally {
-    await client.end();
-  }
-}
-
 function storageEnv(work: string) {
   return {
     STORAGE_BACKEND: "local-double",
@@ -263,7 +249,6 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
         doc: cfg.capture.doc,
         out: cfg.capture.out,
         commit: cfg.capture.commit,
-        fact: await captureFact(cfg.databaseUrl),
         log: (l) => process.stdout.write(`[capture] ${l}\n`),
       });
       return out;

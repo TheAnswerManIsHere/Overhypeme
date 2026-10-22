@@ -49,8 +49,8 @@ So, for **every** metadata layer:
   substitute the root's.
 - **A variant can GENERATE its own images, not just display them (PR #256).**
   `admin.ts`'s `refresh-images`/`backfill-images`/`backfill-pexels`/
-  `backfill-ai-memes`, and, user-facing, AI meme/PuLID generation (`memes.ts`,
-  `pulidJobs.ts`) all now operate on any active fact, root or variant — the
+  `backfill-ai-memes` (and, until launch Phase 4 deleted them, the user-facing
+  AI meme/PuLID routes) all now operate on any active fact, root or variant — the
   root-only 400s ("AI meme generation only supported on root facts") are
   removed. The three bulk-backfill routes also converted from blocking/
   direct-call to a durable async queue (`fact_pexels` / `fact_ai_meme_backfill`

@@ -1,7 +1,6 @@
 {"endpoint_id":"fal-ai/flux-2-pro","unit_price":"0.030000","unit":"processed megapixels","currency":"USD","fetched_at":"2026-07-02T21:43:42.277Z","created_at":"2026-06-04T21:26:18.521Z","updated_at":"2026-07-02T21:43:42.280Z"}
 {"endpoint_id":"fal-ai/flux-pro","unit_price":"0.050000","unit":"megapixels","currency":"USD","fetched_at":"2026-05-19T04:06:59.493Z","created_at":"2026-04-08T22:29:18.404Z","updated_at":"2026-05-19T04:06:59.498Z"}
 {"endpoint_id":"fal-ai/flux-pro/v1.1","unit_price":"0.040000","unit":"megapixels","currency":"USD","fetched_at":"2026-10-13T19:35:45.177Z","created_at":"2026-04-08T21:54:17.990Z","updated_at":"2026-10-13T19:35:45.181Z"}
-{"endpoint_id":"fal-ai/flux-pulid","unit_price":"0.033300","unit":"megapixels","currency":"USD","fetched_at":"2026-10-13T19:35:45.611Z","created_at":"2026-04-08T21:54:18.587Z","updated_at":"2026-10-13T19:35:45.612Z"}
 {"endpoint_id":"fal-ai/nano-banana-2","unit_price":"0.080000","unit":"images","currency":"USD","fetched_at":"2026-08-27T04:07:16.544Z","created_at":"2026-05-26T04:12:00.186Z","updated_at":"2026-08-27T04:07:16.545Z"}
 {"endpoint_id":"fal-ai/nano-banana-2/edit","unit_price":"0.080000","unit":"images","currency":"USD","fetched_at":"2026-08-27T04:07:16.982Z","created_at":"2026-05-27T23:37:51.526Z","updated_at":"2026-08-27T04:07:16.984Z"}
 {"endpoint_id":"fal-ai/nano-banana-pro","unit_price":"0.150000","unit":"images","currency":"USD","fetched_at":"2026-08-29T04:22:00.620Z","created_at":"2026-05-28T03:55:00.202Z","updated_at":"2026-08-29T04:22:00.622Z"}

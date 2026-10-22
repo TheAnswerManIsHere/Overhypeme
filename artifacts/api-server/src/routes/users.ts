@@ -296,9 +296,9 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     // The custom-avatar gate lives HERE, at the display selection — never at
     // the photo upload. Uploading and storing a photo stays entirely
     // entitlement-free: the upload routes are the shared onboarding/profile
-    // flow, and the resulting image is the identity photo PuLID meme and video
-    // generation consume. Gating the upload would break free onboarding for
-    // every registered user and remove a capability that is free today.
+    // flow, and the resulting image is the user's own meme photo. Gating the
+    // upload would break free onboarding for every registered user and remove
+    // a capability that is free today.
     //
     // This is the standalone, explicit selection request with no onboarding
     // riding on it, so an unentitled caller gets a 403 rather than a silent
@@ -454,10 +454,10 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
 
   const displayLimit = await getConfigInt("bg_display_limit_upload", 20);
 
-  // Phase 3 filters: transform = 'raw' (raw uploads only — default & legacy
-  // behavior), 'pulid' / 'pulid_fallback_text' (AI stylings), or 'all' (no
-  // filter). When a transform other than 'raw' is requested the caller may
-  // also pass factId to scope to a specific fact's stylings.
+  // Filters: transform = 'raw' (raw uploads only — the default) or 'all' (no
+  // filter). With 'all' the caller may also pass factId to scope to one fact.
+  // The AI-styling filters went with PuLID (launch Phase 4, removal 3); its
+  // historical rows stay and are reachable only through 'all'.
   const transformParam = typeof req.query.transform === "string" ? req.query.transform : "raw";
   const factIdParam = typeof req.query.factId === "string" ? parseInt(req.query.factId, 10) : NaN;
   const factIdFilter = Number.isFinite(factIdParam) ? factIdParam : null;
@@ -466,12 +466,6 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     switch (transformParam) {
       case "raw":
         return sql`AND transform IS NULL`;
-      case "pulid":
-        return sql`AND transform = 'pulid'`;
-      case "pulid_fallback_text":
-        return sql`AND transform = 'pulid_fallback_text'`;
-      case "ai":
-        return sql`AND transform IN ('pulid','pulid_fallback_text')`;
       case "all":
         return sql``;
       default:

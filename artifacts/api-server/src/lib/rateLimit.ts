@@ -27,8 +27,9 @@ export const RATE_MAX = parsePositiveInt(process.env.RATE_MAX, 30);
 // design lived on a plan-review branch that was never merged, so it is not
 // cited here — that memory doc is the durable source).
 //
-// Default derived from this repo's real polling workload: two 500ms pollers
-// (video-jobs, pulid-jobs) at 120 req/min each for one active job, plus
+// Default derived from this repo's polling workload at the time: two 500ms
+// pollers (video-jobs, pulid-jobs, both deleted in launch Phase 4) at 120
+// req/min each for one active job, plus
 // ordinary browsing by the same users, with a 1.33x margin. This is a
 // per-instance, per-IP ceiling (MemoryStore's localKeys = true), not a
 // fleet-wide one; the existing narrow, DB-backed limiters

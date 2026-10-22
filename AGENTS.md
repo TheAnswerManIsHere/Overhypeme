@@ -73,14 +73,14 @@ HTTP headers, or secrets** work, also read:
   the operational shape of sign-in, account creation, and the account
   lifecycle (routes, flows, session mechanics, role derivation)
 
-For **the meme studio, AI image generation entry points, or media storage**
+For **the meme studio, its image sources, or media storage**
 work, also read:
 
 - [`docs/ai-context/meme-and-video-studio.md`](docs/ai-context/meme-and-video-studio.md) —
   the fact page's builder wizard and the meme page's remix builder (the
   legacy studio is deleted: [`decisions.md`](docs/ai-context/decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)),
   the shared recipe/`imageSource` model, tier gates, and where media lives
-  (video is deleted: [`docs/retired/README.md`](docs/retired/README.md))
+  (video and AI image memes are deleted: [`docs/retired/README.md`](docs/retired/README.md))
 
 For **home, search, hashtags, the leaderboard, profiles/library, OG cards,
 merch, or sharing** work, also read:

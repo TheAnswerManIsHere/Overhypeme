@@ -26,7 +26,6 @@ export const CAPTURE_ALLOWANCE_CAP_USD = 3;
  * 4291262774).
  */
 export const CAPTURE_DOCS = {
-  PR223_RENDER_REPRODUCIBILITY_UAT: ["pr223-s1-reference", "pr223-s1-result"],
   PR229_BUBBLE_CONTROLS_UAT: ["pr229-s6-render"],
 } as const satisfies Record<string, readonly string[]>;
 
@@ -37,7 +36,7 @@ export function isCaptureDoc(v: string | undefined): v is CaptureDoc {
 }
 
 export interface ShotMeta {
-  /** The UAT doc's filename stem, e.g. PR223_RENDER_REPRODUCIBILITY_UAT: `docs/tests/UAT/<doc>.md` exists, and the evidence store files the shot under it. */
+  /** The UAT doc's filename stem, e.g. PR229_BUBBLE_CONTROLS_UAT: `docs/tests/UAT/<doc>.md` exists, and the evidence store files the shot under it. */
   doc: string;
   /** The step id within the doc. */
   step: string;

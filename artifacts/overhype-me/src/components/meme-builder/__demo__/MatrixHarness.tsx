@@ -4,7 +4,6 @@ import {
   ALL_ENTRY_FLOWS,
   ALL_MODES,
   ALL_TIERS,
-  demoEntitlementsForTier,
   enumerateMatrix,
   resolveBehavior,
 } from "../behaviorMatrix";
@@ -25,7 +24,7 @@ export function MatrixHarness() {
   const [entryFlow, setEntryFlow] = useState<EntryFlow>("fact-detail");
   const [bumpKey, setBumpKey] = useState(0);
 
-  const cell = resolveBehavior(mode, tier, entryFlow, demoEntitlementsForTier(tier));
+  const cell = resolveBehavior(mode, tier, entryFlow);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4">
@@ -60,10 +59,6 @@ export function MatrixHarness() {
           factText="{NAME} {singular|plural} pushes the boulder uphill {POSS} entire life."
           viewerContext={{
             tier,
-            entitlements: {
-              meme_pulid_stylize: { allowed: demoEntitlementsForTier(tier).meme_pulid_stylize, limit: null },
-              meme_ai_background: { allowed: demoEntitlementsForTier(tier).meme_ai_background, limit: null },
-            },
             userId: tier === "unregistered" ? undefined : "demo-user",
             name: "Casey",
             pronouns: "they/them",

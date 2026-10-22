@@ -12,8 +12,9 @@
 ## What it does
 
 Overhype.me has two tiers: **[Registered](../ai-context/glossary.md#registered)** (free — the default for anyone who signs up) and
-**Legendary** (paid — unlocks private memes, AI identity memes, higher rate
-limits, and a higher generation spend budget).
+**Legendary** (paid — unlocks private memes, no CAPTCHAs, higher rate limits,
+a photo avatar and no ads; its AI identity memes went with PuLID in launch
+Phase 4, ledger [`docs/retired/README.md`](../retired/README.md)).
 Legendary can be bought as a recurring subscription or a one-time "Legendary
 for Life" purchase, and an admin can comp it to someone directly.
 
@@ -205,6 +206,11 @@ down.
 
 ## Boundaries & known limitations
 
+- **No member generates anything that costs per render today**, so nothing new
+  reaches a member's spend record: the last such path went with PuLID in
+  launch Phase 4 (ledger [`docs/retired/README.md`](../retired/README.md)),
+  and paid generation returns in Phase 7. The two spend limitations below
+  describe the record as it stands and the gate as it will run again.
 - **Spend recorded during a past pricing outage is permanently missing, and
   is not reconstructed.** This used to be a live gap: a generation priced from
   our own cost estimate rather than a real provider rate was checked against

@@ -58,9 +58,10 @@ Facts become media through a multi-stage, human-supervised pipeline:
 - **Image memes** — a moderator authors or picks a **Visual Concept** (the
   authoritative scene), a frontier-model **visual planner** realizes it, and a
   deterministic compiler produces the engine prompt for the current image engine.
-  Free users get **photo memes** (their own face composited onto scenes);
-  **Legendary** subscribers unlock **AI image memes** (their face in impossible
-  scenes).
+  Every user gets **photo memes** (their own photo, or a built-in background,
+  under the caption). **AI image memes** (their face in impossible scenes) went
+  with PuLID in launch Phase 4 and return in launch Phase 7 on a newer model
+  (ledger [`docs/retired/README.md`](../retired/README.md)).
 - **Video memes** were deleted in launch Phase 4, to be rebuilt after launch on
   the image pipeline (ledger [`docs/retired/README.md`](../retired/README.md)).
 
@@ -84,7 +85,9 @@ Two user-facing tiers gate on **per-use cost**, not a credit balance:
 
 - **Free** — everything that doesn't cost per-render money: browse, personalize,
   submit facts, comment, vote, and **photo** memes (your face on templates).
-- **Legendary** — the paid per-render surface: **AI image memes**. Plans are monthly, annual, and a one-time lifetime ("Legendary for
+- **Legendary** — private memes, no CAPTCHAs, higher limits, a photo avatar
+  and no ads; the paid per-render surface (**AI image memes**) returns in
+  launch Phase 7. Plans are monthly, annual, and a one-time lifetime ("Legendary for
   Life"), fetched live from Stripe. There are **no consumer "credits"**; server-side
   budget/spend caps gate generation cost.
 

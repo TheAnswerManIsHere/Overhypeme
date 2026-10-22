@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   currentSource,
   resolveBackgroundUrl,
-  selfUploadObjectPath,
   toServerImageSource,
 } from "../integration/sourceKinds";
 import type { BuilderInternalState } from "../state/useBuilderState";
@@ -20,7 +19,6 @@ function state(overrides: Partial<BuilderInternalState> = {}): BuilderInternalSt
     stockImageId: null,
     stockImageUrl: null,
     myImage: null,
-    stylizeWithAi: false,
     textOptions: {},
     aspectRatio: "landscape",
     ...overrides,
@@ -74,7 +72,7 @@ describe("resolveBackgroundUrl", () => {
     ).toBeNull();
   });
 
-  it.each(["library", "fresh", "ai-styling"] as const)(
+  it.each(["library", "fresh"] as const)(
     "resolves %s through the storage delivery route",
     (kind) => {
       expect(
@@ -98,23 +96,12 @@ describe("toServerImageSource", () => {
     ).toEqual({ type: "stock", pexelsPhotoId: 12345 });
   });
 
-  it.each(["library", "fresh", "ai-styling"] as const)(
+  it.each(["library", "fresh"] as const)(
     "maps %s to an upload payload",
     (kind) => {
       expect(
         toServerImageSource({ kind, objectPath: "/objects/uploads/y.png" }, VIEWER),
       ).toEqual({ type: "upload", uploadKey: "/objects/uploads/y.png" });
-    },
-  );
-});
-
-describe("selfUploadObjectPath", () => {
-  it.each(["library", "fresh", "ai-styling"] as const)(
-    "returns the carried objectPath for %s",
-    (kind) => {
-      expect(
-        selfUploadObjectPath({ kind, objectPath: "/objects/uploads/z.png" }, VIEWER),
-      ).toBe("/objects/uploads/z.png");
     },
   );
 });
@@ -129,7 +116,6 @@ describe("regression: every source kind has a non-null preview AND a valid serve
     { name: "stock", source: { kind: "stock" as const, stockImageId: "10", stockImageUrl: "https://x" } },
     { name: "library", source: { kind: "library" as const, objectPath: "/objects/a.jpg" } },
     { name: "fresh", source: { kind: "fresh" as const, objectPath: "/objects/b.jpg" } },
-    { name: "ai-styling", source: { kind: "ai-styling" as const, objectPath: "/objects/c.jpg" } },
   ];
 
   it.each(cases)("$name produces a non-null preview URL", ({ source }) => {

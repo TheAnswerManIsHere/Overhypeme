@@ -270,23 +270,6 @@ describe("POST /api/memes — daily save cap", () => {
   });
 });
 
-describe("POST /api/memes — pulid tier gate", () => {
-  it("rejects pulid imageTransform from a non-legendary user with 403", async () => {
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const factId = await insertFact("legendary fact", { submittedById: userId });
-
-    const res = await request(makeAuthedApp(userId))
-      .post("/memes")
-      .send({
-        factId,
-        imageSource: { type: "upload", uploadKey: "/objects/uploads/foo/bar.jpg" },
-        imageTransform: "pulid",
-      });
-    assert.equal(res.status, 403);
-    assert.equal(res.body.error, "tier_mismatch");
-  });
-});
-
 /**
  * Private visibility is a legendary-LEVEL entitlement, resolved from the
  * caller's role — not from `membership_tier` alone. The regression: the gate

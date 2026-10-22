@@ -23,7 +23,6 @@ import {
 import { Button } from "@/components/ui/Button";
 
 export type UpgradeModalContext =
-  | "ai-tab"
   | "private-meme"
   | "detail-upsell";
 
@@ -51,15 +50,14 @@ function navigateToUpgrade() {
 }
 
 const CONTEXT_HEADLINES: Record<UpgradeModalContext, string> = {
-  "ai-tab": "Go Legendary to stylize with AI.",
   "private-meme": "Go Legendary to keep memes private.",
   "detail-upsell": "Go Legendary to unlock the full kit.",
 };
 
 const VALUE_PROPS = [
-  "AI-stylized images that put your face in the meme",
-  "Higher monthly generation budget",
-  "First access to new engines and styles",
+  "Private memes only you can see",
+  "No CAPTCHAs, and higher posting limits",
+  "Your own photo as your avatar",
 ];
 
 export function UnifiedUpgradeModal({ open, onClose, context, headline }: Props) {

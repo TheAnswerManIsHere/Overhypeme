@@ -19,10 +19,8 @@ import {
   CTABarAnonOther,
   CTABarAnonOwnTransient,
   CTABarLegendaryOther,
-  CTABarLegendaryOwnPulid,
-  CTABarLegendaryOwnStock,
+  CTABarOwn,
   CTABarRegisteredOther,
-  CTABarRegisteredOwn,
 } from "@/pages/memePage/cta/CTABar";
 import { BuilderOverlay } from "@/pages/memePage/BuilderOverlay";
 import { MemeShareModal } from "@/components/share/MemeShareModal";
@@ -76,8 +74,7 @@ function DimsFromUrl({ url }: { url: string }) {
 
 export default function MemePage() {
   const [, params] = useRoute("/m/:slug");
-  const { user, role, can } = useAuth();
-  const canPulidStylize = can("meme_pulid_stylize");
+  const { user, role } = useAuth();
   const slug = params?.slug ?? "";
   // Task #507: open the builder in self-upload mode whenever the viewer has
   // ANY profile photo on file (first-party upload or external Clerk/OAuth
@@ -160,9 +157,8 @@ export default function MemePage() {
   const cell = resolveViewerCell({
     role,
     userId: user?.id ?? null,
-    meme: { createdById: meme.createdById, imageTransform: meme.imageTransform },
+    meme: { createdById: meme.createdById },
     justCreated,
-    canPulidStylize,
   });
 
   const wearHref = `/wear/${slug}?source=meme-page`;
@@ -177,10 +173,6 @@ export default function MemePage() {
   // before allowing any remix CTA to open the builder.
   const factTemplate = fact?.text ?? "";
   const factTemplateReady = !!fact?.text;
-
-  // The Legendary upsell mentions the meme's actual creator by name to make
-  // the value gap concrete — generic copy is measurably less effective.
-  const legendaryUpsellSubject = meme.createdByName ?? "the creator";
 
   const handleDownload = () => {
     const url = meme.imageUrl;
@@ -213,21 +205,6 @@ export default function MemePage() {
     });
   };
 
-  const openTurnUp = () => {
-    if (!factTemplateReady) return;
-    // Legendary-own-stock: preserve the current meme's name + pronouns and
-    // open the builder in self-upload mode so the legendary stylize toggle
-    // is visible (per Phase-3 behaviorMatrix). The user's preferences carry
-    // through automatically via viewerContext; the explicit initial values
-    // come from the meme being viewed.
-    setBuilder({
-      mode: "self-upload",
-      entryFlow: "remix",
-      initialName: meme.createdByName ?? user?.displayName ?? undefined,
-      initialPronouns: user?.pronouns ?? undefined,
-    });
-  };
-
   const openAnonSeeWithName = (args: { initialName?: string; initialPronouns?: string }) => {
     if (!factTemplateReady) return;
     setBuilder({
@@ -256,13 +233,12 @@ export default function MemePage() {
     case "anon-own-transient":
       ctaBar = <CTABarAnonOwnTransient onSignup={handleAnonSignup} onDownload={handleDownload} />;
       break;
-    case "registered-own":
+    case "own":
       ctaBar = (
-        <CTABarRegisteredOwn
+        <CTABarOwn
           onDownload={handleDownload}
           onCustomShare={handleCustomShare}
           wearHref={wearHref}
-          legendaryUpsellSubject={legendaryUpsellSubject}
         />
       );
       break;
@@ -270,28 +246,7 @@ export default function MemePage() {
       ctaBar = (
         <CTABarRegisteredOther
           onMakeAboutMe={openMakeAboutMe}
-          legendaryUpsellSubject={legendaryUpsellSubject}
           factTemplateReady={factTemplateReady}
-        />
-      );
-      break;
-    case "legendary-own-stock":
-      ctaBar = (
-        <CTABarLegendaryOwnStock
-          onTurnUp={openTurnUp}
-          onDownload={handleDownload}
-          onCustomShare={handleCustomShare}
-          wearHref={wearHref}
-          factTemplateReady={factTemplateReady}
-        />
-      );
-      break;
-    case "legendary-own-pulid":
-      ctaBar = (
-        <CTABarLegendaryOwnPulid
-          onDownload={handleDownload}
-          onCustomShare={handleCustomShare}
-          wearHref={wearHref}
         />
       );
       break;

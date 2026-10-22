@@ -46,7 +46,8 @@ by every modality) — see *Launch-critical vs deferrable work* below.
   using a much stronger model."*
 - **Free-tier image memes are the fact's moderation-approved hero renders**,
   captioned by the user; templates, stock photos and user-facing
-  text-to-image are gone. Legendary is *your face in the scene*. The default
+  text-to-image are gone. Legendary is *your face in the scene* (from launch
+  Phase 7; PuLID, its first form, went in Phase 4). The default
   image engine is chosen by an evaluation of the latest models on the same
   facts (the planner/compiler split stays; the engine behind the compiler may
   change).

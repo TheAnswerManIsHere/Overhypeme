@@ -79,7 +79,6 @@ after(cleanup);
 const ALLOW_ALL: MemeAuthorizationDecisions = {
   meme_private_visibility: true,
   meme_rate_limit_high: true,
-  meme_pulid_stylize: true,
 };
 
 describe("createMemeRecord — image variant", () => {

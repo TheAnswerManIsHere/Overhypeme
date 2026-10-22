@@ -26,19 +26,8 @@ export type AspectRatio = "landscape" | "square" | "portrait";
  * `restorePendingState` before they reach the reducer.
  */
 export type MyImageSource =
-  | { kind: "library";    objectPath: string }
-  | { kind: "fresh";      objectPath: string }
-  | { kind: "ai-styling"; objectPath: string };
-
-/**
- * Analytics discriminant for the resulting meme. Mirrors
- * `memes.image_transform` and `upload_image_metadata.transform`:
- *  - null:                  raw user upload, stock photo, or template
- *  - "pulid":               PuLID-stylized derivative (face matched)
- *  - "pulid_fallback_text": PuLID was requested but no face was detected, so
- *                           the standard text-to-image generator was used.
- */
-export type ImageTransform = null | "pulid" | "pulid_fallback_text";
+  | { kind: "library"; objectPath: string }
+  | { kind: "fresh";   objectPath: string };
 
 /**
  * Text styling options. The token-substituted fact text comes from
@@ -96,15 +85,7 @@ export interface PendingBuilderState {
   pronouns?: string;
   source?:
     | { kind: "stock";        stockImageId: string }
-    | { kind: "self-upload";
-        image: MyImageSource;
-        /**
-         * The user's intent at the moment the wall appeared. The actual
-         * generation has not happened yet — when they resume and save, the
-         * server runs the dedup+stylize step.
-         */
-        stylizeWithAi: boolean;
-      };
+    | { kind: "self-upload"; image: MyImageSource };
   textOptions?: MemeTextOptions;
   aspectRatio?: AspectRatio;
 }
@@ -139,7 +120,7 @@ export interface MemeBuilderProps {
  * Component branching reads from this object; nested conditionals on raw
  * (mode, tier, entryFlow) tuples are not allowed elsewhere.
  */
-export type Action = "download" | "save" | "share" | "signup-cta" | "try-ai-mode";
+export type Action = "download" | "save" | "share" | "signup-cta";
 
 export interface BehaviorCell {
   /** When true, the matrix cell is invalid and a tier-locked panel is rendered instead of the builder. */
@@ -152,12 +133,8 @@ export interface BehaviorCell {
   visibleActions: Action[];
   /** Header copy key — copy.ts owns the strings. */
   headerCopyKey: HeaderCopyKey;
-  /** Show the "Stylize me with AI" toggle on the source picker. */
-  showStylizeToggle: boolean;
   /** When true the source area is rendered as MyImagePicker; otherwise StockImagePicker. */
   sourceArea: "stock" | "my-image";
-  /** When true a "Try AI mode" upsell chip is shown next to the picker. */
-  showTryAiUpsell: boolean;
   /** Default post-save behavior the parent should run. */
   postSave: "share" | "back-to-fact" | "none";
 }
@@ -165,6 +142,5 @@ export interface BehaviorCell {
 export type HeaderCopyKey =
   | "see-with-your-name"
   | "see-with-your-face"
-  | "see-yourself-ai"
   | "make-this-your-own"
   | "build-your-meme";

@@ -64,16 +64,28 @@ describe("pendingBuilderState", () => {
     expect(restorePendingState(FACT_ID)).toBeNull();
   });
 
-  it("survives a self-upload + stylize source", () => {
+  it("survives a self-upload source", () => {
     const captured = fixture({
       mode: "self-upload",
-      source: {
-        kind: "self-upload",
-        image: { kind: "fresh", objectPath: "/objects/uploads/abc.jpg" },
-        stylizeWithAi: true,
-      },
+      source: { kind: "self-upload", image: { kind: "fresh", objectPath: "/objects/uploads/abc.jpg" } },
     });
     capturePendingState(captured);
     expect(restorePendingState(FACT_ID)).toEqual(captured);
+  });
+
+  // Launch Phase 4, removal 3: AI styling went with PuLID. A draft saved before
+  // it may still carry the stylize flag or an AI-styling pick.
+  it("drops a pre-removal draft's AI pick, and keeps a plain photo without its stale flag", () => {
+    const legacy = (source: unknown) =>
+      ({ ...fixture({ mode: "self-upload" }), source }) as unknown as PendingBuilderState;
+
+    capturePendingState(legacy({ kind: "self-upload", image: { kind: "ai-styling", objectPath: "/objects/ai.jpg" }, stylizeWithAi: false }));
+    expect(restorePendingState(FACT_ID)?.source).toBeUndefined();
+
+    capturePendingState(legacy({ kind: "self-upload", image: { kind: "fresh", objectPath: "/objects/f.jpg" }, stylizeWithAi: true }));
+    expect(restorePendingState(FACT_ID)?.source).toBeUndefined();
+
+    capturePendingState(legacy({ kind: "self-upload", image: { kind: "library", objectPath: "/objects/l.jpg" }, stylizeWithAi: false }));
+    expect(restorePendingState(FACT_ID)?.source).toEqual({ kind: "self-upload", image: { kind: "library", objectPath: "/objects/l.jpg" } });
   });
 });

@@ -164,20 +164,20 @@ routes, delete, git keeps it) · **your call**.
 | D3 | Pexels stock photos | ship, verify (licence terms noted for compliance phase) |
 | D4 | Photo upload (free tier), JPEG only | fix for launch: accept PNG + HEIC with server-side conversion; verify on iPhone; delete vestigial `meme_upload_photo` flag |
 | D5 | Use my profile photo | ship, verify |
-| D6 | Reference-photo i2i AI memes (Legendary) | ship (paid core); drain PR222/PR223 UATs |
-| D7 | t2i AI memes | ship, verify |
+| D6 | Reference-photo i2i AI memes (Legendary) | ship (paid core); drain PR222/PR223 UATs. *Deleted 2026-10-22 with PuLID (Phase 4, removal 3; ledger [`docs/retired/README.md`](../retired/README.md))*; face-in-scene returns in Phase 7 |
+| D7 | t2i AI memes | ship, verify. *Deleted 2026-10-22 with PuLID (Phase 4, removal 3; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | D8 | Render status polling | ship |
 | D9 | AI gallery picker (per-fact gallery shared across users) | verify contents; restrict to generic non-photo renders if faces can appear (pending David) |
 | D10 | Scene-prompt regenerate/view routes (code only) | check moderator-only; hide from users if exposed |
 | D11 | Delete AI image | ship |
-| D12 | AI storage cap | ship (spend phase) |
+| D12 | AI storage cap | ship (spend phase). *Deleted 2026-10-22 with PuLID (Phase 4, removal 3; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | D13 | Caption + split caption | ship; PR398 UAT = David's eyes |
 | D14 | Speech/thought bubbles | moderator-only, as roadmap; no end-user exposure at launch |
 | D15 | Aspect ratio toggle | ship, verify |
-| D16 | Advanced options / style presets | ship, verify |
-| D17 | PuLID stylise toggle (Legendary) | ship (spend phase) |
-| D18 | PuLID poll/cancel | ship |
-| D19 | No-face fallback modal | ship, verify |
+| D16 | Advanced options / style presets | ship, verify. *The wizard's AI style presets were deleted 2026-10-22 with PuLID (Phase 4, removal 3)* |
+| D17 | PuLID stylise toggle (Legendary) | ship (spend phase). *Deleted 2026-10-22 with PuLID (Phase 4, removal 3; ledger [`docs/retired/README.md`](../retired/README.md))* |
+| D18 | PuLID poll/cancel | ship. *Deleted 2026-10-22 with PuLID (Phase 4, removal 3; ledger [`docs/retired/README.md`](../retired/README.md))* |
+| D19 | No-face fallback modal | ship, verify. *Deleted 2026-10-22 with PuLID (Phase 4, removal 3; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | D20 | Save meme (daily cap, idempotency, NSFW check) | ship, verify |
 | D21 | Preview/download renders; **anonymous can download stock memes** | pending David: (a) anon download, sign-up to save/share; (b) anon preview only, verified account for download/save/share (recommended); (c) open |
 | D22 | Public/Private toggle, hard-coded tier check (#395) | fix for launch: read the entitlement grid |
@@ -198,7 +198,7 @@ routes, delete, git keeps it) · **your call**.
 - **D16** → **engine evaluation** item (latest image models compared on the same facts via the eval dashboard), then presets reviewed/tuned against the winner. Planner/compiler split is settled; the engine is not; compiler is engine-specific.
 - **D17/D18** **PuLID removed everywhere** (image stylise toggle, video stage one, engine catalogue, docs, Manual) — prose-sweep, not a patch. "We're going to be using a much stronger model."
 - **D24** Upgrade messaging written after Journey F defines the tier.
-- **D7, D8 (the user render poll) and D10**: their routes are called only by the legacy studio, which D1 deletes; no verification is done on them (David, 2026-10-17; [`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)). Deleted in launch Phase 4, removal 1, except D7's route, which the meme page's remix builder also calls: it survives photo-only until PuLID goes. D9's gallery picker and D11's delete route were the studio's too and went with it ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
+- **D7, D8 (the user render poll) and D10**: their routes are called only by the legacy studio, which D1 deletes; no verification is done on them (David, 2026-10-17; [`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)). Deleted in launch Phase 4, removal 1, except D7's route, which the meme page's remix builder also called: it outlived the studio photo-only and went with PuLID in removal 3. D9's gallery picker and D11's delete route were the studio's too and went with it ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **D27** **"My content"**: one place showing every upload/generation with per-item delete; B24 builds on it. Launch.
 - **D14** Speech bubbles: "crucial … never finished building and testing." Scope pending: moderation-side only (recommended) vs end-user editing too.
 - **D21** Option (b): anonymous preview only; download/save/share need a verified account ("part of the upsell").
@@ -288,7 +288,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Affiliate | **cut** (merch) |
 | Video Styles | **cut** (video deleted) |
 | Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature |
-| Engines | ship; **prune video engines + PuLID**; engine evaluation uses it |
+| Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3* |
 | Taxonomy Health | ship (proven tonight) |
 | Features (tier × feature grid) | ship; **becomes the Legendary definition** (F21) + beta overlay later |
 | Email Queue | ship (proven tonight) |
@@ -341,7 +341,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 | K1 | Zazzle affiliate | cut |
 | K2 | Pexels | moderation research only (user-facing stock removed, D3); keep |
 | K3 | Eval dashboard | keep (engine evaluation) |
-| K4 | Engines catalogue | prune video + PuLID; winner of the engine evaluation becomes default; **set a default `llm` engine** (tonight's fallback warning) |
+| K4 | Engines catalogue | prune video + PuLID; winner of the engine evaluation becomes default; **set a default `llm` engine** (tonight's fallback warning). *Video and PuLID pruned 2026-10-22 (Phase 4, removals 2 and 3)* |
 | K5 | Video styles | cut |
 | K6 | Sentry | ship; **alerts routed to David** (email/push) as a readiness criterion |
 | K7 | Cloudflare OG-router worker | ship; loop phase (OG fix) |

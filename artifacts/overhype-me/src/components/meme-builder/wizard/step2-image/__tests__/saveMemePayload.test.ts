@@ -27,22 +27,21 @@ describe("buildSaveMemePayload", () => {
     const payload = buildSaveMemePayload({ state, factId: 42 });
     expect(payload).not.toBeNull();
     expect(payload!.imageSource).toEqual({ type: "stock", pexelsPhotoId: 999 });
-    expect(payload!.imageTransform).toBeUndefined();
+    expect("imageTransform" in payload!).toBe(false);
   });
 
-  it("emits an upload imageSource for a library photo without stylize", () => {
+  it("emits an upload imageSource for a library photo, and no transform", () => {
     const state: WizardRuntimeState = {
       ...baseState(),
       mode: "self-upload",
       source: {
         kind: "self-upload",
         image: { kind: "library", objectPath: "/objects/foo.jpg" },
-        stylizeWithAi: false,
       },
     };
     const payload = buildSaveMemePayload({ state, factId: 42 });
     expect(payload!.imageSource).toEqual({ type: "upload", uploadKey: "/objects/foo.jpg" });
-    expect(payload!.imageTransform).toBeUndefined();
+    expect("imageTransform" in payload!).toBe(false);
   });
 
   it("carries the visibility choice, defaulting to public when unset", () => {
@@ -69,41 +68,8 @@ describe("buildSaveMemePayload", () => {
       source: {
         kind: "self-upload",
         image: { kind: "library", objectPath: "/objects/foo.jpg" },
-        stylizeWithAi: false,
       },
     };
     expect(buildSaveMemePayload({ state, factId: 42 })!.isPublic).toBe(false);
-
-    const stylized: WizardRuntimeState = {
-      ...state,
-      source: { ...state.source!, stylizeWithAi: true } as WizardRuntimeState["source"],
-    };
-    expect(
-      buildSaveMemePayload({
-        state: stylized,
-        factId: 42,
-        pulidGeneratedUploadKey: "/objects/pulid-result.jpg",
-      })!.isPublic,
-    ).toBe(false);
-  });
-
-  it("requires a pulidGeneratedUploadKey when stylizeWithAi is true", () => {
-    const state: WizardRuntimeState = {
-      ...baseState(),
-      mode: "self-upload",
-      source: {
-        kind: "self-upload",
-        image: { kind: "library", objectPath: "/objects/profile.jpg" },
-        stylizeWithAi: true,
-      },
-    };
-    expect(buildSaveMemePayload({ state, factId: 42 })).toBeNull();
-    const payload = buildSaveMemePayload({
-      state,
-      factId: 42,
-      pulidGeneratedUploadKey: "/objects/pulid-result.jpg",
-    });
-    expect(payload!.imageSource).toEqual({ type: "upload", uploadKey: "/objects/pulid-result.jpg" });
-    expect(payload!.imageTransform).toBe("pulid");
   });
 });

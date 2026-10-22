@@ -8,11 +8,6 @@
  * Each journey makes the calls the product's own frontend makes and writes
  * the image the UAT step is read from, full size and unaltered:
  *
- * - PR223 step 1 — the paid (legendary) test account uploads the reference
- *   photo fixture and generates through `POST /api/memes/pulid-jobs`, the
- *   path the meme builder wizard's AI styling takes for a reference photo
- *   (`Step2Image.handleAiCreate`), polls `GET /api/memes/pulid-jobs/:jobId`,
- *   and reads the result as its owner;
  * - PR229 step 6 — the dev admin takes a fact to concept review the way
  *   acceptance journey 3 does, saves a Visual Concept override whose one
  *   speech bubble is attributed to "the mailman" (a character not in the
@@ -21,21 +16,14 @@
  *   the moderation test render (`POST /admin/reviews/:id/render`) and reads
  *   its image.
  *
- * The journeys are independent: one failing never stops the other. The run's
- * verdict is only whether each shot was produced (and, for PR229, whether the
- * compiler reported the bubble's entity unresolved); the reading is Claude's.
+ * The PR223 reference-photo journey went with PuLID (launch Phase 4, removal 3;
+ * `docs/retired/README.md`). The run's verdict is only whether each shot was
+ * produced and whether the compiler reported the bubble's entity unresolved;
+ * the reading is Claude's.
  */
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { BASELINE_FACT, JourneyError, poll, readImage, Session } from "./driver";
 import { CAPTURE_DOCS, writeShot, type CaptureDoc, type ManifestLine } from "./captureShots";
 import { settledBaselineRenders } from "../aiBaselineCoverage";
-
-const API_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-/** The committed reference photo: David's own face, kept on purpose and cleared for any testing (decisions.md, 2026-10-17, superseding plan D6/D7's "never a person's own photo"). */
-export const REFERENCE_PHOTO = path.join(API_ROOT, "src/assets/test-face.jpg");
 
 export const MAILMAN_BUBBLE = { type: "speech" as const, entity: "the mailman", text: "Special delivery!" };
 /**
@@ -46,16 +34,6 @@ export const MAILMAN_BUBBLE = { type: "speech" as const, entity: "the mailman", 
  */
 export const SUBJECT_ONLY_ROLE = { entity: "subject", visualRole: "the person the fact is about" };
 
-const accounts = JSON.parse(fs.readFileSync(path.join(API_ROOT, "scripts/e2e-test-accounts.json"), "utf8")) as {
-  password: string;
-  paid: { email: string };
-};
-
-export interface CaptureFact {
-  id: number;
-  text: string;
-}
-
 export interface CaptureResult {
   shots: ManifestLine[];
   /** Why the run is not green: a shot not produced, or a premise that did not hold. */
@@ -64,61 +42,14 @@ export interface CaptureResult {
   evidence: Record<string, Record<string, unknown>>;
 }
 
-export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: string; commit: string; fact: CaptureFact | null; log: (line: string) => void }): Promise<CaptureResult> {
+export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: string; commit: string; log: (line: string) => void }): Promise<CaptureResult> {
   const { out, commit, log } = opts;
-  const result: CaptureResult = { shots: [], problems: [], evidence: { pr223: {}, pr229: {} } };
+  const result: CaptureResult = { shots: [], problems: [], evidence: { pr229: {} } };
   log(`capturing ${opts.doc}`);
   const shot = (name: string, bytes: Buffer, format: string, meta: { doc: string; step: string; shows: string }) => {
     result.shots.push(writeShot(out, name, bytes, format, meta, commit));
     log(`captured ${name} (${bytes.length} bytes)`);
   };
-
-  if (opts.doc === "PR223_RENDER_REPRODUCIBILITY_UAT") {
-    // --- PR223 step 1: a reference-photo generation by the paid account --------
-    const pr223 = result.evidence.pr223!;
-    try {
-      if (!opts.fact) throw new JourneyError("pr223", "pick a fact", "the fixture holds no active fact whose text has {NAME}");
-      const fact = opts.fact;
-      const paid = new Session(base, "paid");
-      await paid.json("pr223", "POST", "/api/auth/local-login", { email: accounts.paid.email, password: accounts.password });
-      const photo = fs.readFileSync(REFERENCE_PHOTO);
-      // The meme builder uploads the reference photo here (`useUploadModeration`).
-      const upload = await paid.request("POST", "/api/storage/upload-meme", photo, "image/jpeg");
-      const uploaded = (await upload.json().catch(() => ({}))) as { objectPath?: string };
-      if (upload.status !== 200 || !uploaded.objectPath) throw new JourneyError("pr223", "upload the reference photo", `${upload.status} ${JSON.stringify(uploaded).slice(0, 300)}`);
-      const reference = await readImage(paid, "pr223", "the owner reads the reference photo", `/api/storage${uploaded.objectPath}`);
-      if (!reference.bytes.equals(photo)) throw new JourneyError("pr223", "the owner reads the reference photo", `${reference.bytes.length} bytes differ from the ${photo.length} uploaded`);
-      shot("pr223-s1-reference", photo, reference.format, {
-        doc: "PR223_RENDER_REPRODUCIBILITY_UAT",
-        step: "1",
-        shows: `The reference photo the paid (legendary) test account uploaded for the generation: the repository's test-face.jpg fixture, ${reference.width}×${reference.height}, byte-identical to what the API serves back to its owner.`,
-      });
-      Object.assign(pr223, { factId: fact.id, factText: fact.text, referenceObjectPath: uploaded.objectPath });
-
-      const { jobId } = await paid.json<{ jobId: string }>("pr223", "POST", "/api/memes/pulid-jobs", { factId: fact.id, referenceImagePath: uploaded.objectPath });
-      pr223.jobId = jobId;
-      log(`pr223: reference-photo generation ${jobId} started for fact ${fact.id}`);
-      const job = await poll(
-        "pr223",
-        "the reference-photo generation",
-        () => paid.json<{ phase: string; generatedObjectPath?: string; errorCode?: string; errorMessage?: string }>("pr223", "GET", `/api/memes/pulid-jobs/${jobId}`),
-        (j) => j.phase === "completed" && !!j.generatedObjectPath,
-        (j) => (j.phase === "failed" ? `failed: ${j.errorCode ?? "?"} ${j.errorMessage ?? ""}` : j.phase === "no_face_review" ? "parked in no_face_review: no face was detected in the reference photo" : null),
-        10 * 60_000,
-      );
-      pr223.generatedObjectPath = job.generatedObjectPath;
-      // The wizard shows the result through the storage route (`AiSourcePanel`).
-      const generated = await readImage(paid, "pr223", "the owner reads the generated image", `/api/storage${job.generatedObjectPath}`);
-      shot("pr223-s1-result", generated.bytes, generated.format, {
-        doc: "PR223_RENDER_REPRODUCIBILITY_UAT",
-        step: "1",
-        shows: `The full-size image (${generated.width}×${generated.height}) the reference-photo generation (POST /api/memes/pulid-jobs, the meme builder's AI styling path) produced for fact ${fact.id} ("${fact.text}"), from the reference photo pr223-s1-reference, as the API serves it to its owner. Read only for what anyone would verify the same way; whether it shows the person in the reference photo is PR223 step 7's, David's.`,
-      });
-    } catch (err) {
-      pr223.error = (err as Error).message;
-      log(`pr223: FAILED — ${(err as Error).message}`);
-    }
-  }
 
   if (opts.doc === "PR229_BUBBLE_CONTROLS_UAT") {
     // --- PR229 step 6: a bubble attributed to a character not in the scene -----

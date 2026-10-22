@@ -407,6 +407,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // them when the chain is repaired. Source of truth: lib/db/src/schema/memes.ts
   // and the schema index, which no longer declare them.
   "0103_retire_video",
+
+  // Launch Phase 4, removal 3 (#744): a hand-authored data-only migration that
+  // retires PuLID's engine, pricing, config and feature rows. No DDL, so there
+  // is no schema change for a snapshot to record.
+  "0104_retire_pulid",
 ]);
 
 interface JournalEntry {
