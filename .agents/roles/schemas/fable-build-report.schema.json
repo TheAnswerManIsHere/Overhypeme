@@ -1,0 +1,124 @@
+{
+  "$comment": "SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.",
+  "type": "object",
+  "properties": {
+    "about": {
+      "type": "string",
+      "minTrimmedLength": 1,
+      "description": "One sentence: what this unit of work was. It leads the report, so it is David's orientation."
+    },
+    "needs_you": {
+      "type": "string",
+      "minTrimmedLength": 1,
+      "description": "One line: nothing, or the one thing only David can do. \"Nothing needed from you\" is a real answer and the common one. No justification under it."
+    },
+    "what_was_built": {
+      "type": "string",
+      "minTrimmedLength": 1,
+      "description": "What the unit actually built, in product English, read from the diffs and commits rather than from the builder's description of them. A short paragraph."
+    },
+    "decisions": {
+      "type": "array",
+      "description": "Every choice the builder took on its own recommendation in this unit, read from the PR bodies' 'Decisions taken on my recommendation' sections and the issue's State of Play. Empty when there were none.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "choice": { "type": "string", "minTrimmedLength": 1, "description": "What was decided, in product English." },
+          "undo": { "type": "string", "minTrimmedLength": 1, "description": "What reversing it takes, so David can reverse it in one line." },
+          "concern": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "Your concern with the choice, or null when you have none." }
+        },
+        "required": ["choice", "undo", "concern"],
+        "additionalProperties": false
+      }
+    },
+    "ramifications": {
+      "type": "string",
+      "minTrimmedLength": 1,
+      "description": "What this unit changes for David, for users, or for the next unit of work: what is now possible, what is now harder, what now depends on it."
+    },
+    "shipping_unfixed": {
+      "type": "array",
+      "description": "What is shipping unfixed: review findings declined and not raised again, recorded gaps in a PR body, and anything you see that nobody named. Empty means nothing is.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": { "type": "string", "minTrimmedLength": 1, "description": "What could happen, not what the code does." },
+          "reasonable": { "type": "boolean", "description": "Whether shipping it is reasonable." },
+          "why": { "type": "string", "minTrimmedLength": 1, "description": "Why; plainly, when you disagree." }
+        },
+        "required": ["what", "reasonable", "why"],
+        "additionalProperties": false
+      }
+    },
+    "overbuilt": {
+      "type": "array",
+      "description": "Each place the builder wrote more than a review finding was worth, one line each. Empty is the common answer.",
+      "items": { "type": "string", "minTrimmedLength": 1 }
+    },
+    "disagreements": {
+      "type": "array",
+      "description": "Where your reading differs from the builder's account of the unit, including a risk nobody named. An empty array is a real answer. The section worth most per word: trim everything else first.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": { "type": "string", "minTrimmedLength": 1, "description": "The builder's account, and yours." },
+          "why_it_matters": { "type": "string", "minTrimmedLength": 1, "description": "What it means for David if you are right." }
+        },
+        "required": ["what", "why_it_matters"],
+        "additionalProperties": false
+      }
+    },
+    "spend": {
+      "type": "object",
+      "description": "Read from the workstream issue's State of Play and the repository's paid-run ledger issue, quoted as found. null in a field means the line was not there.",
+      "properties": {
+        "build_total": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "The issue's 'Spend so far' line, as written." },
+        "paid_runs_this_week": { "type": ["string", "null"], "minTrimmedLength": 1, "description": "The paid AI runs in the trailing seven days from the ledger issue, totalled, or null when there is no ledger issue." }
+      },
+      "required": ["build_total", "paid_runs_this_week"],
+      "additionalProperties": false
+    },
+    "where_we_are": {
+      "type": "object",
+      "description": "Against the plan or the agreed scope the issue records.",
+      "properties": {
+        "planned": { "type": "string", "minTrimmedLength": 1, "description": "What the plan or scope set out to do, in one or two sentences." },
+        "done": { "type": "string", "minTrimmedLength": 1, "description": "Where this unit leaves it: what is now finished." },
+        "next": { "type": "string", "minTrimmedLength": 1, "description": "The next unit against the plan, or 'the plan is complete'." }
+      },
+      "required": ["planned", "done", "next"],
+      "additionalProperties": false
+    },
+    "what_landed": {
+      "type": "object",
+      "description": "The stated intent held against what the change does.",
+      "properties": {
+        "does_not_do": { "type": "string", "minTrimmedLength": 1, "description": "What it does not do that David might assume it does, given how it was described." },
+        "now_trusting": { "type": "string", "minTrimmedLength": 1, "description": "What David is now trusting that he was not before." }
+      },
+      "required": ["does_not_do", "now_trusting"],
+      "additionalProperties": false
+    },
+    "took_on_trust": {
+      "type": "string",
+      "minTrimmedLength": 1,
+      "description": "What you saw and accepted without checking. Not shown to David; kept so a later reader knows what is worth rechecking."
+    },
+    "could_not_assess": {
+      "type": ["string", "null"],
+      "minTrimmedLength": 1,
+      "description": "One sentence when something was beyond your reach; null when nothing was."
+    },
+    "model": {
+      "type": ["string", "null"],
+      "minTrimmedLength": 1,
+      "description": "The model id you are actually running as. null, never prose, when you cannot determine it."
+    }
+  },
+  "required": [
+    "about", "needs_you", "what_was_built", "decisions", "ramifications", "shipping_unfixed",
+    "overbuilt", "disagreements", "spend", "where_we_are", "what_landed", "took_on_trust",
+    "could_not_assess", "model"
+  ],
+  "additionalProperties": false
+}

@@ -1,6 +1,6 @@
 ---
 name: maintenance
-description: Weekly repo maintenance ritual. Use when David says /maintenance or asks for the weekly maintenance pass. Triages the Dependabot PR queue (merges green minor/patch bumps, flags majors), reviews production errors (Sentry), checks CI health on main, and delivers a "what shipped this week" digest. Ops-shaped, Sonnet-tier work.
+description: Weekly repo maintenance ritual. Use when David says /maintenance or asks for the weekly maintenance pass. Triages the Dependabot PR queue (merges green minor/patch bumps, merges majors on its recommendation and reports them), reviews production errors (Sentry), checks CI health on main, and delivers a "what shipped this week" digest. Ops-shaped, Sonnet-tier work.
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
@@ -512,7 +512,7 @@ reports its spend*).
 If the report is substantial, also publish it as an Artifact page — the chat
 message remains the canonical copy. (CLAUDE.md's combined Artifact-delivery
 paragraph this used to cite was retired; only its UAT-specific rule survives,
-as `claude-core.md` Pull requests rule 5 — a UAT doc for product-visible
+as `claude-core.md` Pull requests rule 5 — a UAT section for product-visible
 feature PRs in production phase — and it doesn't cover maintenance reports.
 This is now a standalone maintenance-skill rule.)
 
@@ -544,8 +544,8 @@ This is now a standalone maintenance-skill rule.)
   limit's Codex loop) — one PR for the whole pass, never one per
   harvested feature, per `documentation-workflow.md`'s batched delivery path. Neither is license to fix, refactor, or bump
   anything the backlog pass turns up — a fired trigger for a *major* bump
-  (dependency or Action) still only ever becomes a reported decision item,
-  never a direct action, per step 4 above. **Step 9's backlog hygiene is
+  (dependency or Action) lands through its own PR on my recommendation and is
+  reported, per step 4 above, never from inside the docs PR. **Step 9's backlog hygiene is
   not an exception** — it writes only issue labels, bodies, and
   closures, never code, each named in the report (David, 2026-10-21; until
   then only lines he approved from the numbered diff were applied).

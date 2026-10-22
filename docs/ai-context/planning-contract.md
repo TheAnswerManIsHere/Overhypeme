@@ -451,7 +451,7 @@ judgement residue is not a rejection reason; manual QA standing in for a
 screen fact a test could assert is (the lane rules, below). Say where
 automated coverage is needed.
 Consider unit, integration, migration, async-job and permission tests, regression
-fixtures from real cases, and a UAT doc for the judgement residue — a screen
+fixtures from real cases, and a UAT section for the judgement residue — a screen
 fact is an assertion in the same PR, or a `capture` step when only pixels
 hold it, never a step for David
 ([`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07)). Tests

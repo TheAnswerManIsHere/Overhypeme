@@ -1,6 +1,6 @@
 ---
 name: pr-docs
-description: Use right after opening a feature-mode PR with product-visible or testable behavior, before calling that PR done. Bugfix-mode PRs do NOT inherit this pairing — their docs are conditional per tier — and a prototype-phase PR ships no UAT doc — its Post-merge verification section carries only its version's `live` check, or "none needed".
+description: Use while composing the body of a feature-mode PR with product-visible or testable behavior — its Post-merge verification and `## UAT` sections are in the body when the PR opens — and before calling that PR done. Bugfix-mode PRs do NOT inherit this pairing — their docs are conditional per tier — and a prototype-phase PR ships no UAT section — its Post-merge verification section carries only its version's `live` check, or "none needed".
 ---
 
 <!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
@@ -20,8 +20,9 @@ conditional per tier, and its infra-only fixes may ship neither half: see
 What follows describes the feature-mode default.
 
 For **every** feature-mode PR that has product-visible or testable behavior
-**and is in production phase**, I ship two things. A prototype-phase PR
-ships no UAT doc — that is the documentation bar the phase removes — and its
+**and is in production phase**, I ship two things, both in the PR body. A
+prototype-phase PR ships no UAT section — that is the documentation bar the
+phase removes — and its
 *Post-merge verification* section carries exactly one thing: the version's
 `live` check, when its claim depends on the deployed environment or a real
 vendor, as the command and pass criterion I run after the merge's sync and
@@ -67,29 +68,34 @@ the mandatory live check had no recorded command for close-out to run).
    not-clean. I do NOT create new TEST_RUN files, flag the absence of one,
    or "restore" a deleted one.
 
-2. **`docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`** — the in-app acceptance
-   script, written to
-   [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md) and its
-   lane rules, so David's share of it is the judgement residue. **That
-   format is mandatory and it is not a style preference**: `/uat` drives the
-   run by enumerating `### ` headings inside `## Steps` and `## Regression`,
-   so a doc outside the format is a doc that cannot be driven. Setup lines,
-   step shape (`Do:` / `Expect:`), regression IDs and the deliberate
-   omissions all live there rather than being restated here. **This half
-   stays file-based, but ownership of deletion changed (David, 2026-08-22):
-   I delete a UAT doc once he confirms the run complete**, in the same
-   close-out, rather than waiting on his own click — so the directory
-   never accumulates finished tests. See `/uat` for the one exception
-   (content worth harvesting first).
+2. **The PR body's `## UAT` section** — the in-app acceptance script,
+   written to [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md)
+   and its lane rules, so David's share of it is the judgement residue.
+   **That format is mandatory and it is not a style preference**: `/uat`
+   drives the run by enumerating `#### ` headings inside `### Steps` and
+   `### Regression` of that section, so a section outside the format is one
+   that cannot be driven. Setup lines, step shape (`Do:` / `Expect:`),
+   regression IDs and the deliberate omissions all live there rather than
+   being restated here.
 
-   Because the PR number is in the filename, the UAT doc follows the
-   **PR-first** flow: open the PR with a "Docs pending" placeholder note,
-   read the assigned number, write and commit the UAT doc to the **same PR
-   before merge**, then replace the note with the link. `<N>` is the GitHub
-   PR number; `<FEATURE>` is a SCREAMING_SNAKE_CASE slug. The doc always
-   lands on the same PR — never a separate later PR.
+   **It is a section of the body, not a file (David, 2026-10-21)** — the
+   same move the TEST_RUN file made above, for the same reason: written with
+   the diff and reviewed with it, with no lifecycle of its own. Until then
+   the script was `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md`, which needed the
+   PR number for its name (so the PR opened with a "Docs pending"
+   placeholder and the file followed in a second commit), a deletion PR
+   when the run completed, and a correction PR when an `Expect` was wrong.
+   Now the section is in the body when the PR opens, like the oracle; a
+   wrong `Expect` is an edit of the body, quoted into the run record; and
+   nothing is deleted at close-out — the workstream's `stage:uat` label is
+   what says a run is owed, and `/uat` discovers runs from it. **A legacy
+   doc still in `docs/tests/UAT/` on `main` runs out under the old
+   pattern**: `/uat` drives it from the file and deletes it when David
+   confirms the run complete (harvesting into the Manual first any
+   behaviour it is the only written record of). I do NOT create new UAT
+   files, flag the absence of one, or "restore" a deleted one.
 
-   **The doc is a script I drive, not a page he reads (David, 2026-08-21).**
+   **The section is a script I drive, not a page he reads (David, 2026-08-21).**
    David works through it with me step by step via [`/uat`](../uat/SKILL.md),
    so write it for that: **setup is mine to execute** — the `[claude]` lines
    in the format — and `[david]` is reserved for what only his own session or
@@ -97,9 +103,8 @@ the mandatory live check had no recorded command for close-out to run).
    the connector reads and does not click; on a local stack at the commit
    under test the test identity the consumer's per-PR browser job signs in
    with is mine, Overhype.me's dev-admin login for one — `/uat` section 2
-   and *Where the browser automation lives*). The doc is still the
-   canonical script;
-   **I delete it once he confirms the run complete** (David, 2026-08-22).
+   and *Where the browser automation lives*). The section is the canonical
+   script; the run record on the workstream issue is where its results live.
 
    **Every step gets a lane, and the default is a machine** (David,
    2026-10-07; the lanes are defined in
@@ -135,31 +140,34 @@ the mandatory live check had no recorded command for close-out to run).
    whose machine check cannot exist yet, because the double or fixture it
    needs lands later, keeps its machine step `**Deferred:** #N` to that
    owner, and **the owed check is recorded on issue #N when the line is
-   written** (one comment naming the doc, the step and the check), so whoever
+   written** (one comment naming the PR, the step and the check), so whoever
    lands #N knows it. **The PR that lands #N pays that debt in the same PR**:
-   it writes the check and, in every UAT doc still on `main` that defers to
-   #N, replaces the `**Deferred:**` line with the runnable `**Check:**` —
-   the checker validates the citation, and a resumed `/uat` runs it. A doc
-   already deleted needs nothing more than the record on #N.
+   it writes the check and, in every merged PR's `## UAT` section that
+   defers to #N, replaces the `**Deferred:**` line with the runnable
+   `**Check:**` — an edit of that PR's body (`update_pull_request`), said
+   on #N; the guard cannot see an edit to a merged body, which is why the
+   resumed `/uat` runs the check rather than trusting the line. A legacy doc
+   gets the same edit in its file.
    The deferred step is **never** turned into a `human` step to get past
    the wait: David's share is judgement only. Such a run is Blocked until #N
    lands, which is the honest state of a behaviour nothing has yet checked.
-   `node scripts/check-uat-format.mjs` refuses a step without a lane, a
+   `node scripts/check-uat-format.mjs` reads the body from the
+   `pull_request` event in CI and refuses a step without a lane, a
    machine-lane step whose cited check does not exist, a `human` step
    without its `**Judgement:**` line, and that line on any other lane.
 
    **No Artifact page (David, 2026-08-21 — retiring the 2026-07-22 rule).**
-   The Artifact existed as a reading surface for working through the doc
+   The Artifact existed as a reading surface for working through the script
    alone on an iPad; the `/uat` session replaced that job. Publish one only
    if he asks for a solo run.
 
 A product-visible PR is **not** complete — and I don't present it to David
 as done — until the verification section has real content (or an explicit
-"none needed") and the UAT doc exists and is linked, unless the
+"none needed") and the body carries its `## UAT` section, unless the
 ship-the-UI-surface exception applies or the PR is in prototype phase (above). For the UAT's structure, follow
 [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md) — **not** the
-nearest surviving doc, which is how six competing conventions accumulated in
-the first place. (Pure infra/refactor with zero
+nearest merged PR's section, which is how six competing conventions
+accumulated in the first place. (Pure infra/refactor with zero
 observable behavior can use a single short verification note in the PR body
 instead, per the ship-the-UI-surface exception.)
 
@@ -169,8 +177,8 @@ one phase of a phased feature (see
 *Phased features*), two things change:
 
 - **UAT is per-phase, not deferred to the last phase.** If *this phase* is
-  product-visible, it ships its own `docs/tests/UAT/PR<N>_…_UAT.md` — the
-  same rule as any other PR. Deferring every phase's UAT to the end would
+  product-visible, its PR body carries its own `## UAT` section — the same
+  rule as any other PR. Deferring every phase's UAT to the end would
   leave David with nothing to verify for weeks and would pile the whole
   feature's risk into one session. A phase with no product-visible surface
   of its own ships a verification note instead, same exception as always.
@@ -193,7 +201,7 @@ one phase of a phased feature (see
 this skill owns no `stage:`/`waiting:` transition of its own — `pr-watch`
 already owns `stage:code-review` for the PR this pairing rides on. Just
 confirm the workstream issue's `mode:` label is `feature` (this pairing is
-feature-mode-only), and once the UAT doc is committed, add it to the
-workstream issue's State of Play `Artifacts` field — the UAT link is
-exactly the kind of thing a cold-resumed session needs and won't find by
-re-deriving it from the PR alone.
+feature-mode-only), and make sure the PR is named in the workstream issue's
+State of Play `Artifacts` field with a note that it carries the UAT — the
+PR is where a cold-resumed `/uat` reads the script from, and it won't find
+it by re-deriving which PR the issue belongs to.

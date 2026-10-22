@@ -85,7 +85,7 @@ Decide by what "this" refers to (contract's trigger table):
   first. I go straight to `git fetch origin main`, a fresh branch off
   `origin/main` created with **`-b` (never `-B`)**, and open a **new**, small
   docs-only PR for the harvest — never try to reuse or reopen the
-  already-merged feature PR. No UAT doc and "none needed" post-merge
+  already-merged feature PR. No UAT section and "none needed" post-merge
   verification on that PR (pure-docs
   exception) — a short verification note in the PR body suffices.
   **The PR body carries the harvest's review-scope oracle (David,

@@ -231,9 +231,10 @@ the PR back only delays the review that catches things.
    git constraints. If the branch later needs current `main`, **merge, don't
    rebase**.
 2. Open the PR with `mcp__github__create_pull_request` — base `main`
-   normally; **as a draft only when the Tier B draft-first flow in step 3
-   applies** (a plain non-draft open is the point for everything else —
-   round 1 fires immediately).
+   normally, **never as a draft**: a plain non-draft open is the point, since
+   round 1 fires immediately, and a Tier B fix's UAT section is already in
+   the body at open (step 3; the draft-first flow that once learned the PR
+   number for a file is retired, 2026-10-21).
    **Exception: a stacked fix bases against its parent's branch, not `main`**
    (per `working-modes.md`'s *Dependent bugs* note) — otherwise the new PR's
    diff carries both bugs' commits until the parent merges, defeating the
@@ -304,43 +305,35 @@ the PR back only delays the review that catches things.
 
    Then **Verification** (exact commands + results, and the click-through steps
    to observe the fix), and the checklist.
-3. **Tier B, product-visible fix — ship the UAT doc on this same PR.** The
+3. **Tier B, product-visible fix — ship the UAT section in this PR's body.** The
    test is whether the fix has *any* product-visible behavior, not which
    Q1/Q2 trigger put it in Tier B — a fix whose only surface is internal
    (CI, build tooling, API-schema codegen with no frontend-visible type
    change) takes the **internal/infra-only exception**
-   instead: a written verification note in the PR body, no UAT doc (see
+   instead: a written verification note in the PR body, no UAT section (see
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#tier-b--elevated-fix)).
-   When a UAT doc is due, the filename needs the PR number, so the flow is
-   **draft-first (David, 2026-08-09 — replacing the docs-pending +
-   explicit-re-review dance, which bought a guaranteed second round for
-   file-naming reasons):** open the PR **as a draft** (the number now
-   exists, and a draft doesn't trigger the Codex connector), commit
-   `docs/tests/UAT/PR<N>_<FEATURE>_UAT.md` with the PR body linking it, then
-   **mark the PR ready for review** — round 1 fires once, on the complete
-   diff, UAT included. **The connector documents this trigger itself:** its
-   review boilerplate lists exactly three — "Open a pull request for
-   review", **"Mark a draft as ready"**, and commenting `@codex review`
-   (observed on PR #391, 2026-08-09). Still glance that round 1 actually
-   lands on the first draft-first fix; if it somehow doesn't, post one
-   explicit `@codex review` naming the full diff and correct this line.
-   Write it to
+   When one is due it is the `## UAT` section of the PR body, written
+   before the PR opens like the rest of the body (David, 2026-10-21; the
+   script was a file named after the PR number until then, which is why
+   this step used to open the PR as a draft, commit the file, and mark it
+   ready — a dance the body needs none of, since round 1 fires on PR-open
+   with the section already there). Write it to
    [`uat-doc-format.md`](../../../docs/tests/uat-doc-format.md) — the format
-   is mandatory, and **not** "match the nearest surviving doc," which is how
-   six competing conventions accumulated before it existed. **No Artifact
-   page** (David, 2026-08-21 — retired; David works the doc through
-   [`/uat`](../uat/SKILL.md) with me rather than reading it alone), and its
-   setup lines are mine to execute, per `pr-docs`. The PR body's
+   is mandatory, and **not** "match the nearest merged PR's section," which
+   is how six competing conventions accumulated before it existed. **No
+   Artifact page** (David, 2026-08-21 — retired; David works the script
+   through [`/uat`](../uat/SKILL.md) with me rather than reading it alone),
+   and its setup lines are mine to execute, per `pr-docs`. The PR body's
    Post-merge verification section
    gets real content only if something genuinely needs Replit's
    environment — per
    [`test-run-contract.md`](../../../docs/tests/test-run-contract.md), it
    is not a default ("none needed" is the correct content otherwise; the
-   standalone TEST_RUN file is retired, 2026-08-15). **Add the UAT doc
-   link to
-   the workstream issue's State of Play `Artifacts` field once committed** —
-   the same instruction `pr-docs` follows for feature-mode UAT docs, so a
-   cold-resumed session finds the doc regardless of which path produced it.
+   standalone TEST_RUN file is retired, 2026-08-15). **Name the PR in the
+   workstream issue's State of Play `Artifacts` field as carrying the
+   UAT** — the same instruction `pr-docs` follows for feature-mode UAT
+   sections, so a cold-resumed `/uat` finds the script regardless of which
+   path produced it.
 4. **Watch the PR** per CLAUDE.md's *Watching the PRs I open*:
    `subscribe_pr_activity` immediately, on whatever tier the session is on.
    **There is no model gate** (David, 2026-08-15 — the Sonnet gate this step
@@ -373,15 +366,15 @@ reversed it, 2026-08-06).
 What is *bugfix-specific* about the loop:
 
 - **The review carries more weight here than in feature mode.** With no plan
-  and (on Tier A) no UAT doc, Codex's diff review is the main net — and it
+  and (on Tier A) no UAT section, Codex's diff review is the main net — and it
   has earned that: several entries in
   [`known-failure-patterns.md`](../../../docs/ai-context/known-failure-patterns.md)
   were caught by review *after* the shipped tests passed. Engage every
   round; the light *planning* path must never shade into a light *review*
   path.
 - **Round 1 is automatic.** The Codex connector reviews on non-draft PR
-  open — or on marking a draft ready, in the Tier B draft-first flow
-  (step 3, with its first-use caveat) — so no `@codex review` on open.
+  open — every bugfix PR opens non-draft, Tier B included (step 2) — so no
+  `@codex review` on open.
 - **The artifact the fix touches picks the tier — never the fact that it's
   a fix.** A fix to product code is a product loop. But routed entry means a
   bug can be *in the docs*: when the whole diff is agent-facing markdown or

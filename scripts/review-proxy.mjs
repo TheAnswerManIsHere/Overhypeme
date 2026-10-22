@@ -40,7 +40,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { modelTier, signInStatus, spawnSyncDefault, SIGN_IN_INSTRUCTIONS, runCodex, usageLine, findRepoRoot, agentFrontmatter, claudeAlias } from "./machinery.mjs";
-import { REVIEWS_DIR, ensureReviewsIgnored } from "./round-translation.mjs";
+import { REVIEWS_DIR, ensureReviewsIgnored } from "./build-report.mjs";
 
 export const ROLE = "review-proxy";
 

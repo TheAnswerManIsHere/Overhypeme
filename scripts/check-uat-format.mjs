@@ -1,22 +1,35 @@
 #!/usr/bin/env node
 // SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
-// UAT document format guard.
+// UAT format guard.
 //
-// `/uat` drives a run by enumerating `### ` headings inside `## Steps` and
-// `## Regression`. That rule is only safe if every doc actually has that
-// shape, so this checks it rather than trusting it.
+// `/uat` drives a run by enumerating `#### ` headings inside `### Steps` and
+// `### Regression` of the pull request body's `## UAT` section. That rule is
+// only safe if every section actually has that shape, so this checks it
+// rather than trusting it.
 //
-// **Why this is a check and not a convention.** The docs in docs/tests/UAT/
-// accumulated six-plus conventions for the regression section alone, eleven
-// docs with no numbered steps, and several distinct naming schemes (Parts
-// A-E, Tests 1-8, "The happy path"). A skill that tried to infer coverage
-// from that spread failed in the worst available way -- pass every feature
-// step, declare Accepted, never run the sweep. The format
+// **Why this is a check and not a convention.** The UAT docs that used to
+// live in docs/tests/UAT/ accumulated six-plus conventions for the regression
+// section alone, eleven docs with no numbered steps, and several distinct
+// naming schemes (Parts A-E, Tests 1-8, "The happy path"). A skill that tried
+// to infer coverage from that spread failed in the worst available way --
+// pass every feature step, declare Accepted, never run the sweep. The format
 // (docs/tests/uat-doc-format.md) fixes the shape; this keeps it fixed.
+//
+// **Why it reads the pull request body.** The UAT script moved out of
+// docs/tests/UAT/ and into the PR body on 2026-10-21 (David), the same move
+// the TEST_RUN file made on 2026-08-15 and for the same reason: written with
+// the diff and reviewed with it, with no file lifecycle of its own -- no
+// PR-first naming dance, no deletion PR per completed run, no guard policing
+// finished scripts whose cited files were since renamed. In CI the body comes
+// from the `pull_request` event payload; locally and in tests it comes from
+// `--body-file`. A push event has no body to check and says so. A body with
+// no `## UAT` section is a PR that owes none -- whether one is owed is
+// `pr-docs`' and `pr-watch`'s judgement, not this guard's.
 //
 // It checks STRUCTURE, not content. It cannot tell whether an `Expect:` is a
 // real oracle or whether a regression check is worth running -- those stay
-// human. It catches the one class that is regular: a doc `/uat` cannot drive.
+// human. It catches the one class that is regular: a section `/uat` cannot
+// drive.
 //
 // It also checks LANES: every step names where it is verified (ci, scripted,
 // live, capture, human), and a machine-lane step cites the check that runs
@@ -33,14 +46,18 @@
 //
 // Dependency-free, like the other docs guards.
 //
-// Run locally:  node scripts/check-uat-format.mjs
+// Run in CI (a `pull_request` event; list `edited` among the trigger's types
+// so a body edit re-runs it):  node scripts/check-uat-format.mjs
+// Run locally:                 node scripts/check-uat-format.mjs --body-file <file>
 
-import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join, resolve, dirname, basename } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-export const UAT_DIR = "docs/tests/UAT";
+
+/** The PR-body section that holds the UAT script. Everything else in the body is not this guard's. */
+export const UAT_HEADING = "## UAT";
 
 const SETUP_TAGS = ["[claude]", "[david]", "[restore]"];
 
@@ -62,52 +79,46 @@ export const LANES = ["ci", "scripted", "live", "capture", "human"];
  */
 const PATHISH = /^([\w./@-]+\/[\w.@-]+\.[a-z0-9]+)(?::.*)?$/i;
 
-/** Section boundaries, in the order the format requires them. */
-const REQUIRED = ["## Setup", "## Steps", "## Regression"];
+/** Sub-sections of `## UAT`, in the order the format requires them. */
+const REQUIRED = ["### Setup", "### Steps", "### Regression"];
 
-export function uatFiles(root = ROOT) {
-  const dir = join(root, UAT_DIR);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".md") && f !== "README.md")
-    .sort()
-    .map((f) => `${UAT_DIR}/${f}`);
+/**
+ * The `## UAT` section of a PR body: its lines, each paired with its
+ * 1-based line number in the body, from the line after the heading to the
+ * next `## ` heading or the end. `null` when the body has no such section.
+ * Exact heading match, so `## UAT run` or `## UAT notes` is not it.
+ */
+export function uatSection(body) {
+  const lines = body.split("\n");
+  const start = lines.findIndex((l) => l.trim() === UAT_HEADING);
+  if (start === -1) return null;
+  const out = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^## /.test(lines[i])) break;
+    out.push([i + 1, lines[i]]);
+  }
+  return out;
 }
 
 /**
- * Structural findings for one doc. Exported so the guard's own behaviour is
- * testable without the filesystem, matching the other docs guards.
+ * Structural findings for one PR body. `[]` when the body has no `## UAT`
+ * section (nothing owed, or nothing this guard can see) and when the section
+ * is drivable. Exported so the guard's own behaviour is testable without a
+ * filesystem or an event payload, matching the other docs guards.
  */
-export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT, rel)) } = {}) {
+export function scanBody(body, { exists = (rel) => existsSync(join(ROOT, rel)) } = {}) {
+  const section = uatSection(body);
+  if (section === null) return [];
   const problems = [];
-  const lines = text.split("\n");
   const say = (msg) => problems.push(msg);
+  const lineNo = (i) => section[i][0];
+  const text = (i) => section[i][1];
 
-  // --- filename shape, and the title's agreement with it ------------------
-  // /uat discovers candidates by globbing PR<N>_*_UAT.md (uat-doc-format.md
-  // and the /uat skill both require this exact shape). A doc that passes
-  // every structural check below but sits outside that pattern -- a typo,
-  // or a file the format's own filter (.md, not README.md) still admits --
-  // would validate clean here and never be offered for a run. (Codex, #561
-  // round 1.)
-  const base = basename(filename);
-  const fileMatch = /^PR(\d+)_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_UAT\.md$/.exec(base);
-  if (!fileMatch) {
-    say(`filename must match "PR<N>_<FEATURE>_UAT.md" (SCREAMING_SNAKE feature) -- got "${base}"`);
-  }
-  const title = lines.find((l) => l.startsWith("# "));
-  const titleMatch = title && /^# PR #(\d+) — .+ — UAT\s*$/.exec(title);
-  if (!titleMatch) {
-    say('first heading must be exactly "# PR #<N> — <Feature> — UAT"');
-  } else if (fileMatch && titleMatch[1] !== fileMatch[1]) {
-    say(`title says PR #${titleMatch[1]} but the filename says PR${fileMatch[1]}`);
-  }
-
-  // --- required sections, present and in order ----------------------------
-  const at = (h) => lines.findIndex((l) => l.trim() === h);
+  // --- required sub-sections, present and in order ------------------------
+  const at = (h) => section.findIndex(([, l]) => l.trim() === h);
   const idx = REQUIRED.map(at);
   REQUIRED.forEach((h, i) => {
-    if (idx[i] === -1) say(`missing required section "${h}"`);
+    if (idx[i] === -1) say(`missing required section "${h}" under ${UAT_HEADING}`);
   });
   if (idx.every((i) => i !== -1)) {
     for (let i = 1; i < idx.length; i++) {
@@ -118,21 +129,23 @@ export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT
   }
 
   // --- the region a heading scan would actually see ------------------------
+  // A sub-section runs to the next `### ` heading. The `## UAT` section has
+  // already been cut at the next `## ` heading, so prose in the body's other
+  // sections is never read here.
   const sectionBody = (start) => {
     if (start === -1) return [];
     const out = [];
-    for (let i = start + 1; i < lines.length; i++) {
-      if (/^## /.test(lines[i])) break;
-      out.push([i + 1, lines[i]]);
+    for (let i = start + 1; i < section.length; i++) {
+      if (/^### /.test(text(i))) break;
+      out.push([lineNo(i), text(i)]);
     }
     return out;
   };
 
   // --- setup lines use the fixed vocabulary -------------------------------
   // Continuation lines of a wrapped bullet start with whitespace and belong
-  // to the bullet above them, not to a tag of their own -- these docs wrap at
-  // 80 columns, so most real bullets have them.
-  const setup = sectionBody(at("## Setup")).filter(
+  // to the bullet above them, not to a tag of their own.
+  const setup = sectionBody(at("### Setup")).filter(
     ([, l]) => l.trim() && !/^\s/.test(l),
   );
   if (setup.length) {
@@ -152,20 +165,20 @@ export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT
   // --- steps and regression checks ----------------------------------------
   const headings = (start) =>
     sectionBody(start)
-      .filter(([, l]) => /^### /.test(l))
-      .map(([n, l]) => [n, l.replace(/^### /, "")]);
+      .filter(([, l]) => /^#### /.test(l))
+      .map(([n, l]) => [n, l.replace(/^#### /, "")]);
 
-  // `None.` is a legitimate body for `## Regression`: a PR that genuinely
+  // `None.` is a legitimate body for `### Regression`: a PR that genuinely
   // couldn't break anything says so rather than padding the sweep. The
-  // section stays required so its absence is never ambiguous. `## Steps` has
-  // no such escape -- a UAT with nothing to test is not a UAT.
+  // sub-section stays required so its absence is never ambiguous. `### Steps`
+  // has no such escape -- a UAT with nothing to test is not a UAT.
   // `None.` on the first non-blank line, optionally followed by a sentence
   // saying why. The reason is worth allowing: a bare `None.` reads as an
   // oversight and invites a later editor to "fix" it with filler, which is
   // the padding this escape exists to avoid.
   //
-  // The escape covers ONLY a section with no headings at all -- "None." plus
-  // a later ### heading is not a legitimate use of it (a heading after
+  // The escape covers ONLY a sub-section with no headings at all -- "None."
+  // plus a later #### heading is not a legitimate use of it (a heading after
   // "None." is exactly the drift a stray edit would introduce, and /uat
   // would enumerate it as a step with no oracle behind it), so that shape
   // still runs the normal heading checks. (Codex, #561 round 2.)
@@ -178,12 +191,12 @@ export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT
     if (allowNone && isNone(start)) return [];
     const hs = headings(start);
     if (start !== -1 && hs.length === 0) {
-      say(`"${label}" contains no ### headings${allowNone ? ' (use the single line "None." if this PR could not break anything)' : ""}`);
+      say(`"${label}" contains no #### headings${allowNone ? ' (use the single line "None." if this PR could not break anything)' : ""}`);
     }
     hs.forEach(([n, h], i) => {
       const m = pattern.exec(h);
       if (!m) {
-        say(`${n}: ${label} heading must look like "### ${render(i + 1)} <title>" — got "${h}"`);
+        say(`${n}: ${label} heading must look like "#### ${render(i + 1)} <title>" — got "${h}"`);
         return;
       }
       if (Number(m[1]) !== i + 1) {
@@ -193,23 +206,28 @@ export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT
     return hs;
   };
 
-  const steps = checkIds(at("## Steps"), "## Steps", /^(\d+)\.\s+\S/, (i) => `${i}.`);
-  const regs = checkIds(at("## Regression"), "## Regression", /^R(\d+)\.\s+\S/, (i) => `R${i}.`, true);
+  const steps = checkIds(at("### Steps"), "### Steps", /^(\d+)\.\s+\S/, (i) => `${i}.`);
+  const regs = checkIds(at("### Regression"), "### Regression", /^R(\d+)\.\s+\S/, (i) => `R${i}.`, true);
 
   // --- every step carries exactly one Do and one Expect -------------------
   // A step with two Do/Expect pairs is a compound step: the driver presents
   // one step per turn, so it would produce a compound answer and a muddy
   // record. A step with none cannot be presented at all.
+  const byLine = new Map(section);
   const stepStarts = [...steps, ...regs].map(([n]) => n).sort((a, b) => a - b);
+  const lastLine = section.length ? lineNo(section.length - 1) : 0;
   stepStarts.forEach((startLine, i) => {
-    const end = i + 1 < stepStarts.length ? stepStarts[i + 1] - 1 : lines.length;
-    let body = lines.slice(startLine, end);
-    const nextSection = body.findIndex((l) => /^## /.test(l));
-    if (nextSection !== -1) body = body.slice(0, nextSection);
+    const end = i + 1 < stepStarts.length ? stepStarts[i + 1] - 1 : lastLine;
+    let body = [];
+    for (let n = startLine + 1; n <= end; n++) {
+      const l = byLine.get(n);
+      if (/^### /.test(l)) break;
+      body.push(l);
+    }
     const count = (marker) => body.filter((l) => l.trim().startsWith(marker)).length;
     const dos = count("**Do:**");
     const exps = count("**Expect:**");
-    const heading = lines[startLine - 1].replace(/^### /, "");
+    const heading = byLine.get(startLine).replace(/^#### /, "");
     if (dos !== 1) say(`${startLine}: step "${heading}" has ${dos} **Do:** lines, needs exactly 1`);
     if (exps !== 1) say(`${startLine}: step "${heading}" has ${exps} **Expect:** lines, needs exactly 1`);
 
@@ -270,34 +288,54 @@ export function scanDoc(filename, text, { exists = (rel) => existsSync(join(ROOT
   return problems;
 }
 
+/**
+ * Where the body comes from, in order: `--body-file <path>` (local runs and
+ * tests), then the `pull_request` event payload CI hands every job through
+ * `GITHUB_EVENT_PATH`. A workflow run that is not a pull request event has no
+ * body -- the guard says so and passes, having checked exactly that. No
+ * source at all is a refusal, never a pass: a guard that reports success
+ * having evaluated nothing is the worst available failure.
+ */
+export function readBody({ argv = process.argv.slice(2), env = process.env } = {}) {
+  const flag = argv.indexOf("--body-file");
+  if (flag !== -1) {
+    const file = argv[flag + 1];
+    if (!file) return { error: "--body-file needs a path" };
+    return { body: readFileSync(file, "utf8"), source: file };
+  }
+  if (env.GITHUB_EVENT_PATH) {
+    const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
+    if (!event.pull_request) return { skip: `${env.GITHUB_EVENT_NAME ?? "this"} event carries no pull request` };
+    return { body: event.pull_request.body ?? "", source: `pull request #${event.pull_request.number}` };
+  }
+  return { error: "no PR body to check: pass --body-file <file>, or run on a pull_request event (GITHUB_EVENT_PATH)" };
+}
+
 function main() {
-  const files = uatFiles();
-  if (files.length === 0) {
-    console.log("✓ UAT format: no UAT docs present (all runs complete).");
+  const read = readBody();
+  if (read.error) {
+    console.error(`✗ UAT format: ${read.error}`);
+    process.exitCode = 1;
     return;
   }
-  const all = [];
-  for (const file of files) {
-    for (const p of scanDoc(file, readFileSync(join(ROOT, file), "utf8"))) {
-      all.push({ file, problem: p });
-    }
-  }
-  if (all.length === 0) {
-    console.log(`✓ UAT format: ${files.length} doc(s), all drivable by /uat.`);
+  if (read.skip) {
+    console.log(`✓ UAT format: ${read.skip}; nothing to check.`);
     return;
   }
-  console.error(`\n✗ ${all.length} UAT format problem(s) — /uat cannot reliably drive these.\n`);
-  let last = null;
-  for (const { file, problem } of all) {
-    if (file !== last) {
-      console.error(`  ${file}`);
-      last = file;
-    }
-    console.error(`      ${problem}`);
+  if (uatSection(read.body) === null) {
+    console.log(`✓ UAT format: no ${UAT_HEADING} section in ${read.source} (none owed, or a legacy doc under docs/tests/UAT/).`);
+    return;
   }
+  const problems = scanBody(read.body);
+  if (problems.length === 0) {
+    console.log(`✓ UAT format: the ${UAT_HEADING} section of ${read.source} is drivable by /uat.`);
+    return;
+  }
+  console.error(`\n✗ ${problems.length} UAT format problem(s) in ${read.source} — /uat cannot reliably drive this section.\n`);
+  for (const p of problems) console.error(`      ${p}`);
   console.error(
     `\nThe format is docs/tests/uat-doc-format.md. The rule /uat depends on:\n` +
-      `a step is any "### " heading inside "## Steps" or "## Regression".\n`,
+      `a step is any "#### " heading inside "### Steps" or "### Regression" of the PR body's "## UAT" section.\n`,
   );
   process.exitCode = 1;
 }
