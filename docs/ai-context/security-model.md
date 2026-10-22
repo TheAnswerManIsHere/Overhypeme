@@ -153,8 +153,9 @@ traps in [`known-failure-patterns.md`](./known-failure-patterns.md)).
   see [`decisions.md`](./decisions.md)). Every slug-resolving surface gates on it
   *before* the `deletedAt` 410 branch, so a deleted private meme is a **404**
   (not 410) to non-owners — no existence disclosure. Surfaces: `GET /memes/:slug`
-  + `/image`, the OG shell (`og.ts`), share-copy/share-intents, Zazzle
-  export/redirect.
+  + `/image`, the OG shell (`og.ts`), and share-copy/share-intents. (The
+  Zazzle export and redirect went with merch in launch Phase 4; ledger
+  [`docs/retired/README.md`](../retired/README.md).)
 - **Non-owner response is 404, not 403** — for owner-only content, so its
   existence stays hidden. Admin-workflow routes may use 403 where existence is
   already known.

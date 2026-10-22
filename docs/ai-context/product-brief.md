@@ -92,7 +92,8 @@ Two user-facing tiers gate on **per-use cost**, not a credit balance:
   budget/spend caps gate generation cost.
 
 Membership tiers in code: `unregistered | registered | legendary` (separate from
-the `is_admin` flag). Merch is print-on-demand via a Zazzle affiliate.
+the `is_admin` flag). There is no merch: the Zazzle affiliate flow was
+deleted in launch Phase 4 (ledger [`docs/retired/README.md`](../retired/README.md)).
 
 ## Product principles agents must preserve
 

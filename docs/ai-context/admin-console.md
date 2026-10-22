@@ -18,7 +18,7 @@
 
 ## Page inventory
 
-Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 15 `NAV_ITEMS`:
+Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affiliate screen went with merch in launch Phase 4; ledger [`docs/retired/README.md`](../retired/README.md)):
 
 | Route | File | What it's for |
 | --- | --- | --- |
@@ -29,7 +29,6 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 15 `NAV_ITEMS`:
 | `/admin/refunds-disputes` | `refundsDisputes.tsx` | Refund/dispute event log plus a manual grace-sweep trigger. |
 | `/admin/moderation` | `moderation.tsx` | Fact review queue (covered elsewhere) **plus** an embedded comment-review panel — see *Dead and misleading surfaces*. |
 | `/admin/eval` | `evalDashboard.tsx` | Render-quality eval dashboard: golden fact set, cost-confirmed eval runs, per-render rating, run-vs-run comparison. |
-| `/admin/affiliate` | `affiliate.tsx` | The Zazzle click-through stats page, already documented in [`public-site-and-sharing.md`](./public-site-and-sharing.md). |
 | `/admin/config` | `config.tsx` | The generic `admin_config` key/value editor — see *Config surfaces*. |
 | `/admin/engines` | `engines.tsx` | The AI engine catalogue: per-engine model id, durations, resolutions, params. |
 | `/admin/taxonomy-health` | `taxonomy-health.tsx` | Covered in [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md). |
@@ -121,8 +120,8 @@ Two distinct pages, not one:
 
 - **`/admin/config`** — the generic `admin_config` key/value editor,
   grouped into cards: Budget (per-tier AI spend), Limits (image/meme/
-  gallery caps), Email (sender, retry, retention), Zazzle (affiliate
-  params), Moderation (duplicate-detection threshold), plus a generic
+  gallery caps), Email (sender, retry, retention), Moderation
+  (duplicate-detection threshold), plus a generic
   catch-all and a nested AI-settings group (system prompts, gallery
   display limit). A global Debug-Mode toggle swaps every key to its
   debug value set.
@@ -195,7 +194,7 @@ purpose-built UI of its own — access is config-only, through the generic
 
 ## Analytics and stats surfaces
 
-Beyond the already-documented affiliate stats page: the dashboard
+The dashboard
 (`/admin`) itself is a light analytics surface (counts + a genuinely-wired
 route-visit leaderboard with real time-range options — unlike the
 non-functional Top-Facts time filters documented in

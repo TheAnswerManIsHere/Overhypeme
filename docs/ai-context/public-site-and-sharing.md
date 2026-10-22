@@ -167,8 +167,8 @@ no public profile for it to leak through) — it gates `/library`'s "My
 Memes" tab implicitly (a user only ever sees their own), and it's enforced
 via one shared check, `canViewMeme()`
 (`lib/memeVisibility.ts:27-33`), on every meme-resolving surface: the meme
-detail JSON, the rendered image, the OG shell, share-copy/share-intents,
-and share-copy/share-intents. **One exception, not yet using that check:**
+detail JSON, the rendered image, the OG shell, and share-copy/share-intents.
+**One exception, not yet using that check:**
 `POST /memes/:id/heart` (`memes.ts:532-546`) only verifies the meme
 exists and isn't soft-deleted — it never calls `canViewMeme()` — so an
 authenticated non-owner who has (or guesses) a private meme's numeric id

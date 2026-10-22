@@ -175,9 +175,9 @@ submitter, and an API-key import has **no** submitter at all.
 look. Clicking Preview runs the draft through a [grammar pass](#grammar-pass)
 and shows the fact rendered across example names and pronoun sets; a failed
 pass keeps the submitter on Write. Distinct from
-[rich preview](#rich-preview) (what a shared link looks like elsewhere), the
-admin [compiled-prompt preview](#compiled-prompt), and the merch product
-preview — four different things called "preview."
+[rich preview](#rich-preview) (what a shared link looks like elsewhere) and the
+admin [compiled-prompt preview](#compiled-prompt) — three different things
+called "preview." (A fourth, the merch product preview, went with merch.)
 → [2-content-lifecycle](../manual/2-content-lifecycle.md#for-the-submitter-writing-a-fact)
 
 ### Autosaved draft
