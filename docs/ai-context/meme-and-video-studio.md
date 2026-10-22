@@ -18,45 +18,31 @@
 > path), `artifacts/api-server/src/lib/storageKeys.ts` +
 > `artifacts/api-server/src/lib/objectStorage.ts` (media storage).
 
-## Frontend entry points (one is dead code today, kept for reference)
+## Frontend entry points (two live builders)
 
-Which UI mounts is a build-time flag, `VITE_MBFO_WIZARD`
-(`FactDetail.tsx:30`, checked at `FactDetail.tsx:117-144,423-461`). **The flag
-is pinned on, not runtime-configurable in this repo:**
-`artifacts/overhype-me/.env.local` is committed to git (force-added — the
-repo's `.gitignore` excludes `.env*` generally) and sets
-`VITE_MBFO_WIZARD=1`; nothing else in the repo (`.replit`, `replit.nix`, any
-CI workflow) ever sets or overrides it. So the Legacy branch below can never
-render in any build — dev or deployed — of this repo as it stands. Don't read
-the split as "two live paths"; verify with `git ls-files
-artifacts/overhype-me/.env.local` before assuming otherwise, since flipping
-that one committed line is all it would take to change this.
-
-- **Legacy, currently unreachable** (`MBFO_WIZARD_ENABLED` false):
-  `MemeStudio.tsx` — a hub of path cards (`photo-image`, `ai-gallery`,
-  `stock-image`, `gradient-image`, `magic-video`, `manual-video`,
-  `MemeStudio.tsx:62-69`). Image paths route through `NewBuilderAdapter`
-  (`MemeStudio.tsx:634-708`) into `components/meme-builder/MemeBuilder.tsx` —
-  **not** the older, no-longer-mounted duplicate at `components/MemeBuilder.tsx`
-  (legacy, per its own header comment — that one is unreachable from *any*
-  flag state, not just this one). Video paths go to `MemeStudioVideoTab.tsx`
-  (manual) or `MemeMagicVideo.tsx` (magic).
-- **New wizard, the only live path** (`MBFO_WIZARD_ENABLED` true):
-  `components/meme-builder/wizard/MemeBuilderWizard.tsx`; its video step is
+- **The fact page's wizard:** `components/meme-builder/wizard/MemeBuilderWizard.tsx`,
+  mounted by `pages/FactDetail.tsx` on `/facts/:id/meme`; its video step is
   `wizard/step2-video/Step2Video.tsx`.
+- **The meme page's remix builder:** the universal builder
+  `components/meme-builder/MemeBuilder.tsx`, mounted by
+  `pages/memePage/BuilderOverlay.tsx` when a viewer taps the meme page's
+  "make this about me", "turn it up" or anonymous "see it with my name"
+  actions (`pages/MemePage.tsx`). It opens in `stock` or `self-upload` mode;
+  its Legendary stylise toggle calls `POST /memes/ai/:factId/generate` with a
+  reference photo (see *AI image memes*).
 
-The two flows share the save route and the meme image route; the user AI
-generate, poll and source-analysis routes are called only by the legacy
-branch. No test, journey or UAT step is written or kept for the legacy
-caller or for a route only it calls: that verification is killed, and the
-legacy studio is deleted in #628 Phase 4 ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)). A
-frontend change (like the visibility control below) only needs the wizard.
+The legacy meme studio (`MemeStudio.tsx`, its legacy builder, video tab and
+pickers, and the `VITE_MBFO_WIZARD` flag that chose between it and the wizard)
+was deleted in launch Phase 4, removal 1, with the routes only it called
+([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes);
+ledger: [`docs/retired/README.md`](../retired/README.md)). Its code and this
+doc's description of it are at the `pre-cut/legacy-meme-studio` tag.
 
 **Where the visibility (Public/Private) choice lives.** `VisibilityToggle`
 (`meme-builder/parts/VisibilityToggle.tsx`), rendered next to the save action
 in the wizard's Step 2 via `WizardPrimaryAction`'s `aboveAction` slot
-(`step2-image/Step2Image.tsx`). Not wired into the single-screen builder —
-per the dead-path note above, it can't be reached, so there's nothing to wire.
+(`step2-image/Step2Image.tsx`). It is not wired into the meme page's remix
+builder (`components/meme-builder/MemeBuilder.tsx`).
 It is set **at creation time only** — no route or UI changes a meme's
 visibility afterwards. The client's lock is tier-only —
 `tier !== "legendary"` — and does not consult the
@@ -71,7 +57,8 @@ combination has no UI path today. **Video memes
 have no visibility control** — `POST /memes/video-jobs`'s `StartBody` accepts
 no privacy field and `videoPipelineRunner` calls `createMemeRecord` without
 `isPublic`, so every video meme is public (the retired `MemeStudioVideoTab`
-had one, wired to the legacy sync `/videos` route's `isPrivate`).
+had one, wired to the legacy sync `/videos` route's `isPrivate`; it was deleted
+with the legacy studio).
 
 ## Backend entry point and the `imageSource` union
 
@@ -138,69 +125,51 @@ quarantines rather than saving (`createMemeRecord.ts:318-371`).
 
 ## AI image memes
 
-**Every route in this section is called only by the legacy studio** (the
-shared data it writes, `facts.aiMemeImages`, which the live wizard's AI gallery
-reads, and the image cap, which also counts uploads, stay live; see
-*Frontend entry points* above): pinned off in every build, deleted in #628
-Phase 4, and not verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)). The live wizard's AI image
-path is `POST /api/memes/pulid-jobs`. What follows is a map of the code
-until it goes.
+One user route remains, and it goes with PuLID (launch Phase 4, removal 3):
 
-Both generate routes live in `routes/memes.ts`, not
+- **`POST /memes/ai/:factId/generate`** (`routes/memes.ts`, gated by the
+  `meme_ai_background` feature). **Photo-only**: a request with no
+  `referenceImagePath` is refused with 400 `reference_image_required` before
+  the governance gate, so it never counts against a budget or the provider's
+  health. With a photo, it validates that the path is one of the caller's
+  uploads (or their profile photo), then calls
+  `generateAiMemeBackgroundFromReference()` in `aiMemePipeline.ts`
+  synchronously and returns `{objectPath}`. Its one caller is the meme page's
+  remix builder (*Frontend entry points*). The wizard's AI path is
+  `POST /api/memes/pulid-jobs`.
+- **Storage cap:** AI-generated + uploaded images together are capped
+  against `admin_config.user_max_images` (`aiMemePipeline.ts`); at or over
+  the cap the route answers 429 `limitExceeded`.
+
+The legacy studio's AI image routes — the no-photo branch of `generate`,
+`generate-v2`, `analyze-source`, the user render poll
+`GET /memes/ai/renders/:renderJobId`, the per-fact AI image read and delete
+`GET`/`DELETE /memes/ai/:factId/image`, and the admin scene-prompt pair —
+were deleted with it (removal 1). Migration 0102 retired their queued user
+render jobs. The per-fact `facts.aiMemeImages` arrays those routes served are
+still written by the render pipeline and the AI background backfill; nothing
+on the public site reads them now, and they are an orphan candidate for
+removal 11. Both generate paths lived in `routes/memes.ts`, not
 `routes/ai.ts` — `routes/ai.ts` is fact-authoring tooling (duplicate-check,
 tokenize-fact, admin enrichment tokenization), not a meme-creation surface.
-
-- **`POST /memes/ai/:factId/generate`** (`memes.ts:1280-1550`,
-  `requireLegendary`). Two branches: a **reference-image branch**
-  (`memes.ts:1404-1467`, synchronous, calls
-  `generateAiMemeBackgroundFromReference()` in `aiMemePipeline.ts`,
-  returns `{objectPath}` directly) and a **generic branch** (no reference
-  image, `memes.ts:1468-1534`) that goes through the same async attempt
-  pipeline as `generate-v2` below and returns 202.
-- **`POST /memes/ai/:factId/generate-v2`** (`memes.ts:1734-1900`,
-  `requireLegendary`) — the flow reference-photo uploads always use
-  (`memes.ts:1644-1650`). Validates the source image, resolves
-  `subjectRenderMode`/`generationMode`, freezes identity+style (the same
-  "frozen render inputs" contract as `visual-pipeline.md`), enqueues an
-  `image_prompt_generation` job, returns 202 `{renderJobId, attemptId}`.
-- **`POST /memes/ai/:factId/analyze-source`** (`memes.ts:1690-1732`,
-  `requireLegendary`) — pre-flight source-image analysis.
-- **Polling** (client-side `setTimeout` loop, not websocket — confirmed at
-  `AiBgPicker.tsx:622-699`): `GET /memes/ai/renders/:renderJobId`
-  (`memes.ts:1902-1938`) reads the `imagePromptAttempts` row, 403s a
-  non-owner, 404s an admin-moderation-review row, returns
-  `buildRenderStatusPayload()`, whose status union is `"pending" |
-  "prompt_ready" | "image_ready" | "failed" | "blocked"`.
-- **Where it lands:** `facts.aiMemeImages[gender]`, a **per-fact jsonb
-  array shared across every user who views that fact** — not private to
-  the generator (`imagePromptJobs.ts:648-689`, row-locked to avoid
-  clobbering concurrent completions), plus a `user_ai_images` row for
-  per-generation ownership tracking. Served by `GET
-  /memes/ai/:factId/image` (`memes.ts:1044-1148`).
-- **Deletion:** `DELETE /memes/ai/:factId/image` (`memes.ts:1576-1639`,
-  `requireLegendary`), ownership-checked against `user_ai_images`,
-  fail-closed (storage delete must succeed before the DB row is touched).
-- **Storage cap:** AI-generated + uploaded images together are capped
-  against `admin_config.user_max_images` (`aiMemePipeline.ts:144,346-356`);
-  at/over → 429 `limitExceeded` (`memes.ts:1332-1339`).
 
 ## AI video memes — two systems (A is legacy-only)
 
 ### A. Legacy synchronous single-shot: `POST /videos/generate`
 
-Called only by the legacy studio and deleted with it in #628 Phase 4; not
-verified ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+Its only caller, the legacy studio's video tab, was deleted in launch Phase 4,
+removal 1; the route itself goes with video in removal 2, and is not verified
+meanwhile ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 
-`routes/videos.ts:354-796`. Used by the legacy `MemeStudioVideoTab.tsx`
-(both Magic and Manual paths). Gated by one
+`routes/videos.ts:354-796`. The deleted `MemeStudioVideoTab.tsx` used it for
+both its Magic and Manual paths. Gated by one
 `can(principal, "video_generation")` call — no separate admin short-circuit;
 the admin overlay is unioned in by the resolver (403
 `VIDEO_GENERATION_LOCKED`), IP-rate-limited. Calls `fal.subscribe()` and
 **blocks the HTTP request until the video finishes** — writes a
 `video_jobs` row `pending` → `completed`/`failed` within one request
-(`videos.ts:532-694`). **The frontend "progress bar" here is a fabricated
-client-side time-based simulation** (`MemeStudioVideoTab.tsx:329-336`),
-not real server state — this path has no status polling.
+(`videos.ts:532-694`). The deleted video tab showed a client-side time-based "progress bar", not
+real server state — this path has no status polling.
 
 ### B. Async multi-stage pipeline: `POST /memes/video-jobs`
 
@@ -249,8 +218,8 @@ as every other meme type (confirmed:
 
 Legacy `GET /video/:videoId` / `GET /videos/:factId`
 (`videos.ts:238-352`) serve only completed, non-private-or-owned
-`video_jobs` rows — they back path A's history view, not path B's job
-polling.
+`video_jobs` rows — they backed path A's history view in the deleted legacy
+studio, not path B's job polling.
 
 ## Tier gates
 
@@ -261,8 +230,8 @@ ignores the admin "view as user" toggle. `requireLegendary` is a shim for
 
 **Gated to Legendary (or admin):** every one of these now resolves through
 `featureAccess.ts` rather than a role comparison, so the grid is the place to
-change them. All AI image generation (`generate`, `generate-v2`,
-`analyze-source`, image delete → `meme_ai_background`); all AI video (both
+change them. AI image generation (`generate`, photo-only →
+`meme_ai_background`); all AI video (both
 systems → `video_generation`); PuLID-stylized photo
 memes (`meme_pulid_stylize`; `imageTransform: "pulid"` → 403 `tier_mismatch`
 if not qualified); private meme visibility (Legendary-level by
@@ -280,8 +249,7 @@ authenticated user, not Legendary-only. Template/stock/upload/identity
 `imageSource` types carry no tier check in `createMemeRecord` beyond the
 PuLID case above. An unauthenticated caller can preview/download a
 stock-mode meme via `POST /api/render-download` but cannot save
-(`meme-builder/MemeBuilder.tsx:174-177`); only the legacy studio calls that
-route, so the capability is not live ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+(`meme-builder/MemeBuilder.tsx`, the meme page's remix builder).
 
 **Vestigial gate — flag before touching this area:** a `meme_upload_photo`
 tier feature flag exists in `tier_feature_permissions` (seeded and later
@@ -335,9 +303,8 @@ hard-delete as comprehensive across every meme type.
 
 ## Files to inspect before studio/media work
 
-- `artifacts/api-server/src/routes/memes.ts` — save, AI generate
-  (`generate`/`generate-v2`/`analyze-source`), render, AI image gallery
-  read/delete, Zazzle export.
+- `artifacts/api-server/src/routes/memes.ts` — save, the photo-only AI
+  generate, render, Zazzle export.
 - `artifacts/api-server/src/routes/videoJobs.ts` +
   `lib/videoPipelineRunner.ts` — the async multi-stage video pipeline.
 - `artifacts/api-server/src/routes/videos.ts` — the legacy synchronous
@@ -356,15 +323,11 @@ hard-delete as comprehensive across every meme type.
   / `requireLegendary`.
 - `artifacts/api-server/src/routes/admin.ts` — hard-delete storage
   cleanup (and its video-artifact gap).
-- Frontend: `components/MemeStudio.tsx` (legacy hub, currently unreachable —
-  see *Frontend entry points* above),
-  `components/meme-builder/MemeBuilder.tsx` (universal builder, same —
-  reachable only through the legacy hub),
-  `components/meme-builder/wizard/` (the wizard — the only live path),
-  `components/MemeStudioVideoTab.tsx` / `MemeMagicVideo.tsx` (legacy
-  video UI, same), `components/meme-builder/wizard/step2-video/Step2Video.tsx`
-  + `GodModeLoadingTakeover.tsx` (new video UI), `components/AiBgPicker.tsx`
-  (AI image polling; legacy-only, same).
+- Frontend: `components/meme-builder/wizard/` (the fact page's wizard),
+  `components/meme-builder/MemeBuilder.tsx` + `pages/memePage/BuilderOverlay.tsx`
+  (the meme page's remix builder),
+  `components/meme-builder/wizard/step2-video/Step2Video.tsx`
+  + `GodModeLoadingTakeover.tsx` (video UI).
 - Tests: `__tests__/createMemeRecord.test.ts`, `__tests__/videoJobs.test.ts`,
   `__tests__/videos.security.test.ts`, `__tests__/tierMiddleware.test.ts`.
 - For *what a tier is derived from*, not *what it unlocks here*:

@@ -60,7 +60,9 @@
   decisions that still stand, what failed. The Manual gets **no** *Retired*
   section: retired narrative lives at the tag, and the live chapter is
   rewritten to describe what exists. Supersedes the 2026-10-06 entry's
-  "a record under `docs/retired/<feature>.md`" per cut and its Manual move.
+  "a record under `docs/retired/<feature>.md`" per cut, and the parent plan's
+  move of each chapter to a Manual *Retired* section
+  (`PLAN_GET_TO_LAUNCH.md`, Phase 4).
 - **Why:** git and the tag already hold the code and the docs; what a
   deletion actually loses is the lessons, so authoring is spent only there.
   The Manual ships into the in-app admin help, so a *Retired* section would
@@ -197,6 +199,8 @@
 - **Revisit if:** the CSV import is used for large batches.
 
 ### 2026-10-14 · The dev-admin-login backdoor is cut for launch
+- **Superseded 2026-10-21:** it stays through Phase 4 and Phase 15 redesigns
+  it (the 2026-10-21 entry above). This entry stays as history.
 - **Decision:** the dev-admin-login route and its wordmark triple-tap are
   removed before launch (Phase 4, cut and prune), and are not given further
   checks in the meantime. David, 2026-10-14, on the finding that a flag-off
@@ -374,6 +378,9 @@
 ---
 
 ### 2026-10-06 · Deleted features are preserved: a retired-feature record and a `pre-cut/` tag per cut
+- **Superseded in part 2026-10-21:** the tag stands; the per-cut record file
+  became a ledger row plus a lessons page only where a rebuild needs one (the
+  2026-10-21 entry above). This entry stays as history.
 - **Decision:** David: *"I'd like to confirm that any features/functions that
   we delete are still in the repository … don't want to throw the baby out
   with the bathwater."* Every feature the launch programme deletes gets a

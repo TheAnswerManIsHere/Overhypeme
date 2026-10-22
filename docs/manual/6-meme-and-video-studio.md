@@ -27,16 +27,19 @@ saves it as your meme.
   anyone signed in — no paid plan required.
 - **An AI-generated image.** Legendary members can style a source photo
   into the fact's scene, or pick from the fact's shared gallery of AI
-  images. Generating from description alone, and the older builder's own
-  AI routes, exist only in the older builder, which is switched off (below).
+  images. Every AI image starts from a photo of yours; there is no
+  generating from a description alone.
 - **An AI-generated video.** Legendary members can also generate a short
   video meme, built the same way — starting from a source photo, styling
   it, then animating it. This runs as a background job with real progress
   you can watch, rather than something that finishes instantly.
 
-You build memes in the guided builder, in every build. An older builder is
-still in the code but switched off; it is deleted before launch and is no
-longer tested ([decisions](../ai-context/decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+You build memes in one of two places. On a fact's page, the guided builder
+walks you through it. On a shared meme's page, "make this about me" opens a
+single-screen builder that remakes that meme for you, and Legendary members
+can style their own photo into it there too. An older studio that used to
+sit behind the fact page was deleted before launch
+([decisions](../ai-context/decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 
 ### What actually gets saved
 
@@ -81,8 +84,6 @@ already-existing stock photo or template.
 
 ## Boundaries & known limitations
 
-- **An older, switched-off builder is still in the code** until it is
-  deleted before launch; nothing about it is tested ([decisions](../ai-context/decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
 - **Uploading your own photo to build a meme isn't currently paywalled**,
   even though the product has machinery elsewhere that suggests it might
   once have been intended to be. **Needs David confirmation** on whether

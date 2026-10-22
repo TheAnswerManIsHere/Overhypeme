@@ -93,7 +93,7 @@ routes, delete, git keeps it) · **your call**.
 | B23 | Spend view | The user's own generation spend | code only | ship, verify it's meaningful to a user, else hide |
 | B24 | Self-service account deletion | **Does not exist**; admin-only | doc | your call: "email us to delete" in the privacy policy + admin flow for launch (recommended), self-service `next` |
 | B25 | Sessions | No sliding expiry, unlimited concurrent, no "my sessions" UI | doc | ship as-is for launch |
-| B26 | Admin "view as user"; dev admin login | Operator tools | PR425, PR221 UATs | ship (ops) for "view as user"; **dev admin login cut** (David, 2026-10-14; `decisions.md`) |
+| B26 | Admin "view as user"; dev admin login | Operator tools | PR425, PR221 UATs | ship (ops) for "view as user"; **dev admin login cut** (David, 2026-10-14), then kept through Phase 4 for a Phase 15 redesign as a safe easy admin entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-admin-login-backdoor-stays-through-phase-4-phase-15-redesigns-it)) |
 
 ### Decisions — Journey B (David, 2026-10-05)
 
@@ -198,7 +198,7 @@ routes, delete, git keeps it) · **your call**.
 - **D16** → **engine evaluation** item (latest image models compared on the same facts via the eval dashboard), then presets reviewed/tuned against the winner. Planner/compiler split is settled; the engine is not; compiler is engine-specific.
 - **D17/D18** **PuLID removed everywhere** (image stylise toggle, video stage one, engine catalogue, docs, Manual) — prose-sweep, not a patch. "We're going to be using a much stronger model."
 - **D24** Upgrade messaging written after Journey F defines the tier.
-- **D7, D8 (the user render poll) and D10**: their routes are called only by the legacy studio, which D1 deletes; no verification is done on them (David, 2026-10-17; [`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
+- **D7, D8 (the user render poll) and D10**: their routes are called only by the legacy studio, which D1 deletes; no verification is done on them (David, 2026-10-17; [`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)). Deleted in launch Phase 4, removal 1, except D7's route, which the meme page's remix builder also calls: it survives photo-only until PuLID goes ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **D27** **"My content"**: one place showing every upload/generation with per-item delete; B24 builds on it. Launch.
 - **D14** Speech bubbles: "crucial … never finished building and testing." Scope pending: moderation-side only (recommended) vs end-user editing too.
 - **D21** Option (b): anonymous preview only; download/save/share need a verified account ("part of the upsell").
