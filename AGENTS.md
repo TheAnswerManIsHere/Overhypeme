@@ -80,7 +80,7 @@ work, also read:
   the fact page's builder wizard and the meme page's remix builder (the
   legacy studio is deleted: [`decisions.md`](docs/ai-context/decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)),
   the shared recipe/`imageSource` model, tier gates, and where media lives
-  (video is deleted: [`docs/retired/README.md`](docs/retired/README.md))
+  (video and AI image memes are deleted: [`docs/retired/README.md`](docs/retired/README.md))
 
 For **home, search, hashtags, the leaderboard, profiles/library, OG cards,
 merch, or sharing** work, also read:

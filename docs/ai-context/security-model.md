@@ -234,6 +234,15 @@ ceiling** on paid generation (fal.ai image calls), and it is a
 fail-closed control, not just a budgeting nicety — an unbounded generation path
 spends real money with no upper limit.
 
+**No live path reaches it today.** Since launch Phase 4 deleted PuLID and the
+user generate route (removal 3; ledger
+[`docs/retired/README.md`](../retired/README.md)), the gate's one call site in
+`aiMemePipeline.ts` runs only when a caller passes a user, and the one live
+caller, the admin AI-meme backfill, passes none. The gate, its ledger and the
+guards below are kept for the paid generation launch Phase 7 brings back, and
+#628 Phase 11 rebuilds spend control; everything below describes the gate as
+it runs when a user path calls it.
+
 **One layer now; there were two.** `checkBudget` (`budgetGate.ts`) is the
 **durable, ledger-backed per-user ceiling** and is what the rest of this
 section describes. `enforceGovernance` (`resourceGovernance.ts`) used to run
