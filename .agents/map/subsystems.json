@@ -1,6 +1,6 @@
 {
   "_README": "Owned by this repository. The vocabulary of @subsystem tags: each product tag names the docs/ai-context document that governs it; infrastructure tags may be imported by every subsystem. Contract: docs/ai-context/agent-legible-codebase.md; plan decision 8.",
-  "adopted": false,
+  "adopted": true,
   "subsystems": {
     "accounts-auth": {
       "doc": "docs/ai-context/accounts-and-auth.md"
