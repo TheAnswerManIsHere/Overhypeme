@@ -40,7 +40,7 @@ routes, delete, git keeps it) · **your call**.
 | A18 | OG preview cards | Meme permalinks only; **#592: og:image "Image not found"** | doc; bug | fix for launch (meme pages); fact-page OG is `next` |
 | A19 | Fact share modal | Copy link + social popups with name/pronouns baked in; **email invite always fails in prod** (#374; allowlist is `example.com`) | doc; bug | ship; your call on the email option: remove it for launch (recommended) or fix it |
 | A20 | Meme share modal (per-platform copy, share intents) | Native share / platform popups / mailto | doc | ship, verify |
-| A21 | Post-create share screen | Platform list, merch teaser, download | doc | ship minus the merch teaser if merch is cut |
+| A21 | Post-create share screen | Platform list, merch teaser, download | doc | ship minus the merch teaser if merch is cut. *Deleted 2026-10-22 with the legacy studio, its only mounter; the wizard sends a saved meme to its permalink, whose share surface is `MemeShareModal` ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
 | A22 | Merch "Wear it" `/wear`, Zazzle export + redirect | Product preview → affiliate redirect; pickers cosmetic; **#598 broken** | doc; bug | cut: remove CTA, route, export, redirect, admin Affiliate page |
 | A23 | Hero example media | Example images in the builder entry step | code only | ship (plumbing) |
 | A24 | `/library` | Self-view only; no public profiles | doc | see Journey C |
@@ -159,7 +159,7 @@ routes, delete, git keeps it) · **your call**.
 
 | # | Feature | Recommendation |
 |---|---|---|
-| D1 | Meme Builder Wizard (only live builder) | ship (core); delete legacy `MemeStudio.tsx` / `components/MemeBuilder.tsx` (unreachable, flag pinned on) |
+| D1 | Meme Builder Wizard (only live builder) | ship (core); delete legacy `MemeStudio.tsx` / `components/MemeBuilder.tsx` (unreachable, flag pinned on). *Deleted 2026-10-22 (Phase 4, removal 1); the meme page's remix builder is the other live builder ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
 | D2 | Template/gradient backgrounds | ship, verify |
 | D3 | Pexels stock photos | ship, verify (licence terms noted for compliance phase) |
 | D4 | Photo upload (free tier), JPEG only | fix for launch: accept PNG + HEIC with server-side conversion; verify on iPhone; delete vestigial `meme_upload_photo` flag |
