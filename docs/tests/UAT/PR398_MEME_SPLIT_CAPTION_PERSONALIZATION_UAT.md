@@ -156,16 +156,7 @@ TESTER, with no `{` or `}`.
 
 **Deferred:** #628 — Phase 6 (The loop) — #592 fixes meme OG previews and that phase's exit evidence verifies the OG card and its image with a crawler fixture, which must show the spelled-out name and no token
 
-### 10. Merchandise export shows the real name (only if you use it)
-
-**Do:** From a meme, go through the **Wear it** / Zazzle flow far enough
-to see the product preview image.
-
-**Expect:** The image Zazzle shows has the name on it, not `{NAME}`.
-
-**Lane:** scripted
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — merch and Zazzle export are on the cut list and are removed with it
+_Step 10 retired with merch and Zazzle, which launch Phase 4 deleted (removal 4, #744; ledger: `docs/retired/README.md`)._
 
 ## Regression
 

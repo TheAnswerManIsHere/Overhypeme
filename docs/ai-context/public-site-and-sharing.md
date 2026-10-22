@@ -1,7 +1,7 @@
 # Public Site and Sharing
 
 > The surfaces where the core loop closes: home, search, hashtags,
-> leaderboard, the profile/library split, OG cards, merch, and sharing
+> leaderboard, the profile/library split, OG cards, and sharing
 > mechanics. Primary code: `artifacts/overhype-me/src/pages/Home.tsx`,
 > `Search.tsx`, `TopFacts.tsx`, `Profile.tsx`, `Library.tsx`;
 > `artifacts/api-server/src/routes/facts.ts`, `hashtags.ts`, `og.ts`,
@@ -168,7 +168,7 @@ Memes" tab implicitly (a user only ever sees their own), and it's enforced
 via one shared check, `canViewMeme()`
 (`lib/memeVisibility.ts:27-33`), on every meme-resolving surface: the meme
 detail JSON, the rendered image, the OG shell, share-copy/share-intents,
-and the Zazzle export. **One exception, not yet using that check:**
+and share-copy/share-intents. **One exception, not yet using that check:**
 `POST /memes/:id/heart` (`memes.ts:532-546`) only verifies the meme
 exists and isn't soft-deleted — it never calls `canViewMeme()` — so an
 authenticated non-owner who has (or guesses) a private meme's numeric id
@@ -210,38 +210,14 @@ homepage — `index.html` has zero `og:*`/`twitter:*` tags of any kind, so
 sharing any non-meme URL produces no rich preview at all, not even a
 generic sitewide fallback.
 
-## Merch (Zazzle)
+## Merch
 
-**Purely an affiliate-link redirect — no order/fulfillment integration.**
-
-- Frontend entry (`WearIt.tsx`, reached from the meme page and the
-  post-create share screen) lets the user pick a product and layout, both
-  cosmetic-preview-only — they don't affect what's actually sent to
-  Zazzle. The "Open in Zazzle" click does a plain same-tab navigation
-  (deliberately, to avoid Safari/iOS popup blocking), not a popup.
-- Server flow, `GET /memes/:slug/zazzle-redirect` (`memes.ts:838-970`):
-  visibility-checked via `canViewMeme` (same no-existence-disclosure
-  pattern as OG) → logs an affiliate click (`affiliateClicksTable`,
-  skipped on `?preview=true`) → re-exports the meme image to
-  `meme-exports/${slug}-v${MEME_RENDER_VERSION}.jpg` (public ACL; render-
-  versioned since PR #398 round 3 so a corrected re-export can't collide
-  with an edge-cached copy of an earlier, since-fixed render; same export
-  step as the standalone `POST /memes/:slug/zazzle-export`) → builds the
-  Zazzle URL
-  from affiliate params stored in `admin_config`
-  (`lib/zazzle.ts:9-34`) → `302`s (or returns the URL as JSON on
-  `?preview=true`). On any failure mid-flow, falls back to a bare Zazzle
-  URL with no image rather than failing outright.
-- An admin diagnostic sibling, `GET /memes/:slug/zazzle-redirect-raw`
-  (`requireAdmin`), skips the export step to compare against the normal
-  public image URL.
-- `GET /affiliate/stats` (admin-only) aggregates click counts by
-  day/source/destination. **There is no order, purchase, or fulfillment
-  tracking anywhere** — Zazzle handles checkout, sizing, shipping, and
-  payment entirely off-site; Overhype.me only ever knows a click happened.
-- No dedicated automated tests exist for the export/redirect routes —
-  `routes.memes.test.ts` explicitly notes those paths are out of scope for
-  that batch (need sharp/canvas + external APIs).
+There is none. The Zazzle affiliate flow (the `/wear` page, the export and
+redirect routes, click logging, the admin Affiliate screen and the
+`zazzle_*` settings) was deleted in launch Phase 4, removal 4 (ledger:
+[`docs/retired/README.md`](../retired/README.md); the flow as it stood is at
+the tag `pre-cut/merch`). The `affiliate_clicks` table and its rows remain
+with no writer, a removal-11 orphan candidate.
 
 ## Sharing mechanics — two live surfaces (a third was deleted)
 
@@ -290,9 +266,9 @@ generic sitewide fallback.
    wizard sends a saved meme to its permalink, where `MemeShareModal` is the
    share surface.
 
-**Tracking summary:** `factsTable.shareCount`, `affiliateClicksTable`,
-`shareIntentsTable` each log a different local action (a fact share, a
-Zazzle click, a successful meme-share action) — none of them, and nothing
+**Tracking summary:** `factsTable.shareCount` and `shareIntentsTable` each
+log a different local action (a fact share, a successful meme-share
+action) — neither of them, and nothing
 else on the site, tracks a share all the way to "someone actually opened
 the link."
 
@@ -300,17 +276,14 @@ the link."
 
 - `artifacts/overhype-me/src/pages/Home.tsx`, `Search.tsx`,
   `TopFacts.tsx`, `Profile.tsx`, `Library.tsx`, `Hashtags.tsx` (dead,
-  unreachable), `WearIt.tsx`.
+  unreachable).
 - `artifacts/overhype-me/src/components/ShareModal.tsx`,
-  `components/share/MemeShareModal.tsx`,
-  `components/merch/GarmentPreview.tsx`.
+  `components/share/MemeShareModal.tsx`.
 - `artifacts/api-server/src/routes/facts.ts` (hero, list/search, share
   count), `hashtags.ts`, `og.ts`, `share.ts` (broken email invite),
-  `shareCopy.ts`, `shareIntents.ts`, `memes.ts` (Zazzle
-  export/redirect), `affiliate.ts`.
+  `shareCopy.ts`, `shareIntents.ts`.
 - `artifacts/api-server/src/lib/memeVisibility.ts` (`canViewMeme`, the
-  one shared gate behind OG/share/Zazzle/library-memes),
-  `artifacts/api-server/src/lib/zazzle.ts`.
+  one shared gate behind OG/share/library-memes).
 - `cloudflare/og-router/src/index.ts` — bot routing, header handling.
 - `App.tsx` — the redirect routes (`HashtagsRedirect`,
   `HallOfFameRedirect`) worth checking before assuming a page is live.
@@ -318,6 +291,6 @@ the link."
   `routes.facts.hero.test.ts`, `routes.hashtags.test.ts`,
   `phase5.og.routes.test.ts`, `memes.privacy-cache.test.ts`,
   `routes.shareCopy.test.ts`, `routes.shareIntents.test.ts`,
-  `routes.share.test.ts`, `routes.affiliate.test.ts`.
+  `routes.share.test.ts`.
 - For what enrichment produces (hashtags, classification):
   [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md).

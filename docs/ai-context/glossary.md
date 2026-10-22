@@ -861,11 +861,10 @@ sharing a *meme*, which passes along a finished, already-rendered object as-is.
 
 ### Merch
 
-Ordering a meme printed on a shirt, mug, or sticker. Overhype.me shows a
-product preview and then redirects to Zazzle, which owns checkout, sizing,
-shipping, and payment. **The product and layout picked on Overhype.me is only a
-preview** — only the meme image reaches Zazzle.
-→ [public-site-and-sharing](./public-site-and-sharing.md)
+**Retired.** Ordering a meme printed on a shirt, mug, or sticker through a
+Zazzle affiliate redirect. Deleted in launch Phase 4, removal 4 (ledger
+[`docs/retired/README.md`](../retired/README.md)); the flow as it stood is at
+the tag `pre-cut/merch`.
 
 ---
 
