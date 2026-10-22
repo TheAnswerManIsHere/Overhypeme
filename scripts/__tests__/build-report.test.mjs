@@ -27,6 +27,7 @@ import {
   chatReport,
   readUnit,
   unitPath,
+  readPrivateSource,
   main,
 } from "../build-report.mjs";
 
@@ -101,7 +102,8 @@ test("a branch-regime prototype version is a unit with no pull request", () => {
 test("a unit with no evidence, no issue, or a half-stated branch is refused", () => {
   const root = tmp();
   assert.throws(() => buildBrief({ root, unit: "x", issue: 1, io }), /needs its evidence/);
-  assert.throws(() => buildBrief({ root, unit: "x", prs: [1], io }), /no public issue .* has no build report yet: write the unit up yourself/);
+  assert.throws(() => buildBrief({ root, unit: "x", prs: [1], io }), /no workstream issue and no private source .* --private-source/);
+  assert.throws(() => buildBrief({ root, unit: "x", prs: [1], privateSource: "  ", io }), /private source is empty/);
   assert.throws(() => buildBrief({ root, unit: "x", issue: 0, prs: [1], io }), /issue must be/);
   assert.throws(() => buildBrief({ root, unit: "x", issue: 1, branch: { name: "p" }, io }), /branch must be/);
   assert.throws(() => buildBrief({ root, unit: "x", issue: 1, branch: { name: "p", head: "h" }, io }), /since/, "a branch unit without its lower bound is refused");
@@ -232,4 +234,42 @@ test("a report read without its brief's coordinates says so", () => {
   const root = tmp();
   write(root, "q", answer());
   assert.match(chatReport(readAnswer(root, "q"), { coords: null }), /Evidence:\* \*not recorded/);
+});
+
+test("a workstream private from the start is reported from the relayed source, delivered in chat only", () => {
+  const root = tmp();
+  const src = "Plan: rotate the payment keys. Decisions: none yet. Spend so far: $1.20";
+  const brief = buildBrief({ root, unit: "priv", prs: [31], privateSource: src, privateRef: "SEC-7", io });
+  assert.doesNotMatch(brief, /Workstream issue/, "no issue is named when there is none");
+  assert.match(brief, /Private workstream \(SEC-7\)/);
+  assert.match(brief, /fetch no issue for them/);
+  assert.ok(brief.includes(`<private-source>\n${src}\n</private-source>`), "the relay is quoted verbatim");
+  assert.ok(brief.indexOf("<private-source>") > brief.indexOf("```json"), "the source follows the schema, labelled");
+  const coords = readUnit(root, "priv");
+  assert.deepEqual(coords, { issue: null, prs: [31], branch: null, private: true, privateSource: true, privateRef: "SEC-7" });
+  assert.doesNotMatch(fs.readFileSync(unitPath(root, "priv"), "utf8"), /rotate/, "the relayed text is never written to disk by the script");
+  fs.writeFileSync(answerPath(root, "priv"), JSON.stringify(answer()));
+  const text = chatReport(readAnswer(root, "priv"), { coords });
+  assert.match(text, /chat only, never as an issue comment\. David: paste it into the workstream's private item/);
+  assert.match(text, /\*Evidence:\* private workstream \(SEC-7\) · plan, decisions and spend from the private source David relayed · PRs #31/);
+});
+
+test("a workstream that turned sensitive keeps its sanitized issue and reads the plan from the relay", () => {
+  const root = tmp();
+  const brief = buildBrief({ root, unit: "turned", issue: 9, prs: [40], privateSource: "the plan", io });
+  assert.match(brief, /Workstream issue:\*\* #9 — public, and sanitized/);
+  assert.equal(readUnit(root, "turned").private, true, "a private source makes the unit private");
+});
+
+test("relayed private text is refused when it sits inside the checkout", () => {
+  const root = tmp();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "relay-"));
+  fs.writeFileSync(path.join(root, "plan.txt"), "secret");
+  fs.writeFileSync(path.join(outside, "plan.txt"), "relayed");
+  assert.throws(() => readPrivateSource(root, "plan.txt"), /inside the checkout/);
+  assert.throws(() => readPrivateSource(root, path.join(root, "plan.txt")), /inside the checkout/);
+  assert.equal(readPrivateSource(root, path.join(outside, "plan.txt")), "relayed");
+  let out = "";
+  main({ argv: ["brief", "--unit", "cli", "--pr", "3", "--private-source", path.join(outside, "plan.txt"), "--private-ref", "P-1"], root, io, stdout: { write: (s) => (out += s) } });
+  assert.match(out, /<private-source>\nrelayed\n<\/private-source>/);
 });
