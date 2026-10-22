@@ -83,7 +83,7 @@ work, also read:
   (video and AI image memes are deleted: [`docs/retired/README.md`](docs/retired/README.md))
 
 For **home, search, hashtags, the leaderboard, profiles/library, OG cards,
-merch, or sharing** work, also read:
+or sharing** work (merch is deleted: [`docs/retired/README.md`](docs/retired/README.md)), also read:
 
 - [`docs/ai-context/public-site-and-sharing.md`](docs/ai-context/public-site-and-sharing.md) —
   the public-facing surfaces, what's actually live vs. dead/unreachable
