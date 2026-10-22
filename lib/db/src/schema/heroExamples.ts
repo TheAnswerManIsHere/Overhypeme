@@ -1,15 +1,11 @@
 import { pgTable, serial, varchar, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
 
 /**
- * Curated hero examples shown on the meme builder wizard's Step 1.
+ * Curated hero examples, once shown on the meme builder wizard's Step 1.
  *
- * Each row is a single demo asset for the image or video card. Image rows
- * point at a still (JPG/PNG/WebP); video rows point at an MP4 plus an
- * optional poster frame. The wizard fetches the active set per artifact
- * type and picks one at random per visit.
- *
- * Population: empty at launch (MBFO-2 ships with a fallback placeholder).
- * Admin tooling to curate the set is a follow-up.
+ * NO READER: the wizard's Step 1 (choose image or video) and the route that
+ * served this table went with video in launch Phase 4 (migration 0103 deleted
+ * the video rows). The table is a removal-11 orphan candidate (#744).
  *
  * Soft-delete is implemented as `active = false` — never hard-delete rows,
  * so analytics joins against past selections remain valid.

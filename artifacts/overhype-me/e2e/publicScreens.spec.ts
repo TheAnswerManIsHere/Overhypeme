@@ -25,10 +25,9 @@ import { seedIdentity } from "./helpers/identity";
 
 const DESKTOP = { width: 1280, height: 900 };
 
-/** Open the meme builder's image step from /facts/:id/meme (step 1 asks which kind of meme). */
+/** Open the meme builder from /facts/:id/meme; it opens directly on the image step. */
 async function openImageStep(page: Page, factId: number): Promise<void> {
   await page.goto(`/facts/${factId}/meme`);
-  await page.getByTestId("step1-image-card").click();
   await expect(page.getByText("Build your meme", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
 }
@@ -179,9 +178,8 @@ test.describe("Public described screens", () => {
     await expect(page.getByRole("button", { name: /make a meme of this/i }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Memes from this fact" })).toBeVisible();
     await expect(page.getByText("1 total")).toBeVisible();
-    for (const filter of ["All", "Images", "Videos"]) {
-      await expect(page.getByRole("button", { name: filter, exact: true })).toBeVisible();
-    }
+    // The All / Images / Videos filter went with video (launch Phase 4).
+    await expect(page.getByRole("button", { name: "Videos", exact: true })).toHaveCount(0);
     await expect(page.getByRole("combobox", { name: "Sort memes" })).toHaveValue("top");
     await expect(page.locator('img[src$="/api/memes/e2e-root-meme/image"]')).toBeVisible();
     await expect(page.getByText(/comments \(0\)/i)).toBeVisible();

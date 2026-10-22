@@ -8,4 +8,3 @@
 {"key":"meme_private_visibility","display_name":"Private Memes","description":"Ability to create private (unlisted) memes","created_at":"2026-04-08T18:18:33.851Z"}
 {"key":"meme_pulid_stylize","display_name":"PuLID Stylized Memes","description":"Generate memes that stylize the user's own uploaded photo via PuLID.","created_at":"2026-08-14T05:29:11.357Z"}
 {"key":"meme_rate_limit_high","display_name":"High Meme Rate Limit","description":"Higher daily meme save cap (200/day instead of 30/day).","created_at":"2026-04-08T18:18:33.851Z"}
-{"key":"video_generation","display_name":"Video Generation","description":"Ability to generate AI-powered videos from meme images","created_at":"2026-04-08T23:36:28.173Z"}

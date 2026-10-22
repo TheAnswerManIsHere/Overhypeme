@@ -703,7 +703,9 @@ Only the legacy studio's user generate paths built it, and they were deleted wit
 
 ### Engine
 
-Any generative model the platform can call (`image | video | utility | llm`),
+Any generative model the platform can call (`image | utility | llm`; the
+`video` kind went with video in launch Phase 4 — ledger
+[`docs/retired/README.md`](../retired/README.md)),
 defined **code-first** in `artifacts/api-server/src/lib/engines/` and reconciled
 into the `engines` table at boot. Admin owns `isActive`/`isDefault`/pricing.
 → [architecture-map](./architecture-map.md)
@@ -714,8 +716,10 @@ into the `engines` table at boot. Admin owns `isActive`/`isDefault`/pricing.
 
 ### Meme
 
-The rendered artifact (`memes` table): a fact rendered to an image or video.
-Free tier = photo memes; Legendary = AI image and video memes.
+The rendered artifact (`memes` table): a fact rendered to an image.
+Free tier = photo memes; Legendary = AI image memes. (Video memes were deleted
+in launch Phase 4; a stored one is a soft-deleted row — ledger
+[`docs/retired/README.md`](../retired/README.md).)
 → [product-brief](./product-brief.md), [meme-and-video-studio](./meme-and-video-studio.md)
 
 ### Studio
@@ -732,15 +736,15 @@ Phase 4 ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-d
 How a photo/stock/template meme is stored: **not a finished picture**, but a
 record of which background was chosen and what text goes with it, composed
 fresh every time someone views it. This is why a composition improvement
-retroactively upgrades existing memes. An AI-generated image or video *is* a
-real file; its recipe just points at that file.
+retroactively upgrades existing memes. An AI-generated image *is* a real
+file; its recipe just points at that file.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ### Background
 
 What a meme is built on top of before the fact's text is composed over it — an
 uploaded photo, a [stock image](#stock-image), a [template](#template), or an
-AI-generated image or video. "Background" is the choice the
+AI-generated image. "Background" is the choice the
 [studio](#studio) is organized around.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
@@ -773,11 +777,6 @@ description-only user generation: the legacy studio's `/generate-v2` and
 no-photo `/generate` went with it in launch Phase 4, and `/generate` now serves
 only the remix builder's photo stylise until PuLID goes
 ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
-An AI *video* meme runs its own separate system (PuLID-based, not this
-pipeline) and is never added to any shared gallery — tied to the one meme
-you made with it. That's a storage fact, not an access-control one: like any
-other meme, a video defaults to public and only becomes private if the
-optional privacy flag is set.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ---
@@ -927,8 +926,8 @@ same thing as being signed out or having skipped [onboarding](#onboarding).
 
 ### Legendary
 
-The paid tier, unlocking private memes, [AI image memes](#ai-image-meme), AI
-video generation, higher rate limits, and a higher generation spend budget.
+The paid tier, unlocking private memes, [AI image memes](#ai-image-meme),
+higher rate limits, and a higher generation spend budget.
 Bought as a subscription or as [Legendary for Life](#legendary-for-life), or
 comped by an admin.
 → [membership-entitlements](./membership-entitlements.md)
@@ -1277,9 +1276,11 @@ pinned to the ceiling that actually applied.
 - **`true` — estimated.** No provider rate resolved, so the figure came from the
   operator-configured `engines` row **or from a hard-coded fallback whenever no
   usable configured estimate resolves** — which is broader than "no row exists":
-  an existing row whose `estimatedCostUsdPerSecond` is null or non-numeric falls
-  back too (`routes/videos.ts`'s `ENGINE_PER_SEC_FALLBACK`,
-  `videoPipelineRunner.ts`'s `engineNumeric`, both `0.05`). All of these are
+  an existing row whose configured estimate is null or non-numeric falls back
+  too (the image pipeline falls back to the code catalogue's
+  `estimatedCostUsdPerCall`; the video paths' hard-coded `0.05`/s fallbacks
+  went with video in launch Phase 4, ledger
+  [`docs/retired/README.md`](../retired/README.md)). All of these are
   estimates; the column does not distinguish them, and `budgetGate.ts`'s own
   contract says so.
 - **`NULL` — unclassified.** Rows written before Release B, which

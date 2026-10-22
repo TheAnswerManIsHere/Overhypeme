@@ -48,7 +48,7 @@ export type AudioHandling =
   | "native_audio_boolean"
   | "none";
 
-export type EngineKind = "image" | "video" | "utility" | "llm";
+export type EngineKind = "image" | "utility" | "llm";
 export type TierRequirement = "unregistered" | "registered" | "legendary";
 
 /**

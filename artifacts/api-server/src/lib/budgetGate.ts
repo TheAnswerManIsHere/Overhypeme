@@ -63,7 +63,7 @@ export class BudgetGateError extends Error {
 
 export interface RecordCostParams {
   userId: string;
-  jobType: "image" | "video";
+  jobType: "image";
   endpointId: string;
   unitPriceAtCreation: number;
   billingUnits: number;

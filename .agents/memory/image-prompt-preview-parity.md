@@ -32,7 +32,7 @@ text and produced visibly different prompts for the same fact. Standardized on
 `IMAGE_PROMPT_TEMPERATURE = 0.4`, so two separate live calls produce
 differently-worded prose ("baby" vs "newborn baby gripping the wheel") even with
 byte-identical input. The previews do NOT cache and do NOT read the production
-`aiScenePrompts` blob (that cache serves only video/PuLID/backfill; tests assert
+`aiScenePrompts` blob (that cache serves only PuLID/backfill; tests assert
 the image bench never touches it). So if the two previews differ: first suspect
 input drift (identity/style/aspect), then temperature — not a cache.
 

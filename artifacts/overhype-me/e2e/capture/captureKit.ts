@@ -133,7 +133,6 @@ export async function setSlider(slider: Locator, value: number, min: number, max
 /** Open the image-meme builder on a fact and load a fixture photo into it. */
 export async function openBuilderWithPhoto(page: Page, factId: number, photo = "framing-chart.jpg"): Promise<void> {
   await page.goto(`/facts/${factId}/meme`, { waitUntil: "networkidle" });
-  await page.getByText("Classic format. Share anywhere.").click();
   await page.getByText("UPLOAD NEW").click();
   await page.locator('input[type="file"]').first().setInputFiles(path.join(FIXTURES, photo));
   await expect(page.getByText(/\d+ × \d+/)).toBeVisible({ timeout: 30_000 });

@@ -293,7 +293,7 @@ cache matters only across processes. A previewing admin always resolves as
 ([`membership-entitlements.md`](../ai-context/membership-entitlements.md)), so
 a fixture keyed to `membershipTier` is wrong on the preview path.
 
-External services (Pexels, object storage, pricing, embeddings, image/video
+External services (Pexels, object storage, pricing, embeddings, image
 generation, Stripe) must be stubbed/mocked or disabled with test-mode helpers in
 any of the above — no real credentials or network. See
 `.agents/memory/test-db-isolation.md`, `test-schema-isolation.md`,

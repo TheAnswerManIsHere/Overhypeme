@@ -76,7 +76,6 @@ const SIDEBAR: [string, string][] = [
   ["Billing", "/admin/billing"],
   ["Refunds & Disputes", "/admin/refunds-disputes"],
   ["Affiliate", "/admin/affiliate"],
-  ["Video Styles", "/admin/video-styles"],
   ["Engines", "/admin/engines"],
   ["Taxonomy Health", "/admin/taxonomy-health"],
   ["Email Queue", "/admin/email-queue"],

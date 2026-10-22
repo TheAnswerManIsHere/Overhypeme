@@ -3,10 +3,9 @@ import { ActivityRing } from "./ActivityRing";
 /**
  * Shared centered-hero layout for the wizard's loading takeovers.
  *
- * Used by both the image flow's PulidLoadingTakeover and the video flow's
- * GodModeLoadingTakeover (working phases only — checkpoint, no-face review,
- * and failed states have their own full-bleed layouts since they require
- * user decision UI).
+ * Used by the image flow's PulidLoadingTakeover (working phases only —
+ * no-face review and failed states have their own full-bleed layouts since
+ * they require user decision UI).
  *
  * Renders the ActivityRing as the dominant motion cue, with the bar
  * underneath as a secondary, quantitative signal. The wrapper expects to

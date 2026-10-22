@@ -15,16 +15,9 @@ describe("UnifiedUpgradeModal", () => {
 
   it("does not render content when closed", () => {
     render(
-      <UnifiedUpgradeModal open={false} onClose={() => {}} context="video-card" />,
+      <UnifiedUpgradeModal open={false} onClose={() => {}} context="ai-tab" />,
     );
     expect(screen.queryByTestId("unified-upgrade-modal")).toBeNull();
-  });
-
-  it("renders the video-card headline when context=video-card", () => {
-    render(
-      <UnifiedUpgradeModal open onClose={() => {}} context="video-card" />,
-    );
-    expect(screen.getByText(/go legendary to make videos/i)).toBeTruthy();
   });
 
   it("renders the ai-tab headline when context=ai-tab", () => {
@@ -37,7 +30,7 @@ describe("UnifiedUpgradeModal", () => {
       <UnifiedUpgradeModal
         open
         onClose={() => {}}
-        context="video-card"
+        context="ai-tab"
         headline="Custom headline"
       />,
     );
@@ -46,7 +39,7 @@ describe("UnifiedUpgradeModal", () => {
 
   it("CTA navigates to /pricing (MBFO-5 will replace with embedded checkout)", () => {
     render(
-      <UnifiedUpgradeModal open onClose={() => {}} context="video-card" />,
+      <UnifiedUpgradeModal open onClose={() => {}} context="ai-tab" />,
     );
     fireEvent.click(screen.getByTestId("unified-upgrade-cta"));
     expect(goSpy).toHaveBeenCalledWith("/pricing");
@@ -55,7 +48,7 @@ describe("UnifiedUpgradeModal", () => {
   it("'Not now' invokes onClose", () => {
     const onClose = vi.fn();
     render(
-      <UnifiedUpgradeModal open onClose={onClose} context="video-card" />,
+      <UnifiedUpgradeModal open onClose={onClose} context="ai-tab" />,
     );
     fireEvent.click(screen.getByRole("button", { name: /not now/i }));
     expect(onClose).toHaveBeenCalledTimes(1);

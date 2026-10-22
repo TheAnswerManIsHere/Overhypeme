@@ -205,7 +205,7 @@ meme returns `410` with a generic card leaking none of the removed
 content.
 
 **Scope is meme permalinks only.** Neither the worker nor the shell route
-handles `/facts/:id`, `/video/:id`, `/search`, `/hashtags`, or the
+handles `/facts/:id`, `/search`, `/hashtags`, or the
 homepage — `index.html` has zero `og:*`/`twitter:*` tags of any kind, so
 sharing any non-meme URL produces no rich preview at all, not even a
 generic sitewide fallback.

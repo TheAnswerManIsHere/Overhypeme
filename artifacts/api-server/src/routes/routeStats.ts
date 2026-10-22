@@ -8,7 +8,7 @@ const router: IRouter = Router();
 
 const VALID_ROUTE_KEYS = new Set([
   "home", "search", "facts", "submit", "profile",
-  "onboard", "activity", "meme", "video", "pricing", "login",
+  "onboard", "activity", "meme", "pricing", "login",
 ]);
 
 const PostRouteStatBody = z.union([

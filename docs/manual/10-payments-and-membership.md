@@ -12,8 +12,8 @@
 ## What it does
 
 Overhype.me has two tiers: **[Registered](../ai-context/glossary.md#registered)** (free — the default for anyone who signs up) and
-**Legendary** (paid — unlocks private memes, AI identity memes, AI video
-generation, higher rate limits, and a higher generation spend budget).
+**Legendary** (paid — unlocks private memes, AI identity memes, higher rate
+limits, and a higher generation spend budget).
 Legendary can be bought as a recurring subscription or a one-time "Legendary
 for Life" purchase, and an admin can comp it to someone directly.
 
@@ -220,10 +220,9 @@ down.
 - **A spend history is a good estimate, not a bill.** Nothing recorded is an
   actual charge reconciled against the provider. Most entries are worked out
   from the provider's published rate for that job's settings, which is close.
-  But some steps of a video job — the optional stylise step, the subtitling
-  step, and the main step when its rate couldn't be looked up — fall back to
-  our own configured cost figure instead, and nothing on the record says which
-  kind an entry is. Every entry written from now on carries that distinction —
+  But when a job's rate couldn't be looked up, it falls back to our own
+  configured cost figure instead, and older entries don't say which kind they
+  are. Every entry written from now on carries that distinction —
   it records whether its figure came from the provider's own rate or from our
   configured estimate — but entries written before that change don't say, and
   a later step works out what it can for the ones already on file. So a

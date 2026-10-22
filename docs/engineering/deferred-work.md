@@ -179,9 +179,10 @@ we've sequenced for later.
   Both writers record on every branch, and every row written from Release B
   onward carries `is_estimated`. **Residual, still open:** rows written *before*
   Release B remain `NULL` until Release C's classification backfill, and
-  `recordStage2Cost` has an uncounted failure path (see the note under the
-  2026-08-18 skip-and-count decision). Original entry kept below.
-  **Launch plan review (on my recommendation, David delegated 2026-10-13): won't-do, both halves.** The backfill has nothing to fix in production: Phase 3's fresh database starts with no rows from before Release B. `recordStage2Cost` lives in `videoPipelineRunner.ts`, which Phase 4 deletes with the video pipeline.
+  `recordStage2Cost` had an uncounted failure path (see the note under the
+  2026-08-18 skip-and-count decision; it went with video, as the next note
+  says). Original entry kept below.
+  **Launch plan review (on my recommendation, David delegated 2026-10-13): won't-do, both halves.** The backfill has nothing to fix in production: Phase 3's fresh database starts with no rows from before Release B. `recordStage2Cost` lived in `videoPipelineRunner.ts`, which Phase 4 deleted with the video pipeline (removal 2, #744; ledger `docs/retired/README.md`).
 
   - **What.** Two related gaps, and the second is the one that is easy to get
     wrong. **(a)** On **both** synchronous paths — `aiMemePipeline` and

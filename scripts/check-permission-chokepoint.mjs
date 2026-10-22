@@ -43,8 +43,8 @@
  * file — round 3 of PR #425's review found this guard sharing the identical
  * file-level bug its frontend sibling
  * (`scripts/check-permission-chokepoint-frontend.mjs`) was fixed for in
- * round 2, so a new inline gate added anywhere else in `admin.ts` or
- * `videos.ts` would otherwise pass CI unnoticed.
+ * round 2, so a new inline gate added anywhere else in an allowlisted file
+ * would otherwise pass CI unnoticed.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -63,14 +63,6 @@ const CHOKEPOINT = "artifacts/api-server/src/lib/featureAccess.ts";
  * below): an entry only exempts the exact line its pattern matches.
  */
 const ALLOWLIST = [
-  {
-    file: "artifacts/api-server/src/routes/videos.ts",
-    pattern: /realUserRole === "admin"/,
-    reason:
-      "GET /engines' catalogue filter is an inline admin product-feature check. " +
-      "Must Not Change keeps engine access untouched until Plan 3, which removes " +
-      "this exception along with engine_experiments and tierRequirement.",
-  },
   {
     file: "artifacts/api-server/src/lib/moderation/uploadRateLimit.ts",
     pattern: /membershipTier === "legendary"/,

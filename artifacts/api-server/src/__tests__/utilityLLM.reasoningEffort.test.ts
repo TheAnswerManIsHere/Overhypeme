@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 
 import { __setUtilityLLMClientForTest, JUDGEMENT_REASONING_EFFORT } from "../lib/utilityLLM";
 import { llmDuplicateCheck, moderateComment, suggestHashtagsForText } from "../routes/ai";
-import { generateVideoDirection } from "../lib/videoDirection";
 import { generateScenePrompts } from "../lib/aiMemePipeline";
 import { runTier3AiVisionFallback } from "../lib/sourceImageAnalysis/tier3AiVisionFallback";
 
@@ -47,7 +46,6 @@ describe("utility LLM reasoning effort per call site", () => {
       ["duplicate check", () => llmDuplicateCheck("{NAME} lifts mountains", [{ id: 1, text: "x", canonicalText: null, similarity: 0.9 }])],
       ["comment moderation", () => moderateComment(-1, "great fact")],
       ["tier-3 image classifier", () => runTier3AiVisionFallback("https://example.com/a.jpg")],
-      ["video direction", () => generateVideoDirection("{NAME} lifts mountains", "https://example.com/a.jpg")],
       ["scene prompts", () => generateScenePrompts("{NAME} lifts mountains")],
     ];
     for (const [name, run] of calls) {

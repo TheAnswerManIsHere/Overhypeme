@@ -21,7 +21,7 @@ interface EngineRow {
   endpointId: string;
   label: string;
   description: string;
-  kind: "image" | "video" | "utility" | string;
+  kind: "image" | "utility" | string;
   tierRequirement: string;
   isDefault: boolean;
   isActive: boolean;
@@ -77,14 +77,13 @@ const EDITABLE_FIELDS = [
   "defaultReasoningEffort",
 ] as const;
 
-// Section labels. Image engines are split into their two benches
-// (text-to-image vs image-to-image) so each gets its own section.
+// Section labels. Image and utility engines are split by bench (text-to-image,
+// image-to-image, image-classifier) so each gets its own section.
 const KIND_LABELS: Record<string, string> = {
-  video: "Video engines",
   "text-to-image": "Text-to-image engines",
   "image-to-image": "Image-to-image engines",
   image: "Image engines",
-  utility: "Utility engines",
+  "image-classifier": "Image classifier engines",
   llm: "LLM engines",
 };
 
@@ -120,26 +119,10 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
 // ─── Test workbench ──────────────────────────────────────────────────────────
 //
 // Built as a tuning sandbox, not just a "did fal accept this" smoke check.
-// Admins can edit every meaningful param (prompt, dialogue, duration, aspect,
-// resolution, mode, engine-specific knobs) and re-run until the output matches
-// the desired behavior. Once the right settings are found, they can be locked
-// into the engine's row defaults via the EngineEditor below.
-
-// Default prompts used when no override is supplied. Kept in sync with the
-// server's TEST_MOTION_PROMPT / TEST_DIALOGUE_TEXT — these are the fallbacks
-// the admin starts from when opening the panel for a fresh engine.
-const DEFAULT_TEST_MOTION_PROMPT =
-  "Subject slowly turns their head 45 degrees to the left over 2 seconds, " +
-  "then returns to center while making eye contact with the camera. " +
-  "Slow dolly push-in throughout. Soft window light from the left.";
-
-const DEFAULT_TEST_DIALOGUE_FULL =
-  "This is a synthetic engine test. The quick brown fox jumps over the lazy dog.";
-
-// Short dialogue used by Experiment B (padding detector). About half the
-// length of the full phrase so audio engines that invent extra dialogue
-// to fill clip silence (Grok quirk) reveal themselves.
-const DEFAULT_TEST_DIALOGUE_SHORT = "This is a synthetic engine test.";
+// Admins can edit every meaningful param (prompt, aspect, resolution,
+// engine-specific knobs) and re-run until the output matches the desired
+// behavior. Once the right settings are found, they can be locked into the
+// engine's row defaults via the EngineEditor below.
 
 // Default transform/scene prompt for the image benches. Image-to-image should
 // transform the supplied face; text-to-image renders the scene from scratch.
@@ -170,16 +153,16 @@ function renderFactText(template: string): string {
 
 /**
  * Which bench a given engine drives. Mirrors the server's `engineBenchType`
- * (adminEngines.ts): video/utility map from kind; image engines split on
- * whether the schema declares a source image (referenceImageUrl/imageUrl).
+ * (adminEngines.ts): every utility engine is an image classifier (it takes an
+ * image URL and no prompt); image engines split on whether the schema declares
+ * a source image (referenceImageUrl/imageUrl).
  */
-type BenchType = "text-to-image" | "image-to-image" | "video" | "utility";
+type BenchType = "text-to-image" | "image-to-image" | "image-classifier";
 function engineBenchType(engine: {
   kind: string;
   paramSchema?: unknown;
 }): BenchType {
-  if (engine.kind === "video") return "video";
-  if (engine.kind === "utility") return "utility";
+  if (engine.kind === "utility") return "image-classifier";
   const params =
     (engine.paramSchema as { params?: Array<{ from?: string }> } | null | undefined)?.params ?? [];
   const needsSourceImage = params.some(
@@ -194,16 +177,10 @@ function engineBenchType(engine: {
 const UNIVERSAL_FROM_KEYS = new Set([
   "imageUrl",
   "referenceImageUrl",
-  "videoUrl",
-  "motionPrompt",
   "imagePrompt",
-  "durationSec",
   "aspectRatio",
   "resolution",
-  "mode",
-  "generateAudio",
   "endUserId",
-  "dialogueText",
 ]);
 
 interface ParamSchemaEntryLike {
@@ -215,29 +192,16 @@ interface ParamSchemaEntryLike {
   range?: { min?: number; max?: number };
 }
 
-type ExperimentMode = "A" | "B" | "C" | "custom";
-
 function EngineTestPanel({ engine }: { engine: EngineRow }) {
   const benchType = useMemo(() => engineBenchType(engine), [engine]);
-  const isVideoBench = benchType === "video";
   const isImagePromptBench = benchType === "text-to-image" || benchType === "image-to-image";
   const needsSourceAsset = benchType !== "text-to-image";
-  const sampleIsVideo = benchType === "utility";
 
   // ── Form state ────────────────────────────────────────────────────────────
-  const [experiment, setExperiment] = useState<ExperimentMode>("A");
   const [sampleUrl, setSampleUrl] = useState("");
   const [imagePrompt, setImagePrompt] = useState(DEFAULT_TEST_IMAGE_PROMPT);
-  const [motionPrompt, setMotionPrompt] = useState(DEFAULT_TEST_MOTION_PROMPT);
-  const [dialogueEnabled, setDialogueEnabled] = useState(engine.audioHandling !== "none");
-  const [dialogueText, setDialogueText] = useState(DEFAULT_TEST_DIALOGUE_FULL);
-  const [durationSec, setDurationSec] = useState<string>(
-    engine.defaultDurationSec !== null ? String(engine.defaultDurationSec) : "",
-  );
   const [aspectRatio, setAspectRatio] = useState<string>(engine.defaultAspectRatio ?? "");
   const [resolution, setResolution] = useState<string>(engine.defaultResolution ?? "");
-  const [mode, setMode] = useState<string>(engine.defaultMode ?? "");
-  const [generateAudio, setGenerateAudio] = useState(engine.audioHandling !== "none");
 
   // Engine-specific params discovered from paramSchema.
   const engineParams = useMemo(() => {
@@ -259,28 +223,20 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     return init;
   });
 
-  // ── Production test inputs (fact / gender / look style / motion preset) ──
+  // ── Production test inputs (fact / gender / look style) ──────────────────
   // The workbench tests against real meme-generator prompts: pick a fact and
-  // (for image) a gender + look style, or (for video) a motion preset, and the
-  // server assembles the exact production prompt into the editable boxes below.
+  // a gender + look style, and the server assembles the exact production
+  // prompt into the editable box below.
   const [factQuery, setFactQuery] = useState("");
   const [factResults, setFactResults] = useState<{ id: number; text: string }[]>([]);
   const [selectedFact, setSelectedFact] = useState<{ id: number; text: string } | null>(null);
   const [gender, setGender] = useState<"male" | "female" | "neutral">("neutral");
   const [lookStyles, setLookStyles] = useState<{ id: string; label: string }[]>([]);
   const [lookStyleId, setLookStyleId] = useState("");
-  const [motionPresets, setMotionPresets] = useState<{ id: string; label: string }[]>([]);
-  const [motionPresetId, setMotionPresetId] = useState("");
   const [assembling, setAssembling] = useState(false);
   const [assembleError, setAssembleError] = useState<string | null>(null);
-  // Video benches have no server-side cache for the generated AI Video Motion
-  // Prompt (production regenerates per render). Hold the last generated value
-  // here, keyed by fact + source image, so swapping the motion preset reuses it
-  // instead of re-rolling — only a new image/fact or the explicit "Regenerate"
-  // link forces a fresh one (the motion prompt depends on the image).
-  const videoStyleRef = useRef<{ key: string; value: string } | null>(null);
 
-  // Fetch the look-style + motion-preset catalogues once (only what the bench needs).
+  // Fetch the look-style catalogue once (only the image benches need it).
   useEffect(() => {
     if (isImagePromptBench) {
       fetch("/api/look-styles", { credentials: "include" })
@@ -288,13 +244,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         .then((rows) => setLookStyles(Array.isArray(rows) ? rows : []))
         .catch(() => setLookStyles([]));
     }
-    if (isVideoBench) {
-      fetch("/api/motion-presets", { credentials: "include" })
-        .then((r) => (r.ok ? r.json() : []))
-        .then((rows) => setMotionPresets(Array.isArray(rows) ? rows : []))
-        .catch(() => setMotionPresets([]));
-    }
-  }, [isImagePromptBench, isVideoBench]);
+  }, [isImagePromptBench]);
 
   // Debounced fact search.
   useEffect(() => {
@@ -314,17 +264,9 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
   // server-side (overwriting a stale/misclassified cache) — used by the
   // "Regenerate scene prompts" button.
   const runAssemble = useCallback(async (forceRegenerate: boolean) => {
-    if (!selectedFact || benchType === "utility") return;
+    if (!selectedFact || benchType === "image-classifier") return;
     setAssembling(true);
     setAssembleError(null);
-    // Reuse the cached video motion prompt unless a regenerate was asked for.
-    // The motion prompt depends on the fact AND the source image, so a change to
-    // either invalidates the cache; the motion preset does not.
-    const videoCacheKey = `${selectedFact.id}|${sampleUrl.trim()}`;
-    const cachedVideoStyle =
-      !forceRegenerate && videoStyleRef.current?.key === videoCacheKey
-        ? videoStyleRef.current.value
-        : undefined;
     try {
       const r = await fetch(`/api/admin/engines/${engine.id}/assemble-prompt`, {
         method: "POST",
@@ -334,13 +276,11 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
           factId: selectedFact.id,
           gender,
           lookStyleId: lookStyleId || undefined,
-          motionPresetId: motionPresetId || undefined,
-          // i2i analyzes + renders against the sample image, so send it for
-          // image-to-image too (not just video). t2i sends none.
-          sampleImageUrl: (isVideoBench || benchType === "image-to-image") ? (sampleUrl.trim() || undefined) : undefined,
+          // i2i analyzes + renders against the sample image, so send it.
+          // t2i sends none.
+          sampleImageUrl: benchType === "image-to-image" ? (sampleUrl.trim() || undefined) : undefined,
           // The new prompt engine renders in the bench's chosen aspect ratio.
-          aspectRatio: isImagePromptBench ? (aspectRatio || undefined) : undefined,
-          videoDirection: cachedVideoStyle,
+          aspectRatio: aspectRatio || undefined,
           forceRegenerate,
         }),
       });
@@ -359,39 +299,18 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                   : code;
         throw new Error(friendly);
       }
-      const data = json as { imagePrompt?: string; motionPrompt?: string; dialogueText?: string; videoDirection?: string };
+      const data = json as { imagePrompt?: string };
       if (typeof data.imagePrompt === "string") setImagePrompt(data.imagePrompt);
-      if (typeof data.motionPrompt === "string") { setMotionPrompt(data.motionPrompt); setExperiment("custom"); }
-      if (typeof data.dialogueText === "string") { setDialogueText(data.dialogueText); setDialogueEnabled(true); }
-      if (typeof data.videoDirection === "string") {
-        videoStyleRef.current = { key: videoCacheKey, value: data.videoDirection };
-      }
     } catch (e) {
       setAssembleError(String(e instanceof Error ? e.message : e));
     } finally {
       setAssembling(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFact?.id, gender, lookStyleId, motionPresetId, sampleUrl, aspectRatio, isImagePromptBench, isVideoBench, benchType, engine.id]);
+  }, [selectedFact?.id, gender, lookStyleId, sampleUrl, aspectRatio, benchType, engine.id]);
 
   // Auto-assemble (cached prompts) whenever the selection changes.
   useEffect(() => { void runAssemble(false); }, [runAssemble]);
-
-  // ── Experiment radio → auto-fill dialogue ───────────────────────────────
-  const applyExperiment = (next: ExperimentMode) => {
-    setExperiment(next);
-    if (next === "A") {
-      setDialogueEnabled(engine.audioHandling !== "none");
-      setDialogueText(DEFAULT_TEST_DIALOGUE_FULL);
-    } else if (next === "B") {
-      setDialogueEnabled(engine.audioHandling !== "none");
-      setDialogueText(DEFAULT_TEST_DIALOGUE_SHORT);
-    } else if (next === "C") {
-      setDialogueEnabled(false);
-      setDialogueText("");
-    }
-    // "custom" leaves the form alone — set when admin edits something manually.
-  };
 
   const [running, setRunning] = useState(false);
   const [pollPhase, setPollPhase] = useState<"queued" | "in_progress" | null>(null);
@@ -409,9 +328,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     error?: { message?: string; body?: unknown; status?: unknown };
     durationMs?: number;
     testFixtures?: {
-      motionPrompt?: string;
       imagePrompt?: string;
-      dialogueText?: string | null;
     };
   } | null>(null);
   const [httpError, setHttpError] = useState<string | null>(null);
@@ -474,24 +391,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
       if (lookStyleId) body.lookStyleId = lookStyleId;
       body.gender = gender;
     }
-    // Motion + dialogue + duration + audio are video-only concepts.
-    if (isVideoBench) {
-      if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
-        body.motionPrompt = motionPrompt;
-      }
-      // dialogueText: null = explicit silence, string = override, undefined = default
-      if (!dialogueEnabled) {
-        body.dialogueText = null;
-      } else if (dialogueText.trim() && dialogueText !== DEFAULT_TEST_DIALOGUE_FULL) {
-        body.dialogueText = dialogueText;
-      }
-      if (durationSec && Number(durationSec) > 0) body.durationSec = Number(durationSec);
-      if (generateAudio !== (engine.audioHandling !== "none")) {
-        body.generateAudio = generateAudio;
-      }
-      if (mode) body.mode = mode;
-    }
-    if (aspectRatio && benchType !== "utility") body.aspectRatio = aspectRatio;
+    if (aspectRatio && benchType !== "image-classifier") body.aspectRatio = aspectRatio;
     if (resolution) body.resolution = resolution;
     if (engineParams.length > 0) {
       const extras: Record<string, unknown> = {};
@@ -586,7 +486,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         const { requestId, falInput, testFixtures } = json as {
           requestId: string;
           falInput: unknown;
-          testFixtures: { motionPrompt?: string; imagePrompt?: string; dialogueText?: string | null };
+          testFixtures: { imagePrompt?: string };
         };
         // Show the fal input immediately so the admin can inspect the payload shape
         setResult({ falInput, testFixtures });
@@ -686,14 +586,8 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
   const resetToDefaults = () => {
     setSampleUrl("");
     setImagePrompt(DEFAULT_TEST_IMAGE_PROMPT);
-    setMotionPrompt(DEFAULT_TEST_MOTION_PROMPT);
-    setDialogueEnabled(engine.audioHandling !== "none");
-    setDialogueText(DEFAULT_TEST_DIALOGUE_FULL);
-    setDurationSec(engine.defaultDurationSec !== null ? String(engine.defaultDurationSec) : "");
     setAspectRatio(engine.defaultAspectRatio ?? "");
     setResolution(engine.defaultResolution ?? "");
-    setMode(engine.defaultMode ?? "");
-    setGenerateAudio(engine.audioHandling !== "none");
     const reset: Record<string, string> = {};
     for (const p of engineParams) {
       if (p.from && p.default !== undefined && p.default !== null) {
@@ -701,7 +595,6 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
       }
     }
     setExtraParams(reset);
-    setExperiment("A");
   };
 
   const inputCls =
@@ -731,8 +624,8 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         {benchType.replace(/-/g, " ")} bench
       </p>
 
-      {/* ── Production test inputs: pick a real fact (+ style/motion) ──── */}
-      {benchType !== "utility" && (
+      {/* ── Production test inputs: pick a real fact (+ gender/style) ──── */}
+      {benchType !== "image-classifier" && (
         <div className="space-y-3 rounded-sm border border-primary/30 bg-primary/5 p-2">
           <p className="text-[10px] font-semibold text-primary uppercase tracking-wider">
             Test against a real fact
@@ -814,24 +707,6 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             </div>
           )}
 
-          {/* Motion preset (video bench) */}
-          {isVideoBench && (
-            <div>
-              <label className={labelCls}>Motion preset</label>
-              <select
-                value={motionPresetId}
-                onChange={(e) => setMotionPresetId(e.target.value)}
-                className={selectCls}
-                data-testid="engine-test-motion-preset"
-              >
-                <option value="">(no motion preset)</option>
-                {motionPresets.map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
           <p className="text-[10px] text-muted-foreground">
             {assembling
               ? "Assembling the production prompt…"
@@ -855,66 +730,19 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
               ↻ Regenerate scene prompts (overwrites this fact's cache)
             </button>
           )}
-
-          {/* Regenerate: re-roll the AI Video Motion Prompt (generated from the
-              source image, merged with the motion preset below). */}
-          {isVideoBench && selectedFact && (
-            <button
-              type="button"
-              disabled={assembling}
-              onClick={() => void runAssemble(true)}
-              className="text-[10px] text-primary hover:underline disabled:opacity-50"
-              data-testid="engine-test-regenerate-video-style"
-            >
-              ↻ Regenerate AI Video Motion Prompt
-            </button>
-          )}
         </div>
       )}
 
-      {/* ── Experiment selector (video only — dialogue behavior) ──────── */}
-      {isVideoBench && (
-        <div>
-          <label className={labelCls}>Experiment shape</label>
-          <div className="flex gap-2 flex-wrap">
-            {([
-              { value: "A", label: "A · Baseline (full dialogue)" },
-              { value: "B", label: "B · Short dialogue (padding test)" },
-              { value: "C", label: "C · No dialogue (silence test)" },
-            ] as const).map((opt) => (
-              <label key={opt.value} className="flex items-center gap-1.5 text-xs cursor-pointer">
-                <input
-                  type="radio"
-                  name={`exp-${engine.id}`}
-                  value={opt.value}
-                  checked={experiment === opt.value}
-                  onChange={() => applyExperiment(opt.value)}
-                  className="accent-primary"
-                />
-                <span>{opt.label}</span>
-              </label>
-            ))}
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1">
-            A baseline = does the engine cleanly speak/narrate the dialogue?
-            B = does it invent extra dialogue when there&apos;s clip time left after the cue?
-            C = does it produce uninvited speech when given none?
-          </p>
-        </div>
-      )}
-
-      {/* ── Source asset (image for video/image-to-image; video URL for utility) ── */}
+      {/* ── Source asset (sample image for image-to-image and image-classifier) ── */}
       {needsSourceAsset && (
         <div>
           <label className={labelCls}>
-            {sampleIsVideo
-              ? "Sample video URL (required — utility engines caption a video)"
-              : "Sample image URL (optional — defaults to bundled face)"}
+            Sample image URL (optional — defaults to bundled face)
           </label>
           <input
             value={sampleUrl}
             onChange={(e) => setSampleUrl(e.target.value)}
-            placeholder={sampleIsVideo ? "https://…/clip.mp4" : "https://…/face.jpg"}
+            placeholder="https://…/face.jpg"
             className={inputCls}
           />
         </div>
@@ -938,71 +766,14 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         </div>
       )}
 
-      {/* ── Motion prompt (video only) ───────────────────────────────── */}
-      {isVideoBench && (
-        <div>
-          <label className={labelCls}>Motion prompt (AI Video Motion Prompt + motion preset)</label>
-          <textarea
-            value={motionPrompt}
-            onChange={(e) => { setMotionPrompt(e.target.value); setExperiment("custom"); }}
-            rows={4}
-            className={`${inputCls} font-sans`}
-          />
-          <p className="text-[10px] text-muted-foreground mt-1">
-            The motion is generated from the source image below (the model sees the still). Paste a real rendered still as the Sample image URL for an accurate preview — otherwise it falls back to the bundled placeholder.
-          </p>
-        </div>
-      )}
-
-      {/* ── Dialogue (video only) ────────────────────────────────────── */}
-      {isVideoBench && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className={labelCls + " mb-0"}>Dialogue cue</label>
-            <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={dialogueEnabled}
-                onChange={(e) => { setDialogueEnabled(e.target.checked); setExperiment("custom"); }}
-                className="accent-primary"
-              />
-              <span>Send dialogue</span>
-            </label>
-          </div>
-          <textarea
-            value={dialogueText}
-            onChange={(e) => { setDialogueText(e.target.value); setExperiment("custom"); }}
-            rows={2}
-            disabled={!dialogueEnabled}
-            placeholder={dialogueEnabled ? DEFAULT_TEST_DIALOGUE_FULL : "(silence)"}
-            className={`${inputCls} font-sans ${!dialogueEnabled ? "opacity-50" : ""}`}
-          />
-        </div>
-      )}
-
       {/* ── Universal option grid ────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">
-        {engine.allowedDurationsSec && engine.allowedDurationsSec.length > 0 ? (
-          <div>
-            <label className={labelCls}>Duration (sec)</label>
-            <select
-              value={durationSec}
-              onChange={(e) => { setDurationSec(e.target.value); setExperiment("custom"); }}
-              className={selectCls}
-            >
-              {engine.allowedDurationsSec.map((d) => (
-                <option key={d} value={d}>{d}s</option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-
         {engine.allowedResolutions && engine.allowedResolutions.length > 0 ? (
           <div>
             <label className={labelCls}>Resolution</label>
             <select
               value={resolution}
-              onChange={(e) => { setResolution(e.target.value); setExperiment("custom"); }}
+              onChange={(e) => setResolution(e.target.value)}
               className={selectCls}
             >
               {engine.allowedResolutions.map((r) => (
@@ -1017,7 +788,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             <label className={labelCls}>Aspect ratio</label>
             <select
               value={aspectRatio}
-              onChange={(e) => { setAspectRatio(e.target.value); setExperiment("custom"); }}
+              onChange={(e) => setAspectRatio(e.target.value)}
               className={selectCls}
             >
               {engine.allowedAspectRatios.map((r) => (
@@ -1026,33 +797,6 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             </select>
           </div>
         ) : null}
-
-        {engine.supportedModes && engine.supportedModes.length > 0 ? (
-          <div>
-            <label className={labelCls}>Mode</label>
-            <select
-              value={mode}
-              onChange={(e) => { setMode(e.target.value); setExperiment("custom"); }}
-              className={selectCls}
-            >
-              {engine.supportedModes.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-
-        {engine.audioHandling !== "none" && (
-          <label className="flex items-center gap-1.5 text-xs cursor-pointer pt-5">
-            <input
-              type="checkbox"
-              checked={generateAudio}
-              onChange={(e) => { setGenerateAudio(e.target.checked); setExperiment("custom"); }}
-              className="accent-primary"
-            />
-            <span>generate_audio</span>
-          </label>
-        )}
       </div>
 
       {/* ── Engine-specific params (auto-rendered from paramSchema) ────── */}
@@ -1072,7 +816,6 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
               const value = extraParams[key] ?? "";
               const setValue = (v: string) => {
                 setExtraParams((prev) => ({ ...prev, [key]: v }));
-                setExperiment("custom");
               };
               const label = humanizeKey(key);
               const defaultBadge = p.default !== undefined && p.default !== null
@@ -1217,21 +960,9 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                     <span className="text-foreground">{result.testFixtures.imagePrompt}</span>
                   </div>
                 )}
-                {isVideoBench && (
-                  <div>
-                    <span className="text-muted-foreground">Expected motion: </span>
-                    <span className="text-foreground">{result.testFixtures.motionPrompt}</span>
-                  </div>
-                )}
-                {isVideoBench && result.testFixtures.dialogueText && (
-                  <div>
-                    <span className="text-muted-foreground">Expected audio (should say): </span>
-                    <span className="text-foreground italic">&ldquo;{result.testFixtures.dialogueText}&rdquo;</span>
-                  </div>
-                )}
-                {benchType === "utility" && (
+                {benchType === "image-classifier" && (
                   <div className="text-muted-foreground italic">
-                    Utility engine — captions the supplied video; no generated audio.
+                    Image classifier — analyses the supplied image; nothing is generated.
                   </div>
                 )}
               </div>
@@ -1594,7 +1325,7 @@ function EngineCard({
   const [busy, setBusy] = useState<null | string>(null);
 
   const archive = async () => {
-    if (!confirm(`Archive engine "${engine.label}"? It will be hidden from the wizard and interpreter but kept for video-job lineage.`)) return;
+    if (!confirm(`Archive engine "${engine.label}"? It will be hidden from the wizard and interpreter but kept for job lineage.`)) return;
     setBusy("archive");
     try {
       const r = await fetch(`/api/admin/engines/${engine.id}`, { method: "DELETE", credentials: "include" });
@@ -1754,15 +1485,15 @@ export default function AdminEngines() {
     const filtered = engines.filter((e) => (tab === "archived" ? e.deletedAt !== null : e.deletedAt === null));
     const map = new Map<string, EngineRow[]>();
     for (const e of filtered) {
-      // Split image engines into their two benches; everything else groups by kind.
-      const section = e.kind === "image" ? engineBenchType(e) : e.kind;
+      // Image and utility engines group by their bench; everything else by kind.
+      const section = e.kind === "image" || e.kind === "utility" ? engineBenchType(e) : e.kind;
       if (!map.has(section)) map.set(section, []);
       map.get(section)!.push(e);
     }
     for (const arr of map.values()) {
       arr.sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
     }
-    const order = ["video", "text-to-image", "image-to-image", "utility"];
+    const order = ["text-to-image", "image-to-image", "image-classifier"];
     return [...map.entries()].sort(([a], [b]) => {
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
@@ -1779,7 +1510,7 @@ export default function AdminEngines() {
         <div className="flex items-center gap-2">
           <Boxes className="w-5 h-5 text-primary" />
           <p className="text-sm text-muted-foreground">
-            Manage the generative engines the video / image / utility pipelines call. Code-owned fields (paramSchema, endpoint, kind) are read-only; only the {EDITABLE_FIELDS.length} runtime knobs below are editable.
+            Manage the generative engines the image pipelines call. Code-owned fields (paramSchema, endpoint, kind) are read-only; only the {EDITABLE_FIELDS.length} runtime knobs below are editable.
           </p>
         </div>
 

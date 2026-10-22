@@ -78,7 +78,7 @@ describe("GET /route-stats", () => {
   });
 
   it("caps ?n at 10", async () => {
-    const rows = ["home","search","facts","submit","profile","activity","meme","video","pricing"]
+    const rows = ["home","search","facts","submit","profile","activity","meme","pricing","login"]
       .map((k, i) => ({ routeKey: k, visitCount: 10 - i }));
     await db.insert(routeStatsTable).values(rows);
     const res = await request(makeApp()).get("/route-stats").query({ n: "999" });
@@ -159,7 +159,7 @@ describe("POST /route-stats", () => {
   });
 
   it("accepts every route key in the documented allowlist", async () => {
-    const keys = ["home","search","facts","submit","profile","onboard","activity","meme","video","pricing","login"];
+    const keys = ["home","search","facts","submit","profile","onboard","activity","meme","pricing","login"];
     for (const k of keys) {
       const res = await request(makeApp()).post("/route-stats").send({ route: k });
       assert.equal(res.status, 204, `expected 204 for ${k}`);

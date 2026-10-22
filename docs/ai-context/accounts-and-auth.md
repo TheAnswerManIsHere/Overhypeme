@@ -190,7 +190,7 @@ failure is diagnosable but not automatically rolled back):
    to it (`admin.ts:552-555`).
 4. **Nullifies, never deletes, content the user created** — memes, facts,
    comments, external links, pending reviews (`submittedById` and
-   `reviewedById`), video jobs (`admin.ts:563-569`). Content is orphaned
+   `reviewedById`). Content is orphaned
    (FK set NULL), not cascaded away and not literally anonymized (no
    author-name scrubbing).
 5. Deletes the user row (`admin.ts:574`); DB-level `ON DELETE CASCADE` FKs

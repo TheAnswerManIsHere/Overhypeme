@@ -1,8 +1,7 @@
 /**
  * Center-crop an image to a square and re-encode as JPEG, downscaled to
  * `maxSize` on the long edge. The cropped image is the user's reusable
- * identity asset — meme overlays, AI image generation, and AI video memes
- * all consume a square face crop, so we normalise on upload.
+ * identity asset — meme overlays and AI image generation both consume a square face crop, so we normalise on upload.
  *
  * @purpose Client image prep and upload: center-crops or downscales to JPEG, or sends the file unchanged with preprocess none, then POSTs to /api/storage/upload-meme or upload-avatar and throws on a non-OK response.
  * @subsystem studio

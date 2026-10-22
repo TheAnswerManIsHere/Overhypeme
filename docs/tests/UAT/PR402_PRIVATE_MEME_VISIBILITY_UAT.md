@@ -164,16 +164,7 @@ for using your own photo and no Public / Private visibility control at all.
 
 **Check:** `artifacts/overhype-me/src/components/meme-builder/wizard/__tests__/MemeBuilderWizard.test.tsx:omits the control for a viewer who cannot save yet`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:logged out, /facts/:id/meme opens the builder and its image step shows no visibility control`
 
-### 11. Video memes still work
-
-**Do:** Make a video meme.
-
-**Expect:** Works normally. Video memes have no privacy field at all —
-that's the pre-existing gap #394 flagged, not something this PR touches.
-
-**Lane:** scripted
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — video memes (pipeline and engines) are on the cut list and are removed with it
+_Step 11 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 
 ## Regression
 

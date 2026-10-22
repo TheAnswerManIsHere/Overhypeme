@@ -10,12 +10,10 @@ const FACT_ID = "fact-42";
 
 function fixture(overrides: Partial<PendingWizardState> = {}): PendingWizardState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     capturedAt: Date.now(),
     factId: FACT_ID,
     entryFlow: "fact-detail",
-    currentStep: 2,
-    artifactType: "image",
     mode: "stock",
     source: { kind: "stock", stockImageId: "9001" },
     aspectRatio: "landscape",
@@ -62,6 +60,12 @@ describe("wizardStorage", () => {
     expect(restoreWizardState(FACT_ID)).toBeNull();
   });
 
+  it("ignores a version-2 draft from before video was cut (it carried an artifact type and a step)", () => {
+    const v2 = { ...fixture(), schemaVersion: 2, currentStep: 2, artifactType: "video" } as unknown as PendingWizardState;
+    window.sessionStorage.setItem(`pending_meme_wizard_v2::${FACT_ID}`, JSON.stringify(v2));
+    expect(restoreWizardState(FACT_ID)).toBeNull();
+  });
+
   it("ignores malformed JSON", () => {
     window.sessionStorage.setItem(
       `pending_meme_wizard_v2::${FACT_ID}`,
@@ -72,9 +76,9 @@ describe("wizardStorage", () => {
 
   it("isolates factIds", () => {
     captureWizardState(fixture({ factId: "fact-1" }));
-    captureWizardState(fixture({ factId: "fact-2", artifactType: "video" }));
-    expect(restoreWizardState("fact-1")?.artifactType).toBe("image");
-    expect(restoreWizardState("fact-2")?.artifactType).toBe("video");
+    captureWizardState(fixture({ factId: "fact-2", name: "Rowan" }));
+    expect(restoreWizardState("fact-1")?.name).toBe("Quinn");
+    expect(restoreWizardState("fact-2")?.name).toBe("Rowan");
   });
 
   it("does not collide with the v1 pendingBuilderState key prefix", () => {
@@ -93,9 +97,8 @@ describe("wizardStorage", () => {
     expect(restoreWizardState(FACT_ID)).toBeNull();
   });
 
-  it("survives video artifact + self-upload + advanced options", () => {
+  it("survives self-upload + framing + advanced options", () => {
     const captured = fixture({
-      artifactType: "video",
       mode: "self-upload",
       source: {
         kind: "self-upload",
@@ -103,11 +106,7 @@ describe("wizardStorage", () => {
         stylizeWithAi: true,
       },
       framingOffset: { x: 12, y: -8 },
-      advancedOptions: {
-        videoEngineId: "xai/grok-imagine-video/image-to-video",
-        videoLengthSeconds: 6,
-        videoResolution: "480p",
-      },
+      advancedOptions: { imageEngineId: "nano-banana-pro" },
     });
     captureWizardState(captured);
     expect(restoreWizardState(FACT_ID)).toEqual(captured);

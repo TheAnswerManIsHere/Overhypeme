@@ -1,8 +1,7 @@
 /**
  * Unit tests for the shared createMemeRecord helper.
  *
- * Covers the image variant (existing behaviour preserved) and the new video
- * variant the wizard pipeline emits.
+ * Covers the image variants. (A video variant went with video, launch Phase 4.)
  */
 
 import { describe, it, before, after } from "node:test";
@@ -134,44 +133,3 @@ describe("createMemeRecord — image variant", () => {
   });
 });
 
-describe("createMemeRecord — video variant", () => {
-  it("persists templateId='video' and stores videoObjectPath in imageSource", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact();
-    const videoPath = "/objects/video-memes/abc/job-xyz.mp4";
-    const stillPath = "/objects/derived-still.jpg";
-
-    const result = await createMemeRecord({
-      userId,
-      factId,
-      imageSource: {
-        type: "video",
-        videoJobId: 42,
-        videoObjectPath: videoPath,
-        stillObjectPath: stillPath,
-        lookStyleId: "cinematic",
-        motionPresetId: "subtle-push",
-      },
-      aspectRatio: "portrait",
-      decisions: ALLOW_ALL,
-    });
-    assert.ok(result.memeId > 0);
-
-    const [row] = await db
-      .select()
-      .from(memesTable)
-      .where(eq(memesTable.id, result.memeId))
-      .limit(1);
-    assert.ok(row);
-    assert.equal(row.templateId, "video");
-    assert.equal(row.aspectRatio, "portrait");
-    const source = row.imageSource as Record<string, unknown> | null;
-    assert.ok(source, "imageSource should be persisted");
-    assert.equal(source!.type, "video");
-    assert.equal(source!.videoObjectPath, videoPath);
-    assert.equal(source!.stillObjectPath, stillPath);
-    assert.equal(source!.lookStyleId, "cinematic");
-    assert.equal(source!.motionPresetId, "subtle-push");
-    assert.equal(source!.videoJobId, 42);
-  });
-});

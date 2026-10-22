@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 
-export type GenerationPath = "ai" | "meme" | "video";
+export type GenerationPath = "ai" | "meme";
 export type Tier = "unregistered" | "registered" | "legendary" | "admin";
 
 export interface GovernancePolicy {
@@ -8,15 +8,14 @@ export interface GovernancePolicy {
   monthlySpendCapUsd: number;
   requestsPerDay: number;
   concurrentGenerations: number;
-  maxDurationSec: number;
   maxPayloadBytes: number;
 }
 
 const POLICIES: Record<Tier, GovernancePolicy> = {
-  unregistered: { dailySpendCapUsd: 0, monthlySpendCapUsd: 0, requestsPerDay: 0, concurrentGenerations: 0, maxDurationSec: 0, maxPayloadBytes: 0 },
-  registered: { dailySpendCapUsd: 3, monthlySpendCapUsd: 25, requestsPerDay: 25, concurrentGenerations: 1, maxDurationSec: 8, maxPayloadBytes: 1_500_000 },
-  legendary: { dailySpendCapUsd: 20, monthlySpendCapUsd: 250, requestsPerDay: 250, concurrentGenerations: 3, maxDurationSec: 30, maxPayloadBytes: 8_000_000 },
-  admin: { dailySpendCapUsd: 200, monthlySpendCapUsd: 2000, requestsPerDay: 2000, concurrentGenerations: 10, maxDurationSec: 120, maxPayloadBytes: 25_000_000 },
+  unregistered: { dailySpendCapUsd: 0, monthlySpendCapUsd: 0, requestsPerDay: 0, concurrentGenerations: 0, maxPayloadBytes: 0 },
+  registered: { dailySpendCapUsd: 3, monthlySpendCapUsd: 25, requestsPerDay: 25, concurrentGenerations: 1, maxPayloadBytes: 1_500_000 },
+  legendary: { dailySpendCapUsd: 20, monthlySpendCapUsd: 250, requestsPerDay: 250, concurrentGenerations: 3, maxPayloadBytes: 8_000_000 },
+  admin: { dailySpendCapUsd: 200, monthlySpendCapUsd: 2000, requestsPerDay: 2000, concurrentGenerations: 10, maxPayloadBytes: 25_000_000 },
 };
 
 type UsageEvent = {
@@ -29,7 +28,7 @@ const idempotencyCache = new Map<string, { status: number; body: unknown; expire
 const inFlightByUser = new Map<string, number>();
 const providerHealth = new Map<string, { fails: number; latencyMs: number[]; openedUntil: number }>();
 
-export function enforceGovernance(req: Request, res: Response, opts: { path: GenerationPath; estimatedCostUsd?: number; provider: string; model: string; maxDurationSec?: number; payloadBytes?: number }): { ok: boolean; idempotencyKey: string | null } {
+export function enforceGovernance(req: Request, res: Response, opts: { path: GenerationPath; estimatedCostUsd?: number; provider: string; model: string; payloadBytes?: number }): { ok: boolean; idempotencyKey: string | null } {
   const userId = req.user?.id ?? "anon";
   const tier = (req.user?.realUserRole === "admin" ? "admin" : (req.user?.membershipTier ?? "unregistered")) as Tier;
   const policy = POLICIES[tier];
@@ -62,7 +61,6 @@ export function enforceGovernance(req: Request, res: Response, opts: { path: Gen
   if (spendDay + (opts.estimatedCostUsd ?? 0) > policy.dailySpendCapUsd) return reject("DAILY_SPEND_CAP_EXCEEDED"), { ok: false, idempotencyKey };
   if (spendMonth + (opts.estimatedCostUsd ?? 0) > policy.monthlySpendCapUsd) return reject("MONTHLY_SPEND_CAP_EXCEEDED"), { ok: false, idempotencyKey };
   if (concurrency >= policy.concurrentGenerations) return reject("CONCURRENT_GENERATION_LIMIT"), { ok: false, idempotencyKey };
-  if ((opts.maxDurationSec ?? 0) > policy.maxDurationSec) return reject("MAX_DURATION_EXCEEDED", 400), { ok: false, idempotencyKey };
   if ((opts.payloadBytes ?? 0) > policy.maxPayloadBytes) return reject("MAX_PAYLOAD_EXCEEDED", 400), { ok: false, idempotencyKey };
 
   const health = providerHealth.get(opts.provider);

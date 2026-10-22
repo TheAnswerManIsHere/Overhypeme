@@ -43,7 +43,7 @@ visual concept."*
 So, for **every** metadata layer:
 
 - A variant owns its **own** enrichment/taxonomy, Visual Concept, stock
-  (`pexelsImages`) and AI (`aiMemeImages`) images, memes, and videos.
+  (`pexelsImages`) and AI (`aiMemeImages`) images, and memes.
 - A variant **never displays, borrows, or falls back to** its root's metadata.
   If a variant has no stock images of its own, it has none — the picker must not
   substitute the root's.

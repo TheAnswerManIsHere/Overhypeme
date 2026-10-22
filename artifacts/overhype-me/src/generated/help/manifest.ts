@@ -389,7 +389,7 @@ export const HELP_DOCS: HelpDocMeta[] = [
     "slug": "6-meme-and-video-studio",
     "kind": "chapter",
     "number": 6,
-    "title": "Meme and Video Studio",
+    "title": "Meme Studio",
     "file": "docs/manual/6-meme-and-video-studio.md",
     "githubUrl": "https://github.com/TheAnswerManIsHere/Overhypeme/blob/main/docs/manual/6-meme-and-video-studio.md",
     "sections": [
@@ -404,8 +404,8 @@ export const HELP_DOCS: HelpDocMeta[] = [
         "depth": 2
       },
       {
-        "id": "three-ways-to-build-a-background",
-        "title": "Three ways to build a background",
+        "id": "two-ways-to-build-a-background",
+        "title": "Two ways to build a background",
         "depth": 3
       },
       {

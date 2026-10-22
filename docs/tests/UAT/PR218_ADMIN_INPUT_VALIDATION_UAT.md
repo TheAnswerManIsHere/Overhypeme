@@ -25,16 +25,7 @@ Four admin endpoints now check their input:
 
 ## Steps
 
-### 1. Video styles still work
-
-**Do:** Edit a video style, upload a preview GIF, and save.
-
-**Expect:** it still saves and shows the preview. (The id restriction
-only blocks malformed ids you'd never type by hand.)
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — Video Styles are on the cut list and the admin screen is deleted there
+_Step 1 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 
 ### 2. Paste-list fact import still works
 
@@ -101,15 +92,7 @@ email (e.g. `notanemail`).
 
 ## Regression
 
-### R1. Upload a preview GIF to a video style
-
-**Do:** Upload a preview GIF to a video style and save.
-
-**Expect:** saves, preview shows (as today).
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — Video Styles are on the cut list and the admin screen is deleted there
+_Step R1 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 
 ### R2. Import a normal batch of facts
 

@@ -1,10 +1,12 @@
 import { pgTable, varchar, text, integer, boolean, jsonb, timestamp, numeric, index } from "drizzle-orm/pg-core";
 
 /**
- * Generative engines (image, video, utility) the platform can call via fal.ai.
+ * Generative engines (image, utility, llm) the platform can call. (The video
+ * kind went with video in launch Phase 4; its duration/mode/audio columns
+ * remain, a removal-11 candidate on #744.)
  *
- * Replaces the scattered admin_config strings + hardcoded `buildFalInput`
- * switch the legacy video route used. Each row carries:
+ * Replaces the scattered admin_config strings + a hardcoded `buildFalInput`
+ * switch. Each row carries:
  *   - identity (id, endpoint, provider)
  *   - capability metadata (kind, allowed options, supported modes)
  *   - audio handling strategy (per the engine's actual interface)
@@ -27,9 +29,9 @@ export const enginesTable = pgTable("engines", {
   label: varchar("label", { length: 128 }).notNull(),
   /** Short blurb shown to power users in the engine selector. */
   description: text("description").notNull().default(""),
-  /** "image" = stylization (PuLID family). "video" = image-to-video. "utility" = subtitle, classifier, etc. */
+  /** "image" = generation/stylization. "utility" = classifier, etc. "llm" = text. */
   kind: varchar("kind", { length: 16 }).notNull(),
-  /** Tier required to USE this engine in the wizard. "legendary" gates the entire video flow today; "free"/"registered" reserved for future. */
+  /** Tier required to USE this engine in the wizard. "legendary" is the default; "free"/"registered" reserved for future. */
   tierRequirement: varchar("tier_requirement", { length: 32 }).notNull().default("legendary"),
   /** When true this engine is the wizard default for its kind. Exactly one default per kind is enforced at the application layer. */
   isDefault: boolean("is_default").notNull().default(false),
@@ -38,8 +40,8 @@ export const enginesTable = pgTable("engines", {
   /** Sort order for selectors. Lower = first. */
   sortOrder: integer("sort_order").notNull().default(0),
   /**
-   * Allowed video lengths in seconds. JSONB int[]. Example: [4, 6, 8] for Veo Lite,
-   * [3, 5, 8, 10, 15] for Kling. Null/empty for non-video engines.
+   * Allowed output lengths in seconds, JSONB int[]. Only the video engines
+   * (deleted in launch Phase 4) set it; null for every engine today.
    */
   allowedDurationsSec: jsonb("allowed_durations_sec"),
   /** Default duration in seconds (must appear in allowed_durations_sec when present). */
@@ -116,15 +118,16 @@ export const enginesTable = pgTable("engines", {
   /**
    * Power-user feature flag gate. When non-null, the engine is only visible in
    * the wizard's engine selector to users who have this feature flag enabled.
-   * Today this is just "engine_experiments" for all non-default video engines.
+   * It was "engine_experiments" for the non-default video engines, which went
+   * with video; no catalogue engine sets it today.
    */
   featureFlagRequired: varchar("feature_flag_required", { length: 64 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   /**
    * Soft-delete tombstone. NULL = live; non-NULL = archived. The admin UI
-   * keeps archived engines visible under a separate "Archived" tab so we
-   * preserve `video_jobs.video_engine_id` FK lineage without losing the
+   * keeps archived engines visible under a separate "Archived" tab so
+   * historical references to an engine id keep resolving without losing the
    * row entirely. Code-side reconciliation respects the tombstone — an
    * engine you've archived stays archived even if its definition still
    * exists in code.

@@ -16,7 +16,7 @@
 
 Overhype.me is a **personalized impossible-facts platform**: a community-driven
 database of exaggerated, Chuck-Norris-style boasts that render with *your* name
-and pronouns and turn into shareable image and video memes starring you. A fact
+and pronouns and turn into shareable image memes starring you. A fact
 is authored once as a tokenized template — e.g.
 `When {NAME} {laughs|laugh}, the earth cries.` — and rendered on demand for any
 name/pronoun set, so the same fact reads naturally about "David" (he/him),
@@ -29,7 +29,7 @@ the site instantly becomes about you; no account required to browse.
 personalizes.** A visitor sets a name and sees personalized facts; a registered
 user submits their own fact; a human moderator triages, enriches, and approves it
 into a live fact with an authored visual concept; the fact renders into an image
-or video meme; the shared meme pulls the next visitor back into the loop. A large
+meme; the shared meme pulls the next visitor back into the loop. A large
 catalogue of great-rendering, personalizable facts is the fuel the loop runs on.
 
 ## Brand and tone
@@ -61,8 +61,8 @@ Facts become media through a multi-stage, human-supervised pipeline:
   Free users get **photo memes** (their own face composited onto scenes);
   **Legendary** subscribers unlock **AI image memes** (their face in impossible
   scenes).
-- **Video memes** — a multi-stage pipeline (identity stylization → image-to-video
-  → caption burn-in); Legendary only.
+- **Video memes** were deleted in launch Phase 4, to be rebuilt after launch on
+  the image pipeline (ledger [`docs/retired/README.md`](../retired/README.md)).
 
 See [`visual-pipeline.md`](./visual-pipeline.md). AI **classification**
 (archetype, taxonomy) is separate from image generation — see
@@ -84,8 +84,7 @@ Two user-facing tiers gate on **per-use cost**, not a credit balance:
 
 - **Free** — everything that doesn't cost per-render money: browse, personalize,
   submit facts, comment, vote, and **photo** memes (your face on templates).
-- **Legendary** — the paid per-render surfaces: **AI image memes** and **AI video
-  memes**. Plans are monthly, annual, and a one-time lifetime ("Legendary for
+- **Legendary** — the paid per-render surface: **AI image memes**. Plans are monthly, annual, and a one-time lifetime ("Legendary for
   Life"), fetched live from Stripe. There are **no consumer "credits"**; server-side
   budget/spend caps gate generation cost.
 

@@ -1,23 +1,22 @@
 /**
- * MBFO wizard shell. Full-screen takeover with a top progress bar, two
- * sliding step containers, and (on Step 2) a sticky-bottom primary action.
+ * MBFO wizard shell. Full-screen takeover with a top bar and the image
+ * builder (`Step2Image`) with its sticky-bottom primary action.
  *
- * Subsequent MBFO sessions fill in the step internals; this file owns
- * navigation, sessionStorage hydration via useWizardState, and the
+ * The wizard once opened on an artifact-type step (image or video); video was
+ * cut in launch Phase 4, so it opens directly on the image builder. This file
+ * owns sessionStorage hydration via useWizardState and the
  * onComplete/onCancel contract to the parent.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback } from "react";
 import type { BuilderResult, EntryFlow, ViewerContext } from "../types";
 import { WizardTopBar } from "./WizardTopBar";
-import { WizardStepContainer } from "./WizardStepContainer";
-import { Step1ArtifactType } from "./steps/Step1ArtifactType";
-import { Step2BackgroundAndText } from "./steps/Step2BackgroundAndText";
+import { Step2Image } from "./step2-image/Step2Image";
 import { useWizardState } from "./state/useWizardState";
 
 export interface MemeBuilderWizardProps {
   factId: string;
-  /** Token-laden fact text — passed through to Step 2 internals in MBFO-3/4. */
+  /** Token-laden fact text — passed through to the image builder. */
   factText: string;
   viewerContext: ViewerContext;
   entryFlow: EntryFlow;
@@ -45,35 +44,6 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
     initialPronouns,
   });
 
-  // Direction tracks whether the most recent transition was forward or back,
-  // which feeds the slide animation. Updated by callers, not derived from
-  // step number alone (so a "back" from step 2 → 1 animates correctly).
-  const [direction, setDirection] = useState<"forward" | "back">("forward");
-  const lastStepRef = useRef(state.currentStep);
-  if (lastStepRef.current !== state.currentStep) {
-    // Catch hydrate-from-storage transitions: if storage restored step 2 on
-    // mount, treat as a "forward" entry (no animation flicker either way).
-    lastStepRef.current = state.currentStep;
-  }
-
-  const handleSelectArtifactType = useCallback(
-    (artifactType: "image" | "video") => {
-      setDirection("forward");
-      dispatch({ type: "select-artifact-type", artifactType });
-    },
-    [dispatch],
-  );
-
-  const handleBack = useCallback(() => {
-    if (state.currentStep === 2) {
-      setDirection("back");
-      dispatch({ type: "back" });
-      return;
-    }
-    // On Step 1, back arrow is hidden — but if invoked, treat as cancel.
-    onCancel();
-  }, [state.currentStep, dispatch, onCancel]);
-
   const handleClose = useCallback(() => {
     // MBFO-1 does not prompt-to-discard; the next session adds a
     // confirm-discard toast/dialog when there's unsaved input.
@@ -88,53 +58,32 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
       aria-label="Meme builder"
       data-testid="meme-builder-wizard"
     >
-      <WizardTopBar
-        currentStep={state.currentStep}
-        onBack={handleBack}
-        onClose={handleClose}
-      />
+      <WizardTopBar onClose={handleClose} />
 
-      <div className="absolute inset-0 pt-[calc(env(safe-area-inset-top)+48px+3px)]">
-        <WizardStepContainer currentStep={state.currentStep} direction={direction}>
-          {state.currentStep === 1 ? (
-            <Step1ArtifactType
-              selected={state.artifactType}
-              onSelect={handleSelectArtifactType}
-              // `ANONYMOUS_PRINCIPAL` shares the `unregistered` grid tier with
-              // logged-out visitors, so a grant there resolves the same for
-              // both. `POST /memes/video-jobs` requires auth regardless, so
-              // without this the anonymous case is a tappable dead end —
-              // round 5 of PR #425's review. `userId` is the identity signal
-              // the grid deliberately doesn't carry.
-              canVideoGeneration={
-                !!viewerContext.userId &&
-                viewerContext.entitlements?.["video_generation"]?.allowed === true
-              }
-            />
-          ) : (
-            <Step2BackgroundAndText
-              artifactType={state.artifactType}
+      <div className="absolute inset-0 pt-[calc(env(safe-area-inset-top)+48px)]">
+        <div className="relative w-full h-full overflow-hidden">
+          <div className="absolute inset-0 overflow-y-auto overscroll-y-none">
+            <Step2Image
               factId={factId}
               factText={factText}
               viewerContext={viewerContext}
               state={state}
               dispatch={dispatch}
-              onComplete={(permalinkUrl) => {
+              onSaved={(result) => {
                 clearDraft();
                 onComplete({
                   kind: "saved",
                   // The wizard never resolves the memeId synchronously from
                   // the takeover; the permalink is the canonical handle.
                   memeId: "",
-                  permalinkUrl,
+                  permalinkUrl: result.permalinkUrl,
                 });
               }}
-              onCancel={onCancel}
+              onRequestSignup={onCancel}
             />
-          )}
-        </WizardStepContainer>
+          </div>
+        </div>
       </div>
-
     </div>
   );
 }

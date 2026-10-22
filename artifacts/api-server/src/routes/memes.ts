@@ -285,9 +285,8 @@ router.post("/memes", async (req: Request, res: Response) => {
   // Source-specific validation: catch unknown template IDs before the shared
   // creator does anything expensive. The remainder of validation, idempotency,
   // daily-cap enforcement, NSFW classification, slug allocation, and the row
-  // insert all live inside createMemeRecord — keeping this route a thin
-  // delegate ensures the async video pipeline (which calls createMemeRecord
-  // directly) goes through the exact same path 1:1.
+  // insert all live inside createMemeRecord, keeping this route a thin
+  // delegate.
   if (parsed.data.imageSource.type === "template") {
     const templateSrc = parsed.data.imageSource;
     const valid = MEME_TEMPLATES.find(t => t.id === templateSrc.templateId);
@@ -438,8 +437,6 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     isNsfw: meme.isNsfw ?? false,
     imageTransform: meme.imageTransform ?? null,
     imageSource: meme.imageSource ?? null,
-    artifactType: meme.artifactType ?? "image",
-    videoUrl: meme.videoObjectPath ? `/api/storage${meme.videoObjectPath}` : null,
   });
 });
 
@@ -574,8 +571,8 @@ router.get("/memes/ai-user/image", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid storagePath" }); return;
   }
 
-  // Verify ownership — shared with the video generator so both authorize AI
-  // reference images identically (see lib/objectAccess.ts).
+  // Verify ownership — the shared AI-reference ownership check
+  // (see lib/objectAccess.ts).
   if (!(await userOwnsAiReferenceImage(req.user.id, storagePath))) {
     res.status(403).json({ error: "Image not found or not owned by you" }); return;
   }

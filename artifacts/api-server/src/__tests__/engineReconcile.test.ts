@@ -73,35 +73,35 @@ describe("reconcileEngines", () => {
   });
 
   it("preserves admin-edited isActive across reconciliations", async () => {
-    // Toggle isActive on the default Veo Lite engine.
+    // Toggle isActive on the default Nano Banana Pro engine.
     await db
       .update(enginesTable)
       .set({ isActive: false })
-      .where(eq(enginesTable.id, "veo-3.1-lite"));
+      .where(eq(enginesTable.id, "nano-banana-pro"));
 
     await reconcileEngines();
 
     const [row] = await db
       .select({ isActive: enginesTable.isActive })
       .from(enginesTable)
-      .where(eq(enginesTable.id, "veo-3.1-lite"));
+      .where(eq(enginesTable.id, "nano-banana-pro"));
     assert.equal(row?.isActive, false, "admin edit to isActive should survive reconciliation");
   });
 
   it("preserves admin-edited defaultResolution across reconciliations", async () => {
-    // Pretend an admin bumped Grok's default resolution to 720p.
+    // Pretend an admin bumped Nano Banana Pro's default resolution to 2K.
     await db
       .update(enginesTable)
-      .set({ defaultResolution: "720p" })
-      .where(eq(enginesTable.id, "grok-imagine"));
+      .set({ defaultResolution: "2K" })
+      .where(eq(enginesTable.id, "nano-banana-pro"));
 
     await reconcileEngines();
 
     const [row] = await db
       .select({ defaultResolution: enginesTable.defaultResolution })
       .from(enginesTable)
-      .where(eq(enginesTable.id, "grok-imagine"));
-    assert.equal(row?.defaultResolution, "720p");
+      .where(eq(enginesTable.id, "nano-banana-pro"));
+    assert.equal(row?.defaultResolution, "2K");
   });
 
   it("overwrites paramSchema even when admin tunables are preserved", async () => {
@@ -109,22 +109,19 @@ describe("reconcileEngines", () => {
     await db
       .update(enginesTable)
       .set({ paramSchema: { params: [{ name: "garbage", from: "garbage", type: "string" }] } })
-      .where(eq(enginesTable.id, "veo-3.1-lite"));
+      .where(eq(enginesTable.id, "nano-banana-pro"));
 
     await reconcileEngines();
 
     const [row] = await db
       .select({ paramSchema: enginesTable.paramSchema })
       .from(enginesTable)
-      .where(eq(enginesTable.id, "veo-3.1-lite"));
+      .where(eq(enginesTable.id, "nano-banana-pro"));
     const schema = row?.paramSchema as { params?: Array<{ name: string }> } | null;
     assert.ok(schema?.params, "paramSchema should be present after reconciliation");
     const names = schema.params.map((p) => p.name);
-    assert.ok(names.includes("image_url"), "code paramSchema overwrote drifted DB version");
+    assert.ok(names.includes("image_urls"), "code paramSchema overwrote drifted DB version");
     assert.ok(!names.includes("garbage"), "drifted entry was removed");
-    // Lite now DOES emit generate_audio per current fal docs (May 2026).
-    // See note in engineInterpreter.test.ts — flip back if 422s return.
-    assert.ok(names.includes("generate_audio"), "Veo Lite paramSchema must include generate_audio per fal docs");
   });
 
   it("preserves the deletedAt tombstone across reconciliations", async () => {
@@ -132,15 +129,15 @@ describe("reconcileEngines", () => {
     await db
       .update(enginesTable)
       .set({ deletedAt: now })
-      .where(eq(enginesTable.id, "grok-imagine"));
+      .where(eq(enginesTable.id, "flux-2-pro"));
 
     const result = await reconcileEngines();
-    assert.ok(result.preservedSoftDeleted.includes("grok-imagine"));
+    assert.ok(result.preservedSoftDeleted.includes("flux-2-pro"));
 
     const [row] = await db
       .select({ deletedAt: enginesTable.deletedAt })
       .from(enginesTable)
-      .where(eq(enginesTable.id, "grok-imagine"));
+      .where(eq(enginesTable.id, "flux-2-pro"));
     assert.ok(row?.deletedAt instanceof Date);
   });
 
@@ -153,7 +150,7 @@ describe("reconcileEngines", () => {
         deletedAt: new Date(),
         paramSchema: { params: [{ name: "stale", from: "stale", type: "string" }] },
       })
-      .where(eq(enginesTable.id, "kling-v3-standard"));
+      .where(eq(enginesTable.id, "flux-2-pro"));
 
     await reconcileEngines();
 
@@ -163,12 +160,12 @@ describe("reconcileEngines", () => {
         deletedAt: enginesTable.deletedAt,
       })
       .from(enginesTable)
-      .where(eq(enginesTable.id, "kling-v3-standard"));
+      .where(eq(enginesTable.id, "flux-2-pro"));
     const schema = row?.paramSchema as { params?: Array<{ name: string }> } | null;
     const names = schema?.params?.map((p) => p.name) ?? [];
-    // Kling v3 uses start_image_url (not image_url) — the rename is the
+    // FLUX.2 Pro sizes by image_size (not aspect_ratio) — the field is the
     // canary that the production schema was actually re-applied.
-    assert.ok(names.includes("start_image_url"), "schema was refreshed on tombstoned row");
+    assert.ok(names.includes("image_size"), "schema was refreshed on tombstoned row");
     assert.ok(row?.deletedAt != null, "tombstone preserved");
   });
 

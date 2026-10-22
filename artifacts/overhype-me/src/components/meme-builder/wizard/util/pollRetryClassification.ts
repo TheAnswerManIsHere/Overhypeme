@@ -1,6 +1,6 @@
 /**
  * Shared retry classification for the wizard's job-polling loops
- * (step2-video's GodModeLoadingTakeover, step2-image's PulidLoadingTakeover).
+ * (step2-image's PulidLoadingTakeover).
  *
  * The API's global rate limiter (see artifacts/api-server/src/lib/rateLimit.ts)
  * gives these polling loops their first-ever 429 path — until now a non-OK

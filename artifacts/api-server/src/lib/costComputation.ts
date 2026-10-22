@@ -23,67 +23,11 @@ export function resolveImageSizePx(imageSize: string): { width: number; height: 
   return IMAGE_SIZE_MAP[imageSize] ?? { width: 1024, height: 1024 };
 }
 
-// ─── Aspect ratio + resolution → pixel dimensions ──────────────────────────────
-
-const ASPECT_RATIO_AT_720P: Record<string, { width: number; height: number }> = {
-  "16:9":  { width: 1280, height: 720  },
-  "9:16":  { width: 720,  height: 1280 },
-  "1:1":   { width: 720,  height: 720  },
-  "4:3":   { width: 960,  height: 720  },
-  "3:4":   { width: 720,  height: 960  },
-  "3:2":   { width: 1080, height: 720  },
-  "2:3":   { width: 720,  height: 1080 },
-  "21:9":  { width: 1680, height: 720  },
-};
-
-/**
- * Resolve video dimensions from aspect ratio + resolution string.
- * Falls back to 720p 16:9 (1280×720) if unknown.
- */
-export function resolveVideoDimensions(
-  aspectRatio: string,
-  resolution: string,
-): { width: number; height: number } {
-  const base = ASPECT_RATIO_AT_720P[aspectRatio] ?? { width: 1280, height: 720 };
-  if (resolution === "480p") {
-    // Scale down proportionally from 720p base
-    const scale = 480 / 720;
-    return {
-      width: Math.round(base.width * scale),
-      height: Math.round(base.height * scale),
-    };
-  }
-  return base; // 720p
-}
-
-// ─── Video cost ─────────────────────────────────────────────────────────────────
-
-export interface VideoParams {
-  width: number;
-  height: number;
-  fps: number;
-  durationSeconds: number;
-}
+// ─── Cost result ───────────────────────────────────────────────────────────────
 
 export interface CostResult {
   billingUnits: number;
   costUsd: number;
-}
-
-/**
- * Compute video generation cost.
- *
- * Formula (per fal.ai video token pricing):
- *   tokens = (width × height × fps × durationSeconds) / 1024
- *   costUsd = (tokens / 1_000_000) × unitPrice
- *
- * unitPrice from the pricing cache is per 1M video tokens.
- */
-export function computeVideoCost(params: VideoParams, cachedPrice: CachedPrice): CostResult {
-  const { width, height, fps, durationSeconds } = params;
-  const tokens = (width * height * fps * durationSeconds) / 1024;
-  const costUsd = (tokens / 1_000_000) * cachedPrice.unitPrice;
-  return { billingUnits: tokens, costUsd };
 }
 
 // ─── Image cost ─────────────────────────────────────────────────────────────────

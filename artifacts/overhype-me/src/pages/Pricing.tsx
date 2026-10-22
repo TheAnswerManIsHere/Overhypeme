@@ -3,12 +3,12 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, Sparkles, Clapperboard, UserCircle, Crown, CalendarDays } from "lucide-react";
+import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, Sparkles, UserCircle, Crown, CalendarDays } from "lucide-react";
 import { selectPlanPrices, type StripePlan } from "./pricingPlans";
 
 // Pricing framing: "cost-as-gate"
 //   Free  = anything that doesn't cost us money to run for you
-//   Legendary = the AI work that costs real money per generation (image + video memes of YOU)
+//   Legendary = the AI work that costs real money per generation (AI memes of YOU)
 const FREE_FEATURES = [
   { icon: <Check className="w-4 h-4" />,         text: "Browse all Facts" },
   { icon: <ThumbsUp className="w-4 h-4" />,      text: "Vote on Facts" },
@@ -23,7 +23,6 @@ const FREE_FEATURES = [
 const LEGENDARY_FEATURES = [
   { icon: <Check className="w-4 h-4" />,        text: "Everything in Free" },
   { icon: <Sparkles className="w-4 h-4" />,     text: "AI Memes of You in impossible scenarios" },
-  { icon: <Clapperboard className="w-4 h-4" />, text: "AI Video Memes of You" },
   { icon: <ShieldOff className="w-4 h-4" />,    text: "No CAPTCHAs" },
   { icon: <CalendarDays className="w-4 h-4" />, text: "Fact of the Day email" },
 ];
@@ -151,7 +150,7 @@ export default function Pricing() {
             AI generates a scene where you literally star in the fact. Not just your name — you, dramatized.
           </p>
           <p className="text-[12px] text-muted-foreground/80 mb-10 leading-relaxed max-w-sm italic">
-            Free covers everything that doesn't cost us money. Legendary covers the AI image &amp; video generations of you — that part has a real per-render cost.
+            Free covers everything that doesn't cost us money. Legendary covers the AI image generations of you — that part has a real per-render cost.
           </p>
 
           {/* AI vibe cards */}
@@ -281,7 +280,7 @@ export default function Pricing() {
             <h1 className="text-2xl font-display uppercase tracking-widest text-foreground">Go Legendary</h1>
           </div>
           <p className="text-sm text-muted-foreground max-w-xl mx-auto leading-snug">
-            AI memes &amp; AI video memes <span className="text-foreground font-semibold">of you</span>.
+            AI memes <span className="text-foreground font-semibold">of you</span>.
           </p>
           <p className="text-[11px] text-muted-foreground/80 max-w-xs mx-auto mt-2 italic leading-snug">
             Free covers everything that doesn't cost us money. Legendary covers the AI generations of you.

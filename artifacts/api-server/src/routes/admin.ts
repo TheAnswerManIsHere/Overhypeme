@@ -1,9 +1,8 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -133,8 +132,6 @@ import { getGovernanceAdminView } from "../lib/resourceGovernance";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import { logger } from "../lib/logger";
 import { stripeDriver } from "../lib/stripeDriver.js";
-
-const _styleStorage = new ObjectStorageService();
 
 /**
  * The human-readable label an admin action is attributed by.
@@ -678,7 +675,6 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       await db.execute(sql`UPDATE external_links SET added_by_id = NULL WHERE added_by_id = ${id}`);
       await db.execute(sql`UPDATE pending_reviews SET submitted_by_id = NULL WHERE submitted_by_id = ${id}`);
       await db.execute(sql`UPDATE pending_reviews SET reviewed_by_id = NULL WHERE reviewed_by_id = ${id}`);
-      await db.execute(sql`UPDATE video_jobs SET user_id = NULL WHERE user_id = ${id}`);
 
       // Step 5: Delete the user row — DB cascades handle sessions (via sessions.user_id FK),
       //         user_ai_images, user_fact_preferences, ratings, search_history, email/password tokens
@@ -3165,132 +3161,6 @@ router.post(
     });
   },
 );
-
-// ─── Video Styles ─────────────────────────────────────────────────────────────
-
-router.get("/admin/video-styles", requireAdmin, async (_req: Request, res: Response) => {
-  const styles = await db
-    .select()
-    .from(motionPresetsTable)
-    .orderBy(asc(motionPresetsTable.sortOrder), asc(motionPresetsTable.id));
-  res.json(styles);
-});
-
-router.post("/admin/video-styles", requireAdmin, async (req: Request, res: Response) => {
-  const body = req.body as Record<string, unknown>;
-  const id = String(body.id ?? "").trim();
-  if (!id) { res.status(400).json({ error: "id is required" }); return; }
-  const label = String(body.label ?? "").trim();
-  if (!label) { res.status(400).json({ error: "label is required" }); return; }
-
-  const [created] = await db
-    .insert(motionPresetsTable)
-    .values({
-      id,
-      label,
-      description: String(body.description ?? ""),
-      motionPrompt: String(body.motionPrompt ?? ""),
-      gradientFrom: String(body.gradientFrom ?? "#000000"),
-      gradientTo: String(body.gradientTo ?? "#333333"),
-      sortOrder: typeof body.sortOrder === "number" ? body.sortOrder : 0,
-      isActive: body.isActive !== false,
-    })
-    .returning();
-  res.status(201).json(created);
-});
-
-router.patch("/admin/video-styles/:id", requireAdmin, async (req: Request, res: Response) => {
-  const id = String(req.params["id"]);
-  const body = req.body as Record<string, unknown>;
-
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
-  if (body.label !== undefined)       updates.label        = String(body.label);
-  if (body.description !== undefined) updates.description  = String(body.description);
-  if (body.motionPrompt !== undefined) updates.motionPrompt = String(body.motionPrompt);
-  if (body.gradientFrom !== undefined) updates.gradientFrom = String(body.gradientFrom);
-  if (body.gradientTo !== undefined)   updates.gradientTo   = String(body.gradientTo);
-  if (body.sortOrder !== undefined)    updates.sortOrder    = Number(body.sortOrder);
-  if (body.isActive !== undefined)     updates.isActive     = Boolean(body.isActive);
-
-  const [updated] = await db
-    .update(motionPresetsTable)
-    .set(updates)
-    .where(eq(motionPresetsTable.id, id))
-    .returning();
-
-  if (!updated) { res.status(404).json({ error: "Style not found" }); return; }
-  res.json(updated);
-});
-
-export const PreviewGifBody = z.object({ base64: z.string().trim().min(1).max(7_000_000) }); // ~5 MB decoded
-
-// The `:id` is the motion-preset PK and gets interpolated into a storage object
-// key, so it MUST NOT be able to escape the prefix (`id=../../x` → path
-// traversal). Rather than REJECT non-slug ids — which would orphan a legacy
-// style whose id isn't a strict slug (`My.Style`, `foo bar`), leaving it unable
-// to ever receive a preview — derive a deterministic, traversal-safe key:
-// unsafe chars are replaced and a short hash of the REAL id keeps distinct ids
-// from colliding. The DB row is still matched on the real id and the resolved
-// path is persisted, so retrieval/delete are unaffected.
-export function safeStylePreviewKey(id: string): string {
-  const slug = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "style";
-  const hash = createHash("sha256").update(id).digest("hex").slice(0, 8);
-  return `video_style_previews/${slug}-${hash}.gif`;
-}
-
-router.post("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Request, res: Response) => {
-  const id = String(req.params["id"] ?? "");
-  if (!id) { res.status(400).json({ error: "style id required" }); return; }
-  const bodyParsed = PreviewGifBody.safeParse(req.body);
-  if (!bodyParsed.success) { res.status(400).json({ error: "Invalid input", details: bodyParsed.error.flatten() }); return; }
-  const base64 = bodyParsed.data.base64;
-
-  const buf = Buffer.from(base64, "base64");
-  const subPath = safeStylePreviewKey(id);
-  const storedPath = await _styleStorage.uploadObjectBuffer({
-    subPath,
-    buffer: buf,
-    contentType: "image/gif",
-  });
-
-  try {
-    await _styleStorage.trySetObjectEntityAclPolicy(storedPath, { owner: "system", visibility: "public" });
-  } catch { /* non-fatal */ }
-
-  const [updated] = await db
-    .update(motionPresetsTable)
-    .set({ previewGifPath: storedPath, updatedAt: new Date() })
-    .where(eq(motionPresetsTable.id, id))
-    .returning();
-
-  if (!updated) { res.status(404).json({ error: "Style not found" }); return; }
-  res.json(updated);
-});
-
-router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Request, res: Response) => {
-  const id = String(req.params["id"]);
-
-  const [style] = await db
-    .select({ previewGifPath: motionPresetsTable.previewGifPath })
-    .from(motionPresetsTable)
-    .where(eq(motionPresetsTable.id, id))
-    .limit(1);
-
-  if (!style) { res.status(404).json({ error: "Style not found" }); return; }
-  if (style.previewGifPath) {
-    try {
-      await _styleStorage.deleteObject(style.previewGifPath);
-    } catch { /* non-fatal */ }
-  }
-
-  const [updated] = await db
-    .update(motionPresetsTable)
-    .set({ previewGifPath: null, updatedAt: new Date() })
-    .where(eq(motionPresetsTable.id, id))
-    .returning();
-
-  res.json(updated);
-});
 
 // ─── Admin Stripe Endpoints ───────────────────────────────────────────────────
 

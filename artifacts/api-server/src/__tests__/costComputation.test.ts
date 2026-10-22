@@ -2,8 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   resolveImageSizePx,
-  resolveVideoDimensions,
-  computeVideoCost,
   computeImageCost,
 } from "../lib/costComputation.js";
 import type { CachedPrice } from "../lib/falPricing.js";
@@ -48,116 +46,6 @@ describe("resolveImageSizePx", () => {
 
   it("falls back to 1024×1024 for an empty string", () => {
     assert.deepEqual(resolveImageSizePx(""), { width: 1024, height: 1024 });
-  });
-});
-
-describe("resolveVideoDimensions at 720p", () => {
-  const cases: Array<[string, { width: number; height: number }]> = [
-    ["16:9", { width: 1280, height: 720 }],
-    ["9:16", { width: 720, height: 1280 }],
-    ["1:1", { width: 720, height: 720 }],
-    ["4:3", { width: 960, height: 720 }],
-    ["3:4", { width: 720, height: 960 }],
-    ["3:2", { width: 1080, height: 720 }],
-    ["2:3", { width: 720, height: 1080 }],
-    ["21:9", { width: 1680, height: 720 }],
-  ];
-
-  for (const [aspect, expected] of cases) {
-    it(`returns ${expected.width}×${expected.height} for ${aspect}`, () => {
-      assert.deepEqual(resolveVideoDimensions(aspect, "720p"), expected);
-    });
-  }
-
-  it("falls back to 1280×720 for an unknown aspect ratio", () => {
-    assert.deepEqual(resolveVideoDimensions("99:1", "720p"), { width: 1280, height: 720 });
-  });
-
-  it("treats an unknown resolution as 720p (no scaling applied)", () => {
-    assert.deepEqual(resolveVideoDimensions("16:9", "1080p"), { width: 1280, height: 720 });
-  });
-});
-
-describe("resolveVideoDimensions at 480p", () => {
-  it("scales 16:9 720p proportionally to 480p (853×480)", () => {
-    // 1280 * (480/720) = 853.33 → round to 853
-    // 720  * (480/720) = 480
-    assert.deepEqual(resolveVideoDimensions("16:9", "480p"), { width: 853, height: 480 });
-  });
-
-  it("scales 1:1 720p to 480×480", () => {
-    assert.deepEqual(resolveVideoDimensions("1:1", "480p"), { width: 480, height: 480 });
-  });
-
-  it("scales 9:16 720p to 480×853", () => {
-    assert.deepEqual(resolveVideoDimensions("9:16", "480p"), { width: 480, height: 853 });
-  });
-
-  it("scales 4:3 720p to 640×480", () => {
-    assert.deepEqual(resolveVideoDimensions("4:3", "480p"), { width: 640, height: 480 });
-  });
-
-  it("scales 21:9 720p to 1120×480", () => {
-    assert.deepEqual(resolveVideoDimensions("21:9", "480p"), { width: 1120, height: 480 });
-  });
-
-  it("scales the fallback 1280×720 to 853×480 when aspect ratio is unknown", () => {
-    assert.deepEqual(resolveVideoDimensions("bogus", "480p"), { width: 853, height: 480 });
-  });
-});
-
-describe("computeVideoCost", () => {
-  const price: CachedPrice = { unitPrice: 1.0, unit: "video_token", fetchedAt: FETCHED_AT };
-
-  it("returns the formula tokens = w*h*fps*sec/1024 and cost = (tokens/1M)*unitPrice", () => {
-    // 1280 * 720 * 24 * 5 / 1024 = 108_000 tokens
-    // (108_000 / 1_000_000) * 1.0 = 0.108 USD
-    const result = computeVideoCost(
-      { width: 1280, height: 720, fps: 24, durationSeconds: 5 },
-      price,
-    );
-    assert.equal(result.billingUnits, 108_000);
-    assertClose(result.costUsd, 0.108);
-  });
-
-  it("scales linearly with unitPrice", () => {
-    const result = computeVideoCost(
-      { width: 1280, height: 720, fps: 24, durationSeconds: 5 },
-      { ...price, unitPrice: 2.5 },
-    );
-    assert.equal(result.billingUnits, 108_000);
-    assertClose(result.costUsd, 0.27);
-  });
-
-  it("returns zero cost when duration is zero", () => {
-    const result = computeVideoCost(
-      { width: 1280, height: 720, fps: 24, durationSeconds: 0 },
-      price,
-    );
-    assert.equal(result.billingUnits, 0);
-    assert.equal(result.costUsd, 0);
-  });
-
-  it("returns zero cost when unitPrice is zero", () => {
-    const result = computeVideoCost(
-      { width: 1280, height: 720, fps: 24, durationSeconds: 5 },
-      { ...price, unitPrice: 0 },
-    );
-    assert.equal(result.billingUnits, 108_000);
-    assert.equal(result.costUsd, 0);
-  });
-
-  it("doubles cost when duration doubles", () => {
-    const a = computeVideoCost(
-      { width: 1280, height: 720, fps: 24, durationSeconds: 5 },
-      price,
-    );
-    const b = computeVideoCost(
-      { width: 1280, height: 720, fps: 24, durationSeconds: 10 },
-      price,
-    );
-    assertClose(b.costUsd, a.costUsd * 2);
-    assert.equal(b.billingUnits, a.billingUnits * 2);
   });
 });
 

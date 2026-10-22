@@ -1553,7 +1553,7 @@ export default function AdminFacts() {
 
             {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
                 Edit + autosave the metadata, regenerate the visual preview, or
-                re-run classification to tune a fact rendering bad images/videos.
+                re-run classification to tune a fact rendering bad images.
                 Collapsible; starts closed. */}
             {/* Refresh in review: the live enrichment is frozen (server-enforced);
                 the notice + disabled editor make that visible instead of 409s. */}

@@ -8,7 +8,6 @@
 {"tier":"admin","feature_key":"meme_private_visibility","enabled":true,"updated_at":"2026-08-28T23:29:33.438Z"}
 {"tier":"admin","feature_key":"meme_pulid_stylize","enabled":true,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"admin","feature_key":"meme_rate_limit_high","enabled":true,"updated_at":"2026-08-28T23:29:39.824Z"}
-{"tier":"admin","feature_key":"video_generation","enabled":true,"updated_at":"2026-06-19T17:12:08.787Z"}
 {"tier":"legendary","feature_key":"ads_free","enabled":true,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"legendary","feature_key":"comment_captcha_bypass","enabled":true,"updated_at":"2026-08-28T23:28:59.725Z"}
 {"tier":"legendary","feature_key":"custom_avatar","enabled":true,"updated_at":"2026-08-14T05:29:11.357Z"}
@@ -19,7 +18,6 @@
 {"tier":"legendary","feature_key":"meme_private_visibility","enabled":true,"updated_at":"2026-08-28T23:29:32.793Z"}
 {"tier":"legendary","feature_key":"meme_pulid_stylize","enabled":true,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"legendary","feature_key":"meme_rate_limit_high","enabled":true,"updated_at":"2026-08-28T23:29:38.429Z"}
-{"tier":"legendary","feature_key":"video_generation","enabled":true,"updated_at":"2026-06-19T17:12:08.787Z"}
 {"tier":"registered","feature_key":"ads_free","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"registered","feature_key":"comment_captcha_bypass","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"registered","feature_key":"custom_avatar","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
@@ -29,7 +27,6 @@
 {"tier":"registered","feature_key":"meme_private_visibility","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"registered","feature_key":"meme_pulid_stylize","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"registered","feature_key":"meme_rate_limit_high","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
-{"tier":"registered","feature_key":"video_generation","enabled":false,"updated_at":"2026-06-19T17:12:08.787Z"}
 {"tier":"unregistered","feature_key":"ads_free","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"unregistered","feature_key":"comment_captcha_bypass","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"unregistered","feature_key":"custom_avatar","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
@@ -39,4 +36,3 @@
 {"tier":"unregistered","feature_key":"meme_private_visibility","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"unregistered","feature_key":"meme_pulid_stylize","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
 {"tier":"unregistered","feature_key":"meme_rate_limit_high","enabled":false,"updated_at":"2026-08-14T05:29:11.357Z"}
-{"tier":"unregistered","feature_key":"video_generation","enabled":false,"updated_at":"2026-06-19T17:12:08.787Z"}

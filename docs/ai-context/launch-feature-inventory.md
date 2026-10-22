@@ -28,7 +28,7 @@ routes, delete, git keeps it) · **your call**.
 | A6 | Fact feed grid | 20 facts, newest/top, hashtag filter; no pagination | doc | ship; pagination is `next` (irrelevant at 44 facts) |
 | A7 | Hashtag rail + Trending strip | Browse by tag | doc | ship, verify |
 | A8 | Standalone `/hashtags` page | Dead: redirects home; page file unreachable | code | cut (delete file) |
-| A9 | Fact detail page (image/video tabs, Top/Newest meme sort) | The fact page | doc; UATs | ship; video tab follows the video decision |
+| A9 | Fact detail page (image/video tabs, Top/Newest meme sort) | The fact page | doc; UATs | ship; video tab follows the video decision. *Video tab, gallery and Images/Videos filter deleted 2026-10-22 with video (Phase 4, removal 2; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A10 | Related facts | Related facts on the detail page | indirect tests only | ship, verify |
 | A11 | Community memes on a fact | Public memes made for a fact | doc | ship, verify |
 | A12 | Search | Substring match, newest-first, `#tag` exact | doc | ship as-is; full-text is `later` |
@@ -36,13 +36,13 @@ routes, delete, git keeps it) · **your call**.
 | A14 | Leaderboard `/top-facts` | All-time by Wilson score; **time-window pills and hashtag pills do nothing** | doc | your call: remove the dead pills and ship all-time (recommended), fix the pills, or cut the page |
 | A15 | Activity feed `/activity` | Signed-in user's contributions + notifications (approve/reject land here) | doc | ship, verify |
 | A16 | Meme permalink `/m/:slug` | Public meme page, image, download; private → 404/410 | 3 unrun UATs; #591 open (private not-found reads as an error) | ship (core); #591 your call now/next |
-| A17 | Video permalink `/video/:id` | Public video page | doc | follows the video decision |
+| A17 | Video permalink `/video/:id` | Public video page | doc | follows the video decision. *Deleted 2026-10-22 with video (Phase 4, removal 2; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A18 | OG preview cards | Meme permalinks only; **#592: og:image "Image not found"** | doc; bug | fix for launch (meme pages); fact-page OG is `next` |
 | A19 | Fact share modal | Copy link + social popups with name/pronouns baked in; **email invite always fails in prod** (#374; allowlist is `example.com`) | doc; bug | ship; your call on the email option: remove it for launch (recommended) or fix it |
 | A20 | Meme share modal (per-platform copy, share intents) | Native share / platform popups / mailto | doc | ship, verify |
 | A21 | Post-create share screen | Platform list, merch teaser, download | doc | ship minus the merch teaser if merch is cut. *Deleted 2026-10-22 with the legacy studio, its only mounter; the wizard sends a saved meme to its permalink, whose share surface is `MemeShareModal` ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
 | A22 | Merch "Wear it" `/wear`, Zazzle export + redirect | Product preview → affiliate redirect; pickers cosmetic; **#598 broken** | doc; bug | cut: remove CTA, route, export, redirect, admin Affiliate page |
-| A23 | Hero example media | Example images in the builder entry step | code only | ship (plumbing) |
+| A23 | Hero example media | Example images in the builder entry step | code only | ship (plumbing). *The entry step and its route went with video (Phase 4, removal 2); the `hero_examples` table has no reader and is a removal-11 orphan candidate (#744)* |
 | A24 | `/library` | Self-view only; no public profiles | doc | see Journey C |
 | A25 | **Legal pages (Terms, Privacy)** | **Do not exist** — no route, page or link | absent | **fix for launch** — a launch gate given payments, photo uploads, email and analytics; David supplies or approves the text |
 | A26 | 404 page | Not-found | code | ship |
