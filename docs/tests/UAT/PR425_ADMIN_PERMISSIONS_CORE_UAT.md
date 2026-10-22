@@ -245,8 +245,8 @@ onboarding and upload a photo.
 
 **Expect:** The upload **succeeds**. No error, no block. (The gate is on
 *selecting* a photo as your avatar, never on uploading one — the photo you
-upload is also the identity photo the meme and video generators use, so
-gating the upload would break free onboarding.)
+upload is also the photo free users make memes with, so gating the upload
+would break free onboarding.)
 
 **Lane:** scripted
 

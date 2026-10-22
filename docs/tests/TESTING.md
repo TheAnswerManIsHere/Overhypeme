@@ -556,9 +556,7 @@ tooling) and this command run the same thing. Journeys 5 and 6 ran the legacy
 meme studio's user AI generate path and were removed on 2026-10-17
 (`docs/ai-context/decisions.md`, *Acceptance journeys 5 and 6 are removed with
 the legacy studio*); the studio itself was deleted in launch Phase 4, and the
-generate route now serves only the meme page's photo-only stylise
-(`docs/ai-context/decisions.md`, *2026-10-22 · The legacy meme studio is
-deleted*):
+generate route went with PuLID (removal 3; ledger `docs/retired/README.md`):
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<a marked test database> \

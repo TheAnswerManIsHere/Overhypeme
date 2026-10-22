@@ -420,10 +420,10 @@ baby, no clones). Age/life-stage transforms (`ageLifeStageTransform`,
 validator enforces mode-appropriate likeness claims (t2i/nonhuman must not claim
 human facial likeness).
 
-**PuLID is NOT on the still-image render path** — it was Stage 1 of the
-*video* pipeline (deleted in launch Phase 4) and now serves only the remix
-builder's photo stylise, until it goes too. Nano Banana 2 edit is the recommended still-image upgrade from
-PuLID.
+**PuLID was never on the still-image render path** — it was Stage 1 of the
+*video* pipeline and then the remix builder's photo stylise, and both went in
+launch Phase 4 (ledger `docs/retired/README.md`; lessons
+`docs/retired/pulid.md`). Nano Banana 2 edit is the recommended successor.
 
 ## Admin preview/debug surfaces (Runtime Compiled Prompt)
 
@@ -442,7 +442,7 @@ Franklin"` / he/him; production uses the real user identity
 **Preview ≠ byte-identical to production** because `IMAGE_PROMPT_TEMPERATURE = 0.4`
 (two live calls word differently). Divergence is **temperature, not caching** —
 previews don't cache and don't read the `aiScenePrompts` blob (that cache serves
-only PuLID/backfill). Making outputs identical needs temp 0 or result-reuse
+only the AI background backfill). Making outputs identical needs temp 0 or result-reuse
 — **ask David first** (see `.agents/memory/image-prompt-preview-parity.md`).
 
 ## Known failure modes
@@ -472,7 +472,8 @@ only PuLID/backfill). Making outputs identical needs temp 0 or result-reuse
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
   path is the **frontier planner (`gpt-5.5`) + Nano Banana 2** (`nano-banana-2` /
   `nano-banana-2-edit`). (The utility LLM — `gpt-6-luna` since it replaced `gpt-4o-mini`
-  on 2026-10-13 — serves utility/Pexels keywords only; FLUX only via `pulid-flux`.)
+  on 2026-10-13 — serves utility/Pexels keywords only; FLUX Pro only on the AI
+  background backfill.)
 - An enrichment-time visual-preview phase (retired; render-time plan/compiler is
   the source of truth).
 - Violence auto-softeners; per-route preview identities; competing prompt channels.

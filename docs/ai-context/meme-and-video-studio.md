@@ -77,10 +77,11 @@ discriminated union, `ImageSourceSchema` (`memeBuilder.ts:77-114`):
 A `"video"` variant, written only by the video pipeline, went with video in
 launch Phase 4; a stored video meme is a soft-deleted row (migration 0103).
 
-An AI-*generated* image background is just a file in object storage — it
-re-enters `createMemeRecord` as an `"upload"`-shaped `imageSource`, same as
-any other upload. (The per-fact AI gallery picker was the legacy studio's and
-was deleted with it.) The `memes.image_transform` column (`"pulid"`,
+An AI-*generated* image background was just a file in object storage — it
+re-entered `createMemeRecord` as an `"upload"`-shaped `imageSource`, same as
+any other upload, which is why the memes built on one still render. (The
+per-fact AI gallery picker was the legacy studio's and was deleted with it;
+the rest went with PuLID.) The `memes.image_transform` column (`"pulid"`,
 `"pulid_fallback_text"`) marked a PuLID-stylized meme; no path has written it
 since PuLID's removal, and the labels stay on old rows as history.
 `templateId` is derived server-side from the source

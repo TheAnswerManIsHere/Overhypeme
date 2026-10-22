@@ -717,8 +717,8 @@ into the `engines` table at boot. Admin owns `isActive`/`isDefault`/pricing.
 ### Meme
 
 The rendered artifact (`memes` table): a fact rendered to an image.
-Free tier = photo memes; Legendary = AI image memes. (Video memes were deleted
-in launch Phase 4; a stored one is a soft-deleted row — ledger
+Every tier makes photo memes. (Video memes and AI image memes were deleted in
+launch Phase 4; a stored video meme is a soft-deleted row — ledger
 [`docs/retired/README.md`](../retired/README.md).)
 → [product-brief](./product-brief.md), [meme-and-video-studio](./meme-and-video-studio.md)
 
@@ -736,15 +736,15 @@ Phase 4 ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-d
 How a photo/stock/template meme is stored: **not a finished picture**, but a
 record of which background was chosen and what text goes with it, composed
 fresh every time someone views it. This is why a composition improvement
-retroactively upgrades existing memes. An AI-generated image *is* a real
-file; its recipe just points at that file.
+retroactively upgrades existing memes. A meme built on a stored image (an
+upload, or an old AI-generated image) points at that real file.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ### Background
 
 What a meme is built on top of before the fact's text is composed over it — an
-uploaded photo, a [stock image](#stock-image), a [template](#template), or an
-AI-generated image. "Background" is the choice the
+uploaded photo, a [stock image](#stock-image) or a [template](#template).
+"Background" is the choice the
 [studio](#studio) is organized around.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
@@ -770,13 +770,14 @@ costs nothing extra per meme to produce.
 
 ### AI image meme
 
-A Legendary-gated meme whose background is AI-generated. In the live wizard
-that means a source photo styled into the scene. The shared per-fact AI
-gallery picker was the legacy studio's and went with it. There is no
-description-only user generation: the legacy studio's `/generate-v2` and
-no-photo `/generate` went with it in launch Phase 4, and `/generate` now serves
-only the remix builder's photo stylise until PuLID goes
-([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
+**Retired.** A Legendary-gated meme whose background was AI-generated: the
+user's own photo styled into the fact's scene (PuLID). Its paths were deleted
+in launch Phase 4 — the legacy studio's picker, `/generate-v2` and no-photo
+`/generate` in removal 1, the wizard's "AI you" source, the remix builder's
+stylise toggle and the rest of `/generate` with PuLID in removal 3 (ledger
+[`docs/retired/README.md`](../retired/README.md); lessons
+[`docs/retired/pulid.md`](../retired/pulid.md)). Launch Phase 7 rebuilds
+face-in-scene on a newer model.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ---
@@ -926,8 +927,9 @@ same thing as being signed out or having skipped [onboarding](#onboarding).
 
 ### Legendary
 
-The paid tier, unlocking private memes, [AI image memes](#ai-image-meme),
-higher rate limits, and a higher generation spend budget.
+The paid tier, unlocking private memes, no CAPTCHAs, higher rate limits, a
+photo avatar and no ads. ([AI image memes](#ai-image-meme) went with PuLID in
+launch Phase 4; Phase 7 brings face-in-scene back.)
 Bought as a subscription or as [Legendary for Life](#legendary-for-life), or
 comped by an admin.
 → [membership-entitlements](./membership-entitlements.md)
@@ -1121,8 +1123,8 @@ which only holds submissions awaiting a decision. Also where a
 The admin screen mapping features against membership tiers, so "can a free user
 do X" is one clear answer — **for the features actually wired to read this
 grid.** Not every tier gate is: some are hard-coded straight into route
-middleware (Legendary-only AI generation, for instance), so an admin editing
-the grid's cell doesn't change what that route enforces, and at least one
+middleware (`requireLegendary`, `requireRole`), so an admin editing the grid's
+cell doesn't change what that route enforces, and at least one
 grid entry (`meme_upload_photo`) is currently read by no route at all. Kept
 deliberately separate from the general settings editor, which answers a
 different question.

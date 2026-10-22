@@ -427,8 +427,9 @@ deliberately excludes them and points here instead.
   embeddings (`text-embedding-3-small`, 384-dim), and the visual planner.
   **Never route OpenAI through a Replit proxy** — direct `OPENAI_API_KEY` only
   (`.agents/memory/openai-no-replit-proxy.md`).
-- **fal.ai** — image generation (Nano Banana family, PuLID identity, etc.) and
-  safety scanning. (Its video engines went with video in launch Phase 4.)
+- **fal.ai** — image generation (Nano Banana family, FLUX Pro for the AI
+  background backfill) and safety scanning. (Its video engines and PuLID went
+  in launch Phase 4.)
 - **Stripe** — billing/subscriptions/webhooks.
 - **Resend** — transactional email. **hCaptcha** — submission captcha.
 - **Sentry** — error reporting (telemetry spans three tabs; see `docs/SENTRY.md`).

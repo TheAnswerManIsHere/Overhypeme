@@ -73,7 +73,7 @@ HTTP headers, or secrets** work, also read:
   the operational shape of sign-in, account creation, and the account
   lifecycle (routes, flows, session mechanics, role derivation)
 
-For **the meme studio, AI image generation entry points, or media storage**
+For **the meme studio, its image sources, or media storage**
 work, also read:
 
 - [`docs/ai-context/meme-and-video-studio.md`](docs/ai-context/meme-and-video-studio.md) —
