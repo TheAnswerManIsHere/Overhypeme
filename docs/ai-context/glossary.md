@@ -1279,7 +1279,8 @@ pinned to the ceiling that actually applied.
   an existing row whose configured estimate is null or non-numeric falls back
   too (the image pipeline falls back to the code catalogue's
   `estimatedCostUsdPerCall`; the video paths' hard-coded `0.05`/s fallbacks
-  went with video in launch Phase 4). All of these are
+  went with video in launch Phase 4, ledger
+  [`docs/retired/README.md`](../retired/README.md)). All of these are
   estimates; the column does not distinguish them, and `budgetGate.ts`'s own
   contract says so.
 - **`NULL` — unclassified.** Rows written before Release B, which
