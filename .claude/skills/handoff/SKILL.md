@@ -59,6 +59,10 @@ but it is not automatic.
    the next turn is cheaper than the whole ceremony, and the ceremony is the
    more expensive mistake.
 
+**When nothing is left to carry and nothing is next here, the answer is
+neither stay nor hand off but archive** — the `archive` skill's question,
+not this one's.
+
 **Hand off when** the next work belongs to a **different workstream** than
 the context this session holds, and none of the three above applies. That
 divergence is the whole signal: context for workstream A is dead weight and
@@ -241,7 +245,8 @@ per CLAUDE.md's notification rule and ends with the hand-back footer — Done /
 Next / Needs you / Spend (`claude-core.md`, *A reversible choice proceeds,
 and every turn reports its spend*). Step 1's verdict also runs unasked at
 every unit of work's close, inside the build report's *Session* section
-(`claude-core.md`, *Watching the PRs I open*).
+(`claude-core.md`, *Watching the PRs I open*), as the *hand off* branch of
+the `archive` skill's three-valued verdict.
 
 ## Model tier
 

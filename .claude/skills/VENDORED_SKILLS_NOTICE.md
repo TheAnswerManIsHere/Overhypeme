@@ -182,7 +182,7 @@ Modification status:
   The 2026-10-17 paid-run sweep (AI-Handbook #219) added one clause to the
   existing notes of `prototype/LOGIC.md`, `prototype/UI.md` and
   `test-driven-development/SKILL.md`: a check that would start a paid AI run
-  runs within David's paid-run budget — $5 a run, $25 a week — and asks him
+  runs within David's paid-run budget — $5 a run, $25 a week across every product — and asks him
   only above it (the clause first required his go-ahead for each run; retired
   2026-10-21).
 - `grill-me/SKILL.md` — **no longer verbatim as of PR #545**: body changed

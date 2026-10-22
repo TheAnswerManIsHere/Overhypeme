@@ -88,6 +88,7 @@ test("the brief carries the coordinates, the answer path and the whole schema in
   assert.ok(brief.includes(answerPath(root, "pr-7")));
   assert.ok(brief.includes('"what_was_built"'), "the schema travels with the brief");
   assert.match(brief, /no tool that can open a file/);
+  assert.match(brief, /`paid-ai-ledger` in `TheAnswerManIsHere\/AI-Handbook`/, "the ledger is the fleet's, not the unit's repository");
 });
 
 test("a branch-regime prototype version is a unit with no pull request", () => {
@@ -162,7 +163,7 @@ test("the report prints the fixed sections in order, in the role's words", () =>
   }
   assert.ok(text.includes("Revert the pin and bump Playwright."));
   assert.ok(text.includes("$4.10 over 6 turns"));
-  assert.match(text, /no paid-run ledger in this repository/);
+  assert.match(text, /no paid-run ledger in the handbook yet/);
   assert.doesNotMatch(text, /took_on_trust|did not read the logs/, "took_on_trust is collected, not shown");
   assert.doesNotMatch(text, /Written by/, "a matching model prints nothing");
 });
@@ -172,6 +173,7 @@ test("the session line is the builder's and is labelled so, or says it was not s
   write(root, "d", answer());
   const r = readAnswer(root, "d");
   assert.match(chatReport(r, { session: { verdict: "hand off", why: "the next unit is a different area" } }), /\*\*Session\*\* \(the builder's call\): hand off — the next unit is a different area/);
+  assert.match(chatReport(r, { session: { verdict: "archive", why: "nothing left here" } }), /\(the builder's call\): archive — nothing left here/);
   assert.match(chatReport(r), /\(the builder's call\): \*not stated\.\*/);
   assert.match(chatReport(r, { session: { verdict: "sure" } }), /not stated/);
 });

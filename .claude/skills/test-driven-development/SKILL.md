@@ -14,7 +14,7 @@ description: Use when implementing any feature or bugfix, before writing impleme
 > its claim needs the deployed environment — scaled to a prototype, timed per
 > regime in `working-modes.md`'s *What prototype phase keeps of verification*
 > (David, 2026-10-10), a check that would start a paid AI run within his
-> paid-run budget, $5 a run and $25 a week (`uat-doc-format.md`, *Lanes*) — and the `prototype`
+> paid-run budget, $5 a run and $25 a week across every product (`uat-doc-format.md`, *Lanes*) — and the `prototype`
 > skill is the entry point
 > ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 > The other "ask your human partner" rows below, and the closing "no

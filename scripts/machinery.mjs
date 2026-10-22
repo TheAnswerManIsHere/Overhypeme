@@ -225,6 +225,18 @@ export function repoSlug(io = nodeIo()) {
   return machineryConfig(io).repo;
 }
 
+/**
+ * Where the fleet's paid-run ledger lives: the handbook's own repository.
+ *
+ * A FLEET FACT, NOT THIS CHECKOUT'S IDENTITY, which is why it is a constant
+ * here rather than a field in `.agents/machinery.json`: that file is seeded
+ * once and then owned by each consumer, and the budget it serves is one total
+ * across every product (David, 2026-10-22: "$25/week is across all
+ * products."), so every product must read and write the same issue.
+ * (`uat-doc-format.md`, *Lanes*.)
+ */
+export const PAID_RUN_LEDGER_REPO = "TheAnswerManIsHere/AI-Handbook";
+
 // ---------------------------------------------------------------------------
 // Agent-definition frontmatter
 // ---------------------------------------------------------------------------

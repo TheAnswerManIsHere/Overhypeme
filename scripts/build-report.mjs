@@ -38,7 +38,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { claudeAlias, modelTier, validate, assertSchemaSupported, repoSlug } from "./machinery.mjs";
+import { claudeAlias, modelTier, validate, assertSchemaSupported, repoSlug, PAID_RUN_LEDGER_REPO } from "./machinery.mjs";
 
 export const REVIEWS_DIR = ".agents/reviews";
 export const ROLE = "fable-build-report";
@@ -273,7 +273,7 @@ export function buildBrief({
   }
   lines.push(
     `- **Until:** ${until} — activity after this moment belongs to a later report.`,
-    "- **Paid-run ledger:** the repository's open issue labelled `paid-ai-ledger`, one comment per paid AI run. Total the comments from the seven days before **Until**. If there is no such issue, `paid_runs_this_week` is null.",
+    `- **Paid-run ledger:** the open issue labelled \`paid-ai-ledger\` in \`${PAID_RUN_LEDGER_REPO}\` — the fleet's one ledger, one comment per paid AI run in any product, since the weekly budget is one total across every product. Total every comment from the seven days before **Until**, whichever product it names. If there is no such issue, \`paid_runs_this_week\` is null.`,
     "",
     "## Your answer",
     "",
@@ -399,7 +399,7 @@ export function chatLine(report) {
   return flags.length ? `${u}: ${flags.join("; ")}` : `${u}: agrees with the builder's account`;
 }
 
-const SESSION_VERDICTS = ["continue", "hand off"];
+const SESSION_VERDICTS = ["continue", "hand off", "archive"];
 
 /**
  * THE DELIVERABLE: what the builder pastes, in chat and on the issue, and the
@@ -459,7 +459,7 @@ export function chatReport(report, { askedModel = null, session = null, coords =
     "**Spend**",
     "",
     `- This build: ${a.spend.build_total ?? "*no Spend so far line on the issue*"}`,
-    `- Paid AI runs, last seven days: ${a.spend.paid_runs_this_week ?? "*no paid-run ledger in this repository*"}`,
+    `- Paid AI runs, last seven days: ${a.spend.paid_runs_this_week ?? "*no paid-run ledger in the handbook yet*"}`,
   );
 
   out.push(
@@ -474,9 +474,9 @@ export function chatReport(report, { askedModel = null, session = null, coords =
   out.push("", `*Does not do:* ${a.what_landed.does_not_do}`, "", `*You are now trusting:* ${a.what_landed.now_trusting}`);
 
   // THE SESSION LINE IS THE BUILDER'S, AND SAYS SO. Only the builder's session
-  // can see its own context, so the role cannot judge continue-or-hand-off;
-  // printing the builder's call under the role's voice would be the builder's
-  // words reaching David as the independent account.
+  // can see its own context, so the role cannot judge continue, hand off or
+  // archive; printing the builder's call under the role's voice would be the
+  // builder's words reaching David as the independent account.
   if (session && SESSION_VERDICTS.includes(session.verdict)) {
     out.push("", `**Session** (the builder's call): ${session.verdict}${session.why ? ` — ${session.why}` : ""}`);
   } else {
@@ -527,7 +527,7 @@ export function readPrivateSource(root, file) {
  *
  *   node build-report.mjs brief  --unit <slug> (--issue <n> | --private-source <file> [--private-ref <ref>]) [--pr <n> ...] [--branch <name> --since <sha> --head <sha>] [--private yes]
  *   node build-report.mjs prepare --unit <slug>
- *   node build-report.mjs report --unit <slug> [--session continue|"hand off"] [--session-why <text>]
+ *   node build-report.mjs report --unit <slug> [--session continue|"hand off"|archive] [--session-why <text>]
  *
  * `brief` prints the dispatch prompt (it also prepares the answer path, so the
  * two cannot be done out of order); `report` prints what is pasted.

@@ -45,7 +45,7 @@ written verification note ("run X, observe Y"). A prototype-phase feature
 keeps this rule — its surface is the thing the owner uses — with the machine
 lanes proving what a machine can check (never what an AI-generated image
 shows beyond what anyone would verify the same way, which is his, and a
-paid AI run within his budget, $5 a run and $25 a week, on his go-ahead only
+paid AI run within his budget, $5 a run and $25 a week across every product, on his go-ahead only
 above it: [`uat-doc-format.md`](../tests/uat-doc-format.md#lanes-where-each-step-is-verified-david-2026-10-07))
 and the owner's feedback, not a note, standing as the acceptance script for
 the rest
@@ -183,8 +183,9 @@ asked; the recommendation is taken and reported.
   already says — the list names the live toggle, not the reviewed diff);
   spend above a per-turn cap once David sets one; **a paid AI run, or any
   cost beyond the session's own tokens, above $5 for one run, and any such
-  spend once the week's total — read from the repository's paid-run ledger
-  (`uat-doc-format.md`, *Lanes*) — would pass $25** (David, 2026-10-21: *"Include
+  spend once the week's total across every product — read from the fleet's
+  paid-run ledger in the handbook (`uat-doc-format.md`, *Lanes*) — would pass
+  $25** (David, 2026-10-21: *"Include
   paid AI runs or anything that incurs cost above just the tokens in my
   plan. Limit it to $5/run and set a weekly budget of $25 just in case."*) —
   below both, a paid run proceeds and its cost is reported. The list is

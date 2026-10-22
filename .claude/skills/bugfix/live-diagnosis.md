@@ -118,7 +118,7 @@ shipping — a sanctioned live repair has to be David-originated.
 
 Ephemeral probes are fine and are reverted in the same session, except a
 probe or a reproduction that would start a paid AI run (a real render, a real model call), which
-runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*). **Never commit or
+runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*). **Never commit or
 push one**: Publish snapshots uncommitted files, so a forgotten probe is a
 production hazard sitting in the worktree.
 

@@ -17,7 +17,7 @@
 > read-only `live` check where the claim needs the deployed environment —
 > scaled, with the timing per regime in *What prototype phase keeps of
 > verification* in the same home (David, 2026-10-10); a check that would start
-> a paid AI run runs within David's paid-run budget — $5 a run, $25 a week — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*).
+> a paid AI run runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*).
 
 A single, self-contained HTML file (a **shareable demo**) that lets anyone drive a state model by clicking buttons. Use this when the question is about **business logic, state transitions, or data shape**: the kind of thing that looks reasonable on paper but only feels wrong once you push it through real cases.
 
