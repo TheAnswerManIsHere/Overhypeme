@@ -151,9 +151,9 @@ adding a form is a handbook change with a fixture, never a consumer patch.
 |---|---|
 | Module edges | `import`, `export … from`, `import()`, `require()`, with each program's own resolution (workspace packages through `exports`, path aliases) |
 | Symbols | Every identifier resolving to a repository module's export, aliases and re-exports followed to the declaration |
-| HTTP routes | Express `Router`/`Application` method registrations, composed through `use(path, router)` mounts, with the handler's declaration when it resolves; `route(path).verb()`; wouter `<Route path component>` (method `PAGE`); in a Cloudflare Worker (a default-exported object with `fetch`, bare, wrapped in parentheses, `as` or `satisfies`, or held in a same-file `const`), a string or regular-expression literal tested against a request's `pathname` (method `ANY`) |
+| HTTP routes | Express `Router`/`Application` method registrations, composed through `use(path, router)` mounts, with the handler's declaration when it resolves; `route(path).verb()`; Express 5 named wildcards (`*name`, one or more segments; `{*name}`, optional); wouter `<Route path component>`, or `<Route path>` with a single element child as its page (method `PAGE`; other children are `unsupported-form`); in a Cloudflare Worker (a default-exported object with `fetch`, bare, wrapped in parentheses, `as` or `satisfies`, or held in a same-file `const`), a string or regular-expression literal tested against a request's `pathname` (method `ANY`) |
 | Tables | Drizzle `pgTable` declarations map relation names to table symbols; a table answer joins typed references to the symbol with references in SQL text |
-| SQL text | Drizzle `sql` tagged templates and `sql.raw`, Drizzle `execute`, the `query` method of a `pg` `Client` or `Pool`, including a statement bound to a same-file variable, and a same-file string constant interpolated into it; relation names outside the Drizzle set are reported as **external relations**, derived and never whitelisted |
+| SQL text | Drizzle `sql` tagged templates and `sql.raw`, Drizzle `execute`, the `query` method of a `pg` `Client` or `Pool`, including a statement bound to a same-file variable, and a same-file string constant interpolated into it; a relation is read after `FROM`, `JOIN`, `INTO`, `UPDATE`, `TRUNCATE`, `TABLE`, `REFERENCES`, and `ON` only in `CREATE INDEX … ON`; relation names outside the Drizzle set are reported as **external relations**, derived and never whitelisted |
 | Candidates kept | A `query`/`execute` call carrying SQL whose receiver is unresolved or not a supported client, a route-shaped registration on an unresolved receiver, a module loaded by a computed name, a route under a mount whose prefix is computed (reported at the route, naming the mount), and any computed path or relation: each is an `unresolved` site, never dropped |
 
 ## Freshness
@@ -167,7 +167,12 @@ Provenance (the base commit, and whether inputs differed from it) lives in a
 separate file the check never compares, and a rebuild on unchanged inputs
 leaves it untouched. So a commit, a documentation change, a merge or a fresh
 checkout never makes the index stale; changing code, a test, a generated
-barrel, a package's exports, a lockfile or the compiler does.
+barrel, a package's exports, a lockfile or the compiler does. So does a
+handbook change to what the tool recognises: **any change to recognition
+bumps `TOOL_VERSION`** in `scripts/map.mjs`, so every consumer's committed
+index goes stale at the next sync and is rebuilt, rather than answering
+from what the previous recogniser found. (#211 changed two recognisers
+without a bump; #212 bumped to `map.mjs/2` and covers both.)
 
 **In CI**, `check` regenerates the index and fails when the committed bytes
 differ. **While editing**, every query recomputes the digest and refuses a

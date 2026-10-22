@@ -150,7 +150,7 @@ export function verdict(a, b, t = THRESHOLDS) {
   return { decision, hiddenRecallGainPoints: Math.round(gain * 10) / 10, medianTokenChangePct: Math.round(tokenPct * 10) / 10 };
 }
 
-/** Per-arm, per-tier means and the arm's median tokens. */
+/** Per-arm, per-tier means and the arm's median tokens, tool calls and seconds. */
 export function summarize(runs, tasks, keys) {
   const tierOf = new Map(tasks.map((t) => [t.id, t.tier]));
   const out = {};
@@ -158,16 +158,24 @@ export function summarize(runs, tasks, keys) {
     const key = keys[r.task];
     if (!key) throw new Error(`run for task ${r.task} has no answer key`);
     const s = scoreAnswer(r.files || [], key.files);
-    const arm = (out[r.arm] ||= { tokens: [], tiers: {} });
+    const arm = (out[r.arm] ||= { tokens: [], toolCalls: [], seconds: [], tiers: {} });
     const tier = (arm.tiers[tierOf.get(r.task)] ||= { recall: [], precision: [] });
     tier.recall.push(s.recall);
     tier.precision.push(s.precision);
     if (typeof r.tokens === "number") arm.tokens.push(r.tokens);
+    if (typeof r.toolCalls === "number") arm.toolCalls.push(r.toolCalls);
+    if (typeof r.seconds === "number") arm.seconds.push(r.seconds);
   }
   const mean = (xs) => (xs.length ? xs.reduce((x, y) => x + y, 0) / xs.length : 0);
   const res = {};
   for (const [arm, v] of Object.entries(out)) {
-    res[arm] = { medianTokens: median(v.tokens) };
+    // Tool calls and wall time are reported, never thresholded (the protocol's
+    // Metrics); a run that did not record one is left out of that median.
+    res[arm] = {
+      medianTokens: median(v.tokens),
+      medianToolCalls: v.toolCalls.length ? median(v.toolCalls) : null,
+      medianSeconds: v.seconds.length ? median(v.seconds) : null,
+    };
     for (const tier of ["keyword", "structural", "hidden"]) {
       const t = v.tiers[tier] || { recall: [], precision: [] };
       res[arm][tier] = { recall: mean(t.recall), precision: mean(t.precision), n: t.recall.length };
