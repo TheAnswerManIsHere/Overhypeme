@@ -173,6 +173,11 @@ export (lands with GDPR readiness at Global); public growth surfaces beyond
 the loop; R2; new content formats; multi-role RBAC; new vendors beyond PostHog
 and Turnstile.
 
+**Not cut, though once listed here:** the dev-admin-login backdoor and its
+wordmark triple-tap. They stay through Phase 4, and Phase 15 redesigns them as
+a safe, easy admin entry (David, 2026-10-21;
+[decision](./decisions.md#2026-10-21--the-dev-admin-login-backdoor-stays-through-phase-4-phase-15-redesigns-it)).
+
 ## Hard gates that used to be waivable
 
 **Approved hero images are a hard gate: a fact cannot go live without them.**
