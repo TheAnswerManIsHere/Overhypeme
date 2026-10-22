@@ -1,0 +1,59 @@
+{
+  "summary": {
+    "A": {
+      "medianTokens": 344085.5,
+      "medianToolCalls": 3.5,
+      "medianSeconds": 31,
+      "keyword": {
+        "recall": 0.9916666666666666,
+        "precision": 0.7775897435897435,
+        "n": 20
+      },
+      "structural": {
+        "recall": 0.9316666666666666,
+        "precision": 0.689000444000444,
+        "n": 20
+      },
+      "hidden": {
+        "recall": 0.9583333333333333,
+        "precision": 0.8372135394882807,
+        "n": 20
+      }
+    },
+    "B": {
+      "medianTokens": 315083,
+      "medianToolCalls": 3,
+      "medianSeconds": 29,
+      "keyword": {
+        "recall": 0.9916666666666666,
+        "precision": 0.7944031954887216,
+        "n": 20
+      },
+      "structural": {
+        "recall": 0.9216666666666665,
+        "precision": 0.6427272727272727,
+        "n": 20
+      },
+      "hidden": {
+        "recall": 0.9514264264264263,
+        "precision": 0.7655552372464138,
+        "n": 20
+      }
+    }
+  },
+  "verdict": {
+    "decision": "disable",
+    "hiddenRecallGainPoints": 0.7,
+    "medianTokenChangePct": 9.2
+  },
+  "thresholds": {
+    "keep": {
+      "minHiddenRecallGainPoints": 20,
+      "maxMedianTokenIncreasePct": 10
+    },
+    "disable": {
+      "belowHiddenRecallGainPoints": 10,
+      "aboveMedianTokenIncreasePct": 25
+    }
+  }
+}
