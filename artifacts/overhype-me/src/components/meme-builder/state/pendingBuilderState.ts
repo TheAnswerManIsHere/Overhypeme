@@ -83,8 +83,8 @@ export function restorePendingState(factId: string): PendingBuilderState | null 
   // an AI styling loses that pick (the user lands back on the picker); a draft
   // on an ordinary photo keeps it, without its stale stylize flag.
   if (state.source?.kind === "self-upload") {
-    const legacy = state.source as { image: { kind: string }; stylizeWithAi?: boolean };
-    if (legacy.image.kind === "ai-styling" || legacy.stylizeWithAi) {
+    const legacy = state.source as { image: { kind: string } };
+    if (legacy.image.kind === "ai-styling") {
       state = { ...state, source: undefined };
     } else {
       state = { ...state, source: { kind: "self-upload", image: state.source.image } };

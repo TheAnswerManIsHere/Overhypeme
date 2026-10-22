@@ -120,8 +120,9 @@ describe("wizardStorage", () => {
     captureWizardState(legacy({ kind: "self-upload", image: { kind: "ai-styling", objectPath: "/objects/ai.jpg" }, stylizeWithAi: false }));
     expect(restoreWizardState(FACT_ID)?.source).toBeUndefined();
 
+    // A plain photo that had the stylise switch on keeps the photo; only the flag goes.
     captureWizardState(legacy({ kind: "self-upload", image: { kind: "fresh", objectPath: "/objects/f.jpg" }, stylizeWithAi: true }));
-    expect(restoreWizardState(FACT_ID)?.source).toBeUndefined();
+    expect(restoreWizardState(FACT_ID)?.source).toEqual({ kind: "self-upload", image: { kind: "fresh", objectPath: "/objects/f.jpg" } });
 
     captureWizardState(legacy({ kind: "self-upload", image: { kind: "library", objectPath: "/objects/l.jpg" }, stylizeWithAi: false }));
     expect(restoreWizardState(FACT_ID)?.source).toEqual({ kind: "self-upload", image: { kind: "library", objectPath: "/objects/l.jpg" } });

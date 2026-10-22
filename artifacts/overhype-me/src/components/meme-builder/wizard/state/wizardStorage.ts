@@ -110,8 +110,8 @@ export function restoreWizardState(factId: string): PendingWizardState | null {
   // an AI styling loses that pick (the user lands back on the picker); a draft
   // on an ordinary photo keeps it, without its stale stylize flag.
   if (parsed.source?.kind === "self-upload") {
-    const legacy = parsed.source as { image: { kind: string }; stylizeWithAi?: boolean };
-    if (legacy.image.kind === "ai-styling" || legacy.stylizeWithAi) {
+    const legacy = parsed.source as { image: { kind: string } };
+    if (legacy.image.kind === "ai-styling") {
       return { ...parsed, source: undefined };
     }
     return { ...parsed, source: { kind: "self-upload", image: parsed.source.image } };
