@@ -9,9 +9,10 @@
  * degrading. The ceiling went unenforced in exactly the window where
  * something else was already failing, logged at WARN only.
  *
- * `videoPipelineRunner.ts` always had the right shape: on a pricing miss it
- * degrades to the engine's configured estimate and still calls the gate. The
- * fix made the other three match.
+ * The video pipeline runner (deleted with video in launch Phase 4; it is at
+ * the `pre-cut/video` tag) always had the right shape: on a pricing miss it
+ * degraded to the engine's configured estimate and still called the gate.
+ * The fix made the other three match.
  *
  * A unit test cannot hold this line — the gate is inline control flow inside
  * large route/pipeline functions, and the regression is a re-introduced
@@ -245,8 +246,8 @@ if (violations.length > 0) {
       `  ${v.file}:${v.line}\n` +
         `    checkBudget() is ${v.shape}, so a pricing miss skips the spend\n` +
         `    check entirely. Call the gate unconditionally and pass a fallback\n` +
-        `    estimate instead — see estimateStage2Cost() in\n` +
-        `    lib/videoPipelineRunner.ts for the shape.\n`,
+        `    estimate instead — the configured-estimate fallback the\n` +
+        `    other call sites use is the shape.\n`,
     );
   }
   process.exit(1);

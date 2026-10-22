@@ -34,7 +34,8 @@ plan around this by reaching for the fetch anyway.
 **Before concluding "unrelated flake": trace imports, don't grep the file.**
 A zero direct-reference count proves nothing. Most integration tests here import
 `createApp` from `app.ts`, which pulls the `routes` barrel, whose top-level
-imports include `videos.ts` and `videoJobs.ts` — so a video-pipeline change is
+imports included `videos.ts` and `videoJobs.ts` when this was written (both
+since deleted with video) — so a change in any barrel-imported route module is
 reachable from a test that never names it, and an import-time or shared-state
 regression would look "unrelated" by grep. Follow the actual import chain from
 the failing file until it either reaches a changed module or bottoms out in

@@ -50,7 +50,7 @@ docs/                this documentation
   own submissions/memes/images — see
   [`public-site-and-sharing.md`](./public-site-and-sharing.md#profiles-and-library--the-self-view-split)),
   `ActivityFeed.tsx`, fact detail + comments, merch (`WearIt.tsx`). The
-  meme/video builders live under
+  meme builders live under
   `artifacts/overhype-me/src/components/meme-builder/` (not `pages/`): the
   fact page's wizard in `meme-builder/wizard/`, and the meme page's remix
   builder `meme-builder/MemeBuilder.tsx` (mounted by
@@ -59,7 +59,7 @@ docs/                this documentation
   ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
   Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
-  Affiliate, Video Styles, Engines, Taxonomy Health, Email Queue, Features,
+  Affiliate, Engines, Taxonomy Health, Email Queue, Features,
   Configuration, Eval, Queue Health — the full, routed inventory is
   [`admin-console.md`](./admin-console.md). `comments.tsx` and `ai.tsx`
   exist as files but are dead — their routes redirect elsewhere; they are
@@ -67,7 +67,7 @@ docs/                this documentation
   `fieldDocs/`), `useTaxonomyHealthActions.ts` (async-status reference).
 - Prefer the generated React Query hooks (`lib/api-client-react`) for API calls.
   Note this is **not** universal: many surfaces (admin prompt-preview/moderation
-  hooks, the meme/video builder flows) intentionally use hand-written `fetch`.
+  hooks, the meme builder flows) intentionally use hand-written `fetch`.
   Match the local surface — don't do unrelated client refactors to "fix" this.
 
 ## Backend services and routes
@@ -83,7 +83,7 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
 - `routes/affiliate.ts` — Zazzle click tracking.
 - Domain libs (`artifacts/api-server/src/lib/`): `imagePrompt/`,
   `factImagePipeline.ts`, `factEnrichment*.ts`, `enrichmentVersioning.ts`,
-  `taxonomyHealth/`, `factTokenizer.ts`, `videoPipelineRunner.ts`, `engines/`,
+  `taxonomyHealth/`, `factTokenizer.ts`, `engines/`,
   `moderation/` (safety scanners), `stripe*`, `budgetGate.ts`. (The token
   *renderer*, `render-fact.ts`, is a **frontend** file —
   `artifacts/overhype-me/src/lib/render-fact.ts` — not an api-server lib.)
@@ -159,8 +159,7 @@ deliberately excludes them and points here instead.
     OpenAI/fal.ai calls, processed strictly one fact at a time).
   A queue's lane is set via `registerJobHandler(queue, handler, { lane })`; see
   [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
-  (`fal_video` is defined but marked a **future** queue — the video pipeline does
-  not yet run through `async_jobs`; check `asyncJobs.ts` for the live list.)
+  (Check `asyncJobs.ts` for the live list of queues.)
 - **Poll intervals are per-lane defaults, all env-overridable.** `fast` 2s;
   `render`, `bulk`, `pexels`, `ai_meme_backfill` 5s each
   (`DEFAULT_*_INTERVAL_MS`, `asyncJobs.ts`), each overridable via
@@ -428,8 +427,8 @@ deliberately excludes them and points here instead.
   embeddings (`text-embedding-3-small`, 384-dim), and the visual planner.
   **Never route OpenAI through a Replit proxy** — direct `OPENAI_API_KEY` only
   (`.agents/memory/openai-no-replit-proxy.md`).
-- **fal.ai** — image + video generation (Nano Banana family, PuLID identity,
-  Kling video, etc.) and safety scanning.
+- **fal.ai** — image generation (Nano Banana family, PuLID identity, etc.) and
+  safety scanning. (Its video engines went with video in launch Phase 4.)
 - **Stripe** — billing/subscriptions/webhooks.
 - **Resend** — transactional email. **hCaptcha** — submission captcha.
 - **Sentry** — error reporting (telemetry spans three tabs; see `docs/SENTRY.md`).

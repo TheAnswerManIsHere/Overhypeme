@@ -4,7 +4,7 @@ import { MemeBuilderWizard } from "../MemeBuilderWizard";
 import { captureWizardState } from "../state/wizardStorage";
 import type { ViewerContext } from "../../types";
 
-// Under CI load the wizard's enter-animation can delay Step 2 rendering past
+// Under CI load the image builder's first render can land past
 // testing-library's 1 s default. 5 s gives plenty of headroom without being
 // a real blocker if something is genuinely broken.
 const S2 = { timeout: 5000 };
@@ -35,11 +35,10 @@ function renderWizard(
   return { ...utils, onComplete, onCancel };
 }
 
-function directionAttr(): string | null {
-  const container = screen
-    .getByTestId("meme-builder-wizard")
-    .querySelector("[data-direction]");
-  return container?.getAttribute("data-direction") ?? null;
+const DRAFT_KEY = (factId: string) => `pending_meme_wizard_v2::${factId}`;
+
+function storedDraft(factId = "fact-42"): Record<string, unknown> {
+  return JSON.parse(window.sessionStorage.getItem(DRAFT_KEY(factId)) ?? "{}") as Record<string, unknown>;
 }
 
 describe("MemeBuilderWizard", () => {
@@ -47,47 +46,16 @@ describe("MemeBuilderWizard", () => {
     window.sessionStorage.clear();
   });
 
-  it("renders Step 1 by default with both artifact-type cards", () => {
+  // Video was cut in launch Phase 4, and with it the Step 1 choice between an
+  // image and a video meme: the wizard now opens straight on the image builder.
+  it("opens directly on the image builder, with no artifact-type step", async () => {
     renderWizard();
-    expect(screen.getByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^image$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^video$/i })).toBeTruthy();
-  });
-
-  it("hides the back arrow on Step 1", () => {
-    renderWizard();
-    const backBtn = screen.getByLabelText("Back");
-    expect(backBtn.className).toMatch(/invisible/);
-  });
-
-  it("advances to Step 2 when an artifact type is selected", async () => {
-    renderWizard();
-    fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
-
     expect(await screen.findByRole("heading", { name: /build your meme/i }, S2)).toBeTruthy();
     expect(screen.getByTestId("wizard-primary-action")).toBeTruthy();
-    expect(directionAttr()).toBe("forward");
-  });
-
-  it("back arrow returns to Step 1 from Step 2 with state preserved", async () => {
-    // Entitled viewer so the video card is tappable (an unentitled viewer
-    // would open the upgrade modal instead of advancing).
-    renderWizard({
-      viewerContext: {
-        ...VIEWER,
-        tier: "legendary",
-        entitlements: { video_generation: { allowed: true, limit: null } },
-      },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^video$/i }));
-    expect(await screen.findByRole("heading", { name: /pick a photo, choose your options/i }, S2)).toBeTruthy();
-
-    fireEvent.click(screen.getByLabelText("Back"));
-    expect(await screen.findByRole("heading", { name: /what kind of meme/i }, S2)).toBeTruthy();
-
-    const videoCard = screen.getByRole("button", { name: /^video$/i });
-    expect(videoCard.getAttribute("aria-pressed")).toBe("true");
-    expect(directionAttr()).toBe("back");
+    expect(screen.queryByRole("heading", { name: /what kind of meme/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^video$/i })).toBeNull();
+    expect(screen.queryByLabelText("Back")).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
   it("close button invokes onCancel", () => {
@@ -96,41 +64,46 @@ describe("MemeBuilderWizard", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("progress bar advances from step 1 to step 2", async () => {
-    renderWizard();
-    const progressbar = screen.getByRole("progressbar", { name: /meme builder progress/i });
-    expect(progressbar.getAttribute("aria-valuenow")).toBe("1");
-
-    fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
+  it("does not hydrate from a different factId's draft", async () => {
+    captureWizardState({
+      schemaVersion: 3,
+      capturedAt: Date.now(),
+      factId: "fact-A",
+      entryFlow: "fact-detail",
+      source: { kind: "stock", stockImageId: "777" },
+    });
+    renderWizard({ factId: "fact-B" });
     await screen.findByRole("heading", { name: /build your meme/i }, S2);
-    expect(progressbar.getAttribute("aria-valuenow")).toBe("2");
+    await waitFor(() => expect(storedDraft("fact-B").schemaVersion).toBe(3), S2);
+    expect(storedDraft("fact-B").source).toBeUndefined();
+    expect(storedDraft("fact-A").source).toEqual({ kind: "stock", stockImageId: "777" });
   });
 
-  it("persists state across an unmount+remount cycle via sessionStorage", async () => {
-    const { unmount } = renderWizard();
-    fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
-    await screen.findByRole("heading", { name: /build your meme/i }, S2);
-    unmount();
-
+  it("discards a version-2 draft from before video was cut, rather than misreading it", async () => {
+    window.sessionStorage.setItem(
+      DRAFT_KEY("fact-42"),
+      JSON.stringify({
+        schemaVersion: 2,
+        capturedAt: Date.now(),
+        factId: "fact-42",
+        entryFlow: "fact-detail",
+        currentStep: 2,
+        artifactType: "video",
+        source: { kind: "stock", stockImageId: "777" },
+      }),
+    );
     renderWizard();
     expect(await screen.findByRole("heading", { name: /build your meme/i }, S2)).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /what kind of meme/i })).toBeNull();
+    await waitFor(() => expect(storedDraft().schemaVersion).toBe(3), S2);
+    expect(storedDraft().source).toBeUndefined();
+    expect("artifactType" in storedDraft()).toBe(false);
+    expect("currentStep" in storedDraft()).toBe(false);
   });
 
-  it("does not hydrate from a different factId's draft", async () => {
-    const first = renderWizard({ factId: "fact-A" });
-    fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
-    await screen.findByRole("heading", { name: /build your meme/i }, S2);
-    first.unmount();
-
-    renderWizard({ factId: "fact-B" });
-    expect(screen.getByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
-  });
-
-  // Regression: Step 2 shipped with no privacy control at all, so every meme
+  // Regression: the image builder shipped with no privacy control at all, so every meme
   // built here saved public no matter what the creator wanted — and there is
   // no way to change a meme's visibility after the fact.
-  describe("visibility control on Step 2", () => {
+  describe("visibility control on the image builder", () => {
     // The privacy lock is now the SERVER's resolved entitlement, not a tier the
     // client derived — that derivation is what PR #402 broke. So the fixture
     // supplies the entitlement the way the real payload does.
@@ -142,7 +115,6 @@ describe("MemeBuilderWizard", () => {
           entitlements: { meme_private_visibility: { allowed: canSetPrivate, limit: null } },
         },
       });
-      fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
       await screen.findByRole("heading", { name: /build your meme/i }, S2);
     }
 
@@ -169,7 +141,7 @@ describe("MemeBuilderWizard", () => {
 
   // The save leg of the visibility control: what the builder POSTs to
   // /api/memes for each choice, and where the browser lands afterwards.
-  describe("saving from Step 2 with a stock photo already chosen", () => {
+  describe("saving from the image builder with a stock photo already chosen", () => {
     const PERMALINK = "/m/saved-meme-77";
     let memeBodies: Array<Record<string, unknown>>;
     let stockPhotos: Array<{ id: number; url: string }>;
@@ -201,16 +173,14 @@ describe("MemeBuilderWizard", () => {
       window.history.pushState({}, "", "/");
     });
 
-    /** Seed the Step 2 draft the way a returning creator's session holds it:
+    /** Seed the builder draft the way a returning creator's session holds it:
      *  image meme, a stock photo picked, name and pronouns filled in. */
     function openStep2WithPhoto(tier: ViewerContext["tier"], canSetPrivate: boolean) {
       captureWizardState({
-        schemaVersion: 2,
+        schemaVersion: 3,
         capturedAt: Date.now(),
         factId: "fact-42",
         entryFlow: "fact-detail",
-        currentStep: 2,
-        artifactType: "image",
         source: { kind: "stock", stockImageId: "777" },
         name: "Quinn",
         pronouns: "they/them",
@@ -264,14 +234,11 @@ describe("MemeBuilderWizard", () => {
       // Public is still the selection; Private never took.
       expect(screen.getByTestId("meme-visibility-public").getAttribute("aria-pressed")).toBe("true");
       expect(screen.getByTestId("meme-visibility-private").getAttribute("aria-pressed")).toBe("false");
-      // The meme in progress is intact: still on Step 2, photo still chosen
+      // The meme in progress is intact: still in the builder, photo still chosen
       // (Make my meme enabled), and its draft is still held.
       expect(screen.getByRole("heading", { name: /build your meme/i })).toBeTruthy();
       expect((screen.getByRole("button", { name: "Make my meme" }) as HTMLButtonElement).disabled).toBe(false);
-      const draft = JSON.parse(window.sessionStorage.getItem("pending_meme_wizard_v2::fact-42") ?? "{}");
-      // The heading alone cannot prove the step: the step container animates
-      // its exit, so Step 2 stays mounted for a moment after a step change.
-      expect(draft.currentStep).toBe(2);
+      const draft = storedDraft();
       expect(draft.source).toEqual({ kind: "stock", stockImageId: "777" });
       expect(draft.name).toBe("Quinn");
       expect(draft.isPublic).toBe(true);
@@ -285,7 +252,7 @@ describe("MemeBuilderWizard", () => {
       await waitFor(() => expect(window.location.pathname).toBe(PERMALINK), S2);
     });
 
-    it("built from Step 1 with no draft: Image, the Stock tab's first photo auto-picked, saved public, lands on the permalink", async () => {
+    it("built with no draft: the Stock tab's first photo auto-picked, saved public, lands on the permalink", async () => {
       window.sessionStorage.clear();
       stockPhotos = [{ id: 555, url: "https://images.example/555.jpg" }];
       const { onComplete } = renderWizard({
@@ -294,13 +261,12 @@ describe("MemeBuilderWizard", () => {
           entitlements: { meme_private_visibility: { allowed: false, limit: null } },
         },
       });
-      fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
       await screen.findByRole("heading", { name: /build your meme/i }, S2);
       fireEvent.click(screen.getByTestId("source-tab-stock"));
       await waitFor(() => expect(screen.getByTestId("stock-thumb-555").getAttribute("aria-checked")).toBe("true"), S2);
       // The pick has reached the wizard's draft, not only the thumbnail.
       await waitFor(() => {
-        const draft = JSON.parse(window.sessionStorage.getItem("pending_meme_wizard_v2::fact-42") ?? "{}");
+        const draft = storedDraft();
         expect(draft.source).toEqual({ kind: "stock", stockImageId: "555" });
       }, S2);
 
@@ -313,20 +279,20 @@ describe("MemeBuilderWizard", () => {
     });
   });
 
-  it("ignores expired drafts in sessionStorage", () => {
-    const expired = {
-      schemaVersion: 2,
-      capturedAt: Date.now() - 61 * 60 * 1000,
-      factId: "fact-42",
-      entryFlow: "fact-detail",
-      currentStep: 2,
-      artifactType: "video",
-    };
+  it("ignores expired drafts in sessionStorage", async () => {
     window.sessionStorage.setItem(
-      "pending_meme_wizard_v2::fact-42",
-      JSON.stringify(expired),
+      DRAFT_KEY("fact-42"),
+      JSON.stringify({
+        schemaVersion: 3,
+        capturedAt: Date.now() - 61 * 60 * 1000,
+        factId: "fact-42",
+        entryFlow: "fact-detail",
+        source: { kind: "stock", stockImageId: "777" },
+      }),
     );
     renderWizard();
-    expect(screen.getByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /build your meme/i }, S2)).toBeTruthy();
+    await waitFor(() => expect(storedDraft().capturedAt).not.toBeLessThan(Date.now() - 60_000), S2);
+    expect(storedDraft().source).toBeUndefined();
   });
 });

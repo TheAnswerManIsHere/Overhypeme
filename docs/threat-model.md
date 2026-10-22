@@ -19,8 +19,8 @@
 ## System overview
 
 Overhype.me is a consumer web app that generates personalized, over-the-top
-"facts" about a named person, rendered as shareable meme images and videos.
-Users sign in, personalize facts, generate/render memes (AI image + video
+"facts" about a named person, rendered as shareable meme images.
+Users sign in, personalize facts, generate/render memes (AI image
 generation), share them publicly, and can pay for a Legendary membership via
 Stripe. There are **no consumer credits today** — paid rendering is gated by
 membership plus server-side budget caps; a separate purchasable-credits
@@ -32,7 +32,7 @@ product is future scope only (see `product-brief.md`).
 | `artifacts/api-server` | Express 5 API — auth, memes, rendering, Stripe, admin (`/api`) |
 | `lib/db` | PostgreSQL + pgvector via Drizzle ORM |
 | `cloudflare/og-router` | Cloudflare worker — OG unfurls + edge caching in front of public assets |
-| Vendors | Stripe (billing), OpenAI (enrichment/planning/embeddings), fal.ai (image/video gen + safety scan), Resend (email), hCaptcha, Sentry, Project Arachnid (external CSAM scan), NCMEC ISPWS (legal reporting, staged rollout) |
+| Vendors | Stripe (billing), OpenAI (enrichment/planning/embeddings), fal.ai (image gen + safety scan), Resend (email), hCaptcha, Sentry, Project Arachnid (external CSAM scan), NCMEC ISPWS (legal reporting, staged rollout) |
 | Hosting | Replit deployment (`REPLIT_DEPLOYMENT`), Cloudflare in front |
 
 Auth: Google/Apple OAuth + local email/password (bcryptjs), all resolving to
@@ -105,7 +105,7 @@ target, not an auth provider, here.
   abusing unauthenticated endpoints (OG shells, share surfaces, auth, webhook
   URL), burning paid AI renders.
 - **Authenticated free user** — the main adversary for authorization bugs:
-  IDOR on memes/objects/videos, membership-grant bypass, tier-gate evasion,
+  IDOR on memes/objects, membership-grant bypass, tier-gate evasion,
   moderation bypass, abusing another user's identity-bound images.
 - **Paying member** — same as above plus refund/downgrade asymmetry games
   (keeping Legendary after cancel).
@@ -164,8 +164,8 @@ these is a finding regardless of how it arises:
    routes through the shared helpers (`canAccessObjectEntity`,
    `userCanReadObject`, `canViewMeme`). **On the meme/slug surfaces**, owner-
    only content 404s (not 403s) to non-owners — no existence disclosure. Other
-   owner-gated resource endpoints (e.g. `GET /memes/ai-user/image`,
-   `uploadPrivateImageToFalCdn`) correctly return 403 on a failed ownership
+   owner-gated resource endpoints (e.g. `GET /memes/ai-user/image`) correctly
+   return 403 on a failed ownership
    check; that's the intended behavior for those, not a violation of this
    invariant.
 3. **`req.user` is rebuilt from the DB every request**; role/membership state

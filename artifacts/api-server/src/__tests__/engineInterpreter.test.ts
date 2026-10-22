@@ -7,7 +7,6 @@ import {
   InvalidEngineParamError,
   type ParamSchema,
 } from "../lib/engineInterpreter.js";
-import { VEO_3_1_LITE } from "../lib/engines/veo-3.1-lite.js";
 import type { Engine } from "@workspace/db/schema";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -628,25 +627,3 @@ describe("buildEngineInput — includeWhen conditional inclusion", () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// Regression: the migration-0058 bug class
-// (sending an engine a parameter it doesn't accept)
-// ────────────────────────────────────────────────────────────────────────────
-
-describe("buildEngineInput — Veo Lite generate_audio docs alignment", () => {
-  it("Veo 3.1 Lite paramSchema DOES emit generate_audio", () => {
-    // Migration 0058 documented a real 422 "no_media_generated" from this
-    // endpoint months ago. Current fal docs (May 2026) list generate_audio
-    // as an accepted boolean toggling the $0.05/s (with audio) vs $0.03/s
-    // (without audio) pricing tier:
-    //   https://fal.ai/docs/model-api-reference/video-generation-api/veo3.1-lite
-    // If a workbench run starts 422ing again, FLIP THIS GUARD back to
-    // "must not declare generate_audio" — that's the cleanest rollback
-    // signal. Until then, the catalogue + this test track the docs.
-    const names = VEO_3_1_LITE.paramSchema.params.map((p) => p.name);
-    assert.ok(
-      names.includes("generate_audio"),
-      "veo-3.1-lite must declare generate_audio per fal docs (May 2026)",
-    );
-  });
-});

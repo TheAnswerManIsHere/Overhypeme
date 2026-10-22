@@ -67,7 +67,7 @@ describe("the legacy fixture's allowlist classifies the whole schema", () => {
     const excluded = new Set(LEGACY_FIXTURE_ALLOWLIST.filter((c) => c.kind === "exclude").map((c) => sqlName(c.table)));
     for (const t of [
       "sessions", "email_verification_tokens", "password_reset_tokens", "oauth_pending_states",
-      "async_jobs", "video_jobs",
+      "async_jobs",
       "quarantined_memes", "ncmec_reports", "ncmec_safety_audit_log",
       "stripe_processed_events", "stripe_webhook_audit", "stripe_checkout_request_ledger", "entitlement_source_disputes",
       "rate_limit_counters", "transient_renders",

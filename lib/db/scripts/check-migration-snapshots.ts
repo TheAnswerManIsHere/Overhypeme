@@ -398,6 +398,15 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // retires the deleted legacy meme studio's nonterminal render jobs. No DDL,
   // so there is no schema change for a snapshot to record.
   "0102_retire_legacy_studio_render_jobs",
+
+  // Launch Phase 4, removal 2 (#744): retires video. Hand-authored idempotent
+  // DDL and DML following 0094-0101's shape, for the reason they give —
+  // drizzle-kit generate stays broken on the malformed 0063 snapshot. The
+  // drops (four memes columns; video_jobs, video_job_status, motion_presets,
+  // video_styles) are DEFERRED snapshot deltas, not inexpressible ones: capture
+  // them when the chain is repaired. Source of truth: lib/db/src/schema/memes.ts
+  // and the schema index, which no longer declare them.
+  "0103_retire_video",
 ]);
 
 interface JournalEntry {

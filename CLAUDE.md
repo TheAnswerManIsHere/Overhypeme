@@ -7,7 +7,8 @@
 A personalized impossible-facts platform: a community-driven catalogue of
 exaggerated, Chuck-Norris-style boasts, each authored once as a tokenized
 template and rendered on demand with the visitor's own name and pronouns, then
-turned into shareable image and video memes starring them. David is the product
+turned into shareable image memes starring them (video was cut for launch, to
+be rebuilt after it: [`docs/retired/README.md`](docs/retired/README.md)). David is the product
 owner; the loop is personalize → submit → moderate and enrich → render → share.
 The brief below is the current truth and wins over anything remembered.
 

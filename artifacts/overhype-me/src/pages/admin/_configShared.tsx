@@ -174,9 +174,8 @@ export const STYLE_OPTIONS = IMAGE_STYLES.filter((s) => s.id !== "none");
 // Phase 6: the FAL_IMAGE_*, FAL_SAFETY_TOLERANCE, FAL_OUTPUT_FORMAT,
 // FAL_ASPECT_RATIO, FAL_RAW_MODE, OPENAI_CHAT_MODELS, FAL_VIDEO_*
 // dropdown option lists were retired alongside their backing admin_config
-// keys. The wizard video flow now reads engine metadata from the engines
-// table (see lib/engines/* + /admin/engines), and the AI meme pipeline
-// uses baked-in defaults.
+// keys. Engine metadata lives in the engines table (see lib/engines/* +
+// /admin/engines), and the AI meme pipeline uses baked-in defaults.
 
 export const FLOAT_TEXT_CONFIGS = new Set<string>([]);
 
@@ -205,7 +204,7 @@ export function msToHuman(ms: number): string {
   return `≈ ${rounded} hour${rounded === 1 ? "" : "s"}`;
 }
 
-// OpenAI chat models offered for the image scene + video motion prompts.
+// OpenAI chat models offered for the image scene prompts.
 // Both families are supported: the legacy GPT-4o / 4.1 chat models (max_tokens +
 // temperature) and the GPT-5 reasoning models (max_completion_tokens +
 // reasoning_effort, no temperature), including GPT-6. The server picks the right call shape per
@@ -235,7 +234,7 @@ export const REASONING_EFFORT_OPTIONS: { value: string; label: string }[] = [
 ];
 
 // Model + sampling + reasoning effort for all LLM calls now live on the shared
-// General Intelligence engine (/admin/engines), so no scene/video config key is
+// General Intelligence engine (/admin/engines), so no scene-prompt config key is
 // a dropdown anymore. OPENAI_CHAT_MODEL_OPTIONS / REASONING_EFFORT_OPTIONS are
 // still exported for the engine editor on the engines page.
 export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {};
@@ -243,11 +242,6 @@ export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> 
 // Image scene-prompt system prompt (model/sampling live on the engine now).
 export const SCENE_PROMPT_KEYS = new Set<string>([
   "scene_prompt_system",
-]);
-
-// Video motion-prompt system prompt (model/sampling live on the engine now).
-export const VIDEO_DIRECTION_KEYS = new Set<string>([
-  "video_direction_system",
 ]);
 
 // Keys that are surfaced through dedicated sections elsewhere on the

@@ -28,9 +28,9 @@
  *     non-admin answer AND that one gated product surface (`/submit`) follows.
  *     That is the substance of the step, but it is not every surface: the
  *     Legendary-feature half is steps 10/12, which need a fact and a photo.
- *   - Steps 22/23's downstream refusal (video generation) needs the builder;
- *     and their real bug was re-seeding on server RESTART, which a browser
- *     cannot exercise at all.
+ *   - Steps 22/23 (the video generation feature's grid row) went with video in
+ *     launch Phase 4; their real bug was re-seeding on server RESTART, which a
+ *     browser cannot exercise at all.
  *
  * Two rules this file is written to, both learned on #563:
  *   1. Every assertion here was falsified before it was trusted — mutated,

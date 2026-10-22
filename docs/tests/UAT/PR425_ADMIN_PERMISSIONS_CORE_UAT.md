@@ -317,41 +317,11 @@ all — a pre-existing bug closed on the way past.)
 
 **Check:** `artifacts/overhype-me/e2e/adminPermissions.spec.ts:the free account: refused at /admin/help, photo withheld and its selection refused, and a submission confirmed`
 
-### 21. Video generation still works before any toggle
+_Step 21 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 
-**Do:** As admin or Legendary, generate a video from a fact.
+_Step 22 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 
-**Expect:** Works as before.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — video generation is on the cut list and deleted there
-
-### 22. Switching video_generation off actually blocks it
-
-**Do:** In Admin → Features, uncheck `video_generation` for **Legendary**
-and **Admin**, then wait about a minute.
-
-**Expect:** Video generation is now refused with the Legendary-upgrade
-message. (Before this PR, `video_generation` could not be switched off at
-all — the server re-asserted the seeded values on every restart, so any
-change survived until the next deploy and then silently reverted. That
-re-seeding is gone.)
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — video generation is on the cut list and deleted there
-
-### 23. Switching it back on restores it
-
-**Do:** Re-check `video_generation` for **Legendary** and **Admin**, then
-wait about a minute.
-
-**Expect:** Working again.
-
-**Lane:** ci
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — video generation is on the cut list and deleted there
+_Step 23 retired with video, which launch Phase 4 deleted (removal 2, #744; ledger: `docs/retired/README.md`)._
 
 ## Regression
 

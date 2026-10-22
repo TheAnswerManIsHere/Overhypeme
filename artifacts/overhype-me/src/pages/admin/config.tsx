@@ -9,7 +9,6 @@ import {
   MODEL_CONFIG_KEYS,
   RETRY_DELAY_MS_KEYS,
   SCENE_PROMPT_KEYS,
-  VIDEO_DIRECTION_KEYS,
   useConfigCtx,
   useConfigPageState,
   msToHuman,
@@ -164,12 +163,11 @@ function RetryTimelinePanel() {
 
 // ── AI Settings group (nested inside Configuration) ───────────────────────────
 //
-// Hosts the editable system prompts — the AI Image Style Prompt and the AI
-// Video Motion Prompt — plus the AI gallery display limit. The model + sampling
-// (temperature, max tokens, reasoning effort) for these calls come from the
-// shared General Intelligence engine (/admin/engines). Image-engine / video
-// config also lives at /admin/engines; look-style prompt text lives on
-// `look_styles`.
+// Hosts the editable AI Image Style Prompt plus the AI gallery display limit.
+// The model + sampling (temperature, max tokens, reasoning effort) for these
+// calls come from the shared General Intelligence engine (/admin/engines).
+// Image-engine config also lives at /admin/engines; look-style prompt text
+// lives on `look_styles`.
 
 function AISettingsGroup() {
   const { rows } = useConfigCtx();
@@ -178,19 +176,15 @@ function AISettingsGroup() {
     .map((key) => rows.find((r) => r.key === key))
     .filter((r): r is NonNullable<typeof r> => r !== undefined);
 
-  const videoStyleRows = [...VIDEO_DIRECTION_KEYS]
-    .map((key) => rows.find((r) => r.key === key))
-    .filter((r): r is NonNullable<typeof r> => r !== undefined);
-
   return (
     <div className="space-y-3">
 
-      {/* AI Style Prompt Configuration — image + video, one unified panel */}
-      {(imageStyleRows.length > 0 || videoStyleRows.length > 0) && (
+      {/* AI Style Prompt Configuration */}
+      {imageStyleRows.length > 0 && (
         <CollapsibleSection
           title="AI Style Prompt Configuration"
           icon={<Wand2 className="w-4 h-4 text-muted-foreground" />}
-          description="The system prompts that turn a fact into the prompt sent to fal.ai — image style prompt (text → scene, per fact) and video motion prompt (image + fact → motion, per render). The model + sampling come from the General Intelligence engine (/admin/engines)."
+          description="The system prompt that turns a fact into the image style prompt sent to fal.ai (text → scene, per fact). The model + sampling come from the General Intelligence engine (/admin/engines)."
           storageKey="admin_section_config_ai_style_prompts"
         >
           <div className="space-y-5">
@@ -207,18 +201,6 @@ function AISettingsGroup() {
               </div>
             )}
 
-            {videoStyleRows.length > 0 && (
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">AI Video Motion Prompt</h4>
-                {videoStyleRows.map((row) => (
-                  <ConfigCard
-                    key={row.key}
-                    row={row}
-                    textareaRows={row.key === "video_direction_system" ? 16 : 4}
-                  />
-                ))}
-              </div>
-            )}
           </div>
         </CollapsibleSection>
       )}
@@ -260,7 +242,6 @@ export default function AdminConfig() {
     r.key !== "debug_mode_active" &&
     !MODEL_CONFIG_KEYS.has(r.key) &&
     !SCENE_PROMPT_KEYS.has(r.key) &&
-    !VIDEO_DIRECTION_KEYS.has(r.key) &&
     !BUDGET_KEYS.has(r.key) &&
     !LIMIT_KEYS.has(r.key) &&
     !EMAIL_KEYS.has(r.key) &&
@@ -409,7 +390,7 @@ export default function AdminConfig() {
               <CollapsibleSection
                 title="AI Settings"
                 icon={<Bot className="w-4 h-4 text-muted-foreground" />}
-                description="Models, parameters, style suffixes, and video generation."
+                description="Models, parameters and style suffixes."
                 storageKey="admin_section_config_ai_group"
               >
                 <AISettingsGroup />

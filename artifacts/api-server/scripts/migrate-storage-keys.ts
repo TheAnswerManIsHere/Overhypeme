@@ -27,7 +27,7 @@ import { installStdioGuard } from "../src/lib/stdioGuard";
 installStdioGuard();
 
 import { db } from "@workspace/db";
-import { factsTable, userAiImagesTable, memesTable, usersTable, videoJobsTable } from "@workspace/db/schema";
+import { factsTable, userAiImagesTable, memesTable, usersTable } from "@workspace/db/schema";
 import { isNotNull, eq, like } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { objectStorageClient } from "../src/lib/objectStorage";
@@ -358,7 +358,7 @@ async function dbUpdateUploads(oldToNew: Map<string, string>): Promise<number> {
     }
   }
 
-  // users.profile_image_url and video_jobs.image_url: stored as /api/storage/objects/uploads/...
+  // users.profile_image_url: stored as /api/storage/objects/uploads/...
   const apiOldToNew = new Map<string, string>();
   for (const [oldObjPath, newObjPath] of oldToNew) {
     apiOldToNew.set(`/api/storage${oldObjPath}`, `/api/storage${newObjPath}`);
@@ -379,25 +379,6 @@ async function dbUpdateUploads(oldToNew: Map<string, string>): Promise<number> {
       updated++;
     } catch (err) {
       console.error(`  [error] users row ${user.id}:`, err);
-      throw err;
-    }
-  }
-
-  // video_jobs.image_url: may reference /api/storage/objects/uploads/... for user-uploaded images
-  const videoJobs = await db
-    .select({ id: videoJobsTable.id, imageUrl: videoJobsTable.imageUrl })
-    .from(videoJobsTable)
-    .where(like(videoJobsTable.imageUrl, "/api/storage/objects/uploads/%"));
-
-  for (const job of videoJobs) {
-    const newUrl = apiOldToNew.get(job.imageUrl);
-    if (!newUrl) continue;
-    try {
-      await db.update(videoJobsTable).set({ imageUrl: newUrl }).where(eq(videoJobsTable.id, job.id));
-      console.log(`  video_jobs row ${job.id}: ${job.imageUrl} → ${newUrl}`);
-      updated++;
-    } catch (err) {
-      console.error(`  [error] video_jobs row ${job.id}:`, err);
       throw err;
     }
   }

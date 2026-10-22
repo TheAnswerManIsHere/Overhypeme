@@ -58,8 +58,6 @@ export interface MemeDetailBody extends Omit<MemeListItem, "aspectRatio"> {
   isNsfw: boolean;
   imageTransform: string | null;
   imageSource: { type?: string } | null;
-  artifactType: "image" | "video";
-  videoUrl: string | null;
 }
 
 const CREATED = "2026-10-01T12:00:00.000Z";
@@ -119,8 +117,6 @@ export function memeDetail(overrides: Partial<MemeDetailBody> & Pick<MemeDetailB
     isNsfw: false,
     imageTransform: null,
     imageSource: null,
-    artifactType: "image",
-    videoUrl: null,
     ...overrides,
   };
 }

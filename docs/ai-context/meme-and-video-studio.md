@@ -1,19 +1,18 @@
-# Meme and Video Studio
+# Meme Studio
 
 > The end-user-facing flow for actually making a meme: photo memes, AI image
-> memes, AI video memes, the tier gates on each, and where the resulting
-> media lives. **This is not the shared rendering machinery** — the Visual
+> memes, the tier gates on each, and where the resulting media lives. (The
+> file keeps its old name; video was deleted in launch Phase 4, removal 2 —
+> ledger [`docs/retired/README.md`](../retired/README.md), lessons
+> [`docs/retired/video.md`](../retired/video.md).) **This is not the shared rendering machinery** — the Visual
 > Concept, planner, and compiler that back AI image generation live in
 > [`visual-pipeline.md`](./visual-pipeline.md); this spec covers the
 > user-facing entry points into that machinery plus everything visual-pipeline
-> doesn't own (photo memes, video memes, tier gates, storage). **This is not
+> doesn't own (photo memes, tier gates, storage). **This is not
 > tier derivation either** — how `membershipTier` itself is computed lives in
 > [`membership-entitlements.md`](./membership-entitlements.md); this spec
 > only covers what each tier unlocks in the studio. Primary code:
 > `artifacts/api-server/src/routes/memes.ts` (save, AI generate, render),
-> `artifacts/api-server/src/routes/videoJobs.ts` +
-> `artifacts/api-server/src/lib/videoPipelineRunner.ts` (async video),
-> `artifacts/api-server/src/routes/videos.ts` (legacy sync video),
 > `artifacts/api-server/src/lib/createMemeRecord.ts` (the shared insert
 > path), `artifacts/api-server/src/lib/storageKeys.ts` +
 > `artifacts/api-server/src/lib/objectStorage.ts` (media storage).
@@ -21,8 +20,9 @@
 ## Frontend entry points (two live builders)
 
 - **The fact page's wizard:** `components/meme-builder/wizard/MemeBuilderWizard.tsx`,
-  mounted by `pages/FactDetail.tsx` on `/facts/:id/meme`; its video step is
-  `wizard/step2-video/Step2Video.tsx`.
+  mounted by `pages/FactDetail.tsx` on `/facts/:id/meme`. It opens directly on
+  its image builder, `wizard/step2-image/Step2Image.tsx`; the image-or-video
+  first step went with video.
 - **The meme page's remix builder:** the universal builder
   `components/meme-builder/MemeBuilder.tsx`, mounted by
   `pages/memePage/BuilderOverlay.tsx` when a viewer taps the meme page's
@@ -40,7 +40,7 @@ doc's description of it are at the `pre-cut/legacy-meme-studio` tag.
 
 **Where the visibility (Public/Private) choice lives.** `VisibilityToggle`
 (`meme-builder/parts/VisibilityToggle.tsx`), rendered next to the save action
-in the wizard's Step 2 via `WizardPrimaryAction`'s `aboveAction` slot
+in the wizard's image builder via `WizardPrimaryAction`'s `aboveAction` slot
 (`step2-image/Step2Image.tsx`). It is not wired into the meme page's remix
 builder (`components/meme-builder/MemeBuilder.tsx`).
 It is set **at creation time only** — no route or UI changes a meme's
@@ -53,20 +53,14 @@ granted that tier the flag via Admin → Features: tapping opens
 That keeps the control from ever offering a choice `createMemeRecord` would
 now refuse outright (a 403, not a silent overwrite) — at the cost of also
 hiding the choice from a tier the server would actually honor it for; that
-combination has no UI path today. **Video memes
-have no visibility control** — `POST /memes/video-jobs`'s `StartBody` accepts
-no privacy field and `videoPipelineRunner` calls `createMemeRecord` without
-`isPublic`, so every video meme is public (the retired `MemeStudioVideoTab`
-had one, wired to the legacy sync `/videos` route's `isPrivate`; it was deleted
-with the legacy studio).
+combination has no UI path today.
 
 ## Backend entry point and the `imageSource` union
 
 `POST /memes` (`memes.ts:268-354`) requires `req.isAuthenticated()` (401
 otherwise, `memes.ts:270-273`) — **auth only, no tier check** for the base
 save. It's a thin delegate (`memes.ts:282-286`) to `createMemeRecord()`
-(`createMemeRecord.ts:139-445`), which the async video pipeline also calls
-directly (bypassing HTTP), so every meme — however it was built — goes
+(`createMemeRecord.ts`), so every meme — however it was built — goes
 through this one insert path.
 
 **There is no distinct "AI image meme" `imageSource` type.** The type is a
@@ -78,7 +72,9 @@ discriminated union, `ImageSourceSchema` (`memeBuilder.ts:77-114`):
 | `"stock"` | Pexels stock photo | Pointer only (`pexelsPhotoId`, optional cached `photoUrl`) |
 | `"upload"` | User's own uploaded photo | Pointer (`uploadKey`) — bytes already landed via a separate upload call |
 | `"identity"` | "Use my profile photo" | Resolved server-side into `"upload"` pointing at the stored profile photo (`createMemeRecord.ts:205-219`); 400 if none exists |
-| `"video"` | AI video meme | Pointer (`videoJobId`, `videoObjectPath`, `stillObjectPath`, `lookStyleId`, `motionPresetId`) — bytes already produced by the video pipeline |
+
+A `"video"` variant, written only by the video pipeline, went with video in
+launch Phase 4; a stored video meme is a soft-deleted row (migration 0103).
 
 An AI-*generated* image background is just a file in object storage — it
 re-enters `createMemeRecord` as an `"upload"`-shaped `imageSource`, same as
@@ -87,7 +83,7 @@ was deleted with it.) The separate
 `imageTransform: "pulid"` flag marks a meme as PuLID-stylized for
 analytics/tier-gating (`createMemeRecord.ts:417`), independent of
 `imageSource.type`. `templateId` is derived server-side from the source
-(`"photo_stock"`, `"photo_upload"`, `"video"`, or the literal template id;
+(`"photo_stock"`, `"photo_upload"`, or the literal template id;
 `createMemeRecord.ts:312-316`).
 
 ## Photo memes
@@ -95,7 +91,7 @@ analytics/tier-gating (`createMemeRecord.ts:417`), independent of
 Upload: `POST /storage/upload-meme` (`routes/storage.ts:105-125`), JPEG
 only (415 otherwise, `userImageUpload.ts:92-96`), delegates to
 `processAndStoreUserUpload(..., {variant:"meme"})` — the same pipeline
-used for avatars, AI reference photos, and video frames
+used for avatars and AI reference photos
 (`userImageUpload.ts:16-24`). Bytes are stored verbatim, no server-side
 resize/recompress (`storage.ts:96-100`); a row lands in
 `upload_image_metadata` (schema `lib/db/src/schema/memes.ts:81-119`,
@@ -154,75 +150,6 @@ removal 11. Both generate paths lived in `routes/memes.ts`, not
 `routes/ai.ts` — `routes/ai.ts` is fact-authoring tooling (duplicate-check,
 tokenize-fact, admin enrichment tokenization), not a meme-creation surface.
 
-## AI video memes — two systems (A is legacy-only)
-
-### A. Legacy synchronous single-shot: `POST /videos/generate`
-
-Its only caller, the legacy studio's video tab, was deleted in launch Phase 4,
-removal 1 ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)); the route itself goes with video
-in removal 2 (`docs/plans/PLAN_PHASE4_CUT_AND_PRUNE.md`) and, as studio-only
-work, is not verified meanwhile ([`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)).
-
-`routes/videos.ts:354-796`. The deleted `MemeStudioVideoTab.tsx` used it for
-both its Magic and Manual paths. Gated by one
-`can(principal, "video_generation")` call — no separate admin short-circuit;
-the admin overlay is unioned in by the resolver (403
-`VIDEO_GENERATION_LOCKED`), IP-rate-limited. Calls `fal.subscribe()` and
-**blocks the HTTP request until the video finishes** — writes a
-`video_jobs` row `pending` → `completed`/`failed` within one request
-(`videos.ts:532-694`). The deleted video tab showed a client-side time-based "progress bar", not
-real server state — this path has no status polling.
-
-### B. Async multi-stage pipeline: `POST /memes/video-jobs`
-
-`routes/videoJobs.ts`, orchestrated by
-`artifacts/api-server/src/lib/videoPipelineRunner.ts`. Used by the new wizard
-(`step2-video/Step2Video.tsx` → `GodModeLoadingTakeover.tsx`), mounted as
-a sibling of `/api/memes`.
-
-Endpoints (`videoJobs.ts:11-16`, all auth-required, 401 otherwise):
-`POST /memes/video-jobs` (start; tier gate at `videoJobs.ts:91-105` — admin
-exempt, else Legendary or the `video_generation` feature flag), `GET
-/memes/video-jobs/:jobId` (poll; **404, never 403, for a non-owner** to
-avoid leaking which job IDs exist, `videoJobs.ts:18-22`), `POST
-.../proceed` (advance past the Stage-1 checkpoint), `POST
-.../regenerate` (re-run Stage 1 with a new look), `POST
-.../proceed-with-no-face-fallback`, `DELETE .../:jobId` (cancel; promotes
-the stylized still if one exists).
-
-Phase state machine (`videoPipelineRunner.ts:27-53,101-111`):
-
-```
-queued → stage1_pulid → stage1_review (checkpoint) → stage2_video → stage2_subtitle → uploading → completed
-              │no-face
-              └→ stage1_no_face_review
-```
-
-`sourceMode` (`"stylize-then-video" | "use-photo-as-is" |
-"use-existing-ai-image"`) — only the first runs Stage 1 at all; the other
-two skip straight to stage2. Terminal states: `completed`, `failed`,
-`canceled`. Job state is in-memory (TTL-bounded,
-`videoPipelineRunner.ts:266-267`) backed by a persistent `video_jobs` row
-(`lib/db/src/schema/videoJobs.ts:20-77`) so cancelled/expired in-memory
-state still leaves an audit trail (per-stage cost, engine ids,
-checkpoint/proceeded/completed timestamps).
-
-**Status shown to the user is real server-computed progress via polling**
-(confirmed at `GodModeLoadingTakeover.tsx:63-190`, `api.poll(jobId)` →
-`GET /memes/video-jobs/:jobId`), not a fabrication like path A —
-`computeProgress()` (`videoPipelineRunner.ts:229-262`) is a per-phase
-asymptotic curve, not a static floor.
-
-**On completion**, the pipeline calls `createMemeRecord()` directly (not
-via HTTP) with the `"video"`-typed `imageSource` — same shared insert path
-as every other meme type (confirmed:
-`createMemeRecord.test.ts:123-162`'s "video variant" assertions).
-
-Legacy `GET /video/:videoId` / `GET /videos/:factId`
-(`videos.ts:238-352`) serve only completed, non-private-or-owned
-`video_jobs` rows — they backed path A's history view in the deleted legacy
-studio, not path B's job polling.
-
 ## Tier gates
 
 `requireRole("admin"|"legendary"|"registered")`
@@ -233,8 +160,7 @@ ignores the admin "view as user" toggle. `requireLegendary` is a shim for
 **Gated to Legendary (or admin):** every one of these now resolves through
 `featureAccess.ts` rather than a role comparison, so the grid is the place to
 change them. AI image generation (`generate`, photo-only →
-`meme_ai_background`); all AI video (both
-systems → `video_generation`); PuLID-stylized photo
+`meme_ai_background`); PuLID-stylized photo
 memes (`meme_pulid_stylize`; `imageTransform: "pulid"` → 403 `tier_mismatch`
 if not qualified); private meme visibility (Legendary-level by
 default, or any tier an operator has separately granted the
@@ -264,7 +190,7 @@ intended-but-never-wired one before relying on either reading.
 
 ## Where media actually lives
 
-`ObjectStorageService` (`lib/objectStorage.ts`) wraps GCS via a Replit
+`ObjectStorageService` (`artifacts/api-server/src/lib/objectStorage.ts`) wraps GCS via a Replit
 sidecar credential exchange (`objectStorage.ts:13-31`) — still the live
 storage backend today, not legacy.
 
@@ -275,8 +201,6 @@ storage backend today, not legacy.
 | Rendered meme image (recipe meme) | No — rendered on demand, cache only at the HTTP layer | — |
 | Pre-recipe-architecture legacy meme | Yes | `memeKey()`, `storageKeys.ts:33-38` — `memes/{hash2}/{slug}.{ext}` |
 | AI-generated meme background (shared gallery) | Yes | `aiBackgroundKey()`, `storageKeys.ts:14-29` — `ai-backgrounds/{hash2}/{factId}-{gender}-{uniqueKey}.{ext}` |
-| AI video: stylized still (Stage 1) | Yes | `video_jobs.stylizedStillObjectPath` |
-| AI video: final captioned video | Yes | `video_jobs.videoUrl` (sync path) / `videoObjectPath` on the meme row (async path) |
 | Zazzle merch export | Yes, public ACL | inline at `memes.ts` (`zazzle-export`, `zazzle-redirect`) — `meme-exports/{slug}-v{MEME_RENDER_VERSION}.jpg` (render-versioned since PR #398 round 3, so a corrected re-export never collides with a stale edge-cached copy of an earlier render) |
 
 The `{hash2}` path segment is a 2-hex-char SHA-256 prefix of the filename
@@ -284,33 +208,23 @@ The `{hash2}` path segment is a 2-hex-char SHA-256 prefix of the filename
 hotspotting on the bucket — not a security or ownership mechanism.
 
 **Ownership is not the object ACL.** `user_ai_images` rows carry a
-**public** object ACL by design (`videos.ts:110-121`) — the real
-authorization gate is `userOwnsAiReferenceImage()`
-(`lib/objectAccess.ts`), used identically by the AI-user-image read route
-and the video generator's re-hosting logic. Uploads instead authorize via
+**public** object ACL by design — the real authorization gate is
+`userOwnsAiReferenceImage()` (`artifacts/api-server/src/lib/objectAccess.ts`), used by the AI-user-image
+read route and the photo-only AI generate route. Uploads instead authorize via
 `userCanReadObject()` — ACL first, then a legacy upload-owner-table
-fallback that also heals a missing ACL when it fires (confirmed:
-`videos.security.test.ts`).
+fallback that also heals a missing ACL when it fires.
 
 **Admin hard-delete cleanup gap:** `DELETE /admin/users/:id?hard=true`
 (`admin.ts:462-581`) collects and deletes every AI-image storage path and
 every `"upload"`-typed meme's storage object before nulling
-`createdById`, but **does not delete video artifact storage**
-(`videoObjectPath`/`stillObjectPath`) for `"video"`-typed memes — the
-cleanup loop only branches on `imageSource === null` or `type ===
-"upload"` (`admin.ts:501-510`); `video_jobs.userId` is nulled but the
-job's own storage objects are left in place. **Needs David confirmation**
-on whether this is accepted debt or an oversight before treating
-hard-delete as comprehensive across every meme type.
+`createdById`. (Video artifacts were the one meme type it skipped; video was
+deleted in launch Phase 4 and its MP4s and stills were left unreferenced in
+storage — see [`docs/retired/video.md`](../retired/video.md).)
 
 ## Files to inspect before studio/media work
 
 - `artifacts/api-server/src/routes/memes.ts` — save, the photo-only AI
   generate, render, Zazzle export.
-- `artifacts/api-server/src/routes/videoJobs.ts` +
-  `lib/videoPipelineRunner.ts` — the async multi-stage video pipeline.
-- `artifacts/api-server/src/routes/videos.ts` — the legacy synchronous
-  video path and its history/gallery reads.
 - `artifacts/api-server/src/lib/createMemeRecord.ts` — the single shared
   insert path every meme type goes through.
 - `artifacts/api-server/src/lib/validators/memeBuilder.ts` —
@@ -324,14 +238,11 @@ hard-delete as comprehensive across every meme type.
 - `artifacts/api-server/src/middlewares/tierMiddleware.ts` — `requireRole`
   / `requireLegendary`.
 - `artifacts/api-server/src/routes/admin.ts` — hard-delete storage
-  cleanup (and its video-artifact gap).
+  cleanup.
 - Frontend: `components/meme-builder/wizard/` (the fact page's wizard),
   `components/meme-builder/MemeBuilder.tsx` + `pages/memePage/BuilderOverlay.tsx`
-  (the meme page's remix builder),
-  `components/meme-builder/wizard/step2-video/Step2Video.tsx`
-  + `GodModeLoadingTakeover.tsx` (video UI).
-- Tests: `__tests__/createMemeRecord.test.ts`, `__tests__/videoJobs.test.ts`,
-  `__tests__/videos.security.test.ts`, `__tests__/tierMiddleware.test.ts`.
+  (the meme page's remix builder).
+- Tests: `__tests__/createMemeRecord.test.ts`, `__tests__/tierMiddleware.test.ts`.
 - For *what a tier is derived from*, not *what it unlocks here*:
   [`membership-entitlements.md`](./membership-entitlements.md). For the
   shared rendering machinery behind AI image generation:

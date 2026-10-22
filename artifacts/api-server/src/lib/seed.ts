@@ -9,7 +9,6 @@ import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
 import { seedScenePromptConfig } from "./scenePromptConfig";
-import { seedVideoDirectionConfig } from "./videoDirection";
 import { seedFactEnrichmentConfig } from "./factEnrichmentConfig";
 import { seedImagePromptConfig } from "./imagePromptConfig";
 import { seedReferenceResearchConfig } from "./referenceResearchConfig";
@@ -223,37 +222,6 @@ export async function ensureSchema(): Promise<void> {
       ON CONFLICT (key) DO NOTHING`,
     },
     {
-      label: "video_job_status enum",
-      ddl: `DO $$ BEGIN
-        CREATE TYPE video_job_status AS ENUM ('pending', 'completed', 'failed');
-      EXCEPTION WHEN duplicate_object THEN NULL;
-      END $$`,
-    },
-    {
-      label: "video_jobs table",
-      ddl: `CREATE TABLE IF NOT EXISTS video_jobs (
-        id serial PRIMARY KEY,
-        fact_id integer NOT NULL REFERENCES facts(id) ON DELETE CASCADE,
-        image_url text NOT NULL,
-        video_url text,
-        status video_job_status NOT NULL DEFAULT 'pending',
-        ip_address varchar(45) NOT NULL,
-        created_at timestamptz NOT NULL DEFAULT now()
-      )`,
-    },
-    {
-      label: "video_jobs.video_jobs_fact_id_idx",
-      ddl: `CREATE INDEX IF NOT EXISTS "video_jobs_fact_id_idx" ON video_jobs (fact_id)`,
-    },
-    {
-      label: "video_jobs.video_jobs_ip_address_idx",
-      ddl: `CREATE INDEX IF NOT EXISTS "video_jobs_ip_address_idx" ON video_jobs (ip_address)`,
-    },
-    {
-      label: "video_jobs.video_jobs_created_at_idx",
-      ddl: `CREATE INDEX IF NOT EXISTS "video_jobs_created_at_idx" ON video_jobs (created_at)`,
-    },
-    {
       label: "user_ai_images.add_image_type",
       ddl: `ALTER TABLE user_ai_images ADD COLUMN IF NOT EXISTS image_type varchar(20) NOT NULL DEFAULT 'generic'`,
     },
@@ -314,44 +282,7 @@ export async function ensureSchema(): Promise<void> {
     //   ai_std_*, ai_ref_pulid_*, ai_pulid_composition_suffix,
     //   video_prompt_system_prompt, video_model, video_duration,
     //   video_aspect_ratio, video_resolution. Image pipeline now uses
-    //   baked-in defaults; video flow uses the engines table.
-    {
-      label: "video_jobs.add_is_private",
-      ddl: `ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,
-    },
-    {
-      label: "video_jobs.add_user_id",
-      ddl: `ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS user_id text`,
-    },
-    {
-      label: "video_styles table",
-      ddl: `CREATE TABLE IF NOT EXISTS video_styles (
-        id varchar(64) PRIMARY KEY,
-        label varchar(128) NOT NULL,
-        description text NOT NULL DEFAULT '',
-        motion_prompt text NOT NULL DEFAULT '',
-        gradient_from varchar(32) NOT NULL DEFAULT '#000000',
-        gradient_to varchar(32) NOT NULL DEFAULT '#333333',
-        preview_gif_path text,
-        sort_order integer NOT NULL DEFAULT 0,
-        is_active boolean NOT NULL DEFAULT true,
-        created_at timestamptz NOT NULL DEFAULT now(),
-        updated_at timestamptz NOT NULL DEFAULT now()
-      )`,
-    },
-    {
-      label: "video_styles seed defaults",
-      ddl: `INSERT INTO video_styles (id, label, description, motion_prompt, gradient_from, gradient_to, sort_order) VALUES
-        ('cinematic',      'Cinematic',      'Slow dramatic push-in with moody volumetric lighting and epic atmosphere.',              'Slow cinematic camera push-in, dramatic volumetric lighting, deep shadows, epic atmosphere, film-quality motion blur',                                               '#2d1e00', '#8d6e63', 0),
-        ('action',         'Action',         'Fast cuts, shaky cam, and high-energy movement bursting with intensity.',                'High-energy action sequence, rapid camera shake, explosive motion, intense dynamic movement, adrenaline-fueled pacing',                                          '#bf360c', '#ff6d00', 1),
-        ('breaking-news',  'Breaking News',  'Urgent broadcast feel with bold motion graphics and news-desk energy.',                  'Urgent breaking-news broadcast style, bold sweeping camera pan, dramatic zoom-in on subject, high-stakes journalistic tension',                                   '#7f0000', '#d32f2f', 2),
-        ('hype-reel',      'Hype Reel',      'Hyperpump sports-montage energy with strobing light and triumphant movement.',           'Sports highlight hype reel, triumphant slow-motion moment into fast-forward burst, strobing light flares, crowd energy atmosphere',                              '#1a237e', '#00e5ff', 3),
-        ('retro-vhs',      'Retro VHS',      'Nostalgic 80s VHS tape aesthetic with glitchy scan lines and warm grain.',               'Retro VHS tape aesthetic, warm film grain, horizontal scan-line glitch, slow wobbly zoom, 1980s nostalgic camcorder motion',                                    '#1a0030', '#e64a19', 4),
-        ('dramatic-zoom',  'Dramatic Zoom',  'Extreme slow push-in zoom that builds unbearable tension.',                             'Extreme dramatic slow-zoom into subject, tension-building silence, subtle vibration, ominous creeping camera approach',                                         '#0a0a0a', '#455a64', 5),
-        ('anime',          'Anime',          'Dynamic anime-style motion with speed lines, power surges, and expressive impact.',      'Anime-style dynamic motion, speed-line burst, power aura flare, expressive over-the-top impact frame, heroic pose reveal',                                    '#4a0060', '#0288d1', 6),
-        ('epic-storm',     'Epic Storm',     'Swirling storm clouds, lightning flashes, and god-like elemental power.',               'Epic storm atmosphere, swirling dark clouds time-lapse, lightning flash illumination, sweeping aerial crane shot, elemental power surge',                       '#0a0e2e', '#1565c0', 7)
-      ON CONFLICT (id) DO NOTHING`,
-    },
+    //   baked-in defaults.
     // ── fal.ai Pricing Cache + Cost Tracking ──────────────────────────────────
     {
       label: "fal_pricing_cache table",
@@ -412,7 +343,7 @@ export async function ensureSchema(): Promise<void> {
       label: "admin_config seed fal_active_endpoints",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
             VALUES ('fal_active_endpoints',
-                    '["fal-ai/flux-pro/v1.1","xai/grok-imagine-video/image-to-video","fal-ai/flux-pulid","fal-ai/bytedance/seedance/v1.5/pro/text-to-video","bytedance/seedance-2.0/image-to-video"]',
+                    '["fal-ai/flux-pro/v1.1","fal-ai/flux-pulid"]',
                     'string',
                     'fal.ai Active Endpoint IDs',
                     'JSON array of fal.ai endpoint IDs to cache pricing for at startup and refresh hourly.',
@@ -561,6 +492,8 @@ export async function ensureSchema(): Promise<void> {
     // Softening it to DO NOTHING was the tempting fix and is the wrong one: it
     // would leave a second write path into tables this architecture is giving
     // exactly one. The grid has a single writer now — `featureAccess.ts`.
+    // (The feature itself was retired with video by migration 0103, launch
+    // Phase 4; the reasoning stands for every other grid row.)
     // ── Stripe hardening migrations ───────────────────────────────────────────
     {
       label: "users.monthly_generation_limit_override_usd",
@@ -704,10 +637,6 @@ export async function ensureSchema(): Promise<void> {
   // model, temperature, max tokens) with their production defaults. Idempotent
   // — existing rows / admin edits are preserved.
   await seedScenePromptConfig();
-
-  // Seed the admin-configurable video-direction levers (the motion/action
-  // direction layered on top of the motion preset for image-to-video).
-  await seedVideoDirectionConfig();
 
   // Seed the admin-configurable fact-enrichment levers (the visual-taxonomy
   // classifier system prompt, OpenAI model, temperature, max tokens).

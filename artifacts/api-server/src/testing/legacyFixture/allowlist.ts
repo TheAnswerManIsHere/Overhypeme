@@ -164,11 +164,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     id: "keep", label: "keep", description: "keep", promptSuffix: "keep", promptSuffixReference: "keep",
     previewImagePath: "media", sortOrder: "keep", isActive: "keep", createdAt: "keep", updatedAt: "keep",
   }),
-  include(s.motionPresetsTable, {
-    id: "keep", label: "keep", description: "keep", motionPrompt: "keep", cameraMotion: "keep",
-    motionIntensity: "keep", gradientFrom: "keep", gradientTo: "keep", previewGifPath: "media",
-    sortOrder: "keep", isActive: "keep", createdAt: "keep", updatedAt: "keep",
-  }),
   include(s.heroExamplesTable, {
     id: "keep", artifactType: "keep", assetUrl: "media", posterUrl: "media", captionLabel: "prose",
     sortOrder: "keep", active: "keep", createdAt: "keep", updatedAt: "keep",
@@ -382,14 +377,10 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
       isNsfw: "keep",
       imageTransform: "keep",
       artifactType: "keep",
-      videoObjectPath: "drop",
-      videoJobId: "drop",
-      lookStyleId: "keep",
-      motionPresetId: "keep",
     },
     {
       rowFilter: "t.status <> 'quarantined' AND t.artifact_type <> 'video'",
-      reason: "a quarantined meme is child-safety-adjacent; a video meme needs real MP4 bytes and video is cut from launch",
+      reason: "a quarantined meme is child-safety-adjacent; a video meme is a soft-deleted row of a feature cut in launch Phase 4 (migration 0103)",
     },
   ),
   include(
@@ -512,7 +503,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.passwordResetTokensTable, "auth-state", "a reset token is a credential"),
   exclude(s.oauthPendingStatesTable, "auth-state", "OAuth state and PKCE verifiers are credentials"),
   exclude(s.asyncJobsTable, "job-state", "job rows are executable work and their payloads carry recipients and results"),
-  exclude(s.videoJobsTable, "job-state", "video jobs carry IPs and authorisation snapshots, for a cut feature"),
   exclude(s.workerLaneHeartbeatsTable, "job-state", "per-process worker liveness"),
   exclude(s.membershipLeasesTable, "job-state", "fenced leases held by running workers"),
   exclude(s.quarantinedMemesTable, "child-safety", "the child-safety boundary"),

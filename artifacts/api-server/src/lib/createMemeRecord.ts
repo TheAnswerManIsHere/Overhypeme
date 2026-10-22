@@ -1,12 +1,10 @@
 /**
  * createMemeRecord — shared meme-row creation logic.
  *
- * Extracted from POST /api/memes so the async video pipeline can drop a
- * completed video meme into the same row shape without going through HTTP.
- * Behaviour mirrors the route's path 1:1 for the image variants (template /
- * stock / upload / identity); the new `"video"` variant skips the preview-
- * classifier (the pipeline has already moderated the still and the captioned
- * MP4) and persists artifact metadata on the row's imageSource jsonb.
+ * Extracted from POST /api/memes so non-HTTP callers create the same row
+ * shape. Behaviour mirrors the route's path 1:1 for every image variant
+ * (template / stock / upload / identity). (A `"video"` variant written by the
+ * video pipeline went with video, launch Phase 4.)
  *
  * The route handler in routes/memes.ts becomes a thin wrapper around this
  * function — same checks, same idempotency, same status codes. The function
@@ -94,8 +92,7 @@ export interface CreateMemeRecordInput {
   /**
    * Base64-encoded JPEG of the client-rendered preview canvas. When present
    * the bytes are NSFW-classified and (on accept) uploaded to GCS so the
-   * meme is served as a stored bitmap rather than rendered on demand. Skipped
-   * automatically for the "video" image source.
+   * meme is served as a stored bitmap rather than rendered on demand.
    */
   previewImageBase64?: string;
   /**
@@ -320,7 +317,6 @@ export async function createMemeRecord(
   const templateIdForDb =
     imageSource.type === "template" ? imageSource.templateId :
     imageSource.type === "stock"    ? "photo_stock" :
-    imageSource.type === "video"    ? "video" :
     "photo_upload";
 
   // ── Preview classifier (image-only path) ────────────────────────────
@@ -330,7 +326,7 @@ export async function createMemeRecord(
 
   const objectStorageService = new ObjectStorageService();
 
-  if (previewImageBase64 && imageSource.type !== "video") {
+  if (previewImageBase64) {
     const imgBuffer = Buffer.from(previewImageBase64, "base64");
     const { getFalApiKey, ensureFalConfigured, fal } = await import("./falClient");
     if (!getFalApiKey()) {
@@ -395,14 +391,6 @@ export async function createMemeRecord(
     ? await getUploadImageMetadata(imageSource.uploadKey)
     : null;
 
-  // ── Video-variant metadata (artifact_type, video_*, look/motion ids) ───
-  // The `video` imageSource discriminant carries the FK + R2 path the pipeline
-  // produced — surface those onto dedicated columns so they're queryable
-  // without parsing imageSource JSON. lookStyleId / motionPresetId are also
-  // copied for image memes that carry them (image-mode AI styling).
-  const videoSource = imageSource.type === "video" ? imageSource : null;
-  const isVideoSource = videoSource !== null;
-
   // ── Persist ─────────────────────────────────────────────────────────
   const insertValues: typeof memesTable.$inferInsert = {
     factId,
@@ -423,11 +411,7 @@ export async function createMemeRecord(
     nsfwClassifierScore: classifierScoreForMeme != null ? classifierScoreForMeme.toFixed(4) : null,
     isNsfw: isNsfwForMeme,
     imageTransform: imageTransform ?? null,
-    artifactType: isVideoSource ? "video" : "image",
-    videoObjectPath: videoSource?.videoObjectPath ?? null,
-    videoJobId: videoSource?.videoJobId ?? null,
-    lookStyleId: videoSource?.lookStyleId ?? null,
-    motionPresetId: videoSource?.motionPresetId ?? null,
+    artifactType: "image",
   };
 
   const [meme] = await db

@@ -71,7 +71,6 @@ export const FEATURE_KEYS = [
   "meme_ai_background",
   "meme_private_visibility",
   "meme_rate_limit_high",
-  "video_generation",
   "meme_pulid_stylize",
   "fact_submit_captcha_bypass",
   "fact_submit_rate_limit_bypass",

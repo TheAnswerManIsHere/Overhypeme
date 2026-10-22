@@ -30,7 +30,6 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 16 `NAV_ITEMS`:
 | `/admin/moderation` | `moderation.tsx` | Fact review queue (covered elsewhere) **plus** an embedded comment-review panel — see *Dead and misleading surfaces*. |
 | `/admin/eval` | `evalDashboard.tsx` | Render-quality eval dashboard: golden fact set, cost-confirmed eval runs, per-render rating, run-vs-run comparison. |
 | `/admin/affiliate` | `affiliate.tsx` | The Zazzle click-through stats page, already documented in [`public-site-and-sharing.md`](./public-site-and-sharing.md). |
-| `/admin/video-styles` | `videoStyles.tsx` | CRUD for video-builder motion styles (prompt text + optional preview). |
 | `/admin/config` | `config.tsx` | The generic `admin_config` key/value editor — see *Config surfaces*. |
 | `/admin/engines` | `engines.tsx` | The AI engine catalogue: per-engine model id, durations, resolutions, params. |
 | `/admin/taxonomy-health` | `taxonomy-health.tsx` | Covered in [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md). |

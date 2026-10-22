@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 
-export type GenerationPath = "ai" | "meme" | "video";
+export type GenerationPath = "ai" | "meme";
 export type Tier = "unregistered" | "registered" | "legendary" | "admin";
 
 export interface GovernancePolicy {

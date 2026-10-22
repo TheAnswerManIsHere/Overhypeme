@@ -263,7 +263,7 @@ place it is edited, on both the Moderation Step-2 flow and the Facts page. A
 blank `coreSceneOverride` **blocks admin save** (the enrichment PATCH and the
 review-candidate PATCH reject it `400 visual_concept_required`) **and blocks
 production approval** (`CONCEPT_MISSING` on the approve-visual-concept and
-first-time/refresh production-approval paths). Rationale: the image and video
+first-time/refresh production-approval paths). Rationale: the image
 engines need a concrete scene to make a meme, so a fact can't be released
 without one.
 
@@ -420,8 +420,9 @@ baby, no clones). Age/life-stage transforms (`ageLifeStageTransform`,
 validator enforces mode-appropriate likeness claims (t2i/nonhuman must not claim
 human facial likeness).
 
-**PuLID is NOT on the still-image render path** — it's Stage 1 of the *video*
-pipeline only. Nano Banana 2 edit is the recommended still-image upgrade from
+**PuLID is NOT on the still-image render path** — it was Stage 1 of the
+*video* pipeline (deleted in launch Phase 4) and now serves only the remix
+builder's photo stylise, until it goes too. Nano Banana 2 edit is the recommended still-image upgrade from
 PuLID.
 
 ## Admin preview/debug surfaces (Runtime Compiled Prompt)
@@ -441,7 +442,7 @@ Franklin"` / he/him; production uses the real user identity
 **Preview ≠ byte-identical to production** because `IMAGE_PROMPT_TEMPERATURE = 0.4`
 (two live calls word differently). Divergence is **temperature, not caching** —
 previews don't cache and don't read the `aiScenePrompts` blob (that cache serves
-only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reuse
+only PuLID/backfill). Making outputs identical needs temp 0 or result-reuse
 — **ask David first** (see `.agents/memory/image-prompt-preview-parity.md`).
 
 ## Known failure modes
@@ -471,7 +472,7 @@ only video/PuLID/backfill). Making outputs identical needs temp 0 or result-reus
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
   path is the **frontier planner (`gpt-5.5`) + Nano Banana 2** (`nano-banana-2` /
   `nano-banana-2-edit`). (The utility LLM — `gpt-6-luna` since it replaced `gpt-4o-mini`
-  on 2026-10-13 — serves utility/Pexels keywords only; FLUX only via `pulid-flux` in video.)
+  on 2026-10-13 — serves utility/Pexels keywords only; FLUX only via `pulid-flux`.)
 - An enrichment-time visual-preview phase (retired; render-time plan/compiler is
   the source of truth).
 - Violence auto-softeners; per-route preview identities; competing prompt channels.

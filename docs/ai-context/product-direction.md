@@ -40,7 +40,8 @@ by every modality) — see *Launch-critical vs deferrable work* below.
   is no blanket text ban.
 - **Video is deferred past launch** (David, 2026-10-05). The video pipeline,
   the legacy one-shot path, the PuLID stage and the video engines are deleted
-  in the launch programme's cut phase and video is rebuilt post-launch on top
+  in the launch programme's cut phase (video went in Phase 4 removal 2; ledger
+  [`docs/retired/README.md`](../retired/README.md)) and video is rebuilt post-launch on top
   of the image pipeline. **PuLID is removed everywhere**: *"We're going to be
   using a much stronger model."*
 - **Free-tier image memes are the fact's moderation-approved hero renders**,

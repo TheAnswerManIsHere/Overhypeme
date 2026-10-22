@@ -25,9 +25,7 @@ import evalRouter from "./eval";
 import shareRouter from "./share";
 import shareCopyRouter from "./shareCopy";
 import shareIntentsRouter from "./shareIntents";
-import heroExamplesRouter from "./heroExamples";
-import videosRouter from "./videos";
-import videoJobsRouter from "./videoJobs";
+import lookStylesRouter from "./lookStyles";
 import routeStatsRouter from "./routeStats";
 
 const router: IRouter = Router();
@@ -57,9 +55,7 @@ router.use(evalRouter);
 router.use(shareRouter);
 router.use(shareCopyRouter);
 router.use(shareIntentsRouter);
-router.use(heroExamplesRouter);
-router.use(videosRouter);
-router.use(videoJobsRouter);
+router.use(lookStylesRouter);
 router.use(routeStatsRouter);
 router.use(importRouter);
 

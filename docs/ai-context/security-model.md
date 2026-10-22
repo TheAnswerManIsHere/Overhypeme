@@ -141,9 +141,12 @@ traps in [`known-failure-patterns.md`](./known-failure-patterns.md)).
   `storage.ts` is the base gate. `userCanReadObject()` layers the legacy
   `upload_image_metadata` owner fallback + ACL heal; `userOwnsAiReferenceImage()`
   gates AI-reference images by `user_ai_images` owner. The video IDOR (C2) was a
-  `storagePath → getObjectEntityFile` with no ACL; `uploadPrivateImageToFalCdn`
-  now classifies the URL form and authorizes each by its serving route's policy,
-  failing closed with 403 **before** any download/fal upload.
+  `storagePath → getObjectEntityFile` with no ACL; its fix,
+  `uploadPrivateImageToFalCdn`, classified the URL form and authorized each by
+  its serving route's policy, failing closed with 403 **before** any download/fal
+  upload. The helper went with video in launch Phase 4 (ledger
+  [`docs/retired/README.md`](../retired/README.md)); the rule — authorize by the
+  serving route's policy before re-hosting private bytes — binds any successor.
 - **Meme visibility** — `canViewMeme(meme, req)` = `public OR owner OR admin`
   (`memeVisibility.ts`); a null-creator private meme is admin-only (fail closed).
   **`isPublic === false` means owner-only/secret** (David's product call, C3 —
@@ -227,15 +230,15 @@ to the authenticated admin by design. Full mechanics:
 ## Generation spend enforcement
 
 Distinct from the membership-grant trust above: this is the per-user **spend
-ceiling** on paid generation (fal.ai image and video calls), and it is a
+ceiling** on paid generation (fal.ai image calls), and it is a
 fail-closed control, not just a budgeting nicety — an unbounded generation path
 spends real money with no upper limit.
 
 **Two independent layers, and changes must not update only one.**
 `checkBudget` (`budgetGate.ts`) is the **durable, ledger-backed per-user
 ceiling** and is what the rest of this section describes. `enforceGovernance`
-(`resourceGovernance.ts`) runs *first* on the synchronous image and video routes
-(`routes/memes.ts`, `routes/videos.ts`) and independently rejects on
+(`resourceGovernance.ts`) runs *first* on the synchronous image routes
+(`routes/memes.ts`) and independently rejects on
 `DAILY_SPEND_CAP_EXCEEDED` / `MONTHLY_SPEND_CAP_EXCEEDED` plus request-rate,
 concurrency, duration and payload caps. Its accounting is **in-memory and
 per-process**, so like the global rate limiter it is a per-instance backstop

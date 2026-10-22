@@ -5,11 +5,11 @@
  * Runtime-only fields (e.g. generation status) live on this hook but are NOT
  * persisted. Persisted shape is `PendingWizardState` (schemaVersion 3).
  *
- * Hydrates from sessionStorage on mount; if nothing is stored (or it's stale)
- * we start from a clean initial state.
+ * Hydrates from sessionStorage on first render; if nothing is stored (or it's
+ * stale) we start from a clean initial state.
  */
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer } from "react";
 import type {
   AspectRatio,
   EntryFlow,
@@ -116,26 +116,21 @@ export interface UseWizardStateReturn {
 
 export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
   const { factId, entryFlow, initialName, initialPronouns } = args;
+  // Hydrate from sessionStorage in the initializer, not an effect: the image
+  // builder mounts on the first render (there is no Step 1 to cover the gap
+  // since video was cut) and reads its state once, so a draft restored after
+  // mount would be lost.
   const [state, dispatch] = useReducer(reducer, undefined, () => {
     const base = initialState();
     if (initialName) base.name = initialName;
     if (initialPronouns) base.pronouns = initialPronouns;
-    return base;
-  });
-
-  // Hydrate from sessionStorage on mount.
-  const hydratedRef = useRef(false);
-  useEffect(() => {
-    if (hydratedRef.current) return;
-    hydratedRef.current = true;
     const pending = restoreWizardState(factId);
-    if (pending) dispatch({ type: "hydrate", pending });
-  }, [factId]);
+    return pending ? reducer(base, { type: "hydrate", pending }) : base;
+  });
 
   // Persist every state change. Generation status is excluded from the
   // serialized shape.
   useEffect(() => {
-    if (!hydratedRef.current) return;
     const snapshot: PendingWizardState = {
       schemaVersion: 3,
       capturedAt: Date.now(),

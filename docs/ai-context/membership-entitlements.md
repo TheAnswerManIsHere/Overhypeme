@@ -482,11 +482,14 @@ grid. `adminIdentity.ts` is the single definition of "really an admin", over
 all three grant mechanisms (stored column, `ADMIN_USER_IDS`,
 `BOOTSTRAP_ADMIN_EMAIL`).
 
-*Queued work is authorized as of submission.* `video_jobs.authorization_snapshot`
-persists the resolved decision alongside the principal, and background paths
-read it rather than re-resolving — otherwise an admin previewing as a user
+*Queued work is authorized as of submission.* A queued generator persists the
+resolved decision alongside the principal when the request arrives, and its
+background path reads that rather than re-resolving — otherwise an admin previewing as a user
 would bypass every gate through the background path, and a grid change
-mid-flight would retroactively change what a running job was allowed to do.
+mid-flight would retroactively change what a running job was allowed to do. Its only
+implementation, `video_jobs.authorization_snapshot`, went with video in launch
+Phase 4 (ledger [`docs/retired/README.md`](../retired/README.md)); the rule
+binds the next queued generator.
 
 *The client is told, never derives.* `/auth/user` ships the resolved
 entitlement map as a sibling of `user` (populated for anonymous callers too),

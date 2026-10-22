@@ -755,8 +755,9 @@ handbook work a launch phase needs and a second app would need identically;
 - **Render/enrichment quality** — robustness of versioned refresh and stale-render
   handling; the engine evaluation (#628 Phase 8).
 - ~~**Video meme pipeline** — maturity + user-facing status/experience.~~
-  Deferred past launch and deleted in the cut phase (David, 2026-10-05); see
-  [`launch-definition.md`](./launch-definition.md).
+  Deferred past launch (David, 2026-10-05) and deleted in launch Phase 4,
+  removal 2; see [`launch-definition.md`](./launch-definition.md) and the ledger
+  [`docs/retired/README.md`](../retired/README.md).
 
 ## Explicitly deferred work
 

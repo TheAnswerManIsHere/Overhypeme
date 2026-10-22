@@ -44,7 +44,7 @@ const EXTERNAL_IMAGES: ReadonlyArray<{ host: RegExp; roles?: readonly MediaRole[
 
 /**
  * Roles whose row may have lost its owner: every upload writer records the uploader (userImageUpload.ts:286-307,
- * aiMemePipeline.ts:950-960, imagePromptJobs.ts:694, videoPipelineRunner.ts:1858), and upload_image_metadata.user_id
+ * aiMemePipeline.ts:950-960, imagePromptJobs.ts:694), and upload_image_metadata.user_id
  * empties only when that account is deleted (ON DELETE SET NULL).
  */
 const OWNER_OPTIONAL: ReadonlySet<MediaRole> = new Set(["upload-metadata", "upload-metadata-source"]);

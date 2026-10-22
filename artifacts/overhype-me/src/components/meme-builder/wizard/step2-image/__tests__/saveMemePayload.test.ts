@@ -4,8 +4,6 @@ import type { WizardRuntimeState } from "../../state/useWizardState";
 
 function baseState(): WizardRuntimeState {
   return {
-    currentStep: 2,
-    artifactType: "image",
     generation: { status: "idle" },
     aspectRatio: "landscape",
     framingOffset: { x: 0, y: 0 },

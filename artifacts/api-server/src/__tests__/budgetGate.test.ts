@@ -447,8 +447,8 @@ describe("recordCost", () => {
     const userId = await createTestUser({ tier: "registered" });
     await recordCost({
       userId,
-      jobType: "video",
-      endpointId: "fal-ai/test-video",
+      jobType: "image",
+      endpointId: "fal-ai/test-image",
       unitPriceAtCreation: 1.0,
       billingUnits: 100,
       computedCostUsd: 0.50,
@@ -652,8 +652,8 @@ describe("recordCost — provenance", () => {
     const userId = await createTestUser();
     await recordCost({
       userId,
-      jobType: "video",
-      endpointId: "fal-ai/probe-video",
+      jobType: "image",
+      endpointId: "fal-ai/probe-image",
       unitPriceAtCreation: 0.05,
       billingUnits: 6,
       computedCostUsd: 0.3,
@@ -676,8 +676,8 @@ describe("recordCost — provenance", () => {
     const userId = await createTestUser();
     await recordCost({
       userId,
-      jobType: "video",
-      endpointId: "fal-ai/probe-video",
+      jobType: "image",
+      endpointId: "fal-ai/probe-image",
       unitPriceAtCreation: 0.05,
       billingUnits: 6,
       computedCostUsd: 0.3,

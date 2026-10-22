@@ -66,8 +66,8 @@ const ALLOWLIST = [
     reason:
       "roleToIdentity() is the identity-prerequisite mapper itself — it collapses " +
       "role into a legacy tier label for downstream UX-default pickers, and " +
-      "deliberately does not gate any feature. The actual gates it feeds (AI " +
-      "stylize, video) resolve through can().",
+      "deliberately does not gate any feature. The actual gate it feeds (AI " +
+      "stylize) resolves through can().",
   },
   {
     file: "artifacts/overhype-me/src/pages/memePage/useViewerCell.ts",

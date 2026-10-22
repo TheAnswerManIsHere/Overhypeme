@@ -34,7 +34,7 @@ Never mix these roles. Body copy in Bebas reads as shouting; headlines in DM San
 LEGEND is framed as **identity acquisition**, not feature unlock. Visual treatment should reflect that:
 - Subtle, not gaudy. No gold gradients, no crowns, no sparkles.
 - A small mark or badge near the user's name is more powerful than a colored border around their content.
-- LEGEND-only affordances (e.g., higher-tier video output) should feel earned, not stamped.
+- LEGEND-only affordances (e.g., AI images of you) should feel earned, not stamped.
 
 ## Component patterns
 

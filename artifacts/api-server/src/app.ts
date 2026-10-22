@@ -337,7 +337,6 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
     "/api/storage/upload-avatar",
     "/api/storage/upload-meme",
     "/api/memes/stock-photo",
-    "/api/videos/generate",
   ], noStore);
 
   // Public config endpoint — registered BEFORE the main router so nothing can intercept it

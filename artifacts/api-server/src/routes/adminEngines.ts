@@ -1,15 +1,13 @@
 /**
  * Admin engines API.
  *
- * Sibling routes to `GET /api/engines` in routes/videos.ts (which serves the
- * wizard catalogue). These endpoints power the admin tooling at
- * /admin/engines and require `realUserRole === "admin"` via `requireAdmin`.
+ * These endpoints power the admin tooling at /admin/engines and require `realUserRole === "admin"` via `requireAdmin`.
  *
  * The admin can:
  *   - list all engines, including soft-deleted (`GET /api/admin/engines`)
  *   - patch a whitelisted subset of editable fields (`PATCH …/:id`)
  *   - soft-delete an engine (`DELETE …/:id`) — clears wizard visibility but
- *     leaves the row so `video_jobs.video_engine_id` lineage keeps resolving
+ *     leaves the row so historical references to the engine id keep resolving
  *   - restore a soft-deleted engine (`POST …/:id/restore`)
  *   - swap the per-kind default in a single transaction
  *     (`POST …/:id/set-default`)
@@ -30,15 +28,12 @@ import {
   enginesTable,
   factsTable,
   lookStylesTable,
-  motionPresetsTable,
   type Engine,
 } from "@workspace/db/schema";
 import { eq, ne, and } from "drizzle-orm";
 
 import { requireAdmin } from "./admin.js";
 import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js";
-import { applyAudioHandling } from "../lib/engineAudio.js";
-import { generateVideoDirection } from "../lib/videoDirection.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import {
   assembleImagePromptForPreview,
@@ -76,14 +71,6 @@ const router: IRouter = Router();
 let sourceImageAnalyzer: typeof analyzeSourceImage = analyzeSourceImage;
 export function __setSourceImageAnalyzerForTest(fn: typeof analyzeSourceImage | null): void {
   sourceImageAnalyzer = fn ?? analyzeSourceImage;
-}
-
-// Test seam: override the AI Video Motion Prompt generator.
-let videoStylePromptGenerator: (factText: string, imageUrl?: string | null) => Promise<string> = generateVideoDirection;
-export function __setVideoStylePromptGeneratorForTest(
-  fn: ((factText: string, imageUrl?: string | null) => Promise<string>) | null,
-): void {
-  videoStylePromptGenerator = fn ?? generateVideoDirection;
 }
 
 // Lazily upload the bundled test face to fal so OpenAI's vision call has a
@@ -238,8 +225,8 @@ export function __setFalPollForTest(impl: FalPoll | null): void {
 // runtime back to the workbench we stash the submit timestamp keyed by
 // requestId; the poll handler reads it on the terminal transition and
 // deletes the entry. A 30-minute TTL guards against admins closing the
-// workbench mid-poll and orphaning entries forever (longest fal video
-// engine SLA is ~5 min; 30 min is a generous ceiling).
+// workbench mid-poll and orphaning entries forever (30 min is a generous
+// ceiling over the slowest image engine).
 // ────────────────────────────────────────────────────────────────────────────
 
 const SUBMIT_TIMESTAMP_TTL_MS = 30 * 60 * 1000;
@@ -545,32 +532,16 @@ interface TestBody {
   /**
    * Transform/scene prompt for image engines (image-to-image + text-to-image).
    * For image-to-image this describes how to transform the source; for
-   * text-to-image it is the whole generation prompt. Ignored by video/utility.
+   * text-to-image it is the whole generation prompt. Ignored by classifiers.
    */
   imagePrompt?: string;
-  /** Override the engine's default motion prompt. Falls back to TEST_MOTION_PROMPT. */
-  motionPrompt?: string;
-  /**
-   * Override the dialogue text routed through applyAudioHandling.
-   *   `string`     — use as-is (overrides TEST_DIALOGUE_TEXT)
-   *   `null`       — explicit silence (no voiceover cue at all)
-   *   `undefined`  — fall back to engine-appropriate default (TEST_DIALOGUE_TEXT
-   *                  for audio engines, null for utility engines)
-   */
-  dialogueText?: string | null;
-  /** Override the default duration (seconds). Must be in engine.allowedDurationsSec when set. */
-  durationSec?: number;
   /** Override the default aspect ratio. Accepts wizard format ("landscape"/"square"/"portrait") OR fal format ("16:9"/"1:1"/"9:16"/etc.). */
   aspectRatio?: string;
   /** Override the default resolution. Must be in engine.allowedResolutions when set. */
   resolution?: string;
-  /** Override the default mode. Must be in engine.supportedModes when set. */
-  mode?: string;
-  /** Override the generateAudio default. */
-  generateAudio?: boolean;
   /**
    * Engine-specific param overrides — merged into pipelineParams before
-   * applyAudioHandling. Keys are the schema's `from` keys (e.g. "cfgScale",
+   * buildEngineInput. Keys are the schema's `from` keys (e.g. "cfgScale",
    * "negativePrompt"). Used to surface engine-specific knobs in the admin
    * Test panel without hard-coding them server-side.
    */
@@ -603,38 +574,13 @@ const DRY_RUN_ASSET_PLACEHOLDER = "<source asset — uploaded to fal at run time
  * a new engine's param shape without burning a real user job.
  *
  * Body: { sampleImageUrl?: string }. When absent we upload the shipped
- * 1×1 test-face.jpg to fal.storage and use that. For utility engines like
- * auto-subtitle the "image" is actually a video URL — those reject with a
- * 400 unless the admin supplies an explicit URL.
+ * 1×1 test-face.jpg to fal.storage and use that.
  *
  * Returns:
  *   200 { ok: true, falInput, falResult, durationMs }
  *   200 { ok: false, falInput, error, durationMs }   (engine returned error)
  *   400 / 404 on validation problems
  */
-/**
- * Synthetic test fixtures. These are deliberately specific (not generic
- * prose) so admins can judge from the output video whether the engine
- * honored what we sent:
- *
- *   - Motion: observable beats with direction + timing. If the subject
- *     isn't doing what's described, the engine is ignoring motion prompts.
- *   - Dialogue: a recognizable phrase with phonetically diverse syllables.
- *     If the audio garbles it, the engine's voice synthesis is the issue.
- *     If the lips don't match for `native_lipsync` engines, lipsync is.
- *
- * Both flow through the same code paths as the wizard's real generation
- * (applyAudioHandling + buildEngineInput), so the synthetic test exercises
- * the engine's actual contract, not just "does fal accept the JSON."
- */
-const TEST_MOTION_PROMPT =
-  "Subject slowly turns their head 45 degrees to the left over 2 seconds, " +
-  "then returns to center while making eye contact with the camera. " +
-  "Slow dolly push-in throughout. Soft window light from the left.";
-
-const TEST_DIALOGUE_TEXT =
-  "This is a synthetic engine test. The quick brown fox jumps over the lazy dog.";
-
 /**
  * Default prompt for the image benches. Specific enough that an admin can tell
  * from the output whether the engine honored the prompt — for image-to-image
@@ -646,34 +592,28 @@ const TEST_IMAGE_PROMPT =
   "rain-soaked alley, dramatic chiaroscuro lighting, volumetric fog.";
 
 /**
- * Which bench a given engine drives. Video and utility map straight from
- * `kind`; image engines split on whether the param schema declares a source
- * image (`referenceImageUrl`/`imageUrl`) — if it does it's image-to-image,
- * otherwise text-to-image (prompt only).
+ * Which bench a given engine drives. Utility engines are image classifiers
+ * (detector utilities that take an image and no prompt); image engines split
+ * on whether the param schema declares a source image
+ * (`referenceImageUrl`/`imageUrl`) — if it does it's image-to-image, otherwise
+ * text-to-image (prompt only).
  */
 export type EngineBenchType =
   | "text-to-image"
   | "image-to-image"
-  | "video"
-  | "utility"
   | "image-classifier";
 
 export function engineBenchType(engine: {
   kind: string;
   paramSchema?: unknown;
 }): EngineBenchType {
-  if (engine.kind === "video") return "video";
   const params =
     (engine.paramSchema as { params?: Array<{ from?: string; name?: string }> } | null | undefined)?.params ?? [];
-  if (engine.kind === "utility") {
-    // Detector / classifier utilities: utility engines whose paramSchema
-    // takes an `imageUrl` input but no `prompt` text. They sit next to the
-    // image/video benches in /admin/engines for IO testing.
-    const hasImageInput = params.some((p) => p.from === "imageUrl" || p.from === "referenceImageUrl");
-    const hasPromptInput = params.some((p) => p.from === "imagePrompt" || p.from === "prompt" || p.name === "prompt");
-    if (hasImageInput && !hasPromptInput) return "image-classifier";
-    return "utility";
-  }
+  // Detector / classifier utilities (fal-yolo-world): utility engines whose
+  // paramSchema takes an `imageUrl` input but no `prompt` text. They sit next
+  // to the image benches in /admin/engines for IO testing. The caption utility
+  // that took a video URL went with video (launch Phase 4).
+  if (engine.kind === "utility") return "image-classifier";
   const needsSourceImage = params.some(
     (p) => p.from === "referenceImageUrl" || p.from === "imageUrl",
   );
@@ -684,15 +624,14 @@ export function engineBenchType(engine: {
 // 5b. POST /api/admin/engines/:id/assemble-prompt
 //
 // Assembles the EXACT production prompt for a chosen fact (+ gender + look
-// style for image engines, or motion preset for video), so the workbench can
+// style), so the workbench can
 // test each engine against real meme-generator inputs instead of synthetic
-// placeholders. The secret prompt strings (style suffixes, composition suffix,
-// motion prompt) stay server-side; the client only sends ids.
+// placeholders. The secret prompt strings (style suffixes, composition suffix)
+// stay server-side; the client only sends ids.
 //
 // Returns, depending on the engine's bench:
-//   image  → { imagePrompt }        (scene prompt[gender] + style suffix [+ composition])
-//   video  → { motionPrompt, dialogueText }
-//   utility→ {}                      (captions a video; no prompt assembly)
+//   image      → { imagePrompt }  (scene prompt[gender] + style suffix [+ composition])
+//   classifier → { benchType }    (no prompt to assemble)
 // ────────────────────────────────────────────────────────────────────────────
 
 interface AssemblePromptBody {
@@ -701,24 +640,15 @@ interface AssemblePromptBody {
   lookStyleId?: string;
   /** Output aspect ratio the admin is rendering in (wizard format). */
   aspectRatio?: string;
-  motionPresetId?: string;
   /**
-   * Source image for the video bench — the still the motion prompt is generated
-   * against (the model must see what's in the frame). Falls back to the bundled
-   * test face when absent.
+   * Source image for the image-to-image bench — the still the prompt is
+   * analyzed and rendered against. Falls back to the bundled test face when
+   * absent.
    */
   sampleImageUrl?: string;
   /**
-   * The video motion prompt already shown in the bench. Video benches have no
-   * persistent cache (production regenerates per render), so the client passes
-   * the current value back: it's reused when only the motion preset changes and
-   * regenerated when absent or when forceRegenerate is set.
-   */
-  videoDirection?: string;
-  /**
    * Force fresh generation: for image benches, regenerate the scene prompts and
-   * overwrite the fact's cached aiScenePrompts; for video benches, regenerate
-   * the AI Video Motion Prompt instead of reusing the passed-in value.
+   * overwrite the fact's cached aiScenePrompts.
    */
   forceRegenerate?: boolean;
 }
@@ -753,58 +683,8 @@ router.post(
 
     const benchType = engineBenchType(engine);
 
-    // Video: the AI Video Motion Prompt (generated from the source image) + the
-    // motion preset (camera/movement) are merged exactly like
-    // videoPipelineRunner.runStage2; the fact text is also the voice/dialogue cue.
-    if (benchType === "video") {
-      // Motion preset — the second, separate layer.
-      let presetPrompt = "";
-      if (body.motionPresetId) {
-        const [mp] = await db
-          .select({ motionPrompt: motionPresetsTable.motionPrompt })
-          .from(motionPresetsTable)
-          .where(eq(motionPresetsTable.id, body.motionPresetId))
-          .limit(1);
-        presetPrompt = mp?.motionPrompt ?? "";
-      }
-      // Render the fact template down to a concrete name + pronoun — both the
-      // dialogue cue and the text fed to the motion generator (matching
-      // production, which generates from the rendered fact text).
-      const dialogueText = renderPersonalized(fact.text, WORKBENCH_TEST_NAME, WORKBENCH_TEST_PRONOUNS);
-
-      // AI Video Motion Prompt — the generated first layer. Reuse the value the
-      // bench already holds unless it's absent or a regenerate was requested, so
-      // swapping the motion preset doesn't re-roll the (non-deterministic) prompt.
-      let videoStyle = typeof body.videoDirection === "string" ? body.videoDirection.trim() : "";
-      if (!videoStyle || body.forceRegenerate) {
-        // The generator must SEE the still: use the admin's sample image, else
-        // the bundled test face. A failed face upload is non-fatal (degrade to
-        // text-only generation).
-        let imageUrl = typeof body.sampleImageUrl === "string" ? body.sampleImageUrl.trim() : "";
-        if (!imageUrl) {
-          try {
-            imageUrl = await getBundledTestFaceUrl();
-          } catch (err) {
-            logger.warn({ err }, "[adminEngines/assemble-prompt] bundled test-face upload failed; generating text-only");
-          }
-        }
-        try {
-          videoStyle = (await videoStylePromptGenerator(dialogueText, imageUrl || null)).trim();
-        } catch (err) {
-          logger.warn({ err, factId }, "[adminEngines/assemble-prompt] video motion-prompt generation failed");
-          videoStyle = "";
-        }
-      }
-
-      const motionPrompt = videoStyle
-        ? (presetPrompt ? `${videoStyle} ${presetPrompt}` : videoStyle)
-        : presetPrompt;
-      res.json({ benchType, motionPrompt, dialogueText, videoDirection: videoStyle });
-      return;
-    }
-
-    // Utility engines caption a video — no prompt to assemble.
-    if (benchType === "utility") {
+    // Classifier utilities take an image and no prompt — nothing to assemble.
+    if (benchType === "image-classifier") {
       res.json({ benchType });
       return;
     }
@@ -954,23 +834,10 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
 
   // ── Resolve the source asset (only the benches that consume one) ──────────
   //   text-to-image → no source asset at all (prompt only)
-  //   image-to-image / video → a source image (uploaded test face if none given)
-  //   utility → an explicit video URL (the face placeholder is meaningless)
+  //   image-to-image / image-classifier → a source image (uploaded test face
+  //   if none given)
   let sampleImageUrl = provided;
-  if (benchType === "utility" && !sampleImageUrl) {
-    // A dry-run preview just shows the call shape, so a placeholder stands in
-    // for the video URL the admin would otherwise have to supply.
-    if (dryRun) {
-      sampleImageUrl = DRY_RUN_ASSET_PLACEHOLDER;
-    } else {
-      res.status(400).json({
-        error: "test_not_supported",
-        message: `Test not supported for utility engine "${engine.id}" without an explicit sampleImageUrl. Utility engines like auto-subtitle expect a video URL, not the bundled face placeholder.`,
-      });
-      return;
-    }
-  }
-  const needsSourceImage = benchType === "image-to-image" || benchType === "video";
+  const needsSourceImage = benchType === "image-to-image" || benchType === "image-classifier";
   if (needsSourceImage && !sampleImageUrl) {
     // Skip the fal.storage upload for previews — the URL doesn't change the
     // call shape, so a placeholder keeps the preview free + instant.
@@ -1123,7 +990,7 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
   let pipelineParams: Record<string, unknown>;
 
   if (benchType === "text-to-image") {
-    // Prompt only — no source image, no motion/dialogue/duration.
+    // Prompt only — no source image.
     pipelineParams = {
       imagePrompt,
       aspectRatio: aspectRatioWizard,
@@ -1131,7 +998,7 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
       endUserId,
     };
   } else if (benchType === "image-to-image") {
-    // Source image + transform prompt. No motion, dialogue, or duration.
+    // Source image + transform prompt.
     pipelineParams = {
       imagePrompt,
       referenceImageUrl: sampleImageUrl,
@@ -1140,37 +1007,15 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
       resolution: body.resolution ?? engine.defaultResolution ?? undefined,
       endUserId,
     };
-  } else if (benchType === "utility") {
-    // The "sample" is a video URL; caption styling rides in via extraParams.
-    pipelineParams = {
-      videoUrl: sampleImageUrl,
-      endUserId,
-    };
   } else {
-    // Video — motion + (optional) dialogue + duration + audio.
-    const motionPrompt = typeof body.motionPrompt === "string" && body.motionPrompt.trim()
-      ? body.motionPrompt
-      : TEST_MOTION_PROMPT;
+    // Image classifier — the sample image is the whole input; detector knobs
+    // (classes, thresholds) ride in via extraParams.
     pipelineParams = {
       imageUrl: sampleImageUrl,
       referenceImageUrl: sampleImageUrl,
-      videoUrl: sampleImageUrl,
-      motionPrompt,
-      durationSec: typeof body.durationSec === "number" && body.durationSec > 0
-        ? body.durationSec
-        : engine.defaultDurationSec ?? 6,
       aspectRatio: aspectRatioWizard,
       resolution: body.resolution ?? engine.defaultResolution ?? undefined,
-      mode: body.mode ?? engine.defaultMode ?? undefined,
-      // Audio engines (Veo native_lipsync, Kling voice_control, Seedance
-      // native_audio_boolean) should generate audio by default. The flag is
-      // silently dropped by engines that don't declare a generate_audio param.
-      generateAudio: typeof body.generateAudio === "boolean"
-        ? body.generateAudio
-        : engine.audioHandling !== "none",
       endUserId,
-      // dialogueText is routed by applyAudioHandling — see below.
-      negativePrompt: undefined,
     };
   }
 
@@ -1185,24 +1030,10 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     }
   }
 
-  // ── Pipe through audio handling + interpreter ─────────────────────────────
-  // Resolve the dialogue cue:
-  //   - body.dialogueText === undefined → engine-appropriate default
-  //   - body.dialogueText === null      → explicit silence (no cue routed)
-  //   - body.dialogueText === ""        → explicit silence
-  //   - otherwise                       → use as-is
-  let dialogueForTest: string | null;
-  if (body.dialogueText === undefined) {
-    dialogueForTest = engine.audioHandling === "none" ? null : TEST_DIALOGUE_TEXT;
-  } else if (body.dialogueText === null || body.dialogueText === "") {
-    dialogueForTest = null;
-  } else {
-    dialogueForTest = body.dialogueText;
-  }
+  // ── Pipe through the interpreter ─────────────────────────────────────────
   let falInput: Record<string, unknown>;
   try {
-    const augmented = applyAudioHandling(engine, pipelineParams, dialogueForTest);
-    falInput = buildEngineInput(engine, augmented);
+    falInput = buildEngineInput(engine, pipelineParams);
   } catch (err) {
     res.status(400).json({
       ok: false,
@@ -1255,8 +1086,6 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
       falInput,
       benchType,
       testFixtures: {
-        motionPrompt: TEST_MOTION_PROMPT,
-        dialogueText: dialogueForTest,
         imagePrompt: benchType === "image-to-image" || benchType === "text-to-image"
           ? imagePrompt
           : undefined,

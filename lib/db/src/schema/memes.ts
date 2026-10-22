@@ -55,20 +55,11 @@ export const memesTable = pgTable("memes", {
    */
   imageTransform: varchar("image_transform", { length: 24 }),
   /**
-   * Discriminator for the meme's primary artifact. "image" for the original
-   * static-image meme; "video" for MBFO-4 video memes. The engine that
-   * generated the video lives in `video_jobs` (joined via video_job_id) —
-   * never referenced by name on the meme row, so engine swaps are pure config.
+   * Discriminator for the meme's primary artifact. Every live meme is "image";
+   * "video" survives only on soft-deleted rows from before video was cut
+   * (launch Phase 4, migration 0103, which also dropped the video columns).
    */
   artifactType: varchar("artifact_type", { length: 10 }).notNull().default("image"),
-  /** R2 / object-storage path to the final captioned MP4. Null for image memes. */
-  videoObjectPath: text("video_object_path"),
-  /** FK to the video job that produced this meme. Null for image memes. */
-  videoJobId: integer("video_job_id"),
-  /** Look style applied to the source still (image-mode AI styling or video Stage 1 PuLID). Null when the meme used a raw photo or stock. */
-  lookStyleId: varchar("look_style_id", { length: 64 }),
-  /** Motion preset selected for video memes. Null for image memes. */
-  motionPresetId: varchar("motion_preset_id", { length: 64 }),
 }, (table) => [
   index("IDX_memes_deleted_at").on(table.deletedAt).where(isNull(table.deletedAt)),
   index("IDX_memes_heart_count").on(table.heartCount),

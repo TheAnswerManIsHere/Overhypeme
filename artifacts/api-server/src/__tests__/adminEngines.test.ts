@@ -25,7 +25,6 @@ import {
   enginesTable,
   factsTable,
   lookStylesTable,
-  motionPresetsTable,
 } from "@workspace/db/schema";
 import { and, eq, like, inArray } from "drizzle-orm";
 
@@ -36,7 +35,6 @@ import adminEnginesRouter, {
   __resetSubmitTimestampsForTest,
   __setPlanGeneratorForTest,
   __setSourceImageAnalyzerForTest,
-  __setVideoStylePromptGeneratorForTest,
   __resetBundledFaceUrlForTest,
   engineBenchType,
 } from "../routes/adminEngines.js";
@@ -81,7 +79,7 @@ async function seedEngine(opts: SeedOpts = {}): Promise<string> {
     endpointId: opts.endpointId ?? `fal-ai/test/${id}`,
     label: `Test engine ${id}`,
     description: "Synthetic test engine — created by adminEngines.test.ts.",
-    kind: opts.kind ?? "video",
+    kind: opts.kind ?? "image",
     tierRequirement: "legendary",
     isDefault: opts.isDefault ?? false,
     isActive: opts.isActive ?? true,
@@ -98,8 +96,7 @@ async function seedEngine(opts: SeedOpts = {}): Promise<string> {
     paramSchema: (opts.paramSchema ?? {
       params: [
         { name: "image_url", from: "imageUrl", type: "string", required: true },
-        { name: "prompt", from: "motionPrompt", type: "string", required: true },
-        { name: "duration", from: "durationSec", type: "int", default: 6 },
+        { name: "prompt", from: "imagePrompt", type: "string", required: true },
       ],
     }) as unknown,
     estimatedCostUsdPerCall: null,
@@ -126,20 +123,11 @@ async function cleanup(): Promise<void> {
 
   // Our set-default test flips isDefault on every same-kind engine — including
   // the production seed rows. Restore the canonical migration-0057 defaults so
-  // sibling test files (videoJobs.test.ts, etc.) keep finding a default video
-  // engine after this file runs.
-  await db
-    .update(enginesTable)
-    .set({ isDefault: true })
-    .where(eq(enginesTable.id, "veo-3.1-lite"));
+  // sibling test files keep finding a default engine after this file runs.
   await db
     .update(enginesTable)
     .set({ isDefault: true })
     .where(eq(enginesTable.id, "pulid-flux"));
-  await db
-    .update(enginesTable)
-    .set({ isDefault: true })
-    .where(eq(enginesTable.id, "fal-auto-subtitle"));
   clearEngineCaches();
 }
 
@@ -178,7 +166,6 @@ afterEach(() => {
   __setFalUploadForTest(null);
   __setFalSubmitForTest(null);
   __setFalPollForTest(null);
-  __setVideoStylePromptGeneratorForTest(null);
   __resetBundledFaceUrlForTest();
   __resetSubmitTimestampsForTest();
 });
@@ -426,6 +413,8 @@ describe("DELETE /admin/engines/:id + restore", () => {
 
 describe("POST /admin/engines/:id/set-default", () => {
   it("flips isDefault on the target and unsets it on every other engine of the same kind", async () => {
+    // "video" is a kind no catalogue engine has since video was cut (launch
+    // Phase 4), so the swap touches only these synthetic rows.
     const oldDefault = await seedEngine({ kind: "video", isDefault: true });
     const newDefault = await seedEngine({ kind: "video", isDefault: false });
     // A different-kind engine should be unaffected.
@@ -480,7 +469,6 @@ describe("POST /admin/engines/:id/test", () => {
     assert.ok(capturedInput, "fal.queue.submit input should have been captured");
     assert.equal((capturedInput as Record<string, unknown>).image_url, "https://fal.cdn.test/test-face.jpg");
     assert.ok((capturedInput as Record<string, unknown>).prompt);
-    assert.equal((capturedInput as Record<string, unknown>).duration, 6);
 
     // Response exposes falInput immediately so the admin can verify the payload shape.
     assert.deepEqual(res.body.falInput, capturedInput);
@@ -528,19 +516,6 @@ describe("POST /admin/engines/:id/test", () => {
     assert.match(String(res.body.error.message), /blew up/);
     assert.equal(res.body.error.status, 422);
     assert.deepEqual(res.body.error.body, { detail: [{ msg: "invalid input" }] });
-  });
-
-  it("rejects utility engines without a sampleImageUrl with a clear message", async () => {
-    const id = await seedEngine({
-      kind: "utility",
-      paramSchema: {
-        params: [{ name: "video_url", from: "videoUrl", type: "string", required: true }],
-      },
-    });
-    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-    const res = await request(app).post(`/api/admin/engines/${id}/test`).send({});
-    assert.equal(res.status, 400);
-    assert.equal(res.body.error, "test_not_supported");
   });
 
   it("uses an admin-supplied sampleImageUrl when present (no upload call)", async () => {
@@ -633,9 +608,8 @@ describe("POST /admin/engines/:id/test", () => {
 
 describe("engineBenchType", () => {
   const base = { kind: "image" as const };
-  it("classifies video and utility by kind", () => {
-    assert.equal(engineBenchType({ kind: "video" }), "video");
-    assert.equal(engineBenchType({ kind: "utility" }), "utility");
+  it("classifies every utility engine as an image classifier", () => {
+    assert.equal(engineBenchType({ kind: "utility" }), "image-classifier");
   });
   it("classifies image engines by whether they declare a source image", () => {
     assert.equal(
@@ -811,11 +785,6 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
       .returning({ id: factsTable.id });
     return row!.id;
   }
-  async function seedMotionPreset(): Promise<string> {
-    const id = `t-ae-mp-${randomUUID().slice(0, 8)}`;
-    await db.insert(motionPresetsTable).values({ id, label: "Test motion", motionPrompt: "slow dolly push-in" });
-    return id;
-  }
 
   // Image benches now run the render-time prompt engine, which REQUIRES valid
   // fact enrichment. Seed a minimal-valid enrichment; the plan generator is
@@ -923,7 +892,6 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
   after(async () => {
     if (factIds.length) await db.delete(factsTable).where(inArray(factsTable.id, factIds));
     await db.delete(lookStylesTable).where(like(lookStylesTable.id, "t-ae-ls-%"));
-    await db.delete(motionPresetsTable).where(like(motionPresetsTable.id, "t-ae-mp-%"));
   });
 
   it("text-to-image: runs the new engine → t2i_fallback with the bench gender + aspect ratio", async () => {
@@ -1031,126 +999,6 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
 
     assert.equal(res.status, 400);
     assert.equal(res.body.error, "fact_enrichment_invalid");
-  });
-
-  const SAMPLE_STILL = "https://img.test/still.jpg";
-
-  it("video: empty motion prompt falls back to the motion preset alone", async () => {
-    const engineId = await seedEngine({ kind: "video" });
-    const factId = await seedFact(SCENE); factIds.push(factId);
-    const motionPresetId = await seedMotionPreset();
-    __setVideoStylePromptGeneratorForTest(async () => "");
-    try {
-      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-      const res = await request(app)
-        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId, sampleImageUrl: SAMPLE_STILL });
-
-      assert.equal(res.body.benchType, "video");
-      assert.equal(res.body.motionPrompt, "slow dolly push-in");
-      assert.equal(res.body.videoDirection, "");
-      assert.match(res.body.dialogueText, /assemble fact/);
-    } finally {
-      __setVideoStylePromptGeneratorForTest(null);
-    }
-  });
-
-  it("video: generates motion from the source image and merges it before the preset", async () => {
-    const engineId = await seedEngine({ kind: "video" });
-    const factId = await seedFact(SCENE); factIds.push(factId);
-    const motionPresetId = await seedMotionPreset();
-    let calls = 0;
-    let seenImage: string | null | undefined;
-    __setVideoStylePromptGeneratorForTest(async (_fact, imageUrl) => { calls += 1; seenImage = imageUrl; return "the bears strain to haul a sack up the pine"; });
-    try {
-      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-      const res = await request(app)
-        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId, sampleImageUrl: SAMPLE_STILL });
-
-      assert.equal(res.body.motionPrompt, "the bears strain to haul a sack up the pine slow dolly push-in");
-      assert.equal(res.body.videoDirection, "the bears strain to haul a sack up the pine");
-      assert.equal(calls, 1);
-      // The source image is handed to the generator (vision input).
-      assert.equal(seenImage, SAMPLE_STILL);
-    } finally {
-      __setVideoStylePromptGeneratorForTest(null);
-    }
-  });
-
-  it("video: reuses a passed-in motion prompt; forceRegenerate re-rolls it", async () => {
-    const engineId = await seedEngine({ kind: "video" });
-    const factId = await seedFact(SCENE); factIds.push(factId);
-    const motionPresetId = await seedMotionPreset();
-    let calls = 0;
-    __setVideoStylePromptGeneratorForTest(async () => { calls += 1; return `fresh-${calls}`; });
-    try {
-      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-
-      // Passing the current motion prompt back → reused verbatim, no generation.
-      const reused = await request(app)
-        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId, sampleImageUrl: SAMPLE_STILL, videoDirection: "held motion" });
-      assert.equal(reused.body.motionPrompt, "held motion slow dolly push-in");
-      assert.equal(reused.body.videoDirection, "held motion");
-      assert.equal(calls, 0);
-
-      // forceRegenerate ignores the held value and generates a fresh one.
-      const fresh = await request(app)
-        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId, sampleImageUrl: SAMPLE_STILL, videoDirection: "held motion", forceRegenerate: true });
-      assert.equal(fresh.body.videoDirection, "fresh-1");
-      assert.equal(fresh.body.motionPrompt, "fresh-1 slow dolly push-in");
-      assert.equal(calls, 1);
-    } finally {
-      __setVideoStylePromptGeneratorForTest(null);
-    }
-  });
-
-  it("video: falls back to the bundled test face when no sample image is given", async () => {
-    const engineId = await seedEngine({ kind: "video" });
-    const factId = await seedFact(SCENE); factIds.push(factId);
-    const motionPresetId = await seedMotionPreset();
-    __setFalUploadForTest(async () => "https://fal.cdn.test/bundled-face.jpg");
-    let seenImage: string | null | undefined;
-    __setVideoStylePromptGeneratorForTest(async (_fact, imageUrl) => { seenImage = imageUrl; return "subject lifts a finger"; });
-    try {
-      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-      const res = await request(app)
-        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId }); // no sampleImageUrl
-
-      assert.equal(seenImage, "https://fal.cdn.test/bundled-face.jpg");
-      assert.equal(res.body.videoDirection, "subject lifts a finger");
-    } finally {
-      __setVideoStylePromptGeneratorForTest(null);
-      __setFalUploadForTest(null);
-    }
-  });
-
-  it("video: renders fact tokens down to David Franklin / he-him in the dialogue", async () => {
-    const engineId = await seedEngine({ kind: "video" });
-    const [row] = await db
-      .insert(factsTable)
-      .values({
-        text: "{NAME} pushes the Earth down when {SUBJ} does a {pushup|pushups}.",
-        isActive: false, // see seedFact's note above
-        aiScenePrompts: SCENE as never,
-      })
-      .returning({ id: factsTable.id });
-    factIds.push(row!.id);
-    const motionPresetId = await seedMotionPreset();
-    __setVideoStylePromptGeneratorForTest(async () => "");
-    try {
-      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-      const res = await request(app)
-        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId: row!.id, motionPresetId, sampleImageUrl: SAMPLE_STILL });
-
-      assert.equal(res.body.dialogueText, "David Franklin pushes the Earth down when he does a pushup.");
-    } finally {
-      __setVideoStylePromptGeneratorForTest(null);
-    }
   });
 
   it("image bench does NOT touch the legacy aiScenePrompts cache", async () => {
