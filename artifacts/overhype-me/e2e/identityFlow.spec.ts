@@ -244,9 +244,8 @@ test.describe("Identity flow, Phase 1", () => {
     await stubPublicFacts(page, { facts: [factDetail({ id: 561, text: "{NAME} out-ran the weekend." })] });
     await page.goto("/facts/561/meme");
     await expect(sheet(page)).toBeVisible();
-    await expect(page.getByTestId("step1-image-card")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Make my meme" })).toHaveCount(0);
     await saveIdentity(page, "Grace");
-    await page.getByTestId("step1-image-card").click();
     await expect(page.getByText(/Grace out-ran the weekend/i).filter({ visible: true }).first()).toBeVisible();
   });
 

@@ -25,10 +25,9 @@ import { seedIdentity } from "./helpers/identity";
 
 const DESKTOP = { width: 1280, height: 900 };
 
-/** Open the meme builder's image step from /facts/:id/meme (step 1 asks which kind of meme). */
+/** Open the meme builder from /facts/:id/meme; it opens directly on the image step. */
 async function openImageStep(page: Page, factId: number): Promise<void> {
   await page.goto(`/facts/${factId}/meme`);
-  await page.getByTestId("step1-image-card").click();
   await expect(page.getByText("Build your meme", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Make my meme" })).toBeVisible();
 }
