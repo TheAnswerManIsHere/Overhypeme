@@ -790,7 +790,7 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
     expect((await context.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
     // Every collapsible section open, so every key the page renders is in the DOM.
     await page.addInitScript(() => {
-      for (const k of ["budget", "limits", "email", "moderation", "ai_group", "ai_style_prompts", "ai_gen_limits"]) {
+      for (const k of ["budget", "limits", "email", "moderation", "ai_group", "ai_style_prompts"]) {
         try { localStorage.setItem(`admin_section_config_${k}`, "1"); } catch { /* storage off: the key checks then fail loudly */ }
       }
     });

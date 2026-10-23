@@ -36,12 +36,6 @@ describe("behaviorMatrix", () => {
   });
 
   describe("entryFlow header copy", () => {
-    it("cold-permalink → 'see-with-your-face', for every signed-in tier", () => {
-      expect(resolveBehavior("self-upload", "registered", "cold-permalink").headerCopyKey).toBe("see-with-your-face");
-    });
-    it("a legendary viewer gets no AI header: 'see-yourself-ai' went with PuLID (launch Phase 4, removal 3)", () => {
-      expect(resolveBehavior("self-upload", "legendary", "cold-permalink").headerCopyKey).toBe("see-with-your-face");
-    });
     it("remix → 'make-this-your-own' regardless of tier", () => {
       expect(resolveBehavior("self-upload", "registered", "remix").headerCopyKey).toBe("make-this-your-own");
       expect(resolveBehavior("self-upload", "legendary", "remix").headerCopyKey).toBe("make-this-your-own");
@@ -54,9 +48,6 @@ describe("behaviorMatrix", () => {
   });
 
   describe("postSave", () => {
-    it("registered cold-permalink → share", () => {
-      expect(resolveBehavior("self-upload", "registered", "cold-permalink").postSave).toBe("share");
-    });
     it("registered fact-detail → back-to-fact", () => {
       expect(resolveBehavior("self-upload", "registered", "fact-detail").postSave).toBe("back-to-fact");
     });
@@ -66,13 +57,13 @@ describe("behaviorMatrix", () => {
   });
 
   describe("matrix coverage", () => {
-    it("enumerateMatrix produces 1 mode × 3 tiers × 5 flows = 15 rows", () => {
+    it("enumerateMatrix produces 1 mode × 3 tiers × 4 flows = 12 rows", () => {
       const all = enumerateMatrix();
-      expect(all).toHaveLength(1 * 3 * 5);
+      expect(all).toHaveLength(1 * 3 * 4);
     });
-    it("all 5 unregistered rows are invalid", () => {
+    it("all 4 unregistered rows are invalid", () => {
       const invalid = enumerateMatrix().filter((r) => r.cell.invalid);
-      expect(invalid).toHaveLength(5);
+      expect(invalid).toHaveLength(4);
       for (const row of invalid) {
         expect(row.mode).toBe("self-upload");
         expect(row.tier).toBe("unregistered");

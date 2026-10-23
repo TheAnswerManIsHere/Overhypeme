@@ -27,23 +27,17 @@ export const OPENAI_GENERAL: EngineDefinition = {
   sortOrder: 0,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: null,
   defaultResolution: null,
   allowedAspectRatios: null,
   defaultAspectRatio: null,
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   // Not consumed for OpenAI engines (no fal interpreter), but the column is
   // NOT NULL — provide an empty schema.
   paramSchema: { params: [] },
 
   expectedRunMs: 4000,
   estimatedCostUsdPerCall: null,
-  estimatedCostUsdPerSecond: null,
 
   defaultTemperature: 0.7,
   defaultMaxTokens: 512,

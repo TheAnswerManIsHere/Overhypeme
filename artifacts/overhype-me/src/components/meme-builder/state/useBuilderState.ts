@@ -10,9 +10,7 @@ import { useReducer } from "react";
 import type {
   AspectRatio,
   MemeTextOptions,
-  Mode,
   MyImageSource,
-  PendingBuilderState,
 } from "../types";
 
 export interface BuilderInternalState {
@@ -29,13 +27,11 @@ export type BuilderAction =
   | { type: "set-pronouns"; pronouns: string }
   | { type: "set-my-image"; myImage: MyImageSource | null }
   | { type: "set-text-options"; textOptions: MemeTextOptions }
-  | { type: "set-aspect-ratio"; aspectRatio: AspectRatio }
-  | { type: "hydrate-from-pending"; pending: PendingBuilderState };
+  | { type: "set-aspect-ratio"; aspectRatio: AspectRatio };
 
 export interface BuilderInitArgs {
   initialName?: string;
   initialPronouns?: string;
-  initialPendingState?: PendingBuilderState;
 }
 
 export function buildInitialState(args: BuilderInitArgs): BuilderInternalState {
@@ -47,10 +43,6 @@ export function buildInitialState(args: BuilderInitArgs): BuilderInternalState {
     aspectRatio: "landscape",
   };
 
-  const pending = args.initialPendingState;
-  if (pending) {
-    return reducer(base, { type: "hydrate-from-pending", pending });
-  }
   return base;
 }
 
@@ -66,16 +58,6 @@ export function reducer(state: BuilderInternalState, action: BuilderAction): Bui
       return { ...state, textOptions: action.textOptions };
     case "set-aspect-ratio":
       return { ...state, aspectRatio: action.aspectRatio };
-    case "hydrate-from-pending": {
-      const p = action.pending;
-      const next: BuilderInternalState = { ...state };
-      if (p.name !== undefined) next.name = p.name;
-      if (p.pronouns !== undefined) next.pronouns = p.pronouns;
-      if (p.aspectRatio) next.aspectRatio = p.aspectRatio;
-      if (p.textOptions) next.textOptions = p.textOptions;
-      if (p.source) next.myImage = p.source.image;
-      return next;
-    }
   }
 }
 
@@ -85,30 +67,4 @@ export function useBuilderState(args: BuilderInitArgs): {
 } {
   const [state, dispatch] = useReducer(reducer, args, buildInitialState);
   return { state, dispatch };
-}
-
-/** Snapshot the in-progress state into a sessionStorage-shaped record. */
-export function snapshotPendingState(args: {
-  factId: string;
-  mode: Mode;
-  entryFlow: PendingBuilderState["entryFlow"];
-  state: BuilderInternalState;
-}): PendingBuilderState {
-  const { factId, mode, entryFlow, state } = args;
-  let source: PendingBuilderState["source"];
-  if (mode === "self-upload" && state.myImage) {
-    source = { kind: "self-upload", image: state.myImage };
-  }
-  return {
-    schemaVersion: 1,
-    capturedAt: Date.now(),
-    factId,
-    mode,
-    entryFlow,
-    name: state.name || undefined,
-    pronouns: state.pronouns || undefined,
-    source,
-    textOptions: state.textOptions,
-    aspectRatio: state.aspectRatio,
-  };
 }

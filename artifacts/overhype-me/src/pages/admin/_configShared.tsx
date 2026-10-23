@@ -242,15 +242,6 @@ export const SCENE_PROMPT_KEYS = new Set<string>([
   "scene_prompt_system",
 ]);
 
-// Keys that are surfaced through dedicated sections elsewhere on the
-// admin config page (so they don't appear in the catch-all generic list).
-// Phase 6: previously included the now-retired ai_*/video_* per-model
-// tuning keys; today this is just `ai_gallery_display_limit`, which is
-// rendered in the AI Settings group below.
-export const MODEL_CONFIG_KEYS = new Set<string>([
-  "ai_gallery_display_limit",
-]);
-
 // ── Shared context ────────────────────────────────────────────────────────────
 
 export interface ConfigPageCtx {
@@ -560,24 +551,6 @@ export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textarea
       </div>
 
       <ConfigInput configKey={row.key} rows={textareaRows} />
-    </div>
-  );
-}
-
-export function ModelParamRow({ paramKey }: { paramKey: string }) {
-  const { rows } = useConfigCtx();
-  const row = rows.find((r) => r.key === paramKey);
-  if (!row) return null;
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <span className="text-sm font-medium text-foreground">{row.label}</span>
-          {row.description && <p className="text-xs text-muted-foreground mt-0.5">{row.description}</p>}
-        </div>
-        <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded shrink-0">{row.key}</code>
-      </div>
-      <ConfigInput configKey={paramKey} />
     </div>
   );
 }

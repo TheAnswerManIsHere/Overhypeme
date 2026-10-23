@@ -159,19 +159,6 @@ async function loadUploadMeta(objectPath: string): Promise<{
 
 // ─── Render-mode resolution ──────────────────────────────────────────────
 
-/**
- * Resolve the final SubjectRenderMode for a render. Honors user override
- * when supplied (Tier 4). The analyzer's `suggestedRenderMode` is the
- * automatic recommendation.
- */
-export function resolveSubjectRenderMode(
-  analysis: SourceImageAnalysis,
-  userChoice?: SubjectRenderMode | null,
-): SubjectRenderMode {
-  if (userChoice) return userChoice;
-  return analysis.suggestedRenderMode;
-}
-
 /** Map subject render mode → engine generation mode. */
 export function generationModeFromSubjectRenderMode(mode: SubjectRenderMode): GenerationMode {
   return mode === "t2i_fallback" ? "t2i" : "i2i";

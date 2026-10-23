@@ -15,11 +15,10 @@ import type { Engine } from "@workspace/db/schema";
 // the rest is cast through Engine so the type checker is happy.
 // ────────────────────────────────────────────────────────────────────────────
 
-function makeEngine(id: string, paramSchema: ParamSchema, audioHandling = "none"): Engine {
+function makeEngine(id: string, paramSchema: ParamSchema): Engine {
   return {
     id,
     paramSchema: paramSchema as unknown,
-    audioHandling,
     // The interpreter never reads these; fill with type-safe nullish defaults.
     provider: "test",
     endpointId: `test/${id}`,
@@ -30,16 +29,11 @@ function makeEngine(id: string, paramSchema: ParamSchema, audioHandling = "none"
     isDefault: false,
     isActive: true,
     sortOrder: 0,
-    allowedDurationsSec: null,
-    defaultDurationSec: null,
     allowedResolutions: null,
     defaultResolution: null,
     allowedAspectRatios: null,
     defaultAspectRatio: null,
-    supportedModes: null,
-    defaultMode: null,
     estimatedCostUsdPerCall: null,
-    estimatedCostUsdPerSecond: null,
     expectedRunMs: 30000,
     featureFlagRequired: null,
     createdAt: new Date(),

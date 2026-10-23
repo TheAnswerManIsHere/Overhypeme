@@ -37,7 +37,6 @@ import {
   factsTable,
   commentsTable,
   activityFeedTable,
-  affiliateClicksTable,
   pendingReviewsTable,
   membershipEntitlementsTable,
   membershipHistoryTable,
@@ -126,10 +125,6 @@ export async function purgeTestData(): Promise<PurgeResult> {
 
   await del("activity_feed", () =>
     db.delete(activityFeedTable).where(like(activityFeedTable.userId, TEST_LIKE)),
-  );
-
-  await del("affiliate_clicks", () =>
-    db.delete(affiliateClicksTable).where(like(affiliateClicksTable.userId, TEST_LIKE)),
   );
 
   await del("external_links", () =>

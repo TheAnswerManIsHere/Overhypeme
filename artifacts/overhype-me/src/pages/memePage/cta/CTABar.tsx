@@ -10,7 +10,7 @@
  * metadata. The structure is "primary card / secondary row / tertiary row"
  * for every variant so the visual rhythm reads consistently.
  */
-import { ArrowRight, Crown, Download, Library, Share2, ShoppingBag } from "lucide-react";
+import { ArrowRight, Crown, Download, Library, Share2, Upload } from "lucide-react";
 import { Link } from "wouter";
 
 /* ─── shared atoms ───────────────────────────────────────────────────────── */
@@ -122,7 +122,7 @@ function TierLadderTeasers() {
         data-testid="tier-ladder-signup"
         className="flex items-center gap-2 p-3 rounded-[10px] bg-card border border-border hover:border-primary/40 transition"
       >
-        <ShoppingBag className="w-4 h-4 text-muted-foreground" />
+        <Upload className="w-4 h-4 text-muted-foreground" />
         <div className="text-left">
           <div className="font-display text-[10px] uppercase tracking-wider text-foreground">
             Free
@@ -174,28 +174,6 @@ export function CTABarAnonOther({ onSignup }: { onSignup: () => void }) {
       </div>
       <SecondaryButton href="/" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts
-      </SecondaryButton>
-      <TierLadderTeasers />
-    </div>
-  );
-}
-
-/* ─── anon-own-transient ─────────────────────────────────────────────────── */
-
-export function CTABarAnonOwnTransient({
-  onSignup,
-  onDownload,
-}: {
-  onSignup: () => void;
-  onDownload: () => void;
-}) {
-  return (
-    <div className="space-y-3" data-testid="cta-anon-own-transient">
-      <PrimaryButton onClick={onSignup} testId="anon-signup">
-        Save your meme — sign up free <ArrowRight className="w-4 h-4" />
-      </PrimaryButton>
-      <SecondaryButton onClick={onDownload} testId="anon-download">
-        <Download className="w-4 h-4" /> Download
       </SecondaryButton>
       <TierLadderTeasers />
     </div>

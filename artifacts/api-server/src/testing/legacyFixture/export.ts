@@ -563,7 +563,6 @@ async function exportWithin(client: pg.Client, opts: ExportOptions): Promise<Exp
 function rowKey(table: string, row: Row): string {
   if (row.id !== undefined) return String(row.id);
   if (table === "fact_hashtags") return `${row.fact_id}/${row.hashtag_id}`;
-  if (table === "ratings") return `${row.fact_id}/(a rating)`;
   if (table === "tier_feature_permissions") return `${row.tier}/${row.feature_key}`;
   if (table === "upload_image_metadata") return "(an upload row)";
   if (table === "admin_config" || table === "feature_flags") return String(row.key);

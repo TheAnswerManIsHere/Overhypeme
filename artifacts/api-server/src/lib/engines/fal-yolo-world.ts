@@ -42,16 +42,11 @@ export const FAL_YOLO_WORLD: EngineDefinition = {
   sortOrder: 250,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: null,
   defaultResolution: null,
   allowedAspectRatios: null,
   defaultAspectRatio: null,
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   paramSchema: {
     params: [
       { name: "image_url", from: "imageUrl", type: "string", required: true },
@@ -85,5 +80,4 @@ export const FAL_YOLO_WORLD: EngineDefinition = {
 
   expectedRunMs: 1500,
   estimatedCostUsdPerCall: 0.003,
-  estimatedCostUsdPerSecond: null,
 };

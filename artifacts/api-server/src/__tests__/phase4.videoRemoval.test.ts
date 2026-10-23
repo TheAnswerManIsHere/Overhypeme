@@ -154,7 +154,6 @@ describe("migration 0103 retires video's data and schema", () => {
       isDefault: false,
       isActive: true,
       sortOrder: 999,
-      audioHandling: "none",
       paramSchema: { params: [] } as unknown,
     });
   }
@@ -187,6 +186,7 @@ describe("migration 0103 retires video's data and schema", () => {
       CREATE TABLE IF NOT EXISTS video_jobs (id serial PRIMARY KEY, status video_job_status NOT NULL DEFAULT 'pending');
       CREATE TABLE IF NOT EXISTS motion_presets (id varchar(64) PRIMARY KEY, label varchar(128) NOT NULL);
       CREATE TABLE IF NOT EXISTS video_styles (id varchar(64) PRIMARY KEY, label varchar(128) NOT NULL);
+      CREATE TABLE IF NOT EXISTS hero_examples (id serial PRIMARY KEY, artifact_type varchar(8) NOT NULL, asset_url text NOT NULL);
       INSERT INTO video_jobs (status) VALUES ('pending'), ('completed');
       INSERT INTO motion_presets (id, label) VALUES ('${PREFIX}mp', 'x') ON CONFLICT DO NOTHING;
     `));
@@ -218,7 +218,9 @@ describe("migration 0103 retires video's data and schema", () => {
   }
 
   after(async () => {
-    await db.execute(sql`DELETE FROM hero_examples WHERE asset_url LIKE ${`https://cdn.test/${PREFIX}%`}`);
+    // hero_examples itself went in removal 11 (0110); this test recreates it
+    // only to replay 0103 against the state 0103 ran on.
+    await db.execute(sql`DROP TABLE IF EXISTS hero_examples`);
     await db.execute(sql`DELETE FROM feature_permissions_migration_log WHERE migration_name = '0103_retire_video'`);
     if (savedEndpoints === null) {
       await db.delete(adminConfigTable).where(eq(adminConfigTable.key, ENDPOINTS_KEY));

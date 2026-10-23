@@ -22,8 +22,6 @@ tags:
     description: Heart reactions on memes and comments
   - name: comments
     description: Comment operations
-  - name: links
-    description: External link operations
   - name: users
     description: User profile operations
   - name: memes
@@ -482,51 +480,6 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Meme not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-
-  /facts/{factId}/links:
-    get:
-      operationId: listLinks
-      tags: [links]
-      summary: List external links for a fact
-      parameters:
-        - name: factId
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: List of external links
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LinkListResponse"
-
-  /facts/{factId}/links/{linkId}:
-    delete:
-      operationId: deleteLink
-      tags: [links]
-      summary: Delete an external link
-      parameters:
-        - name: factId
-          in: path
-          required: true
-          schema:
-            type: integer
-        - name: linkId
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "204":
-          description: Link deleted
-        "401":
-          description: Unauthorized
           content:
             application/json:
               schema:
@@ -1389,15 +1342,6 @@ components:
         createdAt:
           type: string
           format: date-time
-
-    LinkListResponse:
-      type: object
-      required: [links]
-      properties:
-        links:
-          type: array
-          items:
-            $ref: "#/components/schemas/ExternalLink"
 
     UserProfile:
       type: object

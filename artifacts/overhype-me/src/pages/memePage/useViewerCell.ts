@@ -2,8 +2,8 @@
  * Phase-5 viewer-state resolution.
  *
  * Pure module — no React imports. Inputs are the auth user, the meme being
- * viewed, and the transient `?just_created=1` flag. Output is one of five
- * cells; the page renders a different CTA bar per cell.
+ * viewed. Output is one of four cells; the page renders a different CTA bar
+ * per cell.
  *
  * Every signed-in owner gets the one "own" cell. It used to split three ways
  * (registered-own, legendary-own-stock, legendary-own-pulid) on whether the
@@ -11,15 +11,14 @@
  * already PuLID-made; PuLID went in launch Phase 4, removal 3, and with it
  * every difference between those three.
  *
- * Anonymous-viewing-own is a TRANSIENT post-render state. It only exists
- * when the meme has no createdById (the save was an anonymous render that
- * was never persisted under a user) AND the viewer arrived with the
- * just-created flag set by MemeBuilder on success.
+ * A signed-out viewer always gets "anon-other". The "anon-own-transient"
+ * cell (a signed-out visitor's just-rendered meme, flagged `?just_created=1`)
+ * went in launch Phase 4, removal 11: nothing sets the flag, and a signed-out
+ * visitor can no longer make a meme.
  */
 
 export type ViewerCell =
   | "anon-other"
-  | "anon-own-transient"
   | "own"
   | "registered-other"
   | "legendary-other";
@@ -37,7 +36,6 @@ export interface ResolveViewerCellInput {
   meme: {
     createdById: string | null | undefined;
   };
-  justCreated: boolean;
 }
 
 function isLegendaryRole(role: Role): boolean {
@@ -49,16 +47,10 @@ function isAnonRole(role: Role): boolean {
 }
 
 export function resolveViewerCell(input: ResolveViewerCellInput): ViewerCell {
-  const { role, userId, meme, justCreated } = input;
+  const { role, userId, meme } = input;
   const isOwn = !!userId && !!meme.createdById && userId === meme.createdById;
 
-  if (isAnonRole(role)) {
-    // Anonymous "own" only exists immediately after a transient render —
-    // there's no userId to match against, so we use the just-created flag
-    // plus a null createdById as the signal.
-    if (justCreated && !meme.createdById) return "anon-own-transient";
-    return "anon-other";
-  }
+  if (isAnonRole(role)) return "anon-other";
 
   if (isOwn) return "own";
 

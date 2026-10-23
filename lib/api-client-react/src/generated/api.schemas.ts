@@ -222,10 +222,6 @@ export interface AddCommentRequest {
   captchaToken: string;
 }
 
-export interface LinkListResponse {
-  links: ExternalLink[];
-}
-
 /**
  * The user's current membership tier. Clients should derive paid/legendary access from this field rather than a separate flag.
  */

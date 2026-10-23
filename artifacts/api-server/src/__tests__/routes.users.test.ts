@@ -18,7 +18,6 @@ import { db } from "@workspace/db";
 import {
   usersTable,
   factsTable,
-  ratingsTable,
   searchHistoryTable,
   commentsTable,
   pendingReviewsTable,

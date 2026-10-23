@@ -1,8 +1,7 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import type { MemeBuilderProps } from "./types";
 import { resolveBehavior } from "./behaviorMatrix";
-import { useBuilderState, snapshotPendingState } from "./state/useBuilderState";
-import { capturePendingState, clearPendingState } from "./state/pendingBuilderState";
+import { useBuilderState } from "./state/useBuilderState";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { EntryFlowHeader } from "./parts/EntryFlowHeader";
 import { NameAndPronounFields } from "./parts/NameAndPronounFields";
@@ -37,14 +36,10 @@ export function MemeBuilder(props: MemeBuilderProps) {
     [mode, viewerContext.tier, entryFlow],
   );
 
-  const initial = props.initialPendingState
-    ? { initialPendingState: props.initialPendingState }
-    : {
-        initialName:        props.initialName ?? viewerContext.name,
-        initialPronouns:    props.initialPronouns ?? viewerContext.pronouns,
-      };
-
-  const { state, dispatch } = useBuilderState(initial);
+  const { state, dispatch } = useBuilderState({
+    initialName:     props.initialName ?? viewerContext.name,
+    initialPronouns: props.initialPronouns ?? viewerContext.pronouns,
+  });
 
   // Task #507: viewerCtx is now empty — the profile photo lives in the library
   // and is selected via the standard `kind:"library"` source. Kept as a stable
@@ -57,17 +52,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
   const source = useMemo(() => currentSource(state), [state]);
   const backgroundUrl = useMemo(() => resolveBackgroundUrl(source, viewerCtx), [source, viewerCtx]);
   const debouncedBg = useDebouncedValue(backgroundUrl, 150);
-
-  const captureForResume = useCallback(() => {
-    const pending = snapshotPendingState({
-      factId,
-      mode,
-      entryFlow,
-      state,
-    });
-    capturePendingState(pending);
-    return pending;
-  }, [factId, mode, entryFlow, state]);
 
   if (cell.invalid) {
     return (
@@ -87,12 +71,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
   }
 
   const handleSave = async () => {
-    if (viewerContext.tier === "unregistered") {
-      const pending = captureForResume();
-      onComplete({ kind: "signup-required", pendingState: pending });
-      return;
-    }
-
     const imageSource = toServerImageSource(source, viewerCtx);
     if (!imageSource) return;
 
@@ -109,7 +87,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
     });
     if (!res.ok) return;
     const data = (await res.json()) as { id: number; permalinkSlug: string };
-    clearPendingState(factId);
     onComplete({
       kind: "saved",
       memeId: String(data.id),
@@ -170,11 +147,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
     onComplete({ kind: "saved", memeId: "", permalinkUrl: "" });
   };
 
-  const handleSignup = () => {
-    const pending = captureForResume();
-    onComplete({ kind: "signup-required", pendingState: pending });
-  };
-
   return (
     <div className="relative space-y-4">
       <EntryFlowHeader headerCopyKey={cell.headerCopyKey} />
@@ -207,7 +179,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
         onDownload={handleDownload}
         onSave={handleSave}
         onShare={handleShare}
-        onSignupCta={handleSignup}
       />
     </div>
   );

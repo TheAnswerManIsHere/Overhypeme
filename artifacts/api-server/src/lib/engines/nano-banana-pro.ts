@@ -55,17 +55,12 @@ export const NANO_BANANA_PRO: EngineDefinition = {
   sortOrder: 90,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   // Nano Banana Pro speaks 1K/2K/4K, not the video pixel-height labels.
   allowedResolutions: ["1K", "2K", "4K"],
   defaultResolution: "1K",
   allowedAspectRatios: ["landscape", "square", "portrait"],
   defaultAspectRatio: "portrait",
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   paramSchema: {
     params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
@@ -153,5 +148,4 @@ export const NANO_BANANA_PRO: EngineDefinition = {
   expectedRunMs: 14000,
   // $0.139 at 1K and 2K, $0.279 at 4K — flat per-image, not per-second.
   estimatedCostUsdPerCall: 0.139,
-  estimatedCostUsdPerSecond: null,
 };

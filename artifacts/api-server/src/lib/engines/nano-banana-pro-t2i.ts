@@ -27,16 +27,11 @@ export const NANO_BANANA_PRO_T2I: EngineDefinition = {
   sortOrder: 82,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: ["1K", "2K", "4K"],
   defaultResolution: "1K",
   allowedAspectRatios: ["landscape", "square", "portrait"],
   defaultAspectRatio: "portrait",
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   paramSchema: {
     params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
@@ -102,5 +97,4 @@ export const NANO_BANANA_PRO_T2I: EngineDefinition = {
   expectedRunMs: 14000,
   // $0.15/image at 1K/2K, $0.30 at 4K. +$0.015/call with web search.
   estimatedCostUsdPerCall: 0.15,
-  estimatedCostUsdPerSecond: null,
 };

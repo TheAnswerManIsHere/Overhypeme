@@ -2,26 +2,24 @@ import { pgTable, varchar, text, integer, boolean, jsonb, timestamp, numeric, in
 
 /**
  * Generative engines (image, utility, llm) the platform can call. (The video
- * kind went with video in launch Phase 4; its duration/mode/audio columns
- * remain, a removal-11 candidate on #744.)
+ * kind went with video in launch Phase 4, and its duration, mode, audio and
+ * per-second cost columns with removal 11, migration 0110.)
  *
  * Replaces the scattered admin_config strings + a hardcoded `buildFalInput`
  * switch. Each row carries:
  *   - identity (id, endpoint, provider)
- *   - capability metadata (kind, allowed options, supported modes)
- *   - audio handling strategy (per the engine's actual interface)
+ *   - capability metadata (kind, allowed options)
  *   - parameter mapping schema (interpreter walks this JSONB to translate
  *     pipeline-level params into the model's actual input shape)
  *
  * Adding a new engine = one row insert. Adding an engine with a never-before-
  * seen parameter shape may still require teaching the interpreter a new
- * mapping primitive, but the four engines that matter for v1 (Veo Lite,
- * Veo Fast, Kling v3, Seedance 2.0 Fast) plus Grok cover all current shapes.
+ * mapping primitive.
  */
 export const enginesTable = pgTable("engines", {
-  /** Stable id (kebab-case). Examples: "veo-3.1-lite", "kling-v3-standard". */
+  /** Stable id (kebab-case). Examples: "nano-banana-2", "flux-2-pro". */
   id: varchar("id", { length: 64 }).primaryKey(),
-  /** Provider key for admin filters. Examples: "google", "bytedance", "xai", "kuaishou", "fal". */
+  /** Provider key for admin filters. Examples: "fal", "google", "openai". */
   provider: varchar("provider", { length: 32 }).notNull(),
   /** Endpoint string the fal client will be called with. */
   endpointId: varchar("endpoint_id", { length: 128 }).notNull(),
@@ -39,14 +37,7 @@ export const enginesTable = pgTable("engines", {
   isActive: boolean("is_active").notNull().default(true),
   /** Sort order for selectors. Lower = first. */
   sortOrder: integer("sort_order").notNull().default(0),
-  /**
-   * Allowed output lengths in seconds, JSONB int[]. Only the video engines
-   * (deleted in launch Phase 4) set it; null for every engine today.
-   */
-  allowedDurationsSec: jsonb("allowed_durations_sec"),
-  /** Default duration in seconds (must appear in allowed_durations_sec when present). */
-  defaultDurationSec: integer("default_duration_sec"),
-  /** Allowed resolutions, JSONB string[]. Example: ["720p"] for Veo Lite, ["720p", "1080p"] for Veo Fast. */
+  /** Allowed resolutions, JSONB string[], as the engine itself speaks them. */
   allowedResolutions: jsonb("allowed_resolutions"),
   /** Default resolution. */
   defaultResolution: varchar("default_resolution", { length: 16 }),
@@ -54,22 +45,6 @@ export const enginesTable = pgTable("engines", {
   allowedAspectRatios: jsonb("allowed_aspect_ratios"),
   /** Default aspect ratio. */
   defaultAspectRatio: varchar("default_aspect_ratio", { length: 16 }),
-  /**
-   * Engine-specific modes (Grok: ["normal", "fun", "custom"]). Empty/null hides the mode selector
-   * in the advanced sheet for this engine. "spicy" reserved for future NSFW rollout — never seeded.
-   */
-  supportedModes: jsonb("supported_modes"),
-  /** Default mode (must be in supported_modes when present). */
-  defaultMode: varchar("default_mode", { length: 32 }),
-  /**
-   * How this engine surfaces voiceover/dialogue:
-   *   - "native_lipsync"        — engine generates audio + lipsync natively (Veo). Pass dialogue as a dedicated param.
-   *   - "prompt_cue"            — append `Voiceover should say, "X"` to the motion prompt (Grok).
-   *   - "voice_control"         — engine has an explicit voice-control field (Kling v3).
-   *   - "native_audio_boolean"  — engine takes a `generate_audio` boolean and improvises (Seedance).
-   *   - "none"                  — engine cannot produce audio (PuLID, utility, etc.).
-   */
-  audioHandling: varchar("audio_handling", { length: 32 }).notNull().default("none"),
   /**
    * Parameter-mapping schema for the interpreter. JSONB shape:
    *   {
@@ -96,8 +71,6 @@ export const enginesTable = pgTable("engines", {
    * for newly-added engines whose pricing hasn't been observed yet.
    */
   estimatedCostUsdPerCall: numeric("estimated_cost_usd_per_call", { precision: 10, scale: 6 }),
-  /** When non-null, multiplied by duration seconds. Used for variable-length engines. */
-  estimatedCostUsdPerSecond: numeric("estimated_cost_usd_per_second", { precision: 10, scale: 6 }),
   /** EMA seed for the loading bar's expected run time. Default 30000ms; updated after each successful run. */
   expectedRunMs: integer("expected_run_ms").notNull().default(30000),
   /**

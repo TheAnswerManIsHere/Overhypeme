@@ -295,10 +295,6 @@ export async function recordCost(params: RecordCostParams): Promise<void> {
  * serialization failure, one lost insert against an otherwise-healthy database
  * — where nothing else is on fire and no other alarm would ever sound. A total
  * outage is already loud through every failing request.
- *
- * Also incremented when an admin-path estimate lookup fails and the row is
- * skipped (see aiMemePipeline), which is the other way a generation can end up
- * unrecorded.
  */
 export async function noteLedgerWriteFailure(): Promise<void> {
   try {

@@ -771,6 +771,13 @@
       "when": 1784200000000,
       "tag": "0109_retire_route_stats",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1784300000000,
+      "tag": "0110_prune_orphans",
+      "breakpoints": true
     }
   ]
 }

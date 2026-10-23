@@ -9,7 +9,6 @@ export { ALL_ENGINES } from "./catalogue";
 export { reconcileEngines } from "./reconcile";
 export type {
   EngineDefinition,
-  AudioHandling,
   EngineKind,
   TierRequirement,
   ParamSchema,

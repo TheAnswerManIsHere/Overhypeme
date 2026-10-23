@@ -11,7 +11,7 @@
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
-  commentsTable, ratingsTable, memesTable, externalLinksTable, pendingReviewsTable,
+  commentsTable, memesTable, externalLinksTable, pendingReviewsTable,
 } from "@workspace/db/schema";
 import { sql, eq } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
@@ -96,8 +96,6 @@ console.log("Starting facts reseed…");
 // Order matters: children before parents to satisfy FK constraints
 await db.delete(commentsTable);
 console.log("  ✓ Cleared comments");
-await db.delete(ratingsTable);
-console.log("  ✓ Cleared ratings");
 await db.delete(memesTable);
 console.log("  ✓ Cleared memes");
 await db.delete(externalLinksTable);

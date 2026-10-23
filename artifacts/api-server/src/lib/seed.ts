@@ -175,9 +175,6 @@ export async function ensureSchema(): Promise<void> {
     {
       label: "admin_config seed defaults",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public) VALUES
-        ('ai_gallery_display_limit', '50', 'integer', 'AI Gallery Display Limit',
-         'Maximum number of AI-generated backgrounds shown per gender in the Meme Builder gallery.',
-         1, 500, true),
         ('ai_max_images_per_gender', '34', 'integer', 'AI Max Images Per Fact Per Gender',
          'Maximum AI images stored per gender per fact (3 genders × this value ≈ total per-fact cap). Oldest images are evicted when reached.',
          1, 500, false),
@@ -501,8 +498,9 @@ export async function ensureSchema(): Promise<void> {
         ON CONFLICT (key) DO NOTHING`,
     },
     {
-      // Dead control: the AI background picker reads ai_gallery_display_limit,
-      // never bg_display_limit_ai. Nothing consumed this key, so drop it.
+      // Dead control: nothing consumed bg_display_limit_ai, so drop it. (The
+      // legacy AI background picker read ai_gallery_display_limit, which went
+      // with it in launch Phase 4, removal 11, migration 0110.)
       label: "admin_config delete bg_display_limit_ai",
       ddl: `DELETE FROM admin_config WHERE key = 'bg_display_limit_ai'`,
     },

@@ -26,16 +26,11 @@ export const NANO_BANANA_2_EDIT: EngineDefinition = {
   sortOrder: 81,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: ["0.5K", "1K", "2K", "4K"],
   defaultResolution: "1K",
   allowedAspectRatios: ["landscape", "square", "portrait"],
   defaultAspectRatio: "portrait",
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   paramSchema: {
     params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
@@ -114,5 +109,4 @@ export const NANO_BANANA_2_EDIT: EngineDefinition = {
 
   expectedRunMs: 6000,
   estimatedCostUsdPerCall: 0.08,
-  estimatedCostUsdPerSecond: null,
 };

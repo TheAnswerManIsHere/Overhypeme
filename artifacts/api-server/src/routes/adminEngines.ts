@@ -111,9 +111,8 @@ export function __resetBundledFaceUrlForTest(): void {
  * source of truth from `lib/engines/types.ts:ADMIN_EDITABLE_FIELDS` so the
  * reconciler and PATCH handler can't drift apart.
  *
- * Code-owned fields (id, provider, endpointId, kind, audioHandling,
- * paramSchema, allowedDurationsSec, allowedResolutions, allowedAspectRatios,
- * supportedModes, label, description) are NOT in this list — they're either
+ * Code-owned fields (id, provider, endpointId, kind, paramSchema,
+ * allowedResolutions, allowedAspectRatios, label, description) are NOT in this list — they're either
  * primary keys, schema-shape concerns the interpreter relies on, or
  * marketing copy that ships in code/migrations.
  *
@@ -292,12 +291,7 @@ function buildPatchUpdates(body: Record<string, unknown>): { updates: Record<str
       return { error: "featureFlagRequired must be a string or null" };
     }
   }
-  if ("defaultDurationSec" in body) {
-    const v = body.defaultDurationSec;
-    if (v === null) updates.defaultDurationSec = null;
-    else if (typeof v === "number" && Number.isFinite(v)) updates.defaultDurationSec = Math.trunc(v);
-    else return { error: "defaultDurationSec must be a number or null" };
-  }
+
   if ("defaultResolution" in body) {
     const v = body.defaultResolution;
     if (v === null || v === "") updates.defaultResolution = null;
@@ -310,12 +304,7 @@ function buildPatchUpdates(body: Record<string, unknown>): { updates: Record<str
     else if (typeof v === "string") updates.defaultAspectRatio = v;
     else return { error: "defaultAspectRatio must be a string or null" };
   }
-  if ("defaultMode" in body) {
-    const v = body.defaultMode;
-    if (v === null || v === "") updates.defaultMode = null;
-    else if (typeof v === "string") updates.defaultMode = v;
-    else return { error: "defaultMode must be a string or null" };
-  }
+
   if ("expectedRunMs" in body) {
     if (typeof body.expectedRunMs !== "number" || !Number.isFinite(body.expectedRunMs) || body.expectedRunMs < 0) {
       return { error: "expectedRunMs must be a non-negative number" };
@@ -328,12 +317,7 @@ function buildPatchUpdates(body: Record<string, unknown>): { updates: Record<str
     else if (typeof v === "number" && Number.isFinite(v) && v >= 0) updates.estimatedCostUsdPerCall = String(v);
     else return { error: "estimatedCostUsdPerCall must be a non-negative number or null" };
   }
-  if ("estimatedCostUsdPerSecond" in body) {
-    const v = body.estimatedCostUsdPerSecond;
-    if (v === null) updates.estimatedCostUsdPerSecond = null;
-    else if (typeof v === "number" && Number.isFinite(v) && v >= 0) updates.estimatedCostUsdPerSecond = String(v);
-    else return { error: "estimatedCostUsdPerSecond must be a non-negative number or null" };
-  }
+
   // ── LLM engine fields ─────────────────────────────────────────────────────
   // endpointId (the model) is only valid for OpenAI engines — the provider
   // guard lives in the PATCH route (it has the engine row).

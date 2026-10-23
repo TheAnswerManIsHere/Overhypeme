@@ -396,7 +396,7 @@ export default function Library() {
               {(isAiImagesLoading || (aiImagesData && aiImagesData.images.length > 0)) && (
                 <div className="mt-10">
                   <h3 className="text-lg font-display uppercase tracking-wider text-foreground mb-1">AI Reference Backgrounds</h3>
-                  <p className="text-sm text-muted-foreground mb-6">Images generated from your reference photos in the meme builder.</p>
+                  <p className="text-sm text-muted-foreground mb-6">Backgrounds generated from your reference photos before AI styling was retired. They stay here for you to view.</p>
                   {isAiImagesLoading ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                       {Array.from({ length: 4 }).map((_, i) => (

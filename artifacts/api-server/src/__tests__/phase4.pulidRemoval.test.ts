@@ -131,8 +131,8 @@ describe("migration 0104 retires PuLID's data", () => {
     // already have logged a capture there; count only this test's own run.
     await db.execute(sql`DELETE FROM feature_permissions_migration_log WHERE migration_name = '0104_retire_pulid'`);
     await db.insert(enginesTable).values([
-      { id: `${PREFIX}pulid`, provider: "fal", endpointId: "fal-ai/flux-pulid", label: "PuLID (test)", description: "Synthetic — phase4.pulidRemoval.test.ts.", kind: "image", tierRequirement: "legendary", isDefault: false, isActive: true, sortOrder: 999, audioHandling: "none", paramSchema: { params: [] } as unknown },
-      { id: `${PREFIX}image`, provider: "fal", endpointId: `${PREFIX}vendor/edit`, label: "Image (test)", description: "Synthetic — phase4.pulidRemoval.test.ts.", kind: "image", tierRequirement: "legendary", isDefault: false, isActive: true, sortOrder: 999, audioHandling: "none", paramSchema: { params: [] } as unknown },
+      { id: `${PREFIX}pulid`, provider: "fal", endpointId: "fal-ai/flux-pulid", label: "PuLID (test)", description: "Synthetic — phase4.pulidRemoval.test.ts.", kind: "image", tierRequirement: "legendary", isDefault: false, isActive: true, sortOrder: 999, paramSchema: { params: [] } as unknown },
+      { id: `${PREFIX}image`, provider: "fal", endpointId: `${PREFIX}vendor/edit`, label: "Image (test)", description: "Synthetic — phase4.pulidRemoval.test.ts.", kind: "image", tierRequirement: "legendary", isDefault: false, isActive: true, sortOrder: 999, paramSchema: { params: [] } as unknown },
     ]);
     await db.insert(falPricingCacheTable).values([
       { endpointId: "fal-ai/flux-pulid", unitPrice: "0.0333", unit: "megapixels", fetchedAt: new Date() },

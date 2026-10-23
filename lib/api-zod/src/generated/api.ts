@@ -439,35 +439,6 @@ export const HeartMemeResponse = zod.object({
 });
 
 /**
- * @summary List external links for a fact
- */
-export const ListLinksParams = zod.object({
-  factId: zod.coerce.number(),
-});
-
-export const ListLinksResponse = zod.object({
-  links: zod.array(
-    zod.object({
-      id: zod.number(),
-      factId: zod.number(),
-      url: zod.string(),
-      title: zod.string().nullish(),
-      platform: zod.string().nullish(),
-      addedBy: zod.string().nullish(),
-      createdAt: zod.coerce.date(),
-    }),
-  ),
-});
-
-/**
- * @summary Delete an external link
- */
-export const DeleteLinkParams = zod.object({
-  factId: zod.coerce.number(),
-  linkId: zod.coerce.number(),
-});
-
-/**
  * @summary List all hashtags with fact counts
  */
 export const listHashtagsQueryLimitDefault = 50;

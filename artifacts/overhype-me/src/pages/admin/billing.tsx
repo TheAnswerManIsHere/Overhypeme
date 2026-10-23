@@ -1037,7 +1037,7 @@ export default function AdminBilling() {
         >
           <p className="text-xs text-muted-foreground mb-3">
             Enter a valid JSON array of endpoint ID strings, e.g.{" "}
-            <code className="bg-secondary px-1 rounded">["fal-ai/flux-pro/v1.1", "fal-ai/flux-pulid"]</code>
+            <code className="bg-secondary px-1 rounded">["fal-ai/flux-pro/v1.1", "fal-ai/nano-banana-2"]</code>
           </p>
           <textarea
             value={falEndpoints}

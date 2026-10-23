@@ -176,7 +176,6 @@ export async function stubPublicFacts(page: Page, stubs: PublicFactStubs): Promi
     }
     if (sub === "/related") return json(route, { facts: (stubs.related?.[id] ?? []).map((f) => factSummary(f)) });
     if (sub === "/comments") return json(route, { comments: [], total: 0 });
-    if (sub === "/links") return json(route, { links: [] });
     return route.continue();
   });
   await page.route(/\/api\/memes\/([^/?]+)(\?.*)?$/, (route) => {

@@ -253,19 +253,6 @@ export class ObjectStorageService {
   }
 
   /**
-   * Returns a short-lived signed GCS URL for direct download of a private
-   * object. Useful when the file must be accessible to third-party servers
-   * that cannot reach our app proxy.
-   */
-  async getObjectEntityDownloadURL(subPath: string, ttlSec = 3600): Promise<string> {
-    let dir = this.getPrivateObjectDir();
-    if (!dir.endsWith("/")) dir = `${dir}/`;
-    const fullPath = `${dir}${subPath}`;
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    return signObjectURL({ bucketName, objectName, method: "GET", ttlSec });
-  }
-
-  /**
    * Upload bytes into the restricted moderation prefix. NEVER routes through
    * the public/private object handlers — `routes/storage.ts` 404's any
    * request that begins with `restricted/`. ACL is private with a synthetic

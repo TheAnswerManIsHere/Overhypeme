@@ -27,7 +27,6 @@ import {
   ListFactsQueryParams, GetFactParams,
   RateFactParams, RateFactBody,
   ListCommentsParams, ListCommentsQueryParams, AddCommentParams, AddCommentBody,
-  ListLinksParams, DeleteLinkParams,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -580,28 +579,6 @@ router.post("/comments/:id/heart", async (req: AuthenticatedRequest, res: Respon
 
   const result = await toggleHeart(req.user.id, "comment", commentId);
   res.json(result);
-});
-
-// GET /facts/:factId/links
-router.get("/facts/:factId/links", async (req: Request, res: Response) => {
-  const parsed = ListLinksParams.safeParse(req.params);
-  if (!parsed.success) { res.status(400).json({ error: "Invalid params" }); return; }
-  const rows = await db.select().from(externalLinksTable).where(eq(externalLinksTable.factId, parsed.data.factId)).orderBy(desc(externalLinksTable.createdAt));
-  const links = rows.map((l) => ({ id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy: null, createdAt: l.createdAt.toISOString() }));
-  res.json({ links });
-});
-
-// DELETE /facts/:factId/links/:linkId
-router.delete("/facts/:factId/links/:linkId", async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const parsed = DeleteLinkParams.safeParse(req.params);
-  if (!parsed.success) { res.status(400).json({ error: "Invalid params" }); return; }
-  const { factId, linkId } = parsed.data;
-  const [link] = await db.select().from(externalLinksTable).where(and(eq(externalLinksTable.id, linkId), eq(externalLinksTable.factId, factId))).limit(1);
-  if (!link) { res.status(404).json({ error: "Link not found" }); return; }
-  if (link.addedById !== req.user.id) { res.status(403).json({ error: "Forbidden" }); return; }
-  await db.delete(externalLinksTable).where(eq(externalLinksTable.id, linkId));
-  res.status(204).send();
 });
 
 export default router;

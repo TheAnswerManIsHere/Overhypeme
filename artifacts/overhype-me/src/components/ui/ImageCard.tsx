@@ -122,21 +122,18 @@ function ActionMenu({
         icon: <Maximize2 className="w-4 h-4" />,
         label: "Open Full Resolution",
         action: onOpenFull,
-        href: undefined as string | undefined,
       },
       actions.includes("copyLink") && onCopy && {
         icon: <Link2 className="w-4 h-4" />,
         label: "Copy Link",
         action: onCopy,
-        href: undefined as string | undefined,
       },
       actions.includes("delete") && (onDeleteRequest ?? onDeleteConfirm) && {
         icon: <Trash2 className="w-4 h-4 text-red-400" />,
         label: <span className="text-red-400">Delete</span>,
         action: onDeleteRequest ?? (() => { void onDeleteConfirm?.(); }),
-        href: undefined as string | undefined,
       },
-    ].filter(Boolean) as { icon: ReactNode; label: ReactNode; action: () => void; href?: string }[];
+    ].filter(Boolean) as { icon: ReactNode; label: ReactNode; action: () => void }[];
 
     return createPortal(
       <div className="fixed inset-0 z-[9998] flex items-end" onClick={onClose}>
@@ -150,32 +147,17 @@ function ActionMenu({
           <div className="flex justify-center pt-2.5 pb-1">
             <div className="w-10 h-1 bg-muted-foreground/30 rounded-full" />
           </div>
-          {mobileItems.map((item, i) =>
-            item.href ? (
-              <a
-                key={i}
-                role="menuitem"
-                href={item.href}
-                target="_blank"
-                rel="noreferrer"
-                onClick={onClose}
-                className="flex items-center gap-4 w-full px-6 py-4 text-left text-sm font-medium hover:bg-accent transition-colors"
-              >
-                {item.icon}
-                {item.label}
-              </a>
-            ) : (
-              <button
-                key={i}
-                role="menuitem"
-                onClick={() => { item.action(); onClose(); }}
-                className="flex items-center gap-4 w-full px-6 py-4 text-left text-sm font-medium hover:bg-accent transition-colors"
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            )
-          )}
+          {mobileItems.map((item, i) => (
+            <button
+              key={i}
+              role="menuitem"
+              onClick={() => { item.action(); onClose(); }}
+              className="flex items-center gap-4 w-full px-6 py-4 text-left text-sm font-medium hover:bg-accent transition-colors"
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
           <button
             role="menuitem"
             onClick={onClose}
@@ -214,7 +196,6 @@ function ActionMenu({
     label: string;
     kbd?: string;
     action: () => void;
-    href?: string;
   }> = [];
 
   if (actions.includes("openFull") && onOpenFull) {
@@ -289,21 +270,7 @@ function ActionMenu({
               )}
             </>
           );
-          return item.href ? (
-            <a
-              key={item.key}
-              role="menuitem"
-              href={item.href}
-              target="_blank"
-              rel="noreferrer"
-              onClick={e => { e.stopPropagation(); onClose(); }}
-              style={itemStyle}
-              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-            >
-              {innerContent}
-            </a>
-          ) : (
+          return (
             <button
               key={item.key}
               role="menuitem"

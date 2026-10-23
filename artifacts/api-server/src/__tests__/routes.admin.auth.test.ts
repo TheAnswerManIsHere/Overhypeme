@@ -54,7 +54,6 @@ interface RouteEntry {
 
 const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "get",    path: "/admin/stats" },
-  { method: "get",    path: "/admin/resource-governance" },
   { method: "get",    path: "/admin/users" },
   { method: "patch",  path: "/admin/users/:id" },
   { method: "get",    path: "/admin/administrators" },

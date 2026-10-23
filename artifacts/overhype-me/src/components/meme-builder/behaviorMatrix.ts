@@ -20,7 +20,6 @@ import type {
 
 function headerKey(entryFlow: EntryFlow): HeaderCopyKey {
   if (entryFlow === "remix") return "make-this-your-own";
-  if (entryFlow === "cold-permalink") return "see-with-your-face";
   return "build-your-meme";
 }
 
@@ -46,8 +45,7 @@ export function resolveBehavior(
 
   // ── self-upload × registered/legendary ────────────────────────────────
   const visibleActions: Action[] = ["download", "save", "share"];
-  const postSave: BehaviorCell["postSave"] =
-    entryFlow === "cold-permalink" ? "share" : "back-to-fact";
+  const postSave: BehaviorCell["postSave"] = "back-to-fact";
 
   return {
     invalid: false,
@@ -65,7 +63,6 @@ export function resolveBehavior(
 export const ALL_MODES: Mode[] = ["self-upload"];
 export const ALL_TIERS: Tier[] = ["unregistered", "registered", "legendary"];
 export const ALL_ENTRY_FLOWS: EntryFlow[] = [
-  "cold-permalink",
   "fact-detail",
   "library",
   "remix",
