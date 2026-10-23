@@ -45,9 +45,10 @@ OIDC integration exists anywhere in the runtime code (verified: no
 `replit.com/oidc`, no issuer/client-ID wiring outside the unrelated
 `@workspace/replit-auth-web` package name, which is a generic React
 auth-context helper, not an OIDC client — `lib/replit-auth-web/src/use-auth.ts`).
-The `usersTable` schema comment referencing "Replit Auth" (`lib/db/src/schema/auth.ts:6,55`)
-is leftover boilerplate from the original starter template. Both docs are
-corrected in the same PR that adds this spec.
+The `users` and `sessions` schema comments (`lib/db/src/schema/auth.ts`) now
+say what the tables are and that Replit Auth is retired; the starter
+template's "mandatory for Replit Auth" boilerplate went in launch Phase 4,
+removal 7, with the admin access screen's "your Replit user ID" setup tip.
 
 There is also a **dev-only admin bootstrap login** (`GET`/`POST
 /auth/dev-admin-login`, `localAuth.ts:735-836`), fail-closed and gated by

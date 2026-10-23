@@ -31,7 +31,7 @@ lib/
   api-client-react/  generated React Query client
   api-zod/           generated Zod schemas + shared vocab (moderationWorkflow, taxonomy, renderScenarios, visualPromptStrategies)
   integrations*/     OpenAI / Anthropic / fal.ai / redact integration wrappers
-  replit-auth-web/   Replit auth helper
+  replit-auth-web/   the app's React auth context (`useAuth`); keeps its starter name, Replit Auth is retired
 cloudflare/og-router/  Cloudflare Worker (OG image routing); deploy: pnpm worker:deploy
 scripts/             operational one-off scripts (e.g. resubmit facts for review)
 .agents/memory/      engineering "memory" notes — read these before deep work in a subsystem
@@ -42,9 +42,8 @@ docs/                this documentation
 
 - **Public** (`artifacts/overhype-me/src/pages/`): `Home.tsx` (cold vs warm
   visitor), `SubmitFact.tsx`, `TopFacts.tsx` (leaderboard), `Search.tsx`
-  (also the live hashtag-browsing surface — `Hashtags.tsx` exists in the
-  repo but its route redirects to `Home`, so it's unreachable in
-  production; see
+  (also the live hashtag-browsing surface; the unreachable standalone
+  `Hashtags.tsx` page went in launch Phase 4, removal 7; see
   [`public-site-and-sharing.md`](./public-site-and-sharing.md#hashtags)),
   `Profile.tsx` (account settings), `Library.tsx` (the signed-in user's
   own submissions/memes/images — see
@@ -62,9 +61,9 @@ docs/                this documentation
   Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
   Engines, Taxonomy Health, Email Queue, Features,
   Configuration, Eval, Queue Health — the full, routed inventory is
-  [`admin-console.md`](./admin-console.md). `comments.tsx` and `ai.tsx`
-  exist as files but are dead — their routes redirect elsewhere; they are
-  not part of the live inventory. Shared: `EnrichmentEditor.tsx` (+
+  [`admin-console.md`](./admin-console.md). `/admin/comments` and
+  `/admin/ai` redirect to Moderation and Config (their orphaned page files
+  went in launch Phase 4, removal 7). Shared: `EnrichmentEditor.tsx` (+
   `fieldDocs/`), `useTaxonomyHealthActions.ts` (async-status reference).
 - Prefer the generated React Query hooks (`lib/api-client-react`) for API calls.
   Note this is **not** universal: many surfaces (admin prompt-preview/moderation

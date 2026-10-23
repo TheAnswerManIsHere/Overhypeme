@@ -342,4 +342,13 @@ test.describe("Admin described screens", () => {
     await expect(panel.getByText("Saved to server")).toHaveCount(0);
     await expect(panel.getByTestId("visual-concept-textarea")).toHaveValue(OVER_BUDGET_CONCEPT);
   });
+
+  // Launch Phase 4, removal 7: the orphaned comments and AI-settings page
+  // files are deleted; their old addresses still land on the live screens.
+  test("the retired comments and AI addresses redirect to moderation and config", async ({ page }) => {
+    await page.goto("/admin/comments");
+    await expect(page).toHaveURL(/\/admin\/moderation$/);
+    await page.goto("/admin/ai");
+    await expect(page).toHaveURL(/\/admin\/config$/);
+  });
 });

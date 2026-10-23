@@ -3,7 +3,8 @@ import { boolean, index, jsonb, numeric, pgTable, pgEnum, serial, text, timestam
 
 export const membershipTierEnum = pgEnum("membership_tier", ["unregistered", "registered", "legendary"]);
 
-// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
+// Every account, whatever its sign-in method (email and password, Google,
+// Apple). Replit Auth, which this table was first created for, is retired.
 export const usersTable = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
@@ -52,7 +53,8 @@ export const usersTable = pgTable("users", {
 export type UpsertUser = typeof usersTable.$inferInsert;
 export type User = typeof usersTable.$inferSelect;
 
-// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
+// The API server's session store (`artifacts/api-server/src/lib/auth.ts`).
+// Replit Auth, which this table was first created for, is retired.
 // userId is nullable — guest/anonymous sessions have no associated user.
 // ON DELETE CASCADE: deleting a user automatically removes all their sessions.
 export const sessionsTable = pgTable(

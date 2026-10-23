@@ -348,7 +348,8 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
     .where(eq(usersTable.email, email.toLowerCase().trim()))
     .limit(1);
 
-  // Silently skip if user not found or has no local password (Replit Auth users)
+  // Silently skip if user not found or has no local password (Google or Apple
+  // sign-in only)
   if (!user || !user.passwordHash) {
     res.status(200).json({ message: GENERIC_RESET_MESSAGE });
     return;

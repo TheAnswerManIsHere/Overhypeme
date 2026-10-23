@@ -38,9 +38,10 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affil
 | `/admin/help`, `/admin/help/:chapter` | `help.tsx` | The [Overhype.me Manual](../manual/README.md), rendered in-console — see *The in-app Manual* below. A `NAV_ITEMS` entry ("Help"), and also reached from the `?` control on each screen. |
 
 `/admin/comments` and `/admin/ai` are routed to redirect components
-(`AdminModerationRedirect`, `AdminAIRedirect`) rather than to the
-`comments.tsx`/`ai.tsx` files that still exist on disk — see *Dead and
-misleading surfaces* below.
+(`AdminModerationRedirect`, `AdminAIRedirect`) that land on Moderation and
+Config. The orphaned `comments.tsx` and `ai.tsx` files those addresses once
+served were deleted in launch Phase 4, removal 7 (ledger [`docs/retired/README.md`](../retired/README.md); tag
+`pre-cut/dead-surfaces`).
 
 ## The in-app Manual (`/admin/help`)
 
@@ -218,21 +219,8 @@ and every other page's fields aren't covered by it.
 
 ## Dead and misleading surfaces
 
-- **`comments.tsx` is dead, duplicated code.** `/admin/comments` routes
-  to a redirect (`AdminModerationRedirect` → `/admin/moderation`), never
-  to this file. `moderation.tsx` contains its own fully-functional
-  comment-review panel, hitting the identical endpoints — functionally
-  near-identical to the orphaned file. Not linked from the nav.
-- **`ai.tsx` is dead code left behind by a completed migration.**
-  `/admin/ai` routes to a redirect (`AdminAIRedirect` → `/admin/config`).
-  The file's own header comment documents that its content was
-  superseded by `/admin/engines` and the `look_styles` table — the file
-  itself was just never removed. Not linked from the nav.
-- **`architecture-map.md`'s admin page inventory is stale relative to
-  actual routing** — it lists "Comments" and "AI Settings" as if they're
-  separate reachable pages (they're the two dead files above), while
-  omitting Eval and Queue Health, which *are* live, nav-linked pages.
-  Corrected in the same PR that adds this spec.
+- **Comment review lives in Moderation.** `moderation.tsx` carries the
+  comment-review panel; `/admin/comments` redirects there.
 - **The "Flagged comments" tab's own UI copy is misleading, corroborating
   a gap already documented in
   [`community-and-engagement.md`](./community-and-engagement.md).** Its
@@ -248,8 +236,7 @@ and every other page's fields aren't covered by it.
 - `artifacts/overhype-me/src/components/admin/AdminLayout.tsx` — nav,
   access gating, the badge-count logic.
 - `artifacts/overhype-me/src/pages/admin/*.tsx` — one file per page
-  (see inventory above); `comments.tsx` and `ai.tsx` are dead, don't
-  extend them expecting them to be reachable.
+  (see inventory above).
 - `artifacts/overhype-me/src/pages/admin/_configShared.tsx` — the
   shared hook/context behind `config.tsx`.
 - `artifacts/api-server/src/routes/admin.ts` — the backend surface

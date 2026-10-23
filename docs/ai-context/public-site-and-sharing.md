@@ -75,7 +75,7 @@ touches it.
 `eq(hashtagsTable.name, hashtag)`, `facts.ts:88`) — this is also what a
 hashtag pill on any `FactCard` links to (`/search?q=%23{tag}`,
 `components/facts/FactCard.tsx:220-232`), making **Search the actual live
-hashtag-browsing surface** (see the dead standalone page below).
+hashtag-browsing surface** (there is no standalone hashtag page; see below).
 
 **No relevance ranking** — `Search.tsx:28` hardcodes `sort:"newest"`,
 always `desc(factsTable.createdAt)`. A `sort:"trending"` option exists
@@ -100,14 +100,10 @@ Home's rail/trending strip, and `GET /facts?hashtag=X` (exact match,
 `facts.ts:87-93`) feeds both those selections and every `FactCard`
 hashtag pill.
 
-**The standalone hashtag browse/detail page is dead code — unreachable in
-production.** `pages/Hashtags.tsx` is a fully built listing + per-tag
-detail view, but its route redirects to Home instead of rendering it:
-`App.tsx:404` (`<Route path="/hashtags"><HashtagsRedirect /></Route>`),
-`HashtagsRedirect` (`App.tsx:59-63`) immediately `setLocation("/")`. The
-component exists in the repo; no user-facing link or route reaches it.
-**`architecture-map.md` currently lists `Hashtags.tsx` as a live public
-page — that's stale, corrected in the same PR that adds this spec.**
+There is no standalone hashtag page. `pages/Hashtags.tsx`, a listing and
+per-tag view whose `/hashtags` route only redirected to Home, was deleted in
+launch Phase 4, removal 7 with its redirect, so `/hashtags` is now the
+not-found page (ledger [`docs/retired/README.md`](../retired/README.md); tag `pre-cut/dead-surfaces`).
 
 ## Leaderboard
 
@@ -152,15 +148,10 @@ signed-in owner. Tabs: Liked Facts, Submissions, My Memes, My Images,
 Search History. **This is entirely self-view — there is no equivalent for
 viewing another user's submissions or memes.**
 
-**Dead code in `Profile.tsx`, worth knowing before touching it.**
-`Profile.tsx` still declares `activeTab` state and fetches
-`myMemesData` gated on `activeTab === "memes"`, but `setActiveTab` is
-never called anywhere in the file (grepped — zero call sites beyond the
-`useState` declaration). `activeTab` is permanently stuck at its initial
-value, so the memes query never runs and the "Memes" stat block
-(`Profile.tsx:1001-1008`) never renders — leftover from what looks like a
-completed split of this tab UI out into `Library.tsx`, which has the live
-working version of the identical query.
+**`Profile.tsx` has no tabs.** The tab UI moved to `Library.tsx`; the
+dead tab state, the Images, AI-images and Memes queries it left behind and
+the never-shown Memes count were deleted in launch Phase 4, removal 7
+(ledger [`docs/retired/README.md`](../retired/README.md)).
 
 **Private-meme visibility doesn't affect any profile display** (there's
 no public profile for it to leak through) — it gates `/library`'s "My
@@ -205,7 +196,7 @@ meme returns `410` with a generic card leaking none of the removed
 content.
 
 **Scope is meme permalinks only.** Neither the worker nor the shell route
-handles `/facts/:id`, `/search`, `/hashtags`, or the
+handles `/facts/:id`, `/search`, or the
 homepage — `index.html` has zero `og:*`/`twitter:*` tags of any kind, so
 sharing any non-meme URL produces no rich preview at all, not even a
 generic sitewide fallback.
@@ -275,8 +266,7 @@ the link."
 ## Files to inspect before public-site/sharing work
 
 - `artifacts/overhype-me/src/pages/Home.tsx`, `Search.tsx`,
-  `TopFacts.tsx`, `Profile.tsx`, `Library.tsx`, `Hashtags.tsx` (dead,
-  unreachable).
+  `TopFacts.tsx`, `Profile.tsx`, `Library.tsx`.
 - `artifacts/overhype-me/src/components/ShareModal.tsx`,
   `components/share/MemeShareModal.tsx`.
 - `artifacts/api-server/src/routes/facts.ts` (hero, list/search, share
@@ -285,8 +275,8 @@ the link."
 - `artifacts/api-server/src/lib/memeVisibility.ts` (`canViewMeme`, the
   one shared gate behind OG/share/library-memes).
 - `cloudflare/og-router/src/index.ts` — bot routing, header handling.
-- `App.tsx` — the redirect routes (`HashtagsRedirect`,
-  `HallOfFameRedirect`) worth checking before assuming a page is live.
+- `App.tsx` — the redirect routes (`HallOfFameRedirect` and the admin
+  redirects) worth checking before assuming a page is live.
 - Tests: `__tests__/routes.facts.test.ts`,
   `routes.facts.hero.test.ts`, `routes.hashtags.test.ts`,
   `phase5.og.routes.test.ts`, `memes.privacy-cache.test.ts`,

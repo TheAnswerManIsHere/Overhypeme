@@ -483,7 +483,8 @@ scope:
   refuses to complete while a Stripe obligation is unresolved and preserves
   safety records (B24, S5); account suspension (H); audience flag and
   verified-adult state (NSFW-ready, nothing shipped); beta-overlay row in
-  the grid (off); Replit Auth remnants removed; password-change session
+  the grid (off); Replit Auth remnants removed (the schema comments and the
+  admin setup tip went in Phase 4, removal 7); password-change session
   logout and single-use reset tokens as cheap hardening.
 - **Depends on:** Phase 1; Phase 2's production-config auth smoke for proof.
 - **David's batch:** the user-visible fate of a deleted user's published

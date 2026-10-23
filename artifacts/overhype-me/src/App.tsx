@@ -55,12 +55,6 @@ const queryClient = new QueryClient({
   },
 });
 
-function HashtagsRedirect() {
-  const [, setLocation] = useLocation();
-  useEffect(() => { setLocation("/"); }, [setLocation]);
-  return null;
-}
-
 function HallOfFameRedirect() {
   const [, setLocation] = useLocation();
   useEffect(() => { setLocation("/top-facts"); }, [setLocation]);
@@ -354,7 +348,6 @@ function Router() {
         <Route path="/m/:slug" component={MemePage} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />
-        <Route path="/hashtags"><HashtagsRedirect /></Route>
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/verify-email" component={VerifyEmail} />
