@@ -7,12 +7,12 @@
 >
 > **Reconciliation note:** some older/spec notes call the AI-prep stages
 > `enrichment_pending` / `enrichment_failed`. The **current repo enum uses
-> `prep_pending` / `prep_failed`** (prep = enrichment + Pexels + render prep). Use
+> `prep_pending` / `prep_failed`** (prep = enrichment + render prep). Use
 > the repo names below.
 
 ## Why staged moderation exists
 
-Enrichment, Pexels lookups, and test renders **cost money** (model calls, image
+Enrichment and test renders **cost money** (model calls, image
 generation). Staged moderation puts a **cheap human triage gate first**, so no
 paid work runs on spam/duplicate/low-quality submissions. Paid prep only starts
 after a human provisionally accepts a submission.
@@ -151,8 +151,8 @@ point.**
 
 `prep_pending` runs the async prep jobs against the staging fact: **enrichment**
 (AI classification/taxonomy — see
-[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)), **Pexels** image
-lookup, and render-scenario preparation. On terminal failure the review moves to
+[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)) and render-scenario
+preparation. On terminal failure the review moves to
 `prep_failed` — retryable only; a first-time submission is never rejected here,
 it stays pending until the retry succeeds.
 
@@ -213,8 +213,9 @@ decided in #628 Phase 7, whose PR replaces this paragraph with the shipped
 behaviour. Every other render scenario stays waivable.
 
 Pexels stock images were a second review aid and the source of user-facing
-stock backgrounds; **Pexels is deleted entirely** in the launch programme's
-cut phase (David, 2026-10-05).
+stock backgrounds; Pexels was deleted entirely in launch Phase 4, removal 6
+(David, 2026-10-05; ledger [`docs/retired/README.md`](../retired/README.md),
+lessons [`docs/retired/pexels.md`](../retired/pexels.md)).
 
 ## Final production approval
 

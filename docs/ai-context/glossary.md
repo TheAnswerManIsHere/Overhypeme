@@ -72,7 +72,7 @@ threshold), from the [Facts editor](#facts-editor) writing one directly, or
 — outside review entirely — an admin reparenting an already-published fact
 via the Facts editor's Parent ID field. **A variant is otherwise a fully
 independent fact** — it owns its own memes, taxonomy/enrichment, Visual
-Concept, and stock/AI images, and it inherits **no** metadata from its root.
+Concept, and AI images, and it inherits **no** metadata from its root.
 → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts),
 [2-content-lifecycle](../manual/2-content-lifecycle.md#variants-organizing-near-duplicate-wordings)
 
@@ -335,7 +335,7 @@ in-progress work.
 ### Moderation prep
 
 The paid pipeline that runs only after [provisional approval](#provisional-approval):
-AI classification, stock-image lookup, and visual-idea drafting — enqueuing
+AI classification and visual-idea drafting — enqueuing
 Visual-Idea candidates, with **no renders yet**. Per-image
 [test renders](#test-renders) are a separate, later spend, unlocked only once
 a moderator approves the [Visual Concept](#visual-concept); they are not part
@@ -733,7 +733,7 @@ Phase 4 ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-d
 
 ### Recipe
 
-How a photo or stock meme is stored: **not a finished picture**, but a
+How a photo meme is stored: **not a finished picture**, but a
 record of which background was chosen and what text goes with it, composed
 fresh every time someone views it. This is why a composition improvement
 retroactively upgrades existing memes. A meme built on a stored image (an
@@ -742,18 +742,21 @@ upload, or an old AI-generated image) points at that real file.
 
 ### Background
 
-What a meme is built on top of before the fact's text is composed over it — an
-uploaded photo or a [stock image](#stock-image).
+What a meme is built on top of before the fact's text is composed over it — the
+user's own uploaded photo (the [stock image](#stock-image) and
+[template](#template) alternatives are retired).
 "Background" is the choice the
 [studio](#studio) is organized around.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ### Stock image
 
-A photo sourced from an external image provider, used as a meme
-[background](#background) or as a moderation review aid. Costs nothing extra
-per meme, so it needs no paid tier.
-→ [meme-and-video-studio](./meme-and-video-studio.md)
+**Retired.** A Pexels photo used as a meme [background](#background) or as a
+moderation review aid, stored as a [recipe](#recipe) that re-fetched the photo
+from Pexels on every view. Deleted with Pexels in launch Phase 4, removal 6
+(ledger [`docs/retired/README.md`](../retired/README.md), lessons
+[`docs/retired/pexels.md`](../retired/pexels.md)); the code as it stood is at
+the tag `pre-cut/stock-pexels`.
 
 ### Template
 
@@ -766,7 +769,7 @@ template is a different thing ([Fact](#fact)).
 
 ### Photo meme
 
-A meme built from your own uploaded photo or a stock image. Available to anyone signed in — no paid plan required — because it
+A meme built from your own uploaded photo. Available to anyone signed in — no paid plan required — because it
 costs nothing extra per meme to produce.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
@@ -1160,7 +1163,7 @@ The durable `async_jobs` table (queue discriminator + JSON payload + dedupe key
 ### Lane
 
 One of the independent scheduling groups (`fast` / `render` / `bulk` /
-`pexels` / `ai_meme_backfill`) the async-jobs worker splits queues into, each
+`ai_meme_backfill`) the async-jobs worker splits queues into, each
 with its own poll timer, re-entrancy guard, and concurrency bound, so slow work
 in one lane can never delay another's *scheduling*. What separates them is who
 is waiting and what each job costs. The isolation is at the scheduling level
@@ -1228,8 +1231,8 @@ flight. The queue table alone can't distinguish "about to be claimed" from
 
 ### Bulk Media Backfill
 
-The admin panel (under Taxonomy Health) driving the corpus-wide stock-image and
-AI-meme backfill queues — a second reference implementation of the
+The admin panel (under Taxonomy Health) driving the corpus-wide AI-meme
+backfill queue (its stock-image half went with Pexels, launch Phase 4) — a second reference implementation of the
 [two-altitude](#two-altitudes) contract.
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 

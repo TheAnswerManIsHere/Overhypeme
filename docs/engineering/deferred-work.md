@@ -442,24 +442,24 @@ re-gather it when the work is scheduled.
 ## Code-level tech debt
 
 - **Async-queue enqueue-side status write isn't transactional with `enqueueJob` (PR #256).**
-  - **Launch plan placement (on my recommendation, David delegated 2026-10-13): not blocking.** Both enqueue paths still exist on `main`. The Pexels half is deleted with Pexels in Phase 4; the AI-meme half rides Phase 11's async-jobs work if it fits, otherwise it waits to be seen in Seed. Only a status label can go stale.
-  - **What.** `factPexelsJobs.ts`'s `enqueueFactPexels` and
-    `aiMemeBackfillJobs.ts`'s `enqueueFactAiMemeBackfill` each write the
+  - **Launch plan placement (on my recommendation, David delegated 2026-10-13): not blocking.** The Pexels half was deleted with Pexels in Phase 4, removal 6, so one enqueue path remains; the AI-meme half rides Phase 11's async-jobs work if it fits, otherwise it waits to be seen in Seed. Only a status label can go stale.
+  - **What.** `aiMemeBackfillJobs.ts`'s `enqueueFactAiMemeBackfill` (and,
+    until Phase 4 deleted it, `factPexelsJobs.ts`'s `enqueueFactPexels`) writes the
     fact's status field to `"pending"` (or a handler writes a terminal value)
     as a separate statement from the `enqueueJob` insert/dedupe call — the two
     aren't composed inside one transaction. Two related races follow: (1) a
     late enqueue landing between a handler's terminal-marker write and its
     `async_jobs` row's finalization can reset the marker back to `"pending"`
     and then dedupe onto the still-`processing` row, which never repairs it;
-    (2) `factPexelsJobs.ts`'s 1s post-success pacing sleep widens that same
-    window further. In both cases the underlying `pexelsImages`/`aiMemeImages`
+    (2) the deleted Pexels handler's post-success pacing sleep widened that
+    same window further. In both cases the underlying `aiMemeImages`
     data is unaffected — only the status marker can go stale.
   - **Why deferred now.** Closing this needs `enqueueJob`'s dedupe-conflict
     recovery to compose inside a caller-managed transaction, which it doesn't
     support today — a real fix is a small piece of `asyncJobs.ts` transaction
     hardening, not a one-line change in either queue file.
   - **Cost of waiting.** A rare concurrent-enqueue race can leave a fact's
-    Pexels/AI-meme status display stuck at "pending" after the underlying job
+    AI-meme status display stuck at "pending" after the underlying job
     actually completed. No data loss; a moderator/admin can force a re-enqueue
     to clear it.
   - **Revisit trigger.** Next time `asyncJobs.ts`'s enqueue/dedupe machinery is

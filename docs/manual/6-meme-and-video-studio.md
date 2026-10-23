@@ -11,19 +11,21 @@
 ## What it does
 
 Once you've found a fact you want to make into a meme, the [studio](../ai-context/glossary.md#studio) is where
-you actually build it. You can build a meme from your own photo or from a
-stock image. Whichever
-[background](../ai-context/glossary.md#background) you choose, the studio composes it with the fact's text and
+you actually build it. You build a meme from your own photo: the studio
+composes that [background](../ai-context/glossary.md#background) with the fact's text and
 saves it as your meme.
 
 ## How it works
 
 ### Building a background
 
-Upload a photo, or pick a [stock image](../ai-context/glossary.md#stock-image).
-This is available to anyone signed in — no paid plan required. The built-in
-gradient backgrounds were deleted before launch (the record is in
-[`docs/retired/`](../retired/README.md)).
+Upload a photo, or pick one you uploaded before. This is available to anyone
+signed in — no paid plan required — and it needs an account, so a visitor
+who isn't signed in is asked to sign up first. The built-in gradient
+backgrounds and the [stock images](../ai-context/glossary.md#stock-image) from Pexels were deleted
+before launch (the record is in [`docs/retired/`](../retired/README.md));
+until a free background the site supplies comes back, there is nothing a
+signed-out visitor can build on.
 
 There are no AI-generated memes and no video memes. Both were deleted before
 launch, to be rebuilt later on stronger models: the AI image of you in the
@@ -39,7 +41,7 @@ sit behind the fact page was deleted before launch
 
 ### What actually gets saved
 
-A meme you build from your own photo or a stock image isn't
+A meme you build from your own photo isn't
 stored as a finished picture — it's saved as a **[recipe](../ai-context/glossary.md#recipe)**: which
 background you chose and what text goes with it. The actual image is
 composed fresh every time someone views it, not generated once and stored.
@@ -48,9 +50,7 @@ Like any meme, it's public unless you turn the privacy option on yourself.
 ### Where your media lives
 
 A photo you uploaded is a real file, stored the same way any other user
-content on Overhype.me is stored. A meme built from a stock photo stores no
-image of its own at all, just the recipe pointing back at the
-already-existing stock photo.
+content on Overhype.me is stored, and the recipe points at it.
 
 ## Why it works this way
 
@@ -59,8 +59,7 @@ already-existing stock photo.
   up automatically the next time anyone views it, instead of being frozen
   at whatever quality existed the moment it was made.
 - **Making a meme is free for everyone signed in.** Building from your own
-  photo or a stock background costs Overhype.me nothing extra per
-  meme. What Legendary adds here is keeping a meme private
+  photo costs Overhype.me nothing extra per meme. What Legendary adds here is keeping a meme private
   ([chapter 10](./10-payments-and-membership.md)).
 
 ## Boundaries & known limitations

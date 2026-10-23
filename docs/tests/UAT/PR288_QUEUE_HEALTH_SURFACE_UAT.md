@@ -28,8 +28,9 @@ None.
 **Do:** Open Admin → Queue Health (new item in the left sidebar, below
 Email Queue).
 
-**Expect:** A "Worker lanes" section with five cards: `fast`, `render`,
-`bulk`, `pexels`, `ai_meme_backfill`.
+**Expect:** A "Worker lanes" section with four cards: `fast`, `render`,
+`bulk`, `ai_meme_backfill` (a fifth, `pexels`, went with Pexels in launch
+Phase 4, removal 6).
 
 **Lane:** ci
 
@@ -50,7 +51,7 @@ fire Xs ago · N in flight".
 
 **Do:** Look above the worker lane cards.
 
-**Expect:** A line reads "All five lanes are being scheduled. Last checked
+**Expect:** A line reads "All lanes are being scheduled. Last checked
 HH:MM:SS."
 
 **Lane:** ci
@@ -139,7 +140,7 @@ it).
 **Expect:** An explicit red panel reads "Could not load queue health",
 with a Retry button and the sentence "This is not the same as the queues
 being healthy — we were unable to ask." You must **not** see an empty
-page, five green "Scheduling" cards, or "all queues healthy" —
+page, all-green "Scheduling" cards, or "all queues healthy" —
 "everything's fine" and "I couldn't check" must never look identical on a
 page whose entire job is revealing problems.
 
@@ -267,12 +268,12 @@ place this PR could plausibly bite.
   on ordinary scheduler jitter, and a health page that cries wolf gets
   ignored.
 - **"Live instances" will not always be 1.** The app runs on autoscale, so
-  under load there may be 2, 3, or more instances, each running all five
-  lanes. The page counts every instance whose worker has checked in
+  under load there may be 2, 3, or more instances, each running all
+  the lanes. The page counts every instance whose worker has checked in
   recently. Seeing that number change is normal and healthy.
 - **A stalled lane's red "Not scheduling" card and banner cannot be
   verified by click-through in this phase.** The only process serving the
-  page's own polling endpoint is the same process running the five lane
+  page's own polling endpoint is the same process running the lane
   schedulers, so there is no way to pause one lane's scheduler while
   keeping the server up. If a lane ever genuinely stops scheduling, expect
   its card to flip to "Not scheduling" in red and a red banner above the

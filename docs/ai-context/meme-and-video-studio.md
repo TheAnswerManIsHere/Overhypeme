@@ -28,7 +28,10 @@
   `components/meme-builder/MemeBuilder.tsx`, mounted by
   `pages/memePage/BuilderOverlay.tsx` when a viewer taps the meme page's
   "make this about me" or anonymous "see it with my name" actions
-  (`pages/MemePage.tsx`). It opens in `stock` or `self-upload` mode. Its
+  (`pages/MemePage.tsx`). It opens in `self-upload` mode, the only mode
+  since the stock source went with Pexels; an anonymous viewer gets the
+  sign-up panel in place of the photo picker, since an upload needs an
+  account. Its
   Legendary stylise toggle and "Try AI mode" upsell went with PuLID (see *AI
   image memes*).
 
@@ -69,7 +72,6 @@ discriminated union, `ImageSourceSchema` (`memeBuilder.ts:77-114`):
 
 | `type` | What it represents | Bytes or pointer? |
 | --- | --- | --- |
-| `"stock"` | Pexels stock photo | Pointer only (`pexelsPhotoId`, optional cached `photoUrl`) |
 | `"upload"` | User's own uploaded photo | Pointer (`uploadKey`) — bytes already landed via a separate upload call |
 | `"identity"` | "Use my profile photo" | Resolved server-side into `"upload"` pointing at the stored profile photo (`createMemeRecord.ts:205-219`); 400 if none exists |
 
@@ -79,7 +81,14 @@ launch Phase 4; a stored video meme is a soft-deleted row (migration 0103). A
 in launch Phase 4, removal 5; a meme whose recipe named one is a soft-deleted
 row (migration 0106), while a gradient meme stored as an image before recipes
 existed keeps serving from storage (ledger
-[`docs/retired/README.md`](../retired/README.md), tag `pre-cut/templates`).
+[`docs/retired/README.md`](../retired/README.md), tag `pre-cut/templates`). A
+`"stock"` variant (a Pexels photo, re-fetched from Pexels on every view) went
+with Pexels in launch Phase 4, removal 6; a meme whose recipe named one is a
+soft-deleted row (migration 0107), while a `photo_stock`-labelled meme stored
+as an image keeps serving from storage (tag `pre-cut/stock-pexels`, lessons
+[`docs/retired/pexels.md`](../retired/pexels.md)). The fixture exporter's
+`StoredImageSourceSchema` still describes both historic variants, because old
+rows carry them.
 
 An AI-*generated* image background was just a file in object storage — it
 re-entered `createMemeRecord` as an `"upload"`-shaped `imageSource`, same as
@@ -88,9 +97,9 @@ per-fact AI gallery picker was the legacy studio's and was deleted with it;
 the rest went with PuLID.) The `memes.image_transform` column (`"pulid"`,
 `"pulid_fallback_text"`) marked a PuLID-stylized meme; no path has written it
 since PuLID's removal, and the labels stay on old rows as history.
-`templateId` is derived server-side from the source (`"photo_stock"` or
-`"photo_upload"`; `createMemeRecord.ts`); older rows also carry the gradient
-template ids they were rendered on.
+`templateId` is always `"photo_upload"` for a new meme (`createMemeRecord.ts`);
+older rows also carry `"photo_stock"` and the gradient template ids they were
+rendered on.
 
 ## Photo memes
 
@@ -168,10 +177,12 @@ inventory for why the role-vs-tier resolution matters,
 higher-rate-limit tier feature.
 
 **NOT gated by tier (auth-only):** `POST /memes` itself — any
-authenticated user, not Legendary-only. Stock/upload/identity
-`imageSource` types carry no tier check in `createMemeRecord`. An unauthenticated caller can preview/download a
-stock-mode meme via `POST /api/render-download` but cannot save
-(`meme-builder/MemeBuilder.tsx`, the meme page's remix builder).
+authenticated user, not Legendary-only. The upload and identity
+`imageSource` types carry no tier check in `createMemeRecord`. An
+unauthenticated caller can no longer preview or download a meme: the render
+routes answer 403 `mode_requires_auth` for every source, since the only
+source a signed-out visitor could render (stock) went with Pexels. A free
+signed-out render comes back with launch Phase 7's hero renders.
 
 **Vestigial gate — flag before touching this area:** a `meme_upload_photo`
 tier feature flag exists in `tier_feature_permissions` (seeded and later
@@ -191,7 +202,6 @@ storage backend today, not legacy.
 | Content | Stored (real bytes)? | Key builder |
 | --- | --- | --- |
 | Photo-meme background (upload) | Yes | `uploadKey()`, `storageKeys.ts:41-47` — `uploads/{hash2}/{uploadId}.{ext}` |
-| Stock background | No — pointer, re-resolved at render time | — |
 | Rendered meme image (recipe meme) | No — rendered on demand, cache only at the HTTP layer | — |
 | Pre-recipe-architecture legacy meme | Yes | `memeKey()`, `storageKeys.ts:33-38` — `memes/{hash2}/{slug}.{ext}` |
 | AI-generated meme background (shared gallery) | Yes | `aiBackgroundKey()`, `storageKeys.ts:14-29` — `ai-backgrounds/{hash2}/{factId}-{gender}-{uniqueKey}.{ext}` |

@@ -114,9 +114,13 @@ for i in $(seq 1 35); do
   curl -s -o /dev/null -w "%{http_code}\n" \
     -X POST https://overhype.me/api/render-preview \
     -H "Content-Type: application/json" \
-    -d '{"factId":1,"name":"Test","pronouns":"they/them","imageSource":{"type":"stock","pexelsPhotoId":1}}'
+    -d '{"factId":1,"name":"Test","pronouns":"they/them","imageSource":{"type":"upload","uploadKey":"/objects/uploads/x"}}'
 done | sort | uniq -c
 ```
 
-Expected output: `30 200`, `5 429` (or close — Cloudflare batches counters
+Expected output: `30 403`, `5 429` (or close — the origin refuses an
+anonymous render with 403 `mode_requires_auth` since stock photos, the one
+source a signed-out caller could render, went with Pexels in launch Phase 4;
+the edge counts those requests all the same, and the 429s are what this
+verifies — Cloudflare batches counters
 at 10 s granularity, so the cutover may slide by a couple of requests).

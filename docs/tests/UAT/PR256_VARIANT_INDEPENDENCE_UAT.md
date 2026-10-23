@@ -15,43 +15,21 @@ None.
 
 ### 1. A variant with no images of its own now shows none — not the root's
 
-**Do:** Find (or create) a variant of a fact whose root has Pexels/AI-meme
-images, but which itself has never generated its own images, and open its
-fact page / meme builder.
+**Do:** Find (or create) a variant of a fact whose root has AI-meme images,
+but which itself has never generated its own, and open its fact page / meme
+builder.
 
-**Expect:** No stock/AI images show for the variant — not the root's. This
-is correct, intended behavior: it means the variant hasn't been backfilled
-yet (see step 8), not that something is broken.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:a variant with no images of its own shows none — it does NOT inherit its root's pexelsImages/aiMemeImages (variant independence)`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:a variant with no images of its own shows no AI images on its fact page or in its meme builder`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the variant's stock images are Pexels images, removed with Pexels, so the no-stock-images half goes with it
-
-### 2. A variant's Pexels panel is now visible in the Facts editor
-
-**Do:** Open a variant (not a root) in the admin Facts editor.
-
-**Expect:** The "Pexels Image Pipeline" panel is visible and usable for the
-variant — previously it was hidden entirely, root-only.
-
-**Lane:** scripted
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the Pexels Image Pipeline panel is Pexels and is removed with it, so it is not scripted now
-
-### 3. A variant can refresh its own images
-
-**Do:** Click "Refresh images" on the variant from the previous step.
-
-**Expect:** It succeeds and generates the variant's own stock images,
-independent of its root's.
+**Expect:** No AI images show for the variant — not the root's. This is
+correct, intended behavior: it means the variant hasn't been backfilled yet
+(see step 10), not that something is broken.
 
 **Lane:** ci
 
-**Check:** `artifacts/api-server/src/__tests__/routes.admin.test.ts:a variant (parentId set) is accepted — images are no longer root-only (variant independence)`
+**Check:** `artifacts/api-server/src/__tests__/routes.facts.test.ts:a variant with no images of its own shows none — it does NOT inherit its root's aiMemeImages (variant independence)`; `artifacts/overhype-me/e2e/publicScreens.spec.ts:a variant with no images of its own shows no AI images on its fact page or in its meme builder`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — the variant's own stock images are Pexels images, removed with Pexels, and the cited check shows the request is accepted but not that images were generated
+_Step 2 retired with stock photos and Pexels, which launch Phase 4 deleted (removal 6, #744; ledger: `docs/retired/README.md`)._
+
+_Step 3 retired with stock photos and Pexels, which launch Phase 4 deleted (removal 6, #744; ledger: `docs/retired/README.md`)._
 
 _Step 4 retired with the legacy meme studio, which launch Phase 4 deleted (removal 1, #744; ledger: `docs/retired/README.md`)._
 
@@ -84,55 +62,30 @@ reason.
 
 **Do:** Go to Admin → Taxonomy Health.
 
-**Expect:** A new "Bulk Media Backfill" section appears near the top, with
-three buttons: Backfill images, Backfill Pexels, Backfill AI memes. It's
-visible regardless of which health card filter is selected.
+**Expect:** A "Bulk Media Backfill" section appears near the top, with its
+Backfill AI memes button. It's visible regardless of which health card filter
+is selected.
 
 **Lane:** ci
 
 **Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:is visible regardless of the selected card filter (not gated like send-back)`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:the panel renders above the health cards and still renders, with its Backfill AI memes button, after a different card filter is selected`
 
-**Deferred:** #628 — Phase 4 (Cut and prune) — two of the panel's three buttons (Backfill images, Backfill Pexels) drive Pexels and go with it, which rewrites this step, and the cited test also never selects a card filter
+_Step 8 retired with stock photos and Pexels, which launch Phase 4 deleted (removal 6, #744; ledger: `docs/retired/README.md`)._
 
-### 8. Backfill images enqueues durable jobs
+_Step 9 retired with stock photos and Pexels, which launch Phase 4 deleted (removal 6, #744; ledger: `docs/retired/README.md`)._
 
-**Do:** Click "Backfill images".
-
-**Expect:** A confirmation dialog appears; confirming enqueues durable jobs
-for every active fact (root or variant) missing images, and a live status
-line shows "N of M done" as jobs complete.
-
-**Lane:** ci
-
-**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill images' confirms before firing and posts to backfill-images`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — Backfill images is Pexels image prep and goes with Pexels, and the cited check shows the confirm and the POST, not the enqueue for every active fact missing images
-
-### 9. Re-clicking Backfill images while jobs run is safe
-
-**Do:** Re-click "Backfill images" while jobs from the previous step are
-still running.
-
-**Expect:** It's safe — already-queued facts dedupe onto their existing job
-rather than double-running.
-
-**Lane:** ci
-
-**Check:** `artifacts/api-server/src/__tests__/factPexelsJobs.test.ts:is stable per fact id`
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the dedupe is on the Pexels job queue, removed with Pexels, and the cited check asserts only the dedupe key format
-
-### 10. Backfill AI memes follows the same pattern
+### 10. Backfill AI memes enqueues durable jobs
 
 **Do:** Click "Backfill AI memes" and confirm.
 
-**Expect:** The same confirm → enqueue → live status pattern as Backfill
-images; the confirmation message notes this one calls paid OpenAI/fal.ai
-APIs.
+**Expect:** A confirmation dialog appears and notes this calls paid
+OpenAI/fal.ai APIs; confirming enqueues durable jobs for every active fact
+(root or variant) missing AI meme images, and a live status line shows "N of
+M done" as jobs complete.
 
 **Lane:** ci
 
-**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill AI memes' posts to backfill-ai-memes`; `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:backfill-ai-memes enqueues one durable job per active fact missing AI meme images, root or variant`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:clicking Backfill AI memes calls window.confirm before any POST to backfill-ai-memes, and declining sends nothing`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images`
+**Check:** `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:'Backfill AI memes' posts to backfill-ai-memes`; `artifacts/api-server/src/__tests__/routes.admin.auth.test.ts:backfill-ai-memes enqueues one durable job per active fact missing AI meme images, root or variant`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:clicking Backfill AI memes calls window.confirm before any POST to backfill-ai-memes, and declining sends nothing`; `artifacts/overhype-me/src/pages/admin/taxonomy-health.bulkMediaBackfill.test.tsx:the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done`
 
 ### 11. A root with an active variant can be sent back to review
 
@@ -199,17 +152,15 @@ complete") so it's never silently missed.
 
 ## Regression
 
-### R1. Root fact images, memes, and enrichment are unchanged
+### R1. Root fact memes and enrichment are unchanged
 
-**Do:** Check images, memes, and enrichment for a root fact.
+**Do:** Check memes and enrichment for a root fact.
 
 **Expect:** Unchanged — still works exactly as before.
 
 **Lane:** scripted
 
 **Check:** `artifacts/api-server/scripts/acceptance-run.ts` — `--mode acceptance`, journey 3: the baseline fact is tokenised, enriched, given a saved Visual Concept and review renders, then approved to an active fact; journey 4: a public photo meme saves from it
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — a root fact's Pexels stock images are removed with Pexels, while enrichment and memes are the journeys cited
 
 ### R2. The public fact feed / detail page for roots is unchanged
 
@@ -237,15 +188,7 @@ error, and still returns its own AI meme images.
 
 **Check:** `artifacts/api-server/src/__tests__/routes.sendBackToReview.test.ts:starts a refresh cycle: candidate + new review, createdBy = the admin, ids echoed`
 
-### R4. Single-fact "Refresh images" on a root is unchanged
-
-**Do:** Click "Refresh images" on a single root fact (not the bulk panel).
-
-**Expect:** Unchanged.
-
-**Lane:** scripted
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — the single-fact Refresh images button and route are Pexels and are removed with it
+_R4 retired with stock photos and Pexels, which launch Phase 4 deleted (removal 6, #744; ledger: `docs/retired/README.md`)._
 
 ### R5. The Facts editor for a root fact is unchanged
 
@@ -267,9 +210,8 @@ Back to Review and Delete Fact buttons. No error shows.
 
 - **A variant may show no images until you (or a bulk backfill) explicitly
   generate them.** This is the correct, intended change — a variant no
-  longer silently borrows its root's images. Run "Backfill images" /
-  "Backfill Pexels" from the Bulk Media Backfill panel to catch existing
-  variants up.
+  longer silently borrows its root's images. Run "Backfill AI memes" from the
+  Bulk Media Backfill panel to catch existing variants up.
 - **The v6→v7 enrichment prompt-version bump** means every fact — root or
   variant — is now "stale for reprocess" until it's sent back through
   moderation again (send-back → promote). This is expected and is exactly
