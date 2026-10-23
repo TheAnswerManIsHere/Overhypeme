@@ -48,7 +48,6 @@ import type {
   MemeDetail,
   MemeListResponse,
   MemeRecord,
-  MemeTemplateListResponse,
   RateFactRequest,
   RatingResult,
   RecordFactShareResponse,
@@ -2620,82 +2619,7 @@ export function useGetStorageObject<
 }
 
 /**
- * @summary List available meme background templates
- */
-export const getListMemeTemplatesUrl = () => {
-  return `/api/memes/templates`;
-};
-
-export const listMemeTemplates = async (
-  options?: RequestInit,
-): Promise<MemeTemplateListResponse> => {
-  return customFetch<MemeTemplateListResponse>(getListMemeTemplatesUrl(), {
-    ...options,
-    method: "GET",
-  });
-};
-
-export const getListMemeTemplatesQueryKey = () => {
-  return [`/api/memes/templates`] as const;
-};
-
-export const getListMemeTemplatesQueryOptions = <
-  TData = Awaited<ReturnType<typeof listMemeTemplates>>,
-  TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof listMemeTemplates>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getListMemeTemplatesQueryKey();
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof listMemeTemplates>>
-  > = ({ signal }) => listMemeTemplates({ signal, ...requestOptions });
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof listMemeTemplates>>,
-    TError,
-    TData
-  > & { queryKey: QueryKey };
-};
-
-export type ListMemeTemplatesQueryResult = NonNullable<
-  Awaited<ReturnType<typeof listMemeTemplates>>
->;
-export type ListMemeTemplatesQueryError = ErrorType<unknown>;
-
-/**
- * @summary List available meme background templates
- */
-
-export function useListMemeTemplates<
-  TData = Awaited<ReturnType<typeof listMemeTemplates>>,
-  TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof listMemeTemplates>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListMemeTemplatesQueryOptions(options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * @summary Create a meme from a fact and template
+ * @summary Create a meme from a fact and a background image
  */
 export const getCreateMemeUrl = () => {
   return `/api/memes`;
@@ -2758,7 +2682,7 @@ export type CreateMemeMutationBody = BodyType<CreateMemeRequest>;
 export type CreateMemeMutationError = ErrorType<ErrorEnvelope>;
 
 /**
- * @summary Create a meme from a fact and template
+ * @summary Create a meme from a fact and a background image
  */
 export const useCreateMeme = <
   TError = ErrorType<ErrorEnvelope>,

@@ -549,7 +549,9 @@ describe("GET /facts/:factId/comments", () => {
 describe("public avatar projection on a fact's author", () => {
   it("logged out, submittedByImage and comment authorImage are the generated icon for an author with a stored but unselected photo", async () => {
     const userId = await createTestUser();
-    const photo = "/api/storage/objects/uploads/identity-photo.jpg";
+    // This user's own path: a stored upload path shared by two users is a state
+    // the product cannot produce, and migration 0055's backfill refuses it.
+    const photo = `/api/storage/objects/uploads/${userId}.jpg`;
     // A registered author who uploaded an identity photo but never selected it
     // as their avatar (avatarSource stays the default, not 'photo').
     await db.update(usersTable)

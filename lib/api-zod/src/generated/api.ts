@@ -753,29 +753,13 @@ export const GetStorageObjectParams = zod.object({
 });
 
 /**
- * @summary List available meme background templates
- */
-export const ListMemeTemplatesResponse = zod.object({
-  templates: zod.array(
-    zod.object({
-      id: zod.string(),
-      name: zod.string(),
-      description: zod.string(),
-      previewColors: zod.array(zod.string()).optional(),
-      previewImageUrl: zod.string().optional(),
-    }),
-  ),
-});
-
-/**
- * @summary Create a meme from a fact and template
+ * @summary Create a meme from a fact and a background image
  */
 export const createMemeBodyTextOptionsFontSizeMin = 14;
 export const createMemeBodyTextOptionsFontSizeMax = 48;
 
 export const CreateMemeBody = zod.object({
   factId: zod.number(),
-  templateId: zod.string(),
   textOptions: zod
     .object({
       fontSize: zod

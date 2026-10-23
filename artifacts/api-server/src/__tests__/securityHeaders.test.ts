@@ -56,7 +56,6 @@ function makeApp(mode: Mode): Express {
   app.get("/api/foo", (_req, res) => { res.json({ ok: true }); });
   app.get("/api/og/m/:slug", (_req, res) => { res.type("html").send("<html></html>"); });
   app.get("/api/memes/:slug/image", (_req, res) => { res.type("jpeg").send(Buffer.from("x")); });
-  app.get("/api/memes/templates/:t", (_req, res) => { res.type("jpeg").send(Buffer.from("x")); });
   app.get("/api/storage/objects/:k", (_req, res) => { res.json({ ok: true }); });
   return app;
 }
@@ -124,7 +123,6 @@ describe("securityHeaders — CORP baseline", () => {
       "/api/foo",
       "/api/og/m/abc",
       "/api/memes/abc/image",       // could be a PRIVATE meme — must not be pre-marked cross-origin
-      "/api/memes/templates/classic",
       "/api/storage/objects/secret",
     ]) {
       const res = await request(makeApp("prod")).get(path);

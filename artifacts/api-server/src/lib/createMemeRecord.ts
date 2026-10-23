@@ -3,8 +3,9 @@
  *
  * Extracted from POST /api/memes so non-HTTP callers create the same row
  * shape. Behaviour mirrors the route's path 1:1 for every image variant
- * (template / stock / upload / identity). (A `"video"` variant written by the
- * video pipeline went with video, launch Phase 4.)
+ * (stock / upload / identity). (A `"video"` variant written by the video
+ * pipeline went with video, and a `"template"` variant with the gradient
+ * templates, launch Phase 4.)
  *
  * The route handler in routes/memes.ts becomes a thin wrapper around this
  * function — same checks, same idempotency, same status codes. The function
@@ -302,10 +303,7 @@ export async function createMemeRecord(
   }
 
   // ── Determine templateId for DB ─────────────────────────────────────
-  const templateIdForDb =
-    imageSource.type === "template" ? imageSource.templateId :
-    imageSource.type === "stock"    ? "photo_stock" :
-    "photo_upload";
+  const templateIdForDb = imageSource.type === "stock" ? "photo_stock" : "photo_upload";
 
   // ── Preview classifier (image-only path) ────────────────────────────
   let storedImageSource: StoredImageSource | null = imageSource;

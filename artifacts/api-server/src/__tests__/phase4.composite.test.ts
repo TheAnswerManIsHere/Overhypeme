@@ -1,29 +1,38 @@
 /**
  * Phase-4 composite module tests.
  *
- * Exercises `composeMeme` end-to-end with template imageSource (no network,
- * no GCS) so the test is fully self-contained. Confirms the byte-identity
+ * Exercises `composeMeme` end-to-end with an upload imageSource held by the
+ * local storage double (no network, no GCS), so the test is self-contained. Confirms the byte-identity
  * invariant the verification checklist requires: identical inputs produce
  * identical bytes across multiple invocations.
  */
 
-import { describe, it } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import { composeMeme } from "../lib/memeComposite.js";
+import { photoBackgrounds } from "./helpers/photoBackground.js";
 
 function sha256(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
 describe("Phase 4 — composeMeme", () => {
-  it("produces a JPEG buffer for a template imageSource", async () => {
+  const photos = photoBackgrounds();
+  let photo: { type: "upload"; uploadKey: string };
+  before(async () => {
+    photos.setUp();
+    photo = { type: "upload", uploadKey: await photos.seed(null) };
+  });
+  after(photos.tearDown);
+
+  it("produces a JPEG buffer for an upload imageSource", async () => {
     const result = await composeMeme({
       factTextTemplate: "{NAME} {singular|plural} a fact.",
       name: "Alex",
       pronouns: "they/them",
-      imageSource: { type: "template", templateId: "action" },
+      imageSource: photo,
       aspectRatio: "landscape",
     });
     assert.equal(result.mime, "image/jpeg");
@@ -39,7 +48,7 @@ describe("Phase 4 — composeMeme", () => {
       factTextTemplate: "{NAME} {singular|plural} push.",
       name: "Alex",
       pronouns: "they/them" as const,
-      imageSource: { type: "template" as const, templateId: "fire" },
+      imageSource: photo,
       aspectRatio: "square" as const,
     };
     const a = await composeMeme(input);
@@ -51,7 +60,7 @@ describe("Phase 4 — composeMeme", () => {
     const base = {
       factTextTemplate: "{NAME} pushes a fact.",
       pronouns: "they/them",
-      imageSource: { type: "template" as const, templateId: "fire" },
+      imageSource: photo,
       aspectRatio: "landscape" as const,
     };
     const a = await composeMeme({ ...base, name: "Alex" });
@@ -66,7 +75,7 @@ describe("Phase 4 — composeMeme", () => {
     const base = {
       factTextTemplate: "{NAME} {pushes|push} the boundary.",
       name: "Sam",
-      imageSource: { type: "template" as const, templateId: "ocean" },
+      imageSource: photo,
       aspectRatio: "landscape" as const,
     };
     const heRender = await composeMeme({ ...base, pronouns: "he/him" });

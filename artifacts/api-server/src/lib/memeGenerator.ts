@@ -4,9 +4,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import {
   BRAND_ORANGE,
-  TEMPLATE_ACCENT_COLORS,
   MEME_ASPECT_RATIOS,
-  TEMPLATE_RENDER_SCALE,
   DEFAULT_MEME_ASPECT_RATIO,
   type MemeAspectRatio,
 } from "@workspace/api-zod";
@@ -14,20 +12,6 @@ import { hasUnresolvedFactTokens } from "./renderCanonical";
 import { logger } from "./logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// In production the build script copies src/assets → dist/assets, so
-// `<__dirname>/assets/meme-templates` resolves correctly. When running
-// directly from source (tests, tsx) `__dirname` is `src/lib`, so we must
-// walk up to `src/assets/meme-templates`.
-const TEMPLATES_DIR = (() => {
-  const candidates = [
-    path.resolve(__dirname, "assets/meme-templates"),        // built layout
-    path.resolve(__dirname, "..", "assets/meme-templates"),  // src/lib → src/assets
-  ];
-  for (const candidate of candidates) {
-    try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch { /* try next */ }
-  }
-  return candidates[0]!;
-})();
 
 /**
  * Resolve and lazily register the bundled Anton font as both "Anton" and
@@ -83,38 +67,6 @@ const MAX_PHOTO_RENDER_PX = 6000;
  */
 const OUTPUT_JPEG_QUALITY = 90;
 
-export interface MemeTemplate {
-  id: string;
-  name: string;
-  description: string;
-  previewColors: string[];
-  /** Filename (without aspect-ratio subdirectory) for the template gradient PNG. */
-  assetPath: string;
-}
-
-export const MEME_TEMPLATES: MemeTemplate[] = [
-  { id: "action",   name: "Action Hero",  description: "High-contrast dark blue gradient — pure action movie energy",   previewColors: ["#0a0e2e", "#1a237e", "#283593"],   assetPath: "action.png"   },
-  { id: "fire",     name: "On Fire",      description: "Blazing orange-red gradient for the most intense facts",         previewColors: ["#bf360c", "#e64a19", "#ff6d00"],   assetPath: "fire.png"     },
-  { id: "night",    name: "Night Ops",    description: "Tactical dark background with subtle green accent",              previewColors: ["#0a0a0a", "#1b2420", "#263238"],   assetPath: "night.png"    },
-  { id: "gold",     name: "Legendary",    description: "Golden gradient for facts of mythical proportions",              previewColors: ["#4a2c00", "#f57f17", "#ffd54f"],   assetPath: "gold.png"     },
-  { id: "cinema",   name: "Cinematic",    description: "Classic sepia-toned cinematic style",                            previewColors: ["#2d1e00", "#5d4037", "#8d6e63"],   assetPath: "cinema.png"   },
-  { id: "neon",     name: "Neon",         description: "Cyberpunk hot-pink — electric and unapologetic",                previewColors: ["#0d0221", "#4a0060", "#e91e8c"],   assetPath: "neon.png"     },
-  { id: "ocean",    name: "Ocean Deep",   description: "Abyssal blue — calm on the surface, crushing below",            previewColors: ["#000428", "#004e92", "#0288d1"],   assetPath: "ocean.png"    },
-  { id: "crimson",  name: "Crimson",      description: "Smouldering deep red with dangerous intent",                    previewColors: ["#1a0000", "#7b0000", "#c62828"],   assetPath: "crimson.png"  },
-  { id: "galaxy",   name: "Galaxy",       description: "Deep-space indigo — the universe bows down",                    previewColors: ["#0c0019", "#311b92", "#4527a0"],   assetPath: "galaxy.png"   },
-  { id: "storm",    name: "Storm",        description: "Steel-grey tempest for uncompromising authority",               previewColors: ["#0d0d0d", "#263238", "#455a64"],   assetPath: "storm.png"    },
-  { id: "emerald",  name: "Emerald",      description: "Rich jewel-green — rare and impossible to ignore",              previewColors: ["#001a08", "#1b5e20", "#2e7d32"],   assetPath: "emerald.png"  },
-  { id: "arctic",   name: "Arctic",       description: "Glacial blue — cold, precise, and unstoppable",                 previewColors: ["#0a1929", "#0d47a1", "#1565c0"],   assetPath: "arctic.png"   },
-  { id: "copper",   name: "Copper",       description: "Burnished copper tones — aged but never outdated",              previewColors: ["#1a0d00", "#6d3200", "#bf5900"],   assetPath: "copper.png"   },
-  { id: "twilight", name: "Twilight",     description: "Violet dusk — the hour when legends emerge",                    previewColors: ["#0d001a", "#6a1b9a", "#ab47bc"],   assetPath: "twilight.png" },
-  { id: "toxic",    name: "Toxic",        description: "Radioactive green — dangerously talented",                      previewColors: ["#001400", "#1b5e20", "#33691e"],   assetPath: "toxic.png"    },
-  { id: "rose",     name: "Rose",         description: "Deep rose — intense, vivid, unforgettable",                     previewColors: ["#1a0005", "#880e4f", "#ad1457"],   assetPath: "rose.png"     },
-  { id: "volcano",  name: "Volcano",      description: "Volcanic crimson — pressure built over a lifetime",             previewColors: ["#100000", "#4e0000", "#b71c1c"],   assetPath: "volcano.png"  },
-  { id: "retro",    name: "Retro Wave",   description: "80s synthwave sunset — nostalgic and dangerous",                previewColors: ["#1a0030", "#7b1fa2", "#e64a19"],   assetPath: "retro.png"    },
-  { id: "midnight", name: "Midnight",     description: "Ink-black midnight blue — the darkest hour before glory",       previewColors: ["#000814", "#001d3d", "#003566"],   assetPath: "midnight.png" },
-  { id: "chrome",   name: "Chrome",       description: "Polished steel grey — sleek, mechanical, unstoppable",          previewColors: ["#0d0d0d", "#37474f", "#546e7a"],   assetPath: "chrome.png"   },
-];
-
 export interface FramingTransform {
   offsetX?: number;
   offsetY?: number;
@@ -138,32 +90,11 @@ export interface TextOptions {
 }
 
 /**
- * Where the background image comes from.
- * - template: one of the built-in gradient PNGs
- * - image:    a URL string (stock photo) or a Buffer (user upload)
+ * Where the background image comes from: a URL string (stock photo) or a
+ * Buffer (user upload). The gradient templates were deleted in Launch Phase 4,
+ * removal 5.
  */
-export type BackgroundSource =
-  | { type: "template"; templateId: string }
-  | { type: "image"; imageData: string | Buffer };
-
-const templateImageCache = new Map<
-  string,
-  Awaited<ReturnType<typeof loadImage>>
->();
-
-async function getTemplateImage(aspectRatio: MemeAspectRatio, assetPath: string) {
-  const cacheKey = `${aspectRatio}/${assetPath}`;
-  if (!templateImageCache.has(cacheKey)) {
-    const img = await loadImage(path.join(TEMPLATES_DIR, aspectRatio, assetPath));
-    templateImageCache.set(cacheKey, img);
-  }
-  return templateImageCache.get(cacheKey)!;
-}
-
-/** Accent sidebar colour per gradient template. */
-function templateAccentColor(templateId: string): string {
-  return TEMPLATE_ACCENT_COLORS[templateId] ?? BRAND_ORANGE;
-}
+export type BackgroundSource = { type: "image"; imageData: string | Buffer };
 
 /**
  * Center-crops src dimensions to match the target aspect ratio,
@@ -255,35 +186,20 @@ export async function generateMemeBuffer(
   ensureFontsRegistered();
   const { w: logicalW, h: logicalH } = MEME_ASPECT_RATIOS[aspectRatio];
 
-  // Decide actual render dimensions:
-  //  - templates: fixed scale of TEMPLATE_RENDER_SCALE on the logical canvas
-  //  - photos:    use the cropped source dimensions, capped at MAX_PHOTO_RENDER_PX
-  let renderW: number;
-  let renderH: number;
-  let photoData: { img: Awaited<ReturnType<typeof loadImage>>; sx: number; sy: number; sw: number; sh: number } | null = null;
-
-  if (background.type === "template") {
-    renderW = Math.round(logicalW * TEMPLATE_RENDER_SCALE);
-    renderH = Math.round(logicalH * TEMPLATE_RENDER_SCALE);
-  } else {
-    const img = await loadImage(background.imageData);
-    const crop = centerCropParams(img.width, img.height, logicalW, logicalH, framingTransform);
-    // Render at the cropped source resolution so we keep every available pixel,
-    // capped on the longest edge to bound output size.
-    let rW = Math.round(crop.sw);
-    let rH = Math.round(crop.sh);
-    const longest = Math.max(rW, rH);
-    if (longest > MAX_PHOTO_RENDER_PX) {
-      const scale = MAX_PHOTO_RENDER_PX / longest;
-      rW = Math.round(rW * scale);
-      rH = Math.round(rH * scale);
-    }
-    // Snap to the exact aspect ratio (rounding may have introduced ±1px drift).
-    rH = Math.round(rW * (logicalH / logicalW));
-    renderW = rW;
-    renderH = rH;
-    photoData = { img, ...crop };
+  // Render at the cropped source resolution so we keep every available pixel,
+  // capped on the longest edge (MAX_PHOTO_RENDER_PX) to bound output size.
+  const img = await loadImage(background.imageData);
+  const crop = centerCropParams(img.width, img.height, logicalW, logicalH, framingTransform);
+  let renderW = Math.round(crop.sw);
+  let renderH = Math.round(crop.sh);
+  const longest = Math.max(renderW, renderH);
+  if (longest > MAX_PHOTO_RENDER_PX) {
+    const shrink = MAX_PHOTO_RENDER_PX / longest;
+    renderW = Math.round(renderW * shrink);
+    renderH = Math.round(renderH * shrink);
   }
+  // Snap to the exact aspect ratio (rounding may have introduced ±1px drift).
+  renderH = Math.round(renderW * (logicalH / logicalW));
 
   const canvas: Canvas = createCanvas(renderW, renderH);
   const ctx = canvas.getContext("2d");
@@ -298,32 +214,19 @@ export async function generateMemeBuffer(
   ctx.scale(scale, scale);
 
   // ── Background ────────────────────────────────────────────────────
-  let accentColor: string;
+  ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, logicalW, logicalH);
 
-  if (background.type === "template") {
-    const template = MEME_TEMPLATES.find(t => t.id === background.templateId);
-    if (!template) throw new Error(`Unknown template: ${background.templateId}`);
-
-    const bgImage = await getTemplateImage(aspectRatio, template.assetPath);
-    ctx.drawImage(bgImage, 0, 0, logicalW, logicalH);
-    accentColor = templateAccentColor(background.templateId);
-  } else {
-    const { img, sx, sy, sw, sh } = photoData!;
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, logicalW, logicalH);
-
-    // Light vignette only — preserves the photo's colour. The client-side
-    // LivePreview draws the photo with no overlay, and the bold outlined
-    // caption (default) provides text readability without needing a heavy
-    // wash. A previous 48% black overlay was making saved photos look
-    // desaturated/posterised compared to the preview.
-    ctx.fillStyle = "rgba(0,0,0,0.18)";
-    ctx.fillRect(0, 0, logicalW, logicalH);
-    accentColor = BRAND_ORANGE;
-  }
+  // Light vignette only — preserves the photo's colour. The client-side
+  // LivePreview draws the photo with no overlay, and the bold outlined
+  // caption (default) provides text readability without needing a heavy
+  // wash. A previous 48% black overlay was making saved photos look
+  // desaturated/posterised compared to the preview.
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.fillRect(0, 0, logicalW, logicalH);
 
   // ── Left accent bar ───────────────────────────────────────────────
   const sidebarW = 12;
-  ctx.fillStyle = accentColor;
+  ctx.fillStyle = BRAND_ORANGE;
   ctx.fillRect(0, 0, sidebarW, logicalH);
 
   // ── Ghost watermark letters ───────────────────────────────────────

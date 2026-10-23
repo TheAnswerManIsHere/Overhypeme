@@ -452,9 +452,6 @@ export async function ensureSchema(): Promise<void> {
         ('bg_display_limit_stock', '20', 'integer', 'Background Picker: Stock Photo Limit',
          'Maximum number of stock photos shown in the background image picker when creating a meme. Does not affect how many are fetched or stored.',
          1, 500, true),
-        ('bg_display_limit_gradient', '20', 'integer', 'Background Picker: Gradient Limit',
-         'Maximum number of gradient backgrounds shown in the background image picker when creating a meme.',
-         1, 200, true),
         ('bg_display_limit_upload', '20', 'integer', 'Background Picker: Upload Limit',
          'Maximum number of uploaded images shown in the background image picker when creating a meme. Does not affect storage limits.',
          1, 500, true)

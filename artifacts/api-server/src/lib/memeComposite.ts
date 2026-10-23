@@ -150,7 +150,7 @@ export function resolveStoredMemeCaption(
  * Source-kind manifest. Each `imageSource.type` resolves to a
  * `BackgroundSource` via exactly one entry below — adding a new source kind
  * means adding (a) a new branch to the client's `sourceKinds.ts` and (b) a
- * new entry here. The four-branch `if` chain that lived here previously made
+ * new entry here. The `if` chain that lived here previously made
  * it easy for the two sides to drift; the table makes the contract explicit.
  *
  * The `IdentityProfileMissingError` and `StockPhotoUnresolvedError` semantics
@@ -167,8 +167,6 @@ type SourceResolver<T extends ImageSource["type"]> = (
 ) => Promise<BackgroundSource>;
 
 const SOURCE_RESOLVERS: { [K in ImageSource["type"]]: SourceResolver<K> } = {
-  template: async (src) => ({ type: "template", templateId: src.templateId }),
-
   stock: async (src) => {
     // Re-resolve the photo URL via Pexels so that link rotations on their CDN
     // don't break server-side renders. The optional `photoUrl` from the client

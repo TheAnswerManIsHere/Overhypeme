@@ -15,7 +15,6 @@ export const CACHE = {
   //   max-age=3600  → browser cache 1h
   //   s-maxage=86400 → Cloudflare/CDN cache 24h
   MEME_IMAGE: "public, max-age=3600, s-maxage=86400",
-  MEME_TEMPLATE: "public, max-age=86400, s-maxage=604800",
   PUBLIC_OBJECT: "public, max-age=3600, s-maxage=86400",
   PRIVATE_OBJECT: "private, max-age=3600",
 } as const;
@@ -49,7 +48,7 @@ export function setPublicCors(res: Response): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Vary", "Origin");
   // This helper is called ONLY after a response is confirmed public (public
-  // memes/templates/AI backgrounds, and public-ACL objects — private responses
+  // memes, AI backgrounds, and public-ACL objects — private responses
   // call setNoStore instead). So it is the correct, visibility-classified place
   // to relax the default `same-origin` CORP to `cross-origin` for hotlinking and
   // social unfurls. Owner-only / private bytes never reach here and stay

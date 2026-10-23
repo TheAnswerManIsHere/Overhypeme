@@ -17,7 +17,7 @@ const FREE_FEATURES = [
   { icon: <Send className="w-4 h-4" />,          text: "Submit Facts (with CAPTCHA)" },
   { icon: <MessageSquare className="w-4 h-4" />, text: "Leave Comments (with CAPTCHA)" },
   { icon: <UserCircle className="w-4 h-4" />,    text: "Profile Photo (your face, reused everywhere)" },
-  { icon: <Image className="w-4 h-4" />,         text: "Photo Memes of You (your face on meme templates)" },
+  { icon: <Image className="w-4 h-4" />,         text: "Photo Memes (your own photo behind the fact)" },
   { icon: <Share2 className="w-4 h-4" />,        text: "Share Memes" },
 ];
 

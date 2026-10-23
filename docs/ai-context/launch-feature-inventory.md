@@ -160,7 +160,7 @@ routes, delete, git keeps it) · **your call**.
 | # | Feature | Recommendation |
 |---|---|---|
 | D1 | Meme Builder Wizard (only live builder) | ship (core); delete legacy `MemeStudio.tsx` / `components/MemeBuilder.tsx` (unreachable, flag pinned on). *Deleted 2026-10-22 (Phase 4, removal 1); the meme page's remix builder is the other live builder ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
-| D2 | Template/gradient backgrounds | ship, verify |
+| D2 | Template/gradient backgrounds | ship, verify. *Deleted 2026-10-23 (Phase 4, removal 5; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | D3 | Pexels stock photos | ship, verify (licence terms noted for compliance phase) |
 | D4 | Photo upload (free tier), JPEG only | fix for launch: accept PNG + HEIC with server-side conversion; verify on iPhone; delete vestigial `meme_upload_photo` flag |
 | D5 | Use my profile photo | ship, verify |
@@ -191,7 +191,7 @@ routes, delete, git keeps it) · **your call**.
 
 ### Decisions — Journey D (David, 2026-10-05)
 
-- **D2** Template backgrounds: **delete** ("lame").
+- **D2** Template backgrounds: **delete** ("lame"). *Deleted 2026-10-23 (Phase 4, removal 5).*
 - **D3** Stock photos: David on the fence (violate "about me" but don't want to force uploads). Claude's proposal: delete both; free tier = the fact's moderation-approved **generic AI render** captioned with the user's name/pronouns (zero marginal cost; needs a no-render fallback and a content-sprint check); Legendary = your face in that scene. Pending David.
 - **D8** → a **UX polish phase** across all user journeys, late, launch-critical ("the final polish … as close to right prior to launch as possible").
 - **D12** → spend-controls phase; oracle: "I'm not venture backed and can't afford to cover user spend at scale."
@@ -287,7 +287,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Refunds & Disputes | ship |
 | Affiliate | **cut** (merch). *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | Video Styles | **cut** (video deleted) |
-| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4)* |
+| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5)* |
 | Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3* |
 | Taxonomy Health | ship (proven tonight) |
 | Features (tier × feature grid) | ship; **becomes the Legendary definition** (F21) + beta overlay later |

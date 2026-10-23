@@ -9,6 +9,5 @@ import type { MemeTextOptions } from "./memeTextOptions";
 
 export interface CreateMemeRequest {
   factId: number;
-  templateId: string;
   textOptions?: MemeTextOptions;
 }

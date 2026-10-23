@@ -3,9 +3,6 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { createHash } from "crypto";
 import { Readable } from "stream";
-import path from "path";
-import fs from "fs";
-import { fileURLToPath } from "url";
 import { customAlphabet } from "nanoid";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, userFactPreferencesTable, lookStylesTable } from "@workspace/db/schema";
@@ -18,7 +15,6 @@ import { createMemeRecord, CreateMemeError } from "../lib/createMemeRecord";
 import { z } from "zod";
 import {
   generateMemeBuffer,
-  MEME_TEMPLATES,
   type BackgroundSource,
 } from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -40,21 +36,6 @@ import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 import { canViewMeme } from "../lib/memeVisibility";
 import type { MemeAspectRatio } from "@workspace/api-zod";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// In production the build script copies src/assets → dist/assets and all
-// bundled code shares a single __dirname (dist/). When running directly from
-// source via tsx, __dirname is src/routes/, so we must walk up to src/assets/.
-const TEMPLATES_DIR = (() => {
-  const candidates = [
-    path.resolve(__dirname, "assets/meme-templates"),        // built layout
-    path.resolve(__dirname, "..", "assets/meme-templates"),  // src/routes → src/assets
-  ];
-  for (const candidate of candidates) {
-    try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch { /* try next */ }
-  }
-  return candidates[0]!;
-})();
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -203,40 +184,6 @@ const generateSlug = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq
 
 // ─── Routes ────────────────────────────────────────────────────────────────────
 
-// GET /memes/templates
-router.get("/memes/templates", (_req: Request, res: Response) => {
-  setNoStore(res);
-  res.json({
-    templates: MEME_TEMPLATES.map(t => ({
-      id: t.id,
-      name: t.name,
-      description: t.description,
-      previewColors: t.previewColors,
-      previewImageUrl: `/api/memes/templates/${t.id}/preview`,
-    })),
-  });
-});
-
-// GET /memes/templates/:id/preview?aspectRatio=landscape|square|portrait
-router.get("/memes/templates/:id/preview", (req: Request, res: Response) => {
-  const id = req.params["id"] as string;
-  const template = MEME_TEMPLATES.find(t => t.id === id);
-  if (!template) { res.status(404).end(); return; }
-
-  const aspectParam = String(req.query["aspectRatio"] ?? "landscape");
-  const aspect = (["landscape", "square", "portrait"].includes(aspectParam)
-    ? aspectParam
-    : "landscape") as "landscape" | "square" | "portrait";
-
-  const etag = `"template-${id}-${aspect}"`;
-  if (checkConditional(req, res, etag)) return;
-
-  setPublicCors(res);
-  res.setHeader("Content-Type", "image/png");
-  setPublicCache(res, CACHE.MEME_TEMPLATE, etag);
-  res.sendFile(path.join(TEMPLATES_DIR, aspect, template.assetPath));
-});
-
 // GET /memes/stock-photo?gender=man|woman|person
 router.get("/memes/stock-photo", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
@@ -278,19 +225,9 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  // Source-specific validation: catch unknown template IDs before the shared
-  // creator does anything expensive. The remainder of validation, idempotency,
-  // daily-cap enforcement, NSFW classification, slug allocation, and the row
-  // insert all live inside createMemeRecord, keeping this route a thin
-  // delegate.
-  if (parsed.data.imageSource.type === "template") {
-    const templateSrc = parsed.data.imageSource;
-    const valid = MEME_TEMPLATES.find(t => t.id === templateSrc.templateId);
-    if (!valid) {
-      res.status(400).json({ error: "Invalid template ID" });
-      return;
-    }
-  }
+  // Validation, idempotency, daily-cap enforcement, NSFW classification, slug
+  // allocation and the row insert all live inside createMemeRecord, keeping
+  // this route a thin delegate.
 
   // Resolved here, at submission time, from the request's principal — which is
   // the only place "view as user" is visible. `createMemeRecord` applies these
@@ -675,10 +612,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   let background: BackgroundSource;
 
   try {
-    if (source.type === "template") {
-      background = { type: "template", templateId: source.templateId };
-
-    } else if (source.type === "stock") {
+    if (source.type === "stock") {
       const photoUrl = await resolveStockPhotoUrl(source.pexelsPhotoId, source.photoUrl);
       background = { type: "image", imageData: photoUrl };
 

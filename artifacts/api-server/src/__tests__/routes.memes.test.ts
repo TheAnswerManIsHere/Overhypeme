@@ -1,9 +1,8 @@
 /**
  * Integration tests for routes/memes.ts.
  *
- * Covers the public read surface (GET /memes/templates,
- * GET /memes/:slug, GET /facts/:factId/memes), the user preference
- * round-trip (GET/PUT /facts/:factId/ai-meme-preference), and the
+ * Covers the public read surface (GET /memes/:slug, GET /facts/:factId/memes),
+ * the user preference round-trip (GET/PUT /facts/:factId/ai-meme-preference), and the
  * soft-delete endpoint (DELETE /memes/:slug).
  *
  * The image-rendering and AI-generation paths require
@@ -117,19 +116,6 @@ async function cleanup() {
 
 before(cleanup);
 after(cleanup);
-
-describe("GET /memes/templates", () => {
-  it("returns the static list of meme templates", async () => {
-    const res = await request(makeApp()).get("/memes/templates");
-    assert.equal(res.status, 200);
-    assert.ok(Array.isArray(res.body.templates));
-    assert.ok(res.body.templates.length > 0);
-    const t = res.body.templates[0];
-    assert.equal(typeof t.id, "string");
-    assert.equal(typeof t.name, "string");
-    assert.match(t.previewImageUrl, /^\/api\/memes\/.*\/preview$/);
-  });
-});
 
 describe("GET /memes/:slug", () => {
 

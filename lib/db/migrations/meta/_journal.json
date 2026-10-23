@@ -743,6 +743,13 @@
       "when": 1783800000000,
       "tag": "0105_retire_zazzle",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1783900000000,
+      "tag": "0106_retire_gradient_templates",
+      "breakpoints": true
     }
   ]
 }

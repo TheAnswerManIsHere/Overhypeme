@@ -51,7 +51,6 @@ describe("CACHE constants", () => {
       CACHE.MEME_IMAGE,
       "public, max-age=3600, s-maxage=86400",
     );
-    assert.equal(CACHE.MEME_TEMPLATE, "public, max-age=86400, s-maxage=604800");
     assert.equal(CACHE.PUBLIC_OBJECT, "public, max-age=3600, s-maxage=86400");
     assert.equal(CACHE.PRIVATE_OBJECT, "private, max-age=3600");
   });

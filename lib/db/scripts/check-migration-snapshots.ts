@@ -417,6 +417,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // deletes the Zazzle settings. No DDL, so there is no schema change for a
   // snapshot to record.
   "0105_retire_zazzle",
+
+  // Launch Phase 4, removal 5 (#744): a hand-authored data-only migration that
+  // soft-deletes template-recipe memes and deletes the gradient picker
+  // setting. No DDL, so there is no schema change for a snapshot to record.
+  "0106_retire_gradient_templates",
 ]);
 
 interface JournalEntry {
