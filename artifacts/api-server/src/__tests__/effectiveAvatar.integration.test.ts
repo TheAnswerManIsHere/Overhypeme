@@ -232,10 +232,14 @@ describe("the effective-avatar projection with the Admin custom_avatar cell off"
 describe("profileImageUrl remains a private field", () => {
   it("the stored photo is untouched by the projection", async () => {
     const id = `${PREFIX}${randomUUID()}`;
+    // A path of this user's own: two stored users sharing one upload path is a
+    // state the product cannot produce, and migration 0055's backfill (re-run
+    // when a sibling test boots the server on a shard database) refuses it.
+    const photo = `/api/storage/objects/uploads/${id}.jpg`;
     await db.insert(usersTable).values({
       id,
       email: `${id}@example.test`,
-      profileImageUrl: PHOTO,
+      profileImageUrl: photo,
       avatarSource: "photo",
       membershipTier: "registered",
     });
@@ -243,7 +247,7 @@ describe("profileImageUrl remains a private field", () => {
     // Unentitled, so the public projection hides it...
     assert.equal(
       await effectiveAvatarUrl(
-        subject({ id, profileImageUrl: PHOTO, avatarSource: "photo", membershipTier: "registered" }),
+        subject({ id, profileImageUrl: photo, avatarSource: "photo", membershipTier: "registered" }),
       ),
       generatedIconUrl("bottts", id),
     );
@@ -255,6 +259,6 @@ describe("profileImageUrl remains a private field", () => {
       .from(usersTable)
       .where(eq(usersTable.id, id))
       .limit(1);
-    assert.equal(row!.profileImageUrl, PHOTO);
+    assert.equal(row!.profileImageUrl, photo);
   });
 });
