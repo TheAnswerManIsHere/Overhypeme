@@ -26,12 +26,14 @@
   first step went with video.
 - **The meme page's remix builder:** the universal builder
   `components/meme-builder/MemeBuilder.tsx`, mounted by
-  `pages/memePage/BuilderOverlay.tsx` when a viewer taps the meme page's
-  "make this about me" or anonymous "see it with my name" actions
-  (`pages/MemePage.tsx`). It opens in `self-upload` mode, the only mode
-  since the stock source went with Pexels; an anonymous viewer gets the
-  sign-up panel in place of the photo picker, since an upload needs an
-  account. Its
+  `pages/memePage/BuilderOverlay.tsx` when a signed-in viewer taps the meme
+  page's "make this about me" action (`pages/MemePage.tsx`). It opens in
+  `self-upload` mode, the only mode since the stock source went with Pexels.
+  A signed-out viewer gets a "Make this meme about you" sign-up card
+  (`CTABarAnonOther`) that returns to the meme, since an upload needs an
+  account. The "See it with your name" form it replaced (name and pronouns
+  into the builder) is at the tag `pre-cut/stock-pexels`, for Phase 7's free
+  preview. Its
   Legendary stylise toggle and "Try AI mode" upsell went with PuLID (see *AI
   image memes*).
 
