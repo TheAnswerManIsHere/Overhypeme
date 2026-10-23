@@ -120,6 +120,11 @@ test.describe("Route-load smoke — no crash/reload loop, no error boundary", ()
         resp?.status() ?? 0,
         `${route.path} should be served, got HTTP ${resp?.status()}`,
       ).toBeLessThan(400);
+      // The initial navigation's own 'load' fires only once every subresource
+      // has settled, which can be after the content check below. Wait for it,
+      // so it is counted before the sample and never read as a reload inside
+      // the observation window (#744: the Taxonomy Health flake, #758 and #765).
+      await page.waitForLoadState("load");
 
       // 4. No Sentry error boundary. Check early and again after settling.
       await expect(
@@ -741,6 +746,9 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
     page.on("load", () => { loads += 1; });
     await page.clock.install();
     await expectAdminScreen(page, "/admin/refunds-disputes");
+    // Count the initial navigation's own 'load' before asserting there is
+    // exactly one: it can land after the screen renders (#765).
+    await page.waitForLoadState("load");
 
     const strip = page.locator("div.bg-card").filter({ has: page.getByText("Membership grace sweep", { exact: true }) });
     const status = strip.locator("span").nth(1);
