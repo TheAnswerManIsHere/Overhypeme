@@ -287,7 +287,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Refunds & Disputes | ship |
 | Affiliate | **cut** (merch). *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | Video Styles | **cut** (video deleted) |
-| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5); the stock picker limit and Pexels photo count 2026-10-23 (removal 6)* |
+| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5); the stock picker limit and Pexels photo count 2026-10-23 (removal 6); Debug mode 2026-10-23 (removal 8; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3* |
 | Taxonomy Health | ship (proven tonight) |
 | Features (tier × feature grid) | ship; **becomes the Legendary definition** (F21) + beta overlay later |
@@ -313,7 +313,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 
 ### Decisions — Journey I (David, 2026-10-05)
 
-- **Debug mode: remove** (columns dropped, five-file sweep, migration review).
+- **Debug mode: remove** (columns dropped, five-file sweep, migration review). *Deleted 2026-10-23 (Phase 4, removal 8; lessons page [`docs/retired/debug-mode.md`](../retired/debug-mode.md)).*
 - **Moderation UI/UX rebuilt** once core functionality is locked down (ergonomics item, launch; sequenced after the pipeline changes: bubbles, hero options, comment rebuild).
 
 ## Journey J — Safety and legal (12 items)

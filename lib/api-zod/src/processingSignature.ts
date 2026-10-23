@@ -8,8 +8,7 @@
  * Two halves, per the locked design:
  *  - `engineRevision` — a MANUAL admin-bumped integer ("Mark major update").
  *    Engine/model IDs and config toggles are deliberately NOT in the signature
- *    (a debug toggle flipping `debug_mode_active` must never flip staleness);
- *    an LLM/engine swap is registered by bumping this instead.
+ *    (flipping a setting must never flip staleness); an LLM/engine swap is registered by bumping this instead.
  *  - Four code-version constants — captured automatically, so a deploy that
  *    changes any of them makes the corpus read stale without a manual bump.
  *

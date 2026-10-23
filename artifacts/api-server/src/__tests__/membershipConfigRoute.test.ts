@@ -24,10 +24,16 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { adminConfigTable, usersTable } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 
 import adminRouter from "../routes/admin.js";
-import { MEMBERSHIP_CONFIG_DEFAULTS } from "../lib/membershipTiming.js";
+import { bustConfigCache } from "../lib/adminConfig.js";
+import {
+  MEMBERSHIP_CONFIG_DEFAULTS,
+  lockAndLoadMembershipConfig,
+  loadMembershipConfig,
+  type MembershipConfigKey,
+} from "../lib/membershipTiming.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const USER_PREFIX = "tmcfg-";
@@ -120,112 +126,46 @@ describe("PATCH /admin/config/:key — membership relational invariants", () => 
     assert.equal(await storedValue("lease_waiter_timeout_seconds"), before);
   });
 
-  it("rejects an inadmissible DEBUG override too — debug mode is not a backdoor", async () => {
+  it("refuses a request carrying only the retired debug fields, and changes nothing", async () => {
+    // Debug mode is gone (launch Phase 4, removal 8): `value` is the only value
+    // a setting has, so a body naming only a debug override has nothing to
+    // write and must not reach the update.
+    const before = await storedValue("lease_ttl_seconds");
     const res = await request(app)
       .patch("/api/admin/config/lease_ttl_seconds")
-      .send({ debugValue: "5" });
+      .send({ debugValue: "5", clearDebugValue: true });
 
-    assert.equal(res.status, 400);
-    assert.match(String(res.body.error ?? ""), /^Debug value: /);
-  });
-
-  it("rejects the debug override that would make the DEBUG set incoherent, though each is fine alone", async () => {
-    // The accumulation a currently-effective check cannot see, and the reason
-    // both resolutions are validated. Debug mode is OFF throughout, so every
-    // override here is inert and each one validates happily against the base
-    // set — and `debug_mode_active` is not a membership key, so flipping it
-    // later runs no relational check of its own. Without checking the
-    // prospective DEBUG resolution, the invalid pair would activate in one
-    // click.
-    //
-    // First override: a 20000s sweep interval. Against the base set its alert
-    // threshold is still 21600, so this is admissible and must be accepted —
-    // asserting that first is what makes the second assertion mean something.
-    const first = await request(app)
-      .patch("/api/admin/config/grace_sweep_interval_seconds")
-      .send({ debugValue: "20000" });
-    assert.equal(first.status, 200, JSON.stringify(first.body));
-
-    // Second override: a 10000s alert threshold. Against the BASE set its
-    // interval is 3600, so 10000 clears it easily. Against the DEBUG set the
-    // interval is now 20000 — the alert would fire before the sweep could have
-    // run again, which is the pair neither write can see on its own.
-    const before = await storedValue("grace_sweep_alert_after_seconds");
-    const second = await request(app)
-      .patch("/api/admin/config/grace_sweep_alert_after_seconds")
-      .send({ debugValue: "10000" });
-
-    assert.equal(second.status, 400, JSON.stringify(second.body));
-    assert.match(String(second.body.error ?? ""), /under debug mode/);
-    assert.equal(await storedValue("grace_sweep_alert_after_seconds"), before);
-
-    await request(app)
-      .patch("/api/admin/config/grace_sweep_interval_seconds")
-      .send({ clearDebugValue: true });
-  });
-
-  it("validates the WHOLE patch as one state when a request changes value and clears the override", async () => {
-    // Two fields of one request, each admissible against the PRE-patch rows and
-    // inadmissible together. Checking them separately — as an earlier revision
-    // did — accepted this and committed a debug resolution that violates
-    // `waiter < TTL`.
-    //
-    // Set up debug overrides of 120/85, both individually fine.
-    const ttlOverride = await request(app)
-      .patch("/api/admin/config/lease_ttl_seconds")
-      .send({ debugValue: "120" });
-    assert.equal(ttlOverride.status, 200, JSON.stringify(ttlOverride.body));
-
-    const waiterOverride = await request(app)
-      .patch("/api/admin/config/lease_waiter_timeout_seconds")
-      .send({ debugValue: "85" });
-    assert.equal(waiterOverride.status, 200, JSON.stringify(waiterOverride.body));
-
-    // Now: lower the base TTL to 83 AND clear its override in one request. The
-    // base check alone sees the debug TTL still at 120; the clear alone
-    // substitutes the OLD base of 90. Neither sees the committed result, 83/85.
-    const before = await storedValue("lease_ttl_seconds");
-    const combined = await request(app)
-      .patch("/api/admin/config/lease_ttl_seconds")
-      .send({ value: "83", clearDebugValue: true });
-
-    assert.equal(combined.status, 400, JSON.stringify(combined.body));
-    assert.match(String(combined.body.error ?? ""), /lease_waiter_timeout_seconds/);
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.match(String(res.body.error ?? ""), /value is required/);
     assert.equal(await storedValue("lease_ttl_seconds"), before);
-
-    await request(app)
-      .patch("/api/admin/config/lease_waiter_timeout_seconds")
-      .send({ clearDebugValue: true });
-    await request(app)
-      .patch("/api/admin/config/lease_ttl_seconds")
-      .send({ clearDebugValue: true });
   });
 
-  it("lets a base write stand when an explicit override pins the debug resolution", async () => {
-    // Override presence is a fact about the ROW. Inferring it by comparing the
-    // two resolved numbers — as an earlier revision did — misreads an explicit
-    // override that happens to equal the base value as "no override", and then
-    // predicts that a base change moves the debug resolution when it cannot.
-    // Here the debug interval is pinned at 3600, so raising the base to 20000
-    // leaves both resolutions valid and must be ACCEPTED.
-    const pin = await request(app)
-      .patch("/api/admin/config/grace_sweep_interval_seconds")
-      .send({ debugValue: "3600" });
-    assert.equal(pin.status, 200, JSON.stringify(pin.body));
+  it("reads every membership timing key from value, with no debug column present", async () => {
+    const columns = await db.execute(sql`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'admin_config'
+        AND column_name IN ('debug_value', 'debug_value_label')`);
+    assert.deepEqual(columns.rows, [], "the debug columns should be dropped");
 
-    const raise = await request(app)
-      .patch("/api/admin/config/grace_sweep_interval_seconds")
-      .send({ value: "20000" });
-    assert.equal(raise.status, 200, JSON.stringify(raise.body));
-    assert.equal(await storedValue("grace_sweep_interval_seconds"), "20000");
+    // A coherent set that differs from every default, so a reader falling back
+    // to defaults (what the old reader did once the columns went) would show.
+    const stored: Record<MembershipConfigKey, number> = {
+      grace_sweep_interval_seconds: 1800,
+      grace_sweep_alert_after_seconds: 7200,
+      lease_ttl_seconds: 150,
+      lease_waiter_timeout_seconds: 7,
+    };
+    for (const [key, value] of Object.entries(stored)) await setStored(key, value);
+    bustConfigCache();
 
-    await setStored(
-      "grace_sweep_interval_seconds",
-      MEMBERSHIP_CONFIG_DEFAULTS.grace_sweep_interval_seconds,
-    );
-    await request(app)
-      .patch("/api/admin/config/grace_sweep_interval_seconds")
-      .send({ clearDebugValue: true });
+    try {
+      assert.deepEqual(await loadMembershipConfig(), stored, "the cached reader reads value");
+      const locked = await db.transaction((tx) => lockAndLoadMembershipConfig(tx));
+      assert.deepEqual(locked, stored, "the locked reader the route validates against reads value");
+    } finally {
+      for (const [key, value] of Object.entries(MEMBERSHIP_CONFIG_DEFAULTS)) await setStored(key, value);
+      bustConfigCache();
+    }
   });
 
   it("validates against the CURRENT stored set, not the seeded defaults", async () => {

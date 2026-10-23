@@ -231,104 +231,44 @@ export async function loadMembershipConfig(): Promise<
 }
 
 /**
- * BOTH resolutions of the membership settings, read under a row lock.
+ * The membership settings, read under a row lock.
  *
- * Two problems, one read.
+ * `loadMembershipConfig` reads a process-level cache outside any transaction,
+ * so two concurrent writes could each validate a safe intermediate state and
+ * commit an unsafe pair: from a 90s lease and a 5s waiter, raising the waiter
+ * to 60 validates against 90 while lowering the lease to 30 validates against
+ * 5, and the committed 30/60 violates an invariant neither write could see. A
+ * relational check is only enforced if the state it read cannot move before the
+ * write lands. So the caller takes this inside the transaction that performs
+ * the update, and the row locks are held until that transaction commits.
+ * `ORDER BY key` makes the lock order deterministic, so two writers queue
+ * rather than deadlock.
  *
- * **Atomicity.** `loadMembershipConfig` reads a process-level cache outside any
- * transaction, so two concurrent writes could each validate a safe intermediate
- * state and commit an unsafe pair: from a 90s lease and a 5s waiter, raising the
- * waiter to 60 validates against 90 while lowering the lease to 30 validates
- * against 5, and the committed 30/60 violates an invariant neither write could
- * see. A relational check is only enforced if the state it read cannot move
- * before the write lands. So the caller takes this inside the transaction that
- * performs the update, and the row locks are held until that transaction
- * commits. `ORDER BY key` makes the lock order deterministic, so two writers
- * queue rather than deadlock.
- *
- * **Debug mode is not a second chance to be incoherent.** Returning only the
- * currently-effective resolution left a hole: while debug mode is OFF, every
- * stored debug override is ignored, so each one validates against the BASE
- * values and a pair that is invalid *together* can accumulate unnoticed —
- * flipping `debug_mode_active` then activates it in one step, and that key is
- * not a membership key so its own PATCH runs no relational check. Both
- * resolutions are returned so a write can be required to leave the set coherent
- * under either mode, which makes the flip incapable of producing an invalid
- * state.
- *
- * `debug_mode_active` is locked too, so the mode cannot flip between this read
- * and the write it authorises.
+ * One resolution, `value`. Until launch Phase 4 a second, debug-mode resolution
+ * had to be read and validated alongside it; that column is gone
+ * (docs/retired/debug-mode.md).
  */
-/**
- * The stored COLUMNS, not a resolution of them.
- *
- * Returning resolved numbers was not enough. Override presence is not
- * recoverable from them — an explicit `debug_value` that happens to equal
- * `value` resolves identically either way — and a caller that infers presence by
- * comparing the two mispredicts what a base write does: with an override pinning
- * the debug resolution, changing `value` must NOT move it. Presence is a fact
- * about the row, so the row is what this returns.
- */
-export interface LockedMembershipConfigRow {
-  value: number;
-  /** null when there is no override at all — never conflated with one equal to `value`. */
-  debugValue: number | null;
-}
-
-export type LockedMembershipConfig = Record<MembershipConfigKey, LockedMembershipConfigRow>;
-
-/** `debug_value` where present, else `value`. The two resolutions the route must both satisfy. */
-export function resolveMembershipConfig(
-  rows: LockedMembershipConfig,
-  useDebug: boolean,
-): Record<MembershipConfigKey, number> {
-  const keys = Object.keys(MEMBERSHIP_CONFIG_DEFAULTS) as MembershipConfigKey[];
-  return Object.fromEntries(
-    keys.map((key) => {
-      const row = rows[key];
-      const effective = useDebug && row.debugValue !== null ? row.debugValue : row.value;
-      return [key, effective] as const;
-    }),
-  ) as Record<MembershipConfigKey, number>;
-}
-
 export async function lockAndLoadMembershipConfig(
   tx: { execute: (query: SQL) => Promise<{ rows: Array<Record<string, unknown>> }> },
-): Promise<LockedMembershipConfig> {
+): Promise<Record<MembershipConfigKey, number>> {
   const keys = Object.keys(MEMBERSHIP_CONFIG_DEFAULTS) as MembershipConfigKey[];
 
   const locked = await tx.execute(
-    sql`SELECT key, value, debug_value FROM admin_config
-        WHERE key IN (${sql.join([...keys, "debug_mode_active"].map((key) => sql`${key}`), sql`, `)})
+    sql`SELECT key, value FROM admin_config
+        WHERE key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})
         ORDER BY key
         FOR UPDATE`,
   );
 
   const byKey = new Map(locked.rows.map((row) => [String(row.key), row]));
 
-  const toNumber = (raw: unknown, fallback: number): number => {
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  };
-
   return Object.fromEntries(
     keys.map((key) => {
-      const row = byKey.get(key);
       const fallback = MEMBERSHIP_CONFIG_DEFAULTS[key];
-      if (!row) return [key, { value: fallback, debugValue: null }] as const;
-      const rawDebug = row.debug_value;
-      return [
-        key,
-        {
-          value: toNumber(row.value, fallback),
-          debugValue:
-            rawDebug == null || rawDebug === ""
-              ? null
-              : toNumber(rawDebug, toNumber(row.value, fallback)),
-        },
-      ] as const;
+      const parsed = Number(byKey.get(key)?.value);
+      return [key, Number.isFinite(parsed) ? parsed : fallback] as const;
     }),
-  ) as LockedMembershipConfig;
+  ) as Record<MembershipConfigKey, number>;
 }
 
 /**
@@ -336,8 +276,7 @@ export async function lockAndLoadMembershipConfig(
  *
  * The relational rules live here, over a whole set, rather than in a
  * one-key-at-a-time check — because the thing that has to be true is a property
- * of the set, and there is more than one prospective set to test on a single
- * write (see `MembershipConfigResolutions`).
+ * of the set.
  *
  * Returns an error message, or null when the set is admissible.
  */

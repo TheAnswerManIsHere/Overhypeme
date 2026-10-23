@@ -52,8 +52,7 @@ import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConf
 import {
   isMembershipConfigKey,
   lockAndLoadMembershipConfig,
-  resolveMembershipConfig,
-  validateMembershipConfigSet,
+  validateMembershipConfigWrite,
   type MembershipConfigKey,
 } from "../lib/membershipTiming";
 
@@ -2707,18 +2706,12 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   const body = req.body as {
     value?: unknown;
     valueLabel?: unknown;
-    debugValue?: unknown;
-    debugValueLabel?: unknown;
-    clearDebugValue?: boolean;
   };
 
-  // At least one of value or debugValue (or clearDebugValue) must be provided
   const hasValue = body.value !== undefined && body.value !== null && String(body.value).trim() !== "";
-  const hasDebugValue = body.debugValue !== undefined;
-  const clearDebug = body.clearDebugValue === true;
 
-  if (!hasValue && !hasDebugValue && !clearDebug) {
-    res.status(400).json({ error: "value, debugValue, or clearDebugValue is required" });
+  if (!hasValue) {
+    res.status(400).json({ error: "value is required" });
     return;
   }
 
@@ -2735,19 +2728,12 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 
   let newValue: string | undefined;
   let newValueLabel: string | null | undefined;
-  let newDebugValue: string | null | undefined;
-  let newDebugValueLabel: string | null | undefined;
   /**
-   * Relational checks to run INSIDE the write transaction, against the locked
-   * config set — never against a cached read taken before it.
+   * The membership-config value this request writes, checked INSIDE the write
+   * transaction against the locked config set — never against a cached read
+   * taken before it.
    */
-  /**
-   * The membership-config columns this ONE request changes, collected so the
-   * transaction below can build a single final state rather than checking each
-   * field against the pre-patch rows. `debug: null` means the override is being
-   * cleared, which is a change like any other.
-   */
-  const relationalChanges: Array<{ value: number | null; target: "value" | "debug" }> = [];
+  let relationalValue: number | undefined;
 
   if (hasValue) {
     const rawValue = String(body.value).trim();
@@ -2798,7 +2784,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       }
       // Deferred to the write transaction below, where the set it is checked
       // against is locked — see `lockAndLoadMembershipConfig`.
-      relationalChanges.push({ value: parsed, target: "value" });
+      relationalValue = parsed;
     }
 
     newValue = rawValue;
@@ -2807,83 +2793,9 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       : undefined;
   }
 
-  if (hasDebugValue || clearDebug) {
-    // `clearDebugValue: true` sent alone (no `debugValue` key at all) is a
-    // second way to clear the override, and it must land on the exact same
-    // validation path as `debugValue: null` — a separate `else if (clearDebug)`
-    // branch after this block used to skip every check below, including the
-    // relational one, for this specific mechanism.
-    const rawDebug = hasDebugValue
-      ? (body.debugValue === null || String(body.debugValue).trim() === "" ? null : String(body.debugValue).trim())
-      : null;
-    if (rawDebug !== null && existing.dataType === "integer") {
-      const parsed = parseInt(rawDebug, 10);
-      if (isNaN(parsed)) {
-        res.status(400).json({ error: "Debug value must be an integer" });
-        return;
-      }
-      if (existing.minValue !== null && parsed < existing.minValue) {
-        res.status(400).json({ error: `Debug value must be at least ${existing.minValue}` });
-        return;
-      }
-      if (existing.maxValue !== null && parsed > existing.maxValue) {
-        res.status(400).json({ error: `Debug value must be at most ${existing.maxValue}` });
-        return;
-      }
-    } else if (rawDebug !== null && existing.dataType === "float") {
-      const parsed = parseFloat(rawDebug);
-      if (isNaN(parsed)) {
-        res.status(400).json({ error: "Debug value must be a number" });
-        return;
-      }
-      if (existing.minValue !== null && parsed < existing.minValue) {
-        res.status(400).json({ error: `Debug value must be at least ${existing.minValue}` });
-        return;
-      }
-      if (existing.maxValue !== null && parsed > existing.maxValue) {
-        res.status(400).json({ error: `Debug value must be at most ${existing.maxValue}` });
-        return;
-      }
-    }
-    // Debug mode makes debugValue the EFFECTIVE value everywhere (see
-    // adminConfig.ts's resolveValue) — so a debugValue write is just as capable
-    // of breaking the lease/waiter/sweep-alert relationships as a
-    // write to value, and skipping the check here left debug mode a backdoor
-    // around it. CLEARING an override is not exempt either: clearing this
-    // key's debug value does not make it inert, it reverts the EFFECTIVE value
-    // to the base `value` column — which can violate a relational invariant
-    // against another key's still-active debug override exactly as easily as
-    // setting a bad debug value can. So the check always runs, using whichever
-    // value this key's write actually makes effective.
-    if (isMembershipConfigKey(key)) {
-      const parsed = parseMembershipConfigValue(
-        rawDebug !== null ? rawDebug : existing.value,
-        existing.dataType,
-      );
-      if (parsed === null) {
-        res.status(400).json({ error: "Debug value must be a number" });
-        return;
-      }
-      // `rawDebug === null` is a CLEAR: the override goes away and the base
-      // value becomes effective again, which is why null is carried through
-      // rather than substituted here.
-      relationalChanges.push({ value: rawDebug !== null ? parsed : null, target: "debug" });
-    }
-    newDebugValue = rawDebug;
-    // Clearing (either mechanism) always clears the label too — a null debug
-    // value never keeps a stale debug label attached to it.
-    newDebugValueLabel = rawDebug === null
-      ? null
-      : (body.debugValueLabel !== undefined && body.debugValueLabel !== null
-          ? String(body.debugValueLabel).trim() || null
-          : undefined);
-  }
-
   const patch = {
     ...(newValue !== undefined ? { value: newValue } : {}),
     ...(newValueLabel !== undefined ? { valueLabel: newValueLabel } : {}),
-    ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
-    ...(newDebugValueLabel !== undefined ? { debugValueLabel: newDebugValueLabel } : {}),
     updatedAt: new Date(),
     updatedById: req.user?.id ?? null,
   };
@@ -2901,7 +2813,8 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 
   let updated: typeof adminConfigTable.$inferSelect | undefined;
 
-  if (relationalChanges.length === 0) {
+  const proposed = relationalValue;
+  if (proposed === undefined) {
     [updated] = await db
       .update(adminConfigTable)
       .set(patch)
@@ -2914,43 +2827,9 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     // which would respond while the transaction was still open.
     try {
       updated = await db.transaction(async (tx) => {
-        const membershipKey = key as MembershipConfigKey;
-        const rows = await lockAndLoadMembershipConfig(tx);
-
-        // ONE final state, validated under BOTH resolutions.
-        //
-        // Both halves of that matter. Checking each field of the patch against
-        // the ORIGINAL rows let a single request that changes `value` AND clears
-        // `debugValue` slip through: each check saw the other field unchanged,
-        // and the committed combination satisfied neither. So the whole patch is
-        // applied to the locked rows first, and the result is what gets checked.
-        //
-        // And both resolutions, not just the one in force: while debug mode is
-        // off its overrides are inert, so a debug value checked only against the
-        // base set sits there looking fine until the mode is flipped — and
-        // `debug_mode_active` is not a membership key, so its own PATCH runs no
-        // relational check and would activate the invalid pair in one step.
-        const nextRow = { ...rows[membershipKey] };
-        for (const change of relationalChanges) {
-          if (change.target === "debug") {
-            nextRow.debugValue = change.value;
-          } else if (change.value !== null) {
-            nextRow.value = change.value;
-          }
-        }
-        const nextRows = { ...rows, [membershipKey]: nextRow };
-
-        const baseError = validateMembershipConfigSet(resolveMembershipConfig(nextRows, false));
-        const debugError = validateMembershipConfigSet(resolveMembershipConfig(nextRows, true));
-        const error = baseError ?? (debugError ? `${debugError} (under debug mode)` : null);
-        if (error) {
-          // The prefix belongs to whichever half of the patch is debug-only, so
-          // an operator editing a debug override is told so.
-          const prefix = relationalChanges.some((c) => c.target === "value")
-            ? ""
-            : "Debug value: ";
-          throw new RelationalConfigError(`${prefix}${error}`);
-        }
+        const current = await lockAndLoadMembershipConfig(tx);
+        const error = validateMembershipConfigWrite(key as MembershipConfigKey, proposed, current);
+        if (error) throw new RelationalConfigError(error);
         const [row] = await tx
           .update(adminConfigTable)
           .set(patch)
@@ -3026,9 +2905,8 @@ router.get(
 );
 
 /**
- * Reset the stored fact-enrichment system prompt to the current code default
- * and clear any debug override. Destructive (replaces admin-customized prompt),
- * so the UI gates this behind a confirmation showing current vs code-default
+ * Reset the stored fact-enrichment system prompt to the current code default.
+ * Destructive (replaces admin-customized prompt), so the UI gates this behind a confirmation showing current vs code-default
  * hashes.
  */
 router.post(
@@ -3039,8 +2917,6 @@ router.post(
       .update(adminConfigTable)
       .set({
         value: FACT_ENRICHMENT_SYSTEM_DEFAULT,
-        debugValue: null,
-        debugValueLabel: null,
         updatedAt: new Date(),
         updatedById: req.user?.id ?? null,
       })

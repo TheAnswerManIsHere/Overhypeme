@@ -363,8 +363,7 @@ export interface FactEnrichmentSystemPromptResolution {
 
 /**
  * Resolve the EFFECTIVE fact-enrichment system prompt plus provenance: which
- * source produced it (code default / admin-config value / debug override /
- * emergency fallback), its hash + length, the code-default hash, and whether
+ * source produced it (code default / admin-config value / emergency fallback), its hash + length, the code-default hash, and whether
  * the two match. The enrichment service stamps this onto the blob so a stale or
  * overridden prompt can never hide behind a "current version" badge.
  */

@@ -204,8 +204,9 @@ generated under, so a fact processed under old assumptions reads as stale.
   constant captures. Engine/model IDs are deliberately **excluded** from the
   signature — a config toggle would otherwise flip corpus-wide staleness.
   `currentProcessingSignatureFromConfig()` (api-server) reads it via
-  `getConfigIntRaw` (bypasses the admin debug overlay — staleness must reflect
-  a real, audited bump, never a debug value).
+  `getConfigIntRaw`, the plain `value` read kept as this marker's named entry
+  point (it once bypassed Debug mode's overlay, removed in launch Phase 4:
+  [`docs/retired/debug-mode.md`](../retired/debug-mode.md)).
 - **Stamping rules** (who gets a fresh signature, and when):
   - A refresh **candidate** captures the signature immediately **before** the
     classify call and writes it onto the `fact_enrichment_versions.signature`

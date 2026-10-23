@@ -20,11 +20,13 @@ import { db } from "@workspace/db";
 import { factsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
+import { withoutDebugValueStatements } from "./helpers/withoutDebugValueStatements.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATION_SQL = readFileSync(
+const MIGRATION_SQL = withoutDebugValueStatements(readFileSync(
   path.resolve(__dirname, "../../../../lib/db/migrations/0073_strip_retired_violence_modifiers.sql"),
   "utf8",
-);
+));
 
 const TEXT_PREFIX = "t_strip0073 ";
 const factIds: number[] = [];

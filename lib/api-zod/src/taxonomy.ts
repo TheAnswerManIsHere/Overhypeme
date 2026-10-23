@@ -472,6 +472,9 @@ export const classificationPromptDiagnosticsSchema = z.object({
   source: z.enum([
     "code_default",
     "admin_config_value",
+    // Historical only: written while Debug mode existed (removed in launch
+    // Phase 4) and still readable on enrichment blobs stamped then. Nothing
+    // writes it now.
     "admin_config_debug_value",
     "fallback_default",
   ]),
