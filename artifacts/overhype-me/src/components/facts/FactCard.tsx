@@ -30,7 +30,7 @@ export function FactCard({
       - `variant`: alternate-phrasing card — left rail border, custom actions slot. */
   size?: Size;
   /** Optional content rendered above the body. Used by the hero for the
-      Random Fact badge + shuffle button, by TopFacts #1 for the period
+      Random Fact badge + shuffle button, by TopFacts #1 for the all-time
       label, and by variants for the use-case pill. */
   headerSlot?: ReactNode;
   /** Replaces the default FactActionCluster row entirely. Used by variant

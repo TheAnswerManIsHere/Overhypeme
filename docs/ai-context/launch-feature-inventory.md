@@ -33,7 +33,7 @@ routes, delete, git keeps it) · **your call**.
 | A11 | Community memes on a fact | Public memes made for a fact | doc | ship, verify |
 | A12 | Search | Substring match, newest-first, `#tag` exact | doc | ship as-is; full-text is `later` |
 | A13 | Search history recording | Records signed-in users' searches; never read back | doc | your call: cut the recording (a privacy surface with no product value) or keep |
-| A14 | Leaderboard `/top-facts` | All-time by Wilson score; **time-window pills and hashtag pills do nothing** | doc | your call: remove the dead pills and ship all-time (recommended), fix the pills, or cut the page |
+| A14 | Leaderboard `/top-facts` | All-time by Wilson score; **time-window pills and hashtag pills do nothing** | doc | your call: remove the dead pills and ship all-time (recommended), fix the pills, or cut the page. *Pills deleted 2026-10-23 (Phase 4, removal 10; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A15 | Activity feed `/activity` | Signed-in user's contributions + notifications (approve/reject land here) | doc | ship, verify |
 | A16 | Meme permalink `/m/:slug` | Public meme page, image, download; private → 404/410 | 3 unrun UATs; #591 open (private not-found reads as an error) | ship (core); #591 your call now/next |
 | A17 | Video permalink `/video/:id` | Public video page | doc | follows the video decision. *Deleted 2026-10-22 with video (Phase 4, removal 2; ledger [`docs/retired/README.md`](../retired/README.md))* |
@@ -55,7 +55,7 @@ routes, delete, git keeps it) · **your call**.
 - **A6** Feed is fixed at 20 text-only cards (`Home.tsx:510-513`; server honours `limit`/`offset`, `facts.ts:127`), so load is not a function of catalogue size. Reachability is: **"load more" is a launch item if launching with > ~50 facts**, else `next`.
 - **A8** cut (delete `pages/Hashtags.tsx`).
 - **A13** Keep search-history recording **and add it to the search screen** so users see their previous searches (launch; David's scope addition).
-- **A14** Leaderboard ships all-time only; dead time/hashtag pills removed.
+- **A14** Leaderboard ships all-time only; dead time/hashtag pills removed. *Deleted 2026-10-23 (Phase 4, removal 10; ledger [`docs/retired/README.md`](../retired/README.md)).*
 - **A16** Ship; **fix #591 for launch** (private-meme not-found page should read as "private", not an error).
 - **A18** Fix meme OG preview (#592) for launch; fact-page OG `next`.
 - **A19** **Fix share-by-email for launch** (#374, `example.com` allowlist). David: "Sharing by email is critical. Any modality for sharing should be supported because growth is what will make the site valuable."
