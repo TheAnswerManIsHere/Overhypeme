@@ -100,14 +100,10 @@ Home's rail/trending strip, and `GET /facts?hashtag=X` (exact match,
 `facts.ts:87-93`) feeds both those selections and every `FactCard`
 hashtag pill.
 
-**The standalone hashtag browse/detail page is dead code — unreachable in
-production.** `pages/Hashtags.tsx` is a fully built listing + per-tag
-detail view, but its route redirects to Home instead of rendering it:
-`App.tsx:404` (`<Route path="/hashtags"><HashtagsRedirect /></Route>`),
-`HashtagsRedirect` (`App.tsx:59-63`) immediately `setLocation("/")`. The
-component exists in the repo; no user-facing link or route reaches it.
-**`architecture-map.md` currently lists `Hashtags.tsx` as a live public
-page — that's stale, corrected in the same PR that adds this spec.**
+There is no standalone hashtag page. `pages/Hashtags.tsx`, a listing and
+per-tag view whose `/hashtags` route only redirected to Home, was deleted in
+launch Phase 4, removal 7 with its redirect, so `/hashtags` is now the
+not-found page (ledger [`docs/retired/README.md`](../retired/README.md); tag `pre-cut/dead-surfaces`).
 
 ## Leaderboard
 
@@ -275,8 +271,7 @@ the link."
 ## Files to inspect before public-site/sharing work
 
 - `artifacts/overhype-me/src/pages/Home.tsx`, `Search.tsx`,
-  `TopFacts.tsx`, `Profile.tsx`, `Library.tsx`, `Hashtags.tsx` (dead,
-  unreachable).
+  `TopFacts.tsx`, `Profile.tsx`, `Library.tsx`.
 - `artifacts/overhype-me/src/components/ShareModal.tsx`,
   `components/share/MemeShareModal.tsx`.
 - `artifacts/api-server/src/routes/facts.ts` (hero, list/search, share
@@ -285,8 +280,8 @@ the link."
 - `artifacts/api-server/src/lib/memeVisibility.ts` (`canViewMeme`, the
   one shared gate behind OG/share/library-memes).
 - `cloudflare/og-router/src/index.ts` — bot routing, header handling.
-- `App.tsx` — the redirect routes (`HashtagsRedirect`,
-  `HallOfFameRedirect`) worth checking before assuming a page is live.
+- `App.tsx` — the redirect routes (`HallOfFameRedirect` and the admin
+  redirects) worth checking before assuming a page is live.
 - Tests: `__tests__/routes.facts.test.ts`,
   `routes.facts.hero.test.ts`, `routes.hashtags.test.ts`,
   `phase5.og.routes.test.ts`, `memes.privacy-cache.test.ts`,

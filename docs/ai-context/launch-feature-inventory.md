@@ -27,7 +27,7 @@ routes, delete, git keeps it) · **your call**.
 | A5 | Hero billboard + Next Random Fact | Weighted-random top-50 pick | doc | ship, verify |
 | A6 | Fact feed grid | 20 facts, newest/top, hashtag filter; no pagination | doc | ship; pagination is `next` (irrelevant at 44 facts) |
 | A7 | Hashtag rail + Trending strip | Browse by tag | doc | ship, verify |
-| A8 | Standalone `/hashtags` page | Dead: redirects home; page file unreachable | code | cut (delete file) |
+| A8 | Standalone `/hashtags` page | Dead: redirects home; page file unreachable | code | cut (delete file). *Deleted 2026-10-23 with its redirect (Phase 4, removal 7; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A9 | Fact detail page (image/video tabs, Top/Newest meme sort) | The fact page | doc; UATs | ship; video tab follows the video decision. *Video tab, gallery and Images/Videos filter deleted 2026-10-22 with video (Phase 4, removal 2; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A10 | Related facts | Related facts on the detail page | indirect tests only | ship, verify |
 | A11 | Community memes on a fact | Public memes made for a fact | doc | ship, verify |
@@ -73,7 +73,7 @@ routes, delete, git keeps it) · **your call**.
 | B3 | Google sign-in | OIDC with PKCE | doc | ship, verify end to end on the real domain |
 | B4 | Apple sign-in | OIDC via form_post | doc | ship if it works on the real domain; Apple is the one most likely to break (certificates, return URL) — verify or cut |
 | B5 | Link / unlink Google or Apple | Add or remove a provider on an existing account | code only | ship, verify |
-| B6 | Replit Auth | Retired; comments remain | doc | confirm no UI remnants; delete comments |
+| B6 | Replit Auth | Retired; comments remain | doc | confirm no UI remnants; delete comments. *2026-10-23 (Phase 4, removal 7): the schema comments rewritten and the admin access screen's "Replit user ID" tip corrected; the `replit-auth-web` package keeps its name (ledger [`docs/retired/README.md`](../retired/README.md))* |
 | B7 | Logout | Ends the session | code | ship |
 | B8 | Session state + entitlement map | `GET /auth/user`, `/entitlements/version` | doc | ship (plumbing) |
 | B9 | Login redirect safety | Rejects off-site redirects | PR292 UAT (unrun) | ship; proof should be a CI test, not a UAT |
@@ -82,7 +82,7 @@ routes, delete, git keeps it) · **your call**.
 | B12 | Admin override verify | Admin marks verified | doc | ship |
 | B13 | Password reset | Generic-response email; resets all sessions; works (tonight) | acct; tested live | ship; single-use hardening `next` |
 | B14 | Set / change password | First password for OAuth users; change for others; does not log out other sessions | doc | ship; session logout on change `next` |
-| B15 | Profile page | Display name, pronouns, avatar style, email, sign-in methods, subscription panel; dead "Memes" tab code | doc | ship; delete the dead tab code |
+| B15 | Profile page | Display name, pronouns, avatar style, email, sign-in methods, subscription panel; dead "Memes" tab code | doc | ship; delete the dead tab code. *Deleted 2026-10-23 with the rest of the dead tab state, the Images queries and the never-shown Memes count (Phase 4, removal 7; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | B16 | Email change with verification | Pending email until verified | code only | ship, verify |
 | B17 | Pronouns on the account | User-set pronouns personalise the site; **OAuth accounts silently default to he/him** | doc | **fix for launch**: default to they/them or ask, never assume he/him |
 | B18 | Generated avatar styles | Pick a DiceBear style | code | ship |
@@ -295,7 +295,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Queue Health | ship (proven tonight) |
 | Eval dashboard | keep, admin-only; the engine-evaluation tool; Manual ch.13 still unwritten |
 | Help (in-console Manual) | ship; Manual refreshed in the docs pass at the end |
-| `comments.tsx`, `ai.tsx` (dead redirects) | **delete** |
+| `comments.tsx`, `ai.tsx` (dead redirects) | **delete**. *Deleted 2026-10-23; their `/admin/comments` and `/admin/ai` redirects stay (Phase 4, removal 7; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | **New screens from decisions** | **Reports / takedown queue** (C9); **Invites** (the Seed gate; see the four stages in the launch definition); **Read-only mode switch**; **Safety** (`/admin/safety`, NCMEC phases — scope set in the compliance phase); consent/list counts on Dashboard |
 | Cleanup stop condition (Astra) | every retained control performs its stated action; forbidden actions enforced server-side; operators can understand failure and recovery. No redesign. |
 

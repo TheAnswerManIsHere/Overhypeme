@@ -116,7 +116,6 @@ export default function Profile() {
   const updateProfile = useUpdateMyProfile();
   const { setName: setPersonName, setPronouns: setPersonPronouns } = usePersonName();
 
-  const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images" | "memes">("liked");
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   /**
    * The server's client-safe reason when the payment provider connection could
@@ -155,38 +154,7 @@ export default function Profile() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const tabsRef = useRef<HTMLDivElement>(null);
   const editFormRef = useRef<HTMLDivElement>(null);
-  const [tabScroll, setTabScroll] = useState({ left: false, right: false });
-
-  const updateTabScroll = () => {
-    const el = tabsRef.current;
-    if (!el) return;
-    setTabScroll({
-      left: el.scrollLeft > 4,
-      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
-    });
-  };
-
-  useEffect(() => {
-    // Safari iOS finalizes layout later than other browsers.
-    // Double-rAF handles most cases; the 200 ms timeout is a reliable Safari fallback.
-    let raf2: number;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(updateTabScroll);
-    });
-    const timer = setTimeout(updateTabScroll, 200);
-    const el = tabsRef.current;
-    if (!el) return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); clearTimeout(timer); };
-    const ro = new ResizeObserver(updateTabScroll);
-    ro.observe(el);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      clearTimeout(timer);
-      ro.disconnect();
-    };
-  }, []);
   const [avatarSourceToggling, setAvatarSourceToggling] = useState(false);
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
   const [forgetMeLoading, setForgetMeLoading] = useState(false);
@@ -320,78 +288,6 @@ export default function Profile() {
     window.location.replace("/");
   }
 
-  interface UploadItem {
-    objectPath: string;
-    width: number;
-    height: number;
-    isLowRes: boolean;
-    fileSizeBytes: number;
-    createdAt: string;
-  }
-
-  const { data: uploadsData, isLoading: isUploadsLoading, isError: isUploadsError } = useQuery<{ uploads: UploadItem[] }>({
-    queryKey: ["my-uploads"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE_URL}api/users/me/uploads`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch uploads");
-      return res.json() as Promise<{ uploads: UploadItem[] }>;
-    },
-    enabled: isAuthenticated && activeTab === "images",
-    staleTime: 30_000,
-  });
-
-  interface AiImageItem { id: number; factId: number; gender: string; storagePath: string; imageType: string; createdAt: string; }
-  const { data: aiImagesData, isLoading: isAiImagesLoading } = useQuery<{ images: AiImageItem[] }>({
-    queryKey: ["my-ai-images"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE_URL}api/users/me/ai-images?imageType=reference`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch AI images");
-      return res.json() as Promise<{ images: AiImageItem[] }>;
-    },
-    enabled: isAuthenticated && activeTab === "images",
-    staleTime: 30_000,
-  });
-
-  type MyMemeItem = {
-    id: number;
-    factId: number;
-    templateId: string;
-    imageUrl: string;
-    permalinkSlug: string;
-    isPublic: boolean;
-    createdAt: string;
-    originalWidth: number | null;
-    originalHeight: number | null;
-    uploadFileSizeBytes: number | null;
-  };
-
-  const { data: myMemesData, isLoading: isMyMemesLoading } = useQuery<{ memes: MyMemeItem[] }>({
-    queryKey: ["profile-my-memes"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE_URL}api/users/me/memes`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch memes");
-      return res.json() as Promise<{ memes: MyMemeItem[] }>;
-    },
-    enabled: isAuthenticated && activeTab === "memes",
-    staleTime: 30_000,
-  });
-
-
-  async function deleteMemeFromProfile(slug: string) {
-    const res = await fetch(`${BASE_URL}api/memes/${slug}`, { method: "DELETE", credentials: "include" });
-    if (!res.ok) throw new Error("Failed to delete meme");
-    await queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
-  }
-
-  async function deleteUpload(objectPath: string) {
-    const encodedPath = encodeURIComponent(objectPath);
-    const res = await fetch(`${BASE_URL}api/users/me/uploads?path=${encodedPath}`, { method: "DELETE", credentials: "include" });
-    if (!res.ok) {
-      const body = await res.json() as { error?: string };
-      throw new Error(body.error ?? "Delete failed");
-    }
-    await queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
-  }
 
   function dicebearUrl(style: string, seed: string) {
     return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
@@ -1082,14 +978,6 @@ export default function Profile() {
             </h1>
             {profile.email && (
               <p className="text-sm text-muted-foreground mb-4">{profile.email}</p>
-            )}
-            {myMemesData && myMemesData.memes.length > 0 && (
-              <div className="flex items-center gap-8">
-                <div>
-                  <div className="font-display font-bold text-xl">{myMemesData.memes.length}</div>
-                  <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-0.5">Memes</div>
-                </div>
-              </div>
             )}
           </div>
 

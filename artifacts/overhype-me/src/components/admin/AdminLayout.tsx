@@ -173,8 +173,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             <div className="text-left bg-card border border-border rounded-sm p-4 text-sm text-muted-foreground space-y-2">
               <p className="font-semibold text-foreground">First-time setup?</p>
               <p>
-                Set the <code className="bg-muted px-1 rounded">ADMIN_USER_IDS</code> environment variable to your Replit user ID (comma-separated for multiple admins). Your ID is shown in your{" "}
-                <Link href="/profile" className="text-primary hover:underline">profile page</Link>.
+                Set the <code className="bg-muted px-1 rounded">ADMIN_USER_IDS</code> environment variable to your account's user ID (comma-separated for multiple admins).
               </p>
             </div>
           )}

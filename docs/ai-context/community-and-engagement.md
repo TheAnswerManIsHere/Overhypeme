@@ -206,8 +206,9 @@ prev/next controls off `totalPages = Math.ceil(total/limit)`.
   `lib/db/src/schema/ratings.ts` — the dead legacy table, schema-only.
 - Frontend: `components/facts/FactActionCluster.tsx` (rating pill),
   `components/comments/FactComments.tsx` + `CommentHeartButton.tsx`,
-  `components/memes/MemeHeartButton.tsx`, `pages/ActivityFeed.tsx`,
-  `pages/admin/comments.tsx`.
+  `components/memes/MemeHeartButton.tsx`, `pages/ActivityFeed.tsx`, and
+  the comment panel in `pages/admin/moderation.tsx` (the orphaned
+  `pages/admin/comments.tsx` went in launch Phase 4, removal 7).
 - Tests: `__tests__/routes.facts.test.ts` (rating, comment listing —
   comment *creation* and both heart routes have no dedicated test),
   `__tests__/activity.test.ts`, `__tests__/routes.reviews.test.ts`

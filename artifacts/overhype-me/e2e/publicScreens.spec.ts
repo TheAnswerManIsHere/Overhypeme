@@ -266,4 +266,11 @@ test.describe("Public described screens", () => {
     await expect(pub).toHaveCSS("opacity", "1");
     await expect(priv.getByText("LEGEND", { exact: true })).toBeVisible();
   });
+
+  // Launch Phase 4, removal 7: the unreachable standalone hashtags page and
+  // its redirect home are deleted, so the address is the not-found page.
+  test("/hashtags is the not-found page", async ({ page }) => {
+    await page.goto("/hashtags");
+    await expect(page.getByRole("heading", { name: /page not found/i })).toBeVisible();
+  });
 });

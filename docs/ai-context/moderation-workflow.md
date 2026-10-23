@@ -279,4 +279,4 @@ legitimately long prep/render work — poll until terminal.
 - `artifacts/overhype-me/src/pages/admin/moderation.tsx` — the review UI.
 - `artifacts/overhype-me/src/components/admin/EnrichmentEditor.tsx` — Step-2 editor.
 - Staging/approval linkage columns in `lib/db/src/schema/reviews.ts` and `facts.ts`.
-- Comment moderation: `pages/admin/comments.tsx` + comment `status`/`flagged`.
+- Comment moderation: the comment panel in `pages/admin/moderation.tsx` + comment `status`/`flagged` (`/admin/comments` redirects there).
