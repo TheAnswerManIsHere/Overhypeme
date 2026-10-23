@@ -26,6 +26,9 @@ import { deriveUserRole } from "../lib/userRole.js";
 
 const USER_PREFIX = "t_phase4_save_";
 const FACT_TEXT_PREFIX = "t_p4s_fact_";
+// Saving reads only the upload's metadata row, never its bytes, so a key with
+// no stored object is enough for these tests.
+const PHOTO = { type: "upload", uploadKey: "/objects/uploads/t_p4s_background.jpg" } as const;
 
 interface TestUserOpts {
   membershipTier?: "unregistered" | "registered" | "legendary";
@@ -140,7 +143,7 @@ describe("POST /api/memes — auth gate", () => {
       .post("/memes")
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: PHOTO,
       });
     assert.equal(res.status, 401);
   });
@@ -155,7 +158,7 @@ describe("POST /api/memes — slug shape", () => {
       .post("/memes")
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: PHOTO,
       })
       .expect(201);
 
@@ -172,7 +175,7 @@ describe("POST /api/memes — idempotency", () => {
 
     const body = {
       factId,
-      imageSource: { type: "template", templateId: "fire" },
+      imageSource: PHOTO,
     };
 
     const a = await request(makeAuthedApp(userId)).post("/memes").send(body).expect(201);
@@ -195,7 +198,7 @@ describe("POST /api/memes — idempotency", () => {
       .post("/memes")
       .send({
         factId,
-        imageSource: { type: "template", templateId: "fire" },
+        imageSource: PHOTO,
         framingTransform: { offsetX: 0, offsetY: 0 },
       })
       .expect(201);
@@ -204,7 +207,7 @@ describe("POST /api/memes — idempotency", () => {
       .post("/memes")
       .send({
         factId,
-        imageSource: { type: "template", templateId: "fire" },
+        imageSource: PHOTO,
         framingTransform: { offsetX: 10, offsetY: 0 },
       })
       .expect(201);
@@ -223,7 +226,7 @@ describe("POST /api/memes — daily save cap", () => {
     const now = new Date();
     const memesToInsert = Array.from({ length: 30 }, (_, i) => ({
       factId,
-      templateId: "action",
+      templateId: "photo_upload",
       imageUrl: `/meme-${i}.jpg`,
       permalinkSlug: `cap${i.toString().padStart(7, "0")}`,
       createdById: userId,
@@ -236,7 +239,7 @@ describe("POST /api/memes — daily save cap", () => {
       .post("/memes")
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: PHOTO,
       });
     assert.equal(res.status, 429);
     assert.equal(res.body.error, "daily_cap_reached");
@@ -250,7 +253,7 @@ describe("POST /api/memes — daily save cap", () => {
     const now = new Date();
     const memesToInsert = Array.from({ length: 30 }, (_, i) => ({
       factId,
-      templateId: "action",
+      templateId: "photo_upload",
       imageUrl: `/meme-${i}.jpg`,
       permalinkSlug: `del${i.toString().padStart(7, "0")}`,
       createdById: userId,
@@ -264,7 +267,7 @@ describe("POST /api/memes — daily save cap", () => {
       .post("/memes")
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: PHOTO,
       });
     assert.equal(res.status, 201);
   });
@@ -287,7 +290,7 @@ describe("POST /api/memes — private visibility gate", () => {
     const factId = await insertFact("visibility", { submittedById: userId });
     const body: Record<string, unknown> = {
       factId,
-      imageSource: { type: "template", templateId: "action" },
+      imageSource: PHOTO,
     };
     if (isPublic !== undefined) body["isPublic"] = isPublic;
     return request(makeAuthedApp(userId)).post("/memes").send(body);
@@ -347,7 +350,7 @@ describe("POST /api/memes — private visibility gate", () => {
   it("a Public save right after a Private one with otherwise identical inputs is a new public meme, not the private one", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
     const factId = await insertFact("private then public", { submittedById: userId });
-    const body = { factId, imageSource: { type: "template", templateId: "action" } };
+    const body = { factId, imageSource: PHOTO };
 
     const priv = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, isPublic: false });
     assert.equal(priv.status, 201);
@@ -376,7 +379,7 @@ describe("POST /api/memes — soft-deleted slugs are not reissued", () => {
 
     const a = await request(makeAuthedApp(userId))
       .post("/memes")
-      .send({ factId, imageSource: { type: "template", templateId: "action" } })
+      .send({ factId, imageSource: PHOTO })
       .expect(201);
     const slugA = a.body.permalinkSlug;
 
@@ -390,7 +393,7 @@ describe("POST /api/memes — soft-deleted slugs are not reissued", () => {
       .post("/memes")
       .send({
         factId,
-        imageSource: { type: "template", templateId: "fire" },
+        imageSource: PHOTO,
         framingTransform: { offsetX: 5, offsetY: 5 }, // different inputs to avoid idem hit
       })
       .expect(201);

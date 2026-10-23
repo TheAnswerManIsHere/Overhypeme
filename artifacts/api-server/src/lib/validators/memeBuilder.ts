@@ -75,10 +75,6 @@ export const TextOptionsSchema = z.object({
 }).optional();
 
 export const ImageSourceSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("template"),
-    templateId: z.string().min(1).max(50),
-  }),
   // The builder stores only the pexelsPhotoId in `state.stockImageId`; the
   // server re-resolves the URL + photographer via the Pexels API. The two
   // optional fields are accepted for forward-compatibility with clients that
@@ -155,6 +151,6 @@ export type SaveMemeRequest = z.infer<typeof SaveMemeBody>;
 export type RenderMode = "stock" | "self-upload";
 
 export function deriveRenderMode(imageSource: ImageSource): RenderMode {
-  if (imageSource.type === "stock" || imageSource.type === "template") return "stock";
+  if (imageSource.type === "stock") return "stock";
   return "self-upload";
 }

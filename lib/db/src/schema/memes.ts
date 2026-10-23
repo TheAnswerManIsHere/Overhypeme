@@ -10,7 +10,12 @@ export const memesTable = pgTable("memes", {
   imageUrl: text("image_url").notNull(),
   permalinkSlug: varchar("permalink_slug", { length: 16 }).notNull().unique(),
   textOptions: jsonb("text_options"),
-  /** Populated for photo-based memes; null means gradient template background. */
+  /**
+   * The background recipe the image route composes from (`stock` or `upload`).
+   * Null means a stored image served from object storage: the memes saved
+   * before recipe rendering, including those once rendered on a gradient
+   * template (deleted in Launch Phase 4, removal 5).
+   */
   imageSource: jsonb("image_source"),
   /**
    * User-specified background framing/pan transform for photo-backed meme

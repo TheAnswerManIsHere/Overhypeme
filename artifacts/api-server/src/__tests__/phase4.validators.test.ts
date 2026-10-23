@@ -102,9 +102,6 @@ describe("Phase 4 — NameSchema", () => {
 });
 
 describe("Phase 4 — deriveRenderMode", () => {
-  it("returns stock for template imageSource", () => {
-    assert.equal(deriveRenderMode({ type: "template", templateId: "action" }), "stock");
-  });
   it("returns stock for stock imageSource", () => {
     assert.equal(deriveRenderMode({ type: "stock", pexelsPhotoId: 123 }), "stock");
   });
@@ -171,7 +168,7 @@ describe("Phase 4 — SaveMemeBody", () => {
   it("makes name and pronouns optional (server falls back to req.user)", () => {
     const r = SaveMemeBody.safeParse({
       factId: 1,
-      imageSource: { type: "template", templateId: "action" },
+      imageSource: { type: "upload", uploadKey: "/objects/uploads/x.jpg" },
     });
     assert.equal(r.success, true);
   });
@@ -179,7 +176,7 @@ describe("Phase 4 — SaveMemeBody", () => {
   it("still validates pronouns when provided", () => {
     const r = SaveMemeBody.safeParse({
       factId: 1,
-      imageSource: { type: "template", templateId: "action" },
+      imageSource: { type: "upload", uploadKey: "/objects/uploads/x.jpg" },
       pronouns: "garbage/value",
     });
     assert.equal(r.success, false);

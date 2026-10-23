@@ -57,8 +57,6 @@ export * from "./listRelatedFactsParams";
 export * from "./memeDetail";
 export * from "./memeListResponse";
 export * from "./memeRecord";
-export * from "./memeTemplate";
-export * from "./memeTemplateListResponse";
 export * from "./memeTextOptions";
 export * from "./memeTextOptionsAlign";
 export * from "./memeTextOptionsVerticalPosition";

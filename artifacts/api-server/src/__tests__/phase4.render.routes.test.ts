@@ -1,9 +1,10 @@
 /**
  * Phase-4 render-endpoint integration tests.
  *
- * Exercises /api/render-preview and /api/render-download with template
- * imageSource (deterministic, no network), plus the transient_renders
- * audit logging and Cloudflare-IP extraction.
+ * Exercises /api/render-preview and /api/render-download with an owner's
+ * upload imageSource held by the local storage double (deterministic, no
+ * network), plus the transient_renders audit logging and Cloudflare-IP
+ * extraction.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -21,6 +22,8 @@ import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import renderRouter from "../routes/render.js";
 import memesRouter from "../routes/memes.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
+import { createSession, type SessionData } from "../lib/auth.js";
+import { seedPhotoBackground, cleanupPhotoBackgrounds } from "./helpers/photoBackground.js";
 
 const USER_PREFIX = "t_phase4_render_";
 const FACT_TEXT_PREFIX = "t_p4r_fact_";
@@ -60,6 +63,7 @@ async function insertFact(text: string, opts: { submittedById?: string } = {}): 
 }
 
 async function cleanup() {
+  await cleanupPhotoBackgrounds();
   const users = await db
     .select({ id: usersTable.id })
     .from(usersTable)
@@ -82,19 +86,35 @@ async function cleanup() {
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
-before(cleanup);
+// One signed-in owner and their uploaded photo serve every success path: since
+// the gradient templates were deleted, an upload is the background a render
+// can compose without the network, and an upload needs a session.
+let ownerSid: string;
+let photo: { type: "upload"; uploadKey: string };
+
+before(async () => {
+  await cleanup();
+  const ownerId = await createTestUser();
+  const data: SessionData = {
+    user: { id: ownerId, membershipTier: "registered" } as unknown as SessionData["user"],
+    access_token: "test-token",
+  };
+  ownerSid = await createSession(data, ownerId);
+  photo = { type: "upload", uploadKey: await seedPhotoBackground(ownerId) };
+});
 after(cleanup);
 
 describe("POST /api/render-preview", () => {
-  it("returns image/jpeg bytes for a valid stock-mode (template) request", async () => {
+  it("returns image/jpeg bytes for an owner's upload request", async () => {
     const userId = await createTestUser();
     const factId = await insertFact("{NAME} pushes the limits.", { submittedById: userId });
 
     const res = await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "they/them",
       })
@@ -113,9 +133,10 @@ describe("POST /api/render-preview", () => {
     const factId = await insertFact("a fact");
     const res = await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "garbage/value",
       });
@@ -127,9 +148,10 @@ describe("POST /api/render-preview", () => {
     const factId = await insertFact("a fact");
     const res = await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "A".repeat(51),
         pronouns: "they/them",
       });
@@ -140,9 +162,10 @@ describe("POST /api/render-preview", () => {
     const factId = await insertFact("a fact");
     const res = await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex\nSmith",
         pronouns: "they/them",
       });
@@ -152,9 +175,10 @@ describe("POST /api/render-preview", () => {
   it("returns 404 when the fact is missing", async () => {
     const res = await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId: 999_999_999,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "they/them",
       });
@@ -184,9 +208,10 @@ describe("POST /api/render-preview", () => {
     // Success path
     await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "they/them",
       })
@@ -195,9 +220,10 @@ describe("POST /api/render-preview", () => {
     // Rejection path
     await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "totally/wrong",
       })
@@ -218,10 +244,11 @@ describe("POST /api/render-preview", () => {
     const factId = await insertFact("a fact");
     await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .set("CF-Connecting-IP", "203.0.113.7")
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "they/them",
       })
@@ -258,9 +285,10 @@ describe("POST /api/render-download", () => {
 
     const res = await request(makeApp())
       .post("/render-download")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "fire" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "they/them",
       })
@@ -278,9 +306,10 @@ describe("POST /api/render-download", () => {
 
     const res = await request(makeApp())
       .post("/render-download")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "fire" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "they/them",
       })
@@ -297,9 +326,10 @@ describe("Phase 4 — composite byte-identity across endpoints", () => {
 
     const previewRes = await request(makeApp())
       .post("/render-preview")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "they/them",
       })
@@ -307,9 +337,10 @@ describe("Phase 4 — composite byte-identity across endpoints", () => {
 
     const downloadRes = await request(makeApp())
       .post("/render-download")
+      .set("Authorization", `Bearer ${ownerSid}`)
       .send({
         factId,
-        imageSource: { type: "template", templateId: "action" },
+        imageSource: photo,
         name: "Alex",
         pronouns: "they/them",
       })

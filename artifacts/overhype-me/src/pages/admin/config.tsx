@@ -27,7 +27,6 @@ const LIMIT_KEYS = new Set([
   "pexels_photos_per_gender",
   "user_max_images",
   "bg_display_limit_stock",
-  "bg_display_limit_gradient",
   "bg_display_limit_upload",
 ]);
 

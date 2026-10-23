@@ -347,18 +347,6 @@ export interface UploadUrlResponse {
   metadata?: UploadUrlRequest;
 }
 
-export interface MemeTemplate {
-  id: string;
-  name: string;
-  description: string;
-  previewColors?: string[];
-  previewImageUrl?: string;
-}
-
-export interface MemeTemplateListResponse {
-  templates: MemeTemplate[];
-}
-
 export type MemeTextOptionsAlign =
   (typeof MemeTextOptionsAlign)[keyof typeof MemeTextOptionsAlign];
 
@@ -390,7 +378,6 @@ export interface MemeTextOptions {
 
 export interface CreateMemeRequest {
   factId: number;
-  templateId: string;
   textOptions?: MemeTextOptions;
 }
 

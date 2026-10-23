@@ -101,7 +101,7 @@ export const featurePermissionsMigrationLogTable = pgTable("feature_permissions_
   insertedCount: integer("inserted_count").notNull().default(0),
   alreadyCompleteCount: integer("already_complete_count").notNull().default(0),
   engineExperimentsSkippedCount: integer("engine_experiments_skipped_count").notNull().default(0),
-  /** The `meme_upload_photo` rows captured before deletion, so recovery is answerable from the database. */
+  /** Rows a retirement migration captured before deleting them (first `meme_upload_photo`, then the Launch Phase 4 removals), so recovery is answerable from the database. */
   deletedRows: jsonb("deleted_rows"),
   ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
 });

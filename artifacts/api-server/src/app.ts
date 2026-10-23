@@ -85,7 +85,6 @@ function isCookieSessionRequest(req: Request): boolean {
 const PUBLIC_ASSET_PATH_PATTERNS: RegExp[] = [
   /^\/api\/og\//,                  // OG shell endpoint (consumed by crawlers)
   /^\/api\/memes\/[^/]+\/image$/,  // meme image endpoint (the actual og:image)
-  /^\/api\/memes\/templates\//,    // template image endpoint (also publicly cached)
 ];
 
 function isPublicAssetRequest(req: Request): boolean {

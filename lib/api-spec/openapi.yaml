@@ -849,24 +849,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
-  /memes/templates:
-    get:
-      operationId: listMemeTemplates
-      tags: [memes]
-      summary: List available meme background templates
-      responses:
-        "200":
-          description: List of templates
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MemeTemplateListResponse"
-
   /memes:
     post:
       operationId: createMeme
       tags: [memes]
-      summary: Create a meme from a fact and template
+      summary: Create a meme from a fact and a background image
       requestBody:
         required: true
         content:
@@ -1625,32 +1612,6 @@ components:
         metadata:
           $ref: '#/components/schemas/UploadUrlRequest'
 
-    MemeTemplate:
-      type: object
-      required: [id, name, description]
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        description:
-          type: string
-        previewColors:
-          type: array
-          items:
-            type: string
-        previewImageUrl:
-          type: string
-
-    MemeTemplateListResponse:
-      type: object
-      required: [templates]
-      properties:
-        templates:
-          type: array
-          items:
-            $ref: "#/components/schemas/MemeTemplate"
-
     MemeTextOptions:
       type: object
       properties:
@@ -1669,12 +1630,10 @@ components:
 
     CreateMemeRequest:
       type: object
-      required: [factId, templateId]
+      required: [factId]
       properties:
         factId:
           type: integer
-        templateId:
-          type: string
         textOptions:
           $ref: "#/components/schemas/MemeTextOptions"
 

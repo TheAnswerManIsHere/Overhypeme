@@ -302,10 +302,7 @@ export async function createMemeRecord(
   }
 
   // ── Determine templateId for DB ─────────────────────────────────────
-  const templateIdForDb =
-    imageSource.type === "template" ? imageSource.templateId :
-    imageSource.type === "stock"    ? "photo_stock" :
-    "photo_upload";
+  const templateIdForDb = imageSource.type === "stock" ? "photo_stock" : "photo_upload";
 
   // ── Preview classifier (image-only path) ────────────────────────────
   let storedImageSource: StoredImageSource | null = imageSource;

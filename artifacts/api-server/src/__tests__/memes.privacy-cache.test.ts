@@ -28,6 +28,7 @@ import { buildPlaceholderFactEnrichment, MEME_ASPECT_RATIOS } from "@workspace/a
 import memesRouter from "../routes/memes.js";
 import { canViewMeme } from "../lib/memeVisibility.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
+import { seedPhotoBackground, cleanupPhotoBackgrounds } from "./helpers/photoBackground.js";
 
 const PREFIX = "tsec_meme_";
 const SLUG_PREFIX = "tsecm"; // permalink_slug is varchar(16)
@@ -66,12 +67,13 @@ let factId: number;
 const PRIV_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 const PUB_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 const DEL_PRIV_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
-// Recipe-rendered memes (a built-in template background), so the image route
-// produces real bytes without object storage or any external call.
+// Recipe-rendered memes (an upload background held by the local storage
+// double), so the image route produces real bytes without any external call.
 const PRIV_IMG_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 const PUB_IMG_SLUG = `${SLUG_PREFIX}${randomUUID().slice(0, 8)}`;
 
 async function cleanup() {
+  await cleanupPhotoBackgrounds();
   await db.delete(memesTable).where(like(memesTable.permalinkSlug, `${SLUG_PREFIX}%`));
   await db.delete(factsTable).where(like(factsTable.text, `${PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
@@ -92,10 +94,11 @@ before(async () => {
     .values({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
     .returning({ id: factsTable.id });
   factId = fact.id;
+  const photoKey = await seedPhotoBackground(ownerId);
 
   const base = {
     factId,
-    templateId: "classic",
+    templateId: "photo_upload",
     renderedFactText: "frozen text",
     createdById: ownerId,
   };
@@ -105,11 +108,11 @@ before(async () => {
     { ...base, permalinkSlug: DEL_PRIV_SLUG, imageUrl: `/api/memes/${DEL_PRIV_SLUG}/image`, isPublic: false, deletedAt: new Date() },
     {
       ...base, permalinkSlug: PRIV_IMG_SLUG, imageUrl: `/api/memes/${PRIV_IMG_SLUG}/image`, isPublic: false,
-      imageSource: { type: "template", templateId: "action" }, aspectRatio: "landscape",
+      imageSource: { type: "upload", uploadKey: photoKey }, aspectRatio: "landscape",
     },
     {
       ...base, permalinkSlug: PUB_IMG_SLUG, imageUrl: `/api/memes/${PUB_IMG_SLUG}/image`, isPublic: true,
-      imageSource: { type: "template", templateId: "action" }, aspectRatio: "landscape",
+      imageSource: { type: "upload", uploadKey: photoKey }, aspectRatio: "landscape",
     },
   ]);
 });
