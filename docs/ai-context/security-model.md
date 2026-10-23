@@ -237,9 +237,10 @@ spends real money with no upper limit.
 
 **No live path reaches it today.** Since launch Phase 4 deleted PuLID and the
 user generate route (removal 3; ledger
-[`docs/retired/README.md`](../retired/README.md)), the gate's one call site in
-`aiMemePipeline.ts` runs only when a caller passes a user, and the one live
-caller, the admin AI-meme backfill, passes none. The gate, its ledger and the
+[`docs/retired/README.md`](../retired/README.md)), the gate has no call site:
+its last one, the per-user path in `aiMemePipeline.ts`, which no live caller
+reached (the admin AI-meme backfill passes no user), went in removal 11. The
+gate, its ledger and the
 guards below are kept for the paid generation launch Phase 7 brings back, and
 #628 Phase 11 rebuilds spend control; everything below describes the gate as
 it runs when a user path calls it.
@@ -249,9 +250,9 @@ it runs when a user path calls it.
 section describes. `enforceGovernance` (`resourceGovernance.ts`) used to run
 *first* on the synchronous user image route in `routes/memes.ts`, with an
 **in-memory, per-process** spend, rate, concurrency and payload backstop; that
-route went with PuLID in launch Phase 4, and `enforceGovernance` has no caller
-(the module stays for the admin view, `getGovernanceAdminView`; a removal-11
-candidate). Its [decision record](./decisions.md) is history.
+route went with PuLID in launch Phase 4, and the module, with its admin read
+`GET /admin/resource-governance`, went in removal 11 once nothing called it.
+Its [decision record](./decisions.md) is history.
 
 **The ledger the gate reads is part of the control too.** PRs #474/#498
 hardened the gate; PR #498 hardened what it counts. The SUM is only an

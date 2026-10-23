@@ -30,7 +30,7 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affil
 | `/admin/moderation` | `moderation.tsx` | Fact review queue (covered elsewhere) **plus** an embedded comment-review panel — see *Dead and misleading surfaces*. |
 | `/admin/eval` | `evalDashboard.tsx` | Render-quality eval dashboard: golden fact set, cost-confirmed eval runs, per-render rating, run-vs-run comparison. |
 | `/admin/config` | `config.tsx` | The generic `admin_config` key/value editor — see *Config surfaces*. |
-| `/admin/engines` | `engines.tsx` | The AI engine catalogue: per-engine model id, durations, resolutions, params. |
+| `/admin/engines` | `engines.tsx` | The AI engine catalogue: per-engine model id, resolutions, aspect ratios, params. |
 | `/admin/taxonomy-health` | `taxonomy-health.tsx` | Covered in [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md). |
 | `/admin/features` | `features.tsx` | The tier × feature-flag permission matrix — see *Config surfaces*. |
 | `/admin/email-queue` | `emailQueue.tsx` | Outbound transactional-email outbox: pending/failed rows, retry, requeue. |
@@ -123,8 +123,9 @@ Two distinct pages, not one:
   grouped into cards: Budget (per-tier AI spend), Limits (image/meme/
   gallery caps), Email (sender, retry, retention), Moderation
   (duplicate-detection threshold), plus a generic
-  catch-all and a nested AI-settings group (system prompts, gallery
-  display limit). Each key has one value; the Debug mode toggle and its
+  catch-all and a nested AI-settings group (system prompts; its AI
+  gallery display limit went with the legacy studio's gallery in launch
+  Phase 4, removal 11). Each key has one value; the Debug mode toggle and its
   second value set were removed in launch Phase 4
   ([`docs/retired/debug-mode.md`](../retired/debug-mode.md)).
 - **`/admin/features`** — the tier × feature-flag matrix

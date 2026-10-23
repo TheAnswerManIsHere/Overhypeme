@@ -277,6 +277,12 @@ export const NCMEC_NONFINAL_STATUSES = [
  * annotation, which is computed from this (`content_origin === 'generated'`)
  * rather than stored separately — two representations of one fact would be two
  * things that can disagree. Keep in lockstep with the CHECK constraints in 0097.
+ *
+ * `stock` and `template` have had no producer since launch Phase 4 deleted
+ * stock photos and the gradient templates (removals 5 and 6). They stay
+ * allowed on purpose: a quarantine or report row recorded before then must
+ * stay valid, and narrowing a legal-evidence constraint is not a prune
+ * (removal 11 kept them).
  */
 export const CONTENT_ORIGINS = ["generated", "user_upload", "stock", "template", "identity"] as const;
 export type ContentOrigin = typeof CONTENT_ORIGINS[number];

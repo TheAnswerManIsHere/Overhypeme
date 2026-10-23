@@ -51,8 +51,7 @@ Three things that matter in that shape:
 - Negative and non-numeric both fall to `null` rather than to a default.
 
 **Generalizes to:** any nullable numeric column read into a comparison —
-`estimated_cost_usd_per_call`, `estimated_cost_usd_per_second`,
-`monthly_generation_limit_override_usd`, rate-limit overrides, thresholds. The
+`estimated_cost_usd_per_call`, `monthly_generation_limit_override_usd`, rate-limit overrides, thresholds. The
 question to ask at the read site is *"does this column's `null` mean the same
 thing as its `0`?"* If not, branch on it before converting.
 

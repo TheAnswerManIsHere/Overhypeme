@@ -829,13 +829,14 @@ re-gather it when the work is scheduled.
       brittle-partial-index exemptions above instead; that's a
       case-by-case call for whoever fixes them, made with a comment
       either way.
-    - `affiliate_clicks_source_idx` (`0034`), `UQ_uim_user_is_profile`
-      (`0055`, also partial — same call as above).
-    - The two **inline, auto-named CHECKs**: `share_intents.platform`
-      (`0052:22`) and `hero_examples.artifact_type` (`0054:16`) —
-      `shareIntents.ts`/`heroExamples.ts` mention them in comments but
-      declare no `check()` builder, so a push-built database silently
-      loses both vocabularies' enforcement.
+    - `UQ_uim_user_is_profile` (`0055`, also partial — same call as
+      above). (`affiliate_clicks_source_idx` went with its table in launch
+      Phase 4, removal 11, migration 0110.)
+    - The **inline, auto-named CHECK** `share_intents.platform`
+      (`0052:22`) — `shareIntents.ts` mentions it in a comment but
+      declares no `check()` builder, so a push-built database silently
+      loses the vocabulary's enforcement. (Its sibling,
+      `hero_examples.artifact_type`, went with its table in removal 11.)
 
     (`stripe_checkout_request_ledger_request_key_unique` from `0045`
     looks like a gap at first grep, but that migration renames a

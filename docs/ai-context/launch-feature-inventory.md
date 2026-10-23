@@ -42,11 +42,11 @@ routes, delete, git keeps it) · **your call**.
 | A20 | Meme share modal (per-platform copy, share intents) | Native share / platform popups / mailto | doc | ship, verify |
 | A21 | Post-create share screen | Platform list, merch teaser, download | doc | ship minus the merch teaser if merch is cut. *Deleted 2026-10-22 with the legacy studio, its only mounter; the wizard sends a saved meme to its permalink, whose share surface is `MemeShareModal` ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
 | A22 | Merch "Wear it" `/wear`, Zazzle export + redirect | Product preview → affiliate redirect; pickers cosmetic; **#598 broken** | doc; bug | cut: remove CTA, route, export, redirect, admin Affiliate page. *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
-| A23 | Hero example media | Example images in the builder entry step | code only | ship (plumbing). *The entry step and its route went with video (Phase 4, removal 2); the `hero_examples` table has no reader and is a removal-11 orphan candidate (#744)* |
+| A23 | Hero example media | Example images in the builder entry step | code only | ship (plumbing). *The entry step and its route went with video (Phase 4, removal 2); the `hero_examples` table, left with no reader, was deleted 2026-10-23 (Phase 4, removal 11; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A24 | `/library` | Self-view only; no public profiles | doc | see Journey C |
 | A25 | **Legal pages (Terms, Privacy)** | **Do not exist** — no route, page or link | absent | **fix for launch** — a launch gate given payments, photo uploads, email and analytics; David supplies or approves the text |
 | A26 | 404 page | Not-found | code | ship |
-| A27 | Orphan public endpoints: fact links (`GET/DELETE /facts/:id/links`), fact Pexels images | No doc, no known caller | code only | investigate; delete if dead. *The fact Pexels images route was deleted 2026-10-23 with Pexels (Phase 4, removal 6); the fact links routes are removal 11's* |
+| A27 | Orphan public endpoints: fact links (`GET/DELETE /facts/:id/links`), fact Pexels images | No doc, no known caller | code only | investigate; delete if dead. *The fact Pexels images route was deleted 2026-10-23 with Pexels (Phase 4, removal 6); the fact links routes were deleted 2026-10-23, verified with no caller (Phase 4, removal 11; ledger [`docs/retired/README.md`](../retired/README.md)). The `external_links` table stays: the fact detail response embeds it* |
 
 ### Decisions — Journey A (David, 2026-10-05)
 
@@ -61,7 +61,7 @@ routes, delete, git keeps it) · **your call**.
 - **A19** **Fix share-by-email for launch** (#374, `example.com` allowlist). David: "Sharing by email is critical. Any modality for sharing should be supported because growth is what will make the site valuable."
 - **A22** Merch cut, including the admin Affiliate screen.
 - **A25** Confirmed: Claude drafts Terms and Privacy for David's approval; launch gate.
-- **A27** Investigate the two orphan endpoints; delete if dead.
+- **A27** Investigate the two orphan endpoints; delete if dead. *Both deleted (removals 6 and 11).*
 - A17, A21, A24 follow later journeys.
 
 ## Journey B — Account (26 items)
@@ -113,7 +113,7 @@ routes, delete, git keeps it) · **your call**.
 | C2 | AI tokenise | Plain text → `{NAME}`/pronoun template | doc | ship, verify (and confirm which tiers it's gated to) |
 | C3 | Duplicate check while typing | Embedding-based warning | doc | ship, verify |
 | C4 | AI hashtag suggestions | Pre-fill | doc | ship |
-| C5 | Rate a fact (thumbs up/down) | Feeds the Wilson score that ranks everything | doc | ship, verify (legacy ratings table is dead — delete) |
+| C5 | Rate a fact (thumbs up/down) | Feeds the Wilson score that ranks everything | doc | ship, verify (legacy ratings table is dead — delete). *The `ratings` table was deleted 2026-10-23 (Phase 4, removal 11; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | C6 | Post a comment | Captcha; **every comment lands pending admin approval**; no per-route rate limit | doc | your call: ship with moderation toil, or cut comments for launch |
 | C7 | List comments | Approved only; authors cannot edit/delete | doc | follows C6; author delete `next` (interacts with B24) |
 | C8 | Comment hearts | Toggle | doc | follows C6 |
@@ -287,8 +287,8 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Refunds & Disputes | ship |
 | Affiliate | **cut** (merch). *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | Video Styles | **cut** (video deleted) |
-| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5); the stock picker limit and Pexels photo count 2026-10-23 (removal 6); Debug mode 2026-10-23 (removal 8; ledger [`docs/retired/README.md`](../retired/README.md))* |
-| Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3* |
+| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5); the stock picker limit and Pexels photo count 2026-10-23 (removal 6); Debug mode 2026-10-23 (removal 8); the AI gallery display limit 2026-10-23 (removal 11; ledger [`docs/retired/README.md`](../retired/README.md))* |
+| Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3; the engines' video-shaped columns and their admin fields 2026-10-23 (removal 11)* |
 | Taxonomy Health | ship (proven tonight) |
 | Features (tier × feature grid) | ship; **becomes the Legendary definition** (F21) + beta overlay later |
 | Email Queue | ship (proven tonight) |
@@ -309,7 +309,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 
 ## Journey I — Moderation pipeline (22 items)
 
-Core of the product; everything ships. Notes per item: triage queue/reject/provisional accept (ship); enrichment + overrides (ship; PR582/PR585/PR234 UATs); Visual Concept step incl. **speech bubbles finished** (D14); runtime compiled-prompt preview (ship; contract with production); test renders per scenario (ship; **saved as hero options**, D3; aspect-ratio design); reference research + source-image analysis (code only → verify used, else delete); approve for production (ship); refresh cycles + mark major update (ship); taxonomy health + bulk send-back (proven tonight); backfills (ship; **`ADMIN_API_KEY` scoping** in the security phase); comment moderation (**rebuild**, C6; dead Flagged tab goes); fact import (`/admin/import/facts` code-only → delete if dead; CSV import verified, off launch path); eval (keep); resubmit for moderation (ship); approved-text lock (ship). Proposed addition: **moderation ergonomics** — AI-assisted triage (suggested action + reason), keyboard-driven review, batch approve of renders — since moderation is "the absolute most important thing we do".
+Core of the product; everything ships. Notes per item: triage queue/reject/provisional accept (ship); enrichment + overrides (ship; PR582/PR585/PR234 UATs); Visual Concept step incl. **speech bubbles finished** (D14); runtime compiled-prompt preview (ship; contract with production); test renders per scenario (ship; **saved as hero options**, D3; aspect-ratio design); reference research + source-image analysis (code only → verify used, else delete; *both verified used and kept, Phase 4 removal 11*); approve for production (ship); refresh cycles + mark major update (ship); taxonomy health + bulk send-back (proven tonight); backfills (ship; **`ADMIN_API_KEY` scoping** in the security phase); comment moderation (**rebuild**, C6; dead Flagged tab goes); fact import (`/admin/import/facts` code-only → delete if dead; *kept by Phase 4 removal 11: `docs/llm-import-prompt.md` documents its external use*; CSV import verified, off launch path); eval (keep); resubmit for moderation (ship); approved-text lock (ship). Proposed addition: **moderation ergonomics** — AI-assisted triage (suggested action + reason), keyboard-driven review, batch approve of renders — since moderation is "the absolute most important thing we do".
 
 ### Decisions — Journey I (David, 2026-10-05)
 
