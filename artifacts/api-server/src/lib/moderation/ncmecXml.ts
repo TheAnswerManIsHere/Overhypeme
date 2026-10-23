@@ -14,7 +14,7 @@
  *      element.
  *   2. **Annotations come from persisted provenance, never inferred from the caller.**
  *      `createMemeRecord()` is not exclusively a generation path — its image source accepts
- *      template, stock, upload and identity — so "quarantined from there, therefore AI"
+ *      stock, upload and identity — so "quarantined from there, therefore AI"
  *      would assert to a federal clearinghouse that ordinary user-uploaded content is
  *      AI-generated. `<generativeAi>` is `content_origin === 'generated'`, computed here,
  *      stored nowhere.
