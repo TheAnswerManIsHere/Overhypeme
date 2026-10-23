@@ -84,6 +84,7 @@ Every one of these was a shipped bug or a near miss.
 - The `engines` table's video-shaped columns (`allowed_durations_sec`,
   `supported_modes`, `audio_handling` and their defaults), kept because the
   engine type and editor are shared with image engines. Recorded as a removal
-  11 candidate on #744.
+  11 candidate on #744; removal 11 dropped them, with their admin fields
+  (migration 0110; ledger [`README.md`](./README.md)).
 - The `engine_experiments` feature flag, which gated non-default video engines;
   it is the generic engine-gating flag and Plan 3 owns it.

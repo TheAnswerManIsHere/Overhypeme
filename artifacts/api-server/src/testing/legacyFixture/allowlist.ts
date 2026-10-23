@@ -153,20 +153,14 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   include(s.enginesTable, {
     id: "keep", provider: "keep", endpointId: "keep", label: "keep", description: "keep", kind: "keep",
     tierRequirement: "keep", isDefault: "keep", isActive: "keep", sortOrder: "keep",
-    allowedDurationsSec: "shape:config", defaultDurationSec: "keep", allowedResolutions: "shape:config",
-    defaultResolution: "keep", allowedAspectRatios: "shape:config", defaultAspectRatio: "keep",
-    supportedModes: "shape:config", defaultMode: "keep", audioHandling: "keep", paramSchema: "shape:config",
-    estimatedCostUsdPerCall: "keep", estimatedCostUsdPerSecond: "keep", expectedRunMs: "keep",
+    allowedResolutions: "shape:config", defaultResolution: "keep", allowedAspectRatios: "shape:config",
+    defaultAspectRatio: "keep", paramSchema: "shape:config", estimatedCostUsdPerCall: "keep", expectedRunMs: "keep",
     defaultTemperature: "keep", defaultMaxTokens: "keep", defaultReasoningEffort: "keep",
     featureFlagRequired: "keep", createdAt: "keep", updatedAt: "keep", deletedAt: "keep",
   }),
   include(s.lookStylesTable, {
     id: "keep", label: "keep", description: "keep", promptSuffix: "keep", promptSuffixReference: "keep",
     previewImagePath: "media", sortOrder: "keep", isActive: "keep", createdAt: "keep", updatedAt: "keep",
-  }),
-  include(s.heroExamplesTable, {
-    id: "keep", artifactType: "keep", assetUrl: "media", posterUrl: "media", captionLabel: "prose",
-    sortOrder: "keep", active: "keep", createdAt: "keep", updatedAt: "keep",
   }),
   include(s.falPricingCacheTable, {
     endpointId: "keep", unitPrice: "keep", unit: "keep", currency: "keep", fetchedAt: "keep",
@@ -418,7 +412,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     id: "keep", factId: "ref:facts", authorId: "map-user", text: "prose", status: "keep", flagged: "keep",
     flagReason: "prose", heartCount: "keep", createdAt: "keep",
   }),
-  include(s.ratingsTable, { factId: "ref:facts", userId: "map-user", rating: "keep", createdAt: "keep" }),
   include(
     s.reactionsTable,
     { id: "keep", userId: "map-user", targetType: "keep", targetId: "keep", reactionType: "keep", createdAt: "keep" },
@@ -512,7 +505,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.entitlementSourceDisputesTable, "payment-obligation", "Stripe dispute ids; the Stripe fake (#566) owns this evidence"),
   exclude(s.rateLimitCountersTable, "runtime-state", "IP-keyed abuse counters"),
   exclude(s.transientRendersTable, "runtime-state", "IP-hash-keyed abuse log"),
-  exclude(s.affiliateClicksTable, "telemetry", "per-visitor clicks"),
   exclude(s.searchHistoryTable, "telemetry", "free-text search queries"),
   exclude(s.shareIntentsTable, "telemetry", "per-visitor share events"),
   exclude(s.activityFeedTable, "telemetry", "per-user notification prose"),

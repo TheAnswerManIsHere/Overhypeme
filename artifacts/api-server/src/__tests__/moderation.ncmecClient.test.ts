@@ -760,10 +760,11 @@ describe("NcmecClient — endpoint selection", () => {
 
 describe("evidence never leaves this process by URL", () => {
   it("the client module never references the signed-URL helper", () => {
-    // getObjectEntityDownloadURL signs ANY private subpath with no `restricted/` guard, so
-    // reaching for it here would mint a time-limited, credential-free bearer URL to
-    // suspected CSAM — breaking the no-signed-URL invariant without anyone adding a route,
-    // which is exactly the violation route-level review would miss.
+    // signObjectURL signs ANY private path with no `restricted/` guard, so reaching for it
+    // (or for a reintroduced signed download helper such as the deleted
+    // getObjectEntityDownloadURL) here would mint a time-limited, credential-free bearer
+    // URL to suspected CSAM — breaking the no-signed-URL invariant without anyone adding a
+    // route, which is exactly the violation route-level review would miss.
     for (const file of ["ncmecClient.ts", "ncmecXml.ts"]) {
       const source = fs.readFileSync(path.join(__dirname, "../lib/moderation", file), "utf-8");
       const code = source.replace(/\/\*\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

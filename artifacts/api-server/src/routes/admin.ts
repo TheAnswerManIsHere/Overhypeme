@@ -125,7 +125,6 @@ import { memeKey } from "../lib/storageKeys";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
 import { exportUserData, runRetentionWindowJobs } from "../lib/dataLifecycle";
-import { getGovernanceAdminView } from "../lib/resourceGovernance";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import { logger } from "../lib/logger";
 import { stripeDriver } from "../lib/stripeDriver.js";
@@ -215,10 +214,6 @@ router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) =>
     db.select({ totalUsers: count() }).from(usersTable).where(eq(usersTable.isActive, true)),
   ]);
   res.json({ totalFacts, totalUsers });
-});
-
-router.get("/admin/resource-governance", requireAdmin, async (_req: Request, res: Response) => {
-  res.json(getGovernanceAdminView());
 });
 
 router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => {
@@ -648,7 +643,6 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
 
       await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
       await db.delete(activityFeedTable).where(eq(activityFeedTable.userId, id));
-      await db.execute(sql`DELETE FROM affiliate_clicks WHERE user_id = ${id}`);
 
       // Step 4: Nullify nullable user FKs on shared content (content outlives the user)
       currentStage = "nullify";
@@ -660,7 +654,7 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       await db.execute(sql`UPDATE pending_reviews SET reviewed_by_id = NULL WHERE reviewed_by_id = ${id}`);
 
       // Step 5: Delete the user row — DB cascades handle sessions (via sessions.user_id FK),
-      //         user_ai_images, user_fact_preferences, ratings, search_history, email/password tokens
+      //         user_ai_images, user_fact_preferences, reactions, search_history, email/password tokens
       currentStage = "delete";
       const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
       if (!deleted) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }

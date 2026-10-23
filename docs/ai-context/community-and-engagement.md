@@ -49,10 +49,10 @@ hero weighting, the Leaderboard sort, and the related-facts tiebreak —
 [`public-site-and-sharing.md`](./public-site-and-sharing.md), not
 re-derived here.
 
-**A legacy `ratingsTable` still exists in the schema but is dead at the
-route level** (`lib/db/src/schema/ratings.ts`) — fully superseded by the
-polymorphic `reactions` table; nothing writes to it anymore except a
-reseed script's cleanup delete.
+**The legacy `ratings` table is gone.** Migration 0035 copied its rows into
+the polymorphic `reactions` table, which has been the only home of fact
+ratings since; the dead table went in launch Phase 4, removal 11 (migration
+0110; ledger [`docs/retired/README.md`](../retired/README.md)).
 
 ## Comments
 
@@ -202,8 +202,7 @@ prev/next controls off `totalPages = Math.ceil(total/limit)`.
   never called), for context if ever wiring it up.
 - `artifacts/api-server/src/lib/activity.ts` — `logActivity`,
   `ActivityType` union (including the five unused members).
-- `lib/db/src/schema/reactions.ts` — the polymorphic table;
-  `lib/db/src/schema/ratings.ts` — the dead legacy table, schema-only.
+- `lib/db/src/schema/reactions.ts` — the polymorphic table.
 - Frontend: `components/facts/FactActionCluster.tsx` (rating pill),
   `components/comments/FactComments.tsx` + `CommentHeartButton.tsx`,
   `components/memes/MemeHeartButton.tsx`, `pages/ActivityFeed.tsx`, and

@@ -25,11 +25,11 @@
  * deciding anything.
  *
  * **Evidence bytes never leave this process by URL.** `uploadFile` takes the bytes
- * directly. Callers read them via `getObjectEntityFile()` and an in-process read;
- * `ObjectStorageService.getObjectEntityDownloadURL()` signs *any* private subpath with no
- * `restricted/` guard, so reaching for it would mint a time-limited, credential-free bearer
- * URL to suspected CSAM. Signed URLs and proxy routes are forbidden for evidence,
- * categorically.
+ * directly. Callers read them via `getObjectEntityFile()` and an in-process read. The
+ * storage service has no signed download helper (it was deleted unused in launch Phase 4,
+ * removal 11), and its `signObjectURL` signs *any* private path with no `restricted/`
+ * guard, so reaching for it would mint a time-limited, credential-free bearer URL to
+ * suspected CSAM. Signed URLs and proxy routes are forbidden for evidence, categorically.
  *
  * @purpose Stateless NCMEC CyberTipline ISPWS HTTP client (submit, upload, fileinfo, finish, retract, status) that classifies each failure as retryable or not; built and tested but unwired, imported only by ncmecWorker.ts and tests.
  * @subsystem legal-safety

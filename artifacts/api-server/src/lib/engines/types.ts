@@ -9,7 +9,7 @@
  * Boot-time reconciliation upserts each definition into the `engines` table
  * (see `reconcile.ts`). Admin-tunable fields (isActive, isDefault,
  * pricing overrides, etc.) are preserved across reconciliations once first
- * persisted. Code-owned fields (paramSchema, audioHandling, allowed sets,
+ * persisted. Code-owned fields (paramSchema, allowed sets,
  * label, description, kind) are overwritten on every boot — code is the
  * source of truth for "what does fal accept from this engine."
  *
@@ -26,27 +26,6 @@ import type {
 
 // Re-export so engine files only need to import from this barrel.
 export type { ParamPrimitive, ParamPredicate, ParamSchema, ParamSchemaEntry };
-
-/**
- * How an engine handles spoken dialogue. The video pipeline runner routes
- * `renderedFactText` to the right place per engine.
- *
- *   - "native_lipsync"        — Veo. Dialogue embedded in the prompt; the
- *                                model produces audio + lipsync natively.
- *   - "prompt_cue"            — Grok. Voiceover injected as a prompt cue
- *                                ("Voiceover should say, 'X'").
- *   - "voice_control"         — Kling v3. Engine exposes an explicit
- *                                voice-text input slot (param dialogueText).
- *   - "native_audio_boolean"  — Seedance. Boolean flag enabling improvised
- *                                audio; dialogue still flows via prompt cue.
- *   - "none"                  — Utility engines (PuLID, auto-subtitle).
- */
-export type AudioHandling =
-  | "native_lipsync"
-  | "prompt_cue"
-  | "voice_control"
-  | "native_audio_boolean"
-  | "none";
 
 export type EngineKind = "image" | "utility" | "llm";
 export type TierRequirement = "unregistered" | "registered" | "legendary";
@@ -82,22 +61,15 @@ export interface EngineDefinition {
    */
   eligibleAsKindDefault?: boolean;
 
-  // ── Allowed option sets (drive the wizard's advanced sheet radios) ──────
-  /** In seconds. Null for engines without a duration knob (utilities). */
-  allowedDurationsSec: number[] | null;
-  defaultDurationSec: number | null;
+  // ── Allowed option sets ─────────────────────────────────────────────────
   /** Resolution strings as the engine itself speaks them. */
   allowedResolutions: string[] | null;
   defaultResolution: string | null;
   /** Aspect ratios in fal format (server-side). */
   allowedAspectRatios: string[] | null;
   defaultAspectRatio: string | null;
-  /** Engine modes (e.g. Grok: ["normal","fun","custom"]). */
-  supportedModes: string[];
-  defaultMode: string | null;
 
   // ── Pipeline behavior ───────────────────────────────────────────────────
-  audioHandling: AudioHandling;
   paramSchema: ParamSchema;
 
   // ── Runtime + cost hints (admin-editable defaults; runtime pricing
@@ -107,8 +79,6 @@ export interface EngineDefinition {
   /** Fallback flat cost when fal pricing is unavailable. Always defer to
    *  getCachedPrice() at runtime. */
   estimatedCostUsdPerCall: number | null;
-  /** Fallback per-second cost when fal pricing is unavailable. */
-  estimatedCostUsdPerSecond: number | null;
 
   // ── LLM engines ("llm" kind / provider "openai") only; omit for media ───
   /** Default sampling temperature. */
@@ -136,13 +106,10 @@ export const ADMIN_EDITABLE_FIELDS = [
   "sortOrder",
   "tierRequirement",
   "featureFlagRequired",
-  "defaultDurationSec",
   "defaultResolution",
   "defaultAspectRatio",
-  "defaultMode",
   "expectedRunMs",
   "estimatedCostUsdPerCall",
-  "estimatedCostUsdPerSecond",
   // LLM engines: the model (endpointId) and sampling defaults are admin-tunable.
   // For media (fal) engines, endpointId stays code-owned — reconcile.ts
   // re-asserts it on every boot (see codeOwnedFields), so only "openai"

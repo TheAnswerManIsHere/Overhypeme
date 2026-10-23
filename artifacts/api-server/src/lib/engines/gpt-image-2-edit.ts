@@ -27,16 +27,11 @@ export const GPT_IMAGE_2_EDIT: EngineDefinition = {
   sortOrder: 73,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: null,
   defaultResolution: null,
   allowedAspectRatios: ["landscape", "square", "portrait"],
   defaultAspectRatio: "portrait",
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   paramSchema: {
     params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
@@ -94,5 +89,4 @@ export const GPT_IMAGE_2_EDIT: EngineDefinition = {
   // a successful job returns.
   expectedRunMs: 110000,
   estimatedCostUsdPerCall: 0.11,
-  estimatedCostUsdPerSecond: null,
 };

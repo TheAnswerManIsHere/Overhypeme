@@ -28,16 +28,11 @@ export const FLUX_2_PRO: EngineDefinition = {
   sortOrder: 71,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: null,
   defaultResolution: null,
   allowedAspectRatios: ["landscape", "square", "portrait"],
   defaultAspectRatio: "square",
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   paramSchema: {
     params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
@@ -87,5 +82,4 @@ export const FLUX_2_PRO: EngineDefinition = {
 
   expectedRunMs: 15000,
   estimatedCostUsdPerCall: 0.06,
-  estimatedCostUsdPerSecond: null,
 };

@@ -154,8 +154,9 @@ The legacy studio's AI image routes — the no-photo branch of `generate`,
 were deleted with it (removal 1). Migration 0102 retired their queued user
 render jobs. The per-fact `facts.aiMemeImages` arrays those routes served are
 still written by the render pipeline and the AI background backfill; nothing
-on the public site reads them now, and they are an orphan candidate for
-removal 11. The generate paths lived in `routes/memes.ts`, not
+on the public site reads them now. Removal 11 kept them, because Taxonomy
+Health's "Backfill AI memes" action still writes them; only the pipeline's
+unreached per-user path went (ledger [`docs/retired/README.md`](../retired/README.md)). The generate paths lived in `routes/memes.ts`, not
 `routes/ai.ts` — `routes/ai.ts` is fact-authoring tooling (duplicate-check,
 tokenize-fact, admin enrichment tokenization), not a meme-creation surface.
 

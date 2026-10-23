@@ -446,6 +446,16 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // chain is repaired. Source of truth: lib/db/src/schema/index.ts, which no
   // longer exports them.
   "0109_retire_route_stats",
+
+  // Launch Phase 4, removal 11 (#744): hand-authored. It captures the curated
+  // hero_examples rows, any rating 0035 did not copy into reactions and any
+  // engine's non-empty video values and the ai_gallery_display_limit setting
+  // (deleting that row), then drops ratings, hero_examples,
+  // affiliate_clicks with its two enums, and six video-shaped engines
+  // columns; the drops are DEFERRED snapshot deltas like 0103's, to capture
+  // when the chain is repaired. Source of truth: lib/db/src/schema/index.ts
+  // and lib/db/src/schema/engines.ts, which no longer declare them.
+  "0110_prune_orphans",
 ]);
 
 interface JournalEntry {

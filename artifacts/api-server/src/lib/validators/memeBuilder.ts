@@ -10,9 +10,9 @@
  * which is the source of truth per the Phase-4 brief): an `imageSource`
  * discriminated union plus optional `textOptions` / `framingTransform` /
  * `aspectRatio`. Personalisation fields (`name`, `pronouns`) are accepted
- * explicitly so the anonymous cold-permalink personalisation flow on
- * /api/render-preview works without a session — authenticated callers may
- * still pass them to override their stored profile values.
+ * explicitly so a caller may override its stored profile values. (They first
+ * served a signed-out "cold permalink" flow on /api/render-preview; that flow
+ * went in launch Phase 4, and the render endpoints are signed-in only.)
  *
  * The pronoun allowlist is intentionally narrower than what the existing
  * `sanitizeAndValidatePronouns` helper accepts. The render endpoints draw a

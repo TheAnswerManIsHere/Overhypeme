@@ -1,12 +1,10 @@
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Bot, Sliders, DollarSign, Shield, Mail, Clock, Wand2, ClipboardList } from "lucide-react";
+import { Settings, Loader2, Bot, DollarSign, Shield, Mail, Clock, Wand2, ClipboardList } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
   ConfigCard,
-  ModelParamRow,
-  MODEL_CONFIG_KEYS,
   RETRY_DELAY_MS_KEYS,
   SCENE_PROMPT_KEYS,
   useConfigCtx,
@@ -170,18 +168,6 @@ function AISettingsGroup() {
           </div>
         </CollapsibleSection>
       )}
-
-      {/* AI Generation Limits */}
-      <CollapsibleSection
-        title="AI Generation Limits"
-        icon={<Sliders className="w-4 h-4 text-muted-foreground" />}
-        description="How many AI-generated backgrounds are shown in the Meme Builder gallery."
-        storageKey="admin_section_config_ai_gen_limits"
-      >
-        <div className="space-y-4">
-          <ModelParamRow paramKey="ai_gallery_display_limit" />
-        </div>
-      </CollapsibleSection>
     </div>
   );
 }
@@ -203,7 +189,6 @@ export default function AdminConfig() {
   const moderationRows = rows.filter((r) => MODERATION_KEYS.has(r.key));
   const genericRows = rows.filter((r) =>
     !r.key.startsWith("style_suffix_") &&
-    !MODEL_CONFIG_KEYS.has(r.key) &&
     !SCENE_PROMPT_KEYS.has(r.key) &&
     !BUDGET_KEYS.has(r.key) &&
     !LIMIT_KEYS.has(r.key) &&

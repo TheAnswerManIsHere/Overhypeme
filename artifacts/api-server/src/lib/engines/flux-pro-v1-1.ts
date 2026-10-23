@@ -31,16 +31,11 @@ export const FLUX_PRO_V1_1: EngineDefinition = {
   sortOrder: 70,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: null,
   defaultResolution: null,
   allowedAspectRatios: ["landscape", "square", "portrait"],
   defaultAspectRatio: "square",
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   paramSchema: {
     params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
@@ -98,5 +93,4 @@ export const FLUX_PRO_V1_1: EngineDefinition = {
   expectedRunMs: 12000,
   // FLUX Pro v1.1 is priced per output megapixel; ~$0.04 for a 1MP image.
   estimatedCostUsdPerCall: 0.04,
-  estimatedCostUsdPerSecond: null,
 };

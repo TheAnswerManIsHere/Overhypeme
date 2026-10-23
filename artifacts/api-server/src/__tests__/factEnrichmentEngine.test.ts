@@ -58,8 +58,6 @@ async function seedLLMEngine(opts: {
     isDefault: false,
     isActive: opts.isActive ?? true,
     sortOrder: 999,
-    supportedModes: [],
-    audioHandling: "none",
     paramSchema: { params: [] },
     expectedRunMs: 1000,
     deletedAt: opts.deletedAt ?? null,

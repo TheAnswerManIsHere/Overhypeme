@@ -361,9 +361,9 @@ ships → Image memes*). Decided 2026-10-06 as a **hard gate on going live**: a
 fact cannot be active without approved hero renders, and there is no
 "no-hero fallback". **Not a [render scenario](#render-scenario) in the code
 today** — which scenarios' renders become a fact's heroes, and the approval
-minimum, are #628 Phase 7's decisions. Distinct from the two existing uses of
-"hero": the home-page billboard fact (`GET /api/facts/hero`) and the meme
-builder's example media (`hero_examples`).
+minimum, are #628 Phase 7's decisions. Distinct from the home-page billboard
+fact (`GET /api/facts/hero`), the one other live use of "hero". (The meme
+builder's example media, `hero_examples`, went in launch Phase 4.)
 → [launch-definition](./launch-definition.md)
 
 ### Visual gag

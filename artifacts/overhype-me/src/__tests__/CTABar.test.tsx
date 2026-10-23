@@ -4,7 +4,6 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import {
   CTABarAnonOther,
-  CTABarAnonOwnTransient,
   CTABarLegendaryOther,
   CTABarOwn,
   CTABarRegisteredOther,
@@ -39,21 +38,6 @@ describe("CTABarAnonOther", () => {
     renderWithRouter(<CTABarAnonOther onSignup={onSignup} />);
     fireEvent.click(screen.getByTestId("anon-signup-make"));
     expect(onSignup).toHaveBeenCalledOnce();
-  });
-});
-
-describe("CTABarAnonOwnTransient", () => {
-  it("primary is signup, secondary is download", () => {
-    const onSignup = vi.fn();
-    const onDownload = vi.fn();
-    renderWithRouter(
-      <CTABarAnonOwnTransient onSignup={onSignup} onDownload={onDownload} />,
-    );
-    fireEvent.click(screen.getByTestId("anon-signup"));
-    fireEvent.click(screen.getByTestId("anon-download"));
-    expect(onSignup).toHaveBeenCalledOnce();
-    expect(onDownload).toHaveBeenCalledOnce();
-    expect(screen.queryByTestId("turn-up-to-11")).toBeNull();
   });
 });
 

@@ -30,17 +30,12 @@ export const GPT_IMAGE_2: EngineDefinition = {
   sortOrder: 72,
   featureFlagRequired: null,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   // No `resolution` param on this endpoint — size comes from image_size.
   allowedResolutions: null,
   defaultResolution: null,
   allowedAspectRatios: ["landscape", "square", "portrait"],
   defaultAspectRatio: "portrait",
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   paramSchema: {
     params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
@@ -89,5 +84,4 @@ export const GPT_IMAGE_2: EngineDefinition = {
   expectedRunMs: 110000,
   // Tiered: ~$0.01 (low) to ~$0.40 (4K high). Observed ~$0.10 at high/1K.
   estimatedCostUsdPerCall: 0.11,
-  estimatedCostUsdPerSecond: null,
 };

@@ -195,8 +195,10 @@ successful later attempt and surfaced together in the render-poll payload
 - `nonhuman_subject_i2i` — preserve an uploaded non-human subject.
 - `t2i_fallback` — no reference; uses `fallbackSubjectGender`.
 
-`tier2Heuristics.ts` suggests the mode from image analysis; a user choice can
-override (`resolveSubjectRenderMode`). `generationModeFromSubjectRenderMode` maps
+`tier2Heuristics.ts` suggests the mode from image analysis; the admin engine
+bench sets it from the bench instead (`image-to-image` → `human_identity_i2i`,
+otherwise `t2i_fallback`; `routes/adminEngines.ts`).
+`generationModeFromSubjectRenderMode` maps
 `t2i_fallback → "t2i"`, everything else → `"i2i"`.
 
 ## Visual Concept

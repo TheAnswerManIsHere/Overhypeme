@@ -113,20 +113,13 @@ function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
     isDefault: def.isDefault,
     isActive: def.isActive,
     sortOrder: def.sortOrder,
-    allowedDurationsSec: def.allowedDurationsSec,
-    defaultDurationSec: def.defaultDurationSec,
     allowedResolutions: def.allowedResolutions,
     defaultResolution: def.defaultResolution,
     allowedAspectRatios: def.allowedAspectRatios,
     defaultAspectRatio: def.defaultAspectRatio,
-    supportedModes: def.supportedModes,
-    defaultMode: def.defaultMode,
-    audioHandling: def.audioHandling,
     paramSchema: def.paramSchema,
     estimatedCostUsdPerCall:
       def.estimatedCostUsdPerCall != null ? String(def.estimatedCostUsdPerCall) : null,
-    estimatedCostUsdPerSecond:
-      def.estimatedCostUsdPerSecond != null ? String(def.estimatedCostUsdPerSecond) : null,
     expectedRunMs: def.expectedRunMs,
     featureFlagRequired: def.featureFlagRequired,
     defaultTemperature:

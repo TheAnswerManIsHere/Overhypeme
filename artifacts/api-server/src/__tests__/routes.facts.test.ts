@@ -2,7 +2,7 @@
  * Integration tests for routes/facts.ts.
  *
  * Covers the read surface (GET /facts, GET /facts/:factId, GET
- * /facts/:factId/comments, GET /facts/:factId/links) and the rating
+ * /facts/:factId/comments) and the rating
  * write surface (POST /facts/:factId/rating).
  *
  * The admin POST /facts and POST /comments endpoints touch AI
@@ -23,7 +23,6 @@ import {
   factsTable,
   hashtagsTable,
   factHashtagsTable,
-  ratingsTable,
   commentsTable,
   externalLinksTable,
 } from "@workspace/db/schema";
@@ -79,7 +78,7 @@ async function insertFact(text: string, opts: { submittedById?: string } = {}): 
 }
 
 async function cleanup() {
-  // Cascade unwinds: comments, ratings, factHashtags, externalLinks, etc.
+  // Cascade unwinds: comments, factHashtags, externalLinks, etc.
   // are all FK to facts with cascade. Just delete facts whose submitter is
   // a test user (or nothing — facts can be submitter-less). We track our own
   // facts/hashtags by prefix or the submittedById match.
@@ -439,12 +438,6 @@ describe("POST /facts/:factId/rating", () => {
       .send({ rating: "none" });
     assert.equal(res.body.upvotes, 0);
     assert.equal(res.body.userRating, null);
-
-    const ratings = await db
-      .select()
-      .from(ratingsTable)
-      .where(eq(ratingsTable.factId, factId));
-    assert.equal(ratings.length, 0);
   });
 });
 
@@ -554,34 +547,5 @@ describe("public avatar projection on a fact's author", () => {
     assert.equal(comments.body.comments.length, 1);
     assert.equal(comments.body.comments[0].authorImage, icon);
     assert.notEqual(comments.body.comments[0].authorImage, photo);
-  });
-});
-
-describe("GET /facts/:factId/links", () => {
-
-  it("returns 400 for a non-numeric factId", async () => {
-    const res = await request(makeApp()).get("/facts/abc/links");
-    assert.equal(res.status, 400);
-  });
-
-  it("returns an empty array when no links exist", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact("no-links", { submittedById: userId });
-    const res = await request(makeApp()).get(`/facts/${factId}/links`);
-    assert.equal(res.status, 200);
-    assert.deepEqual(res.body.links, []);
-  });
-
-  it("returns inserted links newest-first", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact("links-test", { submittedById: userId });
-    await db.insert(externalLinksTable).values([
-      { factId, url: "https://e/old", createdAt: new Date(Date.now() - 5000) },
-      { factId, url: "https://e/new", createdAt: new Date() },
-    ]);
-    const res = await request(makeApp()).get(`/facts/${factId}/links`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.links.length, 2);
-    assert.match(res.body.links[0].url, /new$/);
   });
 });

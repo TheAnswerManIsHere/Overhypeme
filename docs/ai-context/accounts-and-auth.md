@@ -184,7 +184,9 @@ failure is diagnosable but not automatically rolled back):
 2. Cancels active Stripe subscriptions (`admin.ts:513-547`).
 3. Explicitly deletes rows with non-cascading NOT-NULL FKs:
    `stripeCheckoutRequestLedgerTable`, `membershipHistoryTable`,
-   `activityFeedTable`, `affiliate_clicks` (`admin.ts:550-559`).
+   `activityFeedTable` (`admin.ts:550-559`). (`affiliate_clicks` was on
+   this list until its table went in launch Phase 4, removal 11; ledger
+   [`docs/retired/README.md`](../retired/README.md).)
    `membershipEntitlementsTable` is deliberately **not** deleted here — its
    FK is `ON DELETE CASCADE`, so it goes with the user row in step 5;
    deleting it early would also destroy anything cascaded off disputes tied
@@ -196,7 +198,8 @@ failure is diagnosable but not automatically rolled back):
    author-name scrubbing).
 5. Deletes the user row (`admin.ts:574`); DB-level `ON DELETE CASCADE` FKs
    then clean up `sessions`, `user_ai_images`, `user_fact_preferences`,
-   ratings, search history, and the email/password token tables.
+   reactions (fact ratings and hearts), search history, and the
+   email/password token tables.
 
 `ncmec_reports.user_id` is `ON DELETE SET NULL`
 (`lib/moderation/ncmecXml.ts:10`) — legal/moderation evidence deliberately

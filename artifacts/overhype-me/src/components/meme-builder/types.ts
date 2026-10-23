@@ -16,7 +16,6 @@ export type Mode = "self-upload";
 export type Tier = "unregistered" | "registered" | "legendary";
 
 export type EntryFlow =
-  | "cold-permalink"
   | "fact-detail"
   | "library"
   | "remix"
@@ -26,9 +25,7 @@ export type AspectRatio = "landscape" | "square" | "portrait";
 
 /**
  * Self-upload sources. The user's profile photo is now just a library entry
- * tagged `is_profile=true` — no separate `primary` discriminant. Old session
- * drafts that reference `kind:"primary"` are sanitized away by
- * `restorePendingState` before they reach the reducer.
+ * tagged `is_profile=true` — no separate `primary` discriminant.
  */
 export type MyImageSource =
   | { kind: "library"; objectPath: string }
@@ -73,30 +70,9 @@ export interface ViewerContext {
   hasLibraryImages?: boolean;
 }
 
-/**
- * Captured by the builder when an unregistered user hits the signup wall.
- * The parent (route) holds it through the auth round-trip and feeds it back
- * via `Props.initialPendingState` so the user resumes exactly where they were.
- *
- * Persisted to sessionStorage with a 1h TTL — see state/pendingBuilderState.ts.
- */
-export interface PendingBuilderState {
-  schemaVersion: 1;
-  capturedAt: number;
-  factId: string;
-  mode: Mode;
-  entryFlow: EntryFlow;
-  name?: string;
-  pronouns?: string;
-  source?: { kind: "self-upload"; image: MyImageSource };
-  textOptions?: MemeTextOptions;
-  aspectRatio?: AspectRatio;
-}
-
 export type BuilderResult =
   | { kind: "saved";             memeId: string; permalinkUrl: string }
   | { kind: "downloaded" }
-  | { kind: "signup-required";   pendingState: PendingBuilderState }
   | { kind: "upgrade-required";  targetTier: Tier; reason: string }
   | { kind: "cancelled" };
 
@@ -109,8 +85,6 @@ export interface MemeBuilderProps {
   entryFlow: EntryFlow;
   initialName?: string;
   initialPronouns?: string;
-  /** When set, supersedes initialName/initialPronouns. */
-  initialPendingState?: PendingBuilderState;
   onComplete: (result: BuilderResult) => void;
   onCancel: () => void;
 }
@@ -122,7 +96,7 @@ export interface MemeBuilderProps {
  * Component branching reads from this object; nested conditionals on raw
  * (mode, tier, entryFlow) tuples are not allowed elsewhere.
  */
-export type Action = "download" | "save" | "share" | "signup-cta";
+export type Action = "download" | "save" | "share";
 
 export interface BehaviorCell {
   /** When true, the matrix cell is invalid and a tier-locked panel is rendered instead of the builder. */
@@ -138,11 +112,9 @@ export interface BehaviorCell {
   /** The source area is always MyImagePicker (the stock picker went with Pexels). */
   sourceArea: "my-image";
   /** Default post-save behavior the parent should run. */
-  postSave: "share" | "back-to-fact" | "none";
+  postSave: "back-to-fact" | "none";
 }
 
 export type HeaderCopyKey =
-  | "see-with-your-name"
-  | "see-with-your-face"
   | "make-this-your-own"
   | "build-your-meme";

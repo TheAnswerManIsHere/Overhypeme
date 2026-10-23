@@ -9,7 +9,6 @@ interface Props {
   onDownload: () => void;
   onSave: () => void;
   onShare: () => void;
-  onSignupCta: () => void;
 }
 
 export function ActionBar({
@@ -19,7 +18,6 @@ export function ActionBar({
   onDownload,
   onSave,
   onShare,
-  onSignupCta,
 }: Props) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
@@ -37,11 +35,6 @@ export function ActionBar({
         {visibleActions.includes("share") && (
           <Button type="button" variant="secondary" onClick={onShare}>
             {ACTION_COPY.share}
-          </Button>
-        )}
-        {visibleActions.includes("signup-cta") && (
-          <Button type="button" onClick={onSignupCta}>
-            {ACTION_COPY.signupCta}
           </Button>
         )}
       </div>

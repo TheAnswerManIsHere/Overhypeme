@@ -205,8 +205,8 @@ There is none. The Zazzle affiliate flow (the `/wear` page, the export and
 redirect routes, click logging, the admin Affiliate screen and the
 `zazzle_*` settings) was deleted in launch Phase 4, removal 4 (ledger:
 [`docs/retired/README.md`](../retired/README.md); the flow as it stood is at
-the tag `pre-cut/merch`). The `affiliate_clicks` table and its rows remain
-with no writer, a removal-11 orphan candidate.
+the tag `pre-cut/merch`). The `affiliate_clicks` table and its two enums,
+left with no writer, went in removal 11 (migration 0110; same ledger).
 
 ## Sharing mechanics — two live surfaces (a third was deleted)
 

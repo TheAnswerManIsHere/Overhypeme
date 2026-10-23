@@ -39,8 +39,6 @@ const CONFIG_TABLES = new Set([
   "entitlement_grid_revision",
   "engines",
   "look_styles",
-  "motion_presets",
-  "hero_examples",
   "fal_pricing_cache",
   "admin_config",
 ]);

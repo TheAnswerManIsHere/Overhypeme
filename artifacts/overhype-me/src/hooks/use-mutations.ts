@@ -2,12 +2,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useRateFact,
   useAddComment,
-  useDeleteLink,
   useRecordSearch,
   getListFactsQueryKey,
   getGetFactQueryKey,
   getListCommentsQueryKey,
-  getListLinksQueryKey,
   getGetMyProfileQueryKey
 } from "@workspace/api-client-react";
 
@@ -33,15 +31,6 @@ export function useAppMutations() {
     }
   });
 
-  const deleteLinkMutation = useDeleteLink({
-    mutation: {
-      onSuccess: (_, variables) => {
-        queryClient.invalidateQueries({ queryKey: getListLinksQueryKey(variables.factId) });
-        queryClient.invalidateQueries({ queryKey: getGetFactQueryKey(variables.factId) });
-      }
-    }
-  });
-
   const recordSearchMutation = useRecordSearch({
     mutation: {
       onSuccess: () => {
@@ -53,7 +42,6 @@ export function useAppMutations() {
   return {
     rateFact: rateFactMutation,
     addComment: addCommentMutation,
-    deleteLink: deleteLinkMutation,
     recordSearch: recordSearchMutation
   };
 }

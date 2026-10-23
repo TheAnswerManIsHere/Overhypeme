@@ -26,18 +26,12 @@ interface EngineRow {
   isDefault: boolean;
   isActive: boolean;
   sortOrder: number;
-  allowedDurationsSec: number[] | null;
-  defaultDurationSec: number | null;
   allowedResolutions: string[] | null;
   defaultResolution: string | null;
   allowedAspectRatios: string[] | null;
   defaultAspectRatio: string | null;
-  supportedModes: string[] | null;
-  defaultMode: string | null;
-  audioHandling: string;
   paramSchema: unknown;
   estimatedCostUsdPerCall: string | number | null;
-  estimatedCostUsdPerSecond: string | number | null;
   expectedRunMs: number;
   featureFlagRequired: string | null;
   defaultTemperature: string | number | null;
@@ -64,13 +58,10 @@ const EDITABLE_FIELDS = [
   "sortOrder",
   "tierRequirement",
   "featureFlagRequired",
-  "defaultDurationSec",
   "defaultResolution",
   "defaultAspectRatio",
-  "defaultMode",
   "expectedRunMs",
   "estimatedCostUsdPerCall",
-  "estimatedCostUsdPerSecond",
   "endpointId",
   "defaultTemperature",
   "defaultMaxTokens",
@@ -1005,13 +996,10 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
     sortOrder: String(engine.sortOrder),
     tierRequirement: engine.tierRequirement,
     featureFlagRequired: engine.featureFlagRequired ?? "",
-    defaultDurationSec: engine.defaultDurationSec === null ? "" : String(engine.defaultDurationSec),
     defaultResolution: engine.defaultResolution ?? "",
     defaultAspectRatio: engine.defaultAspectRatio ?? "",
-    defaultMode: engine.defaultMode ?? "",
     expectedRunMs: String(engine.expectedRunMs),
     estimatedCostUsdPerCall: engine.estimatedCostUsdPerCall === null ? "" : String(engine.estimatedCostUsdPerCall),
-    estimatedCostUsdPerSecond: engine.estimatedCostUsdPerSecond === null ? "" : String(engine.estimatedCostUsdPerSecond),
     endpointId: engine.endpointId,
     defaultTemperature: engine.defaultTemperature === null ? "" : String(engine.defaultTemperature),
     defaultMaxTokens: engine.defaultMaxTokens === null ? "" : String(engine.defaultMaxTokens),
@@ -1034,13 +1022,10 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
         sortOrder: Number.parseInt(form.sortOrder, 10) || 0,
         tierRequirement: form.tierRequirement,
         featureFlagRequired: form.featureFlagRequired.trim() === "" ? null : form.featureFlagRequired.trim(),
-        defaultDurationSec: form.defaultDurationSec === "" ? null : Number.parseInt(form.defaultDurationSec, 10),
         defaultResolution: form.defaultResolution === "" ? null : form.defaultResolution,
         defaultAspectRatio: form.defaultAspectRatio === "" ? null : form.defaultAspectRatio,
-        defaultMode: form.defaultMode === "" ? null : form.defaultMode,
         expectedRunMs: Number.parseInt(form.expectedRunMs, 10) || 0,
         estimatedCostUsdPerCall: form.estimatedCostUsdPerCall === "" ? null : Number(form.estimatedCostUsdPerCall),
-        estimatedCostUsdPerSecond: form.estimatedCostUsdPerSecond === "" ? null : Number(form.estimatedCostUsdPerSecond),
       };
       // LLM engines: model (endpointId) + sampling + reasoning effort are editable.
       if (isLLM) {
@@ -1069,8 +1054,6 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
 
   const resolutionOpts = engine.allowedResolutions ?? [];
   const aspectOpts = engine.allowedAspectRatios ?? [];
-  const modeOpts = engine.supportedModes ?? [];
-  const durationOpts = engine.allowedDurationsSec ?? [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-4 border-t border-border">
@@ -1189,17 +1172,6 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
         <>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">
-              Default duration (sec) {durationOpts.length > 0 && <span className="font-normal normal-case">— allowed: {durationOpts.join(", ")}</span>}
-            </label>
-            <input
-              type="number"
-              value={form.defaultDurationSec}
-              onChange={(e) => set("defaultDurationSec", e.target.value)}
-              className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
-            />
-          </div>
-          <div>
             <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Default resolution</label>
             <select
               value={form.defaultResolution}
@@ -1221,20 +1193,9 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
               {aspectOpts.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Default mode</label>
-            <select
-              value={form.defaultMode}
-              onChange={(e) => set("defaultMode", e.target.value)}
-              className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
-            >
-              <option value="">— none —</option>
-              {modeOpts.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">
               Expected run (ms) — <span className="font-normal">{msToHuman(Number.parseInt(form.expectedRunMs, 10) || 0)}</span>
@@ -1253,17 +1214,6 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
               step="0.0001"
               value={form.estimatedCostUsdPerCall}
               onChange={(e) => set("estimatedCostUsdPerCall", e.target.value)}
-              placeholder="(null)"
-              className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">$ per second</label>
-            <input
-              type="number"
-              step="0.0001"
-              value={form.estimatedCostUsdPerSecond}
-              onChange={(e) => set("estimatedCostUsdPerSecond", e.target.value)}
               placeholder="(null)"
               className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
             />
@@ -1291,14 +1241,11 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
           <ReadOnlyField label="id" value={engine.id} />
           <ReadOnlyField label="provider" value={engine.provider} />
           <ReadOnlyField label="kind" value={engine.kind} />
-          <ReadOnlyField label="audio handling" value={engine.audioHandling} />
         </div>
         <ReadOnlyField label="endpoint" value={engine.endpointId} />
         <div className="grid grid-cols-2 gap-3">
-          <ReadOnlyField label="allowed durations" value={engine.allowedDurationsSec?.join(", ") ?? null} />
           <ReadOnlyField label="allowed resolutions" value={engine.allowedResolutions?.join(", ") ?? null} />
           <ReadOnlyField label="allowed aspect ratios" value={engine.allowedAspectRatios?.join(", ") ?? null} />
-          <ReadOnlyField label="supported modes" value={engine.supportedModes?.join(", ") ?? null} />
         </div>
         <div>
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">paramSchema</p>
@@ -1447,11 +1394,10 @@ function EngineCard({
       {expanded && (
         <div className="px-4 pb-4">
           <EngineEditor engine={engine} onSaved={onChanged} />
-          <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-border">
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 border-t border-border">
             <ReadOnlyField label="created" value={new Date(engine.createdAt).toLocaleString()} />
             <ReadOnlyField label="updated" value={new Date(engine.updatedAt).toLocaleString()} />
             <ReadOnlyField label="cost/call" value={fmtCost(engine.estimatedCostUsdPerCall)} />
-            <ReadOnlyField label="cost/sec" value={fmtCost(engine.estimatedCostUsdPerSecond)} />
           </div>
         </div>
       )}

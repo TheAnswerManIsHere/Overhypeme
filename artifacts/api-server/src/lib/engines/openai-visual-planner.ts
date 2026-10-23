@@ -28,23 +28,17 @@ export const OPENAI_VISUAL_PLANNER: EngineDefinition = {
   featureFlagRequired: null,
   eligibleAsKindDefault: false,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: null,
   defaultResolution: null,
   allowedAspectRatios: null,
   defaultAspectRatio: null,
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   // Not consumed for OpenAI engines (no fal interpreter), but the column is
   // NOT NULL — provide an empty schema.
   paramSchema: { params: [] },
 
   expectedRunMs: 90000,
   estimatedCostUsdPerCall: null,
-  estimatedCostUsdPerSecond: null,
 
   // Temperature is dropped for reasoning models by chatModelTuningParams;
   // it applies only if an admin points the row at a 4.x chat model.

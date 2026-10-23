@@ -137,7 +137,6 @@ describe("local storage double", () => {
 
   it("refuses to sign URLs, visibly", async () => {
     await assert.rejects(svc.getObjectEntityUploadURL(), /signed URLs are not available/);
-    await assert.rejects(svc.getObjectEntityDownloadURL("uploads/ab/one"), /signed URLs are not available/);
   });
 
   it("has every File method objectStorage.ts, objectAcl.ts and the routes call", () => {

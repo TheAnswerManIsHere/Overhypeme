@@ -84,15 +84,10 @@ async function seedEngine(opts: SeedOpts = {}): Promise<string> {
     isDefault: opts.isDefault ?? false,
     isActive: opts.isActive ?? true,
     sortOrder: 999,
-    allowedDurationsSec: [4, 6, 8],
-    defaultDurationSec: 6,
     allowedResolutions: ["720p"],
     defaultResolution: "720p",
     allowedAspectRatios: ["16:9", "1:1", "9:16"],
     defaultAspectRatio: "16:9",
-    supportedModes: [],
-    defaultMode: null,
-    audioHandling: "none",
     paramSchema: (opts.paramSchema ?? {
       params: [
         { name: "image_url", from: "imageUrl", type: "string", required: true },
@@ -100,7 +95,6 @@ async function seedEngine(opts: SeedOpts = {}): Promise<string> {
       ],
     }) as unknown,
     estimatedCostUsdPerCall: null,
-    estimatedCostUsdPerSecond: "0.05",
     expectedRunMs: 18000,
     featureFlagRequired: opts.featureFlagRequired ?? null,
   });

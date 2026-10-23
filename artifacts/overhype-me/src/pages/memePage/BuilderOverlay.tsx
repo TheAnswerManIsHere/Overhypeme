@@ -51,13 +51,6 @@ export function BuilderOverlay({
       setLocation(result.permalinkUrl);
       return;
     }
-    if (result.kind === "signup-required") {
-      // The Phase-3 builder already persists the pendingState to
-      // sessionStorage. Send the user to login; on return, the studio's
-      // resume path will rehydrate.
-      window.location.href = `/api/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
-      return;
-    }
     if (result.kind === "upgrade-required") {
       const dest = upgradeDestination(result.targetTier, window.location.pathname + window.location.search);
       if (dest.fullPage) window.location.href = dest.href;

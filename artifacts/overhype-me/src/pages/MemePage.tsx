@@ -17,7 +17,6 @@ import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { resolveViewerCell } from "@/pages/memePage/useViewerCell";
 import {
   CTABarAnonOther,
-  CTABarAnonOwnTransient,
   CTABarLegendaryOther,
   CTABarOwn,
   CTABarRegisteredOther,
@@ -75,11 +74,6 @@ export default function MemePage() {
   const [, params] = useRoute("/m/:slug");
   const { user, role } = useAuth();
   const slug = params?.slug ?? "";
-
-  const searchParams = new URLSearchParams(
-    typeof window !== "undefined" ? window.location.search : "",
-  );
-  const justCreated = searchParams.get("just_created") === "1";
 
   const { data: memeResult, isLoading, error } = useQuery<MemeResult>({
     queryKey: ["meme-page", slug],
@@ -152,7 +146,6 @@ export default function MemePage() {
     role,
     userId: user?.id ?? null,
     meme: { createdById: meme.createdById },
-    justCreated,
   });
 
   // The fact's tokenized template (e.g. `"{NAME} fought a bear"`) is what
@@ -199,19 +192,12 @@ export default function MemePage() {
     window.location.href = upgradeDestination("registered", window.location.pathname + window.location.search).href;
   };
 
-  const handleAnonSignup = () => {
-    window.location.href = `/api/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
-  };
-
   let ctaBar: React.ReactNode = null;
   switch (cell) {
     case "anon-other":
       ctaBar = (
         <CTABarAnonOther onSignup={handleAnonMake} />
       );
-      break;
-    case "anon-own-transient":
-      ctaBar = <CTABarAnonOwnTransient onSignup={handleAnonSignup} onDownload={handleDownload} />;
       break;
     case "own":
       ctaBar = (

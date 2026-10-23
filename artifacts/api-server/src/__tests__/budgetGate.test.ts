@@ -490,12 +490,13 @@ describe("recordCost", () => {
 // which round 1 of this PR's own review found was a second, narrower path to
 // the same fail-open shape).
 //
-// The three callers (`aiMemePipeline.ts` x2, `routes/videos.ts`) each keep
-// their pricing lookup and their `checkBudget` call in separate `catch`
-// scopes, inline — round 1 also found that a *shared* helper for this was
-// itself a new-abstraction Tier C trigger, so the separation is enforced by
-// code shape at each call site rather than by one function this file can
-// unit-test directly.
+// The gate has no production caller since launch Phase 4 (video, PuLID and
+// the per-user AI background path went in removals 2, 3 and 11); it stays for
+// the rebuild. A future caller keeps its pricing lookup and its `checkBudget`
+// call in separate `catch` scopes, inline — round 1 found that a *shared*
+// helper for this was itself a new-abstraction Tier C trigger, so the
+// separation is enforced by code shape at each call site rather than by one
+// function this file can unit-test directly.
 
 /**
  * Run `fn` while the spend-ledger table is renamed out from under the gate, so

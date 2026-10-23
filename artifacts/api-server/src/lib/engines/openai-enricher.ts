@@ -31,23 +31,17 @@ export const OPENAI_ENRICHER: EngineDefinition = {
   featureFlagRequired: null,
   eligibleAsKindDefault: false,
 
-  allowedDurationsSec: null,
-  defaultDurationSec: null,
   allowedResolutions: null,
   defaultResolution: null,
   allowedAspectRatios: null,
   defaultAspectRatio: null,
-  supportedModes: [],
-  defaultMode: null,
 
-  audioHandling: "none",
   // Not consumed for OpenAI engines (no fal interpreter), but the column is
   // NOT NULL — provide an empty schema.
   paramSchema: { params: [] },
 
   expectedRunMs: 60000,
   estimatedCostUsdPerCall: null,
-  estimatedCostUsdPerSecond: null,
 
   // Mirror the enrichment sampling constants. Temperature is dropped for
   // reasoning models by chatModelTuningParams; it applies only if an admin
