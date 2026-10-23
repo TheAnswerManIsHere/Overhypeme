@@ -722,7 +722,7 @@ export const HELP_SEARCH_INDEX: HelpSearchEntry[] = [
     "doc": "11-admin-console",
     "section": "watching-the-machinery",
     "sectionTitle": "Watching the machinery",
-    "text": "Watching the machinery A handful of screens exist purely to keep an eye on things running in the background: the health of the job queues that do async work, the quality of AI-rendered images against a curated reference set, and which pages are actually getting traffic."
+    "text": "Watching the machinery A handful of screens exist purely to keep an eye on things running in the background: the health of the job queues that do async work, and the quality of AI-rendered images against a curated reference set. (The dashboard's count of which pages get the most visits was removed in launch Phase 4; docs/retired/README.md .)"
   },
   {
     "doc": "11-admin-console",
