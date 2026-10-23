@@ -21,7 +21,7 @@
  *                      the recorder and its allowance, writing to --out.
  *                      `--resume` tops up an existing directory.
  *   --mode live        On the Repl only, never in CI: the live check. The real
- *                      AI vendors and Pexels, reuse off, recordings discarded,
+ *                      AI vendors, reuse off, recordings discarded,
  *                      under a per-invocation cap (default $5, never more
  *                      without --allowance-raised-by-david <YYYY-MM-DD>).
  *                      Green only when every operation shows a usable current
@@ -115,7 +115,7 @@ if (control && variants.length > 1) refusals.push("a control runs one variant: p
 const serveOrigin = arg("origin") ?? "http://localhost:5173";
 if (mode === "serve" && !/^http:\/\/localhost:\d{2,5}$/.test(serveOrigin)) refusals.push(`--origin must be http://localhost:<port>, got ${serveOrigin}`);
 if (mode !== "serve" && arg("origin") !== undefined) refusals.push("--origin applies to --mode serve only");
-const CREDENTIAL = /^(FAL_|OPENAI_|STRIPE_|RESEND_|PEXELS_|ARACHNID_|NCMEC_|HCAPTCHA_|SENTRY_DSN)/;
+const CREDENTIAL = /^(FAL_|OPENAI_|STRIPE_|RESEND_|ARACHNID_|NCMEC_|HCAPTCHA_|SENTRY_DSN)/;
 if (mode === "acceptance" || mode === "replay" || mode === "serve" || mode === "probe") {
   const held = Object.keys(process.env).filter((k) => CREDENTIAL.test(k) && (process.env[k] ?? "").trim() !== "");
   if (held.length) refusals.push(`a ${mode} run holds no credential; unset ${held.join(", ")}`);
@@ -143,7 +143,6 @@ if (mode === "record") {
   if (!resume && fs.existsSync(recordLedger)) refusals.push(`a ledger from an earlier run is at ${recordLedger}; remove it for a new recording, or pass --resume to continue that run`);
 }
 if (mode === "live") {
-  if (!process.env.PEXELS_API_KEY) refusals.push("live mode needs PEXELS_API_KEY: the fixture variant reads a Pexels-only meme");
   allowance ||= "5";
   const raisedBy = arg("allowance-raised-by-david");
   if (!(Number(allowance) > 0)) refusals.push("--allowance must be a positive dollar amount");
@@ -227,15 +226,6 @@ function sha256(file: string): string {
 function redact(text: string): string {
   return text.replace(/\/\/[^\s/@]+@/g, "//***@");
 }
-function pexelsOnlyMemes(): number {
-  return fs
-    .readFileSync(path.join(FIXTURE_DIR, "memes.ndjson"), "utf8")
-    .trim()
-    .split("\n")
-    .map((l) => JSON.parse(l) as { image_source?: { type?: string; photoUrl?: string } })
-    .filter((m) => m.image_source?.type === "stock" && !m.image_source.photoUrl).length;
-}
-
 // --- recording mode's own checks (unchanged from increment 4) ---------------
 const FAL_INVALID = { input: { prompt: "" } };
 const OPENAI_INVALID = { model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 };
@@ -340,7 +330,6 @@ interface VariantReport {
   /** AI calls with no recording, so no operation can claim them (see coverage.ts). */
   unattributed: CallRecord[];
   promptPins?: unknown;
-  pexelsMeme?: unknown;
   corrupted?: string;
   red: string[];
   /** A live run's own answers for this variant (plan D4); other modes name one corpus at the top. */
@@ -421,7 +410,6 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
   const innerEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME };
   if (mode === "record" || mode === "live" || mode === "capture") Object.assign(innerEnv, { FAL_AI_API_KEY: falKey, OPENAI_API_KEY: openaiKey });
   if (mode === "live") {
-    Object.assign(innerEnv, { PEXELS_API_KEY: process.env.PEXELS_API_KEY });
     if (process.env.ARACHNID_SHIELD_USERNAME && process.env.ARACHNID_SHIELD_PASSWORD) {
       Object.assign(innerEnv, { ARACHNID_SHIELD_USERNAME: process.env.ARACHNID_SHIELD_USERNAME, ARACHNID_SHIELD_PASSWORD: process.env.ARACHNID_SHIELD_PASSWORD });
     }
@@ -456,7 +444,6 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     ...(drive?.control ? { control: drive.control } : {}),
     ...(result.ok === false ? { innerError: redact(String(result.error)).slice(0, 2000) } : {}),
     ...(result.promptPins ? { promptPins: result.promptPins } : {}),
-    ...(result.pexelsMeme ? { pexelsMeme: result.pexelsMeme } : {}),
     ...(result.corrupted ? { corrupted: result.corrupted } : {}),
   };
   if (detecting) {
@@ -493,8 +480,6 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
         detector: report.detector,
         setupError: report.setupError,
         innerError: report.innerError,
-        pexelsMeme: result.pexelsMeme as { ok?: boolean } | undefined,
-        requirePexelsMeme: mode === "live" && variant === "fixture",
       }),
     );
   }
@@ -574,9 +559,7 @@ try {
       : recordingsIdentity(COMMITTED_RECORDINGS, "committed"),
     fixtureManifestSha256: variants.includes("fixture") ? sha256(path.join(FIXTURE_DIR, "manifest.json")) : null,
     ...(ledger ? { spend: { capUsd: ledger.limitUsd, committedUsd: Number(ledger.committedUsd.toFixed(4)), vendorCalls: ledger.lines.length, reused: ledger.reused ?? 0, ...(mode === "capture" ? { ledger: captureLedger } : {}) } } : {}),
-    deferrals: mode === "capture" ? [] : [
-      ...(variants.includes("fixture") && mode !== "live" ? [`the fixture's ${pexelsOnlyMemes()} Pexels-only stock memes: read by no acceptance journey; the live check reads one (David, 2026-10-14)`] : []),
-    ],
+    deferrals: [],
     ...(controlResult ? { controlVerdict: controlResult } : {}),
     variants: reports,
   };

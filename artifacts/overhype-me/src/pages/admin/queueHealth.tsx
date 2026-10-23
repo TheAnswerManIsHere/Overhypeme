@@ -272,7 +272,7 @@ export default function AdminQueueHealth() {
           </h2>
           {stalledLanes.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              All five lanes are being scheduled. Last checked {new Date(data.ts).toLocaleTimeString()}.
+              All lanes are being scheduled. Last checked {new Date(data.ts).toLocaleTimeString()}.
             </p>
           ) : (
             <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-xs">

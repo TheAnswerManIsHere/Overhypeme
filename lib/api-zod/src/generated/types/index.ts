@@ -55,6 +55,7 @@ export * from "./listFactsSort";
 export * from "./listHashtagsParams";
 export * from "./listRelatedFactsParams";
 export * from "./memeDetail";
+export * from "./memeImageSource";
 export * from "./memeListResponse";
 export * from "./memeRecord";
 export * from "./memeTextOptions";

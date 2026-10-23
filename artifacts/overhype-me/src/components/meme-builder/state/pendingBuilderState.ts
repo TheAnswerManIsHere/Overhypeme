@@ -62,6 +62,16 @@ export function restorePendingState(factId: string): PendingBuilderState | null 
 
   let state: PendingBuilderState = parsed;
 
+  // Launch Phase 4, removal 6: stock photos went with Pexels. A draft that had
+  // the stock source selected loses that pick (the user lands back on the
+  // picker) and keeps everything else; its mode is the only mode left.
+  if ((state.source as { kind?: string } | undefined)?.kind === "stock") {
+    state = { ...state, source: undefined };
+  }
+  if ((state.mode as string) === "stock") {
+    state = { ...state, mode: "self-upload" };
+  }
+
   if (Date.now() - state.capturedAt > TTL_MS) {
     clearPendingState(factId);
     return null;

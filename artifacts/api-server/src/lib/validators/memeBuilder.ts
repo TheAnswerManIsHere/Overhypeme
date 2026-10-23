@@ -74,17 +74,10 @@ export const TextOptionsSchema = z.object({
   opacity: z.number().min(0).max(1).optional(),
 }).optional();
 
+// A meme's background is the user's own photo: an upload, or the profile photo
+// (`identity`). Stock photos went in launch Phase 4, removal 6, and the
+// gradient templates in removal 5.
 export const ImageSourceSchema = z.discriminatedUnion("type", [
-  // The builder stores only the pexelsPhotoId in `state.stockImageId`; the
-  // server re-resolves the URL + photographer via the Pexels API. The two
-  // optional fields are accepted for forward-compatibility with clients that
-  // already have them in hand (e.g. preview flows in the legacy detail page).
-  z.object({
-    type: z.literal("stock"),
-    pexelsPhotoId: z.number().int().positive(),
-    photoUrl: z.string().url().max(2000).optional(),
-    photographerName: z.string().max(200).optional(),
-  }),
   z.object({
     type: z.literal("upload"),
     uploadKey: z.string().regex(/^\/objects\//).max(500),
@@ -143,14 +136,13 @@ export const SaveMemeBody = z.object({
 export type SaveMemeRequest = z.infer<typeof SaveMemeBody>;
 
 /**
- * Coarse "mode" the Phase-4 brief uses for tier gating, derived from the
- * structured `imageSource`. Tier rules:
- *   stock         → free + legendary
- *   self-upload   → free + legendary
+ * Coarse "mode" recorded on each transient render, derived from the structured
+ * `imageSource`. Every remaining source is the user's own photo, so every mode
+ * is `self-upload` (free + legendary) and needs a session; `stock` was the only
+ * anonymous-allowed mode until launch Phase 4, removal 6.
  */
-export type RenderMode = "stock" | "self-upload";
+export type RenderMode = "self-upload";
 
-export function deriveRenderMode(imageSource: ImageSource): RenderMode {
-  if (imageSource.type === "stock") return "stock";
+export function deriveRenderMode(_imageSource: ImageSource): RenderMode {
   return "self-upload";
 }

@@ -18,12 +18,7 @@ import type {
 export interface BuilderInternalState {
   name: string;
   pronouns: string;
-  /** Selected stock image id when sourceArea === "stock". */
-  stockImageId: string | null;
-  /** Selected stock image URL — kept alongside the id so the live preview
-   *  can render the photo immediately without waiting for a server round-trip. */
-  stockImageUrl: string | null;
-  /** Selected self-upload source when sourceArea === "my-image". */
+  /** Selected self-upload source. */
   myImage: MyImageSource | null;
   textOptions: MemeTextOptions;
   aspectRatio: AspectRatio;
@@ -32,7 +27,6 @@ export interface BuilderInternalState {
 export type BuilderAction =
   | { type: "set-name"; name: string }
   | { type: "set-pronouns"; pronouns: string }
-  | { type: "set-stock-image"; stockImageId: string | null; stockImageUrl?: string | null }
   | { type: "set-my-image"; myImage: MyImageSource | null }
   | { type: "set-text-options"; textOptions: MemeTextOptions }
   | { type: "set-aspect-ratio"; aspectRatio: AspectRatio }
@@ -41,7 +35,6 @@ export type BuilderAction =
 export interface BuilderInitArgs {
   initialName?: string;
   initialPronouns?: string;
-  initialStockImageId?: string;
   initialPendingState?: PendingBuilderState;
 }
 
@@ -49,8 +42,6 @@ export function buildInitialState(args: BuilderInitArgs): BuilderInternalState {
   const base: BuilderInternalState = {
     name: args.initialName ?? "",
     pronouns: args.initialPronouns ?? "they/them",
-    stockImageId: args.initialStockImageId ?? null,
-    stockImageUrl: null,
     myImage: null,
     textOptions: {},
     aspectRatio: "landscape",
@@ -69,12 +60,6 @@ export function reducer(state: BuilderInternalState, action: BuilderAction): Bui
       return { ...state, name: action.name };
     case "set-pronouns":
       return { ...state, pronouns: action.pronouns };
-    case "set-stock-image":
-      return {
-        ...state,
-        stockImageId: action.stockImageId,
-        stockImageUrl: action.stockImageUrl ?? null,
-      };
     case "set-my-image":
       return { ...state, myImage: action.myImage };
     case "set-text-options":
@@ -88,16 +73,7 @@ export function reducer(state: BuilderInternalState, action: BuilderAction): Bui
       if (p.pronouns !== undefined) next.pronouns = p.pronouns;
       if (p.aspectRatio) next.aspectRatio = p.aspectRatio;
       if (p.textOptions) next.textOptions = p.textOptions;
-      if (p.source) {
-        if (p.source.kind === "stock") {
-          next.stockImageId = p.source.stockImageId;
-          next.stockImageUrl = null;
-          next.myImage = null;
-        } else {
-          next.myImage = p.source.image;
-          next.stockImageId = null;
-        }
-      }
+      if (p.source) next.myImage = p.source.image;
       return next;
     }
   }
@@ -120,9 +96,7 @@ export function snapshotPendingState(args: {
 }): PendingBuilderState {
   const { factId, mode, entryFlow, state } = args;
   let source: PendingBuilderState["source"];
-  if (mode === "stock" && state.stockImageId) {
-    source = { kind: "stock", stockImageId: state.stockImageId };
-  } else if (mode === "self-upload" && state.myImage) {
+  if (mode === "self-upload" && state.myImage) {
     source = { kind: "self-upload", image: state.myImage };
   }
   return {

@@ -1,12 +1,12 @@
 /**
- * useBulkMediaBackfillActions — fires one of the three corpus-wide media
- * bulk-backfill routes (backfill-images, backfill-pexels, backfill-ai-memes)
- * and polls the returned jobs to a terminal state.
+ * useBulkMediaBackfillActions — fires a corpus-wide media
+ * bulk-backfill route (backfill-ai-memes; the image and Pexels backfills went
+ * with Pexels, launch Phase 4, removal 6) and polls the returned jobs to a terminal state.
  *
  * Same reference pattern as `useTaxonomyHealthActions.ts` (poll
  * `/admin/taxonomy-health/job-status` by concrete jobId, never time out a
  * legitimately long-running job, only surface a stall after 24h of zero
- * progress) but deliberately NOT that hook: the three routes return a
+ * progress) but deliberately NOT that hook: the route returns a
  * different response shape (`{ jobs: [{factId,jobId,label,deduped}], outcomes:
  * [{factId,status,reason,label}], summary }`, no `TaxonomyHealthAction`
  * typing, no selection scope — they always target the whole corpus) and
@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-export type BulkBackfillActionKey = "backfill_images" | "backfill_pexels" | "backfill_ai_memes";
+export type BulkBackfillActionKey = "backfill_ai_memes";
 
 interface BulkBackfillJob {
   factId: number;

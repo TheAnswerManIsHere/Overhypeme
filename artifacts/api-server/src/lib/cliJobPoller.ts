@@ -1,6 +1,6 @@
 /**
  * Shared poll-to-terminal helper for CLI bulk-backfill scripts
- * (backfill-pexels.ts, backfill-fact-pexels.ts, backfill-ai-memes.ts).
+ * (backfill-ai-memes.ts).
  *
  * Enqueue is not completion (AGENTS.md's async-status rule, applied to a CLI
  * surface instead of an HTTP one) — a script that enqueues jobs and exits
@@ -9,11 +9,11 @@
  * having already exited looking "done". This polls each job's `async_jobs`
  * row directly by id (not a fact-level status column, which two other,
  * documented races can leave stale or coarser than the real outcome — see
- * factPexelsJobs.ts/aiMemeBackfillJobs.ts) until it reaches a terminal state
+ * aiMemeBackfillJobs.ts) until it reaches a terminal state
  * or the batch stalls.
  *
  * The stall ceiling is a ZERO-PROGRESS ceiling, not a fixed total-batch
- * duration: the pexels/ai_meme_backfill lanes are serialized
+ * duration: the ai_meme_backfill lane is serialized
  * (maxConcurrency 1), so a large selection is processed strictly one job at a
  * time — a healthy worker steadily clearing a long queue can legitimately run
  * longer than any fixed cap sized for a small batch. Only give up once NO job

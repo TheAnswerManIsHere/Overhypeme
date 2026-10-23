@@ -18,16 +18,14 @@ describe("buildSaveMemePayload", () => {
     expect(buildSaveMemePayload({ state: baseState(), factId: 42 })).toBeNull();
   });
 
-  it("emits a stock imageSource when source.kind=stock", () => {
-    const state: WizardRuntimeState = {
+  it("never produces a stock imageSource: a stale stock source builds no payload", () => {
+    // Stock photos went with Pexels (launch Phase 4, removal 6); the server
+    // refuses the variant, so a source of that shape must not reach it.
+    const state = {
       ...baseState(),
-      mode: "stock",
       source: { kind: "stock", stockImageId: "999" },
-    };
-    const payload = buildSaveMemePayload({ state, factId: 42 });
-    expect(payload).not.toBeNull();
-    expect(payload!.imageSource).toEqual({ type: "stock", pexelsPhotoId: 999 });
-    expect("imageTransform" in payload!).toBe(false);
+    } as unknown as WizardRuntimeState;
+    expect(buildSaveMemePayload({ state, factId: 42 })).toBeNull();
   });
 
   it("emits an upload imageSource for a library photo, and no transform", () => {
@@ -47,8 +45,11 @@ describe("buildSaveMemePayload", () => {
   it("carries the visibility choice, defaulting to public when unset", () => {
     const state: WizardRuntimeState = {
       ...baseState(),
-      mode: "stock",
-      source: { kind: "stock", stockImageId: "999" },
+      mode: "self-upload",
+      source: {
+        kind: "self-upload",
+        image: { kind: "library", objectPath: "/objects/foo.jpg" },
+      },
     };
     // Drafts captured before the control existed have no isPublic field.
     expect(buildSaveMemePayload({ state, factId: 42 })!.isPublic).toBe(true);

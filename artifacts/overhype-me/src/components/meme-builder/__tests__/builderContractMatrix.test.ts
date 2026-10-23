@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ALL_ENTRY_FLOWS,
+  ALL_MODES,
   ALL_TIERS,
   resolveBehavior,
 } from "../behaviorMatrix";
@@ -10,7 +11,6 @@ import {
   type BuilderImageSource,
   type BuilderViewerCtx,
 } from "../integration/sourceKinds";
-import type { Mode } from "../types";
 
 /**
  * Regression net for task #495.
@@ -20,8 +20,9 @@ import type { Mode } from "../types";
  *   (a) the live-preview hook returns a non-null background URL whenever the
  *       picker has a default selection, and
  *   (b) on save, the resulting `imageSource` payload is the shape
- *       `composeMeme` expects (`type: "stock"` with a numeric pexelsPhotoId,
- *       or `type: "upload"` with an `/objects/`-prefixed uploadKey).
+ *       `composeMeme` expects (`type: "upload"` with an `/objects/`-prefixed
+ *       uploadKey; the stock variant went with Pexels, launch Phase 4,
+ *       removal 6).
  *
  * If a future change adds a new source kind, picker, or matrix cell without
  * wiring it through `sourceKinds.ts`, this test fails before the bug ships.
@@ -35,15 +36,10 @@ interface SourceCase {
   name: string;
   source: BuilderImageSource;
   /** Which sourceArea (from BehaviorCell) this case is valid for. */
-  sourceArea: "stock" | "my-image";
+  sourceArea: "my-image";
 }
 
 const SOURCE_CASES: SourceCase[] = [
-  {
-    name: "stock (preselected with hydrated URL)",
-    source: { kind: "stock", stockImageId: "1234", stockImageUrl: "https://images.pexels.com/1234.jpg" },
-    sourceArea: "stock",
-  },
   {
     name: "library (profile photo or any other library entry)",
     source: { kind: "library", objectPath: "/objects/uploads/lib.jpg" },
@@ -56,10 +52,8 @@ const SOURCE_CASES: SourceCase[] = [
   },
 ];
 
-const MODES: Mode[] = ["stock", "self-upload"];
-
 interface MatrixRow {
-  mode: Mode;
+  mode: (typeof ALL_MODES)[number];
   tier: (typeof ALL_TIERS)[number];
   entryFlow: (typeof ALL_ENTRY_FLOWS)[number];
   source: SourceCase;
@@ -67,7 +61,7 @@ interface MatrixRow {
 
 function expandMatrix(): MatrixRow[] {
   const rows: MatrixRow[] = [];
-  for (const mode of MODES) {
+  for (const mode of ALL_MODES) {
     for (const tier of ALL_TIERS) {
       for (const entryFlow of ALL_ENTRY_FLOWS) {
         const cell = resolveBehavior(mode, tier, entryFlow);
@@ -104,14 +98,8 @@ describe("builder contract: every (entryFlow × tier × source-kind) cell hydrat
     ({ source }) => {
       const server = toServerImageSource(source.source, VIEWER);
       expect(server).not.toBeNull();
-      if (server!.type === "stock") {
-        expect(typeof server!.pexelsPhotoId).toBe("number");
-        expect(Number.isFinite(server!.pexelsPhotoId)).toBe(true);
-        expect(server!.pexelsPhotoId).toBeGreaterThan(0);
-      } else {
-        expect(server!.type).toBe("upload");
-        expect(server!.uploadKey).toMatch(/^\/objects\//);
-      }
+      expect(server!.type).toBe("upload");
+      expect(server!.uploadKey).toMatch(/^\/objects\//);
     },
   );
 });

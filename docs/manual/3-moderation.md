@@ -109,7 +109,7 @@ A submission becomes a row in a review table with a coarse status
 (`pending/approved/rejected`) and a fine-grained **[workflow stage](../ai-context/glossary.md#workflow-stage)** that drives
 the three gates. Provisional approval creates an **inactive "[staging fact](../ai-context/glossary.md#staging-fact)"** — a
 real catalogue row that isn't published yet — and all the paid prep (AI
-classification, stock-image lookup) runs against *that*, with no renders yet;
+classification) runs against *that*, with no renders yet;
 test renders are a separate, later spend that only unlocks once the Visual
 Concept is approved. The live catalogue is never touched by in-progress work.
 Approving for production simply flips the staging fact to live.
@@ -242,7 +242,7 @@ or by anyone downstream, as if it did.
   admin screen are very different guarantees, and only the second one
   prevents a well-meaning admin from activating a legally-consequential
   integration before its safeguards exist.
-- **Cost-gating, in order.** Enrichment, image lookups, and renders all cost
+- **Cost-gating, in order.** Enrichment and renders both cost
   money. A cheap human triage gate first means no paid work runs on spam,
   duplicates, or low-quality submissions. → [Staged, cost-gated moderation](../ai-context/decisions.md)
 
@@ -295,7 +295,8 @@ or by anyone downstream, as if it did.
   [launch definition](../ai-context/launch-definition.md)). Until the launch
   programme's image phase ships that gate, approval works as the first
   sentence says. ([Stock images](../ai-context/glossary.md#stock-image) were a
-  further review aid; Pexels is removed in the launch programme's cut phase.)
+  further review aid until Pexels was deleted in the launch programme's cut
+  phase.)
 - **Visual ideas can fail or be absent.** Generation is a real AI call; a failed
   or never-generated state blocks gag approval with a clear "regenerate" action
   rather than a silent block — and a required step that never ran reads as "not

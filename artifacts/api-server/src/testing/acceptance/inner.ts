@@ -10,9 +10,10 @@
  *
  * Order: the detector's self-test (when asked) → for the fixture variant, the
  * committed fixture and the prompt pins → the account seed → the server, from
- * a constructed environment through its launcher → journeys 2, 3, 4 and 7 → in live mode
- * over the fixture, one Pexels-only legacy meme read → the server stopped, so
- * its teardown is observed too.
+ * a constructed environment through its launcher → journeys 2, 3, 4 and 7 → the
+ * server stopped, so its teardown is observed too. (Live mode over the fixture
+ * also read one Pexels-only legacy meme until launch Phase 4, removal 6 deleted
+ * stock photos.)
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -127,24 +128,6 @@ async function pinPrompts(databaseUrl: string): Promise<Array<{ key: string; dif
   return out;
 }
 
-/** One Pexels-only legacy meme read anonymously (live mode over the fixture; David, 2026-10-14, option 1). */
-async function readPexelsMeme(databaseUrl: string, base: string): Promise<Record<string, unknown>> {
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
-  const { rows } = await client.query<{ slug: string }>(
-    `SELECT permalink_slug AS slug FROM memes
-      WHERE image_source->>'type' = 'stock' AND NOT image_source ? 'photoUrl' AND is_public AND deleted_at IS NULL
-      ORDER BY id LIMIT 1`,
-  );
-  await client.end();
-  if (!rows[0]) return { ok: false, problem: "the fixture holds no public Pexels-only meme" };
-  const res = await fetch(`${base}/api/memes/${rows[0].slug}/image`);
-  const body = Buffer.from(await res.arrayBuffer());
-  if (res.status !== 200) return { ok: false, slug: rows[0].slug, problem: `${res.status} from the meme image route` };
-  const check = await checkImage(body, res.headers.get("content-type"));
-  return check.ok ? { ok: true, slug: rows[0].slug, ...check.image } : { ok: false, slug: rows[0].slug, problem: check.problem };
-}
-
 function storageEnv(work: string) {
   return {
     STORAGE_BACKEND: "local-double",
@@ -212,7 +195,6 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
     if (mode === "live") {
       Object.assign(values, {
         AI_RECORDER_LIVE: "1",
-        PEXELS_API_KEY: process.env.PEXELS_API_KEY,
         ARACHNID_SHIELD_USERNAME: process.env.ARACHNID_SHIELD_USERNAME || undefined,
         ARACHNID_SHIELD_PASSWORD: process.env.ARACHNID_SHIELD_PASSWORD || undefined,
       });
@@ -258,7 +240,6 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
       expectRenderFailure: cfg.control === "render-failure",
       ...(cfg.control === "corrupt-source" ? { beforeJourney4: (objectPath: string) => { out.corrupted = corruptStoredObject(cfg.work, objectPath); } } : {}),
     });
-    if (mode === "live" && cfg.variant === "fixture") out.pexelsMeme = await readPexelsMeme(cfg.databaseUrl, baseUrl);
   } finally {
     server.kill("SIGTERM");
     await new Promise<void>((r) => (server.exitCode !== null ? r() : server.once("exit", () => r())));

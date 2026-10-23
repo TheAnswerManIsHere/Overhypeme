@@ -43,7 +43,6 @@ export const RECORDER_ENV_ALLOWLIST: readonly string[] = [
 export const LIVE_ENV_ALLOWLIST: readonly string[] = [
   ...RECORDER_ENV_ALLOWLIST,
   "AI_RECORDER_LIVE",
-  "PEXELS_API_KEY",
   "ARACHNID_SHIELD_USERNAME",
   "ARACHNID_SHIELD_PASSWORD",
 ];

@@ -20,7 +20,6 @@ import { Buffer } from "node:buffer";
 import { generateMemeBuffer, type BackgroundSource, type FramingTransform, type TextOptions } from "./memeGenerator";
 import { renderPersonalized, CANONICAL_NAME } from "./renderCanonical";
 import { ObjectStorageService } from "./objectStorage";
-import { getPhotoById } from "./pexelsClient";
 import type { ImageSource } from "./validators/memeBuilder";
 import type { MemeAspectRatio } from "@workspace/api-zod";
 
@@ -153,8 +152,8 @@ export function resolveStoredMemeCaption(
  * new entry here. The `if` chain that lived here previously made
  * it easy for the two sides to drift; the table makes the contract explicit.
  *
- * The `IdentityProfileMissingError` and `StockPhotoUnresolvedError` semantics
- * are preserved — routes catch them and translate to 400 / 502 respectively.
+ * The `IdentityProfileMissingError` semantics are preserved — routes catch it
+ * and translate it to a 400.
  */
 type ResolverDeps = {
   objectStorage: ObjectStorageService;
@@ -167,25 +166,6 @@ type SourceResolver<T extends ImageSource["type"]> = (
 ) => Promise<BackgroundSource>;
 
 const SOURCE_RESOLVERS: { [K in ImageSource["type"]]: SourceResolver<K> } = {
-  stock: async (src) => {
-    // Re-resolve the photo URL via Pexels so that link rotations on their CDN
-    // don't break server-side renders. The optional `photoUrl` from the client
-    // is the fallback path used if the Pexels lookup fails — clients that only
-    // have the pexelsPhotoId on hand (the universal builder stores just the
-    // ID in its state) will surface the lookup failure as a 502 to the user.
-    let photoUrl: string | undefined = src.photoUrl;
-    try {
-      const photo = await getPhotoById(src.pexelsPhotoId);
-      photoUrl = photo.photoUrl;
-    } catch {
-      // Use the client-supplied URL as the fallback.
-    }
-    if (!photoUrl) {
-      throw new StockPhotoUnresolvedError(src.pexelsPhotoId);
-    }
-    return { type: "image", imageData: photoUrl };
-  },
-
   upload: async (src, deps) => {
     return downloadAsBackground(deps.objectStorage, src.uploadKey);
   },
@@ -227,9 +207,8 @@ async function resolveBackground(
 
 /**
  * Produce the rendered meme PNG/JPEG buffer. Pure with respect to its inputs:
- * the only ambient state read is the optional Pexels CDN lookup for stock
- * photos and the object-storage download for uploads — both deterministic for
- * a given (pexelsPhotoId / uploadKey).
+ * the only ambient state read is the object-storage download for an upload,
+ * deterministic for a given uploadKey.
  */
 export async function composeMeme(
   input: ComposeMemeInput,
@@ -258,19 +237,5 @@ export class IdentityProfileMissingError extends Error {
     super("Add a profile photo to create an identity meme.");
     this.name = "IdentityProfileMissingError";
     Object.setPrototypeOf(this, IdentityProfileMissingError.prototype);
-  }
-}
-
-/**
- * Thrown when a stock-mode render cannot resolve a photo URL — the Pexels
- * lookup failed AND the client did not supply a fallback `photoUrl`. Routes
- * catch this as a 502 so the user sees a transient-error message rather than
- * a stack trace.
- */
-export class StockPhotoUnresolvedError extends Error {
-  constructor(public readonly pexelsPhotoId: number) {
-    super(`Could not resolve Pexels photo ${pexelsPhotoId}`);
-    this.name = "StockPhotoUnresolvedError";
-    Object.setPrototypeOf(this, StockPhotoUnresolvedError.prototype);
   }
 }

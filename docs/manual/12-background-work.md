@@ -1,7 +1,7 @@
 # Chapter 12 · Background Work (Async Jobs)
 
 > How Overhype.me runs slow or external work — AI classification, image
-> generation, email, image search, moderation refresh cycles — without making
+> generation, email, moderation refresh cycles — without making
 > anyone wait on it, and how it stays visible to admins while it's happening.
 >
 > Deep spec: [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues),
@@ -12,8 +12,7 @@
 
 A lot of what Overhype.me does is too slow, too unreliable, or too expensive to
 do inline while someone's request is waiting: classifying a fact's joke
-mechanism with an LLM, generating an AI image, sending a transactional email,
-finding a [stock photo](../ai-context/glossary.md#stock-image), re-running [enrichment](../ai-context/glossary.md#enrichment) on hundreds of facts at once,
+mechanism with an LLM, generating an AI image, sending a transactional email, re-running [enrichment](../ai-context/glossary.md#enrichment) on hundreds of facts at once,
 repairing derived data. All of that runs as **[background work](../ai-context/glossary.md#background-work)** — recorded in
 the database rather than held in memory, so a server restart mid-run doesn't
 lose it. (One exception worth knowing: in a local setup with no email provider
@@ -53,7 +52,7 @@ imposes a timeout on a legitimately long job, is
 [`async-ui-status.md`](../ai-context/async-ui-status.md) — this chapter
 doesn't restate it. The **[Bulk Media Backfill](../ai-context/glossary.md#bulk-media-backfill)** panel (Admin → Taxonomy
 Health) is a second reference implementation of the same [two-altitude](../ai-context/glossary.md#two-altitudes)
-contract, for the corpus-wide stock-image and AI-meme backfill queues.
+contract, for the corpus-wide AI-meme backfill queue.
 
 ### The machinery
 
@@ -76,9 +75,10 @@ them is **who is waiting, and how much each job costs to run**:
   path. Someone clicked a button and is waiting to see it take effect.
 - **`render`** — single-item renders a moderator is watching a spinner for.
 - **`bulk`** — the catch-all for batch work nobody is watching in real time.
-- **`pexels`** and **`ai_meme_backfill`** — stock-image and AI-meme work for a
-  fact. Both spend money or rate-limit budget at an external provider, so what
-  matters here is protecting the bill, not finishing quickly.
+- **`ai_meme_backfill`** — AI-meme work for a fact. It spends money at an
+  external provider, so what matters here is protecting the bill, not
+  finishing quickly. (A lane for stock-image work went with Pexels before
+  launch; the record is in [`docs/retired/`](../retired/README.md).)
 
 That is what each lane is *for*. Everything quantitative about them — how many
 there are, how often each polls, how much runs at once, which queue is
@@ -233,9 +233,8 @@ elsewhere.
 - Code entry points: `lib/db/src/schema/asyncJobs.ts` (the table),
   `artifacts/api-server/src/lib/asyncJobs.ts` (the worker + lanes),
   `artifacts/overhype-me/src/components/admin/useTaxonomyHealthActions.ts` (the
-  reference UI polling pattern), `artifacts/api-server/src/lib/factPexelsJobs.ts`
-  and `artifacts/api-server/src/lib/aiMemeBackfillJobs.ts` (the `pexels` /
-  `ai_meme_backfill` queue handlers),
+  reference UI polling pattern), `artifacts/api-server/src/lib/aiMemeBackfillJobs.ts`
+  (the `ai_meme_backfill` queue handler),
   `artifacts/overhype-me/src/components/admin/useBulkMediaBackfillActions.ts`
   (the Bulk Media Backfill panel's polling hook),
   `lib/db/src/schema/workerLaneHeartbeats.ts` and

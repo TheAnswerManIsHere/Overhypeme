@@ -5,7 +5,7 @@ import { effectiveTierExpr } from "../lib/membershipState";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { logActivity } from "../lib/activity";
-import { trimPexelsImages, trimAiMemeImages } from "../lib/trimFactImages";
+import { trimAiMemeImages } from "../lib/trimFactImages";
 import { getConfigInt } from "../lib/adminConfig";
 import { db } from "@workspace/db";
 import {
@@ -82,7 +82,6 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
     createdAt: f.createdAt.toISOString(),
     updatedAt: f.updatedAt.toISOString(),
-    pexelsImages: trimPexelsImages((f.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null, imageCap),
     aiMemeImages: trimAiMemeImages((f.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null, imageCap),
   }));
 }
@@ -591,75 +590,6 @@ router.get("/facts/:factId/links", async (req: Request, res: Response) => {
   const links = rows.map((l) => ({ id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy: null, createdAt: l.createdAt.toISOString() }));
   res.json({ links });
 });
-
-// GET /facts/:factId/pexels-images — paginated Pexels images for "load more" UX
-router.get("/facts/:factId/pexels-images", async (req: Request, res: Response) => {
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
-
-  const gender = String(req.query["gender"] ?? "neutral");
-  if (!["male", "female", "neutral"].includes(gender)) {
-    res.status(400).json({ error: "Invalid gender — must be male, female, or neutral" }); return;
-  }
-  const rawOffset = parseInt(String(req.query["offset"] ?? "0"), 10);
-  const offset = isNaN(rawOffset) || rawOffset < 0 ? 0 : rawOffset;
-
-  const [fact] = await db.select().from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  const rawImages = fact.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null;
-
-  if (!rawImages) { res.json({ photos: [], hasMore: false }); return; }
-
-  const cap = await getConfigInt("api_images_per_gender_cap", 5);
-  const pageSize = Math.max(1, Math.min(cap, 20));
-  const allForGender = (rawImages[gender as "male" | "female" | "neutral"] ?? []) as {
-    id: number; url: string; photographer?: string; photographer_url?: string;
-  }[];
-
-  const page = allForGender.slice(offset, offset + pageSize);
-  const hasMore = offset + pageSize < allForGender.length;
-
-  const photos = page.map((entry) => ({
-    id: entry.id,
-    url: entry.url,
-    ...(entry.photographer !== undefined ? { photographer: entry.photographer } : {}),
-    ...(entry.photographer_url !== undefined ? { photographer_url: entry.photographer_url } : {}),
-  }));
-
-  res.json({ photos, hasMore });
-});
-
-// GET /facts/:factId/image-preference — authenticated user's saved image index
-router.get("/facts/:factId/image-preference", async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.isAuthenticated()) { res.json({ imageIndex: 0 }); return; }
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
-  const [pref] = await db
-    .select({ imageIndex: userFactPreferencesTable.imageIndex })
-    .from(userFactPreferencesTable)
-    .where(and(eq(userFactPreferencesTable.userId, req.user.id), eq(userFactPreferencesTable.factId, factId)))
-    .limit(1);
-  res.json({ imageIndex: pref?.imageIndex ?? 0 });
-});
-
-// PUT /facts/:factId/image-preference — save authenticated user's image index
-router.put("/facts/:factId/image-preference", async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
-  const imageIndex = parseInt(String((req.body as Record<string, unknown>)["imageIndex"] ?? "0"), 10);
-  if (isNaN(imageIndex) || imageIndex < 0 || imageIndex > 99) { res.status(400).json({ error: "Invalid imageIndex" }); return; }
-  await db
-    .insert(userFactPreferencesTable)
-    .values({ userId: req.user.id, factId, imageIndex })
-    .onConflictDoUpdate({
-      target: [userFactPreferencesTable.userId, userFactPreferencesTable.factId],
-      set: { imageIndex, updatedAt: new Date() },
-    });
-  res.json({ success: true, imageIndex });
-});
-
 
 // DELETE /facts/:factId/links/:linkId
 router.delete("/facts/:factId/links/:linkId", async (req: AuthenticatedRequest, res: Response) => {

@@ -142,9 +142,11 @@ deliberately excludes them and points here instead.
 - Single durable table **`async_jobs`** (`lib/db/src/schema/asyncJobs.ts`), a
   `queue` discriminator + JSON payload + `dedupeKey` + retry bookkeeping; status
   `pending → processing → done | failed`.
-- **Five independent scheduling lanes** (`asyncJobs.ts`, PR #216; `pexels` /
-  `ai_meme_backfill` added for the variant-independence bulk-backfill queues)
-  — `fast` / `render` / `bulk` / `pexels` / `ai_meme_backfill` — each with its
+- **Four independent scheduling lanes** (`asyncJobs.ts`, PR #216;
+  `ai_meme_backfill` added for the variant-independence bulk-backfill queue;
+  a fifth, `pexels`, went with Pexels in launch Phase 4, removal 6 —
+  [`docs/retired/README.md`](../retired/README.md))
+  — `fast` / `render` / `bulk` / `ai_meme_backfill` — each with its
   own poll timer, closure-local re-entrancy guard, claim-query queue filter,
   and concurrency bound, so a busy lane can never block another's progress:
   - `fast` — `fact_send_back`, `projection_repair` (pure-DB admin actions).
@@ -153,17 +155,15 @@ deliberately excludes them and points here instead.
   - `bulk` (default for any queue that doesn't set `{ lane }`) — `enrichment`,
     `fact_enrichment_backfill`, `fact_visual_concepts`, `email`,
     `review_render_scenarios_prepare`.
-  - `pexels` — `fact_pexels`, `maxConcurrency: 1` (preserves the old direct-call
-    route's Pexels rate-limit pacing now that the queue is the only path).
   - `ai_meme_backfill` — `fact_ai_meme_backfill`, `maxConcurrency: 1` (paid
     OpenAI/fal.ai calls, processed strictly one fact at a time).
   A queue's lane is set via `registerJobHandler(queue, handler, { lane })`; see
   [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
   (Check `asyncJobs.ts` for the live list of queues.)
 - **Poll intervals are per-lane defaults, all env-overridable.** `fast` 2s;
-  `render`, `bulk`, `pexels`, `ai_meme_backfill` 5s each
+  `render`, `bulk`, `ai_meme_backfill` 5s each
   (`DEFAULT_*_INTERVAL_MS`, `asyncJobs.ts`), each overridable via
-  `ASYNC_JOBS_FAST_INTERVAL_MS` / `_RENDER_` / `_WORKER_` / `_PEXELS_` /
+  `ASYNC_JOBS_FAST_INTERVAL_MS` / `_RENDER_` / `_WORKER_` /
   `_AI_MEME_BACKFILL_INTERVAL_MS`. Env override is the **only** way to change
   them — the old `intervalMs` argument is gone.
 - **Lane is orthogonal to retry and dedupe; ordering is per-lane, not
@@ -191,13 +191,14 @@ deliberately excludes them and points here instead.
   means `onAbandon` fires on the very first failure.
 - **Handler concurrency is not pool occupancy — don't equate them.** Per-lane
   `maxConcurrency` defaults are `fast` 2, `render` 3, `bulk` 3 (both from
-  `ASYNC_JOBS_MAX_CONCURRENCY`), `pexels` 1, `ai_meme_backfill` 1 — worst
-  case **10** concurrent handlers. `lib/db/src/index.ts` now sets the pool
+  `ASYNC_JOBS_MAX_CONCURRENCY`), `ai_meme_backfill` 1 — worst
+  case **9** concurrent handlers. `lib/db/src/index.ts` now sets the pool
   `max` explicitly to **20** (`POOL_MAX_DEFAULT`, overridable by
   `DB_POOL_MAX`), derived from measured production capacity rather than
   picked — deliberately double the lanes' worst case. **It was unset until
   the async-queue hardening work (PR #288)**, which meant pg's default of 10
-  against a worst-case demand of exactly 10.
+  against what was then a worst-case demand of exactly 10 (five lanes,
+  before the `pexels` lane was removed).
   Even so, do not read handler count as connection count in either
   direction: `maxConcurrency` bounds concurrent *handler promises*, not
   checked-out clients. `asyncJobsTick` **commits and releases the claim
@@ -237,7 +238,7 @@ deliberately excludes them and points here instead.
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
   The boot path passes the cutoff explicitly so it can never silently use a
   shorter one.
-- Per-fact status mirrors on `facts` (`enrichmentStatus`, `pexelsStatus`,
+- Per-fact status mirrors on `facts` (`enrichmentStatus`,
   `visualConceptStatus`: `pending | ok | failed`).
 - **Enqueue is not completion** — never report a job "done" at enqueue time; poll
   its terminal state. UI must show per-item + aggregate status (see
@@ -393,18 +394,19 @@ deliberately excludes them and points here instead.
   pooled) → `budget = 450 − 7 − 5 (migration/console/admin burst) − 40
   (headroom) = 398`, `max = min(20, floor(398 / max_instances))` evaluated
   by hand at the observed fleet size, not by the running process. 20 doubles
-  the five lanes' **default** worst-case simultaneous demand (fast 2 +
-  render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1 = 10) and holds for any
+  the five lanes' **default** worst-case simultaneous demand as it stood
+  then (fast 2 + render 3 + bulk 3 + pexels 1 + ai_meme_backfill 1 = 10;
+  9 since the `pexels` lane was removed) and holds for any
   autoscale ceiling up to 19 instances at those defaults; past 19 instances
   (or with `DB_POOL_MAX` unset and a larger fleet), the constant does **not**
   adjust itself — an operator must manually re-run the `floor(398 / N)`
   arithmetic for the new ceiling and set `DB_POOL_MAX` explicitly. Each
   lane's concurrency is independently
   environment-configurable (`ASYNC_JOBS_FAST_MAX_CONCURRENCY`,
-  `_RENDER_`, `_PEXELS_`, `_AI_MEME_BACKFILL_MAX_CONCURRENCY`, and the
+  `_RENDER_`, `_AI_MEME_BACKFILL_MAX_CONCURRENCY`, and the
   `bulk`-lane/legacy fallback `ASYNC_JOBS_MAX_CONCURRENCY`) with **no
   aggregate cap** tying them together — raising any of these past its
-  default moves the real worst-case demand above 10, so `DB_POOL_MAX` needs
+  default moves the real worst-case demand above 9, so `DB_POOL_MAX` needs
   reconsidering whenever lane concurrency changes, not only when the
   autoscale ceiling does. This closes the "no default spare connection" gap
   the five-lane expansion (PR #256, adding `pexels`/`ai_meme_backfill` on top

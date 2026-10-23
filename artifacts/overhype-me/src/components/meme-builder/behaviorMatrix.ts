@@ -18,22 +18,21 @@ import type {
   Tier,
 } from "./types";
 
-function headerKey(entryFlow: EntryFlow, sourceArea: "stock" | "my-image"): HeaderCopyKey {
+function headerKey(entryFlow: EntryFlow): HeaderCopyKey {
   if (entryFlow === "remix") return "make-this-your-own";
-  if (entryFlow === "cold-permalink") {
-    if (sourceArea === "my-image") return "see-with-your-face";
-    return "see-with-your-name";
-  }
+  if (entryFlow === "cold-permalink") return "see-with-your-face";
   return "build-your-meme";
 }
 
 export function resolveBehavior(
-  mode: Mode,
+  _mode: Mode,
   tier: Tier,
   entryFlow: EntryFlow,
 ): BehaviorCell {
   // ── Invalid: self-upload requires registration ────────────────────────
-  if (mode === "self-upload" && tier === "unregistered") {
+  // (Stock photos were the one source open to an unregistered viewer; they
+  // went with Pexels, launch Phase 4, removal 6.)
+  if (tier === "unregistered") {
     return {
       invalid: true,
       upgradeTo: "registered",
@@ -45,31 +44,7 @@ export function resolveBehavior(
     };
   }
 
-  // ── stock × * (valid for every tier) ──────────────────────────────────
-  if (mode === "stock") {
-    const visibleActions: Action[] =
-      tier === "unregistered"
-        ? ["download", "signup-cta"]
-        : ["download", "save", "share"];
-
-    const postSave: BehaviorCell["postSave"] =
-      tier === "unregistered"
-        ? "none"
-        : entryFlow === "cold-permalink"
-          ? "share"
-          : "back-to-fact";
-
-    return {
-      invalid: false,
-      visibleActions,
-      headerCopyKey: headerKey(entryFlow, "stock"),
-      sourceArea: "stock",
-      postSave,
-    };
-  }
-
   // ── self-upload × registered/legendary ────────────────────────────────
-  // (unregistered already returned above)
   const visibleActions: Action[] = ["download", "save", "share"];
   const postSave: BehaviorCell["postSave"] =
     entryFlow === "cold-permalink" ? "share" : "back-to-fact";
@@ -77,7 +52,7 @@ export function resolveBehavior(
   return {
     invalid: false,
     visibleActions,
-    headerCopyKey: headerKey(entryFlow, "my-image"),
+    headerCopyKey: headerKey(entryFlow),
     sourceArea: "my-image",
     postSave,
   };
@@ -87,7 +62,7 @@ export function resolveBehavior(
  * Enumerate every cell. Used by tests + Storybook-equivalent mockups so we
  * can iterate the entire matrix without coupling tests to the implementation.
  */
-export const ALL_MODES: Mode[] = ["stock", "self-upload"];
+export const ALL_MODES: Mode[] = ["self-upload"];
 export const ALL_TIERS: Tier[] = ["unregistered", "registered", "legendary"];
 export const ALL_ENTRY_FLOWS: EntryFlow[] = [
   "cold-permalink",

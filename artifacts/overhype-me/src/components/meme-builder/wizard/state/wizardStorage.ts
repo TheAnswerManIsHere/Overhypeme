@@ -34,9 +34,7 @@ export interface PendingWizardState {
   factId: string;
   entryFlow: EntryFlow;
   mode?: Mode;
-  source?:
-    | { kind: "stock"; stockImageId: string }
-    | { kind: "self-upload"; image: MyImageSource };
+  source?: { kind: "self-upload"; image: MyImageSource };
   aspectRatio?: AspectRatio;
   framingOffset?: FramingOffset;
   name?: string;
@@ -106,18 +104,31 @@ export function restoreWizardState(factId: string): PendingWizardState | null {
     return null;
   }
 
+  let draft: PendingWizardState = parsed;
+
+  // Launch Phase 4, removal 6: stock photos went with Pexels. A draft that had
+  // the stock source selected loses that pick (the user lands back on the
+  // picker) and keeps everything else; a retired "stock" mode reads as the
+  // only mode left.
+  if ((draft.source as { kind?: string } | undefined)?.kind === "stock") {
+    draft = { ...draft, source: undefined };
+  }
+  if (draft.mode !== undefined && (draft.mode as string) !== "self-upload") {
+    draft = { ...draft, mode: "self-upload" };
+  }
+
   // Launch Phase 4, removal 3: AI styling went with PuLID. A draft that picked
   // an AI styling loses that pick (the user lands back on the picker); a draft
   // on an ordinary photo keeps it, without its stale stylize flag.
-  if (parsed.source?.kind === "self-upload") {
-    const legacy = parsed.source as { image: { kind: string } };
+  if (draft.source?.kind === "self-upload") {
+    const legacy = draft.source as { image: { kind: string } };
     if (legacy.image.kind === "ai-styling") {
-      return { ...parsed, source: undefined };
+      return { ...draft, source: undefined };
     }
-    return { ...parsed, source: { kind: "self-upload", image: parsed.source.image } };
+    return { ...draft, source: { kind: "self-upload", image: draft.source.image } };
   }
 
-  return parsed;
+  return draft;
 }
 
 export function clearWizardState(factId: string): void {

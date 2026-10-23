@@ -755,11 +755,32 @@ export const GetStorageObjectParams = zod.object({
 /**
  * @summary Create a meme from a fact and a background image
  */
+export const createMemeBodyImageSourceOneUploadKeyMax = 500;
+
+export const createMemeBodyImageSourceOneUploadKeyRegExp = new RegExp(
+  "^\/objects",
+);
 export const createMemeBodyTextOptionsFontSizeMin = 14;
 export const createMemeBodyTextOptionsFontSizeMax = 48;
 
 export const CreateMemeBody = zod.object({
   factId: zod.number(),
+  imageSource: zod
+    .union([
+      zod.object({
+        type: zod.enum(["upload"]),
+        uploadKey: zod
+          .string()
+          .max(createMemeBodyImageSourceOneUploadKeyMax)
+          .regex(createMemeBodyImageSourceOneUploadKeyRegExp),
+      }),
+      zod.object({
+        type: zod.enum(["identity"]),
+      }),
+    ])
+    .describe(
+      "The meme's background: an uploaded photo the caller owns, or the caller's profile photo. (Stock photos and the gradient templates were deleted in launch Phase 4, removals 5 and 6.)",
+    ),
   textOptions: zod
     .object({
       fontSize: zod

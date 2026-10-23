@@ -46,18 +46,6 @@ export const factsTable = pgTable("facts", {
    * renderer falls back to the legacy midpoint heuristic when null.
    */
   splitTokenIndex: integer("split_token_index"),
-  /** LLM-extracted Pexels image IDs per gender variant. Populated by factImagePipeline. */
-  pexelsImages: jsonb("pexels_images"),
-  /**
-   * Image-prep lifecycle for the durable `fact_pexels` queue:
-   * "pending" | "ok" | "failed". Set "pending" when the queue job is enqueued,
-   * "ok" when photos land, "failed" only after the queue abandons (retries
-   * exhausted) — so it stays distinct from "still running". Null on facts that
-   * never ran image prep through the queue (legacy rows; live-fact edits that
-   * fire-and-forget via runFactImagePipeline). Mirrors `enrichment_status`;
-   * surfaced per-fact in the moderation prep UI.
-   */
-  pexelsStatus: varchar("pexels_status", { length: 16 }),
   /**
    * Candidate Visual concepts (Slice 2A). The frontier planner auto-drafts 3
    * distinct "describe the picture" scenes during prep; the moderator picks /
@@ -76,7 +64,7 @@ export const factsTable = pgTable("facts", {
    * "pending" | "ok" | "failed". Set "pending" when the concept job is enqueued,
    * "ok" when candidates land, "failed" only after the queue abandons — so it
    * stays distinct from "still running". Null on facts that never ran concept
-   * gen through the queue. Mirrors `pexels_status` / `enrichment_status`.
+   * gen through the queue. Mirrors `enrichment_status`.
    */
   visualConceptStatus: varchar("visual_concept_status", { length: 16 }),
   /** LLM-generated scene prompts for AI meme backgrounds (3 gender variants). */
@@ -86,7 +74,7 @@ export const factsTable = pgTable("facts", {
   /**
    * AI-meme backfill lifecycle for the durable `fact_ai_meme_backfill` queue:
    * "pending" | "processing" | "ok" | "failed" | "skipped". Mirrors
-   * `pexels_status` exactly, with two extra values this queue's crash-recovery
+   * `enrichment_status`'s lifecycle, with two extra values this queue's crash-recovery
    * design needs: "processing" (set immediately before the paid pipeline call,
    * so a worker crash mid-run is distinguishable from a queued-but-not-started
    * job) and "skipped" (a terminal, non-error outcome — the fact was

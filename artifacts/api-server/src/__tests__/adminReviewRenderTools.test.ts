@@ -1,6 +1,5 @@
 /**
  * Integration tests for the moderation render-review tools in routes/reviews.ts:
- *   GET  /admin/reviews/:id/pexels-images
  *   POST /admin/reviews/:id/render
  *   GET  /admin/reviews/:id/renders/:renderJobId
  *
@@ -54,26 +53,6 @@ const VALID_ENRICHMENT: FactEnrichment = {
   semanticEntities: [],
 };
 
-const PEXELS_IMAGES = {
-  fact_type: "action" as const,
-  keywords: { male: "man lifting", female: "woman lifting", neutral: "person lifting" },
-  male: [
-    { id: 101, url: "https://images.pexels.com/legacy-101.jpg", photographer: "Ada L", photographer_url: "https://pexels.com/@ada" },
-  ],
-  female: [
-    {
-      id: 201,
-      url: "https://images.pexels.com/legacy-201.jpg",
-      src: { large2x: "https://images.pexels.com/201-large2x.jpg", large: "https://images.pexels.com/201-large.jpg" },
-      photographer: "Bo P",
-    },
-  ],
-  neutral: [
-    { id: 301, url: "https://images.pexels.com/legacy-301.jpg" },
-    { id: 302, url: "https://images.pexels.com/legacy-302.jpg" },
-  ],
-};
-
 const insertedFactIds: number[] = [];
 
 function makeApp(): Express {
@@ -111,8 +90,6 @@ async function seedReview(opts: {
   stage?: string;
   withStaging?: boolean;
   enrichment?: unknown;
-  pexelsImages?: unknown;
-  pexelsStatus?: "pending" | "ok" | "failed" | null;
 }): Promise<{ reviewId: number; stagingFactId: number | null }> {
   let stagingFactId: number | null = null;
   if (opts.withStaging !== false) {
@@ -123,8 +100,6 @@ async function seedReview(opts: {
         submittedById: opts.submittedById,
         isActive: false,
         enrichment: (opts.enrichment ?? VALID_ENRICHMENT) as FactEnrichment,
-        pexelsImages: (opts.pexelsImages ?? null) as never,
-        pexelsStatus: opts.pexelsStatus ?? null,
       })
       .returning({ id: factsTable.id });
     stagingFactId = fact!.id;
@@ -240,52 +215,6 @@ describe("resolveRenderReviewInput", () => {
     assert.equal(a.renderedFactText, b.renderedFactText);
     assert.deepEqual(a.renderControls, b.renderControls);
     assert.deepEqual(a.identityPolicy, b.identityPolicy);
-  });
-});
-
-// ── GET /admin/reviews/:id/pexels-images ──────────────────────────────────────
-
-describe("GET /admin/reviews/:id/pexels-images", () => {
-  it("401 unauthenticated, 403 non-admin", async () => {
-    const { reviewId } = await seedReview({ submittedById: plainId, pexelsStatus: "ok", pexelsImages: PEXELS_IMAGES });
-    const anon = await request(makeApp()).get(`/admin/reviews/${reviewId}/pexels-images`);
-    assert.equal(anon.status, 401);
-    const nonAdmin = await request(makeApp()).get(`/admin/reviews/${reviewId}/pexels-images`).set("authorization", `Bearer ${plainSid}`);
-    assert.equal(nonAdmin.status, 403);
-  });
-
-  it("serves the staging (inactive) fact's images across all genders, preferring src urls", async () => {
-    const { reviewId } = await seedReview({ submittedById: plainId, pexelsStatus: "ok", pexelsImages: PEXELS_IMAGES });
-    const res = await request(makeApp()).get(`/admin/reviews/${reviewId}/pexels-images`).set("authorization", `Bearer ${adminSid}`);
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.pexelsStatus, "ok");
-    assert.equal(res.body.factType, "action");
-    assert.equal(res.body.images.neutral.length, 2);
-    // Legacy entry (only `url`) still renders.
-    assert.equal(res.body.images.male[0].url, "https://images.pexels.com/legacy-101.jpg");
-    assert.equal(res.body.images.male[0].photographer, "Ada L");
-    // Prefers src.large2x when present.
-    assert.equal(res.body.images.female[0].url, "https://images.pexels.com/201-large2x.jpg");
-  });
-
-  it("ok + zero images is distinct from pending/failed", async () => {
-    const { reviewId } = await seedReview({
-      submittedById: plainId,
-      pexelsStatus: "ok",
-      pexelsImages: { fact_type: "abstract", male: [], female: [], neutral: [] },
-    });
-    const res = await request(makeApp()).get(`/admin/reviews/${reviewId}/pexels-images`).set("authorization", `Bearer ${adminSid}`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.pexelsStatus, "ok");
-    assert.equal(res.body.images.male.length + res.body.images.female.length + res.body.images.neutral.length, 0);
-  });
-
-  it("returns empty + null status when there is no staging fact", async () => {
-    const { reviewId } = await seedReview({ submittedById: plainId, withStaging: false, stage: "triage_pending" });
-    const res = await request(makeApp()).get(`/admin/reviews/${reviewId}/pexels-images`).set("authorization", `Bearer ${adminSid}`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.pexelsStatus, null);
-    assert.equal(res.body.images.neutral.length, 0);
   });
 });
 

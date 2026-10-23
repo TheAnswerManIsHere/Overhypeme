@@ -42,19 +42,19 @@ visual concept."*
 
 So, for **every** metadata layer:
 
-- A variant owns its **own** enrichment/taxonomy, Visual Concept, stock
-  (`pexelsImages`) and AI (`aiMemeImages`) images, and memes.
+- A variant owns its **own** enrichment/taxonomy, Visual Concept, AI
+  (`aiMemeImages`) images, and memes (and owned its own Pexels stock images
+  until they went with Pexels in launch Phase 4, removal 6).
 - A variant **never displays, borrows, or falls back to** its root's metadata.
-  If a variant has no stock images of its own, it has none — the picker must not
+  If a variant has no images of its own, it has none — nothing may
   substitute the root's.
 - **A variant can GENERATE its own images, not just display them (PR #256).**
-  `admin.ts`'s `refresh-images`/`backfill-images`/`backfill-pexels`/
-  `backfill-ai-memes` (and, until launch Phase 4 deleted them, the user-facing
-  AI meme/PuLID routes) all now operate on any active fact, root or variant — the
-  root-only 400s ("AI meme generation only supported on root facts") are
-  removed. The three bulk-backfill routes also converted from blocking/
-  direct-call to a durable async queue (`fact_pexels` / `fact_ai_meme_backfill`
-  lanes — see [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues)).
+  `admin.ts`'s `backfill-ai-memes` (and, until launch Phase 4 deleted them,
+  the Pexels `refresh-images`/`backfill-images`/`backfill-pexels` routes and
+  the user-facing AI meme/PuLID routes) operates on any active fact, root or
+  variant — the root-only 400s ("AI meme generation only supported on root
+  facts") are removed. It runs through a durable async queue
+  (`fact_ai_meme_backfill` lane — see [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues)).
   **Still treat any new `isNull(factsTable.parentId)` / `parentId !== null`
   guard on an images/enrichment/AI-generation path as suspect** — the exact
   list of root-only sites was under-enumerated twice during PR #256's review
@@ -77,7 +77,7 @@ So, for **every** metadata layer:
 **When you find code that makes a variant read its parent's metadata, that is a
 bug, not a feature** — fix it toward independence rather than mirroring it into
 new code paths. (`enrichmentVersioning.ts`'s field-preservation invariant
-already treats `parentId`, `pexelsImages`, and `aiMemeImages` as variant-owned;
+already treats `parentId` and `aiMemeImages` as variant-owned;
 that is the correct pattern.)
 
 ## Source-of-truth boundaries

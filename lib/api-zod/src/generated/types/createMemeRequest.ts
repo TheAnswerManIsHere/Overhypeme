@@ -5,9 +5,11 @@
  * API specification for Overhype.me
  * OpenAPI spec version: 0.1.0
  */
+import type { MemeImageSource } from "./memeImageSource";
 import type { MemeTextOptions } from "./memeTextOptions";
 
 export interface CreateMemeRequest {
   factId: number;
+  imageSource: MemeImageSource;
   textOptions?: MemeTextOptions;
 }

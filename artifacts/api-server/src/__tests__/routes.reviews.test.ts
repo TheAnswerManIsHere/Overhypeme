@@ -10,8 +10,7 @@
  *   parent-not-found, success)
  * - GET /activity-feed + /mark-read (user auth)
  *
- * The full /approve success path is left out — it kicks off the
- * Pexels image pipeline, which needs external API access.
+ * The full /approve success path is left out — it needs external API access.
  */
 
 import { describe, it, before, after, afterEach } from "node:test";
@@ -37,7 +36,6 @@ import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP, FACT_SUBMIT_MAX } from "../lib/rateLimit.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
-import { runFactPexelsJob, factPexelsJobHandler } from "../lib/factPexelsJobs.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -266,7 +264,7 @@ describe("POST /facts/submit-review", () => {
     assert.deepEqual(row.hashtags, ["coffee", "strength"]);
   });
 
-  it("COST GATE: submission enqueues no enrichment / pexels / embedding jobs", async () => {
+  it("COST GATE: submission enqueues no enrichment / embedding jobs", async () => {
     const userId = await createTestUser();
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
@@ -281,7 +279,7 @@ describe("POST /facts/submit-review", () => {
       .from(asyncJobsTable)
       .where(
         and(
-          inArray(asyncJobsTable.queue, ["enrichment", "fact_pexels"]),
+          inArray(asyncJobsTable.queue, ["enrichment"]),
           sql`${asyncJobsTable.payload}->>'reviewId' = ${String(reviewId)}`,
         ),
       );
@@ -410,7 +408,6 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
     assert.equal(fact.isActive, false, "staging fact must be inactive");
     assert.equal(fact.parentId, null);
-    assert.equal(fact.pexelsStatus, "pending", "image prep marked pending so the UI shows working");
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.workflowStage, "prep_pending");
@@ -419,7 +416,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const jobs = await enrichmentJobsForFact(stagingFactId);
     assert.equal(jobs.length, 1, "exactly one fact-backed enrichment job");
     const pexels = await pexelsJobsForFact(stagingFactId);
-    assert.equal(pexels.length, 1, "exactly one fact-backed pexels job");
+    assert.equal(pexels.length, 0, "no stock-photo job: staging prep is enrichment only since launch Phase 4, removal 6");
   });
 
   it("is idempotent on re-click: no second fact, no duplicate job", async () => {
@@ -440,8 +437,6 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     assert.equal(facts.length, 1, "no second staging fact");
     const jobs = await enrichmentJobsForFact(stagingFactId);
     assert.equal(jobs.length, 1, "no duplicate enrichment job");
-    const pexels = await pexelsJobsForFact(stagingFactId);
-    assert.equal(pexels.length, 1, "no duplicate pexels job");
   });
 
   it("as variant: sets parentId and still enqueues fact-backed enrichment", async () => {
@@ -533,104 +528,6 @@ describe("staging-fact enrichment stage advancement", () => {
     });
     assert.equal(result.ok, true);
     assert.equal(classifyCalled, true);
-  });
-});
-
-describe("fact_pexels durable image-prep queue", () => {
-  it("success: seeds images, leaves the workflow stage untouched (Pexels never gates)", async () => {
-    const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} surfs a tsunami", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
-    const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} surfs a tsunami", submittedById: submitterId, status: "pending",
-      workflowStage: "prep_pending", stagingFactId: fact.id,
-    }).returning();
-
-    let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, false, {
-      seed: async (id) => {
-        seedCalled = true;
-        // Mirror seedFactPexelsImagesOnce's terminal write so the assertion is real.
-        await db.update(factsTable).set({ pexelsStatus: "ok", pexelsImages: { fact_type: "action", male: [], female: [], neutral: [] } }).where(eq(factsTable.id, id));
-      },
-    });
-    assert.equal(result.ok, true);
-    assert.equal(seedCalled, true);
-
-    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
-    assert.equal(f.pexelsStatus, "ok");
-    // Image prep does NOT advance the review — enrichment owns that gate.
-    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "prep_pending");
-  });
-
-  it("COST GUARD: skips paid image seeding when the linked review is resolved (rejected/approved)", async () => {
-    const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} tames a dragon", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
-    await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} tames a dragon", submittedById: submitterId, status: "rejected",
-      workflowStage: "production_rejected", stagingFactId: fact.id,
-    });
-
-    let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, false, { seed: async () => { seedCalled = true; } });
-    assert.equal(result.ok, true);
-    assert.equal(seedCalled, false, "no paid Pexels/OpenAI work after the review is resolved");
-  });
-
-  it("image prep continues running while the review is in production_review (unresolved)", async () => {
-    const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} tames a dragon", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
-    const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} tames a dragon", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: fact.id,
-    }).returning();
-
-    let seedCalled = false;
-    const result = await runFactPexelsJob(fact.id, false, {
-      seed: async (id) => {
-        seedCalled = true;
-        await db.update(factsTable).set({ pexelsStatus: "ok", pexelsImages: { fact_type: "action", male: [], female: [], neutral: [] } }).where(eq(factsTable.id, id));
-      },
-    });
-    assert.equal(result.ok, true);
-    assert.equal(seedCalled, true, "Pexels seed should run while review is in production_review");
-
-    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
-    assert.equal(f.pexelsStatus, "ok");
-    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "production_review");
-  });
-
-  it("retryable failure: returns error and leaves pexels_status pending (still running, not failed)", async () => {
-    const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} outruns light", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
-    await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} outruns light", submittedById: submitterId, status: "pending",
-      workflowStage: "prep_pending", stagingFactId: fact.id,
-    });
-
-    const result = await runFactPexelsJob(fact.id, false, { seed: async () => { throw new Error("pexels 503"); } });
-    assert.equal(result.ok, false);
-
-    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
-    assert.equal(f.pexelsStatus, "pending", "a retryable failure must NOT mark failed — that's reserved for abandon");
-  });
-
-  it("onAbandon: marks pexels_status failed without touching the workflow stage", async () => {
-    const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} bottles lightning", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
-    const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: "{NAME} bottles lightning", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: fact.id,
-    }).returning();
-
-    await factPexelsJobHandler.onAbandon!({ payload: { factId: fact.id }, id: 999 } as never);
-
-    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
-    assert.equal(f.pexelsStatus, "failed");
-    // Abandon must not regress/advance the moderation stage — moderator can still approve.
-    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
-    assert.equal(r.workflowStage, "production_review");
   });
 });
 
@@ -751,7 +648,7 @@ describe("GET /admin/reviews/:id", () => {
     );
   });
 
-  it("hydrates the staging fact's prep status (enrichment + pexels) once prep starts", async () => {
+  it("hydrates the staging fact's prep status (enrichment) once prep starts", async () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
@@ -766,14 +663,14 @@ describe("GET /admin/reviews/:id", () => {
     assert.equal(detail.body.workflowStage, "prep_pending");
     assert.ok(detail.body.stagingFact, "staging fact hydrated");
     assert.equal(detail.body.stagingFact.enrichmentStatus, "pending");
-    assert.equal(detail.body.stagingFact.pexelsStatus, "pending");
+    assert.equal("pexelsStatus" in detail.body.stagingFact, false, "no stock-photo status since removal 6");
     assert.equal(detail.body.stagingFact.isActive, false);
 
     // The list endpoint carries the same lightweight prep slice per row.
     const list = await request(makeApp()).get(`/admin/reviews?status=pending`).set("authorization", `Bearer ${sid}`);
-    const row = (list.body.reviews as { id: number; stagingFact: { pexelsStatus: string } | null }[]).find((x) => x.id === r.id);
+    const row = (list.body.reviews as { id: number; stagingFact: { enrichmentStatus: string } | null }[]).find((x) => x.id === r.id);
     assert.ok(row?.stagingFact, "list row carries staging prep slice");
-    assert.equal(row!.stagingFact!.pexelsStatus, "pending");
+    assert.equal(row!.stagingFact!.enrichmentStatus, "pending");
   });
 });
 

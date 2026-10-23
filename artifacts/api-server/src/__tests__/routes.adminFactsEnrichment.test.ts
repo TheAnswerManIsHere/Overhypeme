@@ -126,16 +126,14 @@ describe("GET /admin/facts/:id", () => {
       ...buildFactEnrichmentColumns(VALID),
       aiScenePrompts: { foo: "bar" },
       aiMemeImages: { foo: "bar" },
-      pexelsImages: { foo: "bar" },
     });
     const res = await request(adminApp).get(`/api/admin/facts/${id}`);
     assert.equal(res.status, 200);
     assert.equal("embedding" in res.body, false);
     assert.equal("aiScenePrompts" in res.body, false);
     assert.equal("aiMemeImages" in res.body, false);
-    assert.equal("pexelsImages" in res.body, false);
-    // but the derived presence flags are present
-    assert.equal(typeof res.body.hasPexelsImages, "boolean");
+    // but the derived presence flag is present
+    assert.equal(typeof res.body.hasEmbedding, "boolean");
   });
 
   it("404s an unknown fact and 400s a non-positive id", async () => {

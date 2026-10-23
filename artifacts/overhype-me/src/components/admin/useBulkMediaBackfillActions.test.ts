@@ -5,8 +5,7 @@
  * moves counts from queued into done/failed/still-running; a route-level skip
  * outcome counts toward `skipped` without ever being polled; a handler-level
  * skip (done + {skipped:true}) counts toward `skipped`, NOT `done`; large
- * batches poll in chunks; itemOutcomes exposes labeled failed/skipped items;
- * independent action keys don't clobber each other's state.
+ * batches poll in chunks; itemOutcomes exposes labeled failed/skipped items.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
@@ -53,14 +52,14 @@ describe("useBulkMediaBackfillActions", () => {
     );
     const { result } = renderHook(() => useBulkMediaBackfillActions());
     await act(async () => {
-      await result.current.submit("backfill_images", "/api/admin/facts/backfill-images");
+      await result.current.submit("backfill_ai_memes", "/api/admin/facts/backfill-ai-memes");
     });
-    const postCall = calls.find((c) => c.method === "POST" && c.url.includes("backfill-images"));
+    const postCall = calls.find((c) => c.method === "POST" && c.url.includes("backfill-ai-memes"));
     expect(postCall).toBeTruthy();
-    expect(result.current.counts("backfill_images")).toEqual({
+    expect(result.current.counts("backfill_ai_memes")).toEqual({
       requested: 2, queued: 2, done: 0, failed: 0, skipped: 0, running: 2, stillRunning: 0,
     });
-    expect(result.current.busy("backfill_images")).toBe(true);
+    expect(result.current.busy("backfill_ai_memes")).toBe(true);
   });
 
   it("polling moves jobs from queued into done/failed and stops being busy once terminal", async () => {
@@ -80,15 +79,15 @@ describe("useBulkMediaBackfillActions", () => {
     );
     const { result } = renderHook(() => useBulkMediaBackfillActions());
     await act(async () => {
-      await result.current.submit("backfill_pexels", "/api/admin/backfill-pexels");
+      await result.current.submit("backfill_ai_memes", "/api/admin/facts/backfill-ai-memes");
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); });
 
-    expect(result.current.counts("backfill_pexels")).toEqual({
+    expect(result.current.counts("backfill_ai_memes")).toEqual({
       requested: 2, queued: 2, done: 1, failed: 1, skipped: 0, running: 0, stillRunning: 0,
     });
-    expect(result.current.busy("backfill_pexels")).toBe(false);
-    expect(result.current.itemOutcomes("backfill_pexels")).toEqual([
+    expect(result.current.busy("backfill_ai_memes")).toBe(false);
+    expect(result.current.itemOutcomes("backfill_ai_memes")).toEqual([
       { label: "fact two", status: "failed", error: "boom" },
     ]);
   });
@@ -130,14 +129,14 @@ describe("useBulkMediaBackfillActions", () => {
     );
     const { result } = renderHook(() => useBulkMediaBackfillActions());
     await act(async () => {
-      await result.current.submit("backfill_images", "/api/admin/facts/backfill-images");
+      await result.current.submit("backfill_ai_memes", "/api/admin/facts/backfill-ai-memes");
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); });
 
-    const counts = result.current.counts("backfill_images");
+    const counts = result.current.counts("backfill_ai_memes");
     expect(counts?.done).toBe(0);
     expect(counts?.skipped).toBe(1);
-    expect(result.current.itemOutcomes("backfill_images")).toEqual([
+    expect(result.current.itemOutcomes("backfill_ai_memes")).toEqual([
       { label: "deactivated mid-flight", status: "skipped", error: null },
     ]);
   });
@@ -164,33 +163,14 @@ describe("useBulkMediaBackfillActions", () => {
     expect(totalPolled).toBe(450);
   });
 
-  it("independent action keys track state separately", async () => {
-    mockFetch(
-      {
-        success: true,
-        jobs: [{ factId: 1, jobId: 501, label: "fact one", deduped: false }],
-        outcomes: [],
-        summary: { requested: 1, queued: 1, skipped: 0 },
-      },
-      [],
-    );
-    const { result } = renderHook(() => useBulkMediaBackfillActions());
-    await act(async () => {
-      await result.current.submit("backfill_images", "/api/admin/facts/backfill-images");
-    });
-    expect(result.current.busy("backfill_images")).toBe(true);
-    expect(result.current.busy("backfill_pexels")).toBe(false);
-    expect(result.current.counts("backfill_pexels")).toBeNull();
-  });
-
   it("a non-ok response surfaces an error and clears posting without throwing", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: "nope" }), { status: 403 }));
     vi.stubGlobal("fetch", fetchMock);
     const { result } = renderHook(() => useBulkMediaBackfillActions());
     await act(async () => {
-      await result.current.submit("backfill_images", "/api/admin/facts/backfill-images");
+      await result.current.submit("backfill_ai_memes", "/api/admin/facts/backfill-ai-memes");
     });
     expect(result.current.error).toBe("Not authorized.");
-    expect(result.current.busy("backfill_images")).toBe(false);
+    expect(result.current.busy("backfill_ai_memes")).toBe(false);
   });
 });

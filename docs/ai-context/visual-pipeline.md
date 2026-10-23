@@ -5,10 +5,10 @@
 > touching it. Primary code: `artifacts/api-server/src/lib/imagePrompt/` (planner
 > + compiler), `imagePromptJobs.ts` (production), and `lib/api-zod/src/` schemas.
 >
-> **Do not confuse two "image" pipelines:** `factImagePipeline.ts` is the **Pexels
-> stock-photo seeding** path (builder backgrounds; uses the shared utility LLM —
-> `openai-general`, `gpt-6-luna` by default — only to extract search keywords) — it is **NOT** where meme renders are planned. The
-> render-time meme pipeline is `imagePrompt/` + `imagePromptJobs.ts`.
+> **One image pipeline plans renders:** `imagePrompt/` + `imagePromptJobs.ts`.
+> The Pexels stock-photo seeding path (`factImagePipeline.ts`) that used to be
+> confused with it was deleted with Pexels in launch Phase 4, removal 6
+> ([`docs/retired/pexels.md`](../retired/pexels.md)).
 
 ## Current source of truth
 
@@ -472,7 +472,7 @@ only the AI background backfill). Making outputs identical needs temp 0 or resul
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
   path is the **frontier planner (`gpt-5.5`) + Nano Banana 2** (`nano-banana-2` /
   `nano-banana-2-edit`). (The utility LLM — `gpt-6-luna` since it replaced `gpt-4o-mini`
-  on 2026-10-13 — serves utility/Pexels keywords only; FLUX Pro only on the AI
+  on 2026-10-13 — serves utility calls only; FLUX Pro only on the AI
   background backfill.)
 - An enrichment-time visual-preview phase (retired; render-time plan/compiler is
   the source of truth).

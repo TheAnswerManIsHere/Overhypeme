@@ -14,9 +14,6 @@ export interface VerdictInput {
   detector?: Pick<DetectorVerdict, "problems"> & { violations: { sink: unknown[]; syscall: unknown[] } };
   setupError?: string;
   innerError?: string;
-  /** Live mode over the fixture only: the Pexels-only meme read. */
-  pexelsMeme?: { ok?: boolean } | null;
-  requirePexelsMeme?: boolean;
 }
 
 export const EXPECTED_JOURNEYS = ["2", "3", "4", "7"] as const;
@@ -53,6 +50,5 @@ export function redReasons(v: VerdictInput): string[] {
     const n = v.detector.violations.sink.length + v.detector.violations.syscall.length;
     if (n > 0) red.push(`detector: ${n} outbound attempt(s) recorded after the self-test`);
   }
-  if (v.requirePexelsMeme && !v.pexelsMeme?.ok) red.push(`the Pexels-only meme read: ${JSON.stringify(v.pexelsMeme ?? null)}`);
   return red;
 }

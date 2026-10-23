@@ -119,7 +119,6 @@ export function operations(photoSha256: string): Operation[] {
       min: 1,
       required: always,
     },
-    { key: "keywords", journey: "3", description: "the stock-photo keyword extractor", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You extract Pexels stock photo search keywords"), usable: parsesAsObject, min: 1, required: always },
     { key: "enrichment", journey: "3", description: "the fact enrichment classifier", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You are the fact enrichment classifier"), usable: parsesAsObject, min: 1, required: always },
     { key: "visual-concepts", journey: "3", description: "the Visual Concept ideator", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("Visual-concept ideator"), usable: parsesAsObject, min: 1, required: always },
     { key: "image-prompts", journey: "3", description: "the image-prompt generator (three review renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 3, required: always },

@@ -82,16 +82,15 @@ const ALLOW_ALL: MemeAuthorizationDecisions = {
 };
 
 describe("createMemeRecord — image variant", () => {
-  it("persists a stock-photo meme with the expected shape", async () => {
+  it("persists an upload-photo meme with the expected shape", async () => {
     const userId = await createTestUser();
     const factId = await insertFact();
     const result = await createMemeRecord({
       userId,
       factId,
       imageSource: {
-        type: "stock",
-        pexelsPhotoId: 12345,
-        photoUrl: "https://example.com/x.jpg",
+        type: "upload",
+        uploadKey: "/objects/uploads/t_cmr_shape.jpg",
       },
       aspectRatio: "landscape",
       decisions: ALLOW_ALL,
@@ -106,7 +105,7 @@ describe("createMemeRecord — image variant", () => {
       .where(eq(memesTable.id, result.memeId))
       .limit(1);
     assert.ok(row, "meme row should exist");
-    assert.equal(row.templateId, "photo_stock");
+    assert.equal(row.templateId, "photo_upload");
     assert.equal(row.factId, factId);
     assert.equal(row.createdById, userId);
     assert.equal(row.aspectRatio, "landscape");
@@ -119,8 +118,8 @@ describe("createMemeRecord — image variant", () => {
       userId,
       factId,
       imageSource: {
-        type: "stock" as const,
-        pexelsPhotoId: 67890,
+        type: "upload" as const,
+        uploadKey: "/objects/uploads/t_cmr_idem.jpg",
       },
       aspectRatio: "square" as const,
       decisions: ALLOW_ALL,

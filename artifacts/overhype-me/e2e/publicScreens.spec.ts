@@ -133,11 +133,12 @@ test.describe("Public described screens", () => {
 
     await openImageStep(page, 522);
     // Nothing of the root's is offered. The AI source went with PuLID (launch Phase 4,
-    // removal 3), so the step offers only Your photo and Stock.
-    const source = page.getByRole("tablist", { name: "Source" });
-    await expect(source.getByRole("tab", { name: "Your photo" })).toBeVisible();
-    await expect(source.getByRole("tab", { name: /ai you/i })).toHaveCount(0);
-    await expect(source.getByRole("tab", { name: "Your photo" })).toHaveAttribute("aria-selected", "true");
+    // removal 3) and the stock source with Pexels (removal 6), so the step has one
+    // source -- the viewer's own photo (this logged-out viewer is asked to sign up for it)
+    // -- and no source switcher at all.
+    await expect(page.getByText("Sign up to create a meme using your photo")).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Source" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /ai you|stock/i })).toHaveCount(0);
     const rendered = await page.locator("img").evaluateAll((els) => els.map((e) => new URL((e as HTMLImageElement).src).pathname));
     for (const p of rootImagePaths) {
       expect(rendered, `the variant's pages must not render the root's AI image ${p}`).not.toContain(p);

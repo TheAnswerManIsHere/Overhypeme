@@ -6,7 +6,12 @@
  * "anonymous" / "free" alias from the original brief.
  */
 
-export type Mode = "stock" | "self-upload";
+/**
+ * The builder's image-source mode. "self-upload" is the only one: stock photos
+ * went with Pexels (launch Phase 4, removal 6; `docs/retired/README.md`). A
+ * saved draft that still says "stock" is normalised on restore.
+ */
+export type Mode = "self-upload";
 
 export type Tier = "unregistered" | "registered" | "legendary";
 
@@ -83,9 +88,7 @@ export interface PendingBuilderState {
   entryFlow: EntryFlow;
   name?: string;
   pronouns?: string;
-  source?:
-    | { kind: "stock";        stockImageId: string }
-    | { kind: "self-upload"; image: MyImageSource };
+  source?: { kind: "self-upload"; image: MyImageSource };
   textOptions?: MemeTextOptions;
   aspectRatio?: AspectRatio;
 }
@@ -104,10 +107,9 @@ export interface MemeBuilderProps {
   factText: string;
   viewerContext: ViewerContext;
   entryFlow: EntryFlow;
-  initialStockImageId?: string;
   initialName?: string;
   initialPronouns?: string;
-  /** When set, supersedes initialName/initialPronouns/initialStockImageId. */
+  /** When set, supersedes initialName/initialPronouns. */
   initialPendingState?: PendingBuilderState;
   onComplete: (result: BuilderResult) => void;
   onCancel: () => void;
@@ -133,8 +135,8 @@ export interface BehaviorCell {
   visibleActions: Action[];
   /** Header copy key — copy.ts owns the strings. */
   headerCopyKey: HeaderCopyKey;
-  /** When true the source area is rendered as MyImagePicker; otherwise StockImagePicker. */
-  sourceArea: "stock" | "my-image";
+  /** The source area is always MyImagePicker (the stock picker went with Pexels). */
+  sourceArea: "my-image";
   /** Default post-save behavior the parent should run. */
   postSave: "share" | "back-to-fact" | "none";
 }

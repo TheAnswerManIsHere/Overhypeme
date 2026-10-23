@@ -240,7 +240,7 @@ async function stubFactWrites(page: Page, rows: AdminFactRow[], stagingIds: numb
     if (proposed === undefined || proposed === row.text) return fulfill(route, { success: true, fact: row });
     if (stagingIds.includes(row.id)) {
       row.text = proposed;
-      const prepDispatch = { factId: row.id, enrichment: { status: "pending", inserted: false }, pexels: { status: "pending", inserted: false } };
+      const prepDispatch = { factId: row.id, enrichment: { status: "pending", inserted: false } };
       return fulfill(route, { success: true, prepDispatch, fact: row });
     }
     if (!confirmTextEdit) {

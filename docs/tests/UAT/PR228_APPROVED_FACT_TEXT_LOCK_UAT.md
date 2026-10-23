@@ -134,15 +134,14 @@ that prep is restarting.
 **Do:** Back in Moderation, check that review's stage after the text edit
 in step 10, and try to production-approve it right away.
 
-**Expect:** the review is back at the prep stage, re-running enrichment and
-images; you cannot production-approve it until fresh prep + Visual Concept
+**Expect:** the review is back at the prep stage, re-running enrichment; you cannot production-approve it until fresh prep + Visual Concept
 complete.
 
 **Lane:** ci
 
 **Check:** `artifacts/api-server/src/__tests__/confirmedFactTextEdit.test.ts:first-time staging edit restarts prep (text written, signature cleared, enrichmentStatus pending, review → prep_pending)` `artifacts/api-server/src/__tests__/moderationWorkflow.guards.test.ts:canProductionApprove: still production_review-only (never concept_review)`; `artifacts/api-server/src/__tests__/routes.admin.test.ts:restarts prep on an inactive staging fact at concept_review: 200, review to prep_pending, one enrichment job queued`; `artifacts/api-server/src/__tests__/routes.reviews.test.ts:refuses a review still at prep_pending with 409 and leaves its staging fact inactive`
 
-**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen showing the restarted review at the prep stage is rebuilt in Phase 13; #628 — Phase 4 (Cut and prune) — the images prep it re-runs is the Pexels job that the cut deletes
+**Deferred:** #628 — Phase 13 (Admin console) — the Moderation screen showing the restarted review at the prep stage is rebuilt in Phase 13
 
 ### 12. A variant mid-review does not block the root fact's re-word
 
@@ -166,7 +165,7 @@ expectation would now fail through no fault of the product.
 
 **Do:** Provisionally accept a new submission.
 
-**Expect:** prep starts as before (enrichment + images).
+**Expect:** prep starts as before (enrichment).
 
 **Lane:** ci
 
@@ -212,4 +211,4 @@ field, and Save.
   Taxonomy Health — that's intended; send it back to review to refresh its
   taxonomy against the new wording.
 - A first-time staging text edit **restarting prep** (re-running
-  enrichment/images) is intended, not a regression.
+  enrichment) is intended, not a regression.

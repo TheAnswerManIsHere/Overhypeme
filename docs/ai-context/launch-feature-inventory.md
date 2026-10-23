@@ -46,7 +46,7 @@ routes, delete, git keeps it) · **your call**.
 | A24 | `/library` | Self-view only; no public profiles | doc | see Journey C |
 | A25 | **Legal pages (Terms, Privacy)** | **Do not exist** — no route, page or link | absent | **fix for launch** — a launch gate given payments, photo uploads, email and analytics; David supplies or approves the text |
 | A26 | 404 page | Not-found | code | ship |
-| A27 | Orphan public endpoints: fact links (`GET/DELETE /facts/:id/links`), fact Pexels images | No doc, no known caller | code only | investigate; delete if dead |
+| A27 | Orphan public endpoints: fact links (`GET/DELETE /facts/:id/links`), fact Pexels images | No doc, no known caller | code only | investigate; delete if dead. *The fact Pexels images route was deleted 2026-10-23 with Pexels (Phase 4, removal 6); the fact links routes are removal 11's* |
 
 ### Decisions — Journey A (David, 2026-10-05)
 
@@ -120,8 +120,8 @@ routes, delete, git keeps it) · **your call**.
 | C9 | **Report content** | **Does not exist** (no route for facts, memes or comments) | doc | your call: minimal "Report" → admin queue for launch (recommended for a site hosting images of real people), or `next` |
 | C10 | Author notifications | Activity + email on approve/reject | doc | ship, verify |
 | C11 | Library tabs (Liked, Submissions, My Memes, My Images, Search History, Activity) | Self-view | doc | ship, verify each tab |
-| C12 | Per-user fact image preference | Which image shows for a fact | code only | verify it's wired in UI; else delete |
-| C13 | Per-user AI-meme preference | Which AI background shows | code only | verify it's wired in UI; else delete |
+| C12 | Per-user fact image preference | Which image shows for a fact | code only | verify it's wired in UI; else delete. *Not wired; deleted 2026-10-23 with Pexels (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
+| C13 | Per-user AI-meme preference | Which AI background shows | code only | verify it's wired in UI; else delete. *Not wired; deleted 2026-10-23 with Pexels (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | C14 | Fact variants | Admin-side; queued not published | PR242/PR256 UATs | Journey I |
 
 ### Decisions — Journey C (David, 2026-10-05, partial)
@@ -161,7 +161,7 @@ routes, delete, git keeps it) · **your call**.
 |---|---|---|
 | D1 | Meme Builder Wizard (only live builder) | ship (core); delete legacy `MemeStudio.tsx` / `components/MemeBuilder.tsx` (unreachable, flag pinned on). *Deleted 2026-10-22 (Phase 4, removal 1); the meme page's remix builder is the other live builder ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
 | D2 | Template/gradient backgrounds | ship, verify. *Deleted 2026-10-23 (Phase 4, removal 5; ledger [`docs/retired/README.md`](../retired/README.md))* |
-| D3 | Pexels stock photos | ship, verify (licence terms noted for compliance phase) |
+| D3 | Pexels stock photos | ship, verify (licence terms noted for compliance phase). *Deleted 2026-10-23 (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | D4 | Photo upload (free tier), JPEG only | fix for launch: accept PNG + HEIC with server-side conversion; verify on iPhone; delete vestigial `meme_upload_photo` flag |
 | D5 | Use my profile photo | ship, verify |
 | D6 | Reference-photo i2i AI memes (Legendary) | ship (paid core); drain PR222/PR223 UATs. *Deleted 2026-10-22 with PuLID (Phase 4, removal 3; ledger [`docs/retired/README.md`](../retired/README.md))*; face-in-scene returns in Phase 7 |
@@ -201,7 +201,7 @@ routes, delete, git keeps it) · **your call**.
 - **D7, D8 (the user render poll) and D10**: their routes are called only by the legacy studio, which D1 deletes; no verification is done on them (David, 2026-10-17; [`decisions.md`](./decisions.md#2026-10-17--verification-work-tied-to-the-legacy-meme-studio-is-killed)). Deleted in launch Phase 4, removal 1, except D7's route, which the meme page's remix builder also called: it outlived the studio photo-only and went with PuLID in removal 3. D9's gallery picker and D11's delete route were the studio's too and went with it ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **D27** **"My content"**: one place showing every upload/generation with per-item delete; B24 builds on it. Launch.
 - **D14** Speech bubbles: "crucial … never finished building and testing." Scope pending: moderation-side only (recommended) vs end-user editing too.
-- **D21** Option (b): anonymous preview only; download/save/share need a verified account ("part of the upsell").
+- **D21** Option (b): anonymous preview only; download/save/share need a verified account ("part of the upsell"). *Since 2026-10-23 (Phase 4, removal 6) an anonymous visitor can preview nothing: stock was the only background a signed-out caller could render, and the plan accepts the gap until Phase 7's hero renders give the free preview a background.*
 - **D22, D26, D4** fix for launch. **D28** delete. D1 legacy builders deleted; vestigial flag deleted.
 - **D9 / privacy model:** revisit public/private end to end — "make sure that private stuff doesn't get shared"; **only self-uploaded or self-created images are available to a user for new memes**; shared gallery = approved generic fact renders only (no faces by construction). A privacy-model review with one rule enforced in one place + tests. Launch.
 
@@ -287,7 +287,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Refunds & Disputes | ship |
 | Affiliate | **cut** (merch). *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | Video Styles | **cut** (video deleted) |
-| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5)* |
+| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5); the stock picker limit and Pexels photo count 2026-10-23 (removal 6)* |
 | Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3* |
 | Taxonomy Health | ship (proven tonight) |
 | Features (tier × feature grid) | ship; **becomes the Legendary definition** (F21) + beta overlay later |
@@ -339,7 +339,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 | # | Feature | Recommendation |
 |---|---|---|
 | K1 | Zazzle affiliate | cut. *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
-| K2 | Pexels | moderation research only (user-facing stock removed, D3); keep |
+| K2 | Pexels | moderation research only (user-facing stock removed, D3); keep. *Deleted entirely 2026-10-23 (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | K3 | Eval dashboard | keep (engine evaluation) |
 | K4 | Engines catalogue | prune video + PuLID; winner of the engine evaluation becomes default; **set a default `llm` engine** (tonight's fallback warning). *Video and PuLID pruned 2026-10-22 (Phase 4, removals 2 and 3)* |
 | K5 | Video styles | cut |

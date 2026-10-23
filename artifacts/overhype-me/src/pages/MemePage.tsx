@@ -27,8 +27,7 @@ import { MemeShareModal } from "@/components/share/MemeShareModal";
 import type { EntryFlow, Mode } from "@/components/meme-builder/types";
 
 interface StoredImageSource {
-  type?: string;
-  pexelsPhotoId?: number;
+  type?: "upload" | "identity";
   templateId?: string;
 }
 
@@ -61,7 +60,6 @@ type MemeResult =
 interface BuilderInvocation {
   mode: Mode;
   entryFlow: EntryFlow;
-  initialStockImageId?: string;
   initialName?: string;
   initialPronouns?: string;
 }
@@ -76,11 +74,6 @@ export default function MemePage() {
   const [, params] = useRoute("/m/:slug");
   const { user, role } = useAuth();
   const slug = params?.slug ?? "";
-  // Task #507: open the builder in self-upload mode whenever the viewer has
-  // ANY profile photo on file (first-party upload or external Clerk/OAuth
-  // URL). The picker will surface library uploads only, so the first-party
-  // case still gets a tappable thumbnail.
-  const hasProfileImage = !!user?.profileImageUrl;
 
   const searchParams = new URLSearchParams(
     typeof window !== "undefined" ? window.location.search : "",
@@ -161,10 +154,6 @@ export default function MemePage() {
     justCreated,
   });
 
-  const initialStockImageId =
-    meme.imageSource?.type === "stock" && typeof meme.imageSource.pexelsPhotoId === "number"
-      ? String(meme.imageSource.pexelsPhotoId)
-      : undefined;
   // The fact's tokenized template (e.g. `"{NAME} fought a bear"`) is what
   // the builder needs in order to substitute the new viewer's name. The
   // /api/memes/:slug payload only carries the rendered factText (creator's
@@ -197,9 +186,8 @@ export default function MemePage() {
 
   const openMakeAboutMe = () => {
     if (!factTemplateReady) return;
-    const wantsSelfUpload = hasProfileImage;
     setBuilder({
-      mode: wantsSelfUpload ? "self-upload" : "stock",
+      mode: "self-upload",
       entryFlow: "remix",
     });
   };
@@ -207,9 +195,8 @@ export default function MemePage() {
   const openAnonSeeWithName = (args: { initialName?: string; initialPronouns?: string }) => {
     if (!factTemplateReady) return;
     setBuilder({
-      mode: "stock",
+      mode: "self-upload",
       entryFlow: "cold-permalink",
-      initialStockImageId,
       initialName: args.initialName,
       initialPronouns: args.initialPronouns,
     });
@@ -386,9 +373,8 @@ export default function MemePage() {
         onClose={() => setBuilder(null)}
         factId={meme.factId}
         factText={factTemplate}
-        mode={builder?.mode ?? "stock"}
+        mode={builder?.mode ?? "self-upload"}
         entryFlow={builder?.entryFlow ?? "remix"}
-        initialStockImageId={builder?.initialStockImageId}
         initialName={builder?.initialName}
         initialPronouns={builder?.initialPronouns}
       />

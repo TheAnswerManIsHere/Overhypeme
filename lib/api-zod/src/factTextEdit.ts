@@ -69,5 +69,4 @@ export interface ApprovedFactTextEditImpact {
 export interface PrepDispatchState {
   factId: number;
   enrichment: { status: string; inserted: boolean };
-  pexels: { status: string; inserted: boolean };
 }

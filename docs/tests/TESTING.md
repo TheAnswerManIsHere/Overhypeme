@@ -112,7 +112,7 @@ contradiction — they belong to different runners.
   Same isolation guarantee, slower setup.
 - Shard count auto-selects `min(nproc, 4)`.
 - **No dev/prod data is copied** — only structure. Tests that need rows (facts,
-  pricing, moderation state, Pexels JSON, …) must create them explicitly in the
+  pricing, moderation state, enrichment JSON, …) must create them explicitly in the
   test or a focused factory/helper.
 
 **Targeted — `bash artifacts/api-server/scripts/run-test.sh <file>`:**
@@ -293,7 +293,7 @@ cache matters only across processes. A previewing admin always resolves as
 ([`membership-entitlements.md`](../ai-context/membership-entitlements.md)), so
 a fixture keyed to `membershipTier` is wrong on the preview path.
 
-External services (Pexels, object storage, pricing, embeddings, image
+External services (object storage, pricing, embeddings, image
 generation, Stripe) must be stubbed/mocked or disabled with test-mode helpers in
 any of the above — no real credentials or network. See
 `.agents/memory/test-db-isolation.md`, `test-schema-isolation.md`,
@@ -604,15 +604,17 @@ missing).
 **The report** (`acceptance-report.json` and `.md`, in `--report-dir`, which
 the workflow uploads) names the commit, the recordings' listing hash, the
 fixture manifest digest, each journey's outcome and evidence, each expected
-operation's evidence, the detector's verdict, the prompt pins, and the
-deferrals: the fixture's Pexels-only stock memes, which no acceptance journey
-reads.
+operation's evidence, the detector's verdict, and the prompt pins. (It
+also listed deferrals, the fixture's Pexels-only stock memes; those memes are
+soft-deleted since Pexels went in launch Phase 4, removal 6, and the list is
+empty.)
 
 **The live check** runs the same journeys against the real vendors, on the
 Repl only, never in CI: before each launch stage and whenever a vendor client
 library is upgraded. Same-run reuse is off, so no recording stands in for a
 current answer, and the report must show a usable current answer for every
-expected operation, plus, over the fixture, one Pexels-only legacy meme read.
+expected operation. (It also read one Pexels-only legacy meme over the
+fixture until Pexels went in launch Phase 4, removal 6.)
 Its cap is $5 per invocation (David, 2026-10-14), separate from the recording
 ceiling; more needs `--allowance-raised-by-david <YYYY-MM-DD>`. Like every paid AI run, it starts only on David's go-ahead in words for that run (`decisions.md`, 2026-10-17).
 
@@ -816,8 +818,7 @@ DATABASE_URL=… pnpm exec tsx scripts/acceptance-run.ts --mode replay --control
 Each run creates a fresh test database on that server, seeds the test
 accounts, boots the API with a constructed environment and local storage,
 drives the baseline, and drops the database. Several AI calls are
-best-effort in the product (hashtag suggestions, stock-photo keywords, the
-duplicate judge), so a journey can pass over a call the recordings do not
+best-effort in the product (hashtag suggestions, the duplicate judge), so a journey can pass over a call the recordings do not
 cover; the replay therefore also fails, naming each one, when any baseline
 call had no recording or was answered by a recorded vendor error it did not
 ask for (only `AI_DOUBLE_FAIL` asks).

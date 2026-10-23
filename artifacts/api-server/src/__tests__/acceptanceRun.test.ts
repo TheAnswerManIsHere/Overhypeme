@@ -468,12 +468,10 @@ describe("the completion rule", () => {
       coverage: [{ key: "photo-upload", journey: "7", description: "", status: "missing", calls: 1, detail: "0 usable" }],
       uncovered: ["openai.chat gpt-6-luna"],
       detector: { problems: [], violations: { sink: [{}], syscall: [] } },
-      requirePexelsMeme: true,
-      pexelsMeme: { ok: false },
     });
     assert.deepEqual(
       red.map((r) => r.split(":")[0]),
-      ["journey 4 was never reported", "journey 7 not-run", "operation photo-upload (journey 7)", "uncovered AI call", "detector", "the Pexels-only meme read"],
+      ["journey 4 was never reported", "journey 7 not-run", "operation photo-upload (journey 7)", "uncovered AI call", "detector"],
     );
   });
 });
@@ -521,7 +519,7 @@ describe("the live check's cap", () => {
   it("refuses more than $5 without the date David raised it", () => {
     const r = spawnSync(process.execPath, ["--import", "tsx/esm", "scripts/acceptance-run.ts", "--mode", "live", "--allowance", "6"], {
       cwd: API_ROOT,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: process.env.DATABASE_URL, FAL_AI_API_KEY: "x", OPENAI_API_KEY: "x", PEXELS_API_KEY: "x" },
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: process.env.DATABASE_URL, FAL_AI_API_KEY: "x", OPENAI_API_KEY: "x" },
       encoding: "utf8",
     });
     assert.equal(r.status, 2);

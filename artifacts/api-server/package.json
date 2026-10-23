@@ -17,7 +17,6 @@
     "check:no-console": "node scripts/check-no-console.mjs",
     "cleanup:subject-name-entities": "tsx scripts/cleanup-subject-name-semantic-entities.ts",
     "backfill:ai-memes": "tsx scripts/backfill-ai-memes.ts",
-    "backfill:pexels": "tsx scripts/backfill-pexels.ts",
     "migrate:ai-backgrounds": "tsx scripts/migrate-ai-backgrounds.ts",
     "migrate:ai-backgrounds-v2": "tsx scripts/migrate-ai-backgrounds-v2.ts",
     "migrate:storage-keys": "tsx scripts/migrate-storage-keys.ts",

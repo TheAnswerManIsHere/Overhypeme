@@ -457,7 +457,7 @@ describe("POST /admin/taxonomy-health/job-status — accepts the ADMIN_API_KEY h
     else process.env.ADMIN_API_KEY = previousKey;
   });
 
-  it("an unauthenticated request bearing the valid api key can poll job-status — the backfill-images/backfill-ai-memes automation this key already authenticates otherwise has no way to learn job outcomes", async () => {
+  it("an unauthenticated request bearing the valid api key can poll job-status — the backfill-ai-memes automation this key already authenticates otherwise has no way to learn job outcomes", async () => {
     const unauthedApp = buildTestApp({ kind: "unauthenticated" }, adminTaxonomyHealthRouter);
     const res = await request(unauthedApp)
       .post("/api/admin/taxonomy-health/job-status")

@@ -19,7 +19,7 @@
  * COST GUARD: concepts are only useful while the review is unresolved. If the
  * review is missing / resolved (approved/rejected) by the time the job runs, the
  * handler writes NOTHING and retires as a successful no-op — mirroring the
- * enrichment / Pexels queues.
+ * enrichment queue.
  *
  * GATING: Visual Ideas are the Step 2 (Visual Concept) gate's "ideas generated"
  * artifact — a BLOCKING prep artifact, not best-effort. "approve-visual-concept"
@@ -195,7 +195,7 @@ export async function runVisualConceptsJob(
   const resolved = await resolveVisualConceptCycle(reviewId);
   if (!resolved.ok) {
     // COST GUARD / no-op: review resolved or has no usable enrichment. Write
-    // nothing and retire the job successfully (mirrors enrichment/Pexels).
+    // nothing and retire the job successfully (mirrors enrichment).
     logger.info({ reviewId, factId, reason: resolved.reason }, "[fact_visual_concepts] no-op (unresolvable cycle)");
     return { ok: true };
   }

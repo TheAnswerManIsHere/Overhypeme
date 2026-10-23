@@ -23,6 +23,26 @@ import {
 } from "@workspace/api-zod";
 
 import { ImageSourceSchema, TextOptionsSchema } from "../../lib/validators/memeBuilder";
+
+/**
+ * A stored meme recipe: the live sources plus the two older code wrote and the
+ * rows still hold (soft-deleted by migrations 0106 and 0107 when they were
+ * live). The export reads history, so it describes history; the request
+ * validator describes only what a request may send today.
+ */
+const StoredImageSourceSchema = z.discriminatedUnion("type", [
+  ...ImageSourceSchema.options,
+  z.object({
+    type: z.literal("stock"),
+    pexelsPhotoId: z.number().int().positive(),
+    photoUrl: z.string().url().max(2000).optional(),
+    photographerName: z.string().max(200).optional(),
+  }),
+  z.object({
+    type: z.literal("template"),
+    templateId: z.string().min(1).max(50),
+  }),
+]);
 import { defaultPreviewSubjectForGender } from "../../lib/imagePrompt/resolveRenderReviewInput";
 import { CANONICAL_NAME } from "../../lib/renderCanonical";
 import { ShapeStop, placeholderHashtagsFor, rerootRules, structuralDeep, walk, type PathRules, type WalkContext } from "./walker";
@@ -37,7 +57,6 @@ export type ShapeName =
   | "visualConceptCandidatesBlob"
   | "aiScenePrompts"
   | "aiMemeImages"
-  | "factPexelsImages"
   | "visualPlan"
   | "compiledPrompt"
   | "renderControls"
@@ -206,22 +225,6 @@ const aiMemeImagesProjection = z.object({
   neutral: z.array(z.string()),
 }).partial();
 
-/** `FactPexelsImages` (factImagePipeline.ts:33-43) over `PexelsPhotoEntry` (pexelsClient.ts:51-57). */
-const pexelsPhotoEntryProjection = z.object({
-  id: z.number(),
-  url: z.string(),
-  photographer: z.string().optional(),
-  photographer_url: z.string().optional(),
-  src: z.record(z.string(), z.string()).optional(),
-});
-const factPexelsImagesProjection = z.object({
-  fact_type: z.enum(["action", "abstract"]),
-  male: z.array(pexelsPhotoEntryProjection),
-  female: z.array(pexelsPhotoEntryProjection),
-  neutral: z.array(pexelsPhotoEntryProjection),
-  keywords: z.object({ male: z.string(), female: z.string(), neutral: z.string() }).optional(),
-});
-
 /** `CompiledImagePrompt` (imagePrompt/types.ts:163-185) with its sections and diagnostics (types.ts:21-160). */
 const compiledPromptProjection = z.object({
   prompt: z.string(),
@@ -349,20 +352,6 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
     "female[*]": { media: "fact-gallery" },
     "neutral[*]": { media: "fact-gallery" },
   }),
-  factPexelsImages: plain(factPexelsImagesProjection, {
-    "male[*].url": "fixture-url",
-    "female[*].url": "fixture-url",
-    "neutral[*].url": "fixture-url",
-    "male[*].photographer_url": "fixture-url",
-    "female[*].photographer_url": "fixture-url",
-    "neutral[*].photographer_url": "fixture-url",
-    "male[*].src{key}": "keep",
-    "female[*].src{key}": "keep",
-    "neutral[*].src{key}": "keep",
-    "male[*].src{*}": "stock-data-url",
-    "female[*].src{*}": "stock-data-url",
-    "neutral[*].src{*}": "stock-data-url",
-  }),
   visualPlan: plain(imagePromptPlanWireSchema.shape.visualPlan, {
     "archetypeApplication.subtype": "keep",
     // A planner key stored by plans newer than the wire schema (seen on dev, 2026-10-13): every string becomes prose.
@@ -414,7 +403,7 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
     waivedByAdminUserId: "map-user",
     requiredScenarioPolicyVersion: "keep",
   }),
-  imageSource: plain(ImageSourceSchema, {
+  imageSource: plain(StoredImageSourceSchema, {
     templateId: "keep",
     uploadKey: { media: "meme-upload-source" },
     photoUrl: "stock-data-url",

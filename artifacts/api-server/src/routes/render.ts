@@ -1,7 +1,7 @@
 /**
  * Phase-4 transient render endpoints.
  *
- *   POST /api/render-preview   anonymous-allowed (stock only) | streams image bytes
+ *   POST /api/render-preview   signed-in only               | streams image bytes
  *   POST /api/render-download  same render | streams as Content-Disposition attachment
  *
  * Both endpoints share `composeMeme` from `lib/memeComposite.ts` and produce
@@ -13,11 +13,10 @@
  * in `transient_renders` for abuse detection. Per-IP rate limiting is
  * enforced at the Cloudflare WAF edge layer; see docs/cloudflare-rate-limits.md.
  *
- * Anonymous traffic is allowed because the cold-permalink personalisation
- * flow lets a not-yet-signed-up user try the meme builder once before being
- * asked to register. To keep the abuse surface small, anonymous callers are
- * restricted to `imageSource.type === "stock" | "template"` — uploaded assets
- * require auth + ownership checks.
+ * An anonymous caller is refused (403 `mode_requires_auth`): every remaining
+ * image source is the user's own photo, which carries ownership state and needs
+ * a session plus the ownership check below. Anonymous previews used the stock
+ * and template backgrounds, deleted in launch Phase 4 (removals 5 and 6).
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -101,9 +100,9 @@ async function validateAndResolve(
 
   const mode = deriveRenderMode(parsed.data.imageSource);
 
-  // Anonymous callers may only use stock-mode renders. Self-upload and
-  // identity images carry per-user ownership state and require a session.
-  if (!isAuthenticated && mode !== "stock") {
+  // Self-upload and identity images carry per-user ownership state and
+  // require a session; no anonymous mode remains.
+  if (!isAuthenticated) {
     res.status(403).json({ error: "mode_requires_auth" });
     void logTransientRender({
       endpoint,

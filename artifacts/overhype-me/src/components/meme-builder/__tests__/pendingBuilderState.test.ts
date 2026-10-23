@@ -13,11 +13,11 @@ function fixture(overrides: Partial<PendingBuilderState> = {}): PendingBuilderSt
     schemaVersion: 1,
     capturedAt: Date.now(),
     factId: FACT_ID,
-    mode: "stock",
+    mode: "self-upload",
     entryFlow: "fact-detail",
     name: "Quinn",
     pronouns: "they/them",
-    source: { kind: "stock", stockImageId: "9001" },
+    source: { kind: "self-upload", image: { kind: "library", objectPath: "/objects/uploads/lib.jpg" } },
     aspectRatio: "landscape",
     textOptions: {},
     ...overrides,
@@ -71,6 +71,32 @@ describe("pendingBuilderState", () => {
     });
     capturePendingState(captured);
     expect(restorePendingState(FACT_ID)).toEqual(captured);
+  });
+
+  // Launch Phase 4, removal 6: stock photos went with Pexels. A draft saved
+  // before it may have the stock source selected.
+  it("drops a pre-removal draft's stock source and keeps everything else; an upload draft is unchanged", () => {
+    const stockDraft = {
+      ...fixture(),
+      mode: "stock",
+      source: { kind: "stock", stockImageId: "9001" },
+    } as unknown as PendingBuilderState;
+    capturePendingState(stockDraft);
+    const restored = restorePendingState(FACT_ID);
+    expect(restored).not.toBeNull();
+    expect(restored!.source).toBeUndefined();
+    expect(restored).toMatchObject({
+      schemaVersion: 1,
+      factId: FACT_ID,
+      entryFlow: "fact-detail",
+      name: "Quinn",
+      pronouns: "they/them",
+      aspectRatio: "landscape",
+    });
+
+    const upload = fixture();
+    capturePendingState(upload);
+    expect(restorePendingState(FACT_ID)).toEqual(upload);
   });
 
   // Launch Phase 4, removal 3: AI styling went with PuLID. A draft saved before

@@ -1,15 +1,11 @@
-interface Props {
-  onUseStock: () => void;
-}
-
 /**
- * Shown in the "Your photo" tab when the viewer is unregistered.
- * Prompts them to sign up to use their own photo, with a graceful
- * escape hatch to the Stock tab.
+ * Shown in the image step when the viewer is unregistered: their own photo is
+ * the only source (stock photos went with Pexels, launch Phase 4, removal 6),
+ * so the step asks them to sign up to add one.
  */
-export function GuestPhotoSignupPanel({ onUseStock }: Props) {
+export function GuestPhotoSignupPanel() {
   const handleSignup = () => {
-    window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    window.location.href = `/login?from=${encodeURIComponent(window.location.pathname + window.location.search)}`;
   };
 
   return (
@@ -17,22 +13,12 @@ export function GuestPhotoSignupPanel({ onUseStock }: Props) {
       <p className="text-base font-semibold text-white leading-snug">
         Sign up to create a meme using your photo
       </p>
-      <p className="text-sm text-white/60">
-        Free accounts can use any stock photo — sign up to add your own.
-      </p>
       <button
         type="button"
         onClick={handleSignup}
         className="w-full rounded-full bg-[#ff6b35] px-6 py-3 text-sm font-bold uppercase tracking-widest text-white transition-opacity hover:opacity-90 active:opacity-80"
       >
         Sign up
-      </button>
-      <button
-        type="button"
-        onClick={onUseStock}
-        className="text-sm text-white/50 underline underline-offset-2 hover:text-white/80 transition-colors"
-      >
-        Maybe later, for now let&apos;s use a stock photo
       </button>
     </div>
   );

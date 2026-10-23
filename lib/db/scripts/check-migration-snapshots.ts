@@ -422,6 +422,15 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // soft-deletes template-recipe memes and deletes the gradient picker
   // setting. No DDL, so there is no schema change for a snapshot to record.
   "0106_retire_gradient_templates",
+
+  // Launch Phase 4, removal 6 (#744): hand-authored. Its data half retires
+  // stock-recipe memes, fact_pexels jobs, the pexels lane's heartbeats and two
+  // settings; its drops (facts.pexels_images, facts.pexels_status,
+  // user_fact_preferences.image_index and .ai_meme_image_index) are DEFERRED
+  // snapshot deltas like 0103's, to capture when the chain is repaired. Source
+  // of truth: lib/db/src/schema/facts.ts and userFactPreferences.ts, which no
+  // longer declare them.
+  "0107_retire_stock_pexels",
 ]);
 
 interface JournalEntry {

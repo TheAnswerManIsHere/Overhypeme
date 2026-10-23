@@ -679,7 +679,6 @@ const VALIDATED_SHAPE_COLUMNS: Array<[string, string, ShapeName]> = [
   ["memes", "text_options", "textOptions"],
   ["facts", "ai_scene_prompts", "aiScenePrompts"],
   ["facts", "ai_meme_images", "aiMemeImages"],
-  ["facts", "pexels_images", "factPexelsImages"],
 ];
 
 /** The schema paths of a validator's issue list, never its messages (a message can quote the value). */

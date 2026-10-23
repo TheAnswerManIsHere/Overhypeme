@@ -3,7 +3,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, RefreshCw, ImageIcon, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, RefreshCw, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
@@ -12,7 +12,6 @@ import { GoldenToggle } from "@/components/admin/GoldenToggle";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
 import { resubmitFactForModeration } from "@/components/admin/resubmitForModeration";
-import { PexelsImageGallery, emptyPexelsImages, pexelsImageTotals, type PexelsGender, type PexelsThumb } from "@/components/admin/PexelsImageGallery";
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
 import { patchFactDraft } from "@/components/admin/patchFactDraft";
@@ -34,7 +33,6 @@ interface Fact {
   useCase: string | null;
   isActive: boolean;
   hasEmbedding: boolean;
-  hasPexelsImages: boolean;
   upvotes: number;
   downvotes: number;
   score: number;
@@ -78,7 +76,7 @@ type ImportMode = "json" | "csv" | "lines";
 type FactsTab = "facts" | "utilities";
 type FactVisibilityFilter = "active" | "inactive" | "both";
 
-type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding" | "hasPexelsImages" | "splitTokenIndex">;
+type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding" | "splitTokenIndex">;
 
 /** Blank baseline used by the edit form while no fact is selected. */
 const EMPTY_EDIT_DRAFT: EditDraft = {
@@ -133,93 +131,6 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
   );
 }
 
-
-interface FactPexelsResponse {
-  pexelsStatus: "pending" | "ok" | "failed" | null;
-  factType: "action" | "abstract" | null;
-  keywords: Record<PexelsGender, string> | null;
-  images: Record<PexelsGender, PexelsThumb[]>;
-}
-
-function AdminFactPexelsGallery({ factId, refreshNonce }: { factId: number; refreshNonce: number }) {
-  const [expanded, setExpanded] = useState(false);
-  const [data, setData] = useState<FactPexelsResponse | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/admin/facts/${factId}/pexels-images`, { credentials: "include" });
-      if (!res.ok) return;
-      const next = (await res.json()) as FactPexelsResponse;
-      setData(next);
-      setLoaded(true);
-    } catch {
-      setLoaded(true);
-    }
-  }, [factId]);
-
-  useEffect(() => { setLoaded(false); void load(); }, [load, refreshNonce]);
-
-  // While the image pipeline is running (pexelsStatus "pending"), poll at ~1s
-  // with no timeout so the gallery fills in live instead of relying on a
-  // fixed-delay guess at when the background job finishes.
-  useEffect(() => {
-    const clear = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
-    if (data?.pexelsStatus === "pending") {
-      if (!timerRef.current) timerRef.current = setInterval(() => { void load(); }, 1000);
-    } else {
-      clear();
-    }
-    return clear;
-  }, [data?.pexelsStatus, load]);
-
-  const images = data?.images ?? emptyPexelsImages();
-  const totals = pexelsImageTotals(images);
-  const status = data?.pexelsStatus ?? null;
-
-  return (
-    <div className="rounded-sm border border-border bg-muted/20">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 p-3 text-left"
-      >
-        <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-          <ImageIcon className="w-3.5 h-3.5" /> Pexels thumbnails
-          <span className="font-normal normal-case text-[10px] text-muted-foreground">
-            {status === "pending" && <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> seeding…</span>}
-            {status !== "pending" && (!loaded ? "loading…" : `${totals.total} total · male ${totals.male} · female ${totals.female} · neutral ${totals.neutral}`)}
-          </span>
-        </span>
-        {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
-      </button>
-
-      {expanded && (
-        <div className="px-3 pb-3 space-y-2">
-          {!loaded && (
-            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" /> Loading Pexels images…
-            </p>
-          )}
-          {loaded && status === "pending" && (
-            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" /> Seeding stock images — this view updates live; no refresh needed.
-            </p>
-          )}
-          {loaded && status !== "pending" && totals.total === 0 && (
-            <p className="text-[11px] text-muted-foreground italic">
-              No Pexels images are currently stored for this fact.
-            </p>
-          )}
-          {loaded && totals.total > 0 && (
-            <PexelsImageGallery data={{ keywords: data?.keywords ?? null, images }} />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * The shared Visual Taxonomy Enrichment editor, surfaced on a live fact. Uses the
@@ -534,11 +445,6 @@ export default function AdminFacts() {
   // an INACTIVE fact (send-back-to-review only works on an active one).
   const [resubmitting, setResubmitting] = useState(false);
 
-  // Image pipeline state
-  const [pipelineRunning, setPipelineRunning] = useState(false);
-  const [pipelineResult, setPipelineResult] = useState<{ type: "success" | "info" | "error"; message: string } | null>(null);
-  const [pexelsGalleryRefreshNonce, setPexelsGalleryRefreshNonce] = useState(0);
-
   const [backfillingEnrichment, setBackfillingEnrichment] = useState(false);
   const [enrichmentBackfillResult, setEnrichmentBackfillResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
@@ -690,7 +596,6 @@ export default function AdminFacts() {
     setSaveResult(null);
     setShowAddVariant(false);
     setNewVariantText("");
-    setPipelineResult(null);
     // Fetch variants for root facts
     if (fact.parentId === null) {
       setLoadingVariants(true);
@@ -711,7 +616,6 @@ export default function AdminFacts() {
     setSaveResult(null);
     setVariants([]);
     setShowAddVariant(false);
-    setPipelineResult(null);
   }
 
   // On mount: if ?focus=<id> is in the URL (e.g. linked from Taxonomy Health),
@@ -729,34 +633,6 @@ export default function AdminFacts() {
       })
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function triggerImagePipeline(factId: number, force: boolean) {
-    setPipelineRunning(true);
-    setPipelineResult(null);
-    try {
-      const url = `/api/admin/facts/${factId}/refresh-images${force ? "?force=true" : ""}`;
-      const res = await fetch(url, { method: "POST", credentials: "include" });
-      const data = (await res.json()) as { success?: boolean; skipped?: boolean; message?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Pipeline failed");
-      if (data.skipped) {
-        setPipelineResult({ type: "info", message: data.message ?? "Skipped — images already exist." });
-      } else {
-        setPipelineResult({ type: "success", message: data.message ?? "Pipeline started." });
-        // The gallery itself polls while the pipeline is "pending" (see
-        // AdminFactPexelsGallery), so just kick off its first fetch now rather
-        // than guessing a fixed delay for when the background job finishes.
-        setFacts((prev) => prev.map((f) => f.id === factId ? { ...f, hasPexelsImages: true } : f));
-        if (selectedFact?.id === factId) {
-          setSelectedFact((f) => f ? { ...f, hasPexelsImages: true } : f);
-          setPexelsGalleryRefreshNonce((n) => n + 1);
-        }
-      }
-    } catch (err) {
-      setPipelineResult({ type: "error", message: err instanceof Error ? err.message : "Pipeline failed" });
-    } finally {
-      setPipelineRunning(false);
-    }
-  }
 
   async function addVariant() {
     if (!selectedFact || !newVariantText.trim()) return;
@@ -1482,74 +1358,6 @@ export default function AdminFacts() {
                 </div>
               </div>
             )}
-
-            {/* Pexels Image Pipeline — every fact generates its own images,
-                root or variant (variant independence). */}
-            <div className="border border-border rounded-sm overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  Pexels Image Pipeline
-                </span>
-                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-sm border ${
-                    selectedFact.hasPexelsImages
-                      ? "bg-green-500/10 text-green-600 border-green-500/30"
-                      : "bg-amber-500/10 text-amber-600 border-amber-500/30"
-                  }`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${selectedFact.hasPexelsImages ? "bg-green-500" : "bg-amber-500"}`} />
-                    {selectedFact.hasPexelsImages ? "Images present" : "No images"}
-                  </span>
-                </div>
-                <div className="p-3 space-y-2">
-                  {pipelineResult && (
-                    <div className={`flex items-center gap-2 text-xs rounded-sm px-3 py-2 ${
-                      pipelineResult.type === "success"
-                        ? "bg-green-500/10 text-green-400 border border-green-500/30"
-                        : pipelineResult.type === "info"
-                        ? "bg-blue-500/10 text-blue-400 border border-blue-500/30"
-                        : "bg-destructive/10 text-destructive border border-destructive/30"
-                    }`}>
-                      {pipelineResult.type === "success" ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
-                      {pipelineResult.message}
-                    </div>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void triggerImagePipeline(selectedFact.id, false)}
-                    isLoading={pipelineRunning}
-                    disabled={pipelineRunning}
-                    className="w-full gap-1.5 text-xs min-h-[44px]"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    {selectedFact.hasPexelsImages ? "Re-run Pipeline" : "Run Image Pipeline"}
-                  </Button>
-                  {selectedFact.hasPexelsImages && (
-                    <div className="pt-2 mt-2 border-t border-dashed border-amber-500/20 space-y-1.5">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" /> Destructive
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void triggerImagePipeline(selectedFact.id, true)}
-                        isLoading={pipelineRunning}
-                        disabled={pipelineRunning}
-                        className="w-full gap-1.5 text-xs text-amber-500 border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/10 min-h-[44px]"
-                        title="Force overwrite existing images"
-                      >
-                        Force overwrite existing images
-                      </Button>
-                    </div>
-                  )}
-                  <p className="text-[10px] text-muted-foreground">
-                    {selectedFact.hasPexelsImages
-                      ? "Re-run fetches new Pexels photos. Use Force to overwrite existing images."
-                      : "Fetches Pexels stock photos for this fact using AI-generated keywords."}
-                  </p>
-                  <AdminFactPexelsGallery factId={selectedFact.id} refreshNonce={pexelsGalleryRefreshNonce} />
-                </div>
-              </div>
 
             {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
                 Edit + autosave the metadata, regenerate the visual preview, or

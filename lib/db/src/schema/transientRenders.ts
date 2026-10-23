@@ -22,7 +22,7 @@ export const transientRendersTable = pgTable("transient_renders", {
   userId: varchar("user_id").references(() => usersTable.id, { onDelete: "set null" }),
   /** sha256 hex of (raw IP || server-side salt). Never store raw IPs. */
   ipHash: text("ip_hash").notNull(),
-  /** "stock" | "self-upload" | "pulid"; null when the request was rejected before mode resolution. */
+  /** "self-upload" (older rows also "stock" or "pulid"); null when the request was rejected before mode resolution. */
   mode: varchar("mode", { length: 24 }),
   /** "success" | "rejected" | "error". */
   result: varchar("result", { length: 12 }).notNull(),

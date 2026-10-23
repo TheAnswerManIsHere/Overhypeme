@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import type { AspectRatio, MemeTextOptions, MyImageSource, ViewerContext } from "../../types";
-import type { StockImage } from "../../hooks/useStockImages";
 import {
   UnifiedUpgradeModal,
   type UpgradeModalContext,
@@ -11,9 +10,7 @@ import { WizardPrimaryAction } from "../WizardPrimaryAction";
 import type { PendingWizardState } from "../state/wizardStorage";
 import type { WizardAction, WizardRuntimeState } from "../state/useWizardState";
 import { LockedPreview } from "./LockedPreview";
-import { SourceSegmentedControl, type SourceTab } from "./SourceSegmentedControl";
 import { AspectRatioToggle } from "./AspectRatioToggle";
-import { StockSourcePanel } from "./StockSourcePanel";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
 import { GuestPhotoSignupPanel } from "./GuestPhotoSignupPanel";
 import { AdjustTextSheet } from "./AdjustTextSheet";
@@ -43,11 +40,11 @@ interface SaveMemeResponse {
 
 /**
  * Step 2 — image flow. Owns:
- *   - source tab + selection
+ *   - photo selection (the user's own photo is the only source)
  *   - aspect ratio, framing drag
  *   - name/pronouns inline fields
  *   - bottom-sheet drawers (adjust text, advanced)
- *   - "Make my meme" save flow (stock or upload, saved directly)
+ *   - "Make my meme" save flow (saved directly)
  *
  * Live re-renders flow directly into `LockedPreview` — `LivePreview` coalesces
  * rapid prop changes via `requestAnimationFrame` so the canvas stays at 60fps
@@ -68,13 +65,6 @@ export function Step2Image({
   // Told, not derived — the same answer createMemeRecord will apply.
   const canSetPrivate = viewerContext.entitlements?.["meme_private_visibility"]?.allowed === true;
 
-  const [tab, setTab] = useState<SourceTab>(() => {
-    // For unregistered users, never inherit a cached source from a previous
-    // (possibly different) logged-in session: they land on "Your photo" with
-    // the signup CTA.
-    if (tier !== "unregistered" && state.source?.kind === "stock") return "stock";
-    return "self-upload";
-  });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeContext, setUpgradeContext] = useState<UpgradeModalContext>("private-meme");
   const [isPublic, setIsPublic] = useState(state.isPublic ?? true);
@@ -89,15 +79,6 @@ export function Step2Image({
   const [name, setName] = useState(state.name ?? viewerContext.name ?? "");
   const [pronouns, setPronouns] = useState(state.pronouns ?? viewerContext.pronouns ?? "he/him");
   const [textOptions, setTextOptions] = useState<MemeTextOptions>(state.textOptions ?? {});
-  const [stockSelectedId, setStockSelectedId] = useState<string | null>(
-    state.source?.kind === "stock" ? state.source.stockImageId : null,
-  );
-  const [stockSelectedUrl, setStockSelectedUrl] = useState<string | null>(null);
-  // Per-tab selection memory. The wizard reducer only stores ONE source at a
-  // time (whatever tab is currently active), so we keep separate component
-  // state for each tab. When the user switches tabs the previous selection
-  // stays put and the dispatch-on-tab effect re-publishes whichever one
-  // belongs to the new active tab.
   const [selfUploadImage, setSelfUploadImage] = useState<MyImageSource | null>(
     state.source?.kind === "self-upload" ? state.source.image : null,
   );
@@ -138,29 +119,22 @@ export function Step2Image({
 
   // Persist the source selection.
   useEffect(() => {
-    if (tab === "stock" && stockSelectedId) {
-      dispatch({ type: "set-mode", mode: "stock" });
-      dispatch({
-        type: "set-source",
-        source: { kind: "stock", stockImageId: stockSelectedId },
-      });
-    } else if (tab === "self-upload" && selfUploadImage) {
+    if (selfUploadImage) {
       dispatch({ type: "set-mode", mode: "self-upload" });
       dispatch({
         type: "set-source",
         source: { kind: "self-upload", image: selfUploadImage },
       });
     }
-  }, [tab, stockSelectedId, selfUploadImage, dispatch]);
+  }, [selfUploadImage, dispatch]);
 
   // Background URL for the live preview.
   const backgroundUrl = useMemo(() => {
-    if (tab === "stock" && stockSelectedUrl) return stockSelectedUrl;
-    if (tab === "self-upload" && selfUploadImage) {
+    if (selfUploadImage) {
       return `/api/storage/objects${selfUploadImage.objectPath.replace(/^\/objects/, "")}`;
     }
     return null;
-  }, [tab, stockSelectedUrl, selfUploadImage]);
+  }, [selfUploadImage]);
 
   // Map split index into top/bottom text via the existing fact-text words.
   const memeTextOptions: MemeTextOptions = useMemo(() => {
@@ -173,18 +147,7 @@ export function Step2Image({
     };
   }, [textOptions, factText, splitIndex]);
 
-  const sourceSelected =
-    (tab === "stock" && !!stockSelectedId) ||
-    (tab === "self-upload" && !!selfUploadImage);
-
-  const handleSourceTab = (next: SourceTab) => {
-    setTab(next);
-  };
-
-  const handleStockSelect = (image: StockImage) => {
-    setStockSelectedId(image.id);
-    setStockSelectedUrl(image.url);
-  };
+  const sourceSelected = !!selfUploadImage;
 
   const handleSelfUploadImageSelect = (next: MyImageSource) => {
     setSelfUploadImage(next);
@@ -278,26 +241,11 @@ export function Step2Image({
             tier === "unregistered" ? "pb-24" : "pb-56"
           }`}
         >
-          <SourceSegmentedControl active={tab} onSelect={handleSourceTab} />
-
           <AspectRatioToggle value={aspectRatio} onChange={setAspectRatio} />
 
-          {tab === "stock" && (
-            <StockSourcePanel
-              factId={factId}
-              pronouns={pronouns}
-              selectedId={stockSelectedId}
-              onSelect={handleStockSelect}
-            />
-          )}
-
-          {tab === "self-upload" && tier === "unregistered" && (
-            <GuestPhotoSignupPanel
-              onUseStock={() => setTab("stock")}
-            />
-          )}
-
-          {tab === "self-upload" && tier !== "unregistered" && (
+          {tier === "unregistered" ? (
+            <GuestPhotoSignupPanel />
+          ) : (
             <SelfUploadSourcePanel
               selected={selfUploadImage}
               onSelect={handleSelfUploadImageSelect}

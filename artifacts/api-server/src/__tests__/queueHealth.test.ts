@@ -28,18 +28,18 @@ const QUEUE_PREFIX = "test_qh_";
 const okHandler: JobHandler = { async run() { return { ok: true }; } };
 
 /**
- * The five real lane names.
+ * The four real lane names.
  *
  * `laneHealth` reports exactly `ALL_LANES`, so the lane tests below cannot use
  * synthetic names — they have to write rows for the real lanes, which makes the
  * heartbeat table shared, order-sensitive state. Each lane test therefore clears
  * *these* rows before it runs rather than trusting cleanup from a previous test.
  *
- * Scoped to these five deliberately: a bare `delete(workerLaneHeartbeatsTable)`
+ * Scoped to these four deliberately: a bare `delete(workerLaneHeartbeatsTable)`
  * would also wipe the `test_lane_*` rows workerHeartbeats.test.ts is asserting
  * on, which is exactly the cross-file failure this replaces.
  */
-const REAL_LANES = ["fast", "render", "bulk", "pexels", "ai_meme_backfill"];
+const REAL_LANES = ["fast", "render", "bulk", "ai_meme_backfill"];
 
 async function clearRealLaneHeartbeats(): Promise<void> {
   await db.delete(workerLaneHeartbeatsTable).where(inArray(workerLaneHeartbeatsTable.lane, REAL_LANES));
@@ -210,7 +210,7 @@ describe("queueHealth — lane liveness", () => {
   it("reports a lane stalled when no live instance has scheduled it", async () => {
     await clearRealLaneHeartbeats();
     const lanes = await laneHealth(db, 15);
-    assert.ok(lanes.length === 5, "all five lanes are always reported");
+    assert.ok(lanes.length === 4, "all four lanes are always reported");
     assert.ok(lanes.every((l) => l.stalled), "with no heartbeats at all, every lane is stalled");
     assert.ok(lanes.every((l) => l.liveInstanceCount === 0));
   });
@@ -221,15 +221,15 @@ describe("queueHealth — lane liveness", () => {
     await clearRealLaneHeartbeats();
     await db.insert(workerLaneHeartbeatsTable).values({
       instanceId: randomUUID(),
-      lane: "pexels",
+      lane: "ai_meme_backfill",
       workerProtocolVersion: WORKER_PROTOCOL_VERSION,
       lastScheduledAt: new Date(Date.now() - 60 * 60_000),
     });
 
     const lanes = await laneHealth(db, 15);
-    const pexels = lanes.find((l) => l.lane === "pexels");
-    assert.equal(pexels?.liveInstanceCount, 0, "a departed instance is not live");
-    assert.equal(pexels?.stalled, true);
+    const backfill = lanes.find((l) => l.lane === "ai_meme_backfill");
+    assert.equal(backfill?.liveInstanceCount, 0, "a departed instance is not live");
+    assert.equal(backfill?.stalled, true);
   });
 
   it("never lets the TTL cutoff undercut a lane's own stale threshold", async () => {

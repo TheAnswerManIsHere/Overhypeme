@@ -376,8 +376,25 @@ export interface MemeTextOptions {
   verticalPosition?: MemeTextOptionsVerticalPosition;
 }
 
+/**
+ * The meme's background: an uploaded photo the caller owns, or the caller's profile photo. (Stock photos and the gradient templates were deleted in launch Phase 4, removals 5 and 6.)
+ */
+export type MemeImageSource =
+  | {
+      type: "upload";
+      /**
+       * @maxLength 500
+       * @pattern ^/objects/
+       */
+      uploadKey: string;
+    }
+  | {
+      type: "identity";
+    };
+
 export interface CreateMemeRequest {
   factId: number;
+  imageSource: MemeImageSource;
   textOptions?: MemeTextOptions;
 }
 

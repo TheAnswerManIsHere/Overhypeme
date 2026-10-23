@@ -90,9 +90,9 @@ export interface TextOptions {
 }
 
 /**
- * Where the background image comes from: a URL string (stock photo) or a
- * Buffer (user upload). The gradient templates were deleted in Launch Phase 4,
- * removal 5.
+ * Where the background image comes from: a Buffer (the user's own photo) or a
+ * URL string. The gradient templates and stock photos were deleted in Launch
+ * Phase 4, removals 5 and 6.
  */
 export type BackgroundSource = { type: "image"; imageData: string | Buffer };
 
@@ -243,8 +243,8 @@ export async function generateMemeBuffer(
   const hasNewFormat = !!(options?.topText !== undefined || options?.bottomText !== undefined);
   // Defaults below mirror the client-side LivePreview so the saved/downloaded
   // render is visually consistent with what the user saw in the studio. Prior
-  // to this change, when callers omitted textOptions (the studio sends
-  // `textOptions: {}` for stock-photo memes), the server fell into a legacy
+  // to this change, when callers omitted textOptions (the studio sent
+  // `textOptions: {}` for its photo memes), the server fell into a legacy
   // sans-serif / lowercase / shadow / left-aligned path that did not match
   // the client preview at all.
   const autoLegacySize = factText.length > 120 ? 22 : factText.length > 70 ? 26 : 32;

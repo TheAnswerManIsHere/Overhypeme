@@ -55,8 +55,7 @@ const ALLOWED = [
     reason:
       "Default `log` fallback for the shared CLI poll-to-terminal helper — " +
       "only fires when a caller omits `log`, and every real caller is a CLI " +
-      "script (backfill-pexels.ts, backfill-fact-pexels.ts, " +
-      "backfill-ai-memes.ts), which already use console.* for human-readable " +
+      "script (backfill-ai-memes.ts), which already uses console.* for human-readable " +
       "stdout per stdioGuard.ts's convention, not the pino logger.",
   },
 ];

@@ -1,9 +1,8 @@
 /**
  * Integration tests for routes/memes.ts.
  *
- * Covers the public read surface (GET /memes/:slug, GET /facts/:factId/memes),
- * the user preference round-trip (GET/PUT /facts/:factId/ai-meme-preference), and the
- * soft-delete endpoint (DELETE /memes/:slug).
+ * Covers the public read surface (GET /memes/:slug, GET /facts/:factId/memes)
+ * and the soft-delete endpoint (DELETE /memes/:slug).
  *
  * The image-rendering and AI-generation paths require
  * sharp/canvas + external APIs and are out of scope for this batch.
@@ -21,7 +20,6 @@ import {
   usersTable,
   factsTable,
   memesTable,
-  userFactPreferencesTable,
 } from "@workspace/db/schema";
 import { eq, like, inArray } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
@@ -251,104 +249,6 @@ describe("GET /facts/:factId/memes", () => {
     assert.equal(res.status, 200);
     const ids = res.body.memes.map((m: { id: number }) => m.id);
     assert.deepEqual(ids, [newest.id, middle.id, popularOld.id]);
-  });
-});
-
-describe("GET /facts/:factId/ai-meme-preference", () => {
-
-  it("returns aiMemeImageIndex=0 for unauthenticated callers (no error)", async () => {
-    const res = await request(makeApp()).get("/facts/1/ai-meme-preference");
-    assert.equal(res.status, 200);
-    assert.deepEqual(res.body, { aiMemeImageIndex: 0 });
-  });
-
-  it("returns 400 for a non-numeric factId when authenticated", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .get("/facts/abc/ai-meme-preference")
-      .set("authorization", `Bearer ${sid}`);
-    assert.equal(res.status, 400);
-  });
-
-  it("returns the user's saved preference when one exists", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const factId = await insertFact("for-preference", { submittedById: userId });
-    await db
-      .insert(userFactPreferencesTable)
-      .values({ userId, factId, aiMemeImageIndex: 2 });
-
-    const res = await request(makeApp())
-      .get(`/facts/${factId}/ai-meme-preference`)
-      .set("authorization", `Bearer ${sid}`);
-    assert.equal(res.body.aiMemeImageIndex, 2);
-  });
-
-  it("returns 0 (default) when no preference row exists for the user", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const factId = await insertFact("no-pref-yet", { submittedById: userId });
-    const res = await request(makeApp())
-      .get(`/facts/${factId}/ai-meme-preference`)
-      .set("authorization", `Bearer ${sid}`);
-    assert.equal(res.body.aiMemeImageIndex, 0);
-  });
-});
-
-describe("PUT /facts/:factId/ai-meme-preference", () => {
-
-  it("returns 401 when unauthenticated", async () => {
-    const res = await request(makeApp())
-      .put("/facts/1/ai-meme-preference")
-      .send({ aiMemeImageIndex: 1 });
-    assert.equal(res.status, 401);
-  });
-
-  it("returns 400 for non-numeric factId", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .put("/facts/abc/ai-meme-preference")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ aiMemeImageIndex: 1 });
-    assert.equal(res.status, 400);
-  });
-
-  it("returns 400 for an out-of-range index", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const factId = await insertFact("oor", { submittedById: userId });
-    const res = await request(makeApp())
-      .put(`/facts/${factId}/ai-meme-preference`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ aiMemeImageIndex: 5 });
-    assert.equal(res.status, 400);
-    assert.match(res.body.error, /must be 0, 1, or 2/);
-  });
-
-  it("upserts the preference for the user/fact pair", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const factId = await insertFact("upsertable", { submittedById: userId });
-
-    let res = await request(makeApp())
-      .put(`/facts/${factId}/ai-meme-preference`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ aiMemeImageIndex: 1 });
-    assert.equal(res.status, 200);
-
-    res = await request(makeApp())
-      .put(`/facts/${factId}/ai-meme-preference`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ aiMemeImageIndex: 2 });
-    assert.equal(res.status, 200);
-
-    const [row] = await db
-      .select()
-      .from(userFactPreferencesTable)
-      .where(eq(userFactPreferencesTable.userId, userId));
-    assert.equal(row.aiMemeImageIndex, 2);
   });
 });
 

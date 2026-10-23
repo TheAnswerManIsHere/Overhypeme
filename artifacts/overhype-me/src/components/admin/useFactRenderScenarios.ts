@@ -8,7 +8,7 @@ import {
 /**
  * Loads + polls the Step-2 "visual review" render-scenario grid for a review.
  *
- * Mirrors the rule-8 polling style of `useModerationRender` / `ModerationPexelsPanel`:
+ * Mirrors the rule-8 polling style of `useModerationRender`:
  * fetches `GET /api/admin/reviews/:id/render-scenarios`, then polls at ~1s with
  * **NO timeout** while any card is working. "Working" includes a REQUIRED card
  * still `missing`: when a review first enters production_review the backend only
