@@ -290,7 +290,7 @@ for the funnel itself.
   to a *different* root can still surface there on a shared hashtag; only the
   fallback (no-hashtag-overlap) branch is root-only. The **Fact of the Day**
   email picks from every active fact, so a variant can go out as the day's
-  fact on its own. A profile's submitted/liked lists also include variants —
+  fact on its own. Your library's submitted/liked lists also include variants —
   arguably correct there, since they're that user's own submissions, but it's
   the same unfiltered read. Any new surface that lists facts has to opt into
   whatever filtering it wants; there's no shared root-only filter to inherit.
