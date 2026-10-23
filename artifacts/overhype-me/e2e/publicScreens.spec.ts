@@ -66,10 +66,11 @@ test.describe("Public described screens", () => {
 
     await page.goto("/top-facts");
     await expect(page.getByRole("heading", { level: 1, name: /the facts everyone's memeing/i })).toBeVisible();
-    for (const period of ["This week", "This month", "All time"]) {
-      await expect(page.getByRole("button", { name: period, exact: true })).toBeVisible();
+    // The time-window and hashtag pills changed nothing and are gone (launch Phase 4, removal 10); the page ranks all time.
+    for (const pill of ["This week", "This month", "All time", "#cosmic", "#origin", "#legendary"]) {
+      await expect(page.getByRole("button", { name: pill, exact: true })).toHaveCount(0);
     }
-    await expect(page.getByText("#1 This week")).toBeVisible();
+    await expect(page.getByText("#1 All time")).toBeVisible();
     await expect(page.getByRole("heading", { name: /counted to infinity/i })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe("/top-facts");
 

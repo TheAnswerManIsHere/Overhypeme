@@ -55,7 +55,7 @@ routes, delete, git keeps it) · **your call**.
 - **A6** Feed is fixed at 20 text-only cards (`Home.tsx:510-513`; server honours `limit`/`offset`, `facts.ts:127`), so load is not a function of catalogue size. Reachability is: **"load more" is a launch item if launching with > ~50 facts**, else `next`.
 - **A8** cut (delete `pages/Hashtags.tsx`).
 - **A13** Keep search-history recording **and add it to the search screen** so users see their previous searches (launch; David's scope addition).
-- **A14** Leaderboard ships all-time only; dead time/hashtag pills removed.
+- **A14** Leaderboard ships all-time only; dead time/hashtag pills removed. *Deleted 2026-10-23 (Phase 4, removal 10; ledger [`docs/retired/README.md`](../retired/README.md)).*
 - **A16** Ship; **fix #591 for launch** (private-meme not-found page should read as "private", not an error).
 - **A18** Fix meme OG preview (#592) for launch; fact-page OG `next`.
 - **A19** **Fix share-by-email for launch** (#374, `example.com` allowlist). David: "Sharing by email is critical. Any modality for sharing should be supported because growth is what will make the site valuable."

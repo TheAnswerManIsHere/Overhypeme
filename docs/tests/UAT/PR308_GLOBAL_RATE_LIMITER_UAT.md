@@ -46,8 +46,8 @@ pages, make a meme, whatever your usual click-through covers.
 **Expect:** The home page shows the top bar (logo, search box, Sign in),
 the Facts, Top Facts and Library links, the hashtag rail with "For you",
 the "About David Franklin" card with its name box, and the feed of fact
-cards. Top Facts shows its heading, the This week / This month / All time
-choices and the ranked facts. A fact page shows the fact, "Make a meme of
+cards. Top Facts shows its heading and the ranked facts, with "#1 All time"
+on the top card (the time-range choices were removed in launch Phase 4). A fact page shows the fact, "Make a meme of
 this" and "Memes from this fact". No error message shows and each page
 stays on its own address. No API response is a 429, and an ordinary request
 is not slowed by the limiter.

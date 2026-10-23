@@ -51,11 +51,9 @@ hashtag directory page.
 
 ### Top Facts (the leaderboard)
 
-The [Top Facts](../ai-context/glossary.md#top-facts) page ranks facts by their rating — always the same
-all-time ranking, regardless of which time-range button you click on the
-page. **The week/month/all-time buttons don't currently change what's
-shown** — see Boundaries below. There's no ranking of *people* anywhere
-on the site — no user leaderboard, only a fact leaderboard.
+The [Top Facts](../ai-context/glossary.md#top-facts) page ranks facts by their rating, all time. There's
+no ranking of *people* anywhere on the site — no user leaderboard, only a
+fact leaderboard.
 
 ### Your library, not a public profile
 
@@ -117,10 +115,9 @@ in launch Phase 4 (ledger: [`docs/retired/README.md`](../retired/README.md)).
 
 ## Boundaries & known limitations
 
-- **The Top Facts time-range buttons (week/month/all-time) are currently
-  decorative** — clicking one changes which button looks selected, but
-  the ranking underneath never changes; it's always all-time. Not a
-  documented product decision, just not wired up yet.
+- **Top Facts is all time only.** There is no "this week" or "this month"
+  ranking; the buttons that offered one never worked and were removed in
+  launch Phase 4.
 - **There's no dedicated hashtag browsing page.** If you're expecting a
   page that lists every hashtag with its own dedicated view, there isn't
   one: hashtag browsing happens through search or the home page's own

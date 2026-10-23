@@ -116,13 +116,11 @@ leaderboard anywhere in the codebase** (repo-wide grep for "leaderboard"
 turns up only this page and an unrelated ad-slot name,
 `components/layout/Layout.tsx:95`).
 
-**The time-window pills (This week / This month / All time) are
-non-functional.** `TopFacts.tsx:8-17` defines the `period` state and pill
-UI, but `period` is **never passed into the query**
-(`useListFacts({sort:"top", limit:20})`, line 19, ignores it) — clicking a
-pill only changes its own active styling; the ranking shown is always the
-same all-time `wilsonScore` order. The three hashtag pills below it are
-likewise static/unwired, no `onClick` at all.
+**All time only.** The page had time-window pills (This week / This month /
+All time) that never reached the query, and three static hashtag pills with
+no handler; both went in launch Phase 4
+([`docs/retired/README.md`](../retired/README.md)), and the #1 card reads
+"#1 All time".
 
 No dedicated test asserts `GET /facts?sort=top` orders by `wilsonScore` —
 the query is only exercised indirectly via unrelated related-facts tests.
