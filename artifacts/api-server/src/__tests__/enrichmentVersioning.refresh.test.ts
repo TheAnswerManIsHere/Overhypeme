@@ -115,7 +115,6 @@ const MANUAL_OVERRIDES = {
   },
 };
 
-const PEXELS_SENTINEL = { fact_type: "action", male: [], female: [], neutral: [{ id: 1, url: "https://x/1.jpg" }] };
 const AI_MEME_SENTINEL = { male: ["/objects/m1.png"], female: [], neutral: [] };
 
 const WAIVE_ALL_REQUIRED = {
@@ -265,7 +264,6 @@ async function seedActiveFact(opts: { text?: string } = {}): Promise<typeof fact
       isActive: true,
       ...columns,
       enrichmentStatus: "ok",
-      pexelsImages: PEXELS_SENTINEL,
       aiMemeImages: AI_MEME_SENTINEL,
       upvotes: 7,
       score: 7,
@@ -387,18 +385,14 @@ describe("sendFactBackToReview", () => {
     assert.equal(f.enrichmentStatus, "pending");
     assert.deepEqual(f.enrichment, fact.enrichment);
     assert.deepEqual(f.enrichmentOverrides, fact.enrichmentOverrides);
-    assert.deepEqual(f.pexelsImages, PEXELS_SENTINEL);
 
-    // Exactly one candidate enrichment job (deduped per version), and NO Pexels job.
+    // Exactly one candidate enrichment job (deduped per version).
     const jobs = await db.select({ queue: asyncJobsTable.queue, dedupeKey: asyncJobsTable.dedupeKey })
       .from(asyncJobsTable)
       .where(sql`${asyncJobsTable.payload}->>'versionId' = ${String(candidateVersionId)}`);
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].queue, "enrichment");
     assert.equal(jobs[0].dedupeKey, `enrichment:version:${candidateVersionId}`);
-    const pexels = await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable)
-      .where(and(eq(asyncJobsTable.queue, "fact_pexels"), sql`${asyncJobsTable.payload}->>'factId' = ${String(fact.id)}`));
-    assert.equal(pexels.length, 0, "refresh never re-runs Pexels (text unchanged)");
   });
 
   it("clearOverrides wipes the CANDIDATE's seed only — the fact's own overrides survive", async () => {
@@ -742,7 +736,6 @@ describe("refresh approve → promote", () => {
     assert.equal(f.isActive, true);
     assert.equal(f.parentId, null);
     assert.equal(f.text, fact.text);
-    assert.deepEqual(f.pexelsImages, PEXELS_SENTINEL);
     assert.deepEqual(f.aiMemeImages, AI_MEME_SENTINEL);
     assert.equal(f.upvotes, 7);
     assert.equal(f.score, 7);
@@ -850,7 +843,6 @@ describe("refresh reject → candidate retained", () => {
     assert.deepEqual(f.enrichment, fact.enrichment);
     assert.deepEqual(f.enrichmentOverrides, fact.enrichmentOverrides);
     assert.equal(f.enrichmentStatus, "ok");
-    assert.deepEqual(f.pexelsImages, PEXELS_SENTINEL);
 
     // No submitter notification for a refresh rejection.
     const activity = await db.select().from(activityFeedTable).where(eq(activityFeedTable.userId, submitterId));

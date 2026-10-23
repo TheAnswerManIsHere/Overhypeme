@@ -43,7 +43,7 @@ describe("the launch-environment allowlists", () => {
     assert.deepEqual(VENDOR_KEYS.filter((k) => RECORDER_ENV_ALLOWLIST.includes(k)), ["OPENAI_API_KEY", "FAL_AI_API_KEY"]);
     assert.deepEqual(
       VENDOR_KEYS.filter((k) => LIVE_ENV_ALLOWLIST.includes(k)),
-      ["PEXELS_API_KEY", "ARACHNID_SHIELD_PASSWORD", "OPENAI_API_KEY", "FAL_AI_API_KEY"],
+      ["ARACHNID_SHIELD_PASSWORD", "OPENAI_API_KEY", "FAL_AI_API_KEY"],
     );
     assert.equal(LIVE_ENV_ALLOWLIST.includes("STRIPE_SECRET_KEY_TEST"), false);
   });
@@ -79,7 +79,7 @@ describe("each launch's guard refuses a vendor credential outside its list", () 
     assert.deepEqual(acceptanceLaunchRefusals(acceptance), []);
     assert.deepEqual(productionModeRefusals(production), []);
     assert.deepEqual(recorderLaunchRefusals(recorder), []);
-    assert.deepEqual(recorderLaunchRefusals({ ...recorder, AI_RECORDER_LIVE: "1", PEXELS_API_KEY: "px" }), []);
+    assert.deepEqual(recorderLaunchRefusals({ ...recorder, AI_RECORDER_LIVE: "1", ARACHNID_SHIELD_PASSWORD: "ap" }), []);
   });
 
   it("refuses the acceptance launch any credential at all", () => {
@@ -97,8 +97,9 @@ describe("each launch's guard refuses a vendor credential outside its list", () 
     assert.match(productionModeRefusals({ ...production, RESEND_API_KEY: "re" }).join(), /a Resend API key is set/);
   });
 
-  it("refuses the recorder Pexels and Arachnid unless it is the live check", () => {
-    assert.match(recorderLaunchRefusals({ ...recorder, PEXELS_API_KEY: "px" }).join(), /recorder's allowlist are set \(PEXELS_API_KEY\)/);
+  it("refuses the recorder Arachnid, and any Pexels key at all, unless it is the live check", () => {
+    assert.match(recorderLaunchRefusals({ ...recorder, ARACHNID_SHIELD_PASSWORD: "ap" }).join(), /recorder's allowlist are set \(ARACHNID_SHIELD_PASSWORD\)/);
+    assert.match(recorderLaunchRefusals({ ...recorder, AI_RECORDER_LIVE: "1", PEXELS_API_KEY: "px" }).join(), /live check's allowlist are set \(PEXELS_API_KEY\)/);
     assert.match(recorderLaunchRefusals({ ...recorder, AI_RECORDER_LIVE: "1", STRIPE_SECRET_KEY_TEST: "sk" }).join(), /live check's allowlist are set \(STRIPE_SECRET_KEY_TEST\)/);
   });
 

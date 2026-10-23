@@ -116,7 +116,7 @@ async function cleanup(): Promise<void> {
   if (jobFactIds.length) {
     await db.delete(asyncJobsTable).where(inArray(
       asyncJobsTable.dedupeKey,
-      jobFactIds.flatMap((id) => [`enrichment:fact:${id}`, `fact_pexels:fact:${id}`]),
+      jobFactIds.flatMap((id) => [`enrichment:fact:${id}`]),
     ));
   }
   // Triage reviews created by the variant/import endpoints reference the test
@@ -1028,21 +1028,6 @@ describe("DELETE /admin/facts/:id", () => {
     assert.equal(rootRow, undefined, "root should be hard-deleted");
     const [childRow] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, childId));
     assert.equal(childRow.isActive, false, "the orphaned variant must be deactivated, not left active");
-  });
-});
-
-// ── POST /admin/facts/:id/refresh-images ──────────────────────────────────────
-
-describe("POST /admin/facts/:id/refresh-images", () => {
-  it("a variant (parentId set) is accepted — images are no longer root-only (variant independence)", async () => {
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} refresh-images root`);
-    const variantId = await createTestFact(`${FACT_PREFIX}${randomUUID()} refresh-images variant`, { parentId: rootId });
-    const res = await request(makeApp())
-      .post(`/admin/facts/${variantId}/refresh-images`)
-      .set("authorization", `Bearer ${adminSid}`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-    assert.equal(res.body.skipped, false);
   });
 });
 

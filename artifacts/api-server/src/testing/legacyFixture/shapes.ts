@@ -23,6 +23,26 @@ import {
 } from "@workspace/api-zod";
 
 import { ImageSourceSchema, TextOptionsSchema } from "../../lib/validators/memeBuilder";
+
+/**
+ * A stored meme recipe: the live sources plus the two older code wrote and the
+ * rows still hold (soft-deleted by migrations 0106 and 0107 when they were
+ * live). The export reads history, so it describes history; the request
+ * validator describes only what a request may send today.
+ */
+const StoredImageSourceSchema = z.discriminatedUnion("type", [
+  ...ImageSourceSchema.options,
+  z.object({
+    type: z.literal("stock"),
+    pexelsPhotoId: z.number().int().positive(),
+    photoUrl: z.string().url().max(2000).optional(),
+    photographerName: z.string().max(200).optional(),
+  }),
+  z.object({
+    type: z.literal("template"),
+    templateId: z.string().min(1).max(50),
+  }),
+]);
 import { defaultPreviewSubjectForGender } from "../../lib/imagePrompt/resolveRenderReviewInput";
 import { CANONICAL_NAME } from "../../lib/renderCanonical";
 import { ShapeStop, placeholderHashtagsFor, rerootRules, structuralDeep, walk, type PathRules, type WalkContext } from "./walker";
@@ -383,7 +403,7 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
     waivedByAdminUserId: "map-user",
     requiredScenarioPolicyVersion: "keep",
   }),
-  imageSource: plain(ImageSourceSchema, {
+  imageSource: plain(StoredImageSourceSchema, {
     templateId: "keep",
     uploadKey: { media: "meme-upload-source" },
     photoUrl: "stock-data-url",

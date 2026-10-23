@@ -63,7 +63,7 @@ before(async () => {
 after(async () => {
   if (factIds.length) {
     await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, factIds));
-    await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.dedupeKey, factIds.flatMap((id) => [`enrichment:fact:${id}`, `fact_pexels:fact:${id}`])));
+    await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.dedupeKey, factIds.flatMap((id) => [`enrichment:fact:${id}`])));
     await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   }
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
@@ -132,7 +132,7 @@ describe("hasNonterminalPrepJobs", () => {
     assert.equal(await hasNonterminalPrepJobs({ factId: id, reviewId: 123 }), false);
     await db.insert(asyncJobsTable).values({ queue: "enrichment", payload: {}, dedupeKey: `enrichment:fact:${id}`, status: "done" } as typeof asyncJobsTable.$inferInsert);
     assert.equal(await hasNonterminalPrepJobs({ factId: id, reviewId: 123 }), false, "a terminal (done) job must not count");
-    await db.insert(asyncJobsTable).values({ queue: "fact_pexels", payload: {}, dedupeKey: `fact_pexels:fact:${id}`, status: "pending" } as typeof asyncJobsTable.$inferInsert);
-    assert.equal(await hasNonterminalPrepJobs({ factId: id, reviewId: 123 }), true, "a pending pexels job counts");
+    await db.insert(asyncJobsTable).values({ queue: "enrichment", payload: {}, dedupeKey: `enrichment:fact:${id}`, status: "pending" } as typeof asyncJobsTable.$inferInsert);
+    assert.equal(await hasNonterminalPrepJobs({ factId: id, reviewId: 123 }), true, "a pending enrichment job counts");
   });
 });

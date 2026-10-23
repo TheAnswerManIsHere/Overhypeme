@@ -54,7 +54,7 @@ after(async () => {
   if (factIds.length) {
     await db.delete(factTextEditHistoryTable).where(inArray(factTextEditHistoryTable.factId, factIds));
     await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, factIds));
-    await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.dedupeKey, factIds.flatMap((id) => [`enrichment:fact:${id}`, `fact_pexels:fact:${id}`])));
+    await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.dedupeKey, factIds.flatMap((id) => [`enrichment:fact:${id}`])));
     await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   }
   await db.delete(usersTable).where(eq(usersTable.id, adminId));

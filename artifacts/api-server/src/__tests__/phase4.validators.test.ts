@@ -102,9 +102,6 @@ describe("Phase 4 — NameSchema", () => {
 });
 
 describe("Phase 4 — deriveRenderMode", () => {
-  it("returns stock for stock imageSource", () => {
-    assert.equal(deriveRenderMode({ type: "stock", pexelsPhotoId: 123 }), "stock");
-  });
   it("returns self-upload for upload imageSource", () => {
     assert.equal(deriveRenderMode({ type: "upload", uploadKey: "/objects/foo" }), "self-upload");
   });
@@ -114,10 +111,10 @@ describe("Phase 4 — deriveRenderMode", () => {
 });
 
 describe("Phase 4 — RenderRequestBody", () => {
-  it("accepts a minimal stock-mode request", () => {
+  it("accepts a minimal upload request", () => {
     const r = RenderRequestBody.safeParse({
       factId: 1,
-      imageSource: { type: "stock", pexelsPhotoId: 42 },
+      imageSource: { type: "upload", uploadKey: "/objects/uploads/x.jpg" },
       name: "Alex",
       pronouns: "they/them",
     });
@@ -127,7 +124,7 @@ describe("Phase 4 — RenderRequestBody", () => {
   it("rejects a body missing name", () => {
     const r = RenderRequestBody.safeParse({
       factId: 1,
-      imageSource: { type: "stock", pexelsPhotoId: 42 },
+      imageSource: { type: "upload", uploadKey: "/objects/uploads/x.jpg" },
       pronouns: "they/them",
     });
     assert.equal(r.success, false);
@@ -136,7 +133,7 @@ describe("Phase 4 — RenderRequestBody", () => {
   it("rejects a body with disallowed pronouns", () => {
     const r = RenderRequestBody.safeParse({
       factId: 1,
-      imageSource: { type: "stock", pexelsPhotoId: 42 },
+      imageSource: { type: "upload", uploadKey: "/objects/uploads/x.jpg" },
       name: "Alex",
       pronouns: "they/he",
     });
