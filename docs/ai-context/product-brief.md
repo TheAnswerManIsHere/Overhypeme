@@ -84,7 +84,8 @@ See [`visual-pipeline.md`](./visual-pipeline.md). AI **classification**
 Two user-facing tiers gate on **per-use cost**, not a credit balance:
 
 - **Free** — everything that doesn't cost per-render money: browse, personalize,
-  submit facts, comment, vote, and **photo** memes (your face on templates).
+  submit facts, comment, vote, and **photo** memes (your own photo behind the
+  fact).
 - **Legendary** — private memes, no CAPTCHAs, higher limits, a photo avatar
   and no ads; the paid per-render surface (**AI image memes**) returns in
   launch Phase 7. Plans are monthly, annual, and a one-time lifetime ("Legendary for

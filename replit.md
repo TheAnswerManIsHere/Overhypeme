@@ -30,7 +30,7 @@ The `overhype-me` frontend is a React+Vite application with a dark theme and ora
 
 **Feature Specifications:**
 -   **Fact Management:** User submission, AI duplicate detection, admin review.
--   **Meme Generation:** HTML5 Canvas, gradient themes, cloud storage uploads.
+-   **Meme Generation:** HTML5 Canvas, the user's own photo as background, cloud storage uploads.
 -   **User Engagement:** Leaderboard, search, hashtags, ratings, comments, personalized activity feed.
 -   **Admin Interface:** Dashboard for fact management (bulk import), users, billing, and reviews.
 -   **Security Hardening:** Includes webhook deduplication/auditing, checkout idempotency, shared rate limiting, data lifecycle/DSR, resource governance, share-route hardening, image URL validation, Stripe 5xx sanitization, and CSRF protection.

@@ -733,7 +733,7 @@ Phase 4 ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-d
 
 ### Recipe
 
-How a photo/stock/template meme is stored: **not a finished picture**, but a
+How a photo or stock meme is stored: **not a finished picture**, but a
 record of which background was chosen and what text goes with it, composed
 fresh every time someone views it. This is why a composition improvement
 retroactively upgrades existing memes. A meme built on a stored image (an
@@ -743,7 +743,7 @@ upload, or an old AI-generated image) points at that real file.
 ### Background
 
 What a meme is built on top of before the fact's text is composed over it — an
-uploaded photo, a [stock image](#stock-image) or a [template](#template).
+uploaded photo or a [stock image](#stock-image).
 "Background" is the choice the
 [studio](#studio) is organized around.
 → [meme-and-video-studio](./meme-and-video-studio.md)
@@ -757,14 +757,16 @@ per meme, so it needs no paid tier.
 
 ### Template
 
-A built-in background supplied by Overhype.me. A meme built on one stores **no
-image of its own** — just a [recipe](#recipe) pointing back at the template.
-→ [meme-and-video-studio](./meme-and-video-studio.md)
+**Retired** as a meme background. A built-in gradient background supplied by
+Overhype.me, stored as a [recipe](#recipe) pointing at it. Deleted in launch
+Phase 4, removal 5 (ledger [`docs/retired/README.md`](../retired/README.md));
+the backgrounds as they stood are at the tag `pre-cut/templates`. A meme's
+`template_id` column survives as the background label. A fact's tokenized
+template is a different thing ([Fact](#fact)).
 
 ### Photo meme
 
-A meme built from your own uploaded photo, a stock image, or a built-in
-template. Available to anyone signed in — no paid plan required — because it
+A meme built from your own uploaded photo or a stock image. Available to anyone signed in — no paid plan required — because it
 costs nothing extra per meme to produce.
 → [meme-and-video-studio](./meme-and-video-studio.md)
 

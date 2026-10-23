@@ -213,17 +213,7 @@ a smear.
 
 **Check:** `artifacts/overhype-me/e2e/capture/memeCaption.capture.spec.ts:a finished meme at`
 
-### R4. Gradient-template memes are unaffected
-
-**Do:** Look at a meme made from a gradient template (not a photo).
-
-**Expect:** the finished gradient-template meme shows its gradient background
-edge to edge, with the caption drawn in the same font, outline and all-caps
-treatment as a photo meme.
-
-**Lane:** capture
-
-**Deferred:** #628 — Phase 4 (Cut and prune) — gradient templates are on the cut list and are deleted, so there is nothing left to compare
+_R4 retired with the gradient template backgrounds, which launch Phase 4 deleted (removal 5, #744; ledger: `docs/retired/README.md`)._
 
 ### R5. The name highlight elsewhere in the app is untouched
 
