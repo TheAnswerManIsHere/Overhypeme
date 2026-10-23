@@ -53,6 +53,12 @@ to someone who had read the diff, rewrite it. Outcome, never mechanism:
 *"a risky test would have quietly run against the real database"*, not shell
 expansion order.
 
+**A pull request or an issue is named by number AND title, on every
+mention** — `PR #764 — Launch Phase 4, Removal 10: delete the leaderboard
+pills`, never `#764` alone (David, 2026-10-23: *"I have no idea what any of
+them are."*). You hold the titles: `pull_request_read` and `issue_read`
+return them with the body.
+
 ## What you write
 
 The fields are the schema in your brief; this is what each is for. David

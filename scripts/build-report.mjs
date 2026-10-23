@@ -152,7 +152,9 @@ export function buildBrief({
   root,
   unit,
   issue,
+  issueTitle = null,
   prs = [],
+  prTitles = [],
   branch = null,
   privatePath = false,
   privateSource = null,
@@ -198,6 +200,29 @@ export function buildBrief({
   if (!noIssue) assertPositiveInt("issue", issue);
   if (!Array.isArray(prs)) throw new Error("build-report: prs must be an array of pull request numbers.");
   for (const n of prs) assertPositiveInt("each pull request number", n);
+  // EVERY NUMBER CARRIES ITS TITLE, OR THE BRIEF REFUSES. The coordinates
+  // recorded here are printed back to David as the report's *Evidence* line,
+  // and a bare number tells him nothing (claude-core.md, interaction rule 14;
+  // AI-Handbook #241's build report named this line as the one bare-number
+  // line nobody in the loop writes). The script fetches nothing from GitHub,
+  // so the titles arrive from the builder, who holds them; a missing one is
+  // refused rather than printed as a gap, since a report that reads
+  // "title not recorded" would be the defect wearing a label.
+  const okTitle = (t) => typeof t === "string" && t.trim() !== "";
+  if (!noIssue && !okTitle(issueTitle)) {
+    throw new Error(
+      "build-report: --issue was given without --issue-title. The report's *Evidence* line names the workstream " +
+        "issue to David, and a number alone is never sufficient (interaction rule 14): pass the issue's title as read " +
+        "from GitHub.",
+    );
+  }
+  if (!Array.isArray(prTitles) || prTitles.length !== prs.length || !prTitles.every(okTitle)) {
+    throw new Error(
+      "build-report: every --pr needs its --pr-title, in the same order. The report's *Evidence* line names each " +
+        "pull request to David, and a number alone is never sufficient (interaction rule 14): pass each title as " +
+        "read from GitHub.",
+    );
+  }
   if (branch !== null) {
     const ok = (v) => typeof v === "string" && v.trim() !== "";
     if (!branch || !ok(branch.name) || !ok(branch.head) || !ok(branch.since)) {
@@ -235,7 +260,9 @@ export function buildBrief({
     unitPath(root, unit),
     JSON.stringify({
       issue: noIssue ? null : issue,
+      issueTitle: noIssue ? null : issueTitle.trim(),
       prs,
+      prTitles: prTitles.map((t) => t.trim()),
       branch,
       private: isPrivate,
       privateSource: privateSource !== null,
@@ -254,12 +281,12 @@ export function buildBrief({
   if (!noIssue) {
     lines.push(
       privateSource === null
-        ? `- **Workstream issue:** #${issue} — the plan or agreed scope, the State of Play, the decisions taken on recommendation and the \`Spend so far\` line live here.`
-        : `- **Workstream issue:** #${issue} — public, and sanitized: it carries labels and tracking only. The plan, the decisions and the spend line are in the private source below.`,
+        ? `- **Workstream issue:** ${issueRef(issue, issueTitle)} — the plan or agreed scope, the State of Play, the decisions taken on recommendation and the \`Spend so far\` line live here.`
+        : `- **Workstream issue:** ${issueRef(issue, issueTitle)} — public, and sanitized: it carries labels and tracking only. The plan, the decisions and the spend line are in the private source below.`,
     );
   }
   if (prs.length) {
-    lines.push(`- **Pull requests:** ${prs.map((n) => `#${n}`).join(", ")} — read each one whole: body, reviews, threads, comments, commits and the cumulative change.`);
+    lines.push(`- **Pull requests:** ${prs.map((n, i) => prRef(n, prTitles[i])).join(" · ")} — read each one whole: body, reviews, threads, comments, commits and the cumulative change.`);
   }
   if (branch) {
     lines.push(
@@ -349,6 +376,17 @@ export function readUnit(root, unit) {
 }
 
 /**
+ * A pull request or an issue named to David: number AND title, in interaction
+ * rule 14's form. A title the coordinates do not carry -- a unit prepared by
+ * an older brief -- is said to be missing rather than silently dropped, so
+ * the line never reads as a bare number nobody noticed.
+ */
+const titled = (kind, n, title) =>
+  typeof title === "string" && title.trim() !== "" ? `${kind} #${n} — ${title.trim()}` : `${kind} #${n} (title not recorded)`;
+export const issueRef = (n, title) => titled("Issue", n, title);
+export const prRef = (n, title) => titled("PR", n, title);
+
+/**
  * The evidence line, from the brief's own coordinates. For a branch unit it
  * names both ends of the range, which is what the next version's dispatch
  * reads its `since` from.
@@ -356,10 +394,12 @@ export function readUnit(root, unit) {
 export function evidenceLine(coords) {
   if (!coords) return "*Evidence:* *not recorded — this report was read without its brief's coordinates.*";
   const parts = [
-    coords.issue ? `workstream #${coords.issue}` : `private workstream${coords.privateRef ? ` (${coords.privateRef})` : ""}`,
+    coords.issue ? `workstream ${issueRef(coords.issue, coords.issueTitle)}` : `private workstream${coords.privateRef ? ` (${coords.privateRef})` : ""}`,
   ];
   if (coords.privateSource) parts.push("plan, decisions and spend from the private source David relayed");
-  if (Array.isArray(coords.prs) && coords.prs.length) parts.push(`PRs ${coords.prs.map((n) => `#${n}`).join(", ")}`);
+  if (Array.isArray(coords.prs) && coords.prs.length) {
+    parts.push(coords.prs.map((n, i) => prRef(n, Array.isArray(coords.prTitles) ? coords.prTitles[i] : undefined)).join(" · "));
+  }
   if (coords.branch) parts.push(`branch \`${coords.branch.name}\` from after \`${coords.branch.since}\` through \`${coords.branch.head}\``);
   return `*Evidence:* ${parts.join(" · ")}`;
 }
@@ -382,21 +422,42 @@ export function facts(report) {
 const plural = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /**
+ * How the unit is named to David at the head of the report. The slug the
+ * builder chose (`pr-243`) is a PR number with no title -- the one bare number
+ * left in the first words of every report after #243 fixed the Evidence line
+ * (its own build report named it). So the unit is named from the coordinates
+ * the brief recorded, in interaction rule 14's form: each PR by number and
+ * title, or the branch for a branch unit; the slug only when no coordinates
+ * were recorded, where the report already says so.
+ */
+export function unitLabel(unit, coords) {
+  if (!coords) return unit;
+  if (Array.isArray(coords.prs) && coords.prs.length) {
+    return coords.prs.map((n, i) => prRef(n, Array.isArray(coords.prTitles) ? coords.prTitles[i] : undefined)).join(" · ");
+  }
+  if (coords.branch) return `branch \`${coords.branch.name}\` through \`${coords.branch.head}\``;
+  return unit;
+}
+
+/**
  * The verdict line. "Agrees" is last and only reachable when nothing differs,
  * nothing shipping unfixed is called unreasonable, no decision drew a concern
- * and everything reachable was assessed.
+ * and everything reachable was assessed. With coordinates the unit is named in
+ * its titled form and the verdict follows a middle dot, since a title may
+ * itself carry a colon; without them the slug keeps the colon.
  */
-export function chatLine(report) {
+export function chatLine(report, coords = undefined) {
   const f = facts(report);
-  const u = report.unit;
-  if (f.failed) return `${u}: report failed — ${f.reason}`;
+  const u = unitLabel(report.unit, coords);
+  const sep = coords ? " · " : ": ";
+  if (f.failed) return `${u}${sep}report failed — ${f.reason}`;
   const flags = [];
   if (f.disagreements) flags.push(`differs on ${plural(f.disagreements, "point")}`);
   if (f.notReasonable) flags.push(`${f.notReasonable} not reasonable to ship`);
   if (f.concerns) flags.push(`${plural(f.concerns, "decision")} questioned`);
   if (f.overbuilt) flags.push(`${f.overbuilt} overbuilt`);
   if (f.unassessed) flags.push("partial — something could not be assessed");
-  return flags.length ? `${u}: ${flags.join("; ")}` : `${u}: agrees with the builder's account`;
+  return flags.length ? `${u}${sep}${flags.join("; ")}` : `${u}${sep}agrees with the builder's account`;
 }
 
 const SESSION_VERDICTS = ["continue", "hand off", "archive"];
@@ -409,7 +470,7 @@ const SESSION_VERDICTS = ["continue", "hand off", "archive"];
  */
 export function chatReport(report, { askedModel = null, session = null, coords = undefined } = {}) {
   const f = facts(report);
-  const out = [`**Build report — ${chatLine(report)}**`, ""];
+  const out = [`**Build report — ${chatLine(report, coords ?? undefined)}**`, ""];
   // A PRIVATE-PATH UNIT IS DELIVERED IN CHAT ONLY. The role writes a plain
   // account of the diff, and on a workstream whose plan took the private path
   // that is the content the canonical disclosure check keeps off GitHub
@@ -525,7 +586,7 @@ export function readPrivateSource(root, file) {
 /**
  * The command line.
  *
- *   node build-report.mjs brief  --unit <slug> (--issue <n> | --private-source <file> [--private-ref <ref>]) [--pr <n> ...] [--branch <name> --since <sha> --head <sha>] [--private yes]
+ *   node build-report.mjs brief  --unit <slug> (--issue <n> --issue-title <title> | --private-source <file> [--private-ref <ref>]) [--pr <n> --pr-title <title> ...] [--branch <name> --since <sha> --head <sha>] [--private yes]
  *   node build-report.mjs prepare --unit <slug>
  *   node build-report.mjs report --unit <slug> [--session continue|"hand off"|archive] [--session-why <text>]
  *
@@ -534,13 +595,14 @@ export function readPrivateSource(root, file) {
  */
 export function main({ argv = process.argv.slice(2), root = process.cwd(), io = undefined, stdout = process.stdout } = {}) {
   const [cmd, ...rest] = argv;
-  const opts = { pr: [] };
+  const opts = { pr: [], prTitle: [] };
   for (let i = 0; i < rest.length; i++) {
     const k = rest[i];
     const v = rest[i + 1];
     if (!k.startsWith("--") || v === undefined) throw new Error(`build-report: expected --flag value pairs, got ${JSON.stringify(rest.slice(i))}`);
     const name = k.slice(2);
     if (name === "pr") opts.pr.push(Number(v));
+    else if (name === "pr-title") opts.prTitle.push(v);
     else opts[name] = v;
     i++;
   }
@@ -554,7 +616,9 @@ export function main({ argv = process.argv.slice(2), root = process.cwd(), io = 
         root,
         unit: opts.unit,
         issue,
+        issueTitle: opts["issue-title"] ?? null,
         prs: opts.pr,
+        prTitles: opts.prTitle,
         branch,
         privatePath: opts.private === "yes",
         privateSource,

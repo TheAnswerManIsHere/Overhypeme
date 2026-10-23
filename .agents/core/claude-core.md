@@ -214,6 +214,27 @@ where I put it and treat it as binding.
     showed instead. A turn **I** start — a background wake, a webhook, a
     scheduled check-in, a merge report — quotes nothing, which makes the
     absence of a quote its own signal: I initiated it, he did not.
+14. **A pull request or an issue is named by number AND title, on every
+    mention** (David, 2026-10-23: *"Quoting PR or Issue numbers at me is
+    useless. I have no idea what any of them are. … The number alone is
+    never helpful or sufficient."*). The form is `PR #764 — Launch Phase 4,
+    Removal 10: delete the leaderboard pills` or `Issue #732 — Bug: a shared
+    meme's "See it with your name" form is empty after the visitor has saved
+    their name`, in everything he reads — chat, the merge report, the build
+    report, a workstream issue comment, a PR body — and on every mention,
+    not the first in a message, since his reading is screens apart. A title
+    I do not hold is fetched before the mention is written; one I cannot
+    fetch is reported as a lookup I could not complete, and the mention
+    waits for it — a description of my own beside the number is not the
+    title and never stands in for it. Two things are not mentions to him
+    and keep their exact form: the contract's own history citations
+    (`#89`, `#131`), written for me; and a marker another agent reads by
+    shape — `Workstream: #N`, `Blocked by: #N`, `Refs #N`,
+    `**Deferred:** #N`, and a Phases checklist line's `→ #N` — which an
+    added title would silently break (`/status` and `/status-all` match
+    `^Workstream:[ \t]*#(\d+)`, and a PR that no longer matches reads as
+    untracked); the title goes beside such a marker in prose, never inside
+    it.
 
 ## Advice is independent, or it is worthless
 
