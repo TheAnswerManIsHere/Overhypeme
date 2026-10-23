@@ -5,7 +5,7 @@
  */
 export function GuestPhotoSignupPanel() {
   const handleSignup = () => {
-    window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    window.location.href = `/login?from=${encodeURIComponent(window.location.pathname + window.location.search)}`;
   };
 
   return (

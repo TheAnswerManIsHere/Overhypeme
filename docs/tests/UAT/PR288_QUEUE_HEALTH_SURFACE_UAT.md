@@ -240,7 +240,8 @@ testing.
 
 **Expect:** None. The per-instance connection ceiling went from an
 implicit 10 to an explicit 20 — a real latent problem, since the five
-lanes could want 10 connections at once with zero spare. If anything
+lanes of the time could want 10 connections at once with zero spare (four
+since the `pexels` lane went in launch Phase 4, removal 6). If anything
 anywhere starts reporting database connection errors, that's the one
 place this PR could plausibly bite.
 

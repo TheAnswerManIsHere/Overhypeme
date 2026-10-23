@@ -211,4 +211,4 @@ field, and Save.
   Taxonomy Health — that's intended; send it back to review to refresh its
   taxonomy against the new wording.
 - A first-time staging text edit **restarting prep** (re-running
-  enrichment/images) is intended, not a regression.
+  enrichment) is intended, not a regression.

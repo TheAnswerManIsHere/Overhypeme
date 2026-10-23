@@ -8,6 +8,7 @@ import type {
   EntryFlow,
   Mode,
 } from "@/components/meme-builder/types";
+import { upgradeDestination } from "@/pages/memePage/upgradeDestination";
 import { usePersonName } from "@/hooks/use-person-name";
 import { X } from "lucide-react";
 
@@ -58,7 +59,9 @@ export function BuilderOverlay({
       return;
     }
     if (result.kind === "upgrade-required") {
-      setLocation("/pricing");
+      const dest = upgradeDestination(result.targetTier, window.location.pathname + window.location.search);
+      if (dest.fullPage) window.location.href = dest.href;
+      else setLocation(dest.href);
       return;
     }
     onClose();
