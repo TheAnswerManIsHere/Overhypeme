@@ -78,7 +78,8 @@ launch Phase 4; a stored video meme is a soft-deleted row (migration 0103). A
 `"template"` variant (a built-in gradient background) went with the templates
 in launch Phase 4, removal 5; a meme whose recipe named one is a soft-deleted
 row (migration 0106), while a gradient meme stored as an image before recipes
-existed keeps serving from storage.
+existed keeps serving from storage (ledger
+[`docs/retired/README.md`](../retired/README.md), tag `pre-cut/templates`).
 
 An AI-*generated* image background was just a file in object storage — it
 re-entered `createMemeRecord` as an `"upload"`-shaped `imageSource`, same as

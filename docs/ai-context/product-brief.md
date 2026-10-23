@@ -58,8 +58,8 @@ Facts become media through a multi-stage, human-supervised pipeline:
 - **Image memes** — a moderator authors or picks a **Visual Concept** (the
   authoritative scene), a frontier-model **visual planner** realizes it, and a
   deterministic compiler produces the engine prompt for the current image engine.
-  Every user gets **photo memes** (their own photo, or a built-in background,
-  under the caption). **AI image memes** (their face in impossible scenes) went
+  Every user gets **photo memes** (their own photo under the caption; the
+  built-in gradient backgrounds went in launch Phase 4, removal 5). **AI image memes** (their face in impossible scenes) went
   with PuLID in launch Phase 4 and return in launch Phase 7 on a newer model
   (ledger [`docs/retired/README.md`](../retired/README.md)).
 - **Video memes** were deleted in launch Phase 4, to be rebuilt after launch on
