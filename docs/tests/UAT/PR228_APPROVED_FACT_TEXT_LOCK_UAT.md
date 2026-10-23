@@ -165,7 +165,7 @@ expectation would now fail through no fault of the product.
 
 **Do:** Provisionally accept a new submission.
 
-**Expect:** prep starts as before (enrichment + images).
+**Expect:** prep starts as before (enrichment).
 
 **Lane:** ci
 

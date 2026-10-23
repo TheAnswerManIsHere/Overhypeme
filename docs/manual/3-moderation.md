@@ -242,7 +242,7 @@ or by anyone downstream, as if it did.
   admin screen are very different guarantees, and only the second one
   prevents a well-meaning admin from activating a legally-consequential
   integration before its safeguards exist.
-- **Cost-gating, in order.** Enrichment, image lookups, and renders all cost
+- **Cost-gating, in order.** Enrichment and renders both cost
   money. A cheap human triage gate first means no paid work runs on spam,
   duplicates, or low-quality submissions. → [Staged, cost-gated moderation](../ai-context/decisions.md)
 

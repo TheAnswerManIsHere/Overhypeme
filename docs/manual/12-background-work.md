@@ -1,7 +1,7 @@
 # Chapter 12 · Background Work (Async Jobs)
 
 > How Overhype.me runs slow or external work — AI classification, image
-> generation, email, image search, moderation refresh cycles — without making
+> generation, email, moderation refresh cycles — without making
 > anyone wait on it, and how it stays visible to admins while it's happening.
 >
 > Deep spec: [`architecture-map.md`](../ai-context/architecture-map.md#async-jobs-and-queues),

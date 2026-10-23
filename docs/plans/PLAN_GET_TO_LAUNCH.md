@@ -339,7 +339,7 @@ scope:
   dashboard rebuild, unless an advisory forces it sooner.
 - **Phase 11, if it fits:** the status label a fact shows for its AI-meme
   job cannot stick at "pending" after the job finished (the Pexels half
-  goes with Pexels in Phase 4); otherwise it waits to be seen in Seed.
+  went with Pexels in Phase 4, removal 6); otherwise it waits to be seen in Seed.
 - **Phase 14:** the retention policy names the rate-limit table's IP
   addresses.
 - **Phase 15:** the web app gets its own content security policy with a

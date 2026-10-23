@@ -1,7 +1,10 @@
 # Cloudflare WAF rate-limit rules — recoverability spec
 
 This document records the WAF Rate Limiting Rules that protect the two
-anonymous-accessible Phase-4 render endpoints. Cloudflare's dashboard is the
+Phase-4 render endpoints. They were anonymous-accessible when the rules were
+written; since stock photos went with Pexels (launch Phase 4, removal 6) the
+origin serves them to signed-in callers only, and the edge rules still cap
+every caller per IP. Cloudflare's dashboard is the
 source of truth in production, but the rules below are the authoritative
 recipe so the configuration can be recreated if it is ever lost or migrated.
 
@@ -19,7 +22,7 @@ unaffected. Consolidating the storage layer to R2 is a separate workstream.
 
 ## Application-layer divergence note
 
-These edge rules cover the two anonymous endpoints. The authenticated save
+These edge rules cover the two render endpoints. The authenticated save
 endpoint `POST /api/memes` is rate-limited at the application layer instead:
 a rolling 24 h cap counted against the `memes` table (see
 `memes.free_tier_daily_save_cap` / `memes.legendary_tier_daily_save_cap` in
@@ -42,8 +45,10 @@ to respect soft-deleted rows.
 
 ### Justification
 
-- A user scrubbing the stock picker triggers ~10–15 previews in a normal
-  builder session. 30/hour leaves roughly 2× headroom for power users.
+- A user scrubbing the stock picker triggered ~10–15 previews in a normal
+  builder session when the limit was sized; 30/hour left roughly 2× headroom
+  for power users. The stock picker is gone (launch Phase 4, removal 6), so a
+  session now previews fewer backgrounds and the limit has more headroom.
 - Each preview burns server CPU on `node-canvas`; the limit needs to bite
   long before that becomes the bottleneck.
 - The 1-hour window is short enough that a user who legitimately tripped the

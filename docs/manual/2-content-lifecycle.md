@@ -196,7 +196,7 @@ Every route in — the submit route, both import routes, and the admin variant
 route — calls the same function to create a pending review row, and nothing
 else in the codebase does. That row starts at the very first stage
 of the review pipeline; no route can hand a fact a head start.
-The **[moderation-prep pipeline](../ai-context/glossary.md#moderation-prep)** — AI classification, image lookups, no
+The **[moderation-prep pipeline](../ai-context/glossary.md#moderation-prep)** — AI classification, no
 renders yet — never runs at intake; that work only begins once a human moderator
 provisionally accepts a submission at Triage. (The cheap pre-submit
 affordances a submitter already used on the way in — the grammar/[tokenize](../ai-context/glossary.md#tokenize)

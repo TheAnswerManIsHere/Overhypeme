@@ -1148,7 +1148,7 @@ The **generated** field-level reference for the enrichment editor
 ### Background work
 
 Slow, unreliable, or expensive work run outside the request that triggered it —
-AI classification, image generation, email, image search, refresh cycles.
+AI classification, image generation, email, refresh cycles.
 Recorded in the database rather than held in memory, so a restart mid-run
 doesn't lose it.
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
