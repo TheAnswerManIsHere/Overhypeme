@@ -20,7 +20,7 @@ The `overhype-me` frontend is a React+Vite application with a dark theme and ora
 -   **API Server (`api-server`):** Express 5, Zod for validation.
 -   **Frontend (`overhype-me`):** React with Vite, consumes API via generated React Query hooks.
 -   **Database Layer (`db`):** PostgreSQL with Drizzle ORM, `pgvector` for AI duplicate detection.
--   **Authentication:** Replit OIDC and local email/password (`bcryptjs`).
+-   **Authentication:** Google and Apple OAuth and local email/password (`bcryptjs`); Replit Auth is retired.
 -   **API Codegen:** OpenAPI 3.1 and Orval generate TypeScript clients (`api-client-react`) and Zod schemas (`api-zod`).
 -   **AI Features:**
     -   **Duplicate Detection:** `pgvector` with OpenAI's `text-embedding-3-small` for cosine similarity.
@@ -50,6 +50,6 @@ The `overhype-me` frontend is a React+Vite application with a dark theme and ora
 -   **Error Reporting:** Sentry
 -   **Email Service:** Resend
 -   **Payments:** Stripe
--   **Authentication:** Replit OAuth
+-   **Authentication:** Google and Apple OAuth
 -   **Captcha:** hCaptcha
 -   **Hashing:** bcryptjs

@@ -822,8 +822,8 @@ Tags on a fact, AI-suggested at submission and editable by the submitter.
 Browsing them happens two ways — a [hashtag pill](#hashtag-pill) on a fact card
 runs a search, and the home page's hashtag rail and [Trending
 Topics](#trending-topics) strip filter the feed in place. There is **no
-dedicated hashtag directory page**: the idea exists in the codebase but isn't
-reachable.
+dedicated hashtag directory page**; the unreachable one in the code was
+deleted in launch Phase 4, removal 7 (ledger [`docs/retired/README.md`](../retired/README.md)).
 → [taxonomy-and-enrichment](./taxonomy-and-enrichment.md), [public-site-and-sharing](./public-site-and-sharing.md)
 
 ### Hashtag pill
@@ -836,8 +836,8 @@ filters in place.
 ### Trending Topics
 
 The home-page strip (with the hashtag rail) that filters the home feed **in
-place**, without navigating away. The other half of hashtag browsing, and the
-reason no directory page is needed for the common case.
+place**, without navigating away. The other half of hashtag browsing, beside
+the [hashtag pill](#hashtag-pill)'s search.
 → [public-site-and-sharing](./public-site-and-sharing.md)
 
 ### Library

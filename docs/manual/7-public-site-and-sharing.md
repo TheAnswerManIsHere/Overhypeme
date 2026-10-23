@@ -46,9 +46,8 @@ hashtag (with a `#`) searches for exactly that tag instead, and this is
 one of two ways hashtag browsing actually happens day to day: a hashtag
 pill on a [fact card](../ai-context/glossary.md#fact-card) sends you to a search for that tag, while the
 hashtag rail and "[Trending Topics](../ai-context/glossary.md#trending-topics)" strip on the home page filter the home
-feed itself in place, without leaving the page. Either way, there's no
-dedicated hashtag directory page — the idea of one exists in the
-codebase, but it isn't reachable.
+feed itself in place, without leaving the page. There's no dedicated
+hashtag directory page.
 
 ### Top Facts (the leaderboard)
 
@@ -122,11 +121,11 @@ in launch Phase 4 (ledger: [`docs/retired/README.md`](../retired/README.md)).
   decorative** — clicking one changes which button looks selected, but
   the ranking underneath never changes; it's always all-time. Not a
   documented product decision, just not wired up yet.
-- **There's no dedicated hashtag browsing page**, even though the idea of
-  one exists in the codebase. If you're expecting a page that lists every
-  hashtag with its own dedicated view, that page currently isn't
-  reachable — hashtag browsing only happens through search or the home
-  page's own filtering.
+- **There's no dedicated hashtag browsing page.** If you're expecting a
+  page that lists every hashtag with its own dedicated view, there isn't
+  one: hashtag browsing happens through search or the home page's own
+  filtering. An unreachable page that once existed in the code was deleted
+  before launch (the record is in [`docs/retired/`](../retired/README.md)).
 - **The "Send via Email" share option doesn't currently work.** The
   button is there and looks functional, but the request behind it fails
   every time in production due to a configuration mismatch — this reads

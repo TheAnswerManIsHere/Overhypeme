@@ -61,9 +61,9 @@ docs/                this documentation
   Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
   Engines, Taxonomy Health, Email Queue, Features,
   Configuration, Eval, Queue Health — the full, routed inventory is
-  [`admin-console.md`](./admin-console.md). `comments.tsx` and `ai.tsx`
-  exist as files but are dead — their routes redirect elsewhere; they are
-  not part of the live inventory. Shared: `EnrichmentEditor.tsx` (+
+  [`admin-console.md`](./admin-console.md). `/admin/comments` and
+  `/admin/ai` redirect to Moderation and Config (their orphaned page files
+  went in launch Phase 4, removal 7). Shared: `EnrichmentEditor.tsx` (+
   `fieldDocs/`), `useTaxonomyHealthActions.ts` (async-status reference).
 - Prefer the generated React Query hooks (`lib/api-client-react`) for API calls.
   Note this is **not** universal: many surfaces (admin prompt-preview/moderation
