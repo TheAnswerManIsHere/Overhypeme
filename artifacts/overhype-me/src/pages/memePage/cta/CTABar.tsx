@@ -12,17 +12,6 @@
  */
 import { ArrowRight, Crown, Download, Library, Share2, ShoppingBag } from "lucide-react";
 import { Link } from "wouter";
-import { useState } from "react";
-import { usePersonName } from "@/hooks/use-person-name";
-import { PRONOUN_PRESETS } from "@/lib/pronouns";
-
-// The builder's picker and the download endpoint take only these three.
-const PRONOUNS: readonly string[] = PRONOUN_PRESETS;
-
-interface OpenBuilderArgs {
-  initialName?: string;
-  initialPronouns?: string;
-}
 
 /* ─── shared atoms ───────────────────────────────────────────────────────── */
 
@@ -164,67 +153,25 @@ function TierLadderTeasers() {
 
 /* ─── anon-other ─────────────────────────────────────────────────────────── */
 
-export function CTABarAnonOther({
-  onOpenBuilder,
-  factTemplateReady,
-}: {
-  onOpenBuilder: (a: OpenBuilderArgs) => void;
-  /**
-   * The page-level data fetch resolves the meme synchronously; the fact's
-   * tokenized template (`{NAME} fought a bear`) arrives in a follow-up
-   * fetch. The builder only works correctly with the tokenized template,
-   * so the CTA stays disabled until that's loaded — usually sub-second.
-   */
-  factTemplateReady: boolean;
-}) {
-  // The form shows what the browser already holds until the visitor edits it
-  // (#732). Pronouns the visitor never supplied stay they/them here, never the
-  // rendering fallback's silent he/him; a saved custom set does too, since the
-  // builder cannot download one (#733 round 1; custom-set support is #719's).
-  const saved = usePersonName();
-  const [editedName, setName] = useState<string | null>(null);
-  const [editedPronouns, setPronouns] = useState<string | null>(null);
-  const name = editedName ?? saved.name;
-  const savedPronouns = saved.pronounsSupplied && PRONOUNS.includes(saved.pronouns) ? saved.pronouns : "they/them";
-  const pronouns = editedPronouns ?? savedPronouns;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!factTemplateReady) return;
-    onOpenBuilder({
-      initialName: name.trim() || undefined,
-      initialPronouns: pronouns,
-    });
-  };
-
+export function CTABarAnonOther({ onSignup }: { onSignup: () => void }) {
+  // A signed-out visitor has no background to build on until launch Phase 7's
+  // free hero renders (stock photos went with Pexels, Phase 4, removal 6), so
+  // the card asks for the sign-up a meme needs rather than promising a preview
+  // with their name. The name-and-pronoun form it replaced is at the tag
+  // `pre-cut/stock-pexels`.
   return (
     <div className="space-y-4" data-testid="cta-anon-other">
-      <form onSubmit={handleSubmit} className="rounded-[16px] bg-card border border-primary/40 p-4 space-y-3">
+      <div className="rounded-[16px] bg-card border border-primary/40 p-4 space-y-3">
         <p className="text-[11px] font-display font-bold tracking-[0.18em] text-primary uppercase">
-          See it with your name
+          Make this meme about you
         </p>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Your name"
-          maxLength={50}
-          data-testid="anon-name-input"
-          className="w-full h-[44px] px-3 rounded-[10px] bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
-        />
-        <select
-          value={pronouns}
-          onChange={(e) => setPronouns(e.target.value)}
-          data-testid="anon-pronouns-input"
-          className="w-full h-[44px] px-3 rounded-[10px] bg-background border border-border text-foreground focus:outline-none focus:border-primary"
-        >
-          {PRONOUNS.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-        <PrimaryButton type="submit" testId="anon-see-with-name" disabled={!factTemplateReady}>
-          {factTemplateReady ? "See it with your name" : "Loading…"} <ArrowRight className="w-4 h-4" />
+        <p className="text-sm text-muted-foreground leading-snug">
+          Sign up free to put your own photo and name behind this fact.
+        </p>
+        <PrimaryButton onClick={onSignup} testId="anon-signup-make">
+          Sign up free <ArrowRight className="w-4 h-4" />
         </PrimaryButton>
-      </form>
+      </div>
       <SecondaryButton href="/" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts
       </SecondaryButton>

@@ -23,6 +23,7 @@ import {
   CTABarRegisteredOther,
 } from "@/pages/memePage/cta/CTABar";
 import { BuilderOverlay } from "@/pages/memePage/BuilderOverlay";
+import { upgradeDestination } from "@/pages/memePage/upgradeDestination";
 import { MemeShareModal } from "@/components/share/MemeShareModal";
 import type { EntryFlow, Mode } from "@/components/meme-builder/types";
 
@@ -192,14 +193,10 @@ export default function MemePage() {
     });
   };
 
-  const openAnonSeeWithName = (args: { initialName?: string; initialPronouns?: string }) => {
-    if (!factTemplateReady) return;
-    setBuilder({
-      mode: "self-upload",
-      entryFlow: "cold-permalink",
-      initialName: args.initialName,
-      initialPronouns: args.initialPronouns,
-    });
+  // A signed-out visitor's "make this about me" is a sign-up: there is no
+  // background they can build on until Phase 7 (stock went with Pexels).
+  const handleAnonMake = () => {
+    window.location.href = upgradeDestination("registered", window.location.pathname + window.location.search).href;
   };
 
   const handleAnonSignup = () => {
@@ -210,10 +207,7 @@ export default function MemePage() {
   switch (cell) {
     case "anon-other":
       ctaBar = (
-        <CTABarAnonOther
-          onOpenBuilder={openAnonSeeWithName}
-          factTemplateReady={factTemplateReady}
-        />
+        <CTABarAnonOther onSignup={handleAnonMake} />
       );
       break;
     case "anon-own-transient":

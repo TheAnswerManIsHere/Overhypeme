@@ -35,7 +35,8 @@ fact's scene (PuLID) and video
 
 You build memes in one of two places. On a fact's page, the builder opens
 straight onto the image you'll make. On a shared meme's page, "make this about me" opens a
-single-screen builder that remakes that meme for you. An older studio that used to
+single-screen builder that remakes that meme for you; a visitor who isn't signed in sees a
+card asking them to sign up first, which brings them back to the meme. An older studio that used to
 sit behind the fact page was deleted before launch
 ([decisions](../ai-context/decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 
