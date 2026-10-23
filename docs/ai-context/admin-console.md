@@ -124,8 +124,9 @@ Two distinct pages, not one:
   gallery caps), Email (sender, retry, retention), Moderation
   (duplicate-detection threshold), plus a generic
   catch-all and a nested AI-settings group (system prompts, gallery
-  display limit). A global Debug-Mode toggle swaps every key to its
-  debug value set.
+  display limit). Each key has one value; the Debug mode toggle and its
+  second value set were removed in launch Phase 4
+  ([`docs/retired/debug-mode.md`](../retired/debug-mode.md)).
 - **`/admin/features`** — the tier × feature-flag matrix
   (`unregistered/registered/legendary/admin` × feature keys), read by
   `artifacts/api-server/src/lib/featureAccess.ts`, which is the only module
