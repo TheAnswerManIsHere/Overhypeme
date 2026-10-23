@@ -251,7 +251,7 @@ section describes. `enforceGovernance` (`resourceGovernance.ts`) used to run
 *first* on the synchronous user image route in `routes/memes.ts`, with an
 **in-memory, per-process** spend, rate, concurrency and payload backstop; that
 route went with PuLID in launch Phase 4, and the module, with its admin read
-`GET /admin/resource-governance`, went in removal 11 once nothing called it.
+`GET /admin/resource-governance`, went in removal 11 once nothing called it (same ledger).
 Its [decision record](./decisions.md) is history.
 
 **The ledger the gate reads is part of the control too.** PRs #474/#498

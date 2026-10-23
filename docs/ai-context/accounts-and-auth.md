@@ -185,7 +185,8 @@ failure is diagnosable but not automatically rolled back):
 3. Explicitly deletes rows with non-cascading NOT-NULL FKs:
    `stripeCheckoutRequestLedgerTable`, `membershipHistoryTable`,
    `activityFeedTable` (`admin.ts:550-559`). (`affiliate_clicks` was on
-   this list until its table went in launch Phase 4, removal 11.)
+   this list until its table went in launch Phase 4, removal 11; ledger
+   [`docs/retired/README.md`](../retired/README.md).)
    `membershipEntitlementsTable` is deliberately **not** deleted here — its
    FK is `ON DELETE CASCADE`, so it goes with the user row in step 5;
    deleting it early would also destroy anything cascaded off disputes tied

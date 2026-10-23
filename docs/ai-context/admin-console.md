@@ -125,7 +125,7 @@ Two distinct pages, not one:
   (duplicate-detection threshold), plus a generic
   catch-all and a nested AI-settings group (system prompts; its AI
   gallery display limit went with the legacy studio's gallery in launch
-  Phase 4, removal 11). Each key has one value; the Debug mode toggle and its
+  Phase 4, removal 11; ledger [`docs/retired/README.md`](../retired/README.md)). Each key has one value; the Debug mode toggle and its
   second value set were removed in launch Phase 4
   ([`docs/retired/debug-mode.md`](../retired/debug-mode.md)).
 - **`/admin/features`** — the tier × feature-flag matrix
