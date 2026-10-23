@@ -14,8 +14,8 @@ function fixture(overrides: Partial<PendingWizardState> = {}): PendingWizardStat
     capturedAt: Date.now(),
     factId: FACT_ID,
     entryFlow: "fact-detail",
-    mode: "stock",
-    source: { kind: "stock", stockImageId: "9001" },
+    mode: "self-upload",
+    source: { kind: "self-upload", image: { kind: "library", objectPath: "/objects/uploads/lib.jpg" } },
     aspectRatio: "landscape",
     name: "Quinn",
     pronouns: "they/them",
@@ -109,6 +109,36 @@ describe("wizardStorage", () => {
     });
     captureWizardState(captured);
     expect(restoreWizardState(FACT_ID)).toEqual(captured);
+  });
+
+  // Launch Phase 4, removal 6: stock photos went with Pexels. A draft saved
+  // before it may have the stock source selected.
+  it("drops a pre-removal draft's stock source and keeps everything else; an upload draft is unchanged", () => {
+    const stockDraft = {
+      ...fixture(),
+      mode: "stock",
+      source: { kind: "stock", stockImageId: "9001" },
+      framingOffset: { x: 3, y: 4 },
+      isPublic: false,
+    } as unknown as PendingWizardState;
+    captureWizardState(stockDraft);
+    const restored = restoreWizardState(FACT_ID);
+    expect(restored).not.toBeNull();
+    expect(restored!.source).toBeUndefined();
+    expect(restored).toMatchObject({
+      schemaVersion: 3,
+      factId: FACT_ID,
+      entryFlow: "fact-detail",
+      aspectRatio: "landscape",
+      name: "Quinn",
+      pronouns: "they/them",
+      framingOffset: { x: 3, y: 4 },
+      isPublic: false,
+    });
+
+    const upload = fixture();
+    captureWizardState(upload);
+    expect(restoreWizardState(FACT_ID)).toEqual(upload);
   });
 
   // Launch Phase 4, removal 3: AI styling went with PuLID. A draft saved before

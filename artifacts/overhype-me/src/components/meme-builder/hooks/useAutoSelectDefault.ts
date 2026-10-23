@@ -2,8 +2,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * Pickers in the meme builder routinely show a default UI selection (e.g.
- * `StockImagePicker` highlights its pre-seeded `selectedId`; `MyImagePicker`
- * defaults the active tab to `"primary"` when an avatar exists). When that
+ * `MyImagePicker` defaults the active tab to `"primary"` when an avatar exists). When that
  * default is purely visual the parent reducer never receives the selection,
  * the live preview can't resolve a background URL, and the canvas renders as
  * a black box behind the text. This pattern has shipped at least three times
@@ -14,8 +13,7 @@ import { useEffect, useRef } from "react";
  * just an id), so the builder's reducer can put it on `state` immediately.
  *
  * The ref-based dedupe key means re-renders don't repeatedly dispatch — only
- * a change in `identityKey` (e.g. switching tabs or changing the seeded
- * stock id) re-arms the auto-select.
+ * a change in `identityKey` (e.g. switching tabs) re-arms the auto-select.
  */
 export function useAutoSelectDefault<T>(args: {
   /** Gate flag — when false the hook does nothing. */

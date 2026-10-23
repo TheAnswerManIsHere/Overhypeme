@@ -16,12 +16,10 @@
  * table keyed by `imageSource.type`.
  */
 
-import type { Mode, MyImageSource } from "../types";
+import type { MyImageSource } from "../types";
 import type { BuilderInternalState } from "../state/useBuilderState";
 
-export type BuilderImageSource =
-  | { kind: "stock"; stockImageId: string; stockImageUrl: string | null }
-  | MyImageSource;
+export type BuilderImageSource = MyImageSource;
 
 /**
  * Reserved for future viewer-context plumbing. The `primaryImageObjectPath`
@@ -37,24 +35,14 @@ export interface BuilderViewerCtx {}
  * (preview falls back to dark canvas, save bails).
  */
 export function currentSource(
-  state: Pick<BuilderInternalState, "stockImageId" | "stockImageUrl" | "myImage">,
-  mode: Mode,
+  state: Pick<BuilderInternalState, "myImage">,
 ): BuilderImageSource | null {
-  if (mode === "stock") {
-    if (!state.stockImageId) return null;
-    return {
-      kind: "stock",
-      stockImageId: state.stockImageId,
-      stockImageUrl: state.stockImageUrl,
-    };
-  }
   return state.myImage;
 }
 
 /**
  * Resolve a source to a URL the live-preview canvas can `<img src>` against.
- * Returns null when no resolvable URL exists yet (e.g. stock photo selected
- * but URL not yet hydrated, or primary requested with no avatar on file).
+ * Returns null when no source is selected yet.
  */
 export function resolveBackgroundUrl(
   source: BuilderImageSource | null,
@@ -62,8 +50,6 @@ export function resolveBackgroundUrl(
 ): string | null {
   if (!source) return null;
   switch (source.kind) {
-    case "stock":
-      return source.stockImageUrl;
     case "library":
     case "fresh":
       return toStorageUrl(source.objectPath);
@@ -74,9 +60,7 @@ export function resolveBackgroundUrl(
  * The body shape POSTed to /api/memes, /api/render-preview, and
  * /api/render-download — must match the server's `ImageSourceSchema`.
  */
-export type ServerImageSource =
-  | { type: "stock"; pexelsPhotoId: number }
-  | { type: "upload"; uploadKey: string };
+export type ServerImageSource = { type: "upload"; uploadKey: string };
 
 /**
  * Project a source to the server-bound `imageSource` payload. Returns null
@@ -88,8 +72,6 @@ export function toServerImageSource(
 ): ServerImageSource | null {
   if (!source) return null;
   switch (source.kind) {
-    case "stock":
-      return { type: "stock", pexelsPhotoId: parseInt(source.stockImageId, 10) };
     case "library":
     case "fresh":
       return { type: "upload", uploadKey: source.objectPath };

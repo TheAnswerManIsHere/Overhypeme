@@ -19,7 +19,7 @@ import type { EntryFlow, Mode, Tier } from "../types";
  * `import.meta.env.DEV` gate.
  */
 export function MatrixHarness() {
-  const [mode, setMode] = useState<Mode>("stock");
+  const [mode, setMode] = useState<Mode>("self-upload");
   const [tier, setTier] = useState<Tier>("registered");
   const [entryFlow, setEntryFlow] = useState<EntryFlow>("fact-detail");
   const [bumpKey, setBumpKey] = useState(0);

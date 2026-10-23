@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
 import { useLocation } from "wouter";
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -23,7 +23,6 @@ export interface BuilderOverlayProps {
   factText: string;
   mode: Mode;
   entryFlow: EntryFlow;
-  initialStockImageId?: string;
   initialName?: string;
   initialPronouns?: string;
 }
@@ -35,33 +34,13 @@ export function BuilderOverlay({
   factText,
   mode,
   entryFlow,
-  initialStockImageId,
   initialName,
   initialPronouns,
 }: BuilderOverlayProps) {
   const [, setLocation] = useLocation();
   const { user, role, entitlements } = useAuth();
   const tier = roleToIdentity(role);
-  // Task #507: "has a profile photo" is now a simple presence check on
-  // `users.profileImageUrl` — first-party uploads and external Clerk/OAuth
-  // photo URLs both count, since the meme builder's library tab will only
-  // surface the ones we host anyway.
-  const hasProfileImage = !!user?.profileImageUrl;
   const { name: guestName, pronouns: guestPronouns } = usePersonName();
-  const [showUploadNudge, setShowUploadNudge] = useState(false);
-
-  // The "free user with no photo" case opens the builder in stock mode but
-  // surfaces a nudge to upload a photo. We compute the nudge once at open
-  // time so it doesn't re-trigger on builder state changes.
-  useEffect(() => {
-    if (!open) return;
-    setShowUploadNudge(
-      mode === "stock"
-      && tier !== "unregistered"
-      && !hasProfileImage
-      && entryFlow === "remix",
-    );
-  }, [open, mode, tier, hasProfileImage, entryFlow]);
 
   if (!open) return null;
 
@@ -100,12 +79,6 @@ export function BuilderOverlay({
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        {showUploadNudge && (
-          <div className="mb-3 rounded-md border border-primary/40 bg-primary/10 p-3 text-xs text-foreground max-w-3xl mx-auto">
-            <span className="font-bold uppercase tracking-wider text-primary mr-2">Tip</span>
-            Want your photo in this? Add one in your profile and we&apos;ll use it next time.
-          </div>
-        )}
         <Suspense fallback={<div className="p-8 text-center text-muted-foreground">Loading builder…</div>}>
           <div className="max-w-3xl mx-auto">
             <MemeBuilder
@@ -121,7 +94,6 @@ export function BuilderOverlay({
                 hasLibraryImages: tier !== "unregistered",
               }}
               entryFlow={entryFlow}
-              initialStockImageId={initialStockImageId}
               initialName={initialName ?? (tier === "unregistered" ? guestName : undefined)}
               initialPronouns={initialPronouns ?? (tier === "unregistered" ? guestPronouns : undefined)}
               onComplete={handleComplete}

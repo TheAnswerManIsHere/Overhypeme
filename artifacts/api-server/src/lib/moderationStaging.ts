@@ -3,7 +3,7 @@
  *
  * A "staging fact" is an inactive (isActive=false) row in `facts` created at a
  * moderator's provisional approval. All production-prep tooling (enrichment,
- * Pexels, CPP, test memes, override editing) runs against this real factId;
+ * CPP, test memes, override editing) runs against this real factId;
  * production approval later flips it active. Keeping the prep target a fact —
  * not the review blob — lets the second stage reuse every existing fact-backed
  * system unchanged.
@@ -285,23 +285,6 @@ export async function resolveGenericFactEnrichmentDecision(
       : { action: "skip", reason: "staging_prep_left" };
   }
   return fact.isActive ? { action: "run", mode: "live_fact" } : { action: "skip", reason: "inactive_staging" };
-}
-
-/**
- * Cost guard for image prep jobs. Pexels work runs while an unresolved cycle is
- * still deciding (including `production_review`, so images can land before the
- * approval click) and for any live fact; it skips only inactive facts with no
- * unresolved cycle (abandoned/rejected first-time staging).
- */
-export async function isStagingImagePrepActive(factId: number): Promise<boolean> {
-  const unresolved = await findUnresolvedReviewForStagingFact(factId);
-  if (unresolved) return true; // unresolved by definition — moderator still deciding
-  const [fact] = await db
-    .select({ isActive: factsTable.isActive })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .limit(1);
-  return fact?.isActive ?? false;
 }
 
 /**

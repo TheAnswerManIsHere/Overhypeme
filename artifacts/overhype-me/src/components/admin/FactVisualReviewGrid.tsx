@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, AlertTriangle, ImageIcon, Sparkles, Play } from "lucide-react";
+import { Loader2, AlertTriangle, Sparkles, Play } from "lucide-react";
 import {
   type FactEnrichment,
   type RenderScenarioKey,
   type RenderScenarioCard,
 } from "@workspace/api-zod";
-import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { ModerationPexelsPanel } from "./ModerationPexelsPanel";
 import { useFactRenderScenarios } from "./useFactRenderScenarios";
 import { FactRenderScenarioTile } from "./FactRenderScenarioTile";
 import { FinalHashtagsEditor } from "./FinalHashtagsEditor";
@@ -24,7 +22,6 @@ import { FinalHashtagsEditor } from "./FinalHashtagsEditor";
  *   (b) The scenario grid of tiles (per-item live status, rule 8).
  *   (c) Checkboxes + "Run selected" → POST scenarios.
  *   (d) Aggregate tally line from grid.tally.
- *   (e) ModerationPexelsPanel as a secondary collapsed section below the grid.
  */
 
 // ── (a) AI interpretation summary, in plain English ──────────────────────────
@@ -287,16 +284,6 @@ export function FactVisualReviewGrid({
       {grid && cards.length === 0 && !loading && (
         <p className="text-sm text-muted-foreground italic">No render scenarios available for this fact yet.</p>
       )}
-
-      {/* (e) Pexels panel — secondary, collapsed by default */}
-      <CollapsibleSection
-        title="Stock images (Pexels)"
-        icon={<ImageIcon className="w-4 h-4 text-muted-foreground" />}
-        description="Seeded stock backgrounds the meme builder can fall back to — secondary to the AI renders above."
-        storageKey={`overhype:moderation:visual-review:pexels:${reviewId}`}
-      >
-        <ModerationPexelsPanel reviewId={reviewId} />
-      </CollapsibleSection>
     </div>
   );
 }

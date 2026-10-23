@@ -17,8 +17,9 @@
  *      same tx; provisional approval seeds the submitted text via ensureStagingFact).
  *
  *   2. ensureFirstTimeStagingPrepJobs(factId) — after commit: ENSURE the durable
- *      enrichment + Pexels jobs exist (create if missing, dedupe if present) and
- *      heal the status projections. Idempotent, so it is also the recovery path
+ *      enrichment job exists (create if missing, dedupe if present) and heal its
+ *      status projection. (A Pexels stock-photo job ran beside it until launch
+ *      Phase 4, removal 6 deleted stock photos.) Idempotent, so it is also the recovery path
  *      for a stranded "pending" projection with no job behind it.
  */
 
@@ -26,7 +27,6 @@ import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, pendingReviewsTable, type AsyncJobStatus } from "@workspace/db/schema";
 import { enqueueJob } from "./asyncJobs";
-import { enqueueFactPexels } from "./factPexelsJobs";
 import { ensureStagingFact, type StagingReviewRow } from "./moderationStaging";
 import { logger } from "./logger";
 
@@ -41,7 +41,6 @@ export interface PrepQueueDispatch {
 export interface PrepDispatchResult {
   factId: number;
   enrichment: PrepQueueDispatch;
-  pexels: PrepQueueDispatch;
 }
 
 /**
@@ -75,11 +74,11 @@ export async function prepareFirstTimeStagingPrep(
 }
 
 /**
- * Phase 2 (after commit). ENSURE the durable enrichment + Pexels jobs exist and
- * heal the status projections. Enrichment is workflow-gating, so an enqueue
+ * Phase 2 (after commit). ENSURE the durable enrichment job exists and heal its
+ * status projection. Enrichment is workflow-gating, so an enqueue
  * failure marks the projection "failed" (visible + retryable) rather than
  * leaving a fake "pending" with no job behind it. Safe to call repeatedly —
- * `enqueueJob`/`enqueueFactPexels` dedupe on the in-flight job.
+ * `enqueueJob` dedupes on the in-flight job.
  */
 export async function ensureFirstTimeStagingPrepJobs(factId: number): Promise<PrepDispatchResult> {
   // Enrichment (workflow-gating): heal the projection to "pending" and ensure
@@ -100,17 +99,5 @@ export async function ensureFirstTimeStagingPrepJobs(factId: number): Promise<Pr
     enrichment = { status: "failed", inserted: false };
   }
 
-  // Pexels (best-effort seeding): same visible-failure contract, but never
-  // gates approval.
-  let pexels: PrepQueueDispatch;
-  try {
-    const res = await enqueueFactPexels(factId);
-    pexels = { status: res.status, inserted: res.inserted };
-  } catch (err) {
-    logger.error({ err, factId }, "[staging-prep] pexels enqueue failed; marking status failed (retryable)");
-    await db.update(factsTable).set({ pexelsStatus: "failed" }).where(eq(factsTable.id, factId)).catch(() => {});
-    pexels = { status: "failed", inserted: false };
-  }
-
-  return { factId, enrichment, pexels };
+  return { factId, enrichment };
 }

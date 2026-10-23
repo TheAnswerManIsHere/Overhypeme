@@ -1,14 +1,15 @@
 /**
  * Translates wizard state into the POST /api/memes request body.
  *
- * Two source modes map to the server's discriminated `imageSource`:
+ * One source maps to the server's discriminated `imageSource`:
  *
  *   Wizard               → Server imageSource
  *   ───────────────────    ─────────────────────
- *   mode="stock"         → { type:"stock", … }
  *   mode="self-upload"   → { type:"upload", … }
  *
- * The PuLID-stylised third mode went with PuLID (launch Phase 4, removal 3).
+ * The stock mode went with Pexels (launch Phase 4, removal 6) and the
+ * PuLID-stylised mode with PuLID (removal 3); this never produces a stock
+ * `imageSource`.
  */
 import type { AspectRatio, MemeTextOptions } from "../../types";
 import type { WizardRuntimeState } from "../state/useWizardState";
@@ -16,7 +17,6 @@ import type { WizardRuntimeState } from "../state/useWizardState";
 export interface SaveMemePayload {
   factId: number;
   imageSource:
-    | { type: "stock"; pexelsPhotoId: number; photoUrl?: string; photographerName?: string }
     | { type: "upload"; uploadKey: string }
     | { type: "identity" };
   name?: string;
@@ -56,15 +56,6 @@ export function buildSaveMemePayload(args: BuildPayloadArgs): SaveMemePayload | 
     aspectRatio: state.aspectRatio,
     isPublic: state.isPublic ?? true,
   };
-
-  if (state.source.kind === "stock") {
-    const numericId = Number(state.source.stockImageId);
-    if (!Number.isFinite(numericId) || numericId <= 0) return null;
-    return {
-      ...base,
-      imageSource: { type: "stock", pexelsPhotoId: numericId },
-    };
-  }
 
   if (state.source.kind === "self-upload") {
     const image = state.source.image;

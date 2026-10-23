@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import {
   Loader2, AlertTriangle, Activity, RefreshCw, ExternalLink, Wrench, Search, ListChecks,
-  CheckCircle2, XCircle, Clock, Info, X, Rocket, Send, Image as ImageIcon, Images, Sparkles,
+  CheckCircle2, XCircle, Clock, Info, X, Rocket, Send, Image as ImageIcon, Sparkles,
 } from "lucide-react";
 import {
   currentTaxonomyVersions,
@@ -232,22 +232,6 @@ const BULK_BACKFILL_ACTIONS: Array<{
   testId: string;
 }> = [
   {
-    key: "backfill_images",
-    label: "Backfill images",
-    url: "/api/admin/facts/backfill-images",
-    icon: ImageIcon,
-    confirmMessage: "Enqueue Pexels image prep for every active fact (root or variant) with no images yet?",
-    testId: "bulk-backfill-images",
-  },
-  {
-    key: "backfill_pexels",
-    label: "Backfill Pexels",
-    url: "/api/admin/backfill-pexels",
-    icon: Images,
-    confirmMessage: "Enqueue Pexels image prep for every active fact (root or variant) with no images yet?",
-    testId: "bulk-backfill-pexels",
-  },
-  {
     key: "backfill_ai_memes",
     label: "Backfill AI memes",
     url: "/api/admin/facts/backfill-ai-memes",
@@ -259,7 +243,7 @@ const BULK_BACKFILL_ACTIONS: Array<{
 
 /**
  * Corpus-wide media bulk-backfill controls (site 8/15/16 of the variant-
- * independence fix): the three admin.ts routes now widen their selection to
+ * independence fix): the admin.ts route now widens their selection to
  * every active fact (root or variant), not just roots, and enqueue durable
  * jobs instead of blocking the request — but had no frontend caller at all
  * before this panel (a "no dead UI, no invisible backend" gap independent of

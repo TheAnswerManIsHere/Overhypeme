@@ -61,7 +61,6 @@ export interface AdminFactRow {
   useCase: string | null;
   isActive: boolean;
   hasEmbedding: boolean;
-  hasPexelsImages: boolean;
   upvotes: number;
   downvotes: number;
   score: number;
@@ -89,7 +88,6 @@ export function adminFactRow(overrides: Partial<AdminFactRow> & Pick<AdminFactRo
     useCase: null,
     isActive: true,
     hasEmbedding: true,
-    hasPexelsImages: false,
     upvotes: 12,
     downvotes: 1,
     score: 11,
@@ -127,7 +125,7 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
 
 /**
  * Answer the reads behind one editable fact: its admin record, its resolved
- * enrichment, its version history, its stock-image panel and its public
+ * enrichment, its version history and its public
  * detail. `listed` facts also answer GET /api/admin/facts. Writes pass through.
  */
 export async function stubAdminFacts(
@@ -160,8 +158,6 @@ export async function stubAdminFacts(
           inFlight: null,
           versions: [],
         });
-      case "/pexels-images":
-        return json(route, { pexelsStatus: null, factType: null, keywords: null, images: { male: [], female: [], neutral: [] } });
       default:
         return route.continue();
     }
@@ -183,7 +179,6 @@ export async function stubConceptReview(
     id: review.stagingFactId,
     isActive: false,
     enrichmentStatus: "ok",
-    pexelsStatus: "ok",
     visualConceptStatus: "ok",
   };
   const row = {

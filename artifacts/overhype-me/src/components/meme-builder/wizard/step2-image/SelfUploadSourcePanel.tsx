@@ -7,8 +7,8 @@ interface Props {
 }
 
 /**
- * Self-upload tab. Hosts the existing MyImagePicker (My photos / Upload new
- * tabs). The user's profile photo is rendered as the first tile in "My photos"
+ * Self-upload panel — the image step's only source. Hosts the existing
+ * MyImagePicker (My photos / Upload new tabs). The user's profile photo is rendered as the first tile in "My photos"
  * with a PROFILE badge (task #507).
  */
 export function SelfUploadSourcePanel({ selected, onSelect }: Props) {

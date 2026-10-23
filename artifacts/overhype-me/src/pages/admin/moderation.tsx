@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import {
   CheckCircle, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
   ExternalLink, ClipboardList, Loader2, AlertTriangle, GitBranch,
-  MessageSquare, Trash2, User, Image as ImageIcon, Sparkles, RefreshCw, Rocket,
+  MessageSquare, Trash2, User, Sparkles, RefreshCw, Rocket,
   CheckCheck, SlidersHorizontal, Wand2,
 } from "lucide-react";
 import {
@@ -62,7 +62,6 @@ interface StagingFactSlice {
   id: number;
   isActive: boolean;
   enrichmentStatus: PrepStatus;
-  pexelsStatus: PrepStatus;
   /** Visual-Idea generation lifecycle (facts.visual_concept_status). */
   visualConceptStatus: PrepStatus;
 }
@@ -200,30 +199,27 @@ function PrepStepPill({ icon: Icon, label, status, optional, attentionWhenNull }
 
 /**
  * Two-altitude prep status for a staging fact (CLAUDE.md rule 8): an aggregate
- * tally plus a per-step live pill for enrichment and Pexels image prep. Image
- * prep "failed" is surfaced but never blocks approval (best-effort seeding).
+ * tally plus a per-step live pill for enrichment (and, at Step 2, the Visual
+ * ideas).
  */
 function PrepStatusPanel({
   enrichmentStatus,
-  pexelsStatus,
   visualConceptStatus,
   conceptRequired,
 }: {
   enrichmentStatus: PrepStatus;
-  pexelsStatus: PrepStatus;
   /** Candidate Visual ideas (facts.visual_concept_status). */
   visualConceptStatus?: PrepStatus;
   /**
    * Step 2 (Visual Concept): Visual Ideas are a REQUIRED gate — counted in the
-   * tally alongside Enrichment, and Pexels drops to best-effort background
-   * seeding. Elsewhere (prep / Step 3) the old Enrichment + Pexels tally holds
-   * and Visual ideas render as an optional bonus pill.
+   * tally alongside Enrichment. Elsewhere (prep / Step 3) the tally is
+   * Enrichment alone and Visual ideas render as an optional bonus pill.
    */
   conceptRequired?: boolean;
 }) {
   const tallySteps: PrepStatus[] = conceptRequired
     ? [enrichmentStatus, visualConceptStatus ?? null]
-    : [enrichmentStatus, pexelsStatus];
+    : [enrichmentStatus];
   const done = tallySteps.filter((s) => s === "ok").length;
   const failed = tallySteps.filter((s) => s === "failed").length;
   // A required Visual-ideas step that's `null` means "never generated for this
@@ -244,12 +240,6 @@ function PrepStatusPanel({
         {conceptRequired && (
           <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus ?? null} attentionWhenNull />
         )}
-        <PrepStepPill
-          icon={ImageIcon}
-          label={conceptRequired ? "Pexels images (background)" : "Pexels images"}
-          status={pexelsStatus}
-          optional={conceptRequired}
-        />
         {!conceptRequired && visualConceptStatus !== undefined && (
           <PrepStepPill icon={Wand2} label="Visual ideas" status={visualConceptStatus} optional />
         )}
@@ -394,7 +384,6 @@ function ReviewModal({
   // Decision inputs (local; the decision POST is the commit).
   const [note, setNote] = useState("");
   const [reason, setReason] = useState<RejectionReason | "">("");
-  const [confirmApprove, setConfirmApprove] = useState(false);
 
   // Visual-render approval waiver (set when approve-for-production returns 409).
   const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
@@ -411,7 +400,6 @@ function ReviewModal({
   // the live fact untouched — never a rejection of the fact itself, since it
   // already cleared triage. Set at review creation — never flips mid-mount.
   const isRefreshCycle = (detail?.candidateVersionId ?? review.candidateVersionId) != null;
-  const pexelsStatus: PrepStatus = detail?.stagingFact?.pexelsStatus ?? review.stagingFact?.pexelsStatus ?? null;
   const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
 
   // Production-review enrichment editing — the SHARED engine (same hook as the
@@ -645,9 +633,6 @@ function ReviewModal({
       );
       return;
     }
-    // The Pexels-not-ready confirm is a FIRST-TIME concern: a refresh never
-    // re-runs image prep (the live fact keeps its existing library).
-    if (!isRefreshCycle && pexelsStatus !== "ok" && !confirmApprove && !waive) { setConfirmApprove(true); return; }
     const body: Record<string, unknown> = {
       adminNote: note || undefined,
       // Refresh approval never attaches/rewrites discovery tags — send none.
@@ -1006,7 +991,6 @@ function ReviewModal({
             <div className="bg-background border-2 border-border rounded-sm p-4">
               <PrepStatusPanel
                 enrichmentStatus={isEditableStep ? "ok" : liveEnrichmentStatus}
-                pexelsStatus={pexelsStatus}
                 visualConceptStatus={isEditableStep ? visualConceptStatus : undefined}
                 conceptRequired={isConceptReview}
               />
@@ -1342,16 +1326,6 @@ function ReviewModal({
             {/* Step 3 (Test Renders): approve for production (with waiver path). */}
             {!isResolved && step === "render" && isProductionReview && (
               <div className="space-y-3">
-                {confirmApprove && pexelsStatus !== "ok" && !renderProblems && (
-                  <div className="flex items-start gap-2 rounded-sm border border-amber-500/50 bg-amber-500/10 px-3 py-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <p className="text-sm text-amber-700 dark:text-amber-300">
-                      Pexels images aren't ready ({pexelsStatus === "failed" ? "image prep failed" : "still working"}). The fact will go
-                      live with no stock-photo library — the meme builder falls back to its other image sources. Click
-                      <strong> Approve anyway</strong> to confirm, or close and retry prep first.
-                    </p>
-                  </div>
-                )}
                 {/* Rejection Reason + note live here too, right above the buttons —
                     but only for a refresh cycle ("don't promote"). A first-time
                     candidate stuck on a bad render stays pending until an admin
@@ -1373,7 +1347,7 @@ function ReviewModal({
                     <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading || vsoTokenizing}
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
-                      <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
+                      <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : "Approve for Production"}
                     </Button>
                   )}
                   {canRejectNow && (
@@ -1580,7 +1554,6 @@ function FactReviewsPanel() {
                       {r.workflowStage === "concept_review" && (
                         <PrepStepPill icon={Wand2} label="Visual ideas" status={r.stagingFact.visualConceptStatus} attentionWhenNull />
                       )}
-                      <PrepStepPill icon={ImageIcon} label="Stock photos" status={r.stagingFact.pexelsStatus} optional={r.workflowStage === "concept_review"} />
                       {/* Step 3: test renders in flight (re-run, or the forced batch). */}
                       {r.workflowStage === "production_review" && r.rendersRunning && (
                         <PrepStepPill icon={Wand2} label="Test renders" status="pending" />

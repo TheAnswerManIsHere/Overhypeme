@@ -8,7 +8,7 @@ interface Props {
   factText: string;
   name: string;
   pronouns: string;
-  /** URL to the background image (stock photo URL or `/api/storage/objects/...`). */
+  /** URL to the background image (`/api/storage/objects/...`). */
   backgroundUrl: string | null;
   textOptions: MemeTextOptions;
   aspectRatio: AspectRatio;

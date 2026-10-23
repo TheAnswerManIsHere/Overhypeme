@@ -16,8 +16,6 @@ function state(overrides: Partial<BuilderInternalState> = {}): BuilderInternalSt
   return {
     name: "",
     pronouns: "they/them",
-    stockImageId: null,
-    stockImageUrl: null,
     myImage: null,
     textOptions: {},
     aspectRatio: "landscape",
@@ -26,50 +24,19 @@ function state(overrides: Partial<BuilderInternalState> = {}): BuilderInternalSt
 }
 
 describe("currentSource", () => {
-  it("returns null when nothing is selected in stock mode", () => {
-    expect(currentSource(state(), "stock")).toBeNull();
+  it("returns null when nothing is selected", () => {
+    expect(currentSource(state())).toBeNull();
   });
 
-  it("returns a stock source carrying the URL when a stock photo is selected", () => {
-    const src = currentSource(
-      state({ stockImageId: "9001", stockImageUrl: "https://images.pexels.com/9001.jpg" }),
-      "stock",
-    );
-    expect(src).toEqual({
-      kind: "stock",
-      stockImageId: "9001",
-      stockImageUrl: "https://images.pexels.com/9001.jpg",
-    });
-  });
-
-  it("returns null when nothing is selected in self-upload mode", () => {
-    expect(currentSource(state(), "self-upload")).toBeNull();
-  });
-
-  it("returns the myImage selection in self-upload mode", () => {
+  it("returns the myImage selection", () => {
     const myImage = { kind: "library" as const, objectPath: "/objects/uploads/x.jpg" };
-    expect(currentSource(state({ myImage }), "self-upload")).toBe(myImage);
+    expect(currentSource(state({ myImage }))).toBe(myImage);
   });
 });
 
 describe("resolveBackgroundUrl", () => {
   it("returns null when no source is selected", () => {
     expect(resolveBackgroundUrl(null, VIEWER)).toBeNull();
-  });
-
-  it("returns the stock URL straight through", () => {
-    expect(
-      resolveBackgroundUrl(
-        { kind: "stock", stockImageId: "1", stockImageUrl: "https://example.com/x.jpg" },
-        VIEWER,
-      ),
-    ).toBe("https://example.com/x.jpg");
-  });
-
-  it("returns null for stock when the URL has not yet hydrated", () => {
-    expect(
-      resolveBackgroundUrl({ kind: "stock", stockImageId: "1", stockImageUrl: null }, VIEWER),
-    ).toBeNull();
   });
 
   it.each(["library", "fresh"] as const)(
@@ -85,15 +52,6 @@ describe("resolveBackgroundUrl", () => {
 describe("toServerImageSource", () => {
   it("returns null when no source is selected", () => {
     expect(toServerImageSource(null, VIEWER)).toBeNull();
-  });
-
-  it("maps stock to a stock-typed payload with a numeric pexelsPhotoId", () => {
-    expect(
-      toServerImageSource(
-        { kind: "stock", stockImageId: "12345", stockImageUrl: "https://x" },
-        VIEWER,
-      ),
-    ).toEqual({ type: "stock", pexelsPhotoId: 12345 });
   });
 
   it.each(["library", "fresh"] as const)(
@@ -113,7 +71,6 @@ describe("regression: every source kind has a non-null preview AND a valid serve
   // the `primary` kind — the profile photo now appears as a tagged library
   // entry and rides the standard `library` branch.
   const cases = [
-    { name: "stock", source: { kind: "stock" as const, stockImageId: "10", stockImageUrl: "https://x" } },
     { name: "library", source: { kind: "library" as const, objectPath: "/objects/a.jpg" } },
     { name: "fresh", source: { kind: "fresh" as const, objectPath: "/objects/b.jpg" } },
   ];
@@ -125,12 +82,7 @@ describe("regression: every source kind has a non-null preview AND a valid serve
   it.each(cases)("$name produces a server-bound imageSource", ({ source }) => {
     const server = toServerImageSource(source, VIEWER);
     expect(server).not.toBeNull();
-    if (server!.type === "upload") {
-      expect(server!.uploadKey).toMatch(/^\/objects\//);
-    } else {
-      expect(server!.type).toBe("stock");
-      expect(typeof server!.pexelsPhotoId).toBe("number");
-      expect(Number.isFinite(server!.pexelsPhotoId)).toBe(true);
-    }
+    expect(server!.type).toBe("upload");
+    expect(server!.uploadKey).toMatch(/^\/objects\//);
   });
 });

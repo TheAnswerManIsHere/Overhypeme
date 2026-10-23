@@ -31,7 +31,7 @@ const FALLBACK_REASONING_EFFORT = "none";
  * 2026-10-13): the duplicate check, comment moderation, the tier-3 image
  * classifier, video direction and scene prompts. A wrong answer there reaches a
  * user, and on gpt-6-luna a little reasoning costs fractions of a cent. The
- * quick lookups (pronouns, hashtags, Pexels keywords) inherit the engine
+ * quick lookups (pronouns, hashtags) inherit the engine
  * default, "none", which keeps them fast and keeps their temperatures. Note
  * that at this effort a GPT-6 model ignores the caller's temperature.
  */

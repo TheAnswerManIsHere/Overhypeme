@@ -253,7 +253,7 @@ export class PromoteCandidateError extends Error {
  *  6. mark the candidate `promoted`.
  *
  * FIELD-PRESERVATION INVARIANT (tested): step 5 never touches `isActive`,
- * `parentId`, hashtags, `pexelsImages`, `aiScenePrompts`, `aiMemeImages`,
+ * `parentId`, hashtags, `aiScenePrompts`, `aiMemeImages`,
  * scores/engagement, or `embedding`. Rendered memes/videos are immutable.
  */
 // TODO(version-rollback): the archive rows written here already support an

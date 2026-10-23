@@ -368,21 +368,17 @@ describe("the legacy fixture", { skip: skipReason }, () => {
         if (expect === 200) assert.ok(isImage(Buffer.from(await res.arrayBuffer())), `${what} did not decode as an image`);
       };
       const anon = await session(base);
-      // A stock meme that stores only its Pexels id is resolved through Pexels on every read (routes/memes.ts:169-190),
-      // which has no double: it is increment 6's (plan D8), so it is counted here, not read.
+      // A stock recipe can no longer be composed (stock photos went in launch Phase 4, removal 6, and migration
+      // 0107 soft-deletes them), so it is excluded from the read.
       const memes = await query<{ permalink_slug: string; kind: string }>(
         target,
         `SELECT DISTINCT ON (COALESCE(image_source->>'type', 'legacy')) permalink_slug, COALESCE(image_source->>'type', 'legacy') AS kind
            FROM memes WHERE is_public AND deleted_at IS NULL AND status = 'live'
-            AND NOT (COALESCE(image_source->>'type', '') = 'stock' AND NOT COALESCE(image_source ? 'photoUrl', false))
+            AND COALESCE(image_source->>'type', '') <> 'stock'
           ORDER BY COALESCE(image_source->>'type', 'legacy'), id`,
       );
       for (const m of memes) if (m.kind !== "identity") await image(anon, `/api/memes/${m.permalink_slug}/image`, 200, `a ${m.kind} meme`);
-      const [{ n: pexelsOnly }] = await query<{ n: number }>(
-        target,
-        `SELECT count(*)::int AS n FROM memes WHERE image_source->>'type' = 'stock' AND NOT image_source ? 'photoUrl'`,
-      );
-      t.diagnostic(`meme kinds read: ${memes.map((m) => m.kind).join(", ") || "none"}; stock memes needing Pexels to render, left to increment 6: ${pexelsOnly}`);
+      t.diagnostic(`meme kinds read: ${memes.map((m) => m.kind).join(", ") || "none"}`);
 
       const [avatar] = await query<{ url: string }>(target, "SELECT profile_image_url AS url FROM users WHERE profile_image_url LIKE '%/objects/uploads/%' LIMIT 1");
       if (avatar) await image(anon, avatar.url.replace(/^.*?\/objects\//, "/api/storage/objects/"), 200, "a public avatar");

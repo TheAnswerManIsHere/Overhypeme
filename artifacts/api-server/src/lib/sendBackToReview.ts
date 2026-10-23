@@ -15,10 +15,9 @@
  *    row, never `facts.*`.
  *
  * The fact itself stays fully live throughout: `isActive` is untouched, the
- * public feed keeps reading `facts.enrichment`, and rendered memes/Pexels images
- * are never touched. Only `facts.enrichment_status` flips to "pending" so the
- * admin UI shows prep running. No Pexels enqueue: `pexelsImages` derives from
- * fact TEXT, which a refresh never changes (decision 10).
+ * public feed keeps reading `facts.enrichment`, and rendered memes are never
+ * touched. Only `facts.enrichment_status` flips to "pending" so the admin UI
+ * shows prep running.
  */
 
 import { eq, sql } from "drizzle-orm";

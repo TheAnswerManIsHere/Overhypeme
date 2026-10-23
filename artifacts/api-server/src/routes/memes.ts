@@ -5,7 +5,7 @@ import { createHash } from "crypto";
 import { Readable } from "stream";
 import { customAlphabet } from "nanoid";
 import { db } from "@workspace/db";
-import { memesTable, factsTable, usersTable, userFactPreferencesTable, lookStylesTable } from "@workspace/db/schema";
+import { memesTable, factsTable, usersTable, lookStylesTable } from "@workspace/db/schema";
 import { toggleHeart, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, ne, desc, and, inArray, isNull, gt, count, sql } from "drizzle-orm";
 import {
@@ -20,7 +20,6 @@ import {
 import { ObjectStorageService } from "../lib/objectStorage";
 import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
-import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { resolveStoredMemeCaption } from "../lib/memeComposite";
 import { memeKey } from "../lib/storageKeys";
@@ -132,36 +131,6 @@ function computeIdemKey(userId: string, parsed: Record<string, unknown>): string
   return createHash("sha256").update(`${userId}|${canonicalize(parsed)}`).digest("hex");
 }
 
-// ─── Pexels photo URL cache ────────────────────────────────────────────────────
-// Avoids re-hitting the Pexels API on every view of a stock-photo meme.
-// Cache entries expire after 15 minutes; the fallback URL stored in the DB
-// recipe is used if re-fetch fails.
-
-const PHOTO_URL_CACHE_TTL = 15 * 60 * 1000;
-const photoUrlCache = new Map<number, { url: string; fetchedAt: number }>();
-
-async function resolveStockPhotoUrl(
-  pexelsPhotoId: number,
-  fallbackUrl: string | undefined,
-): Promise<string> {
-  const cached = photoUrlCache.get(pexelsPhotoId);
-  if (cached && Date.now() - cached.fetchedAt < PHOTO_URL_CACHE_TTL) {
-    return cached.url;
-  }
-  try {
-    const photo = await getPhotoById(pexelsPhotoId);
-    photoUrlCache.set(pexelsPhotoId, { url: photo.photoUrl, fetchedAt: Date.now() });
-    return photo.photoUrl;
-  } catch {
-    // Fall back to the URL stored at generation time. The Phase-4 stock
-    // schema makes photoUrl optional (the universal builder stores only the
-    // pexelsPhotoId), so when both Pexels lookup and fallback are absent the
-    // caller gets an empty string and the canvas loader will throw — that's
-    // surfaced as a 502 to the user.
-    return fallbackUrl ?? "";
-  }
-}
-
 // ─── Validation ────────────────────────────────────────────────────────────────
 // The full request schemas live in lib/validators/memeBuilder.ts so the three
 // Phase-4 endpoints (preview/download/save) share one source of truth. The
@@ -183,27 +152,6 @@ type StoredImageSource = z.infer<typeof StoredImageSourceSchema>;
 const generateSlug = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 10);
 
 // ─── Routes ────────────────────────────────────────────────────────────────────
-
-// GET /memes/stock-photo?gender=man|woman|person
-router.get("/memes/stock-photo", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Authentication required" });
-    return;
-  }
-  const genderParam = req.query["gender"];
-  const gender = (["man", "woman", "person"].includes(genderParam as string)
-    ? genderParam
-    : "person") as "man" | "woman" | "person";
-
-  try {
-    const photo = await getRandomStockPhoto(gender);
-    res.json(photo);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to fetch stock photo";
-    req.log.error({ err }, "Stock photo fetch failed");
-    res.status(502).json({ error: message });
-  }
-});
 
 /**
  * POST /memes
@@ -612,11 +560,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   let background: BackgroundSource;
 
   try {
-    if (source.type === "stock") {
-      const photoUrl = await resolveStockPhotoUrl(source.pexelsPhotoId, source.photoUrl);
-      background = { type: "image", imageData: photoUrl };
-
-    } else if (source.type === "upload") {
+    if (source.type === "upload") {
       // Identity is always resolved → upload before storage, so by this point
       // the only remaining variant is the persisted "upload" shape.
       const objectFile = await objectStorageService.getObjectEntityFile(source.uploadKey);
@@ -655,45 +599,6 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     req.log.error({ err, slug }, "Meme render failed");
     res.status(502).end();
   }
-});
-
-// ─── AI Meme endpoints ─────────────────────────────────────────────────────────
-
-/**
- * GET /facts/:factId/ai-meme-preference — get user's AI meme image index preference
- */
-router.get("/facts/:factId/ai-meme-preference", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.json({ aiMemeImageIndex: 0 }); return; }
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
-  const [pref] = await db
-    .select({ aiMemeImageIndex: userFactPreferencesTable.aiMemeImageIndex })
-    .from(userFactPreferencesTable)
-    .where(and(eq(userFactPreferencesTable.userId, req.user.id), eq(userFactPreferencesTable.factId, factId)))
-    .limit(1);
-  res.json({ aiMemeImageIndex: pref?.aiMemeImageIndex ?? 0 });
-});
-
-/**
- * PUT /facts/:factId/ai-meme-preference — save user's AI meme image index preference
- */
-router.put("/facts/:factId/ai-meme-preference", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
-  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
-  const aiMemeImageIndex = parseInt(String((req.body as Record<string, unknown>)["aiMemeImageIndex"] ?? "0"), 10);
-  if (isNaN(aiMemeImageIndex) || aiMemeImageIndex < 0 || aiMemeImageIndex > 2) {
-    res.status(400).json({ error: "Invalid aiMemeImageIndex (must be 0, 1, or 2)" });
-    return;
-  }
-  await db
-    .insert(userFactPreferencesTable)
-    .values({ userId: req.user.id, factId, aiMemeImageIndex })
-    .onConflictDoUpdate({
-      target: [userFactPreferencesTable.userId, userFactPreferencesTable.factId],
-      set: { aiMemeImageIndex, updatedAt: new Date() },
-    });
-  res.json({ success: true, aiMemeImageIndex });
 });
 
 // DELETE /memes/:slug — soft-delete a meme (creator only)

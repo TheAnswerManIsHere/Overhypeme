@@ -215,7 +215,7 @@ export async function confirmedFactTextEdit(args: ConfirmedFactTextEditArgs): Pr
     });
 
     // prepDispatch is filled by the post-commit ensure step below (placeholder here).
-    return { kind: "staging_restarted", fact: updated!, prepDispatch: { factId: fact.id, enrichment: { status: "pending", inserted: false }, pexels: { status: "pending", inserted: false } } };
+    return { kind: "staging_restarted", fact: updated!, prepDispatch: { factId: fact.id, enrichment: { status: "pending", inserted: false } } };
   });
 
   // Post-commit: a staging restart ENSURES the durable prep jobs outside the

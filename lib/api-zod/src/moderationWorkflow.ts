@@ -5,7 +5,7 @@
  *
  *   triage_pending ──reject──> triage_rejected
  *         │
- *  provisional approve (creates inactive staging fact; starts enrichment + Pexels)
+ *  provisional approve (creates inactive staging fact; starts enrichment)
  *         ▼
  *   prep_pending ──enrichment terminal abandon──> prep_failed ──retry──> prep_pending
  *         │

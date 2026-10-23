@@ -55,7 +55,6 @@ import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import {
   advanceReviewForStagingFactEnrichment,
   findUnresolvedReviewForStagingFact,
-  isStagingImagePrepActive,
   resolveGenericFactEnrichmentDecision,
   resolveReviewCycleEnrichment,
 } from "../lib/moderationStaging.js";
@@ -1152,7 +1151,7 @@ describe("generic fact-enrichment guards", () => {
     assert.ok(cand.enrichment, "candidate filled by its own job");
   });
 
-  it("abandoned first-time staging facts still skip late enrichment and pexels retries", async () => {
+  it("abandoned first-time staging facts still skip late enrichment", async () => {
     const [staging] = await db.insert(factsTable)
       .values({ text: "{NAME} abandoned staging", submittedById: submitterId, isActive: false })
       .returning();
@@ -1171,10 +1170,5 @@ describe("generic fact-enrichment guards", () => {
     });
     assert.equal(result.ok, true);
     assert.equal(classifyCalled, false, "no paid work on an abandoned staging fact");
-    assert.equal(await isStagingImagePrepActive(staging.id), false, "pexels retries skip too");
-
-    // A live fact with only resolved history stays image-prep-eligible.
-    const live = await seedActiveFact();
-    assert.equal(await isStagingImagePrepActive(live.id), true);
   });
 });

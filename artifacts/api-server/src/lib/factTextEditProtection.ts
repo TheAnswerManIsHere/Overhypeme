@@ -109,7 +109,7 @@ export async function resolveFactTextProtection(
 
 /**
  * Is there a nonterminal (pending|processing) prep job for this first-time
- * staging cycle? Judged from async_jobs — enrichment + Pexels keyed by fact,
+ * staging cycle? Judged from async_jobs — enrichment keyed by fact,
  * Visual-Ideas keyed by review — never from the facts.* status columns (which
  * can strand a fake "pending" behind a failed enqueue). A staging text edit is
  * rejected (STAGING_PREP_IN_PROGRESS) only when this is true.
@@ -125,7 +125,6 @@ export async function hasNonterminalPrepJobs(
       inArray(asyncJobsTable.status, [...NONTERMINAL_JOB_STATUSES]),
       sql`(
         (${asyncJobsTable.queue} = 'enrichment' AND ${asyncJobsTable.dedupeKey} = ${`enrichment:fact:${args.factId}`})
-        OR (${asyncJobsTable.queue} = 'fact_pexels' AND ${asyncJobsTable.dedupeKey} = ${`fact_pexels:fact:${args.factId}`})
         OR (${asyncJobsTable.queue} = 'fact_visual_concepts' AND ${asyncJobsTable.dedupeKey} = ${`fact_visual_concepts:review:${args.reviewId}`})
       )`,
     ))

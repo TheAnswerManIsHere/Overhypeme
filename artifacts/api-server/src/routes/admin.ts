@@ -42,8 +42,6 @@ import {
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { runFactImagePipeline, type FactPexelsImages, type PexelsPhotoEntry } from "../lib/factImagePipeline";
-import { enqueueFactPexels } from "../lib/factPexelsJobs";
 import { enqueueFactAiMemeBackfill } from "../lib/aiMemeBackfillJobs";
 import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
@@ -211,20 +209,6 @@ const router: IRouter = Router();
  * Delegates to requireRole("admin") — the single source of admin gating.
  */
 export const requireAdmin = requireRole("admin");
-
-function toPexelsThumb(entry: PexelsPhotoEntry): {
-  id: number;
-  url: string;
-  photographer?: string;
-  photographer_url?: string;
-} {
-  return {
-    id: entry.id,
-    url: entry.src?.large2x ?? entry.src?.large ?? entry.url,
-    ...(entry.photographer !== undefined ? { photographer: entry.photographer } : {}),
-    ...(entry.photographer_url !== undefined ? { photographer_url: entry.photographer_url } : {}),
-  };
-}
 
 router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) => {
   const [[{ totalFacts }], [{ totalUsers }]] = await Promise.all([
@@ -1225,7 +1209,6 @@ const FACT_LIST_COLUMNS = {
   primaryArchetype: factsTable.primaryArchetype,
   enrichmentStatus: factsTable.enrichmentStatus,
   hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
-  hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
   hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
   hasEnrichmentOverrides: sql<boolean>`(${factsTable.enrichmentOverrides} <> '{}'::jsonb)`,
   enrichmentBaselineChanged: factsTable.enrichmentBaselineChanged,
@@ -1370,7 +1353,6 @@ function respondFactUpdate(
     fact: {
       ...factRow,
       hasEmbedding: updated.embedding !== null,
-      hasPexelsImages: updated.pexelsImages !== null,
     },
   });
 }
@@ -1537,11 +1519,9 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       respondFactUpdate(res, outcome.fact);
       return;
     case "protected_committed":
-      // Confirmed edit: re-embed + re-seed stock photos for the fact being
-      // edited, root or variant (variant independence — a variant generates
-      // its own images/embedding too, not just a root).
+      // Confirmed edit: re-embed the fact being edited, root or variant
+      // (variant independence — a variant gets its own embedding too).
       void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
-      void runFactImagePipeline(outcome.fact.id, outcome.fact.text);
       respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId });
       return;
     case "staging_restarted":
@@ -1601,40 +1581,10 @@ router.get("/admin/facts/:id/text-edit-history", requireAdmin, async (req: Reque
   });
 });
 
-// GET /admin/facts/:id/pexels-images — all stored Pexels thumbnails for the
-// Facts editor. Admin-only and deliberately separate from the public paginated
-// endpoint so inactive facts and all gender variants can be inspected.
-router.get("/admin/facts/:id/pexels-images", requireAdmin, async (req: Request, res: Response) => {
-  const id = Number(req.params["id"]);
-  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const [fact] = await db
-    .select({
-      pexelsImages: factsTable.pexelsImages,
-      pexelsStatus: factsTable.pexelsStatus,
-    })
-    .from(factsTable)
-    .where(eq(factsTable.id, id))
-    .limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  const raw = fact.pexelsImages as FactPexelsImages | null;
-  res.json({
-    pexelsStatus: fact.pexelsStatus ?? null,
-    factType: raw?.fact_type ?? null,
-    keywords: raw?.keywords ?? null,
-    images: {
-      male: (raw?.male ?? []).map(toPexelsThumb),
-      female: (raw?.female ?? []).map(toPexelsThumb),
-      neutral: (raw?.neutral ?? []).map(toPexelsThumb),
-    },
-  });
-});
-
 // GET /admin/facts/:id — admin detail shape for the Facts editor. Intentionally
 // trimmed: includes the editable scalars + the enrichment blob and
 // enrichmentStatus, but omits the embedding vector and the large generation
-// blobs (aiScenePrompts, aiMemeImages, raw pexelsImages) the editor never
+// blobs (aiScenePrompts, aiMemeImages) the editor never
 // touches. `:id` must be a positive integer (a non-numeric segment is a 400,
 // never a silent match against a static subpath like /import).
 router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
@@ -1662,7 +1612,6 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
       enrichment: factsTable.enrichment,
       enrichmentStatus: factsTable.enrichmentStatus,
       hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
-      hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
       // Eval golden-set membership, so the focused/deep-linked Facts editor
       // (e.g. /admin/facts?focus=<id>) reflects the saved state and can toggle it
       // — matching the list projection above.
@@ -2510,23 +2459,6 @@ router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_r
   res.json({ success: true, updated });
 });
 
-// POST /admin/facts/:id/refresh-images — manually re-run the image pipeline for one fact
-// Query param: ?force=true to overwrite existing images (default: skip if already has images)
-router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const force = req.query["force"] === "true";
-  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, pexelsImages: factsTable.pexelsImages })
-    .from(factsTable).where(eq(factsTable.id, id)).limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  if (!force && fact.pexelsImages !== null) {
-    res.json({ success: true, skipped: true, message: "Fact already has images. Pass force=true to overwrite." });
-    return;
-  }
-  void runFactImagePipeline(fact.id, fact.text);
-  res.json({ success: true, skipped: false, message: "Image pipeline started. Results will appear shortly." });
-});
-
 interface BulkBackfillJob {
   factId: number;
   jobId: number;
@@ -2597,37 +2529,6 @@ export async function enqueueBulkBackfill(
     summary: { requested: facts.length, queued: jobs.length, skipped: outcomes.length - failed, failed },
   };
 }
-
-// POST /admin/facts/backfill-images — enqueue durable Pexels image prep
-// (FACT_PEXELS_QUEUE) for every active fact (root or variant) missing images.
-router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: Request, res: Response) => {
-  try {
-    const facts = await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
-      .from(factsTable).where(isNull(factsTable.pexelsImages));
-    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactPexels(factId, { bulkBackfill: true }));
-    res.status(202).json(response);
-  } catch (err) {
-    logger.error({ err }, "[admin] Backfill images error");
-    res.status(500).json({ error: "Backfill failed", details: String(err) });
-  }
-});
-
-// POST /admin/backfill-pexels — enqueue durable Pexels image prep for every
-// active fact (root or variant) that currently has NULL pexelsImages.
-// Idempotent: skips facts that already have images.
-router.post("/admin/backfill-pexels", requireAdmin, async (_req: Request, res: Response) => {
-  try {
-    const facts = await db
-      .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
-      .from(factsTable)
-      .where(isNull(factsTable.pexelsImages));
-    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactPexels(factId, { bulkBackfill: true }));
-    res.status(202).json(response);
-  } catch (err) {
-    logger.error({ err }, "[admin] backfill-pexels error");
-    res.status(500).json({ error: "Backfill failed", details: String(err) });
-  }
-});
 
 // POST /admin/facts/backfill-ai-memes — enqueue durable AI-meme generation
 // (fact_ai_meme_backfill queue) for every active fact (root or variant)

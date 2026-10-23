@@ -1,9 +1,10 @@
 /**
  * Taxonomy Health page — Bulk Media Backfill panel (task 17).
  *
- * Focus: the panel is always visible (not gated by card filter), each of the
- * three buttons confirms before firing and posts to its own route, and a
- * declined confirm never fires the request.
+ * Focus: the panel is always visible (not gated by card filter), the
+ * Backfill AI memes button confirms before firing and posts to its route, and a
+ * declined confirm never fires the request. (The "Backfill images" and
+ * "Backfill Pexels" buttons went with Pexels, launch Phase 4, removal 6.)
  *
  * AdminLayout is stubbed to a passthrough so the test needs no auth provider.
  */
@@ -45,7 +46,7 @@ function mockFetch(opts: { backfillResponse?: unknown; jobStatusResponse?: unkno
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
-    if (u.includes("/backfill-images") || u.includes("/backfill-pexels") || u.includes("/backfill-ai-memes")) {
+    if (u.includes("/backfill-ai-memes")) {
       return new Response(
         JSON.stringify(
           opts.backfillResponse ?? {
@@ -79,33 +80,18 @@ describe("TaxonomyHealth — Bulk Media Backfill panel", () => {
   it("is visible regardless of the selected card filter (not gated like send-back)", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByTestId("bulk-media-backfill-panel")).toBeTruthy());
-    expect(screen.getByTestId("bulk-backfill-images-button")).toBeTruthy();
-    expect(screen.getByTestId("bulk-backfill-pexels-button")).toBeTruthy();
     expect(screen.getByTestId("bulk-backfill-ai-memes-button")).toBeTruthy();
+    // The stock-photo backfills are gone.
+    expect(screen.queryByTestId("bulk-backfill-images-button")).toBeNull();
+    expect(screen.queryByTestId("bulk-backfill-pexels-button")).toBeNull();
   });
 
-  it("'Backfill images' confirms before firing and posts to backfill-images", async () => {
+  it("'Backfill AI memes' confirms before firing", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const { calls } = mockFetch();
     renderPage();
-    const btn = await screen.findByTestId("bulk-backfill-images-button");
+    const btn = await screen.findByTestId("bulk-backfill-ai-memes-button");
     btn.click();
     expect(confirmSpy).toHaveBeenCalled();
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.url.includes("/admin/facts/backfill-images"))).toBe(true),
-    );
-    confirmSpy.mockRestore();
-  });
-
-  it("'Backfill Pexels' posts to the distinct backfill-pexels route", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const { calls } = mockFetch();
-    renderPage();
-    const btn = await screen.findByTestId("bulk-backfill-pexels-button");
-    btn.click();
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.url.includes("/admin/backfill-pexels"))).toBe(true),
-    );
     confirmSpy.mockRestore();
   });
 
@@ -125,10 +111,10 @@ describe("TaxonomyHealth — Bulk Media Backfill panel", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const { calls } = mockFetch();
     renderPage();
-    const btn = await screen.findByTestId("bulk-backfill-images-button");
+    const btn = await screen.findByTestId("bulk-backfill-ai-memes-button");
     btn.click();
     expect(confirmSpy).toHaveBeenCalled();
-    expect(calls.some((c) => c.method === "POST" && c.url.includes("backfill-images"))).toBe(false);
+    expect(calls.some((c) => c.method === "POST" && c.url.includes("backfill-ai-memes"))).toBe(false);
     confirmSpy.mockRestore();
   });
 
@@ -136,9 +122,9 @@ describe("TaxonomyHealth — Bulk Media Backfill panel", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     mockFetch();
     renderPage();
-    const btn = await screen.findByTestId("bulk-backfill-images-button");
+    const btn = await screen.findByTestId("bulk-backfill-ai-memes-button");
     btn.click();
-    await waitFor(() => expect(screen.getByTestId("bulk-backfill-images-status").textContent).toContain("of 1 done"));
+    await waitFor(() => expect(screen.getByTestId("bulk-backfill-ai-memes-status").textContent).toContain("of 1 done"));
     confirmSpy.mockRestore();
   });
 
@@ -154,13 +140,13 @@ describe("TaxonomyHealth — Bulk Media Backfill panel", () => {
       jobStatusResponse: { jobs: [{ jobId: 501, status: "failed", error: "fal.ai boom" }] },
     });
     renderPage();
-    const btn = await screen.findByTestId("bulk-backfill-images-button");
+    const btn = await screen.findByTestId("bulk-backfill-ai-memes-button");
     btn.click();
     await waitFor(
-      () => expect(screen.getByTestId("bulk-backfill-images-items").textContent).toContain("the fact that keeps failing"),
+      () => expect(screen.getByTestId("bulk-backfill-ai-memes-items").textContent).toContain("the fact that keeps failing"),
       { timeout: 3000 },
     );
-    const itemsText = screen.getByTestId("bulk-backfill-images-items").textContent ?? "";
+    const itemsText = screen.getByTestId("bulk-backfill-ai-memes-items").textContent ?? "";
     expect(itemsText).toContain("an inactive fact");
     expect(itemsText).not.toContain("42");
     expect(itemsText).not.toContain("43");
@@ -219,7 +205,7 @@ describe("TaxonomyHealth — Bulk Media Backfill panel", () => {
     acceptSpy.mockRestore();
   });
 
-  it("the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done like Backfill images", async () => {
+  it("the AI memes confirmation names the paid OpenAI and fal.ai calls and its status line reads N of M done", async () => {
     mockFetch({
       backfillResponse: {
         success: true,
@@ -241,13 +227,6 @@ describe("TaxonomyHealth — Bulk Media Backfill panel", () => {
     expect(message).toContain("This calls paid OpenAI/fal.ai APIs.");
     await waitFor(
       () => expect(screen.getByTestId("bulk-backfill-ai-memes-status").textContent).toBe("2 of 2 done"),
-      { timeout: 3000 },
-    );
-
-    // Same pattern as Backfill images.
-    (await screen.findByTestId("bulk-backfill-images-button")).click();
-    await waitFor(
-      () => expect(screen.getByTestId("bulk-backfill-images-status").textContent).toBe("2 of 2 done"),
       { timeout: 3000 },
     );
     confirmSpy.mockRestore();

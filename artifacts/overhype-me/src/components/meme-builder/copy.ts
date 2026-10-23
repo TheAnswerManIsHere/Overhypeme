@@ -71,8 +71,3 @@ export const TIER_LOCK_COPY = {
     actionLabel: "Upgrade",
   },
 } as const;
-
-export const ZERO_STOCK_COPY = {
-  title: "No stock images available for this fact yet.",
-  subtitle: "Try uploading your own photo, or pick another fact.",
-} as const;

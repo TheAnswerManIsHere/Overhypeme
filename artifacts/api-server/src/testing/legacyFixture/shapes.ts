@@ -37,7 +37,6 @@ export type ShapeName =
   | "visualConceptCandidatesBlob"
   | "aiScenePrompts"
   | "aiMemeImages"
-  | "factPexelsImages"
   | "visualPlan"
   | "compiledPrompt"
   | "renderControls"
@@ -206,22 +205,6 @@ const aiMemeImagesProjection = z.object({
   neutral: z.array(z.string()),
 }).partial();
 
-/** `FactPexelsImages` (factImagePipeline.ts:33-43) over `PexelsPhotoEntry` (pexelsClient.ts:51-57). */
-const pexelsPhotoEntryProjection = z.object({
-  id: z.number(),
-  url: z.string(),
-  photographer: z.string().optional(),
-  photographer_url: z.string().optional(),
-  src: z.record(z.string(), z.string()).optional(),
-});
-const factPexelsImagesProjection = z.object({
-  fact_type: z.enum(["action", "abstract"]),
-  male: z.array(pexelsPhotoEntryProjection),
-  female: z.array(pexelsPhotoEntryProjection),
-  neutral: z.array(pexelsPhotoEntryProjection),
-  keywords: z.object({ male: z.string(), female: z.string(), neutral: z.string() }).optional(),
-});
-
 /** `CompiledImagePrompt` (imagePrompt/types.ts:163-185) with its sections and diagnostics (types.ts:21-160). */
 const compiledPromptProjection = z.object({
   prompt: z.string(),
@@ -348,20 +331,6 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
     "male[*]": { media: "fact-gallery" },
     "female[*]": { media: "fact-gallery" },
     "neutral[*]": { media: "fact-gallery" },
-  }),
-  factPexelsImages: plain(factPexelsImagesProjection, {
-    "male[*].url": "fixture-url",
-    "female[*].url": "fixture-url",
-    "neutral[*].url": "fixture-url",
-    "male[*].photographer_url": "fixture-url",
-    "female[*].photographer_url": "fixture-url",
-    "neutral[*].photographer_url": "fixture-url",
-    "male[*].src{key}": "keep",
-    "female[*].src{key}": "keep",
-    "neutral[*].src{key}": "keep",
-    "male[*].src{*}": "stock-data-url",
-    "female[*].src{*}": "stock-data-url",
-    "neutral[*].src{*}": "stock-data-url",
   }),
   visualPlan: plain(imagePromptPlanWireSchema.shape.visualPlan, {
     "archetypeApplication.subtype": "keep",

@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
  * changing, the returned value stays at its previous setting; once `delayMs`
  * has elapsed since the last input change, it catches up.
  *
- * Used by the stock image picker so scrubbing through thumbnails doesn't
- * spam /api/render-preview.
+ * Used by the builder so changing the selected photo doesn't spam
+ * /api/render-preview.
  */
 export function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState<T>(value);

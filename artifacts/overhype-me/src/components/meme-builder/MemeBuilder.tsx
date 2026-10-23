@@ -6,7 +6,6 @@ import { capturePendingState, clearPendingState } from "./state/pendingBuilderSt
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { EntryFlowHeader } from "./parts/EntryFlowHeader";
 import { NameAndPronounFields } from "./parts/NameAndPronounFields";
-import { StockImagePicker } from "./parts/StockImagePicker";
 import { MyImagePicker } from "./parts/MyImagePicker";
 import { LivePreview } from "./parts/LivePreview";
 import { ActionBar } from "./parts/ActionBar";
@@ -43,7 +42,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
     : {
         initialName:        props.initialName ?? viewerContext.name,
         initialPronouns:    props.initialPronouns ?? viewerContext.pronouns,
-        initialStockImageId: props.initialStockImageId,
       };
 
   const { state, dispatch } = useBuilderState(initial);
@@ -56,7 +54,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
   // Debounced background URL for the preview; raw selection state updates
   // immediately so the picker still feels responsive. The resolution lives
   // in one shared helper so each new source kind is added in one place.
-  const source = useMemo(() => currentSource(state, mode), [state, mode]);
+  const source = useMemo(() => currentSource(state), [state]);
   const backgroundUrl = useMemo(() => resolveBackgroundUrl(source, viewerCtx), [source, viewerCtx]);
   const debouncedBg = useDebouncedValue(backgroundUrl, 150);
 
@@ -122,8 +120,8 @@ export function MemeBuilder(props: MemeBuilderProps) {
   const handleDownload = async () => {
     // Phase-4: server renders the bytes from the same composite path as
     // /api/memes so saved memes and downloaded memes are byte-identical for
-    // identical inputs. Anonymous callers may only download stock-mode memes;
-    // self-upload requires a session (the server enforces this).
+    // identical inputs. Self-upload requires a session (the server enforces
+    // this).
     const imageSource = toServerImageSource(source, viewerCtx);
     if (!imageSource) {
       onComplete({ kind: "downloaded" });
@@ -188,20 +186,10 @@ export function MemeBuilder(props: MemeBuilderProps) {
         onPronounsChange={(pronouns) => dispatch({ type: "set-pronouns", pronouns })}
       />
 
-      {cell.sourceArea === "stock" && (
-        <StockImagePicker
-          factId={factId}
-          selectedId={state.stockImageId}
-          onSelect={(img) => dispatch({ type: "set-stock-image", stockImageId: img.id, stockImageUrl: img.url })}
-        />
-      )}
-
-      {cell.sourceArea === "my-image" && (
-        <MyImagePicker
-          selected={state.myImage}
-          onSelect={(next) => dispatch({ type: "set-my-image", myImage: next })}
-        />
-      )}
+      <MyImagePicker
+        selected={state.myImage}
+        onSelect={(next) => dispatch({ type: "set-my-image", myImage: next })}
+      />
 
       <LivePreview
         factText={factText}

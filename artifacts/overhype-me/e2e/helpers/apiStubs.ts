@@ -28,7 +28,6 @@ export interface AiMemeImages {
 export type FactDetailBody = FactDetail & {
   rank?: number;
   useCase?: string | null;
-  pexelsImages?: unknown;
   aiMemeImages?: AiMemeImages | null;
 };
 
@@ -85,7 +84,6 @@ export function factDetail(overrides: Partial<FactDetailBody> & Pick<FactDetailB
     variants: [],
     parentId: null,
     useCase: null,
-    pexelsImages: null,
     aiMemeImages: null,
     ...overrides,
   };

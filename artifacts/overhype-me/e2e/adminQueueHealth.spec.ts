@@ -15,7 +15,7 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 /** Every lane `runAsyncJobsWorker` registers (asyncJobs.ts ALL_LANES). */
-const LANES = ["fast", "render", "bulk", "pexels", "ai_meme_backfill"] as const;
+const LANES = ["fast", "render", "bulk", "ai_meme_backfill"] as const;
 
 /**
  * EVERY queue the worker registers, not a sample. PR288 step 5 is that the
@@ -32,7 +32,6 @@ const REGISTERED_QUEUES = [
   "enrichment",
   "fact_ai_meme_backfill",
   "fact_enrichment_backfill",
-  "fact_pexels",
   "fact_send_back",
   "fact_visual_concepts",
   "image_generation",
@@ -102,7 +101,7 @@ test.describe("Admin · Queue Health", () => {
     await gotoQueueHealth(page);
 
     // Scoped to each lane's own card, NOT counted at page level. Page-level
-    // totals of five verdicts and five detail lines stay five if one card
+    // totals of four verdicts and four detail lines stay four if one card
     // loses its verdict while another renders two -- which is exactly the
     // per-card invariant this test claims to check. (Codex, #563 round 5.)
     for (const lane of LANES) {
@@ -137,12 +136,12 @@ test.describe("Admin · Queue Health", () => {
   // rather than by colour alone; on a healthy stack it is the all-clear form.
   test("summarises lane liveness in words above the cards", async ({ page }) => {
     await gotoQueueHealth(page);
-    const summary = page.getByText(/All five lanes are being scheduled\. Last checked .+/);
+    const summary = page.getByText(/All lanes are being scheduled\. Last checked .+/);
     await expect(summary).toBeVisible();
     await expect(page.getByText(/not being scheduled by any live worker/)).toHaveCount(0);
 
     // "Above the cards" is half the point -- the summary exists so the state is
-    // readable before scanning five cards -- and the name claimed it while
+    // readable before scanning four cards -- and the name claimed it while
     // nothing checked it. Asserted as real layout order.
     const firstCard = page
       .locator("div.bg-card")
@@ -216,8 +215,8 @@ test.describe("Admin · Queue Health", () => {
     await page.evaluate(() => { (window as unknown as { __e2eSameDocument?: boolean }).__e2eSameDocument = true; });
     const lanes = page.locator("section").filter({ has: page.getByRole("heading", { name: /Worker lanes/i }) });
 
-    // Step 1: exactly five lane cards.
-    await expect(lanes.locator("div.bg-card"), "PR288 step 1: Worker lanes should hold exactly five cards").toHaveCount(LANES.length);
+    // Step 1: exactly four lane cards.
+    await expect(lanes.locator("div.bg-card"), "PR288 step 1: Worker lanes should hold exactly four cards").toHaveCount(LANES.length);
 
     // Step 2: "Scheduling" is green -- painted, not just classed.
     const verdicts = lanes.getByText(/^Scheduling$/);
@@ -228,9 +227,9 @@ test.describe("Admin · Queue Health", () => {
     }
 
     // Step 3: "Last checked" is a clock time, not any text after it.
-    const summary = lanes.getByText(/^All five lanes are being scheduled\./);
+    const summary = lanes.getByText(/^All lanes are being scheduled\./);
     await expect(summary, "PR288 step 3: Last checked should read as a clock time HH:MM:SS").toHaveText(
-      /^All five lanes are being scheduled\. Last checked \d{1,2}:\d{2}:\d{2}( [AP]M)?\.$/,
+      /^All lanes are being scheduled\. Last checked \d{1,2}:\d{2}:\d{2}( [AP]M)?\.$/,
     );
 
     // R4: every pre-existing item with its route, Queue Health right after Email Queue.
@@ -425,7 +424,7 @@ test.describe("Admin · Queue Health", () => {
 
     // Step 10: nothing that reads as healthy...
     await expect(page.getByText(/^Scheduling$/), "PR288 step 10: no green Scheduling cards on a failed load").toHaveCount(0);
-    await expect(page.getByText(/All five lanes are being scheduled|No queue has pending/), "PR288 step 10: no all-healthy text on a failed load").toHaveCount(0);
+    await expect(page.getByText(/All lanes are being scheduled|No queue has pending/), "PR288 step 10: no all-healthy text on a failed load").toHaveCount(0);
     await expect(page.getByRole("heading", { name: /Worker lanes/i }), "PR288 step 10: no empty lanes section on a failed load").toHaveCount(0);
     // ...and the explicit failure in its place.
     await expect(page.getByText("Could not load queue health"), "PR288 step 10: the red panel should say Could not load queue health").toBeVisible();

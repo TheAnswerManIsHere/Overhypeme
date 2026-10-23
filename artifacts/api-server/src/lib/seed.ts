@@ -183,10 +183,7 @@ export async function ensureSchema(): Promise<void> {
          1, 500, false),
         ('user_max_images', '1000', 'integer', 'User Max Image Storage',
          'Total image storage limit per paid user, combining AI-generated images and uploaded photos. Oldest AI images are evicted when limit is reached.',
-         10, 10000, false),
-        ('pexels_photos_per_gender', '80', 'integer', 'Pexels Photos Per Fact Per Gender',
-         'Number of stock photos fetched from Pexels per gender variant when processing a fact. Pexels maximum is 80.',
-         1, 80, false)
+         10, 10000, false)
       ON CONFLICT (key) DO NOTHING`,
     },
     {
@@ -449,9 +446,6 @@ export async function ensureSchema(): Promise<void> {
     {
       label: "admin_config seed background picker display limits",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public) VALUES
-        ('bg_display_limit_stock', '20', 'integer', 'Background Picker: Stock Photo Limit',
-         'Maximum number of stock photos shown in the background image picker when creating a meme. Does not affect how many are fetched or stored.',
-         1, 500, true),
         ('bg_display_limit_upload', '20', 'integer', 'Background Picker: Upload Limit',
          'Maximum number of uploaded images shown in the background image picker when creating a meme. Does not affect storage limits.',
          1, 500, true)

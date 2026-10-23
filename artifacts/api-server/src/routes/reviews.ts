@@ -90,7 +90,6 @@ import {
 } from "../lib/reviewRenderScenarios";
 import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
-import type { FactPexelsImages, PexelsPhotoEntry } from "../lib/factImagePipeline";
 import { logger } from "../lib/logger";
 
 // Re-export the plan-generator test seam (owned by the shared preview helper).
@@ -171,7 +170,7 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
   const hashtags = sanitizeHashtagsForPersistence(rawHashtags, { limit: 10 });
 
   // COST GATE: a new submission is cheap human-triage only. We do NOT enqueue
-  // enrichment, Pexels, embedding, or any other paid/external work here — those
+  // enrichment, embedding, or any other paid/external work here — those
   // start only when a moderator provisionally approves the fact (which creates
   // an inactive staging fact). So enrichment is left null and the row enters the
   // lifecycle at `triage_pending`. (Pre-submit tokenize/duplicate-check on the
@@ -268,7 +267,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   // Hydrate with submitter info and matching fact text
   const submitterIds = [...new Set(reviews.map((r) => r.submittedById).filter(Boolean))] as string[];
   const matchingIds = [...new Set(reviews.map((r) => r.matchingFactId).filter(Boolean))] as number[];
-  // Staging facts carry the LIVE prep status (enrichment + Pexels image prep)
+  // Staging facts carry the LIVE prep status (enrichment)
   // that the two-gate moderation UI shows per row — pull a lightweight slice.
   const stagingIds = [...new Set(reviews.map((r) => r.stagingFactId).filter(Boolean))] as number[];
 
@@ -282,7 +281,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
           .from(factsTable).where(and(sql`id = ANY(ARRAY[${sql.join(matchingIds.map((id) => sql`${id}`), sql`, `)}]::integer[])`, eq(factsTable.isActive, true)))
       : Promise.resolve([]),
     stagingIds.length
-      ? db.select({ id: factsTable.id, enrichmentStatus: factsTable.enrichmentStatus, pexelsStatus: factsTable.pexelsStatus, visualConceptStatus: factsTable.visualConceptStatus, isActive: factsTable.isActive })
+      ? db.select({ id: factsTable.id, enrichmentStatus: factsTable.enrichmentStatus, visualConceptStatus: factsTable.visualConceptStatus, isActive: factsTable.isActive })
           .from(factsTable).where(inArray(factsTable.id, stagingIds))
       : Promise.resolve([]),
   ]);
@@ -293,7 +292,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
 
   // Per-row coarse render state (Step 3), so the queue can show "Rendering…" /
   // "Renders ready" / "Renders need attention" and keep polling while renders run
-  // — the render analogue of the enrichment/Pexels prep status (rule 8). Only
+  // — the render analogue of the enrichment prep status (rule 8). Only
   // meaningful in production_review, where renders exist. `rendersRunning` is kept
   // as the back-compat boolean, derived from the same aggregate.
   const productionReviewIds = reviews
@@ -341,14 +340,13 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           .then((r) => r[0] ?? null)
       : null,
     // The staging fact holds the effective enrichment the moderator tunes during
-    // production review, plus the live enrichment + Pexels image prep statuses.
+    // production review, plus the live enrichment prep status.
     review.stagingFactId != null
       ? db.select({
           id: factsTable.id,
           isActive: factsTable.isActive,
           enrichment: factsTable.enrichment,
           enrichmentStatus: factsTable.enrichmentStatus,
-          pexelsStatus: factsTable.pexelsStatus,
           visualConceptStatus: factsTable.visualConceptStatus,
           visualConceptCandidates: factsTable.visualConceptCandidates,
         })
@@ -865,9 +863,9 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
 // ─── Provisional approval (admin) — first gate ────────────────────────────────
 //
 // "This fact is worth implementing." Creates the inactive staging fact and
-// starts paid prep (enrichment now; Pexels once the durable queue lands). This
+// starts paid prep (enrichment). This
 // is the ONLY place enrichment spend begins. Optional `parentFactId` accepts the
-// candidate as a variant — the variant still gets its OWN enrichment + images.
+// candidate as a variant — the variant still gets its OWN enrichment.
 
 const ProvisionalApproveBody = z.object({
   parentFactId: z.number().int().positive().optional(),
@@ -947,8 +945,8 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
     stagingFactId = factId;
   });
 
-  // Ensure the durable enrichment + Pexels jobs (both deduped; enrichment gates
-  // the advance to concept_review, Pexels is tracked best-effort seeding).
+  // Ensure the durable enrichment job (deduped; it gates the advance to
+  // concept_review).
   const prepDispatch = await ensureFirstTimeStagingPrepJobs(stagingFactId);
 
   logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
@@ -980,7 +978,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   // version is discarded (retained as rejected history, never hard-deleted,
   // and it no longer blocks a future send-back — the one-candidate index
   // covers status='candidate' only), and the LIVE fact — active flag,
-  // enrichment, projections, Pexels, memes — is left exactly as it was. It
+  // enrichment, projections, memes — is left exactly as it was. It
   // simply doesn't get updated until a future refresh is promoted.
   const isRefreshCycle = review.candidateVersionId != null;
 
@@ -1513,71 +1511,13 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req
 
 // ─── Moderation render-review tools (production_review) ────────────────────────
 //
-// Two surfaces a moderator uses to vet a fact's imagery before approval:
-//   GET  /admin/reviews/:id/pexels-images        the staging fact's pulled stock
+// The surface a moderator uses to vet a fact's imagery before approval:
 //   POST /admin/reviews/:id/render               render the AI background (t2i)
 //   GET  /admin/reviews/:id/renders/:renderJobId admin-gated poll for that render
 //
 // Renders go through the SAME Nano-Banana-2 attempt pipeline production uses, but
 // are EPHEMERAL: the attempt row is kept for audit while the image is NOT mirrored
 // into the fact's shared production set (renderControls.mirrorToLegacyStorage:false).
-
-/** Map a stored Pexels entry to the thumbnail shape the moderation panel needs. */
-function toPexelsThumb(entry: PexelsPhotoEntry): {
-  id: number;
-  url: string;
-  photographer?: string;
-  photographer_url?: string;
-} {
-  return {
-    id: entry.id,
-    // Prefer the higher-fidelity src URLs; fall back to the legacy `url` field
-    // for older entries seeded before `src` was stored.
-    url: entry.src?.large2x ?? entry.src?.large ?? entry.url,
-    ...(entry.photographer !== undefined ? { photographer: entry.photographer } : {}),
-    ...(entry.photographer_url !== undefined ? { photographer_url: entry.photographer_url } : {}),
-  };
-}
-
-// GET /admin/reviews/:id/pexels-images — all genders, no isActive gate (staging
-// facts are inactive, so the public /facts/:id/pexels-images endpoint can't serve
-// them). Returns the live pexelsStatus so the panel can poll while seeding.
-router.get("/admin/reviews/:id/pexels-images", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const [review] = await db
-    .select({ stagingFactId: pendingReviewsTable.stagingFactId })
-    .from(pendingReviewsTable)
-    .where(eq(pendingReviewsTable.id, id))
-    .limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-
-  const emptyImages = { male: [], female: [], neutral: [] };
-  if (review.stagingFactId == null) {
-    res.json({ pexelsStatus: null, factType: null, keywords: null, images: emptyImages });
-    return;
-  }
-
-  const [fact] = await db
-    .select({ pexelsImages: factsTable.pexelsImages, pexelsStatus: factsTable.pexelsStatus })
-    .from(factsTable)
-    .where(eq(factsTable.id, review.stagingFactId))
-    .limit(1);
-  if (!fact) { res.status(404).json({ error: "Staging fact not found" }); return; }
-
-  const raw = fact.pexelsImages as FactPexelsImages | null;
-  res.json({
-    pexelsStatus: fact.pexelsStatus ?? null,
-    factType: raw?.fact_type ?? null,
-    keywords: raw?.keywords ?? null,
-    images: {
-      male: (raw?.male ?? []).map(toPexelsThumb),
-      female: (raw?.female ?? []).map(toPexelsThumb),
-      neutral: (raw?.neutral ?? []).map(toPexelsThumb),
-    },
-  });
-});
 
 const T2I_MODE = "t2i_fallback" as const;
 const RenderReviewBody = z.object({

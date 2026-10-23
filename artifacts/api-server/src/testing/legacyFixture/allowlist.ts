@@ -226,8 +226,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     isActive: "keep",
     canonicalText: "fact-text",
     splitTokenIndex: "fact-derived",
-    pexelsImages: "shape:factPexelsImages",
-    pexelsStatus: "keep",
     visualConceptCandidates: "shape:visualConceptCandidatesBlob",
     visualConceptStatus: "keep",
     aiScenePrompts: "shape:aiScenePrompts",

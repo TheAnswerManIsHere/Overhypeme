@@ -49,7 +49,7 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   workflowStage: reviewWorkflowStageEnum("workflow_stage").notNull().default("triage_pending"),
   /**
    * The inactive (isActive=false) staging fact created at provisional approval.
-   * All production-prep tooling (enrichment, Pexels, CPP, test memes, override
+   * All production-prep tooling (enrichment, CPP, test memes, override
    * editing) runs against this factId; production approval flips it active.
    */
   stagingFactId: integer("staging_fact_id").references(() => factsTable.id, { onDelete: "set null" }),

@@ -30,7 +30,7 @@ export const workerLaneHeartbeatsTable = pgTable(
      * pruned by the TTL sweep.
      */
     instanceId: varchar("instance_id", { length: 64 }).notNull(),
-    /** One of the five scheduling lanes: fast | render | bulk | pexels | ai_meme_backfill. */
+    /** One of the four scheduling lanes: fast | render | bulk | ai_meme_backfill. */
     lane: varchar("lane", { length: 32 }).notNull(),
     /**
      * A **capability** marker, not a release identifier — see

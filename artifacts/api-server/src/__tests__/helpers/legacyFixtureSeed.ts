@@ -105,11 +105,6 @@ const [activeFact] = await db.insert(t.factsTable).values({
   hasPronouns: false, enrichment, enrichmentAiDerived: { ...placeholderEnrichment, adminReviewNotes: S.adminReviewNotes, visualPromptStrategyOverride: undefined },
   enrichmentOverrides: overrides,
   aiScenePrompts: { fact_type: "action", male: S.scenePrompt, female: S.scenePrompt, neutral: "" },
-  pexelsImages: {
-    fact_type: "action",
-    male: [{ id: 4242, url: S.pexelsPage, photographer: S.pexelsPhotographer, photographer_url: S.pexelsPhotographerUrl, src: { large2x: S.pexelsSrc } }],
-    female: [], neutral: [], keywords: { male: S.pexelsKeywords, female: S.pexelsKeywords, neutral: S.pexelsKeywords },
-  },
   embedding: Array.from({ length: 384 }, (_, i) => (i % 7) / 10),
   createdAt: at,
 }).returning({ id: t.factsTable.id });
