@@ -2,8 +2,8 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum, getTableColumns } from "drizzle-orm";
+import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
@@ -3395,49 +3395,6 @@ router.get("/admin/sentry-status", requireAdmin, (_req: Request, res: Response) 
     process.env.REPLIT_GIT_COMMIT_SHA?.slice(0, 7) ??
     "dev";
   res.json({ dsnConfigured, environment, release });
-});
-
-/**
- * GET /admin/route-stats
- * Returns route visit stats sorted by visit count descending.
- * Optional query param: since — ISO date string or relative shorthand like "7d" or "30d".
- * Admin-only.
- */
-router.get("/admin/route-stats", requireAdmin, async (req: Request, res: Response) => {
-  const { since } = req.query as { since?: string };
-
-  let sinceDate: Date | null = null;
-  if (since) {
-    const relMatch = since.match(/^(\d+)d$/);
-    if (relMatch) {
-      const days = parseInt(relMatch[1]!, 10);
-      sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    } else {
-      const parsed = new Date(since);
-      if (!isNaN(parsed.getTime())) sinceDate = parsed;
-    }
-  }
-
-  if (sinceDate) {
-    const rows = await db
-      .select({
-        routeKey: routeStatEventsTable.routeKey,
-        visitCount: sum(routeStatEventsTable.delta).mapWith(Number),
-        updatedAt: sql<Date>`max(${routeStatEventsTable.recordedAt})`,
-      })
-      .from(routeStatEventsTable)
-      .where(gte(routeStatEventsTable.recordedAt, sinceDate))
-      .groupBy(routeStatEventsTable.routeKey)
-      .orderBy(desc(sum(routeStatEventsTable.delta)));
-    res.json({ stats: rows });
-    return;
-  }
-
-  const rows = await db
-    .select()
-    .from(routeStatsTable)
-    .orderBy(desc(routeStatsTable.visitCount));
-  res.json({ stats: rows });
 });
 
 // GET /admin/email-queue — paginated list of email outbox rows, filterable by status

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug, BarChart2, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug } from "lucide-react";
 import { Sentry, markNextEventAsDebugTest } from "@/lib/sentry";
 import { getFeedback } from "@sentry/react";
 
@@ -16,100 +16,13 @@ interface Stats {
   totalUsers: number;
 }
 
-interface RouteVisitStat {
-  routeKey: string;
-  visitCount: number;
-  updatedAt?: string;
-}
-
-type TimeRange = "7d" | "30d" | "all";
-
-function formatLastSeen(value: string | undefined | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (isNaN(date.getTime())) return "—";
-  const now = Date.now();
-  const diffMs = now - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffSecs < 60) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return "yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-const TIME_RANGE_LABELS: Record<TimeRange, string> = {
-  "7d": "Last 7 days",
-  "30d": "Last 30 days",
-  "all": "All time",
-};
-
-const STORAGE_KEY_RANGE = "admin_top_pages_time_range";
-
-function loadStoredRange(): TimeRange {
-  try {
-    const v = localStorage.getItem(STORAGE_KEY_RANGE);
-    if (v === "7d" || v === "30d" || v === "all") return v;
-  } catch {}
-  return "all";
-}
-
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [routeStats, setRouteStats] = useState<RouteVisitStat[] | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>(loadStoredRange);
   const [backendSentryStatus, setBackendSentryStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
   const [backendStatus, setBackendStatus] = useState<BackendSentryStatus | null>(null);
   const [backendStatusError, setBackendStatusError] = useState<string | null>(null);
   const [handledStatus, setHandledStatus] = useState<"idle" | "sent">("idle");
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
-  type SortKey = "rank" | "routeKey" | "visitCount" | "updatedAt";
-  type SortDir = "asc" | "desc";
-  const VALID_SORT_KEYS: SortKey[] = ["rank", "routeKey", "visitCount", "updatedAt"];
-  const VALID_SORT_DIRS: SortDir[] = ["asc", "desc"];
-  const [sortKey, setSortKey] = useState<SortKey>(() => {
-    try {
-      const stored = localStorage.getItem("admin.topPages.sortKey");
-      return (stored && VALID_SORT_KEYS.includes(stored as SortKey) ? stored as SortKey : "visitCount");
-    } catch {
-      return "visitCount";
-    }
-  });
-  const [sortDir, setSortDir] = useState<SortDir>(() => {
-    try {
-      const stored = localStorage.getItem("admin.topPages.sortDir");
-      return (stored && VALID_SORT_DIRS.includes(stored as SortDir) ? stored as SortDir : "desc");
-    } catch {
-      return "desc";
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("admin.topPages.sortKey", sortKey);
-      localStorage.setItem("admin.topPages.sortDir", sortDir);
-    } catch {
-      // ignore storage errors (e.g. private browsing, quota exceeded)
-    }
-  }, [sortKey, sortDir]);
-
-  function handleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir(key === "routeKey" ? "asc" : "desc");
-    }
-  }
-
-  function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 opacity-40" />;
-    return sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
-  }
   const [throwForBoundary, setThrowForBoundary] = useState(false);
 
   if (throwForBoundary) {
@@ -178,18 +91,6 @@ export default function AdminDashboard() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY_RANGE, timeRange); } catch {}
-    setRouteStats(null);
-    const url = timeRange === "all"
-      ? "/api/admin/route-stats"
-      : `/api/admin/route-stats?since=${timeRange}`;
-    fetch(url, { credentials: "include" })
-      .then((r) => r.json())
-      .then((data: { stats: RouteVisitStat[] }) => setRouteStats(data.stats ?? []))
-      .catch(() => setRouteStats([]));
-  }, [timeRange]);
-
   const cards = [
     {
       label: "Total Facts",
@@ -217,29 +118,6 @@ export default function AdminDashboard() {
     },
   ];
 
-  const originalOrder = routeStats ?? [];
-  const totalVisits = originalOrder.reduce((sum, r) => sum + r.visitCount, 0);
-
-  const sortedStats: (RouteVisitStat & { originalRank: number })[] = [...originalOrder]
-    .map((r, i) => ({ ...r, originalRank: i + 1 }))
-    .sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "rank") {
-        cmp = a.originalRank - b.originalRank;
-      } else if (sortKey === "visitCount") {
-        cmp = a.visitCount - b.visitCount;
-      } else if (sortKey === "routeKey") {
-        cmp = a.routeKey.localeCompare(b.routeKey);
-      } else if (sortKey === "updatedAt") {
-        const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-        cmp = ta - tb;
-      }
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-
-  const maxCount = originalOrder.length > 0 ? Math.max(...originalOrder.map((r) => r.visitCount)) : 1;
-
   return (
     <AdminLayout title="Dashboard">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -259,100 +137,6 @@ export default function AdminDashboard() {
             </div>
           </div>
         ))}
-      </div>
-
-      <div className="mb-4">
-        <CollapsibleSection
-          title="Top Pages"
-          icon={<BarChart2 className="w-4 h-4 text-primary" />}
-          badge={TIME_RANGE_LABELS[timeRange]}
-          badge2={routeStats !== null ? `${totalVisits.toLocaleString()} visits` : undefined}
-          description="Aggregate route visit counts across all users — update the prefetch list based on these."
-          storageKey="admin_section_dashboard_top_pages"
-        >
-          <div className="flex gap-1 mb-3">
-            {(["7d", "30d", "all"] as TimeRange[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setTimeRange(r)}
-                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
-                  timeRange === r
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
-                }`}
-              >
-                {TIME_RANGE_LABELS[r]}
-              </button>
-            ))}
-          </div>
-          {routeStats === null ? (
-            <p className="text-xs text-muted-foreground">Loading…</p>
-          ) : routeStats.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              No visit data yet. Counts are flushed from browsers on each page load.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    {(
-                      [
-                        { key: "rank", label: "#", className: "w-8 text-right pr-3" },
-                        { key: "routeKey", label: "Route", className: "text-left pr-3" },
-                        { key: "visitCount", label: "Visits", className: "w-16 text-right pr-3" },
-                        { key: "updatedAt", label: "Last Seen", className: "w-20 text-right" },
-                      ] as { key: "rank" | "routeKey" | "visitCount" | "updatedAt"; label: string; className: string }[]
-                    ).map(({ key, label, className }) => (
-                      <th
-                        key={key}
-                        className={`pb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide ${className}`}
-                        aria-sort={sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                      >
-                        <button
-                          onClick={() => handleSort(key)}
-                          className={`inline-flex items-center gap-1 w-full cursor-pointer select-none hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded ${key === "routeKey" ? "justify-start" : "justify-end"}`}
-                        >
-                          {label}
-                          <SortIcon col={key} />
-                        </button>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedStats.map((row) => (
-                    <tr key={row.routeKey} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
-                      <td className="py-2 pr-3 text-right text-muted-foreground text-xs tabular-nums w-8">
-                        {row.originalRank}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-foreground">{row.routeKey}</span>
-                          <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden min-w-[40px]">
-                            <div
-                              className="bg-primary h-1.5 rounded-full transition-all"
-                              style={{ width: `${Math.round((row.visitCount / maxCount) * 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-muted-foreground tabular-nums text-xs shrink-0">
-                            {totalVisits > 0 ? `${Math.round((row.visitCount / totalVisits) * 100)}%` : "—"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3 text-right tabular-nums text-foreground font-medium w-16">
-                        {row.visitCount.toLocaleString()}
-                      </td>
-                      <td className="py-2 text-right text-muted-foreground text-xs w-20" title={(() => { if (!row.updatedAt) return undefined; const d = new Date(row.updatedAt); return isNaN(d.getTime()) ? undefined : d.toLocaleString(); })()}>
-                        {formatLastSeen(row.updatedAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CollapsibleSection>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">

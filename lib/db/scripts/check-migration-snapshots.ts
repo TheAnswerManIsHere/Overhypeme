@@ -439,6 +439,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // when the chain is repaired. Source of truth: lib/db/src/schema/adminConfig.ts,
   // which no longer declares them.
   "0108_retire_debug_mode",
+
+  // Launch Phase 4, removal 9 (#744): hand-authored. It logs the two
+  // telemetry tables' row counts and drops route_stats and route_stat_events;
+  // the drops are DEFERRED snapshot deltas like 0103's, to capture when the
+  // chain is repaired. Source of truth: lib/db/src/schema/index.ts, which no
+  // longer exports them.
+  "0109_retire_route_stats",
 ]);
 
 interface JournalEntry {

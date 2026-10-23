@@ -22,7 +22,7 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affil
 
 | Route | File | What it's for |
 | --- | --- | --- |
-| `/admin` | `index.tsx` | Dashboard: fact/user counts, a real route-visit-count leaderboard (`GET /admin/route-stats`), quick links, Sentry diagnostic triggers. |
+| `/admin` | `index.tsx` | Dashboard: fact/user counts, quick links, Sentry diagnostic triggers. (Its route-visit leaderboard was removed in launch Phase 4; [`docs/retired/README.md`](../retired/README.md).) |
 | `/admin/facts` | `facts.tsx` | Broad fact browse/search/edit/delete + bulk import + enrichment backfill — see below. |
 | `/admin/users` | `users.tsx` | User browse/search + everything not already covered in `accounts-and-auth.md` — see below. |
 | `/admin/billing` | `billing.tsx` | Stripe config/plan summary, live-mode toggle, test-event trigger, price-sync status. |
@@ -197,10 +197,8 @@ purpose-built UI of its own — access is config-only, through the generic
 ## Analytics and stats surfaces
 
 The dashboard
-(`/admin`) itself is a light analytics surface (counts + a genuinely-wired
-route-visit leaderboard with real time-range options — unlike the
-non-functional Top-Facts time filters documented in
-[`public-site-and-sharing.md`](./public-site-and-sharing.md)); the eval
+(`/admin`) itself is a light analytics surface (fact and user counts; its
+route-visit leaderboard went with the counters in launch Phase 4); the eval
 dashboard (`/admin/eval`, render-quality metrics, run-vs-run diffing);
 queue health (`/admin/queue-health`, job-infra throughput); and refunds/
 disputes (`/admin/refunds-disputes`, an event log, not aggregate revenue

@@ -345,7 +345,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 | K5 | Video styles | cut |
 | K6 | Sentry | ship; **alerts routed to David** (email/push) as a readiness criterion |
 | K7 | Cloudflare OG-router worker | ship; loop phase (OG fix) |
-| K8 | Route-visit counters | delete (analytics replaces) |
+| K8 | Route-visit counters | delete (analytics replaces). *Deleted 2026-10-23 (Phase 4, removal 9; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | K9 | Health endpoints | ship; **external uptime check** (Sentry uptime monitors — existing vendor) |
 | K10 | Background schedulers (FOTD, purges, membership) | ship; FOTD audience widened |
 | K11 | Async job queue + lanes | ship (proven) |

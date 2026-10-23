@@ -19,8 +19,6 @@ export * from "./lookStyles";
 export * from "./engines";
 export * from "./featureFlags";
 export * from "./falPricing";
-export * from "./routeStats";
-export * from "./routeStatEvents";
 export * from "./asyncJobs";
 export * from "./workerLaneHeartbeats";
 export * from "./rateLimit";

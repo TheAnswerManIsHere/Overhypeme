@@ -110,7 +110,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "patch",  path: "/admin/feature-flags" },
   { method: "post",   path: "/admin/_debug/sentry" },
   { method: "get",    path: "/admin/sentry-status" },
-  { method: "get",    path: "/admin/route-stats" },
   // Phase 1 queue-health surface. Both are read-only aggregations, but they
   // expose per-queue counts and per-job error text, so they are admin-gated
   // exactly like the rest of this table. (The UNAUTHENTICATED liveness probe
@@ -129,7 +128,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
 // excluded from the introspection equality check below.
 const UNAUTHENTICATED_ADMIN_FILE_PATHS: ReadonlySet<string> = new Set([
   "/config/public",
-  "/route-stats",
 ]);
 
 function concretize(path: string): string {
