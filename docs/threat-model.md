@@ -20,8 +20,8 @@
 
 Overhype.me is a consumer web app that generates personalized, over-the-top
 "facts" about a named person, rendered as shareable meme images.
-Users sign in, personalize facts, render memes from their own photo or a
-built-in background, share them publicly, and can pay for a Legendary
+Users sign in, personalize facts, render memes from their own photo (the
+built-in gradient backgrounds went in launch Phase 4, removal 5), share them publicly, and can pay for a Legendary
 membership via Stripe. No user path generates an AI image since launch Phase 4
 deleted PuLID (ledger `docs/retired/README.md`); paid AI calls are the
 moderation, enrichment and admin machinery's. There are **no consumer credits
