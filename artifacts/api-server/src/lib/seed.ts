@@ -203,14 +203,6 @@ export async function ensureSchema(): Promise<void> {
       ON CONFLICT (key) DO NOTHING`,
     },
     {
-      label: "admin_config seed debug_mode_active",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('debug_mode_active', 'false', 'boolean', 'Debug Mode Active',
-         'Global staging toggle: when ON, any config key that has a debug value uses it instead of the production value. Used to experiment with settings (e.g. scene-prompt levers) before promoting them. Affects all traffic while ON.',
-         false)
-      ON CONFLICT (key) DO NOTHING`,
-    },
-    {
       label: "admin_config seed engine_revision",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
         VALUES ('engine_revision', '1', 'integer', 'Engine Revision',
@@ -231,10 +223,6 @@ export async function ensureSchema(): Promise<void> {
       ddl: `ALTER TABLE admin_config ADD COLUMN IF NOT EXISTS value_label text`,
     },
     {
-      label: "admin_config.debug_value_label column",
-      ddl: `ALTER TABLE admin_config ADD COLUMN IF NOT EXISTS debug_value_label text`,
-    },
-    {
       label: "admin_config delete ai_reference_frame_prompt",
       ddl: `DELETE FROM admin_config WHERE key = 'ai_reference_frame_prompt'`,
     },
@@ -248,7 +236,7 @@ export async function ensureSchema(): Promise<void> {
       label: "admin_config seed stripe_live_mode",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
         VALUES ('stripe_live_mode', 'false', 'boolean', 'Stripe Live Mode',
-          'When enabled, Stripe uses live credentials and charges real cards. Disable to use test mode. This is independent from debug mode.',
+          'When enabled, Stripe uses live credentials and charges real cards. Disable to use test mode.',
           false)
         ON CONFLICT (key) DO NOTHING`,
     },
@@ -263,23 +251,13 @@ export async function ensureSchema(): Promise<void> {
     //   ai_scene_prompt_system, ai_image_model_standard, ai_image_model_reference,
     //   ai_image_size (consumers now use baked-in defaults; PuLID/face-reference
     //   path now reads from the engines table via loadDefaultEngine("image")).
-    {
-      label: "admin_config.debug_value column",
-      ddl: `ALTER TABLE admin_config ADD COLUMN IF NOT EXISTS debug_value text`,
-    },
-    {
-      label: "admin_config seed debug_mode_active",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('debug_mode_active', 'false', 'boolean', 'Debug Mode Active',
-          'When true, all config values fall back to their Debug Value (if set) instead of the Standard Value. Toggle this in the Config panel to switch between production and debug settings.',
-          false)
-      ON CONFLICT (key) DO NOTHING`,
-    },
     // Retired in migration 0059_retire_legacy_model_config_keys:
     //   ai_std_*, ai_ref_pulid_*, ai_pulid_composition_suffix,
     //   video_prompt_system_prompt, video_model, video_duration,
     //   video_aspect_ratio, video_resolution. Image pipeline now uses
     //   baked-in defaults.
+    // Retired in migration 0108_retire_debug_mode: the admin_config.debug_value
+    // and debug_value_label columns and the debug_mode_active row.
     // ── fal.ai Pricing Cache + Cost Tracking ──────────────────────────────────
     {
       label: "fal_pricing_cache table",

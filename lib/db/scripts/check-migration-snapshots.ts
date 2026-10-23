@@ -431,6 +431,14 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // of truth: lib/db/src/schema/facts.ts and userFactPreferences.ts, which no
   // longer declare them.
   "0107_retire_stock_pexels",
+
+  // Launch Phase 4, removal 8 (#744): hand-authored. Its data half refuses
+  // while Debug mode is on, captures the debug values and deletes the
+  // debug_mode_active row; its drops (admin_config.debug_value and
+  // .debug_value_label) are DEFERRED snapshot deltas like 0103's, to capture
+  // when the chain is repaired. Source of truth: lib/db/src/schema/adminConfig.ts,
+  // which no longer declares them.
+  "0108_retire_debug_mode",
 ]);
 
 interface JournalEntry {

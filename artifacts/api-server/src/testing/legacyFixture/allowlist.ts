@@ -204,7 +204,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   }),
   include(s.adminConfigTable, {
     // Settings are kept verbatim, except that an address in one (the sender and reply-to settings) becomes synthetic.
-    key: "keep", value: "synthetic:config-value", valueLabel: "keep", debugValue: "synthetic:config-value", debugValueLabel: "keep",
+    key: "keep", value: "synthetic:config-value", valueLabel: "keep",
     dataType: "keep", label: "keep", description: "keep", minValue: "keep", maxValue: "keep",
     isPublic: "keep", updatedAt: "keep", updatedById: "map-user",
   }),

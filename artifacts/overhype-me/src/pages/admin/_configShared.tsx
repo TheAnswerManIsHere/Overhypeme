@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react";
 import {
-  Clock, Check, AlertCircle, Loader2, Bug, X, RotateCcw,
+  Clock, Check, AlertCircle, Loader2, RotateCcw,
 } from "lucide-react";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 
@@ -146,8 +146,6 @@ export interface ConfigRow {
   key: string;
   value: string;
   valueLabel: string | null;
-  debugValue: string | null;
-  debugValueLabel: string | null;
   dataType: string;
   label: string;
   description: string | null;
@@ -258,14 +256,9 @@ export const MODEL_CONFIG_KEYS = new Set<string>([
 export interface ConfigPageCtx {
   rows: ConfigRow[];
   stdEdits: Record<string, FieldState>;
-  dbgEdits: Record<string, FieldState>;
-  debugActive: boolean;
   setStdEdits: React.Dispatch<React.SetStateAction<Record<string, FieldState>>>;
-  setDbgEdits: React.Dispatch<React.SetStateAction<Record<string, FieldState>>>;
   saveStd: (key: string) => void;
-  saveDbg: (key: string) => void;
   stdDirty: (key: string) => boolean;
-  dbgDirty: (key: string) => boolean;
   /** Refetch all config rows (used after out-of-band writes like prompt reset). */
   load: () => void;
 }
@@ -284,9 +277,6 @@ export function useConfigPageState() {
   const [rows, setRows] = useState<ConfigRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [stdEdits, setStdEdits] = useState<Record<string, FieldState>>({});
-  const [dbgEdits, setDbgEdits] = useState<Record<string, FieldState>>({});
-  const [debugActive, setDebugActive] = useState(false);
-  const [debugToggling, setDebugToggling] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -297,42 +287,18 @@ export function useConfigPageState() {
         const fetched = data as ConfigRow[];
         setRows(fetched);
         const std: Record<string, FieldState> = {};
-        const dbg: Record<string, FieldState> = {};
         for (const row of fetched) {
-          if (row.key === "debug_mode_active") {
-            setDebugActive(row.value === "true");
-            continue;
-          }
           const selectOpts = SELECT_CONFIGS[row.key];
           const stdLabel = row.valueLabel ?? (selectOpts?.find((o) => o.value === row.value)?.label ?? row.value);
-          const dbgVal = row.debugValue ?? "";
-          const dbgLabel = row.debugValueLabel ?? (selectOpts?.find((o) => o.value === dbgVal)?.label ?? dbgVal);
           std[row.key] = { value: row.value, label: stdLabel, saving: false, error: null, saved: false };
-          dbg[row.key] = { value: dbgVal, label: dbgLabel, saving: false, error: null, saved: false };
         }
         setStdEdits(std);
-        setDbgEdits(dbg);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  async function toggleDebugMode() {
-    setDebugToggling(true);
-    const next = !debugActive;
-    try {
-      const res = await fetch("/api/admin/config/debug_mode_active", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: next ? "true" : "false" }),
-      });
-      if (res.ok) setDebugActive(next);
-    } catch { /* ignore */ }
-    finally { setDebugToggling(false); }
-  }
 
   const saveStd = useCallback(async (key: string) => {
     setStdEdits((prev) => {
@@ -365,49 +331,15 @@ export function useConfigPageState() {
     }
   }, [stdEdits, rows]);
 
-  const saveDbg = useCallback(async (key: string) => {
-    const edit = dbgEdits[key];
-    const row = rows.find((r) => r.key === key);
-    if (!edit || !row) return;
-    const currentDbg = row.debugValue ?? "";
-    if (edit.value === currentDbg) return;
-    setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: true, error: null, saved: false } }));
-    try {
-      const isSelect = !!SELECT_CONFIGS[key];
-      const res = await fetch(`/api/admin/config/${key}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ debugValue: edit.value || null, ...(isSelect ? { debugValueLabel: edit.label || null } : {}) }),
-      });
-      const data = (await res.json()) as { error?: string; debugValue?: string | null; debugValueLabel?: string | null };
-      if (!res.ok) {
-        setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: false, error: data.error ?? "Save failed" } }));
-      } else {
-        setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: false, saved: true } }));
-        setRows((p) => p.map((r) => r.key === key ? { ...r, debugValue: data.debugValue ?? null, debugValueLabel: data.debugValueLabel ?? null, updatedAt: new Date().toISOString() } : r));
-        setTimeout(() => setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saved: false } })), 2500);
-      }
-    } catch {
-      setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: false, error: "Network error" } }));
-    }
-  }, [dbgEdits, rows]);
-
   const stdDirty = useCallback((key: string) => {
     const row = rows.find((r) => r.key === key);
     return row ? stdEdits[key]?.value !== row.value : false;
   }, [rows, stdEdits]);
 
-  const dbgDirty = useCallback((key: string) => {
-    const row = rows.find((r) => r.key === key);
-    return row ? (dbgEdits[key]?.value ?? "") !== (row.debugValue ?? "") : false;
-  }, [rows, dbgEdits]);
-
   return {
     rows, setRows, loading,
-    stdEdits, dbgEdits, setStdEdits, setDbgEdits,
-    debugActive, setDebugActive, debugToggling,
-    toggleDebugMode, saveStd, saveDbg, stdDirty, dbgDirty, load,
+    stdEdits, setStdEdits,
+    saveStd, stdDirty, load,
   };
 }
 
@@ -434,27 +366,24 @@ export function SaveButton({
 }
 
 export function ConfigInput({
-  configKey, kind, rows: textRows,
-}: { configKey: string; kind: "std" | "dbg"; rows?: number }) {
-  const { rows, stdEdits, dbgEdits, debugActive, setStdEdits, setDbgEdits, saveStd, saveDbg, stdDirty, dbgDirty } = useConfigCtx();
+  configKey, rows: textRows,
+}: { configKey: string; rows?: number }) {
+  const { rows, stdEdits, setStdEdits, saveStd, stdDirty } = useConfigCtx();
   const row = rows.find((r) => r.key === configKey);
   if (!row) return null;
-  const state = kind === "std" ? stdEdits[configKey] : dbgEdits[configKey];
+  const state = stdEdits[configKey];
   if (!state) return null;
   const isLong = row.dataType === "text" && !FLOAT_TEXT_CONFIGS.has(configKey);
-  const dirty = kind === "std" ? stdDirty(configKey) : dbgDirty(configKey);
-  const placeholder = kind === "dbg" ? (row.debugValue ?? "Same as standard (no override)") : undefined;
+  const dirty = stdDirty(configKey);
   const isDelayMs = DELAY_MS_KEYS.has(configKey);
-  const isDbgActive = debugActive && kind === "dbg";
-  const borderClass = isDbgActive ? "border-amber-500/60 ring-1 ring-amber-500/30" : "border-border";
+  const borderClass = "border-border";
 
   const onChange = (val: string) => {
     const opts = SELECT_CONFIGS[configKey];
     const selectedLabel = opts?.find((o) => o.value === val)?.label ?? val;
-    if (kind === "std") setStdEdits((p) => ({ ...p, [configKey]: { ...p[configKey]!, value: val, label: selectedLabel, error: null, saved: false } }));
-    else setDbgEdits((p) => ({ ...p, [configKey]: { ...p[configKey]!, value: val, label: selectedLabel, error: null, saved: false } }));
+    setStdEdits((p) => ({ ...p, [configKey]: { ...p[configKey]!, value: val, label: selectedLabel, error: null, saved: false } }));
   };
-  const onSave = () => kind === "std" ? saveStd(configKey) : saveDbg(configKey);
+  const onSave = () => saveStd(configKey);
   const selectOptions = SELECT_CONFIGS[configKey];
 
   if (selectOptions) {
@@ -489,7 +418,6 @@ export function ConfigInput({
             rows={textRows ?? 3}
             value={state.value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
             className={`w-full bg-background border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y ${borderClass} placeholder:text-muted-foreground/40`}
           />
           <div className="flex items-center gap-3">
@@ -503,9 +431,8 @@ export function ConfigInput({
             <DelayMsInput
               msValue={state.value}
               onChange={(ms) => onChange(ms)}
-              placeholder={placeholder}
               borderClass={borderClass}
-              focusRingClass={isDbgActive ? "focus:ring-amber-500/50" : "focus:ring-primary"}
+              focusRingClass="focus:ring-primary"
               minMs={row.minValue}
               maxMs={row.maxValue}
             />
@@ -517,7 +444,6 @@ export function ConfigInput({
               max={row.maxValue ?? undefined}
               value={state.value}
               onChange={(e) => onChange(e.target.value)}
-              placeholder={placeholder}
               onKeyDown={(e) => { if (e.key === "Enter" && dirty) onSave(); }}
               className={`w-36 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${borderClass} placeholder:text-muted-foreground/40`}
             />
@@ -537,7 +463,7 @@ const FACT_ENRICHMENT_SYSTEM_KEY = "fact_enrichment_system";
 
 /**
  * Destructive admin action: replace the stored fact-enrichment system prompt
- * with the current code default and clear the debug override. Confirms first,
+ * with the current code default. Confirms first,
  * showing current effective source + hash vs the code-default hash so the
  * admin sees exactly what is being replaced (the whole point: DB-backed config
  * can silently diverge from the code default).
@@ -568,7 +494,7 @@ function ResetEnrichmentPromptButton() {
       } catch { /* best-effort; confirm still proceeds */ }
 
       const ok = window.confirm(
-        "This will replace the stored fact-enrichment system prompt with the current code default and clear the debug override. Continue?" +
+        "This will replace the stored fact-enrichment system prompt with the current code default. Continue?" +
           detail,
       );
       if (!ok) return;
@@ -597,7 +523,7 @@ function ResetEnrichmentPromptButton() {
       disabled={busy}
       data-testid="reset-enrichment-prompt"
       className="text-xs px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 flex items-center gap-1 disabled:opacity-50 shrink-0"
-      title="Replace the stored prompt with the current code default and clear the debug override"
+      title="Replace the stored prompt with the current code default"
     >
       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
       Reset to code default
@@ -606,19 +532,8 @@ function ResetEnrichmentPromptButton() {
 }
 
 export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textareaRows?: number }) {
-  const { stdEdits, dbgEdits, debugActive, setDbgEdits, saveDbg, dbgDirty } = useConfigCtx();
-  const stdState = stdEdits[row.key];
-  const dbgState = dbgEdits[row.key];
-  if (!stdState) return null;
-
-  const dbgSelectOptions = SELECT_CONFIGS[row.key];
-  const dbgBorderClass = debugActive ? "border-amber-500/40" : "border-border";
-  const isDelayMs = DELAY_MS_KEYS.has(row.key);
-
-  const onDbgChange = (val: string) => {
-    const selectedLabel = dbgSelectOptions?.find((o) => o.value === val)?.label ?? val;
-    setDbgEdits((p) => ({ ...p, [row.key]: { ...p[row.key]!, value: val, label: selectedLabel, error: null, saved: false } }));
-  };
+  const { stdEdits } = useConfigCtx();
+  if (!stdEdits[row.key]) return null;
 
   return (
     <div className="bg-card border border-border rounded-lg p-5 space-y-4">
@@ -628,11 +543,6 @@ export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textarea
             <h3 className="font-semibold text-foreground">{row.label}</h3>
             {row.isPublic && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">public</span>
-            )}
-            {row.debugValue != null && row.debugValue !== "" && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
-                <Bug className="w-3 h-3" /> has debug value
-              </span>
             )}
           </div>
           {row.description && (
@@ -649,123 +559,13 @@ export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textarea
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className={`rounded-lg border p-3 space-y-2 ${!debugActive ? "border-primary/40 bg-primary/5" : "border-border"}`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard</span>
-            {!debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Active</span>}
-          </div>
-          <ConfigInput configKey={row.key} kind="std" rows={textareaRows} />
-        </div>
-
-        <div className={`rounded-lg border p-3 space-y-2 ${debugActive ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-              <Bug className="w-3 h-3" /> Debug
-            </span>
-            {debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">Active</span>}
-          </div>
-          {dbgState && (
-            dbgSelectOptions ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-3">
-                  <select
-                    value={dbgState.value}
-                    onChange={(e) => onDbgChange(e.target.value)}
-                    className={`flex-1 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 ${dbgBorderClass}`}
-                  >
-                    <option value="">— Same as standard (no override) —</option>
-                    {dbgSelectOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                  <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => saveDbg(row.key)} />
-                  {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
-                </div>
-                {dbgState.value !== "" && (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span className="shrink-0">API value:</span>
-                    <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-foreground/80 select-all">{dbgState.value}</code>
-                  </div>
-                )}
-              </div>
-            ) : row.dataType === "text" ? (
-              <>
-                <textarea
-                  rows={textareaRows}
-                  value={dbgState.value}
-                  onChange={(e) => onDbgChange(e.target.value)}
-                  placeholder={row.debugValue ?? "Same as standard (no override)"}
-                  className={`w-full bg-background border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 resize-y placeholder:text-muted-foreground/40 ${dbgBorderClass}`}
-                />
-                <div className="flex items-center gap-3">
-                  <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => saveDbg(row.key)} />
-                  {dbgState.value !== "" && (
-                    <button
-                      onClick={() => onDbgChange("")}
-                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                      title="Clear debug value (fall back to standard)"
-                    >
-                      <X className="w-3 h-3" /> Clear
-                    </button>
-                  )}
-                  {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
-                </div>
-              </>
-            ) : isDelayMs ? (
-              <div className="space-y-2">
-                <DelayMsInput
-                  msValue={dbgState.value}
-                  onChange={onDbgChange}
-                  placeholder="— standard"
-                  borderClass={dbgBorderClass}
-                  focusRingClass="focus:ring-amber-500/50"
-                  minMs={row.minValue}
-                  maxMs={row.maxValue}
-                />
-                <div className="flex items-center gap-3">
-                  <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => saveDbg(row.key)} />
-                  {dbgState.value !== "" && (
-                    <button
-                      onClick={() => onDbgChange("")}
-                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                      title="Clear debug value (fall back to standard)"
-                    >
-                      <X className="w-3 h-3" /> Clear
-                    </button>
-                  )}
-                  {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <input
-                  type={row.dataType === "integer" || row.dataType === "float" ? "number" : "text"}
-                  step={row.dataType === "float" ? "0.01" : undefined}
-                  min={row.minValue ?? undefined}
-                  max={row.maxValue ?? undefined}
-                  value={dbgState.value}
-                  onChange={(e) => onDbgChange(e.target.value)}
-                  placeholder="— standard"
-                  onKeyDown={(e) => { if (e.key === "Enter" && dbgDirty(row.key)) saveDbg(row.key); }}
-                  className={`w-36 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 placeholder:text-muted-foreground/40 ${dbgBorderClass}`}
-                />
-                {row.minValue !== null && row.maxValue !== null && (
-                  <span className="text-xs text-muted-foreground">{row.minValue}–{row.maxValue}</span>
-                )}
-                <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => saveDbg(row.key)} />
-                {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
-              </div>
-            )
-          )}
-        </div>
-      </div>
+      <ConfigInput configKey={row.key} rows={textareaRows} />
     </div>
   );
 }
 
 export function ModelParamRow({ paramKey }: { paramKey: string }) {
-  const { rows, debugActive } = useConfigCtx();
+  const { rows } = useConfigCtx();
   const row = rows.find((r) => r.key === paramKey);
   if (!row) return null;
   return (
@@ -777,24 +577,7 @@ export function ModelParamRow({ paramKey }: { paramKey: string }) {
         </div>
         <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded shrink-0">{row.key}</code>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className={`rounded-lg border p-3 space-y-2 ${!debugActive ? "border-primary/40 bg-primary/5" : "border-border"}`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard</span>
-            {!debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Active</span>}
-          </div>
-          <ConfigInput configKey={paramKey} kind="std" />
-        </div>
-        <div className={`rounded-lg border p-3 space-y-2 ${debugActive ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-              <Bug className="w-3 h-3" /> Debug
-            </span>
-            {debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">Active</span>}
-          </div>
-          <ConfigInput configKey={paramKey} kind="dbg" />
-        </div>
-      </div>
+      <ConfigInput configKey={paramKey} />
     </div>
   );
 }

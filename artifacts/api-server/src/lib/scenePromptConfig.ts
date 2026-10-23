@@ -3,8 +3,7 @@
  *
  * The system prompt that controls how the LLM turns a fact template into the
  * scene prompts used for AI image generation. It lives in `admin_config` so it
- * can be tuned from the workbench without a deploy, and resolves through the
- * standard debug overlay (a key's `debug_value` wins when `debug_mode_active`).
+ * can be tuned from the workbench without a deploy.
  *
  * The model + sampling are NOT configured here — they come from the shared
  * General Intelligence engine (see lib/utilityLLM.ts / /admin/engines).

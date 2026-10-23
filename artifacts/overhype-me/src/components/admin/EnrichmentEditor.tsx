@@ -951,9 +951,11 @@ export function EnrichmentStalenessBadge({
 
 /**
  * Provenance of the prompt that actually produced this enrichment. A "taxonomy
- * vN" badge proves the version CONSTANT, not WHICH prompt text ran — a stale or
- * debug-overridden `admin_config` prompt can diverge from the code default. This
- * line surfaces that divergence so it can't hide behind the version badge.
+ * vN" badge proves the version CONSTANT, not WHICH prompt text ran — a stale
+ * `admin_config` prompt can diverge from the code default. This line surfaces
+ * that divergence so it can't hide behind the version badge. An enrichment
+ * stamped while Debug mode existed (removed in launch Phase 4) may still carry
+ * the `admin_config_debug_value` source, and says so.
  */
 export function PromptProvenanceLine({
   diagnostics,
@@ -965,7 +967,7 @@ export function PromptProvenanceLine({
   const warn = source === "admin_config_debug_value" || !matchesCodeDefault;
   const label =
     source === "admin_config_debug_value"
-      ? "Debug enrichment prompt active"
+      ? "Enriched with a Debug mode prompt (Debug mode has since been removed)"
       : !matchesCodeDefault
         ? "Enrichment prompt differs from current code default"
         : "Enrichment prompt matches code default";

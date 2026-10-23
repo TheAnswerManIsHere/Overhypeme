@@ -173,7 +173,7 @@ describe("classificationPromptDiagnostics schema", () => {
     );
   });
 
-  it("accepts the admin_config_debug_value source", () => {
+  it("still accepts the historical admin_config_debug_value source on a stored blob", () => {
     const parsed = classificationPromptDiagnosticsSchema.safeParse({
       source: "admin_config_debug_value",
       hash: "h",

@@ -6,10 +6,6 @@ export const adminConfigTable = pgTable("admin_config", {
   value: text("value").notNull(),
   /** Human-friendly label for the current value (dropdown rows only). */
   valueLabel: text("value_label"),
-  /** Alternate value used when debug mode is active. Null means fall through to the standard value. */
-  debugValue: text("debug_value"),
-  /** Human-friendly label for the debug value (dropdown rows only). */
-  debugValueLabel: text("debug_value_label"),
   dataType: varchar("data_type", { length: 20 }).notNull().default("integer"),
   label: varchar("label", { length: 200 }).notNull(),
   description: text("description"),

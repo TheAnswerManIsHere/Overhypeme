@@ -1748,7 +1748,7 @@ describe("PATCH /admin/config/:key — NCMEC key values", () => {
         const res = await request(makeApp())
           .patch(`/admin/config/${key}`)
           .set("authorization", `Bearer ${adminSid}`)
-          .send({ value: "attempted-write", debugValue: "attempted-debug-write" });
+          .send({ value: "attempted-write" });
         assert.equal(res.status, 403, `${key} was not refused`);
         // Spelled out here on purpose: asserting against the exported constant
         // would pass if the copy were reworded, and this copy is what the admin reads.

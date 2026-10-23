@@ -39,7 +39,7 @@ const FLAT_RENDER_ALLOWLIST: Record<string, string> = {};
  * reason the split target isn't fact text.
  */
 const SPLIT_PAINT_ALLOWLIST: Record<string, string> = {
-  "components/admin/EnrichmentEditor.tsx:1616":
+  "components/admin/EnrichmentEditor.tsx:1618":
     "splits a validation error message on `\"; \"` to list individual issues, " +
     "not fact text; the nearby `text-primary` paints an unrelated " +
     "\"Re-run classification\" button link.",

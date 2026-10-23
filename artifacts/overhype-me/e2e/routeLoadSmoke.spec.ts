@@ -797,13 +797,16 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
     const rowsRes = await context.request.get("/api/admin/config");
     expect(rowsRes.ok()).toBe(true);
     const rows = (await rowsRes.json()) as { key: string; value: string }[];
-    // Keys the page deliberately shows elsewhere (Billing) or as the debug toggle.
-    const elsewhere = new Set(["debug_mode_active", "stripe_live_mode", "fal_active_endpoints", "pricing_refresh_interval_ms"]);
+    // Keys the page deliberately shows elsewhere (Billing).
+    const elsewhere = new Set(["stripe_live_mode", "fal_active_endpoints", "pricing_refresh_interval_ms"]);
     const expected = rows.map((r) => r.key).filter((k) => !elsewhere.has(k) && !k.startsWith("style_suffix_"));
     expect(expected.length, "the config table should hold keys for this check to mean anything").toBeGreaterThan(20);
 
     await expectAdminScreen(page, "/admin/config");
-    await expect(page.getByRole("heading", { name: /^Debug Mode (ON|OFF)$/ }), "PR293 R1: /admin/config loads normally").toBeVisible();
+    await expect(page.getByText("Changes take effect within 60 seconds — no restart required."), "PR293 R1: /admin/config loads normally").toBeVisible();
+    // Debug mode is gone (launch Phase 4, removal 8): one value per setting, no toggle and no Debug column.
+    await expect(page.getByRole("button", { name: /Switch to (Debug|Standard)/ })).toHaveCount(0);
+    await expect(page.getByText("Debug", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Loading configuration…"), "PR293 R1: ...past its loading state").toHaveCount(0);
     const shown = await page.locator("code").allInnerTexts();
     expect(expected.filter((k) => !shown.includes(k)), "PR293 R1: every existing key should still be present on the page").toEqual([]);
