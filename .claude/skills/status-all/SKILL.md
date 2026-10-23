@@ -428,7 +428,7 @@ David-gate definition above):
   of the four is a merge gate any more:
   "scope agreed in outline, waiting on your go-ahead before the plan is
   drafted" / "plan v3 delivered in chat, waiting on your approval" /
-  "merged — UAT section on PR #<N>, not yet run". Read the PR body for
+  "merged — UAT section on PR #<N> — <title>, not yet run". Read the PR body for
   its `## UAT` section (or `docs/tests/UAT/` on `main` for a PR merged
   before 2026-10-21) before claiming no script exists.
 - **Never assert a reviewer's state from a gate.** The middle example above
@@ -448,7 +448,7 @@ David-gate definition above):
 `waiting:replit` is **not** in this section's scope — it's agent-held
 close-out work and renders in the stalled/in-progress buckets, never under
 🛑 NEEDS YOU. When reporting one, say what's pending and where, e.g.
-"merged, post-merge verification checks from PR #<N>'s body not yet driven
+"merged, post-merge verification checks from the body of PR #<N> — <title> not yet driven
 through the connector — a session needs to finish close-out."
 
 ## Step 5 — Render the report
@@ -461,16 +461,17 @@ a wrong scope is visible at a glance:
 ```
 owner/repo
 🛑 NEEDS YOU (n)
-#311 — CodeQL rate-limiter: merged, UAT section on PR #308, not yet run
-#281 — Evidence retention plan: [specific restated question from the thread]
+Issue #311 — CodeQL rate-limiter: merged, UAT section on PR #308 — Rate-limit
+  the CodeQL dispatch per repository, not yet run
+Issue #281 — Evidence retention plan: [specific restated question from the thread]
 
 ⚠️ STALLED (n) — no activity >48h, nobody currently blocked on David
-#309 — Evidence retention: Codex posted round 2 findings 6d ago, unanswered
-#313 — CodeQL false-positive record: same pattern, 2 unanswered findings
+Issue #309 — Evidence retention: Codex posted round 2 findings 6d ago, unanswered
+Issue #313 — CodeQL false-positive record: same pattern, 2 unanswered findings
 
 IN PROGRESS (n)
-#310 — NCMEC reporting: code review, waiting on Codex (last activity 3h ago)
-#312 — Ledger [LEDGER] PRs: code review, waiting on Codex
+Issue #310 — NCMEC reporting: code review, waiting on Codex (last activity 3h ago)
+Issue #312 — Ledger [LEDGER] PRs: code review, waiting on Codex
 
 CAN'T SEE
 Reminder that Discovery-stage conversations with no issue yet won't appear here.

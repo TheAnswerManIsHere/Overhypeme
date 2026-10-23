@@ -510,14 +510,19 @@ requires it.
    consumer):
 
    1. **Write the brief and prepare the answer path in one call**:
-      `node <dir>/build-report.mjs brief --unit <slug> --issue <n> --pr <n> [--pr <n> …]`,
+      `node <dir>/build-report.mjs brief --unit <slug> --issue <n> --issue-title "<title>" --pr <n> --pr-title "<title>" [--pr <n> --pr-title "<title>" …]`,
       or for a branch-regime prototype version
       `--branch prototype/<feature> --since <sha> --head <sha>` in place of
       the PRs: `--since` is the previous version's head, read off the
       *Evidence* line of that version's build report — on the issue, or,
       on the private path, in the private item, which David relays — or
       the branch's base for the first version. The unit's slug names the
-      answer file (`pr-231`, `ingest-v2`). Preparing clears any earlier
+      answer file (`pr-231`, `ingest-v2`). **Every number carries its
+      title, as read from GitHub**: the coordinates come back to David as
+      the report's *Evidence* line, and a bare number tells him nothing
+      (`claude-core.md`, interaction rule 14), so `brief` refuses an
+      `--issue` without `--issue-title` and a `--pr` without its
+      `--pr-title`, in order. Preparing clears any earlier
       attempt's answer and coordinates, so a re-dispatch that writes nothing
       reads as a failure, never as its predecessor. **A workstream whose
       plan is on a private draft Project item** — no public issue at all, or

@@ -99,15 +99,17 @@ Two rules that matter more than the table:
 ## Shape
 
 ```
-WATCHING — #334 /status skill split
-  PR #335, Codex review requested 20m ago, CI green.
+WATCHING — Issue #334 — Split the /status skill into read and render steps
+  PR #335 — /status: split the skill into read and render steps, Codex
+  review requested 20m ago, CI green.
   Next: me, when the review lands.
   Fits: agent workflow, not product surface. Roadmap unaffected.
 ```
 
 ```
-🛑 WAITING ON YOU — #328 Bash guard
-  PR #329 merged. Stored state says code-review/codex — that's stale.
+🛑 WAITING ON YOU — Issue #328 — Bash guard: refuse any exit that is not a verdict
+  PR #329 — Bash guard: refuse any exit that is not a verdict, merged.
+  Stored state says code-review/codex — that's stale.
   Next: you — 🛑 UAT.
   Corrected the issue to uat/david (it said code-review/codex).
 ```

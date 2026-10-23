@@ -322,7 +322,8 @@ Whenever the top recommendation sits under a blocked parent, show the
 chain, so David can see how deep he is and what finishing actually buys:
 
 ```
-#213 UAT (step 4) ← #405 admin permissions ← #422 Plan 1b (code review)
+Issue #213 — Launch UAT (step 4) ← Issue #405 — Admin permissions
+  ← Issue #422 — Plan 1b: write-side permission enforcement (code review)
 ```
 
 ## Step 4 — Parallel lanes
@@ -393,22 +394,25 @@ for the same workstream, say which wins and why.
 
 ```
 owner/repo
-NEXT — #422 Plan 1b (write-side permission enforcement)
+NEXT — Issue #422 — Plan 1b: write-side permission enforcement
   Code review, Codex round 3 landed 4h ago, 2 threads open.
-  Why: closest to done, and it unblocks #405's UAT and then #213's.
-  Stack: #213 UAT (step 4) ← #405 ← #422
+  Why: closest to done, and it unblocks the UAT of Issue #405 — Admin
+  permissions, and then of Issue #213 — Launch UAT.
+  Stack: Issue #213 — Launch UAT (step 4) ← Issue #405 — Admin permissions
+  ← Issue #422 — Plan 1b: write-side permission enforcement
 
 THEN
-  2. #310 NCMEC Phase 4 — provenance capture. Parent at coding, phase not
-     yet opened. Unblocks phases 5–8.
+  2. Issue #310 — NCMEC reporting, Phase 4 — provenance capture. Parent at
+     coding, phase not yet opened. Unblocks phases 5–8.
      Plan: PLAN_NCMEC.md, increment 4 of 8, step 1 — the quarantine.ts
      capture hook. Position from the 2026-10-20 build report.
   3. Stripe livemode column — queue:now, pre-launch hardening. Needs your
      call on backfill semantics before it can start.
 
 IN PARALLEL
-  #310 Phase 4 is independent of #422 — different subsystems, no shared
-  blocker. Safe in a second session.
+  Issue #310 — NCMEC reporting, Phase 4 is independent of Issue #422 —
+  Plan 1b — different subsystems, no shared blocker. Safe in a second
+  session.
   Nothing else is: the remaining candidates all touch permissions.
 
 IN FLIGHT (no action)
