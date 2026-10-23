@@ -1,6 +1,6 @@
 # Overview
 
-Overhype.me is a community-driven, personalized facts database where facts are stored with dynamic tokens and rendered with user-defined names. The platform aims to foster user engagement with facts, facilitate meme generation, and integrate affiliate marketing and analytics. It is built as a pnpm monorepo using TypeScript, featuring an Express 5 API, PostgreSQL with Drizzle ORM, and a React with Vite frontend. Key features include user authentication, AI-powered duplicate detection, meme generation, and comprehensive error reporting.
+Overhype.me is a community-driven, personalized facts database where facts are stored with dynamic tokens and rendered with user-defined names. The platform aims to foster user engagement with facts, facilitate meme generation, and integrate analytics (its merch affiliate flow was deleted in launch Phase 4: `docs/retired/README.md`). It is built as a pnpm monorepo using TypeScript, featuring an Express 5 API, PostgreSQL with Drizzle ORM, and a React with Vite frontend. Key features include user authentication, AI-powered duplicate detection, meme generation, and comprehensive error reporting.
 
 # User Preferences
 

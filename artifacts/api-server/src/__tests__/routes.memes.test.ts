@@ -6,7 +6,7 @@
  * round-trip (GET/PUT /facts/:factId/ai-meme-preference), and the
  * soft-delete endpoint (DELETE /memes/:slug).
  *
- * The image-rendering, Zazzle-export, and AI-generation paths require
+ * The image-rendering and AI-generation paths require
  * sharp/canvas + external APIs and are out of scope for this batch.
  */
 

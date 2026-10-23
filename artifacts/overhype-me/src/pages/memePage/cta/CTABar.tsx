@@ -10,7 +10,7 @@
  * metadata. The structure is "primary card / secondary row / tertiary row"
  * for every variant so the visual rhythm reads consistently.
  */
-import { ArrowRight, Crown, Download, ExternalLink, Library, Share2, ShoppingBag } from "lucide-react";
+import { ArrowRight, Crown, Download, Library, Share2, ShoppingBag } from "lucide-react";
 import { Link } from "wouter";
 import { useState } from "react";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -260,11 +260,9 @@ export function CTABarAnonOwnTransient({
 export function CTABarOwn({
   onDownload,
   onCustomShare,
-  wearHref,
 }: {
   onDownload: () => void;
   onCustomShare: () => void;
-  wearHref: string;
 }) {
   return (
     <div className="space-y-3" data-testid="cta-own">
@@ -276,9 +274,6 @@ export function CTABarOwn({
           <Share2 className="w-4 h-4" /> Custom share
         </PrimaryButton>
       </div>
-      <SecondaryButton href={wearHref} testId="merch-wear">
-        <ShoppingBag className="w-4 h-4" /> Wear this meme <ExternalLink className="w-3 h-3 opacity-70" />
-      </SecondaryButton>
     </div>
   );
 }

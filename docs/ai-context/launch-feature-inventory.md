@@ -41,7 +41,7 @@ routes, delete, git keeps it) · **your call**.
 | A19 | Fact share modal | Copy link + social popups with name/pronouns baked in; **email invite always fails in prod** (#374; allowlist is `example.com`) | doc; bug | ship; your call on the email option: remove it for launch (recommended) or fix it |
 | A20 | Meme share modal (per-platform copy, share intents) | Native share / platform popups / mailto | doc | ship, verify |
 | A21 | Post-create share screen | Platform list, merch teaser, download | doc | ship minus the merch teaser if merch is cut. *Deleted 2026-10-22 with the legacy studio, its only mounter; the wizard sends a saved meme to its permalink, whose share surface is `MemeShareModal` ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes))* |
-| A22 | Merch "Wear it" `/wear`, Zazzle export + redirect | Product preview → affiliate redirect; pickers cosmetic; **#598 broken** | doc; bug | cut: remove CTA, route, export, redirect, admin Affiliate page |
+| A22 | Merch "Wear it" `/wear`, Zazzle export + redirect | Product preview → affiliate redirect; pickers cosmetic; **#598 broken** | doc; bug | cut: remove CTA, route, export, redirect, admin Affiliate page. *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A23 | Hero example media | Example images in the builder entry step | code only | ship (plumbing). *The entry step and its route went with video (Phase 4, removal 2); the `hero_examples` table has no reader and is a removal-11 orphan candidate (#744)* |
 | A24 | `/library` | Self-view only; no public profiles | doc | see Journey C |
 | A25 | **Legal pages (Terms, Privacy)** | **Do not exist** — no route, page or link | absent | **fix for launch** — a launch gate given payments, photo uploads, email and analytics; David supplies or approves the text |
@@ -186,7 +186,7 @@ routes, delete, git keeps it) · **your call**.
 | D25 | Meme page actions | lose merch; gain "make this about you" (loop phase) |
 | D26 | Meme hearts (no `canViewMeme` check, #375) | fix for launch; folds into reactions |
 | D27 | Delete own meme | ship, verify |
-| D28 | Zazzle export | cut |
+| D28 | Zazzle export | cut. *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | D29 | Budget-reached card | ship (spend phase) |
 
 ### Decisions — Journey D (David, 2026-10-05)
@@ -285,9 +285,9 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Moderation (fact wizard + comment panel) | ship (core); comment panel rebuilt per C6; speech bubbles finished (D14) |
 | Billing (Stripe summary, live-mode toggle, test event, sync, verification) | ship; money-rehearsal phase; live-mode toggle is a launch-day control |
 | Refunds & Disputes | ship |
-| Affiliate | **cut** (merch) |
+| Affiliate | **cut** (merch). *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | Video Styles | **cut** (video deleted) |
-| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature |
+| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4)* |
 | Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3* |
 | Taxonomy Health | ship (proven tonight) |
 | Features (tier × feature grid) | ship; **becomes the Legendary definition** (F21) + beta overlay later |
@@ -338,7 +338,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 
 | # | Feature | Recommendation |
 |---|---|---|
-| K1 | Zazzle affiliate | cut |
+| K1 | Zazzle affiliate | cut. *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | K2 | Pexels | moderation research only (user-facing stock removed, D3); keep |
 | K3 | Eval dashboard | keep (engine evaluation) |
 | K4 | Engines catalogue | prune video + PuLID; winner of the engine evaluation becomes default; **set a default `llm` engine** (tonight's fallback warning). *Video and PuLID pruned 2026-10-22 (Phase 4, removals 2 and 3)* |

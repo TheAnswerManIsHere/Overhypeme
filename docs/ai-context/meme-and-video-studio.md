@@ -191,7 +191,6 @@ storage backend today, not legacy.
 | Rendered meme image (recipe meme) | No — rendered on demand, cache only at the HTTP layer | — |
 | Pre-recipe-architecture legacy meme | Yes | `memeKey()`, `storageKeys.ts:33-38` — `memes/{hash2}/{slug}.{ext}` |
 | AI-generated meme background (shared gallery) | Yes | `aiBackgroundKey()`, `storageKeys.ts:14-29` — `ai-backgrounds/{hash2}/{factId}-{gender}-{uniqueKey}.{ext}` |
-| Zazzle merch export | Yes, public ACL | inline at `memes.ts` (`zazzle-export`, `zazzle-redirect`) — `meme-exports/{slug}-v{MEME_RENDER_VERSION}.jpg` (render-versioned since PR #398 round 3, so a corrected re-export never collides with a stale edge-cached copy of an earlier render) |
 
 The `{hash2}` path segment is a 2-hex-char SHA-256 prefix of the filename
 (`hashPrefix()`, `storageKeys.ts:6-11`), used to avoid sequential-prefix
@@ -214,7 +213,7 @@ storage — see [`docs/retired/video.md`](../retired/video.md).)
 
 ## Files to inspect before studio/media work
 
-- `artifacts/api-server/src/routes/memes.ts` — save, render, Zazzle export.
+- `artifacts/api-server/src/routes/memes.ts` — save, render.
 - `artifacts/api-server/src/lib/createMemeRecord.ts` — the single shared
   insert path every meme type goes through.
 - `artifacts/api-server/src/lib/validators/memeBuilder.ts` —

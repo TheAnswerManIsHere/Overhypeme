@@ -82,7 +82,7 @@ already-existing stock photo or template.
 
 **Next:** chapter 7 — [`7-public-site-and-sharing.md`](./7-public-site-and-sharing.md),
 home, search, [hashtags](../ai-context/glossary.md#hashtags), leaderboard,
-profiles, OG cards, and [merch](../ai-context/glossary.md#merch) — the surfaces
+profiles, OG cards, and sharing — the surfaces
 the loop closes through.
 
 *Verified against `e9669d2` (2026-08-09) · claim inventory in PR #371.*

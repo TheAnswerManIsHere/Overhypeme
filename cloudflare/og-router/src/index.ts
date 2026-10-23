@@ -45,7 +45,7 @@ const MEME_IMAGE_PATH_RE = /^\/api\/memes\/[^/]+\/image$/;
  * change a genuinely fresh cache key, so a previously-cached meme image can
  * never be served stale post-deploy. Scoped to the origin subrequest only —
  * the PUBLIC url (the stored `meme.imageUrl`, and every consumer of it: the
- * JSON API, `<img>`/`<video>` tags, Zazzle export, OG cards) is untouched.
+ * JSON API, `<img>`/`<video>` tags, OG cards) is untouched.
  *
  * This Worker deploys independently of the main app (`pnpm worker:deploy` —
  * see wrangler.toml) — bumping this constant does nothing until that deploy

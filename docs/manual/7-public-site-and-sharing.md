@@ -1,6 +1,6 @@
 # Chapter 7 · Public Site and Sharing
 
-> Home, search, the leaderboard, your own [library](../ai-context/glossary.md#library), sharing, and [merch](../ai-context/glossary.md#merch) —
+> Home, search, the leaderboard, your own [library](../ai-context/glossary.md#library), and sharing —
 > the surfaces where the loop actually closes: a visitor becomes a reader,
 > a reader becomes a sharer, and a share pulls the next visitor in.
 >
@@ -92,17 +92,10 @@ passing along as-is, while sharing a *fact* rewrites the link so the
 person who opens it sees it personalized with the name you typed for
 them.
 
-### Turning a meme into merch
+### Merch
 
-From a meme, you can open a product picker — a shirt, a mug, a sticker,
-and similar — preview roughly how the meme would look on it, and get
-redirected out to Zazzle to actually order it. **The product and layout
-you pick on Overhype.me is only a preview** — what actually reaches
-Zazzle is the meme image itself, not your product/layout choice, so
-you'll choose the real product again once you land on Zazzle. Overhype.me
-doesn't handle the order itself: it hands off to Zazzle for checkout,
-sizing, shipping, and payment, and only knows that a click happened, not
-whether anyone went on to buy anything.
+There is none. Ordering a meme on a shirt or mug through Zazzle was deleted
+in launch Phase 4 (ledger: [`docs/retired/README.md`](../retired/README.md)).
 
 ## Why it works this way
 
@@ -122,11 +115,6 @@ whether anyone went on to buy anything.
   genuinely different sharing intents — "look at this exact thing" versus
   "this one's about you now" — so they get separate share flows instead of
   one generic "share" button trying to do both.
-- **Overhype.me doesn't run its own storefront for merch** because
-  building real order fulfillment, payment, and shipping is a wholly
-  different business than making memes — handing that off to an existing
-  print-on-demand platform gets the feature to users without Overhype.me
-  taking on all of that.
 
 ## Boundaries & known limitations
 
@@ -153,20 +141,17 @@ whether anyone went on to buy anything.
 - **[Rich link previews](../ai-context/glossary.md#rich-preview) only exist for meme links.** Sharing a fact page,
   a search result, or the home page itself doesn't produce a preview
   image/description the way sharing a meme does.
-- **Merch has no order or fulfillment tracking on Overhype.me's side** —
-  once you're redirected to Zazzle, everything after that (whether you
-  actually bought anything, sizing, shipping) is invisible to Overhype.me.
 - **[Hearting](../ai-context/glossary.md#heart) a private meme isn't currently blocked the way viewing one
   is.** Every other private-meme surface (the image itself, its rich
-  preview, sharing it, ordering merch from it) correctly requires being
+  preview, sharing it) correctly requires being
   the owner or an admin; the heart button doesn't yet carry that same
   check. Worth fixing rather than a documented gap.
 
 ## Going deeper
 
 - Spec: [`public-site-and-sharing.md`](../ai-context/public-site-and-sharing.md)
-  — the exact routes, ranking logic, the OG-card pipeline, the Zazzle
-  redirect flow, and the specific share/tracking endpoints.
+  — the exact routes, ranking logic, the OG-card pipeline, and the
+  specific share/tracking endpoints.
 - Related: [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md)
   (where a fact's hashtags come from), [`6-meme-and-video-studio.md`](./6-meme-and-video-studio.md)
   (how a shareable meme gets made in the first place).

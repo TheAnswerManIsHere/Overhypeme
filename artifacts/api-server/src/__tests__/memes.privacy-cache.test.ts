@@ -4,7 +4,7 @@
  * `isPublic === false` means owner-only: only the creator or an admin may see
  * the meme, and private responses must never be publicly/edge-cached. Every
  * surface that resolves a meme by slug (detail JSON, rendered image, OG shell,
- * share copy/intents, Zazzle export) shares one decision — `canViewMeme()`.
+ * share copy/intents) shares one decision — `canViewMeme()`.
  *
  * These tests cover the decision exhaustively (unit) and prove it end-to-end at
  * the representative `GET /memes/:slug` route (owner allowed + no-store; a

@@ -49,7 +49,8 @@ docs/                this documentation
   `Profile.tsx` (account settings), `Library.tsx` (the signed-in user's
   own submissions/memes/images — see
   [`public-site-and-sharing.md`](./public-site-and-sharing.md#profiles-and-library--the-self-view-split)),
-  `ActivityFeed.tsx`, fact detail + comments, merch (`WearIt.tsx`). The
+  `ActivityFeed.tsx`, fact detail + comments. (Merch, `WearIt.tsx`, went in
+  launch Phase 4; ledger [`docs/retired/README.md`](../retired/README.md).) The
   meme builders live under
   `artifacts/overhype-me/src/components/meme-builder/` (not `pages/`): the
   fact page's wizard in `meme-builder/wizard/`, and the meme page's remix
@@ -59,7 +60,7 @@ docs/                this documentation
   ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
   Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
-  Affiliate, Engines, Taxonomy Health, Email Queue, Features,
+  Engines, Taxonomy Health, Email Queue, Features,
   Configuration, Eval, Queue Health — the full, routed inventory is
   [`admin-console.md`](./admin-console.md). `comments.tsx` and `ai.tsx`
   exist as files but are dead — their routes redirect elsewhere; they are
@@ -80,7 +81,6 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
 - `routes/admin.ts` + `routes/admin*.ts` (e.g. `adminImagePrompt.ts`,
   `adminEngines.ts`) — admin surfaces, all guarded by `requireAdmin`.
 - `routes/stripe.ts` + webhook handlers — billing/checkout.
-- `routes/affiliate.ts` — Zazzle click tracking.
 - Domain libs (`artifacts/api-server/src/lib/`): `imagePrompt/`,
   `factImagePipeline.ts`, `factEnrichment*.ts`, `enrichmentVersioning.ts`,
   `taxonomyHealth/`, `factTokenizer.ts`, `engines/`,

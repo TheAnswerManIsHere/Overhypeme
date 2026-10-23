@@ -479,8 +479,8 @@ export const HELP_DOCS: HelpDocMeta[] = [
         "depth": 3
       },
       {
-        "id": "turning-a-meme-into-merch",
-        "title": "Turning a meme into merch",
+        "id": "merch",
+        "title": "Merch",
         "depth": 3
       },
       {

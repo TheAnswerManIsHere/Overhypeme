@@ -192,7 +192,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     email: userRow?.email ?? null,
     pendingEmail: userRow?.pendingEmail ?? null,
     emailVerified: userRow?.emailVerifiedAt !== null && userRow?.emailVerifiedAt !== undefined,
-    // Billing/fulfillment name fields (used for Stripe invoices and Zazzle orders)
+    // Billing name fields (used for Stripe invoices)
     firstName: userRow?.firstName ?? null,
     lastName: userRow?.lastName ?? null,
     displayName: userRow?.displayName ?? null,
@@ -259,7 +259,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     updates.displayName = result.value;
   }
 
-  // Billing/fulfillment name fields (used for Stripe invoices and Zazzle orders).
+  // Billing name fields (used for Stripe invoices).
   // Same prompt-injection rules as displayName — these end up rendered into LLM
   // and image generation prompts as part of the user's identity.
   if (firstName !== undefined) {
