@@ -23,7 +23,7 @@ import renderRouter from "../routes/render.js";
 import memesRouter from "../routes/memes.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
-import { seedPhotoBackground, cleanupPhotoBackgrounds } from "./helpers/photoBackground.js";
+import { photoBackgrounds } from "./helpers/photoBackground.js";
 
 const USER_PREFIX = "t_phase4_render_";
 const FACT_TEXT_PREFIX = "t_p4r_fact_";
@@ -63,7 +63,6 @@ async function insertFact(text: string, opts: { submittedById?: string } = {}): 
 }
 
 async function cleanup() {
-  await cleanupPhotoBackgrounds();
   const users = await db
     .select({ id: usersTable.id })
     .from(usersTable)
@@ -88,23 +87,36 @@ async function cleanup() {
 
 // One signed-in owner and their uploaded photo serve every success path: since
 // the gradient templates were deleted, an upload is the background a render
-// can compose without the network, and an upload needs a session.
+// can compose without the network, and an upload needs a session. The photo is
+// stored per suite (withOwnerPhoto), because the storage double it lives in is
+// a process-wide selection that must not outlast the suite.
+let ownerId: string;
 let ownerSid: string;
 let photo: { type: "upload"; uploadKey: string };
 
 before(async () => {
   await cleanup();
-  const ownerId = await createTestUser();
+  ownerId = await createTestUser();
   const data: SessionData = {
     user: { id: ownerId, membershipTier: "registered" } as unknown as SessionData["user"],
     access_token: "test-token",
   };
   ownerSid = await createSession(data, ownerId);
-  photo = { type: "upload", uploadKey: await seedPhotoBackground(ownerId) };
 });
 after(cleanup);
 
+function withOwnerPhoto(): void {
+  const photos = photoBackgrounds();
+  before(async () => {
+    photos.setUp();
+    photo = { type: "upload", uploadKey: await photos.seed(ownerId) };
+  });
+  after(photos.tearDown);
+}
+
 describe("POST /api/render-preview", () => {
+  withOwnerPhoto();
+
   it("returns image/jpeg bytes for an owner's upload request", async () => {
     const userId = await createTestUser();
     const factId = await insertFact("{NAME} pushes the limits.", { submittedById: userId });
@@ -280,6 +292,8 @@ describe("POST /api/render-preview", () => {
 });
 
 describe("POST /api/render-download", () => {
+  withOwnerPhoto();
+
   it("returns image/jpeg bytes with Content-Disposition: attachment", async () => {
     const factId = await insertFact("Alex pushes the limits.");
 
@@ -321,6 +335,8 @@ describe("POST /api/render-download", () => {
 });
 
 describe("Phase 4 — composite byte-identity across endpoints", () => {
+  withOwnerPhoto();
+
   it("preview, download, and a direct compose call all return the same bytes", async () => {
     const factId = await insertFact("{NAME} {pushes|push} the limit.");
 

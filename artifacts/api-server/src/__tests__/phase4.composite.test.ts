@@ -12,20 +12,21 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import { composeMeme } from "../lib/memeComposite.js";
-import { seedPhotoBackground, cleanupPhotoBackgrounds } from "./helpers/photoBackground.js";
-
-let photo: { type: "upload"; uploadKey: string };
-
-before(async () => {
-  photo = { type: "upload", uploadKey: await seedPhotoBackground(null) };
-});
-after(cleanupPhotoBackgrounds);
+import { photoBackgrounds } from "./helpers/photoBackground.js";
 
 function sha256(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
 describe("Phase 4 — composeMeme", () => {
+  const photos = photoBackgrounds();
+  let photo: { type: "upload"; uploadKey: string };
+  before(async () => {
+    photos.setUp();
+    photo = { type: "upload", uploadKey: await photos.seed(null) };
+  });
+  after(photos.tearDown);
+
   it("produces a JPEG buffer for an upload imageSource", async () => {
     const result = await composeMeme({
       factTextTemplate: "{NAME} {singular|plural} a fact.",

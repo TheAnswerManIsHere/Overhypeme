@@ -31,7 +31,7 @@ import {
 } from "../lib/memeComposite.js";
 import { resolveTextBlocks, type TextOptions } from "../lib/memeGenerator.js";
 import { hasUnresolvedFactTokens, CANONICAL_NAME } from "../lib/renderCanonical.js";
-import { seedPhotoBackground, cleanupPhotoBackgrounds } from "./helpers/photoBackground.js";
+import { photoBackgrounds } from "./helpers/photoBackground.js";
 
 function sha256(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
@@ -311,11 +311,13 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
 });
 
 describe("composeMeme — split captions render personalized (end to end)", () => {
+  const photos = photoBackgrounds();
   let imageSource: { type: "upload"; uploadKey: string };
   before(async () => {
-    imageSource = { type: "upload", uploadKey: await seedPhotoBackground(null) };
+    photos.setUp();
+    imageSource = { type: "upload", uploadKey: await photos.seed(null) };
   });
-  after(cleanupPhotoBackgrounds);
+  after(photos.tearDown);
 
   it("renders a tokenized split identically to the same split typed out by hand", async () => {
     // The strongest available proof that substitution reached the drawn text:
