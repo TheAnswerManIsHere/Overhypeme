@@ -24,7 +24,6 @@ import shareRouter from "./share";
 import shareCopyRouter from "./shareCopy";
 import shareIntentsRouter from "./shareIntents";
 import lookStylesRouter from "./lookStyles";
-import routeStatsRouter from "./routeStats";
 
 const router: IRouter = Router();
 
@@ -52,7 +51,6 @@ router.use(shareRouter);
 router.use(shareCopyRouter);
 router.use(shareIntentsRouter);
 router.use(lookStylesRouter);
-router.use(routeStatsRouter);
 router.use(importRouter);
 
 export default router;

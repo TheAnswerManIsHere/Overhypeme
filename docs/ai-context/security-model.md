@@ -56,7 +56,7 @@ entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-ad
 - **CSRF**: double-submit `csrf_token` cookie + `x-csrf-token` header on
   cookie-session unsafe methods; origin allowlist enforced except for the
   intentional `ORIGIN_EXEMPT_PATHS` (Stripe webhook, Apple form_post callback,
-  route-stats, and — for now — dev-admin-login).
+  and — for now — dev-admin-login).
 - **CodeQL doesn't recognize either hand-rolled control** as satisfying its
   `js/missing-rate-limiting` / `js/missing-token-validation` (CSRF) queries —
   see [`codeql-missing-rate-limiting-csrf-false-positive.md`](../../.agents/memory/codeql-missing-rate-limiting-csrf-false-positive.md)

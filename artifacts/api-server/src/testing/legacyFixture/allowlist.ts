@@ -512,8 +512,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.entitlementSourceDisputesTable, "payment-obligation", "Stripe dispute ids; the Stripe fake (#566) owns this evidence"),
   exclude(s.rateLimitCountersTable, "runtime-state", "IP-keyed abuse counters"),
   exclude(s.transientRendersTable, "runtime-state", "IP-hash-keyed abuse log"),
-  exclude(s.routeStatsTable, "telemetry", "visit counters"),
-  exclude(s.routeStatEventsTable, "telemetry", "visit events"),
   exclude(s.affiliateClicksTable, "telemetry", "per-visitor clicks"),
   exclude(s.searchHistoryTable, "telemetry", "free-text search queries"),
   exclude(s.shareIntentsTable, "telemetry", "per-visitor share events"),

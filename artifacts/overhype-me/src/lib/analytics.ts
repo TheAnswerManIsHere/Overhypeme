@@ -79,25 +79,6 @@ export function trackRouteVisit(path: string): void {
   } catch {
     // localStorage may be unavailable (private browsing with storage blocked, etc.)
   }
-  // Fire-and-forget: report to server so the global tally stays accurate.
-  reportRouteVisitToServer(key);
-}
-
-/**
- * Sends a best-effort POST to the server to increment the server-side visit
- * counter for the given route key.  Failures are silently swallowed so that
- * analytics never blocks or breaks the UI.
- */
-function reportRouteVisitToServer(routeKey: string): void {
-  const base: string = import.meta.env.BASE_URL ?? "/";
-  const url = `${base}api/route-stats`;
-  fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ route: routeKey }),
-    keepalive: true,
-    credentials: "omit",
-  }).catch(() => {});
 }
 
 /**
@@ -110,26 +91,4 @@ export function getTopRoutes(n: number): string[] {
     .sort(([, a], [, b]) => b - a)
     .slice(0, n)
     .map(([key]) => key);
-}
-
-/**
- * Sends the current localStorage visit counts to the server so they are
- * aggregated across all users.  Fire-and-forget — failures are silently
- * ignored.  Should be called once per session (e.g. on browser idle after
- * page load).
- */
-export function flushRouteStatsToServer(): void {
-  try {
-    const counts = getRouteVisitCounts();
-    if (Object.keys(counts).length === 0) return;
-    void fetch("/api/route-stats", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ counts }),
-      keepalive: true,
-      credentials: "omit",
-    }).catch(() => {});
-  } catch {
-    // localStorage may be unavailable
-  }
 }

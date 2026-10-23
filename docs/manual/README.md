@@ -300,8 +300,8 @@ This manual covers the **product**. Some things deliberately live elsewhere —
 named here so their absence reads as a decision rather than a gap:
 
 - **Operations and diagnostics** — error reporting in [`SENTRY.md`](../SENTRY.md);
-  the health and route-stats endpoints in
-  [`architecture-map.md`](../ai-context/architecture-map.md#health-and-route-stats-endpoints).
+  the health endpoints in
+  [`architecture-map.md`](../ai-context/architecture-map.md#health-endpoints).
 - **Edge and CDN behavior** — [`cloudflare-rate-limits.md`](../cloudflare-rate-limits.md)
   and [`cloudflare-gaesa-og-fix.md`](../cloudflare-gaesa-og-fix.md).
 - **Local dev tooling** — `scripts/dev-supervisor.sh` and the
