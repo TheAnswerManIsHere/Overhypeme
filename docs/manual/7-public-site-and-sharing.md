@@ -117,7 +117,7 @@ in launch Phase 4 (ledger: [`docs/retired/README.md`](../retired/README.md)).
 
 - **Top Facts is all time only.** There is no "this week" or "this month"
   ranking; the buttons that offered one never worked and were removed in
-  launch Phase 4.
+  launch Phase 4 (ledger: [`docs/retired/README.md`](../retired/README.md)).
 - **There's no dedicated hashtag browsing page.** If you're expecting a
   page that lists every hashtag with its own dedicated view, there isn't
   one: hashtag browsing happens through search or the home page's own

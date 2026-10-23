@@ -33,7 +33,7 @@ routes, delete, git keeps it) · **your call**.
 | A11 | Community memes on a fact | Public memes made for a fact | doc | ship, verify |
 | A12 | Search | Substring match, newest-first, `#tag` exact | doc | ship as-is; full-text is `later` |
 | A13 | Search history recording | Records signed-in users' searches; never read back | doc | your call: cut the recording (a privacy surface with no product value) or keep |
-| A14 | Leaderboard `/top-facts` | All-time by Wilson score; **time-window pills and hashtag pills do nothing** | doc | your call: remove the dead pills and ship all-time (recommended), fix the pills, or cut the page |
+| A14 | Leaderboard `/top-facts` | All-time by Wilson score; **time-window pills and hashtag pills do nothing** | doc | your call: remove the dead pills and ship all-time (recommended), fix the pills, or cut the page. *Pills deleted 2026-10-23 (Phase 4, removal 10; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | A15 | Activity feed `/activity` | Signed-in user's contributions + notifications (approve/reject land here) | doc | ship, verify |
 | A16 | Meme permalink `/m/:slug` | Public meme page, image, download; private → 404/410 | 3 unrun UATs; #591 open (private not-found reads as an error) | ship (core); #591 your call now/next |
 | A17 | Video permalink `/video/:id` | Public video page | doc | follows the video decision. *Deleted 2026-10-22 with video (Phase 4, removal 2; ledger [`docs/retired/README.md`](../retired/README.md))* |
