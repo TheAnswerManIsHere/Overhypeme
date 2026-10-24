@@ -42,7 +42,9 @@ listed the same two options in its body before the banner. David: *"you're
 doing the showing me the same thing twice thing again."* The final message is
 verbatim in the turn that raises the ask, and it stays in the conversation;
 a later turn that leaves the ask unchanged points back to it in one line and
-re-fires the notification (`claude-core.md`, interaction preference 6).
+re-fires the notification (`claude-core.md`, interaction preference 6; the
+one exception is `/status`, which reproduces every open ask in full — the
+`status` skill, *The briefing*, item 6).
 
 ## Not twice in one turn either
 

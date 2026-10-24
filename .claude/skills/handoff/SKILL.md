@@ -139,8 +139,10 @@ zero prior context." That is this skill's channel; don't invent a second one.
 handoff comment. The comment never substitutes for the block — a
 free-standing comment leaves the block's resumable-state claim stale, which
 is the drift `workstream-tracking.md` warns about and a mistake an earlier
-handoff actually made (PR #424). `/status`, `/status-all` and any cold
-reader all check the block, not the comment stream.
+handoff actually made (PR #424). `/status-all` and any cold reader check
+the block, not the comment stream; `/status` reads both — the block for
+state, the 👀 FYI and build-report comments for what happened since David
+last looked (the `status` skill, *Where it is collected from*).
 
 **If none exists** — the Discovery gap `/status-all` names — open one. First
 apply the [backlog promotion rule](../../../docs/ai-context/workstream-tracking.md#the-backlog-work-thats-queued-but-hasnt-started):
@@ -223,7 +225,8 @@ The block carries these seven, in order:
    (production, or prototype by David's declaration, with the regime —
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)),
    the ceremony tier, and which skill to invoke on entry (`/status` is the safe
-   default first move).
+   default first move: it briefs David from the issue record and the plan,
+   and repairs stale tracking on the way).
 5. **Settled — do not re-open** — the inline list from the handoff comment.
 6. **First action** — one concrete instruction, not a menu.
 7. **Out of scope** — what this session is explicitly not doing, so it

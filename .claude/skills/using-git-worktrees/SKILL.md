@@ -11,7 +11,8 @@ description: Use when starting feature work that needs isolation from current wo
 > mechanics, not a decision: it is undone by removing the worktree, not by a
 > commit, so it is neither asked about nor reported as a reversible choice —
 > Step 0's consent prompt below does not run here, and nothing about it goes
-> in the FYI, the State of Play or the PR's Decisions section. A baseline
+> in the FYI (chat or its issue comment), the State of Play or the PR's
+> Decisions section. A baseline
 > test failure that predates the branch is not a choice either: continuing
 > past it changes nothing in the repository, so no commit undoes it and it
 > cannot be a reversible decision

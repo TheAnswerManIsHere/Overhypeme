@@ -299,6 +299,12 @@ handbook work a launch phase needs and a second app would need identically;
   the superseded write-through design below it) and
   [`working-modes.md`](./working-modes.md#feature-mode-ceremony-scales-to-blast-radius-not-to-phrasing-david-2026-08-05)
   for the ceremony-tiering rule this loop's overrun prompted.
+  **Superseded since:** from 2026-10-21 `/status` repairs stale tracking on
+  its own recommendation instead of offering, and from 2026-10-23 it is a
+  briefing for David (headline, plan and phase, progress, everything flagged
+  since his last message, every open ask in full, what is next) with the five
+  states retired from its output; the handbook's `status` skill is the
+  current behavior, and the report-and-offer design above is history.
 - **CLAUDE.md cut roughly in half via skill migration + consolidation**
   (PR #300, #301). 81,099 → 41,683 chars (~20.3k → ~10.4k est. resident
   tokens per session) — about half the file was procedural ceremony that
