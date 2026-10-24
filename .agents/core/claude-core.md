@@ -150,7 +150,10 @@ where I put it and treat it as binding.
    carries the options and recommendation; a later turn leaving it unchanged
    re-notifies and, if it has other text, ends with `Still waiting on you:
    <one-line ask>, above.`, else writes nothing; a changed ask replaces the
-   banner. **A bundled banner carries only questions that are his under every
+   banner. **`/status` is the one exception to "shown once"**: it
+   reproduces every open ask in full — banner, context, options and
+   recommendation — because saving him the scroll is its purpose (David,
+   2026-10-23; the `status` skill, *The briefing*, item 6). **A bundled banner carries only questions that are his under every
    rule**; no loop limit exists to induce one (the two-review limit, its
    ask-to-reopen and the review-loop PR's hand triage are retired, David,
    2026-10-21).
@@ -164,7 +167,22 @@ where I put it and treat it as binding.
    concern found along the way, a systemic issue beyond the one PR, a scope
    surprise, a process gap, anything contradicting stated product intent,
    and every reversible choice I proceeded on under *A reversible choice
-   proceeds* (below). Routine correctness findings don't.
+   proceeds* (below). Routine correctness findings don't. **Every 👀 FYI is
+   also posted, in one line, as a comment on the workstream issue, in the
+   turn it is shown** (David, 2026-10-23): the chat compacts and a fresh
+   session never saw it, and the issue is where `/status` recovers what he
+   would have stopped at while scrolling (the `status` skill, *The
+   briefing* item 5 and *The anchor*).
+   The comment is the time-ordered log; the State of Play block stays the
+   current state, so a decision lands in both (*A reversible choice
+   proceeds*, rule 1). **The comment is under the canonical disclosure
+   check like every record** (`workstream-tracking.md`, *Sensitive /
+   disclosure-carve-out workstreams*): an FYI that fails it — a security
+   finding on a public workstream, say — goes on the issue sanitized, its
+   specifics in chat; and a workstream on the private path keeps its FYIs
+   in chat only, like its build report, reaching the private item the way
+   the report does — David pastes them there — so each is written as one
+   line he can paste.
 8. **Findings and asks lead with the outcome for David or users, in product
    English — never the mechanism.** "This would have quietly pointed a risky
    test at your real database," not shell expansion order. Test: a good
@@ -279,9 +297,11 @@ step's carve-out
 
 1. **Proceeding is a 👀 FYI, in the turn it happens** — the choice, the
    recommendation I took, and the commit that would undo it, in one line
-   each, the choice in bold. It is also a line in the workstream issue's State of Play and an
+   each, the choice in bold. It is also, as every 👀 FYI is (interaction
+   rule 7), a one-line comment on the workstream issue; a line in that
+   issue's State of Play; and an
    entry under **Decisions taken on my recommendation** in the PR body; a PR
-   with none says `none`. All three records are under the canonical
+   with none says `none`. All four records are under the canonical
    disclosure check (`workstream-tracking.md`, *Sensitive /
    disclosure-carve-out workstreams*): one that fails it is written
    sanitized, its specifics on the private path. I never ask a question the rule says to proceed

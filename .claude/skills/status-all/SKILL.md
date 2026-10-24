@@ -7,10 +7,12 @@ description: Give David a cold-open summary of EVERY open workstream across all 
 
 # /status-all — the workstream board, read cold
 
-**All-sessions view, one repository.** For one session's own state — "what am I working on right now
-and how does it fit" — that's [`/status`](../status/SKILL.md), which is a
-different job: cheaper, scoped to one workstream, and able to offer to fix
-stale tracking. This skill answers "across everything, what needs me?" —
+**All-sessions view, one repository.** For one session's own work — a
+briefing for David on where that build stands — that's
+[`/status`](../status/SKILL.md#the-briefing-in-this-order), a
+different job: cheaper, scoped to one unit of work, written in his
+vocabulary rather than this file's, and repairing stale tracking silently
+as a side effect. This skill answers "across everything, what needs me?" —
 where "everything" is every session working in **this** repository, never
 the other repositories in the fleet.
 
@@ -321,8 +323,10 @@ stall-detects like `waiting:claude`, and a lingering one means a close-out
 some session needs to finish, which is exactly what the stalled bucket
 exists to surface. A Post-merge step that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week across every product — and asks him only above it (`uat-doc-format.md`, *Lanes*): within budget it is agent work
 (`waiting:claude`), not `waiting:david` and not reported under 🛑 NEEDS YOU; only a run above the budget is labelled
-`waiting:david` and reported there, never as stalled agent work. `/status`'s five-state table
-(`.claude/skills/status/SKILL.md`) made the matching move.
+`waiting:david` and reported there, never as stalled agent work. (`/status`'s
+five-state table made the matching move on 2026-08-15; that table was
+retired on 2026-10-23 when `/status` became a briefing for David, and the
+label is the one place the distinction now lives.)
 
 A workstream is **stalled** when `waiting` is NOT a David-gate (per the
 definition above — a David-gate is "needs you," a more urgent bucket, never

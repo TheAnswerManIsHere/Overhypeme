@@ -23,7 +23,8 @@ hand him a decision, not a dashboard.
 **Read-only.** It never writes a label, never opens an issue, never edits a
 body, and never starts the work it recommends. David says "go," and normal
 mode routing takes over from there. Corrections to stale tracking are
-`/status`'s offer-and-confirm job or `/maintenance`'s hygiene pass, not
+`/status`'s side effect (it repairs on its own recommendation and says so —
+the `status` skill, *Side effect*) or `/maintenance`'s hygiene pass, not
 this skill's.
 
 ## Scope — the active repository, and nothing else

@@ -264,13 +264,15 @@ asked; the recommendation is taken and reported.
   2026-10-11, choosing this over a sensitive-subsystem stop: *"Option 1"*).
 - **Proceeding is visible, never silent.** Each decision taken this way is
   reported as it happens (Claude Code: a 👀 FYI in chat — the choice, the
-  recommendation taken, the way back), recorded as a line in the workstream
+  recommendation taken, the way back — and, as every FYI since 2026-10-23,
+  the same line as a comment on the workstream issue, `claude-core.md`
+  interaction rule 7), recorded as a line in the workstream
   issue's State of Play, and gathered under a **Decisions taken on my
   recommendation** heading in the PR body, so David and a reviewer read every
-  one in one place — each of those three records under the canonical
+  one in one place — each of those records under the canonical
   disclosure check (`workstream-tracking.md`, *Sensitive / disclosure-carve-out
   workstreams*, referenced here and never restated): a decision that fails
-  it is recorded sanitized in all three, with its specifics on the private
+  it is recorded sanitized in all of them, with its specifics on the private
   path, exactly as the prototype ledger rule already does (Codex, DojoOS #8
   and AI-Handbook #198). His reversal afterwards is a corrective commit, and the
   advice rule's override record applies.

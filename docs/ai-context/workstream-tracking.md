@@ -352,6 +352,9 @@ separate maintainer beyond those six **for label-driven updates**.
 `/uat`, and whichever skill is building, for the *Decisions taken on
 recommendation* line, written at the moment the choice is taken
 ([`agent-working-rules.md`](./agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).**
+A fourth, `/status`, rewrites the block and the labels together only when
+it finds them stale, as a repair rather than a transition (the `status`
+skill, *Side effect*).
 `/handoff`
 (`.claude/skills/handoff/SKILL.md`, Claude-only): when a session's context is
 moved to a fresh session, the narrative changes while `stage:` and `waiting:`
@@ -556,7 +559,15 @@ set" `stage:done`, and nothing ever asked him to.)
   sanitized tracking (labels, a State of Play line saying the plan is on the
   private path, and nothing it holds), and any text already on the issue that
   fails the check is edited out and named to David in one line, since an
-  edit does not unpublish what was already read.
+  edit does not unpublish what was already read. **Its 👀 FYIs stay in
+  chat**, like its build report: the one-line FYI comment every other
+  workstream's issue receives (`claude-core.md` interaction rule 7, David,
+  2026-10-23) is an account of the work, which is what the check keeps off
+  GitHub. They reach the private item the way the report does — David
+  pastes them in — so `/status` on such a unit reads the chat and what he
+  has relayed, and names the gap when the chat has compacted rather than
+  asserting the item holds what he never pasted (the `status` skill, *The
+  anchor*).
 - **No hand-typed GitHub UI name (a field, an option) gets matched by exact
   string in code.** The sync script's first live run against the real board
   failed all 9 workstream syncs because the real `Waiting On` field
@@ -581,9 +592,13 @@ says how that is resolved:
   throwaway one; that's the intended usage. See the skill file for the
   stall-detection threshold and the plain-language-blocker rule.
 - **`/status`** (`.claude/skills/status/SKILL.md`) — **one session's own**
-  workstream: what it's working on, which of five states it's in
-  (`WORKING` / `WAITING ON YOU` / `WATCHING` / `STALLED` / `DONE`), what's
-  next, and how it fits the roadmap.
+  work, briefed to David the way a direct report updates a manager (David,
+  2026-10-23): a headline, the plan and the phase we are in, progress,
+  what is happening right now, every 👀 FYI and finished unit since his
+  last message, every open ask reproduced in full, and the next stop that
+  will need him. **Its output carries none of this file's vocabulary** —
+  no workstream, stage or label — and nothing reads it back. The skill
+  file holds the shape and the anchor rule for "since you last checked".
 - **`/next`** (`.claude/skills/next/SKILL.md`) — **what should we pick up
   now** in the active repository, ranked. The only one of the three that takes a position rather
   than reporting state. It reads everything above plus the backlog,
@@ -594,23 +609,30 @@ says how that is resolved:
   candidates are safe to run in parallel sessions. **Read-only**, like
   `/status-all` — it recommends, it never starts work or fixes tracking.
 
-**The five states are a derived presentation vocabulary — never stored.**
-They are computed from the `stage:`/`waiting:` labels plus live GitHub state.
-They never become labels, never become board fields, and nothing reads them
-back. Labels remain the sole source of truth.
+**`/status` briefs David, and corrects stored state on its own
+recommendation as a side effect.** When stored labels or the issue's
+`## State of Play` block disagree with live GitHub, it corrects them and
+says so in one line, only when something changed (David, 2026-10-21; from
+2026-08-05 until then it offered and he confirmed —
+[`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)
+is what retired the confirmation). The repair stays because `/status-all`
+and `/next` read those labels. A fresh read immediately before the write is
+what makes a label and a status block safe enough to correct unattended,
+since a corrective edit undoes either; `/status` is still not a standing
+background writer, it writes at a moment David invoked it. (The 2026-08-05
+reasoning that an unattended write-through needed conflict detection the
+GitHub API can't provide is in a consumer's `decisions.md`.) Labels remain
+the sole source of truth; the briefing is a presentation and nothing reads
+it back. (From 2026-08-05 to 2026-10-23 the skill reported one of five
+derived states — `WORKING` / `WAITING ON YOU` / `WATCHING` / `STALLED` /
+`DONE` — computed from the labels; David retired the vocabulary as built
+for an agent rather than for him, and the one rule worth keeping from it,
+that a live PR claim rests on a read made in the same invocation, is in
+the skill.)
 
-**`/status` reports, and corrects stored state on its own recommendation.**
-When stored labels or the issue's `## State of Play` block disagree with live
-GitHub, it says so, corrects them, and reports the correction in the same
-message (David, 2026-10-21; from 2026-08-05 until then it offered and he
-confirmed — [`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10) is what retired the confirmation). A fresh
-read immediately before the write is what makes a label and a status block
-safe enough to correct unattended, since a corrective edit undoes either;
-`/status` is still not a standing background writer, it writes at a moment
-David invoked it. (The 2026-08-05 reasoning that an unattended write-through
-needed conflict detection the GitHub API can't provide is in
-[`decisions.md`](./decisions.md).)
-
-**`WATCHING` may never be claimed from memory** — only after a live check in
-that same invocation. A session's belief that it is watching a PR goes stale
-exactly the way issue #328's did.
+**The issue is also where every 👀 FYI lands**, one comment each in the
+turn it is shown (interaction rule 7, David, 2026-10-23), so `/status` can
+recover from the issue what a compacted chat no longer holds (the `status`
+skill, *The anchor*) — except on the private path, where the FYI stays in
+chat like the build report (*Sensitive / disclosure-carve-out workstreams*,
+above).
