@@ -43,6 +43,14 @@ export interface InnerConfig {
   control?: "forbidden-request" | "render-failure" | "upload-failure" | "corrupt-source";
   mode?: InnerMode;
   variant?: "fresh" | "fixture";
+  /**
+   * Pin the three AI prompt rows to the code defaults before the journeys, as
+   * the fixture variant does (David, 2026-10-14, option 2): set for a fresh run
+   * over a restored snapshot (acceptance-run.ts --source-dump), whose operator-
+   * edited prompts the recordings do not know. The upgrade rehearsal proves
+   * those operator values survive the upgrade on its own restore.
+   */
+  pinPrompts?: boolean;
   /** Where AI recordings are read (replay, acceptance) or written (record, live). */
   recordingsDir?: string;
   /** The double's call log (acceptance, replay) or the recorder's ledger (record, live). */
@@ -163,8 +171,8 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
 
   if (cfg.variant === "fixture") {
     run("scripts/load-legacy-fixture.ts", { ...base, ...storage }, "loading the legacy fixture");
-    out.promptPins = await pinPrompts(cfg.databaseUrl);
   }
+  if (cfg.variant === "fixture" || cfg.pinPrompts) out.promptPins = await pinPrompts(cfg.databaseUrl);
   run("scripts/seed-e2e-test-accounts.ts", { ...base, BCRYPT_SALT_ROUNDS: "4" }, "seeding the test accounts");
 
   const port = cfg.serve?.port ?? (await freePort());

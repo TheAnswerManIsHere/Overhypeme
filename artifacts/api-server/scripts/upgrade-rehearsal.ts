@@ -156,7 +156,8 @@ async function main(): Promise<void> {
   const scratchName = `upgrade_rehearsal_${crypto.randomBytes(3).toString("hex")}`;
   const url = new URL(server);
   url.pathname = `/${scratchName}`;
-  url.search = "";
+  // Keep connection settings (sslmode); drop only the test runner's schema-isolation options.
+  url.searchParams.delete("options");
   const control = new pg.Client({ connectionString: server });
   await control.connect();
   const failures: string[] = [];

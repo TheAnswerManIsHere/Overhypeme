@@ -405,6 +405,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     selfTest: detecting,
     mode: mode === "serve" || mode === "probe" ? "acceptance" : mode,
     variant,
+    ...(sourceDump ? { pinPrompts: true } : {}),
     recordingsDir,
     callRecord,
     missLog,

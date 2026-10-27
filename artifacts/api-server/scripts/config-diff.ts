@@ -120,7 +120,8 @@ async function main(): Promise<void> {
   await control.connect();
   const freshUrl = new URL(server);
   freshUrl.pathname = `/${scratchName}`;
-  freshUrl.search = "";
+  // Keep connection settings (sslmode); drop only the test runner's schema-isolation options.
+  freshUrl.searchParams.delete("options");
   const fresh = new Map<string, Row[]>();
   try {
     await control.query(`CREATE DATABASE "${scratchName}" TEMPLATE template0`);

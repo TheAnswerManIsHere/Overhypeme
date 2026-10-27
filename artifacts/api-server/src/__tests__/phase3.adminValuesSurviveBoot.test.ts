@@ -34,7 +34,7 @@ const scratchName = `p3_admin_boot_${crypto.randomBytes(3).toString("hex")}`;
 function scratchUrl(): string {
   const url = new URL(process.env.DATABASE_URL!);
   url.pathname = `/${scratchName}`;
-  url.search = "";
+  url.searchParams.delete("options"); // keep sslmode; drop only the schema-isolation options
   return url.href;
 }
 
