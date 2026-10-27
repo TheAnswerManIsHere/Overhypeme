@@ -466,6 +466,9 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // schema pushes stripped (the schema never declared them, so the snapshot
   // never carried them): no snapshot delta to record.
   "0112_restore_migration_only_objects",
+
+  // Data only: seeds one admin_config row. No schema delta.
+  "0113_seed_nsfw_classifier_fail_open",
 ]);
 
 interface JournalEntry {

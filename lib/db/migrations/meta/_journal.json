@@ -792,6 +792,13 @@
       "when": 1784500000000,
       "tag": "0112_restore_migration_only_objects",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1784600000000,
+      "tag": "0113_seed_nsfw_classifier_fail_open",
+      "breakpoints": true
     }
   ]
 }

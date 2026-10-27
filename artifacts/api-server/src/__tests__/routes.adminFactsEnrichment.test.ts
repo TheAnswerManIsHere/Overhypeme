@@ -125,7 +125,7 @@ describe("GET /admin/facts/:id", () => {
     const id = await insertFact({
       ...buildFactEnrichmentColumns(VALID),
       aiScenePrompts: { foo: "bar" },
-      aiMemeImages: { foo: "bar" },
+      aiMemeImages: { male: ["blob.png"], female: [], neutral: [] },
     });
     const res = await request(adminApp).get(`/api/admin/facts/${id}`);
     assert.equal(res.status, 200);

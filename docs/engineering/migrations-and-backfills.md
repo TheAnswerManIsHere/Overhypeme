@@ -171,4 +171,10 @@ reference). Silent bulk mutation is a bug.
 - [ ] Counts / failed / skipped are observable.
 - [ ] Row-state matrix reasoned about in the plan.
 - [ ] Rollback/recovery described for anything destructive.
+- [ ] A new table is classified in `lib/db/src/tableClassification.ts` (product,
+      config, runtime or an excluded class), and a new column on a config table
+      is given an owner (code, admin or runtime); `tableClassification.test.ts`
+      fails until it is. A code-owned config value comes from a migration or a
+      boot seed, never only from a database it was typed into: the config diff
+      (`artifacts/api-server/scripts/config-diff.ts`) is how a gap is found.
 - [ ] Tests cover idempotency + the affected states; CI `Build` + `Test` green.

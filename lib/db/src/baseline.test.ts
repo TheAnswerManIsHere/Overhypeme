@@ -160,7 +160,9 @@ describe("schema baseline", { concurrency: false }, () => {
     try {
       await withClient(pool, async (c) => {
         const result = await applyMigrations(c);
-        assert.equal(result.applied, 1, "only the migration after the cutoff runs");
+        // Real migrations after the cutoff (journalTags() reads the copied
+        // folder, which now holds the synthetic one too) all run, and only they.
+        assert.equal(result.applied, afterCutoff(), "only the migrations after the cutoff run");
         assert.equal(await ledgerCount(c), journal.entries.length);
         const { rows } = await c.query("SELECT to_regclass('public.after_the_cutoff') IS NOT NULL AS present");
         assert.ok(rows[0].present);

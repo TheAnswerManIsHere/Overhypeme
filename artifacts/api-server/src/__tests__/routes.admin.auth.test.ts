@@ -397,7 +397,7 @@ describe("admin bulk backfill routes", () => {
     };
     const rootId = await mkFact("root");
     const variantId = await mkFact("variant", { parentId: rootId });
-    const hasImagesId = await mkFact("has-images", { aiMemeImages: { foo: "bar" } });
+    const hasImagesId = await mkFact("has-images", { aiMemeImages: { male: ["has.png"], female: [], neutral: [] } });
 
     const res = await request(adminApp).post("/api/admin/facts/backfill-ai-memes");
     assert.equal(res.status, 202);
