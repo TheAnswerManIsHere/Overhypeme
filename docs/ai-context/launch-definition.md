@@ -150,8 +150,13 @@ scale is counsel's call in the compliance phase, not settled here).
 
 **Analytics and ops:** GA4 (measurement ID set) plus **PostHog**, fed by one
 event call and a defined funnel event list; Sentry alerts routed to David and
-a Sentry uptime check; a read-only maintenance mode instead of takedowns;
-migrations written backward-compatible so deploys need no window.
+a Sentry uptime check; alerts for the failures that throw nothing — a
+background job stopped or wedged (the queue-health plan's alert phase, #288),
+payment webhooks failing, spend that could not be recorded — reaching David by
+a channel that does not depend on the database; a read-only maintenance mode
+instead of takedowns; migrations written backward-compatible so deploys need
+no window. Row 8 below is proven by a fault-injection afternoon on the
+deployed Seed site, one injected fault per alert source (David, 2026-10-27).
 
 ## Cut, deleted or deferred
 
@@ -222,7 +227,7 @@ outstanding and never becomes an earlier stage's pass.
 | 5 | `/security-review` on the launch scope with no open highs; `ADMIN_API_KEY` scoped (no password reset through it) or gone; `sharp` upgraded or mitigated; CSP enforced on the API and on the web app (after a report-only period); HSTS sent once, by Cloudflare; `pnpm audit --prod` shows no High or Critical; the old production dump's exposure closed by rotation (sessions revoked by the fresh database, that account's password changed), not a history purge; **every credential rotated and the old one revoked** | must | — | green on the current head | — | — |
 | 6 | Every in-scope UAT step has a disposition; the manual residue fits an afternoon; the real-data pass has run on the Repl | dispositions | real-data pass done | — | — | — |
 | 7 | Compliance package live (Terms, Privacy, DMCA agent registered, consent flows, age gate, NCMEC path, retention, geography); the safety path usable | must | — | counsel signed | GDPR checklist signed | — |
-| 8 | Alerts reach David; uptime check live; read-only mode works; rollback written | must | — | — | — | — |
+| 8 | Alerts reach David from five sources — an unhandled error, the site down, a background job stopped or wedged, payment webhooks failing, spend that could not be recorded — each proven by injecting its fault on the deployed site and watching the alert arrive and the product degrade as designed; uptime check live; read-only mode works; rollback written | must | — | — | — | — |
 | 9 | UX polish pass completed across every user journey; David accepts the catalogue and a representative render sample | must | post-Seed fixes | post-Soft fixes | — | — |
 | 10 | Launch runbook with a go/no-go that reads this table | Seed go/no-go | Soft go/no-go | US go/no-go | Global go/no-go | — |
 

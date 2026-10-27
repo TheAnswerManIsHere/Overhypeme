@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v7 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7)
+# PLAN — Get to launch (parent programme) · v8 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8)
 
 Workstream: #628 · Planning loop: `.agents/reviews/get-to-launch/` · Never pushed unless David asks.
 
@@ -157,9 +157,11 @@ rights (deletion now; export deferred to GDPR readiness), geography policy.
 
 **Analytics and ops:** GA4 (configured, measurement ID set) + **PostHog**
 (approved) fed by one event call and a defined funnel event list; Sentry
-alerts routed to David and a Sentry uptime check; read-only maintenance mode
-instead of takedowns; migrations backward-compatible so deploys need no
-window.
+alerts routed to David and a Sentry uptime check; alerts for the failures
+that throw nothing — a background job stopped or wedged, payment webhooks
+failing, spend that could not be recorded — by a channel that does not depend
+on the database (amendment v8); read-only maintenance mode instead of
+takedowns; migrations backward-compatible so deploys need no window.
 
 ## Cut, deleted or deferred
 
@@ -235,8 +237,12 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
    afternoon; the real-data pass has run on the Repl.
 7. Compliance package in place (Terms, Privacy, DMCA agent registered,
    consent flows, age gate, NCMEC path, retention, geography).
-8. Alerts reach David; uptime check live; read-only mode works; rollback
-   written.
+8. Alerts reach David from five sources — an unhandled error, the site
+   down, a background job stopped or wedged, payment webhooks failing, spend
+   that could not be recorded — each proven by injecting its fault on the
+   deployed site and watching the alert arrive and the product degrade as
+   designed; uptime check live; read-only mode works; rollback written
+   (amendment v8, David, 2026-10-27).
 9. UX polish pass completed across every user journey; David accepts the
    catalogue and a representative render sample.
 10. Launch runbook with a go/no-go that reads this list per stage: Seed,
@@ -769,12 +775,19 @@ scope:
 - **Scope:** GA4 configured (measurement ID in the deployment) and PostHog
   added, both fed by one event call; the funnel event list; cookie notice
   hook for Phase 14; Sentry alerts to David and a Sentry uptime check;
-  **read-only mode**; deploy and migration policy for zero-window releases;
-  the API-restart investigation from 2026-10-04 closed.
+  alerts for the failures that throw nothing — a background job stopped or
+  wedged (the queue-health plan's alert phase, #288, is the vehicle),
+  payment webhooks failing, spend that could not be recorded — by a channel
+  that does not depend on the database (amendment v8); **read-only mode**;
+  deploy and migration policy for zero-window releases; the API-restart
+  investigation from 2026-10-04 closed.
 - **Depends on:** Phase 1.
 - **David's batch:** none beyond the approved vendors.
-- **Exit evidence:** funnel visible in PostHog from a scripted journey; an
-  alert received on a forced error; read-only mode exercised live.
+- **Exit evidence:** funnel visible in PostHog from a scripted journey; one
+  alert received per row 8 source, each from a fault injected on the
+  deployed site, with the product degrading as designed meanwhile — a
+  fault-injection afternoon, not a programme (amendment v8); read-only mode
+  exercised live.
 - **Tier:** internal/product. **Lane:** Operations and money, early.
 
 ### Phase 17 — UX polish pass
@@ -871,7 +884,7 @@ stays visibly outstanding and never becomes an earlier stage's pass.
 | 5 | Security review, no open highs | must | — | green on current head | — | — |
 | 6 | UAT dispositions complete; real-data pass | dispositions | real-data pass done | — | — | — |
 | 7 | Compliance package live; safety path usable; DMCA agent registered | must | — | counsel signed | GDPR checklist signed | — |
-| 8 | Alerts, uptime, read-only mode, rollback | must | — | — | — | — |
+| 8 | Alerts from five sources, each proven by injected fault; uptime, read-only mode, rollback | must | — | — | — | — |
 | 9 | UX polish accepted; catalogue and render sample accepted | must | post-Seed fixes | post-Soft fixes | — | — |
 | 10 | Runbook and go/no-go read against this table | Seed go/no-go | Soft go/no-go | US go/no-go | Global go/no-go | — |
 
