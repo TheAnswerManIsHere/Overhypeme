@@ -50,7 +50,7 @@ const COMMITTED_FIXTURE = path.join(API_ROOT, "fixtures", "legacy");
 const worker = new URL(process.env.DATABASE_URL ?? "postgres://invalid/none");
 const control = new URL(worker.href);
 control.pathname = "/postgres";
-control.search = "";
+control.searchParams.delete("options"); // keep sslmode; drop only the schema-isolation options
 const urlFor = (name: string) => {
   const u = new URL(control.href);
   u.pathname = `/${name}`;

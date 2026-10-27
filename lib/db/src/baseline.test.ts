@@ -17,6 +17,8 @@
  *     baseline-built database has — column order aside. This is the standing
  *     check that the baseline has not drifted from the history, and it runs no
  *     schema push anywhere;
+ *   - a replay of every migration creates nothing the baseline lacks (the
+ *     check that no object the history created was lost on the way into it);
  *   - tables but no ledger → refused, recording nothing;
  *   - a baseline that fails part-way leaves nothing behind, and the next run
  *     builds the database;
@@ -132,8 +134,17 @@ describe("schema baseline", { concurrency: false }, () => {
         for (const row of ledger) {
           await c.query("INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)", [row.hash, row.created_at]);
         }
+        // Exactly the journal entries whose hash dev's ledger lacks run — the
+        // migrations written since the reference was captured — and the
+        // baseline is never taken: the ledger only grows by those.
+        const recorded = new Set(ledger.map((r) => r.hash));
+        const pending = journalTags().filter(
+          (tag) => !recorded.has(crypto.createHash("sha256").update(fs.readFileSync(path.join(getMigrationsFolder(), `${tag}.sql`), "utf8")).digest("hex")),
+        );
+        assert.ok(pending.includes("0111_normalize_legacy_names"), "the reference predates 0111");
         const result = await applyMigrations(c);
-        assert.ok(result.applied >= 1, "at least 0111 is pending on the reference");
+        assert.equal(result.applied, pending.length, `only the migrations after the reference run: ${pending.join(", ")}`);
+        assert.equal(await ledgerCount(c), ledger.length + pending.length, "the baseline was not taken");
         const upgraded = await catalogFingerprint(c);
         const diff = fingerprintDiff(baselineFingerprint, upgraded);
         assert.deepEqual(diff, { onlyA: [], onlyB: [] }, "baseline-built and upgraded-reference catalogs differ");
@@ -168,6 +179,45 @@ describe("schema baseline", { concurrency: false }, () => {
         assert.ok(rows[0].present);
         const again = await applyMigrations(c);
         assert.deepEqual([again.applied, await ledgerCount(c)], [0, journal.entries.length], "a second run does nothing");
+      });
+    } finally {
+      delete process.env.DRIZZLE_MIGRATIONS_FOLDER;
+      fs.rmSync(folder, { recursive: true, force: true });
+      await pool.end();
+    }
+  });
+
+  it("holds every object the full migration history creates", async () => {
+    // Replays every migration over dev's historical catalog with an EMPTY
+    // ledger, so each one's DDL either finds its work done or creates what it
+    // creates; anything in that replay and not in the baseline would be an
+    // object the baseline lost. Two kinds of line are expected and filtered:
+    // the same CHECK printed two ways (`IN (...)` written by a migration,
+    // `= ANY (ARRAY[...::text])` read back from a dump), and the table 0063
+    // renamed away (email_outbox → async_jobs), which a replay over the end
+    // state creates again because its CREATE comes first.
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), "baseline-replay-"));
+    for (const name of fs.readdirSync(getMigrationsFolder())) {
+      if (name !== "baseline") fs.cpSync(path.join(getMigrationsFolder(), name), path.join(folder, name), { recursive: true });
+    }
+    const pool = await scratch("replay");
+    try {
+      await withClient(pool, async (c) => {
+        await c.query(executableDumpText(fs.readFileSync(REFERENCE_SCHEMA, "utf8")));
+        await c.query("SET search_path TO public");
+        await c.query(`
+          DROP SCHEMA IF EXISTS stripe CASCADE; DROP SCHEMA IF EXISTS heliumdb_test CASCADE;
+          DROP SCHEMA IF EXISTS drizzle_test CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE;
+          DROP FUNCTION IF EXISTS public.set_updated_at(); DROP FUNCTION IF EXISTS public.set_updated_at_metadata();`);
+        process.env.DRIZZLE_MIGRATIONS_FOLDER = folder;
+        await applyMigrations(c);
+        const canonical = (line: string) =>
+          line.replace(/::character varying|::text|\[\]|[()\s]/g, "").replace(/ARRAY\[/g, "[");
+        const inBaseline = new Set(baselineFingerprint.map(canonical));
+        const lost = (await catalogFingerprint(c))
+          .filter((line) => !inBaseline.has(canonical(line)))
+          .filter((line) => !/\bemail_outbox(_\w+)?\b/.test(line));
+        assert.deepEqual(lost, [], "objects the migrations create that the baseline does not hold");
       });
     } finally {
       delete process.env.DRIZZLE_MIGRATIONS_FOLDER;

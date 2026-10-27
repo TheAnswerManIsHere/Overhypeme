@@ -161,6 +161,18 @@ reference). Silent bulk mutation is a bug.
   matrix (old/partial/failed/skipped/no-op).
 - Confirm new columns/indexes exist and projections stay in sync (e.g.
   `projectionRepair` tests).
+- **Standing upgrade checks run in CI** (`lib/db/src/baseline.test.ts`): dev's
+  historical catalog and ledger upgrade to exactly the baseline's catalog,
+  applying only the migrations written since, and a replay of every migration
+  creates nothing the baseline lacks.
+- **The upgrade rehearsal on a real database** runs on the Repl, where the
+  frozen snapshot is: `artifacts/api-server/scripts/upgrade-rehearsal.ts`
+  restores it into a scratch database, boots the current code on it, and fails
+  on a lost row, an orphaned relationship, a sequence behind its column, or a
+  changed operator setting; `acceptance-run.ts --mode replay --variant fresh
+  --source-dump <file>` runs the journeys over the same upgraded snapshot. A
+  failure is fixed in the migration or the code, never by refreshing the
+  snapshot.
 
 ## PR checklist
 

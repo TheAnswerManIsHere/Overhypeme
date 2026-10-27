@@ -43,6 +43,18 @@ export interface InnerConfig {
   control?: "forbidden-request" | "render-failure" | "upload-failure" | "corrupt-source";
   mode?: InnerMode;
   variant?: "fresh" | "fixture";
+  /**
+   * A fresh run over a restored snapshot (acceptance-run.ts --source-dump).
+   * The snapshot carries state the recordings never knew, so before the server
+   * boots, on this disposable database only: the three AI prompt rows are
+   * pinned to the code defaults, as the fixture variant does (David,
+   * 2026-10-14, option 2); every catalogued engine's admin-editable fields and
+   * the four engine-choice settings are reset to the code's; and the restored
+   * pending and processing jobs are made terminal, so the worker runs only
+   * journey work. The upgrade rehearsal proves the original values survive the
+   * upgrade, on its own restore.
+   */
+  restoredSnapshot?: boolean;
   /** Where AI recordings are read (replay, acceptance) or written (record, live). */
   recordingsDir?: string;
   /** The double's call log (acceptance, replay) or the recorder's ledger (record, live). */
@@ -128,6 +140,59 @@ async function pinPrompts(databaseUrl: string): Promise<Array<{ key: string; dif
   return out;
 }
 
+/**
+ * The rest of a restored snapshot's state that shapes a recorded request or
+ * runs on its own (restoredSnapshot, above): engines back to their code
+ * definitions (the fields reconcile preserves at boot, so the reset holds
+ * through boot), the engine-choice settings back to their defaults, and
+ * restored non-terminal jobs made terminal. Reported, so a run shows what it
+ * changed.
+ */
+async function pinRestoredSnapshot(databaseUrl: string): Promise<Record<string, unknown>> {
+  process.env.DATABASE_URL = databaseUrl;
+  const { ALL_ENGINES } = await import("../../lib/engines/catalogue");
+  const { codeDefinitionToRow } = await import("../../lib/engines/reconcile");
+  const { ADMIN_EDITABLE_FIELDS } = await import("../../lib/engines/types");
+  const { FACT_ENRICHMENT_CONFIG_KEYS, DEFAULT_FACT_ENRICHMENT_ENGINE_ID } = await import("../../lib/factEnrichmentConfig");
+  const { VISUAL_CONCEPTS_CONFIG_KEYS, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID } = await import("../../lib/visualConceptsConfig");
+  const ip = await import("../../lib/imagePromptConfig");
+  const snake = (f: string) => f.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const engines: string[] = [];
+    for (const def of ALL_ENGINES) {
+      const row = codeDefinitionToRow(def) as Record<string, unknown>;
+      const fields = [...ADMIN_EDITABLE_FIELDS, "deletedAt"];
+      const sets = fields.map((f, i) => `"${snake(f)}" = $${i + 2}`).join(", ");
+      const changed = fields.map((f, i) => `"${snake(f)}" IS DISTINCT FROM $${i + 2}`).join(" OR ");
+      const { rowCount } = await client.query(
+        `UPDATE engines SET ${sets} WHERE id = $1 AND (${changed})`,
+        [def.id, ...fields.map((f) => row[f] ?? null)],
+      );
+      if (rowCount) engines.push(def.id);
+    }
+    const choices: Array<[string, string]> = [
+      [FACT_ENRICHMENT_CONFIG_KEYS.engineId, DEFAULT_FACT_ENRICHMENT_ENGINE_ID],
+      [VISUAL_CONCEPTS_CONFIG_KEYS.engineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID],
+      [ip.IMAGE_PROMPT_CONFIG_KEYS.imagePromptEngineId, ip.DEFAULT_IMAGE_PROMPT_ENGINE_ID],
+      [ip.IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierEngineId, ip.DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID],
+    ];
+    const engineChoices: string[] = [];
+    for (const [key, value] of choices) {
+      const { rowCount } = await client.query("UPDATE admin_config SET value = $2 WHERE key = $1 AND value IS DISTINCT FROM $2", [key, value]);
+      if (rowCount) engineChoices.push(key);
+    }
+    const { rowCount: jobsMadeTerminal } = await client.query(
+      `UPDATE async_jobs SET status = 'failed', last_error = 'restored with a snapshot; made terminal before the acceptance journeys', updated_at = now()
+       WHERE status IN ('pending', 'processing')`,
+    );
+    return { enginesReset: engines, engineChoicesReset: engineChoices, jobsMadeTerminal };
+  } finally {
+    await client.end();
+  }
+}
+
 function storageEnv(work: string) {
   return {
     STORAGE_BACKEND: "local-double",
@@ -163,8 +228,9 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
 
   if (cfg.variant === "fixture") {
     run("scripts/load-legacy-fixture.ts", { ...base, ...storage }, "loading the legacy fixture");
-    out.promptPins = await pinPrompts(cfg.databaseUrl);
   }
+  if (cfg.variant === "fixture" || cfg.restoredSnapshot) out.promptPins = await pinPrompts(cfg.databaseUrl);
+  if (cfg.restoredSnapshot) out.snapshotPins = await pinRestoredSnapshot(cfg.databaseUrl);
   run("scripts/seed-e2e-test-accounts.ts", { ...base, BCRYPT_SALT_ROUNDS: "4" }, "seeding the test accounts");
 
   const port = cfg.serve?.port ?? (await freePort());

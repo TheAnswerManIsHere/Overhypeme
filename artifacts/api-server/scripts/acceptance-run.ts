@@ -45,6 +45,13 @@
  *                      A negative control: the exit code says whether the run
  *                      failed in exactly the way the control expects.
  *   --report-dir <dir> Where the report is written (default: a fresh temporary directory).
+ *   --source-dump <file>
+ *                      The upgrade rehearsal's journeys (Launch Phase 3, #770, plan
+ *                      §2): the fresh variant's database is first restored from
+ *                      this pg_dump -Fc file — a real database's frozen snapshot —
+ *                      and then upgraded by the migration runner, so the journeys
+ *                      run over a database that grew rather than one built empty.
+ *                      Fresh variant only; the database is still a new, marked one.
  *
  * DATABASE_URL must be a marked test database; it is used only to reach its
  * server. Exit codes: 0 green (or a control that behaved); 1 red; 2 usage or
@@ -109,6 +116,9 @@ if ((control === "render-failure" || control === "upload-failure" || control ===
 }
 if (control === "upload-failure" && variantArg !== "fixture") refusals.push("the upload-failure control needs the fixture's fail-open classifier: --variant fixture");
 if (control && variants.length > 1) refusals.push("a control runs one variant: pass --variant");
+const sourceDump = arg("source-dump");
+if (sourceDump && (variantArg !== "fresh" || control)) refusals.push("--source-dump runs the fresh variant alone, with no control: pass --variant fresh");
+if (sourceDump && !fs.existsSync(sourceDump)) refusals.push(`--source-dump ${sourceDump} does not exist`);
 // The browser origin the serve-mode server trusts for mutations. Loopback only:
 // the capture set (#631 increment 8) runs its own Vite beside the E2E Smoke
 // stack, which already holds :5173.
@@ -215,6 +225,9 @@ function freshDatabase(variant: string): URL {
   // Built from the schema baseline by the migration runner — the path a fresh
   // production database takes (Launch Phase 3, #770); no schema push.
   const toolEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: url.href, NODE_ENV: "development" };
+  // The upgrade rehearsal: a real database's snapshot first, so migrate takes
+  // its upgrade path (the ledger came with the dump) instead of the baseline.
+  if (sourceDump) execFileSync("pg_restore", ["--no-owner", "--no-acl", "--exit-on-error", "-d", url.href, sourceDump], { stdio: ["ignore", "ignore", "inherit"] });
   pnpm(["--filter", "@workspace/db", "run", "migrate"], toolEnv);
   return url;
 }
@@ -330,6 +343,7 @@ interface VariantReport {
   /** AI calls with no recording, so no operation can claim them (see coverage.ts). */
   unattributed: CallRecord[];
   promptPins?: unknown;
+  snapshotPins?: unknown;
   corrupted?: string;
   red: string[];
   /** A live run's own answers for this variant (plan D4); other modes name one corpus at the top. */
@@ -392,6 +406,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     selfTest: detecting,
     mode: mode === "serve" || mode === "probe" ? "acceptance" : mode,
     variant,
+    ...(sourceDump ? { restoredSnapshot: true } : {}),
     recordingsDir,
     callRecord,
     missLog,
@@ -444,6 +459,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     ...(drive?.control ? { control: drive.control } : {}),
     ...(result.ok === false ? { innerError: redact(String(result.error)).slice(0, 2000) } : {}),
     ...(result.promptPins ? { promptPins: result.promptPins } : {}),
+    ...(result.snapshotPins ? { snapshotPins: result.snapshotPins } : {}),
     ...(result.corrupted ? { corrupted: result.corrupted } : {}),
   };
   if (detecting) {
