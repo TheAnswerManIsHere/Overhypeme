@@ -343,6 +343,7 @@ interface VariantReport {
   /** AI calls with no recording, so no operation can claim them (see coverage.ts). */
   unattributed: CallRecord[];
   promptPins?: unknown;
+  snapshotPins?: unknown;
   corrupted?: string;
   red: string[];
   /** A live run's own answers for this variant (plan D4); other modes name one corpus at the top. */
@@ -405,7 +406,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     selfTest: detecting,
     mode: mode === "serve" || mode === "probe" ? "acceptance" : mode,
     variant,
-    ...(sourceDump ? { pinPrompts: true } : {}),
+    ...(sourceDump ? { restoredSnapshot: true } : {}),
     recordingsDir,
     callRecord,
     missLog,
@@ -458,6 +459,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     ...(drive?.control ? { control: drive.control } : {}),
     ...(result.ok === false ? { innerError: redact(String(result.error)).slice(0, 2000) } : {}),
     ...(result.promptPins ? { promptPins: result.promptPins } : {}),
+    ...(result.snapshotPins ? { snapshotPins: result.snapshotPins } : {}),
     ...(result.corrupted ? { corrupted: result.corrupted } : {}),
   };
   if (detecting) {

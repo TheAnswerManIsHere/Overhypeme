@@ -101,7 +101,7 @@ export async function reconcileEngines(): Promise<ReconcileResult> {
 }
 
 /** Full row insert — includes both code-owned and admin-tunable fields. */
-function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
+export function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
   return {
     id: def.id,
     provider: def.provider,
