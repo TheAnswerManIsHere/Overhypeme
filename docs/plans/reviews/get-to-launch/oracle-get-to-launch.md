@@ -17,7 +17,10 @@ render-approval waiver is retired for the hero scenario; (7) 2026-10-07:
 **country eligibility at the US launch (S9)** — blocked are the GDPR
 territories (EEA and UK) and OFAC-sanctioned countries; every other country
 is admitted ("I'm happy to have users from anywhere other than GDPR and OFAC
-countries").
+countries"); (8) 2026-10-27: **readiness row 8 names its alert sources** —
+an unhandled error, the site down, a background job stopped or wedged,
+payment webhooks failing, spend that could not be recorded — each proven by
+injecting its fault on the deployed site (plan amendment v8).
 
 ## Direction served
 
@@ -152,9 +155,11 @@ rights (deletion now; export deferred to GDPR readiness), geography policy.
 
 **Analytics and ops:** GA4 (configured, measurement ID set) + **PostHog**
 (approved) fed by one event call and a defined funnel event list; Sentry
-alerts routed to David and a Sentry uptime check; read-only maintenance mode
-instead of takedowns; migrations backward-compatible so deploys need no
-window.
+alerts routed to David and a Sentry uptime check; alerts for the failures
+that throw nothing — a background job stopped or wedged, payment webhooks
+failing, spend that could not be recorded — by a channel that does not depend
+on the database (amendment 8); read-only maintenance mode instead of
+takedowns; migrations backward-compatible so deploys need no window.
 
 ## Cut, deleted or deferred
 
@@ -226,8 +231,12 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
    afternoon; the real-data pass has run on the Repl.
 7. Compliance package in place (Terms, Privacy, DMCA agent registered,
    consent flows, age gate, NCMEC path, retention, geography).
-8. Alerts reach David; uptime check live; read-only mode works; rollback
-   written.
+8. Alerts reach David from five sources — an unhandled error, the site
+   down, a background job stopped or wedged, payment webhooks failing, spend
+   that could not be recorded — each proven by injecting its fault on the
+   deployed site and watching the alert arrive and the product degrade as
+   designed; uptime check live; read-only mode works; rollback written
+   (amendment 8, David, 2026-10-27).
 9. UX polish pass completed across every user journey; David accepts the
    catalogue and a representative render sample.
 10. Launch runbook with a go/no-go that reads this list per stage: Seed,
