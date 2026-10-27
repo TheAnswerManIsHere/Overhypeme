@@ -32,6 +32,8 @@ export const OBLIGATING_SUBSCRIPTION_STATUSES = [
 export interface LiveStripeSnapshot {
   /** The account the key resolved to, verified against the expected id. */
   accountId: string;
+  /** Observed from the API (`GET /v1/balance`), never inferred from the variable name. */
+  livemode: true;
   /** Live-mode subscriptions in an obligating status, by status. */
   obligatingSubscriptions: Record<string, number>;
   /**
@@ -55,6 +57,7 @@ export type LiveStripeReader = () => Promise<LiveStripeSnapshot>;
 /** The slice of a Stripe client the reader uses. */
 export interface LiveStripeClient {
   accounts: { retrieve(): Promise<{ id: string }> };
+  balance: { retrieve(): Promise<{ livemode: boolean }> };
   subscriptions: { list(params: { status: "all"; limit: number }): AsyncIterable<{ status: string }> };
   paymentIntents: {
     list(params: { limit: number; expand: string[] }): AsyncIterable<{
@@ -68,8 +71,9 @@ export interface LiveStripeClient {
  * The live-mode reader. Before it enumerates anything it reads the account
  * behind the key (`GET /v1/account`, no argument, so it resolves only to the
  * key's own account) and compares it with the expected id, as the account
- * guard does: a missing id or a mismatch throws, and the inventory reports the
- * payment class incomplete, which blocks. A failure on any page of either list
+ * guard does, then observes that the key reads live-mode data: a missing id, a
+ * mismatch or a test-mode key throws, and the inventory reports the payment
+ * class incomplete, which blocks. A failure on any page of either list
  * throws the same way.
  */
 export function createLiveStripeReader(
@@ -82,6 +86,15 @@ export function createLiveStripeReader(
     const account = await client.accounts.retrieve();
     if (account.id !== expectedAccountId) {
       throw new Error(`the live key belongs to ${account.id}, not ${expectedAccountVar} (${expectedAccountId})`);
+    }
+    // The account id is shared by an account's live and test keys, and the
+    // credential alone selects which dataset a request reads. So observe the
+    // mode before trusting any enumeration: an empty test-mode list must never
+    // read as "no live obligations". The Account object carries no livemode;
+    // Balance does.
+    const balance = await client.balance.retrieve();
+    if (balance.livemode !== true) {
+      throw new Error("the key in the live slot reads test-mode data (balance.livemode is not true)");
     }
 
     const obligating = new Set<string>(OBLIGATING_SUBSCRIPTION_STATUSES);
@@ -101,7 +114,7 @@ export function createLiveStripeReader(
       else unrefundedPayments += 1;
     }
 
-    return { accountId: account.id, obligatingSubscriptions, unrefundedPayments, fullyRefundedPayments };
+    return { accountId: account.id, livemode: true, obligatingSubscriptions, unrefundedPayments, fullyRefundedPayments };
   };
 }
 

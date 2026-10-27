@@ -32,6 +32,7 @@ const noLiveKey = null;
 const ACCOUNT = "acct_live_expected";
 const cleanLive = async () => ({
   accountId: ACCOUNT,
+  livemode: true as const,
   obligatingSubscriptions: {},
   unrefundedPayments: 0,
   fullyRefundedPayments: 0,
@@ -48,12 +49,14 @@ async function* items<T>(list: T[], failAfter?: number): AsyncGenerator<T> {
 
 function stubClient(opts: {
   accountId?: string;
+  livemode?: boolean;
   subscriptions?: Array<{ status: string }>;
   payments?: Array<{ status: string; latest_charge?: { refunded?: boolean } | string | null }>;
   paymentsFailAfter?: number;
 }): LiveStripeClient {
   return {
     accounts: { retrieve: async () => ({ id: opts.accountId ?? ACCOUNT }) },
+    balance: { retrieve: async () => ({ livemode: opts.livemode ?? true }) },
     subscriptions: { list: () => items(opts.subscriptions ?? []) },
     paymentIntents: { list: () => items(opts.payments ?? [], opts.paymentsFailAfter) },
   };
@@ -225,6 +228,26 @@ describe("excluded-classes inventory", () => {
     assert.equal(r.verdict.blocksReplacement, true);
   });
 
+  it("blocks when the key reads test-mode data for the right account, before enumerating anything", async () => {
+    let enumerated = false;
+    const client = stubClient({ livemode: false });
+    client.subscriptions.list = () => { enumerated = true; return items([]); };
+    client.paymentIntents.list = () => { enumerated = true; return items([]); };
+    const r = await inventoryExcludedClasses(createLiveStripeReader(client, ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"), now);
+    assert.equal(r.payments.liveStripe.checked, false);
+    assert.ok(!r.payments.liveStripe.checked && r.payments.liveStripe.reason.includes("test-mode"));
+    assert.equal(enumerated, false);
+    assert.equal(r.verdict.blocksReplacement, true);
+  });
+
+  it("blocks when the mode cannot be read (a restricted key without balance access)", async () => {
+    const client = stubClient({});
+    client.balance.retrieve = async () => { throw new Error("permission denied: balance"); };
+    const r = await inventoryExcludedClasses(createLiveStripeReader(client, ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"), now);
+    assert.equal(r.payments.liveStripe.checked, false);
+    assert.equal(r.verdict.blocksReplacement, true);
+  });
+
   it("blocks when the expected account id is not set", async () => {
     const r = await inventoryExcludedClasses(createLiveStripeReader(stubClient({}), undefined, "STRIPE_ACCOUNT_ID_LIVE"), now);
     assert.equal(r.payments.liveStripe.checked, false);
@@ -238,6 +261,7 @@ describe("excluded-classes inventory", () => {
       now,
     );
     assert.ok(r.payments.liveStripe.checked && r.payments.liveStripe.accountId === ACCOUNT);
+    assert.ok(r.payments.liveStripe.checked && r.payments.liveStripe.livemode === true);
     assert.equal(r.verdict.blocksReplacement, false);
   });
 
