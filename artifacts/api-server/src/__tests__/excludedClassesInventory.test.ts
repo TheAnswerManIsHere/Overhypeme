@@ -17,7 +17,11 @@ import { db } from "@workspace/db";
 import { usersTable, sessionsTable, asyncJobsTable, quarantinedMemesTable } from "@workspace/db/schema";
 import { inArray, like, sql } from "drizzle-orm";
 
-import { inventoryExcludedClasses } from "../lib/excludedClassesInventory.js";
+import {
+  createLiveStripeReader,
+  inventoryExcludedClasses,
+  type LiveStripeClient,
+} from "../lib/excludedClassesInventory.js";
 
 const PREFIX = "t_p3i1_";
 const adminId = `${PREFIX}${randomUUID()}`;
@@ -25,7 +29,35 @@ const userId = `${PREFIX}${randomUUID()}`;
 const sids = [`${PREFIX}s1`, `${PREFIX}s2`, `${PREFIX}s3`];
 
 const noLiveKey = null;
-const cleanLive = async () => ({ obligatingSubscriptions: {} });
+const ACCOUNT = "acct_live_expected";
+const cleanLive = async () => ({
+  accountId: ACCOUNT,
+  obligatingSubscriptions: {},
+  unrefundedPayments: 0,
+  fullyRefundedPayments: 0,
+});
+
+async function* items<T>(list: T[], failAfter?: number): AsyncGenerator<T> {
+  let i = 0;
+  for (const item of list) {
+    if (failAfter !== undefined && i === failAfter) throw new Error("page 2 failed");
+    yield item;
+    i += 1;
+  }
+}
+
+function stubClient(opts: {
+  accountId?: string;
+  subscriptions?: Array<{ status: string }>;
+  payments?: Array<{ status: string; latest_charge?: { refunded?: boolean } | string | null }>;
+  paymentsFailAfter?: number;
+}): LiveStripeClient {
+  return {
+    accounts: { retrieve: async () => ({ id: opts.accountId ?? ACCOUNT }) },
+    subscriptions: { list: () => items(opts.subscriptions ?? []) },
+    paymentIntents: { list: () => items(opts.payments ?? [], opts.paymentsFailAfter) },
+  };
+}
 
 async function cleanUp() {
   await db.delete(sessionsTable).where(inArray(sessionsTable.sid, sids));
@@ -70,6 +102,20 @@ describe("excluded-classes inventory", () => {
     assert.equal(r.verdict.cleanupRequired, true);
   });
 
+  it("counts usable auth tokens and OAuth states as auth state to purge, not used or expired ones", async () => {
+    await db.execute(sql`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES
+      (${userId}, ${`${PREFIX}pr1`}, ${future.toISOString()}::timestamptz),
+      (${userId}, ${`${PREFIX}pr2`}, ${past.toISOString()}::timestamptz)`);
+    try {
+      const r = await inventoryExcludedClasses(cleanLive, now);
+      assert.equal(r.authState.unusedPasswordResetTokens - base.authState.unusedPasswordResetTokens, 1);
+      assert.equal(r.verdict.cleanupRequired, true);
+      assert.ok(r.verdict.reasons.some((s) => s.includes("usable auth token")));
+    } finally {
+      await db.execute(sql`DELETE FROM password_reset_tokens WHERE token_hash LIKE ${`${PREFIX}%`}`);
+    }
+  });
+
   it("counts only pending and processing jobs, never terminal ones", async () => {
     const r = await inventoryExcludedClasses(cleanLive, now);
     assert.equal(r.nonTerminalJobs.total - base.nonTerminalJobs.total, 2);
@@ -107,7 +153,10 @@ describe("excluded-classes inventory", () => {
   });
 
   it("blocks when live mode still holds an obligating subscription", async () => {
-    const r = await inventoryExcludedClasses(async () => ({ obligatingSubscriptions: { active: 2 } }), now);
+    const r = await inventoryExcludedClasses(
+      createLiveStripeReader(stubClient({ subscriptions: [{ status: "active" }, { status: "active" }, { status: "canceled" }] }), ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"),
+      now,
+    );
     assert.equal(r.verdict.blocksReplacement, true);
     assert.ok(r.verdict.reasons.some((s) => s.includes("2 live-mode subscription")));
   });
@@ -115,6 +164,80 @@ describe("excluded-classes inventory", () => {
   it("does not block on payments when live mode was read and holds nothing", async () => {
     const r = await inventoryExcludedClasses(cleanLive, now);
     assert.equal(r.payments.liveStripe.checked, true);
+    assert.equal(r.verdict.blocksReplacement, false);
+  });
+
+  it("blocks on a lifetime purchase even with no subscription and no local entitlement", async () => {
+    const r = await inventoryExcludedClasses(
+      createLiveStripeReader(stubClient({ payments: [{ status: "succeeded", latest_charge: { refunded: false } }] }), ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"),
+      now,
+    );
+    assert.equal(r.payments.liveStripe.checked, true);
+    assert.equal(r.verdict.blocksReplacement, true);
+    assert.ok(r.verdict.reasons.some((s) => s.includes("1 succeeded live-mode payment")));
+  });
+
+  it("counts a partially refunded or unexpanded payment, and excludes only a full refund", async () => {
+    const r = await inventoryExcludedClasses(
+      createLiveStripeReader(
+        stubClient({
+          payments: [
+            { status: "succeeded", latest_charge: { refunded: true } },
+            { status: "succeeded", latest_charge: { refunded: false } },
+            { status: "succeeded", latest_charge: "ch_unexpanded" },
+            { status: "canceled", latest_charge: null },
+          ],
+        }),
+        ACCOUNT,
+        "STRIPE_ACCOUNT_ID_LIVE",
+      ),
+      now,
+    );
+    assert.ok(r.payments.liveStripe.checked);
+    if (r.payments.liveStripe.checked) {
+      assert.equal(r.payments.liveStripe.unrefundedPayments, 2);
+      assert.equal(r.payments.liveStripe.fullyRefundedPayments, 1);
+    }
+    assert.equal(r.verdict.blocksReplacement, true);
+  });
+
+  it("blocks when a later page of payments fails", async () => {
+    const r = await inventoryExcludedClasses(
+      createLiveStripeReader(
+        stubClient({ payments: [{ status: "canceled" }, { status: "canceled" }], paymentsFailAfter: 1 }),
+        ACCOUNT,
+        "STRIPE_ACCOUNT_ID_LIVE",
+      ),
+      now,
+    );
+    assert.equal(r.payments.liveStripe.checked, false);
+    assert.equal(r.verdict.blocksReplacement, true);
+  });
+
+  it("blocks when the key belongs to a different account, before enumerating anything", async () => {
+    let enumerated = false;
+    const client = stubClient({ accountId: "acct_someone_else" });
+    client.subscriptions.list = () => { enumerated = true; return items([]); };
+    const r = await inventoryExcludedClasses(createLiveStripeReader(client, ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"), now);
+    assert.equal(r.payments.liveStripe.checked, false);
+    assert.ok(!r.payments.liveStripe.checked && r.payments.liveStripe.reason.includes("acct_someone_else"));
+    assert.equal(enumerated, false);
+    assert.equal(r.verdict.blocksReplacement, true);
+  });
+
+  it("blocks when the expected account id is not set", async () => {
+    const r = await inventoryExcludedClasses(createLiveStripeReader(stubClient({}), undefined, "STRIPE_ACCOUNT_ID_LIVE"), now);
+    assert.equal(r.payments.liveStripe.checked, false);
+    assert.ok(!r.payments.liveStripe.checked && r.payments.liveStripe.reason.includes("STRIPE_ACCOUNT_ID_LIVE is not set"));
+    assert.equal(r.verdict.blocksReplacement, true);
+  });
+
+  it("clears a verified, fully enumerated, empty live account and reports which account it read", async () => {
+    const r = await inventoryExcludedClasses(
+      createLiveStripeReader(stubClient({ subscriptions: [{ status: "canceled" }], payments: [{ status: "canceled" }] }), ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"),
+      now,
+    );
+    assert.ok(r.payments.liveStripe.checked && r.payments.liveStripe.accountId === ACCOUNT);
     assert.equal(r.verdict.blocksReplacement, false);
   });
 

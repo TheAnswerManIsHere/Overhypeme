@@ -30,8 +30,20 @@ export const OBLIGATING_SUBSCRIPTION_STATUSES = [
 ] as const;
 
 export interface LiveStripeSnapshot {
+  /** The account the key resolved to, verified against the expected id. */
+  accountId: string;
   /** Live-mode subscriptions in an obligating status, by status. */
   obligatingSubscriptions: Record<string, number>;
+  /**
+   * Succeeded live-mode payments whose charge is not fully refunded. A lifetime
+   * purchase is one of these (its PaymentIntent id is the entitlement's
+   * providerRef). Subscription renewals are counted too: the pinned API
+   * version exposes no invoice on a PaymentIntent to tell them apart, and
+   * over-counting only blocks, which the §5 reconciliation resolves.
+   */
+  unrefundedPayments: number;
+  /** Succeeded payments excluded because their charge was fully refunded. */
+  fullyRefundedPayments: number;
 }
 
 /**
@@ -40,10 +52,69 @@ export interface LiveStripeSnapshot {
  */
 export type LiveStripeReader = () => Promise<LiveStripeSnapshot>;
 
+/** The slice of a Stripe client the reader uses. */
+export interface LiveStripeClient {
+  accounts: { retrieve(): Promise<{ id: string }> };
+  subscriptions: { list(params: { status: "all"; limit: number }): AsyncIterable<{ status: string }> };
+  paymentIntents: {
+    list(params: { limit: number; expand: string[] }): AsyncIterable<{
+      status: string;
+      latest_charge?: string | { refunded?: boolean } | null;
+    }>;
+  };
+}
+
+/**
+ * The live-mode reader. Before it enumerates anything it reads the account
+ * behind the key (`GET /v1/account`, no argument, so it resolves only to the
+ * key's own account) and compares it with the expected id, as the account
+ * guard does: a missing id or a mismatch throws, and the inventory reports the
+ * payment class incomplete, which blocks. A failure on any page of either list
+ * throws the same way.
+ */
+export function createLiveStripeReader(
+  client: LiveStripeClient,
+  expectedAccountId: string | undefined,
+  expectedAccountVar: string,
+): LiveStripeReader {
+  return async () => {
+    if (!expectedAccountId) throw new Error(`${expectedAccountVar} is not set`);
+    const account = await client.accounts.retrieve();
+    if (account.id !== expectedAccountId) {
+      throw new Error(`the live key belongs to ${account.id}, not ${expectedAccountVar} (${expectedAccountId})`);
+    }
+
+    const obligating = new Set<string>(OBLIGATING_SUBSCRIPTION_STATUSES);
+    const obligatingSubscriptions: Record<string, number> = {};
+    for await (const sub of client.subscriptions.list({ status: "all", limit: 100 })) {
+      if (obligating.has(sub.status)) obligatingSubscriptions[sub.status] = (obligatingSubscriptions[sub.status] ?? 0) + 1;
+    }
+
+    let unrefundedPayments = 0;
+    let fullyRefundedPayments = 0;
+    for await (const pi of client.paymentIntents.list({ limit: 100, expand: ["data.latest_charge"] })) {
+      if (pi.status !== "succeeded") continue;
+      // Only a full refund is evidence that nothing is owed; a partial refund,
+      // or a charge that did not expand, still counts.
+      const charge = pi.latest_charge;
+      if (charge && typeof charge === "object" && charge.refunded === true) fullyRefundedPayments += 1;
+      else unrefundedPayments += 1;
+    }
+
+    return { accountId: account.id, obligatingSubscriptions, unrefundedPayments, fullyRefundedPayments };
+  };
+}
+
 export interface ExcludedClassesInventory {
   takenAt: string;
   database: string;
   sessions: { total: number; unexpired: number; unexpiredWithUser: number; unexpiredAdmin: number };
+  /**
+   * The rest of class 1's "environment-bound auth state": tokens and pending
+   * OAuth handshakes that are still usable, which a copied database would
+   * honour exactly as it honours a copied session.
+   */
+  authState: { unusedPasswordResetTokens: number; unusedEmailVerificationTokens: number; pendingOauthStates: number };
   nonTerminalJobs: { total: number; byQueueAndStatus: Record<string, number> };
   childSafety: {
     ncmecReports: number;
@@ -55,7 +126,7 @@ export interface ExcludedClassesInventory {
     localEntitlementsWithProviderRef: number;
     localByTypeAndStatus: Record<string, number>;
     liveStripe:
-      | { checked: true; obligatingSubscriptions: Record<string, number> }
+      | ({ checked: true } & LiveStripeSnapshot)
       | { checked: false; reason: string };
   };
   verdict: {
@@ -127,6 +198,18 @@ async function inventoryWithin(
       WHERE s.expire > ${nowIso}::timestamp AND u.is_admin = true`),
   };
 
+  const authState = {
+    unusedPasswordResetTokens: await countOf(sql`
+      SELECT count(*) AS n FROM password_reset_tokens WHERE used_at IS NULL AND expires_at > ${nowIso}::timestamptz`),
+    unusedEmailVerificationTokens: await countOf(sql`
+      SELECT count(*) AS n FROM email_verification_tokens WHERE used_at IS NULL AND expires_at > ${nowIso}::timestamptz`),
+    pendingOauthStates: await countOf(
+      sql`SELECT count(*) AS n FROM oauth_pending_states WHERE expires_at > ${nowIso}::timestamptz`,
+    ),
+  };
+  const liveAuthState =
+    authState.unusedPasswordResetTokens + authState.unusedEmailVerificationTokens + authState.pendingOauthStates;
+
   const jobRows = await rows(sql`
     SELECT queue, status, count(*) AS n FROM async_jobs
     WHERE status IN ('pending', 'processing') GROUP BY queue, status ORDER BY queue, status`);
@@ -162,32 +245,41 @@ async function inventoryWithin(
   } else {
     try {
       const snap = await readLiveStripe();
-      liveStripe = { checked: true, obligatingSubscriptions: snap.obligatingSubscriptions };
+      liveStripe = { checked: true, ...snap };
     } catch (err) {
       liveStripe = { checked: false, reason: `live-mode read failed: ${(err as Error).message}` };
     }
   }
 
   const reasons: string[] = [];
-  const cleanupRequired = sessions.unexpired > 0 || nonTerminalJobs.total > 0;
+  const cleanupRequired = sessions.unexpired > 0 || liveAuthState > 0 || nonTerminalJobs.total > 0;
   if (sessions.unexpired > 0) reasons.push(`${sessions.unexpired} unexpired session(s) to purge before serving`);
+  if (liveAuthState > 0) reasons.push(`${liveAuthState} usable auth token(s) or OAuth state(s) to purge before serving`);
   if (nonTerminalJobs.total > 0) reasons.push(`${nonTerminalJobs.total} non-terminal job(s) to dispose of before workers start`);
 
   const carryForwardRequired =
     childSafety.ncmecReports + childSafety.quarantinedMemes + childSafety.auditLogRows > 0;
   if (carryForwardRequired) reasons.push("child-safety records present: a verified carry-forward artifact is required");
 
-  const liveObligations = liveStripe.checked
+  const liveSubscriptions = liveStripe.checked
     ? Object.values(liveStripe.obligatingSubscriptions).reduce((s, n) => s + n, 0)
     : 0;
-  const blocksReplacement = !liveStripe.checked || liveObligations > 0;
+  const livePayments = liveStripe.checked ? liveStripe.unrefundedPayments : 0;
+  const blocksReplacement = !liveStripe.checked || liveSubscriptions > 0 || livePayments > 0;
   if (!liveStripe.checked) reasons.push(`BLOCKS: live-mode Stripe inventory incomplete (${liveStripe.reason})`);
-  else if (liveObligations > 0) reasons.push(`BLOCKS: ${liveObligations} live-mode subscription(s) still obligating`);
+  if (liveSubscriptions > 0) reasons.push(`BLOCKS: ${liveSubscriptions} live-mode subscription(s) still obligating`);
+  if (livePayments > 0) {
+    reasons.push(
+      `BLOCKS: ${livePayments} succeeded live-mode payment(s) not fully refunded ` +
+        "(a lifetime purchase is one of these; each needs a preservation or reconciliation path)",
+    );
+  }
 
   return {
     takenAt: nowIso,
     database: String(dbRow?.name ?? ""),
     sessions,
+    authState,
     nonTerminalJobs,
     childSafety,
     payments: {

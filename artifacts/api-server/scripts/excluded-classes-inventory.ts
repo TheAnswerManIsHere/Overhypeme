@@ -4,9 +4,10 @@
  * files — and prints one JSON report. Run it before any destructive
  * replacement and paste the report onto #770 before proceeding.
  *
- * Live-mode Stripe is read only when STRIPE_SECRET_KEY_LIVE is set; without
- * it the payment class reports itself incomplete, which the verdict treats as
- * blocking.
+ * Live-mode Stripe is read only when STRIPE_SECRET_KEY_LIVE is set, and only
+ * after the key's account matches STRIPE_ACCOUNT_ID_LIVE; without either, or on
+ * a mismatch, the payment class reports itself incomplete, which the verdict
+ * treats as blocking.
  *
  * Run: pnpm --filter @workspace/api-server exec tsx scripts/excluded-classes-inventory.ts
  */
@@ -15,24 +16,21 @@ import { installStdioGuard } from "../src/lib/stdioGuard.js";
 installStdioGuard();
 
 import {
+  createLiveStripeReader,
   inventoryExcludedClasses,
-  OBLIGATING_SUBSCRIPTION_STATUSES,
   type LiveStripeReader,
 } from "../src/lib/excludedClassesInventory";
-import { createRawStripeClient, stripeSecretVarFor } from "../src/lib/stripeRawClient";
+import { createRawStripeClient, stripeAccountVarFor, stripeSecretVarFor } from "../src/lib/stripeRawClient";
 
 function liveStripeReader(): LiveStripeReader | null {
   const key = process.env[stripeSecretVarFor(true)];
   if (!key) return null;
-  const stripe = createRawStripeClient(key);
-  return async () => {
-    const obligating = new Set<string>(OBLIGATING_SUBSCRIPTION_STATUSES);
-    const counts: Record<string, number> = {};
-    for await (const sub of stripe.subscriptions.list({ status: "all", limit: 100 })) {
-      if (obligating.has(sub.status)) counts[sub.status] = (counts[sub.status] ?? 0) + 1;
-    }
-    return { obligatingSubscriptions: counts };
-  };
+  const accountVar = stripeAccountVarFor(true);
+  return createLiveStripeReader(
+    createRawStripeClient(key),
+    process.env[accountVar],
+    accountVar,
+  );
 }
 
 const report = await inventoryExcludedClasses(liveStripeReader());
