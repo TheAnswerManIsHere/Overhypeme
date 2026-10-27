@@ -5,8 +5,7 @@
  *
  * then fill it with the repo's own tooling, with DATABASE_URL pointed at it:
  *
- *   pnpm --filter @workspace/db push-force
- *   pnpm --filter @workspace/db run migrate
+ *   pnpm --filter @workspace/db run migrate      (builds it from the schema baseline)
  *   pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts
  *   pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
  *
@@ -66,7 +65,7 @@ export async function createStripeFakeDatabase(env: NodeJS.ProcessEnv, target: s
     await admin.end();
   }
 
-  // The schema push needs pgvector, as every test database does.
+  // pgvector, as every database needs (the baseline also creates it).
   const fresh = new pg.Client({ connectionString: withDatabase(serverUrl, target) });
   await fresh.connect();
   try {
@@ -86,7 +85,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     await createStripeFakeDatabase(process.env, target);
     process.stdout.write(
       `[stripe-fake-db] created '${target}', empty, for fake-Stripe runs. Fill it with DATABASE_URL pointed at it: ` +
-        `push-force, migrate, then the account seeds (docs/tests/TESTING.md, "The Stripe fake").\n`,
+        `migrate (which builds it from the schema baseline), then the account seeds (docs/tests/TESTING.md, "The Stripe fake").\n`,
     );
   } catch (err) {
     process.stderr.write(`[stripe-fake-db] refusing: ${err instanceof Error ? err.message : String(err)}\n`);

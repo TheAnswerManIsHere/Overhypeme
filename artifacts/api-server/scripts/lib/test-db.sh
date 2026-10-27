@@ -234,6 +234,16 @@ _td_dump_reference_data() {
     --on-conflict-do-nothing "${args[@]}" -f "$out"
 }
 
+# _td_dump_ledger <outfile> — the source's migration ledger (the `drizzle`
+# schema, structure and rows). A worker database is a copy of the source, and a
+# copy is a "built from code" database only if it carries the ledger: the
+# migration runner refuses tables-without-a-ledger (Launch Phase 3, #770), and a
+# test that boots the real server runs that runner.
+_td_dump_ledger() {
+  local out="$1" src; src="$(build_source_db_url_for)"
+  pg_dump "$src" --schema=drizzle --no-owner --no-privileges --no-comments --inserts -f "$out"
+}
+
 # reset_and_clone_schema_into <target_db> — build a per-DB template (route B):
 # fresh DB from template0 + pgvector + the source public DDL (structure only).
 # Return codes: 0 ok; 1 create failed; 2 extension denied; 3 real dump/replay error.
@@ -271,6 +281,16 @@ reset_and_clone_schema_into() {
     rm -f "$refdump"; _td_err "reference-data replay into ${target} failed"; return 3
   fi
   rm -f "$refdump"
+
+  # The migration ledger — see _td_dump_ledger.
+  local ledgerdump; ledgerdump="$(mktemp /tmp/td_ledger_XXXXXX.sql)"
+  if ! _td_dump_ledger "$ledgerdump"; then
+    rm -f "$ledgerdump"; _td_err "pg_dump of the migration ledger failed"; return 3
+  fi
+  if ! psql "$target_url" -v ON_ERROR_STOP=1 -q -f "$ledgerdump"; then
+    rm -f "$ledgerdump"; _td_err "migration-ledger replay into ${target} failed"; return 3
+  fi
+  rm -f "$ledgerdump"
   return 0
 }
 

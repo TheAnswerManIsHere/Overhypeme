@@ -121,8 +121,9 @@ deliberately excludes them and points here instead.
   malformed snapshot; new migrations use a `SNAPSHOT_EXEMPT_TAGS` workaround plus
   hand-written idempotent `ADD COLUMN IF NOT EXISTS`. See
   [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md).
-- Apply schema locally with `pnpm --filter @workspace/db push-force` then
-  `pnpm --filter @workspace/db run migrate`.
+- Apply schema locally with `pnpm --filter @workspace/db run migrate`: it builds
+  an empty database from the schema baseline (`lib/db/migrations/baseline/`) and
+  upgrades one that carries its ledger. No schema push runs (Launch Phase 3, #770).
 
 ## Async jobs and queues
 

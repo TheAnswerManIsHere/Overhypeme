@@ -1,0 +1,7 @@
+{
+  "cutoffTag": "0112_restore_migration_only_objects",
+  "sqlSha256": "788c92b3c3337f960a766cf9572502dfda79f3c44390d9986100c979f65a9950",
+  "referenceSchemaSha256": "7dd5f4f1acad9610788009f3499771bd7deb6049d8a0a73a95eba63a2819d6e2",
+  "generatedAt": "2026-10-27T18:30:19.582Z",
+  "generatedAtCommit": "e6f54b866d6e83cf4a2022e06cff8e81195db738"
+}

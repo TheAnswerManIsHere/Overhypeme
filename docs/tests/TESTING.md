@@ -37,13 +37,14 @@ you.
 loader. Adding `--import tsx/esm` fixes the loader but still bypasses the
 wrappers, which is the dangerous case above.)
 
-The full-suite command runs its own `pretest`, which applies the DB schema setup
-(`push-force` + `migrate`), codegen, and the api-zod build for you — so you don't
-need to run those by hand for a normal full run. You *may* run them explicitly
-after schema work when you want to validate that step directly:
+The full-suite command runs its own `pretest`, which runs the test-database
+guard, `migrate` (an empty database is built from the schema baseline, one that
+carries its ledger gets its pending migrations — Launch Phase 3, #770; no schema
+push runs anywhere), codegen, and the api-zod build for you — so you don't need to
+run those by hand for a normal full run. You *may* run the schema step explicitly
+after schema work when you want to validate it directly:
 
 ```sh
-pnpm --filter @workspace/db push-force
 pnpm --filter @workspace/db run migrate
 ```
 
@@ -127,7 +128,6 @@ After a migration, re-clone the targeted schema from the already-updated `public
 schema:
 
 ```sh
-pnpm --filter @workspace/db push-force
 pnpm --filter @workspace/db run migrate
 bash artifacts/api-server/scripts/run-test.sh --setup src/__tests__/<file>.test.ts
 ```
@@ -371,7 +371,7 @@ worker can never claim its email. To run it locally:
 ```sh
 createdb overhype_e2e_auth
 psql postgres://overhype:overhype@localhost:5432/postgres -c "ALTER DATABASE overhype_e2e_auth SET overhype.test_database = 'yes';"
-# then push-force + migrate + the E2E account seed against it
+# then migrate (built from the baseline) + the E2E account seed against it
 cd artifacts/api-server && env -i PATH="$PATH" HOME="$HOME" NODE_ENV=production PORT=8081 \
   DATABASE_URL=postgres://overhype:overhype@localhost:5432/overhype_e2e_auth \
   CRON_SECRET=x IP_HASH_SALT=local-auth-journey-salt-0123456789 \
@@ -468,7 +468,6 @@ server):
 ```sh
 pnpm --filter @workspace/db create-stripe-fake-db overhype_stripe_fake   # once; creates it empty and marked
 export FAKE_DB=postgres://overhype:overhype@localhost:5432/overhype_stripe_fake
-DATABASE_URL=$FAKE_DB pnpm --filter @workspace/db push-force
 DATABASE_URL=$FAKE_DB pnpm --filter @workspace/db run migrate
 DATABASE_URL=$FAKE_DB pnpm --filter @workspace/api-server exec tsx scripts/seed-dev-admin.ts
 DATABASE_URL=$FAKE_DB pnpm --filter @workspace/api-server exec tsx scripts/seed-e2e-test-accounts.ts
@@ -512,7 +511,7 @@ environment, and any storage backend but the local double. Load order is
 fixed:
 
 ```sh
-# a fresh marked test database: push-force, then migrate, then
+# a fresh marked test database: migrate (built from the baseline), then
 cd artifacts/api-server && STORAGE_BACKEND=local-double STORAGE_DOUBLE_DIR=/tmp/overhype-storage \
   PRIVATE_OBJECT_DIR=/e2e-bucket/private PUBLIC_OBJECT_SEARCH_PATHS=/e2e-bucket/public \
   DATABASE_URL=<that database> pnpm exec tsx scripts/load-legacy-fixture.ts
@@ -639,16 +638,16 @@ marked. The rule and its reasons live in `lib/db/src/testDatabaseMarker.ts`.
 
 Everything destructive or test-only reads the marker and refuses without it:
 
-- `pnpm --filter @workspace/db push-force` checks before it pushes, so the api-server
-  `pretest` (which pushes before any runner starts) is covered too;
+- `pnpm --filter @workspace/db run require-test-db`, which the api-server `pretest`
+  runs before it migrates, so the refusal comes before anything is written;
 - both runners, through `assert_not_production` (which also refuses
   `NODE_ENV=production`);
 - the E2E account seed and the production-mode launcher.
 
 The marker is read from the catalog (`pg_db_role_setting`), so a connection
 string carrying `options=-c overhype.test_database=yes` cannot claim it, and
-`drizzle-kit push` leaves database settings alone, so it survives every schema
-push. `CREATE DATABASE … TEMPLATE` does not copy it; the runners' per-worker
+nothing the migration runner does touches database settings, so it survives
+every build and upgrade. `CREATE DATABASE … TEMPLATE` does not copy it; the runners' per-worker
 clones need none, since nothing checks them.
 
 To mark a database you have just created for tests:

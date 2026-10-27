@@ -68,7 +68,7 @@ export function partitionRefusal(kind: DriverKind, s: DatabasePartitionSettings)
       `database '${s.database}' was not created for the fake Stripe driver ` +
       `(test marker: ${s.testMarked ? "set" : "absent"}, fake-ownership setting: ${s.fakeOwned ? "set" : "absent"}). ` +
       `Create one empty with \`pnpm --filter @workspace/db create-stripe-fake-db <name>\`, fill it ` +
-      `(push-force, migrate, seeds — docs/tests/TESTING.md, "The Stripe fake") and point DATABASE_URL at it.`
+      `(migrate, seeds — docs/tests/TESTING.md, "The Stripe fake") and point DATABASE_URL at it.`
     );
   }
   if (!s.testMarked && !s.fakeOwned) return null;

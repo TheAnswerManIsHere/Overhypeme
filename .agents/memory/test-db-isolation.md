@@ -11,13 +11,13 @@ Run api-server tests with `TEST_DATABASE_URL` pointing to `heliumdb_test` (a sep
 - `TEST_DATABASE_URL = postgresql://postgres:password@helium/heliumdb_test?sslmode=disable` is stored in `.replit` under `[userenv.development]`.
 
 ## How it flows
-1. **pretest** (`package.json`): wrapped in `bash -c 'export DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}"; pnpm push-force && pnpm migrate ...'` — syncs schema to `heliumdb_test`.
+1. **pretest** (`package.json`): wrapped in `bash -c 'export DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}"; pnpm run require-test-db && pnpm run migrate ...'` — the guard, then the schema (built from the baseline when empty, upgraded otherwise; no push since Launch Phase 3, #770).
 2. **test runner** (`run-tests-sharded.sh` / `run-test.sh`): sources `scripts/lib/test-db.sh`, which runs `if [ -n "${TEST_DATABASE_URL:-}" ]; then export DATABASE_URL="$TEST_DATABASE_URL"; fi` — overrides DATABASE_URL before `assert_not_production` fires.
-3. `assert_not_production` refuses any database without the test-database marker (`overhype.test_database = 'yes'`, a stored database setting). `heliumdb_test` is marked; `heliumdb` and production never are. `push-force` checks the same marker before pushing.
+3. `assert_not_production` refuses any database without the test-database marker (`overhype.test_database = 'yes'`, a stored database setting). `heliumdb_test` is marked; `heliumdb` and production never are. `require-test-db` checks the same marker before pretest migrates.
 4. Runner creates per-worker clone databases named `heliumdb_w_<stamp>_*` and a template `heliumdb_t_<stamp>_*`; all dropped on exit.
 
 ## After a migration
-Schema in `heliumdb_test` stays current automatically: `pretest` runs `push-force + migrate` against it every test run.
+Schema in `heliumdb_test` stays current automatically: `pretest` runs `migrate` against it every test run.
 
 **Why:** `assert_not_production` refuses an unmarked database to prevent destructive ops on the dev or production database. (Until 2026-10-10 it matched database names; see TESTING.md for why that was replaced.) `heliumdb_test` is the safe source for cloning.
 

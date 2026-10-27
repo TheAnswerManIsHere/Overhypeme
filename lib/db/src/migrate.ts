@@ -22,6 +22,21 @@
  * where schema changes were applied manually outside of migration tracking
  * (e.g., post-deploy scripts, partial dev setups).
  *
+ * BASELINE (Launch Phase 3, #770): 0001 alters tables that already exist, so the
+ * migrations alone cannot build a database. When the migrations folder carries a
+ * baseline (`baseline/`, see baseline.ts), the runner decides by the database's
+ * state, under the same lock:
+ *   - no ledger rows and no tables in the current schema: apply the baseline,
+ *     record every migration up to its cutoff, then run the rest as usual — all
+ *     of the first two in ONE transaction, so a failure leaves an empty
+ *     database and the next boot simply tries again;
+ *   - ledger rows present: unchanged — apply what is pending;
+ *   - tables present but no ledger rows: REFUSE. Something other than this
+ *     runner built the schema (a schema push, a platform copy), and adopting it
+ *     as "built from code" would hide exactly that.
+ * A folder without a baseline (a test's temporary folder) keeps the old
+ * behaviour.
+ *
  * CONCURRENCY: pg_advisory_lock(MIGRATION_LOCK_KEY) is held for the entire
  * duration of migration execution. If two server instances start simultaneously
  * (e.g. during a rolling deploy), the second blocks at the lock, then re-reads
@@ -34,9 +49,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
+import { baselineSqlPath, readBaselineMeta, type BaselineMeta } from "./baseline.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-interface JournalEntry {
+export interface JournalEntry {
   idx: number;
   version: string;
   when: number;
@@ -87,6 +104,83 @@ export function getMigrationsFolder(): string {
     return candidateDistMigrations;
   }
   return path.join(__dirname, "../migrations");
+}
+
+function hashOf(migrationsFolder: string, tag: string): string {
+  const sql = fs.readFileSync(path.join(migrationsFolder, `${tag}.sql`), "utf8");
+  return crypto.createHash("sha256").update(sql).digest("hex");
+}
+
+async function ledgerRowCount(client: pg.PoolClient, trackingSchema: string): Promise<number> {
+  const { rows } = await client.query<{ present: boolean }>(
+    "SELECT to_regclass($1) IS NOT NULL AS present",
+    [`"${trackingSchema}".__drizzle_migrations`],
+  );
+  if (!rows[0].present) return 0;
+  const { rows: counted } = await client.query<{ n: string }>(
+    `SELECT count(*) AS n FROM "${trackingSchema}".__drizzle_migrations`,
+  );
+  return Number(counted[0].n);
+}
+
+async function tableCountInCurrentSchema(client: pg.PoolClient): Promise<number> {
+  const { rows } = await client.query<{ n: string }>(
+    "SELECT count(*) AS n FROM pg_class WHERE relnamespace = current_schema()::regnamespace AND relkind IN ('r', 'p')",
+  );
+  return Number(rows[0].n);
+}
+
+/**
+ * Builds an empty database from the baseline and records the migrations it
+ * already contains, in one transaction. Exported for the runner's tests.
+ */
+export async function applyBaseline(
+  client: pg.PoolClient,
+  migrationsFolder: string,
+  meta: BaselineMeta,
+  entries: JournalEntry[],
+  trackingSchema: string,
+): Promise<number> {
+  const { rows } = await client.query<{ schema: string }>("SELECT current_schema() AS schema");
+  if (rows[0].schema !== "public") {
+    throw new Error(
+      `The baseline builds the public schema, but this connection's current schema is "${rows[0].schema}". ` +
+        "Build in public, or clone from a database that was.",
+    );
+  }
+  const sql = fs.readFileSync(baselineSqlPath(migrationsFolder), "utf8");
+  const sha = crypto.createHash("sha256").update(sql).digest("hex");
+  if (sha !== meta.sqlSha256) {
+    throw new Error(`baseline.sql does not match baseline.json (sha256 ${sha}, expected ${meta.sqlSha256}).`);
+  }
+  const cutoff = entries.findIndex((e) => e.tag === meta.cutoffTag);
+  if (cutoff === -1) throw new Error(`The baseline's cutoff ${meta.cutoffTag} is not in the journal.`);
+
+  await client.query("BEGIN");
+  try {
+    // Stored already stripped of pg_dump's session SETs (generate-baseline.ts),
+    // so it leaves this pooled connection's search_path as it found it.
+    await client.query(sql);
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${trackingSchema}"`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "${trackingSchema}".__drizzle_migrations (
+        id SERIAL PRIMARY KEY,
+        hash text NOT NULL,
+        created_at bigint
+      )
+    `);
+    for (const entry of entries.slice(0, cutoff + 1)) {
+      await client.query(
+        `INSERT INTO "${trackingSchema}".__drizzle_migrations (hash, created_at) VALUES ($1, $2)`,
+        [hashOf(migrationsFolder, entry.tag), entry.when],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw new Error(`Failed to apply the baseline (cutoff ${meta.cutoffTag}); nothing was recorded: ${err}`);
+  }
+  return cutoff + 1;
 }
 
 export async function applyMigrations(client: pg.PoolClient): Promise<{ applied: number; skipped: number; total: number }> {
@@ -150,6 +244,21 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
     await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
     lockAcquired = true;
     console.log("[migrate] Advisory lock acquired.");
+
+    const baseline = readBaselineMeta(migrationsFolder);
+    if (baseline && (await ledgerRowCount(client, trackingSchema)) === 0) {
+      const tables = await tableCountInCurrentSchema(client);
+      if (tables > 0) {
+        throw new Error(
+          `Refusing to migrate: the current schema already holds ${tables} table(s) but "${trackingSchema}".__drizzle_migrations ` +
+            "records no migrations, so something other than this runner built it (a schema push, or a copy). " +
+            "A database is built from code only when it starts empty; start from an empty database, " +
+            "or from a copy that carries its migration ledger.",
+        );
+      }
+      const covered = await applyBaseline(client, migrationsFolder, baseline, entries, trackingSchema);
+      console.log(`[migrate] Built an empty database from the baseline (cutoff ${baseline.cutoffTag}, ${covered} migrations recorded).`);
+    }
 
     await client.query(`CREATE SCHEMA IF NOT EXISTS "${trackingSchema}"`);
     await client.query(`

@@ -456,6 +456,16 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // when the chain is repaired. Source of truth: lib/db/src/schema/index.ts
   // and lib/db/src/schema/engines.ts, which no longer declare them.
   "0110_prune_orphans",
+
+  // Renames only, to the names the schema already declares (async_jobs'
+  // primary key and identity sequence, one audit foreign key): the snapshot
+  // carries those names already, so there is no delta to record (as 0045).
+  "0111_normalize_legacy_names",
+
+  // Restores checks, foreign keys and indexes earlier migrations created and
+  // schema pushes stripped (the schema never declared them, so the snapshot
+  // never carried them): no snapshot delta to record.
+  "0112_restore_migration_only_objects",
 ]);
 
 interface JournalEntry {

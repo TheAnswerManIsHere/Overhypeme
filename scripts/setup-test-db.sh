@@ -82,7 +82,7 @@ sudo -u postgres psql -q -v ON_ERROR_STOP=1 -c \
 sudo -u postgres psql -q -d "${DB_NAME}" -c \
   "CREATE EXTENSION IF NOT EXISTS vector;" >/dev/null
 
-# ── 5. Apply schema (drizzle-kit push) ────────────────────────────────────────
+# ── 5. Build the schema from the baseline, then pending migrations ───────────
 # Only run if node_modules are present — first session needs `pnpm install`
 # from the user before this can succeed. The hook also runs `pnpm install`
 # when node_modules is missing.
@@ -92,25 +92,13 @@ if [ ! -d "${REPO_ROOT}/node_modules" ]; then
   (cd "${REPO_ROOT}" && pnpm install --silent)
 fi
 
-log "Applying schema with drizzle-kit push..."
-(cd "${REPO_ROOT}/lib/db" && DATABASE_URL="${DATABASE_URL}" pnpm push-force >/dev/null 2>&1) \
-  || log "drizzle-kit push reported errors — continuing (existing tables may already match)"
-
-# ── 6. Apply migrations on top of the pushed schema ───────────────────────────
-# drizzle-kit push reconciles the DB to the drizzle SNAPSHOT only. The snapshot
-# does not model everything the numbered migrations create — most importantly
-# the raw-SQL CHECK constraints (e.g. upload_image_metadata.transform,
-# memes.image_transform) and the seed DML (admin_config defaults, engine rows).
-# Replit's runtime applies those by running migrations, so without this step the
-# sandbox DB is missing constraints + seed rows that integration tests depend on
-# (Phase 3 lineage, moderation rate limit, engine reconcile, etc.).
-#
-# Order matters: push must run FIRST so the enum types / tables exist, then the
-# migration runner adds the CHECK constraints + seeds on top. The runner is
-# idempotent — DDL that already exists from the push is skipped via SAVEPOINT
-# recovery, and only the missing constraints/seed DML actually execute.
-log "Applying migrations (CHECK constraints + seed data)..."
+# The migration runner builds an EMPTY database from the schema baseline
+# (lib/db/migrations/baseline, Launch Phase 3, #770) and upgrades one that
+# carries its migration ledger. No schema push runs: push stripped the
+# checks, foreign keys and indexes that only migrations create, which is how a
+# database ended up claiming migrations it no longer had the objects of.
+log "Building the schema from the baseline, then pending migrations..."
 (cd "${REPO_ROOT}/lib/db" && DATABASE_URL="${DATABASE_URL}" pnpm migrate >/dev/null 2>&1) \
-  || log "migration runner reported errors — continuing (constraints/seeds may already exist)"
+  || log "migration runner reported errors — run 'pnpm --filter @workspace/db migrate' to see them"
 
 log "Test DB ready at ${DATABASE_URL}"
