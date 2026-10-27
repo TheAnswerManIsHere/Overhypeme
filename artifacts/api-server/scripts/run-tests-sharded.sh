@@ -25,10 +25,10 @@
 # the `postgres` maintenance database; the dev/public schema is never written to.
 #
 # CANONICAL COMMAND: `pnpm --filter @workspace/api-server test` (its `pretest`
-# applies push-force + migrations + codegen first). Invoking this script DIRECTLY
-# is an advanced path that assumes the source `public` schema is already current;
-# after a migration run `pnpm --filter @workspace/db push-force && pnpm --filter
-# @workspace/db run migrate` first.
+# runs the test-database guard, migrate — which builds an empty database from
+# the schema baseline — and codegen first). Invoking this script DIRECTLY is an
+# advanced path that assumes the source `public` schema is already current;
+# after a migration run `pnpm --filter @workspace/db run migrate` first.
 #
 # Usage:
 #   run-tests-sharded.sh [shard_count]

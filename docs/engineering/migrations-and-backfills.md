@@ -1,8 +1,9 @@
 # Migrations and Backfills
 
 > Safe schema and data-change practices. Schema lives in `lib/db/src/schema/*.ts`
-> (Drizzle). Apply locally with `pnpm --filter @workspace/db push-force` then
-> `pnpm --filter @workspace/db run migrate`. Verify with the test runners in
+> (Drizzle). Apply locally with `pnpm --filter @workspace/db run migrate`, which
+> builds an empty database from the schema baseline and upgrades one that carries
+> its ledger; no schema push runs (Launch Phase 3, #770). Verify with the test runners in
 > [`TESTING.md`](../tests/TESTING.md).
 
 ## Migration principles
@@ -63,9 +64,9 @@
   (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, etc.). Do not assume
   `drizzle-kit generate` will produce a clean snapshot; follow the existing
   hand-authored pattern and check recent migrations for the convention.
-- Apply schema to the local public schema first (`push-force`), then run
-  `migrate`, then re-clone the test schema (`run-test.sh --setup`) so tests see the
-  updated shape (see the api-context memory + `docs/tests/TESTING.md`).
+- Run `migrate` against the local public schema, then re-clone the test schema
+  (`run-test.sh --setup`) so tests see the updated shape (see the api-context
+  memory + `docs/tests/TESTING.md`).
 
 ### Adding a value to a Postgres enum
 
@@ -164,7 +165,7 @@ reference). Silent bulk mutation is a bug.
 ## PR checklist
 
 - [ ] Schema change uses idempotent, hand-authored SQL (generator caveat).
-- [ ] Local `push-force` + `migrate` applied; test schema re-cloned.
+- [ ] Local `migrate` applied; test schema re-cloned.
 - [ ] Backfill is idempotent and filters to rows that need it.
 - [ ] Human/admin-edited data is preserved (skip-unless-forced).
 - [ ] Counts / failed / skipped are observable.

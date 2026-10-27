@@ -129,8 +129,8 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     assert.ok(psql(control.href, `CREATE DATABASE "${template}"`).ok);
     created.push(template);
     assert.ok(psql(control.href, markTestDatabaseSql(`"${template}"`)).ok);
-    assert.ok(psql(urlFor(template), "CREATE EXTENSION IF NOT EXISTS vector").ok);
-    for (const step of [["--filter", "@workspace/db", "push-force"], ["--filter", "@workspace/db", "run", "migrate"]]) {
+    // Built from the schema baseline by the migration runner, as production is (#770).
+    for (const step of [["--filter", "@workspace/db", "run", "migrate"]]) {
       const r = spawnSync("pnpm", step, { cwd: REPO_ROOT, env: { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: urlFor(template) }, encoding: "utf8" });
       assert.equal(r.status, 0, `pnpm ${step.join(" ")}: ${r.stderr}`);
     }

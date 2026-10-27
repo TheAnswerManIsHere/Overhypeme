@@ -17,7 +17,7 @@
 #             running. Implied automatically when the table counts differ.
 #             (--setup re-clones from the ALREADY-updated public schema; it does
 #             not run migrations. After a migration: `pnpm --filter @workspace/db
-#             push-force && pnpm --filter @workspace/db run migrate`, then --setup.)
+#             run migrate`, then --setup.)
 #
 # Env overrides:
 #   CRON_SECRET  (default: test-cron-secret) — used by routes that guard with it

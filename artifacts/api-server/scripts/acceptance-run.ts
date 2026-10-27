@@ -212,9 +212,9 @@ function freshDatabase(variant: string): URL {
   psql(controlDb, markTestDatabaseSql(`"${name}"`));
   const url = new URL(source.href);
   url.pathname = `/${name}`;
-  psql(url, "CREATE EXTENSION IF NOT EXISTS vector");
+  // Built from the schema baseline by the migration runner — the path a fresh
+  // production database takes (Launch Phase 3, #770); no schema push.
   const toolEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: url.href, NODE_ENV: "development" };
-  pnpm(["--filter", "@workspace/db", "push-force"], toolEnv);
   pnpm(["--filter", "@workspace/db", "run", "migrate"], toolEnv);
   return url;
 }

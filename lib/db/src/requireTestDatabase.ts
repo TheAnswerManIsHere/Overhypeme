@@ -1,7 +1,8 @@
 /**
  * Exit non-zero unless DATABASE_URL names a marked test database
- * (see testDatabaseMarker.ts). Runs before `push-force` and the api-server test
- * runners, so the refusal comes before anything destructive.
+ * (see testDatabaseMarker.ts). Runs first in api-server's `pretest` (before it
+ * migrates) and in the test runners, so the refusal comes before anything is
+ * written.
  */
 import { pathToFileURL } from "node:url";
 

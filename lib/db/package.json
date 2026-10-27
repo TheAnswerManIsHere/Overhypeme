@@ -6,13 +6,12 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./test-database": "./src/testDatabaseMarker.ts"
+    "./test-database": "./src/testDatabaseMarker.ts",
+    "./baseline": "./src/baseline.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",
     "migrate": "tsx src/migrate.ts",
-    "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "tsx src/requireTestDatabase.ts && drizzle-kit push --force --config ./drizzle.config.ts",
     "require-test-db": "tsx src/requireTestDatabase.ts",
     "create-stripe-fake-db": "tsx src/createStripeFakeDatabase.ts",
     "check-snapshots": "node --import tsx/esm scripts/check-migration-snapshots.ts",

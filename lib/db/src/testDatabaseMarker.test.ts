@@ -80,15 +80,20 @@ describe("test-database marker", () => {
   });
 
   // The hook-up, not the guard: what the runners and pretest actually invoke.
-  // A future edit that restored a plain `drizzle-kit push --force`, or dropped
-  // the call from the shell guard, would pass every other test here.
-  it("push-force and the runners' shell guard both refuse an unmarked database, before touching it", async () => {
+  // A future edit that dropped the guard from pretest's chain, or from the shell
+  // guard, would pass every other test here.
+  it("pretest's guard and the runners' shell guard both refuse an unmarked database, before touching it", async () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
     const env = { PATH: process.env.PATH, HOME: process.env.HOME, DATABASE_URL: urlFor(SCRATCH) };
 
-    const push = spawnSync("pnpm", ["--filter", "@workspace/db", "run", "push-force"], { cwd: root, env, encoding: "utf8", timeout: 120_000 });
-    assert.notEqual(push.status, 0, `push-force should refuse; stdout: ${push.stdout}`);
-    assert.match(`${push.stdout}${push.stderr}`, /\[require-test-db\] refusing:/);
+    const guard = spawnSync("pnpm", ["--filter", "@workspace/db", "run", "require-test-db"], { cwd: root, env, encoding: "utf8", timeout: 120_000 });
+    assert.notEqual(guard.status, 0, `require-test-db should refuse; stdout: ${guard.stdout}`);
+    assert.match(`${guard.stdout}${guard.stderr}`, /\[require-test-db\] refusing:/);
+    const pretest = JSON.parse(fs.readFileSync(path.join(root, "artifacts/api-server/package.json"), "utf8")).scripts.pretest as string;
+    assert.ok(
+      pretest.indexOf("require-test-db") !== -1 && pretest.indexOf("require-test-db") < pretest.indexOf("run migrate"),
+      "api-server's pretest runs the guard before it migrates",
+    );
 
     const shell = spawnSync(
       "bash",
