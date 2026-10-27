@@ -10,6 +10,8 @@
  *
  *   - empty → baseline: every journal migration recorded, and a second run is a
  *     no-op;
+ *   - a migration added after the cutoff runs on top of the baseline, so the
+ *     next forward migration needs no regenerated baseline;
  *   - the historical reference (dev's real catalog and ledger, captured
  *     2026-10-27) upgraded by the runner ends with exactly the catalog a
  *     baseline-built database has — column order aside. This is the standing
@@ -28,6 +30,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { is } from "drizzle-orm";
@@ -70,8 +73,18 @@ async function ledgerCount(c: pg.PoolClient): Promise<number> {
   return Number((await c.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);
 }
 
-const journalLength = (): number =>
-  JSON.parse(fs.readFileSync(path.join(getMigrationsFolder(), "meta/_journal.json"), "utf8")).entries.length;
+const journalTags = (): string[] =>
+  JSON.parse(fs.readFileSync(path.join(getMigrationsFolder(), "meta/_journal.json"), "utf8")).entries.map(
+    (e: { tag: string }) => e.tag,
+  );
+const journalLength = (): number => journalTags().length;
+/** Migrations added after the baseline's cutoff: the runner applies these on top of it. */
+const afterCutoff = (): number => {
+  const tags = journalTags();
+  const cutoff = tags.indexOf(readBaselineMeta(getMigrationsFolder())!.cutoffTag);
+  assert.ok(cutoff >= 0, "the baseline's cutoff is a journal entry");
+  return tags.length - cutoff - 1;
+};
 
 describe("schema baseline", { concurrency: false }, () => {
   let baselineFingerprint: string[];
@@ -94,7 +107,7 @@ describe("schema baseline", { concurrency: false }, () => {
     try {
       await withClient(pool, async (c) => {
         const first = await applyMigrations(c);
-        assert.equal(first.applied, 0, "everything up to the cutoff comes from the baseline");
+        assert.equal(first.applied, afterCutoff(), "everything up to the cutoff comes from the baseline; only later migrations run");
         assert.equal(await ledgerCount(c), journalLength());
         const second = await applyMigrations(c);
         assert.deepEqual([second.applied, second.skipped], [0, journalLength()]);
@@ -126,6 +139,37 @@ describe("schema baseline", { concurrency: false }, () => {
         assert.deepEqual(diff, { onlyA: [], onlyB: [] }, "baseline-built and upgraded-reference catalogs differ");
       });
     } finally {
+      await pool.end();
+    }
+  });
+
+  it("builds from the baseline and then runs a migration added after its cutoff", async () => {
+    // The next forward migration lands without regenerating the baseline: a
+    // copy of the migrations folder with one more journal entry stands in.
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), "baseline-later-"));
+    fs.cpSync(getMigrationsFolder(), folder, { recursive: true });
+    const journalPath = path.join(folder, "meta/_journal.json");
+    const journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
+    const last = journal.entries[journal.entries.length - 1];
+    const tag = "9999_after_the_cutoff";
+    journal.entries.push({ ...last, idx: last.idx + 1, when: last.when + 1, tag });
+    fs.writeFileSync(journalPath, JSON.stringify(journal));
+    fs.writeFileSync(path.join(folder, `${tag}.sql`), "CREATE TABLE after_the_cutoff (id integer);");
+    process.env.DRIZZLE_MIGRATIONS_FOLDER = folder;
+    const pool = await scratch("later");
+    try {
+      await withClient(pool, async (c) => {
+        const result = await applyMigrations(c);
+        assert.equal(result.applied, 1, "only the migration after the cutoff runs");
+        assert.equal(await ledgerCount(c), journal.entries.length);
+        const { rows } = await c.query("SELECT to_regclass('public.after_the_cutoff') IS NOT NULL AS present");
+        assert.ok(rows[0].present);
+        const again = await applyMigrations(c);
+        assert.deepEqual([again.applied, await ledgerCount(c)], [0, journal.entries.length], "a second run does nothing");
+      });
+    } finally {
+      delete process.env.DRIZZLE_MIGRATIONS_FOLDER;
+      fs.rmSync(folder, { recursive: true, force: true });
       await pool.end();
     }
   });

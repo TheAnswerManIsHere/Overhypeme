@@ -6,7 +6,8 @@
  * data, keeps an operator's setting, and changes no structure. The worker
  * database this runs on is a copy of one the runner built from the schema
  * baseline, ledger included, so the runner takes its upgrade path, as a
- * restarted production server does.
+ * restarted production server does. The setting is one the boot itself seeds
+ * (max_memes_per_fact), so a boot that re-seeded over it would be caught.
  */
 
 import { describe, it, after } from "node:test";
@@ -34,13 +35,15 @@ describe("a second boot on a built database", () => {
     try {
       const schema = (await client.query<{ s: string }>("SELECT current_schema() AS s")).rows[0].s;
 
+      // The first boot: its seeding step puts the setting there whatever rows
+      // this worker database started with (a sharded run's copy holds none).
+      await ensureSchema();
       await db.insert(usersTable).values({ id: userId, email: `${userId}@example.test` });
       const [setting] = await db
         .select({ key: adminConfigTable.key, value: adminConfigTable.value })
         .from(adminConfigTable)
-        .where(eq(adminConfigTable.dataType, "integer"))
-        .limit(1);
-      assert.ok(setting, "the baseline seeds integer settings");
+        .where(eq(adminConfigTable.key, "max_memes_per_fact"));
+      assert.ok(setting, "the first boot seeds max_memes_per_fact");
       restore = setting;
       const operatorValue = String(Number(setting.value) + 7);
       await db.update(adminConfigTable).set({ value: operatorValue }).where(eq(adminConfigTable.key, setting.key));
