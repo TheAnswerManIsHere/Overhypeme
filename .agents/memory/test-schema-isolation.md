@@ -27,7 +27,7 @@ source is the test database's own `public` schema, which `migrate` built first
 ([`migrations-and-backfills.md`, *How a database receives a change*](../../docs/engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 
 ## Production guard
-Both runners refuse to run against `heliumdb` (Overhype's prod *and* dev DB) or
+Both runners refuse to run against `heliumdb` (the Repl's dev database; production is a separate database) or
 with `NODE_ENV=production`. Point `DATABASE_URL` at the test DB (`heliumdb_test`
 on Replit via `TEST_DATABASE_URL`, `overhype_test` in CI/sandbox).
 
