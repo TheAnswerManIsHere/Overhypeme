@@ -191,7 +191,9 @@ Claude Code can from a diff. Migration 0098 (2026-08-09, restoring
 dropped it — see the `known-failure-patterns.md` entry) is the example this
 was decided against: correct, verified live, and faster than routing it
 through a PR loop would have been. Do not propose gating this path; David
-settled it on 2026-08-09.
+settled it on 2026-08-09. What it applies is a migration file run by the
+runner, and that file reaches `main` through a pull request like any other
+([`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 
 ## The fast lane: David's own UI tweaks during UAT (David, 2026-08-28)
 

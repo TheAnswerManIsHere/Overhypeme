@@ -133,6 +133,11 @@ database's state, never by a flag:
   2026-10-28). When Replit's publish offers to apply dev's schema differences
   to production, the answer is to keep production as it is: the published app
   migrates itself at boot.
+- **A live repair is still a migration.** Replit Agent may repair a schema
+  problem against the running environment
+  ([`replit-environment.md`](../ai-context/replit-environment.md), settled
+  2026-08-09); what it applies is a migration file run by the runner, and it
+  reaches `main` through a pull request like every other change.
 - **A test runner's clone is a cache, not a route.** The api-server runners
   copy the structure of a test database that `migrate` has just built (the
   per-worker template databases, `run-test.sh`'s cached schema;
