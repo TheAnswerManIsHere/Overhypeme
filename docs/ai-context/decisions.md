@@ -13,14 +13,62 @@
 
 ---
 
+### 2026-10-28 · At publish, approve Replit's generated migration; the app's guarded migrations reconcile the ledger
+- **Decision:** when a publish finds dev's catalog different from
+  production's, Replit generates one migration and offers Approve and
+  publish, Create preview deploy or Cancel. **Approve it.** Where Replit asks
+  per difference (it does only when a difference is ambiguous: a rename or a
+  drop-and-add, delete columns or drop a table), choose the reading that
+  keeps data. The app's migrations, all guarded, find Replit's structure in
+  place at boot, do the rest and record themselves in the ledger.
+- **Why:** David's screenshots of the 2026-10-28 publish showed no option to
+  keep production unchanged; Cancel only blocks the publish. That publish
+  approved Replit's 16-statement diff (0112's checks, foreign keys and
+  indexes, and the audit foreign key's rename), and the boot then logged
+  `Done: 3 applied, 111 already up-to-date (114 total in journal)`, doing only
+  0111's two `async_jobs` renames. The rule written the same day in Launch
+  Phase 3's increment 6 ("keep production as it is") assumed a choice that
+  does not exist and is replaced by this one.
+- **Reference:** #770 (comments of 2026-10-28 23:13, 23:16 and 23:40 UTC);
+  [`migrations-and-backfills.md`](../engineering/migrations-and-backfills.md),
+  *How a database receives a change*;
+  [`replit-environment.md`](./replit-environment.md).
+- **Revisit if:** Replit's publish offers a way to skip its own migration, or
+  a generated migration ever drops data the app's migrations would have kept.
+
+### 2026-10-28 · One Stripe account, dedicated to Overhype.me — over a recommendation of a separate account
+- **Decision:** the live Stripe account (`acct_1TGk96PUPouDdcHb`) is
+  Overhype.me's alone. The 2026-10-10 $145.00 in-person payment
+  (`AVAILERON CONSULTING`) was a one-off mistake by David, is valid, and is
+  neither refunded nor carried by the production reset. No separate account
+  is created (David, 2026-10-28: *"I really shouldn't have run that other
+  transaction through this Stripe account. This account really is dedicated
+  to Overhype.me."*).
+- **Dissent (Claude's recommendation, overridden):** a separate account for
+  the consulting business would make the separation structural. Under this
+  decision it is a policy: nothing stops a future non-Overhype payment
+  landing in the account, so the reset's inventory must still tell this
+  app's payments from anyone else's.
+- **What follows:** every Stripe object Overhype creates is tagged (customers,
+  checkout sessions, `payment_intent_data` and `subscription_data` carry
+  `app: "overhype"`; subscriptions carry no metadata today,
+  `artifacts/api-server/src/routes/stripe.ts`), and Launch Phase 3's
+  increment 8 scopes its live-payment check to tagged or app-originated
+  payments, reporting anything else as "not this app's" for a look instead
+  of blocking the reset. The Availeron charge stays in the account's history
+  and in the app's mirrored `stripe` tables; the carry-forward ignores it.
+- **Reference:** #770 (comments of 2026-10-28 23:16, 23:23 and 23:27 UTC).
+- **Revisit if:** another non-Overhype payment appears in the account.
+
 ### 2026-10-28 · The dev-to-production copy is retired; every database is built and changed by its migrations
 - **Decision:** copying one database into another is no longer a route for
   building or updating any environment. The two copy tools are deleted:
   `scripts/db-sync-prod.mjs` (dev → production, through admin dump and restore
   routes that no longer exist in the server) and the root `package.json`'s
   `db:pull-prod` and `db:pull-prod:schema-only` (production → dev). Every
-  database is built from the schema baseline and changed only by migrations
-  that leave the previous release working
+  database is built from the schema baseline and changed by migrations that
+  leave the previous release working (on production, Replit's own generated
+  migration at publish comes first; see the entry above)
   ([`migrations-and-backfills.md`](../engineering/migrations-and-backfills.md),
   *The migration policy*).
 - **What this does to the 2026-08-28 entry below:** its copy route is closed

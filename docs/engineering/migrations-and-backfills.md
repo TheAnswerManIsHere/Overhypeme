@@ -85,7 +85,8 @@ pre-launch latitude holds
 brave*: destructive migrations are fine when simpler), because a broken
 rollout harms no one: a contract may ship in the same release as the code
 that stops using it. What binds now is the rest of this section: a migration
-is right on both paths a database takes, and nothing is built any other way.
+is right on both paths a database takes, and nothing is built any other way
+(*How a database receives a change*, below, names the exceptions).
 
 ### Expand, then contract
 
@@ -125,20 +126,38 @@ database's state, never by a flag:
   that database holds. CI's `Test` job builds fresh;
   `lib/db/src/baseline.test.ts` upgrades the historical reference; the
   upgrade rehearsal (*Tests*, below) runs it over real dev data.
-- **No database is built or changed any other way.** `drizzle-kit push`
-  never runs (`.claude/settings.json` denies it; `baseline.test.ts` fails on a
-  script that invokes it), and no database's schema or rows are copied into
-  another to stand in for its migrations: the dev-to-production copy tools
-  were deleted when production became code-built (`decisions.md`,
-  2026-10-28). When Replit's publish offers to apply dev's schema differences
-  to production, the answer is to keep production as it is: the published app
-  migrates itself at boot.
+- **No database is built any other way.** `drizzle-kit push` never runs
+  (`.claude/settings.json` denies it; `baseline.test.ts` fails on a script that
+  invokes it), and no database's schema or rows are copied into another to
+  stand in for its migrations: the dev-to-production copy tools were deleted
+  when production became code-built (`decisions.md`, 2026-10-28).
+- **Replit's publish changes production's schema before the runner does.**
+  At publish, Replit compares dev's catalog with production's, generates one
+  migration of its own, and applies it when the publish is approved; the new
+  release then boots and runs the runner (measured at the publish of
+  2026-10-28: Replit's generated SQL added 0112's checks, foreign keys and
+  indexes, then the boot recorded 0111–0113 and performed only 0111's two
+  renames; #770). Three things follow:
+  - **At the prompt, approve Replit's generated migration.** Where it offers
+    readings of an ambiguous difference, choose the one that keeps data: a
+    rename over drop-and-add, keep a column over delete. Cancel blocks the
+    publish; there is no "keep production as it is" (`decisions.md`,
+    2026-10-28).
+  - **Every migration's DDL must find its own work already done and skip
+    it** (`IF NOT EXISTS`, "old present and new absent"), because on
+    production Replit may have applied it first. Its data steps still run:
+    Replit's diff carries structure, not the rows a migration inserts or
+    rewrites.
+  - **Replit adds a constraint validated**, never `NOT VALID`, so a
+    production row that breaks a new check fails the publish. A migration
+    that tightens a rule on populated data repairs or counts the breaking
+    rows in an earlier release.
 - **A live repair is still a migration.** Replit Agent may repair a schema
   problem against the running environment
   ([`replit-environment.md`](../ai-context/replit-environment.md), settled
   2026-08-09); what it applies is a migration file run by the runner, and it
   reaches `main` through a pull request like every other change.
-- **A superuser runbook is the one change made outside the runner,** and only
+- **A superuser runbook is the one change we make outside the runner,** and only
   for what the runner cannot do by design: a privilege boundary above the
   application role (*Migration principles*, above;
   [`ncmec-audit-ledger-hardening.md`](./ncmec-audit-ledger-hardening.md)). It
