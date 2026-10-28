@@ -145,8 +145,8 @@ Full commands, DB isolation, and the production guard are in the canonical
 - Build generated artifacts + libs before package checks:
   `pnpm --filter @workspace/api-spec run codegen` → `pnpm run typecheck:libs` →
   `pnpm typecheck`.
-- API DB-backed tests: `pnpm --filter @workspace/db run migrate` (an empty
-  database is built from the schema baseline; no schema push runs) →
+- API DB-backed tests: `pnpm --filter @workspace/db run migrate` (how it builds
+  a database: [`migrations-and-backfills.md`](docs/engineering/migrations-and-backfills.md#how-a-database-receives-a-change)) →
   `pnpm --filter @workspace/api-server test`. Single file: `bash artifacts/api-server/scripts/run-test.sh
   src/__tests__/<file>.test.ts`.
 - **Never** run api-server tests with raw `node --test` (can't load the `tsx/esm`

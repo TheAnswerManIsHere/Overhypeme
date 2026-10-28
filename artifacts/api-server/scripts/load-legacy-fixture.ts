@@ -7,7 +7,7 @@
  *   DATABASE_URL=<a fresh, marked test database> \
  *     pnpm exec tsx scripts/load-legacy-fixture.ts [--fixture fixtures/legacy]
  *
- * Order: schema push → migrations → this → `seed-e2e-test-accounts.ts` → boot.
+ * Order: migrations (from the schema baseline) → this → `seed-e2e-test-accounts.ts` → boot.
  *
  * Refuses, before anything that reaches the database is imported: an
  * unmarked database, a production environment, and any storage backend but

@@ -7,11 +7,11 @@ description: PR132 per-DB test runner setup — how TEST_DATABASE_URL wires into
 Run api-server tests with `TEST_DATABASE_URL` pointing to `heliumdb_test` (a separate Postgres database on the same cluster), never against `heliumdb`.
 
 ## Setup (already done)
-- `heliumdb_test` database exists on the cluster (created from template0 + pgvector + full schema sync).
+- `heliumdb_test` database exists on the cluster (created from template0 + pgvector; `migrate` keeps its schema current).
 - `TEST_DATABASE_URL = postgresql://postgres:password@helium/heliumdb_test?sslmode=disable` is stored in `.replit` under `[userenv.development]`.
 
 ## How it flows
-1. **pretest** (`package.json`): wrapped in `bash -c 'export DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}"; pnpm run require-test-db && pnpm run migrate ...'` — the guard, then the schema (built from the baseline when empty, upgraded otherwise; no push since Launch Phase 3, #770).
+1. **pretest** (`package.json`): wrapped in `bash -c 'export DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}"; pnpm run require-test-db && pnpm run migrate ...'` — the guard, then the schema ([`migrations-and-backfills.md`, *How a database receives a change*](../../docs/engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 2. **test runner** (`run-tests-sharded.sh` / `run-test.sh`): sources `scripts/lib/test-db.sh`, which runs `if [ -n "${TEST_DATABASE_URL:-}" ]; then export DATABASE_URL="$TEST_DATABASE_URL"; fi` — overrides DATABASE_URL before `assert_not_production` fires.
 3. `assert_not_production` refuses any database without the test-database marker (`overhype.test_database = 'yes'`, a stored database setting). `heliumdb_test` is marked; `heliumdb` and production never are. `require-test-db` checks the same marker before pretest migrates.
 4. Runner creates per-worker clone databases named `heliumdb_w_<stamp>_*` and a template `heliumdb_t_<stamp>_*`; all dropped on exit.

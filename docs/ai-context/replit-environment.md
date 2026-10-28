@@ -27,7 +27,7 @@ environment:
   real app, database, and `main`. Overridden Repl-side; see below.
 - **The `SessionStart` hook running `scripts/setup-test-db.sh`** — it
   apt-installs packages, starts a Postgres cluster, creates a SUPERUSER role,
-  force-pushes a schema, and `pnpm install`s into the working copy. That last
+  builds a test schema, and `pnpm install`s into the working copy. That last
   one dirties the worktree that Publish snapshots. Fixed in the script itself,
   which now exits early when Replit environment variables are present.
 

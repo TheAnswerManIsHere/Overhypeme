@@ -11,8 +11,8 @@
  *   3. The config getters read `value`, and the toggle's key is no longer a
  *      setting the config route can write.
  *
- * The test database is built by a schema push before migrate, so the debug
- * columns are already absent here. The migration cases put them back first,
+ * The test database is built from the schema baseline, whose cutoff is past
+ * 0108, so the debug columns are already absent here. The migration cases put them back first,
  * which is the state the Repl's dev database is in when 0108 runs there.
  */
 

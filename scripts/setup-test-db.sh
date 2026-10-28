@@ -18,7 +18,7 @@ set -euo pipefail
 # session started in the Repl's own shell, which is the LIVE environment (real
 # app, real database, push access to main), not a sandbox. Everything below
 # assumes disposable: it apt-installs packages, starts a Postgres cluster,
-# creates a SUPERUSER role, force-pushes a schema, and will `pnpm install` into
+# creates a SUPERUSER role, builds the schema by migration, and will `pnpm install` into
 # the working copy if node_modules is absent. None of that belongs in the Repl,
 # where an unwanted `pnpm install` alone would dirty the worktree that Publish
 # snapshots. Bail out before any of it can start.
