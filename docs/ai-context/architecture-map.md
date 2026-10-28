@@ -123,7 +123,8 @@ deliberately excludes them and points here instead.
   [`../engineering/migrations-and-backfills.md`](../engineering/migrations-and-backfills.md).
 - Apply schema locally with `pnpm --filter @workspace/db run migrate`. How
   every database is built and changed (the baseline, the ledger, the refusal of
-  tables without one; no schema push and no copy between databases) is
+  tables without one; no schema push and no copy between databases; on
+  production, Replit's publish-time migration, which comes first) is
   [`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change).
 
 ## Async jobs and queues

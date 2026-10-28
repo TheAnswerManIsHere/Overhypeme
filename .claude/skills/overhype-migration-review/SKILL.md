@@ -19,9 +19,13 @@ processing signatures, or bulk data reprocessing).
 
 - **Row-state matrix.** Reason explicitly about old / new / partially migrated /
   failed / skipped / no-op rows where relevant.
-- **Idempotency.** Safe to run more than once; hand-authored `IF NOT EXISTS` SQL
-  (the `drizzle-kit generate` snapshot is broken — follow the existing idempotent
-  pattern, don't rely on the generator).
+- **Idempotency.** Safe to run more than once; hand-authored `IF NOT EXISTS` SQL.
+  Two reasons: on production, Replit's publish migration may already have
+  applied the DDL, and Replit adds a constraint validated, so a production row
+  that breaks it fails the publish
+  ([`migrations-and-backfills.md`, *How a database receives a change*](../../../docs/engineering/migrations-and-backfills.md#how-a-database-receives-a-change));
+  and the `drizzle-kit generate` snapshot is broken, so don't rely on the
+  generator.
 - **Observability counts.** Broad data changes expose processed/succeeded/failed/
   skipped/no-op counts; surface async work with per-item + aggregate status.
 - **Human-decision preservation.** Bulk jobs must not silently overwrite manual

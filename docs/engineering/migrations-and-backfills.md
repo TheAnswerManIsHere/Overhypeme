@@ -65,8 +65,10 @@ write a migration well, and this is what one is allowed to do.
 
 Migrations run at boot, before the server listens
 (`artifacts/api-server/src/index.ts`: `runMigrations()`, then `ensureSchema()`,
-then `listen()`), and only forward: the runner has no down step. Two things
-follow, and neither needs a fault to happen:
+then `listen()`), and only forward: the runner has no down step. On
+production, Replit's own publish migration changes the schema even earlier,
+when the publish is approved (*How a database receives a change*, below). Two things follow, and neither
+needs a fault to happen:
 
 - **During a publish, the old code runs on the new schema.** The deployment is
   autoscale (`.replit`, `deploymentTarget = "autoscale"`): instances of the new
@@ -92,8 +94,9 @@ is right on both paths a database takes, and nothing is built any other way
 
 - **Expand — any release.** Add a table; add a column that is nullable or has
   a default; add an index; add an enum label (by the recast below); add a
-  constraint **only if every write the previous release makes already
-  satisfies it**. Insert or update config rows the previous release ignores or
+  constraint **only if every write the previous release makes, and every row
+  production already holds, satisfies it** (Replit adds it validated at
+  publish, so a breaking row fails the publish). Insert or update config rows the previous release ignores or
   reads compatibly. The code that uses the new shape ships with it.
 - **Contract — a later release, in its own migration.** Drop a table or
   column, rename one, make a column `NOT NULL`, narrow a type, remove an enum
@@ -339,7 +342,12 @@ reference). Silent bulk mutation is a bug.
 - [ ] Each migration is named expand or contract, and leaves the previous
       release working (*The migration policy*); a contract names the release
       that stopped using what it removes.
-- [ ] Schema change uses idempotent, hand-authored SQL (generator caveat).
+- [ ] Schema change uses idempotent, hand-authored SQL: every DDL step finds
+      its own work done and skips it, since Replit's publish migration may
+      have applied it first (*How a database receives a change*), and the
+      generator is broken besides.
+- [ ] A new constraint holds for every row production already has, or the
+      breaking rows are repaired or counted in an earlier release.
 - [ ] Local `migrate` applied; test schema re-cloned.
 - [ ] Backfill is idempotent and filters to rows that need it.
 - [ ] Human/admin-edited data is preserved (skip-unless-forced).
