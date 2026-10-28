@@ -174,6 +174,12 @@ deliberate publish decision. Two consequences:
 
 ## The push path has no external gate, and that's accepted
 
+> **Superseded for the path to `main`, 2026-10-03:** no ruleset bypass remains,
+> so a commit made in the Repl reaches `main` only through a pull request
+> ([`replit-commits-reach-main-only-through-a-pr.md`](../../.agents/memory/replit-commits-reach-main-only-through-a-pr.md)).
+> What still stands below is Replit's live diagnosis and verification against
+> the running environment; read "pushes directly to `main`" as history.
+
 Replit pushes directly to `main` through its own Git pane, on request. There
 is no PR, no Codex review, and none of GitHub Actions' checks run *before*
 the push lands — only after, against a `main` that already has the change.

@@ -138,6 +138,11 @@ database's state, never by a flag:
   ([`replit-environment.md`](../ai-context/replit-environment.md), settled
   2026-08-09); what it applies is a migration file run by the runner, and it
   reaches `main` through a pull request like every other change.
+- **A superuser runbook is the one change made outside the runner,** and only
+  for what the runner cannot do by design: a privilege boundary above the
+  application role (*Migration principles*, above;
+  [`ncmec-audit-ledger-hardening.md`](./ncmec-audit-ledger-hardening.md)). It
+  creates roles and changes ownership and grants, never tables, columns or rows.
 - **A rehearsal restore builds no environment.** The upgrade rehearsal
   (*Tests*, below) restores the frozen dev snapshot into a scratch database to
   prove the migrations, and the scratch database is dropped (unless `--keep`);
