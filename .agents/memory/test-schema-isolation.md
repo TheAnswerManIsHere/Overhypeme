@@ -21,7 +21,10 @@ which isolate differently:
   single **cached** `heliumdb_test` schema, re-cloned from `public` only when
   stale or when `--setup` is passed. This is the inner-loop runner, not the gate.
 
-Only structure is cloned — **no data**. Tests create the rows they need.
+Only structure is cloned — **no data**. Tests create the rows they need. The
+source is the test database's own `public` schema, which `migrate` built first
+(the runner's own header says to run `migrate`, then `--setup`), so the clone is a cache, never a copy of dev
+([`migrations-and-backfills.md`, *How a database receives a change*](../../docs/engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 
 ## Production guard
 Both runners refuse to run against `heliumdb` (Overhype's prod *and* dev DB) or
