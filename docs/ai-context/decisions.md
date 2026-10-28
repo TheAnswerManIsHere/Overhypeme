@@ -17,8 +17,11 @@
 - **Decision:** row 8 of the launch readiness table requires alerts from five
   named sources — an unhandled error, the site down, a background job stopped
   or wedged, payment webhooks failing, spend that could not be recorded — each
-  proven before Seed by injecting its fault on the deployed site and watching
-  the alert arrive and the product degrade as designed. The queue-health
+  proven before Seed by injecting its fault on the deployed site and
+  recording, per fault, whether the alert arrived and how long it took, how
+  the product degraded against its design, and whether recovery needed a
+  human. The rehearsal includes a worker killed mid-render, the image
+  engine's key revoked and the Stripe webhook endpoint broken. The queue-health
   plan's alert phase (#288's Phase 2: in-app plus an out-of-band channel) is
   scheduled inside launch Phase 16 as the vehicle for the stopped-or-wedged
   alert. Amendment v8 of `PLAN_GET_TO_LAUNCH.md`.
@@ -29,7 +32,10 @@
   evidence ("an alert received on a forced error") did not require them, so a
   go/no-go reading the table could pass without them. One afternoon of
   injected faults is the cheapest proof that each alert fires; it is not a
-  chaos-engineering programme.
+  chaos-engineering programme. Its records are measurements, not thresholds:
+  no notification deadline and no automatic recovery is required, but a
+  rehearsal that does not report time-to-alert and human recovery is not
+  complete.
 - **Rejected:** Prometheus and Grafana at launch. A pull scraper needs stable
   targets and a server we run; Replit autoscale gives neither. The portable
   part is the instrumentation, which already reaches Sentry through

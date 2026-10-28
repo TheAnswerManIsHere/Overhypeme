@@ -240,9 +240,10 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
 8. Alerts reach David from five sources — an unhandled error, the site
    down, a background job stopped or wedged, payment webhooks failing, spend
    that could not be recorded — each proven by injecting its fault on the
-   deployed site and watching the alert arrive and the product degrade as
-   designed; uptime check live; read-only mode works; rollback written
-   (amendment v8, David, 2026-10-27).
+   deployed site, recording for each whether the alert arrived and how long
+   it took, how the product degraded against its design, and whether
+   recovery needed a human; uptime check live; read-only mode works;
+   rollback written (amendment v8, David, 2026-10-27).
 9. UX polish pass completed across every user journey; David accepts the
    catalogue and a representative render sample.
 10. Launch runbook with a go/no-go that reads this list per stage: Seed,
@@ -783,11 +784,14 @@ scope:
   investigation from 2026-10-04 closed.
 - **Depends on:** Phase 1.
 - **David's batch:** none beyond the approved vendors.
-- **Exit evidence:** funnel visible in PostHog from a scripted journey; one
-  alert received per row 8 source, each from a fault injected on the
-  deployed site, with the product degrading as designed meanwhile — a
-  fault-injection afternoon, not a programme (amendment v8); read-only mode
-  exercised live.
+- **Exit evidence:** funnel visible in PostHog from a scripted journey; a
+  fault-injection afternoon on the deployed site, not a programme
+  (amendment v8): one injected fault per row 8 source, including a worker
+  killed mid-render, the image engine's key revoked and the Stripe webhook
+  endpoint broken, with three records per fault — whether the alert reached
+  David and how long it took, how the product degraded against its design,
+  and whether recovery needed a human (measured and reported; no deadline or
+  automatic recovery is required); read-only mode exercised live.
 - **Tier:** internal/product. **Lane:** Operations and money, early.
 
 ### Phase 17 — UX polish pass

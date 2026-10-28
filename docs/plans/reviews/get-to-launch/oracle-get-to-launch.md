@@ -20,7 +20,9 @@ is admitted ("I'm happy to have users from anywhere other than GDPR and OFAC
 countries"); (8) 2026-10-27: **readiness row 8 names its alert sources** —
 an unhandled error, the site down, a background job stopped or wedged,
 payment webhooks failing, spend that could not be recorded — each proven by
-injecting its fault on the deployed site (plan amendment v8).
+injecting its fault on the deployed site and recording whether the alert
+arrived and how long it took, how the product degraded, and whether recovery
+needed a human (plan amendment v8).
 
 ## Direction served
 
@@ -234,9 +236,10 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
 8. Alerts reach David from five sources — an unhandled error, the site
    down, a background job stopped or wedged, payment webhooks failing, spend
    that could not be recorded — each proven by injecting its fault on the
-   deployed site and watching the alert arrive and the product degrade as
-   designed; uptime check live; read-only mode works; rollback written
-   (amendment 8, David, 2026-10-27).
+   deployed site, recording for each whether the alert arrived and how long
+   it took, how the product degraded against its design, and whether
+   recovery needed a human; uptime check live; read-only mode works;
+   rollback written (amendment 8, David, 2026-10-27).
 9. UX polish pass completed across every user journey; David accepts the
    catalogue and a representative render sample.
 10. Launch runbook with a go/no-go that reads this list per stage: Seed,
