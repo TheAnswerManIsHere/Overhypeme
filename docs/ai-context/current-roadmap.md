@@ -423,9 +423,11 @@ handbook work a launch phase needs and a second app would need identically;
   simultaneously busy. See
   [`architecture-map.md`](./architecture-map.md#worker-liveness-heartbeats--the-queue-health-surface-phase-1-pr-288)
   and the manual's [Background Work](../manual/12-background-work.md#worker-liveness-and-the-queue-health-surface)
-  chapter. **Open next:** Phases 2–4 of the same plan are not yet
-  scheduled — Phase 2 (two alert channels: in-app + an out-of-band webhook
-  that doesn't depend on the DB-backed email queue), Phase 3 (claim
+  chapter. **Open next:** Phase 2 (two alert channels: in-app + an
+  out-of-band webhook that doesn't depend on the DB-backed email queue) is
+  scheduled inside launch Phase 16, as the vehicle for readiness row 8's
+  stopped-or-wedged alert (#628 amendment v8, 2026-10-27); Phases 3–4 are
+  not yet scheduled — Phase 3 (claim
   fencing so a rare duplicate paid call is preferred over ever losing work),
   Phase 4 (the enqueue primitive moves to `onConflictDoNothing`).
 - **Loop ledger backfilled + a CI guard against future gaps** (PR #286, rows
