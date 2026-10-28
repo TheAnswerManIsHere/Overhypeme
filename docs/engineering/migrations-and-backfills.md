@@ -226,7 +226,10 @@ new one changes no database's shape. Existing databases never read it.
   a **`SNAPSHOT_EXEMPT_TAGS`** workaround plus **hand-written idempotent SQL**
   (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, etc.). Do not assume
   `drizzle-kit generate` will produce a clean snapshot; follow the existing
-  hand-authored pattern and check recent migrations for the convention.
+  hand-authored pattern and check recent migrations for the convention. The
+  guards would be needed even with a working generator: on production,
+  Replit's publish migration may already have applied the DDL
+  (*How a database receives a change*, above).
 - Run `migrate` against the local public schema, then re-clone the test schema
   (`run-test.sh --setup`) so tests see the updated shape (see the api-context
   memory + `docs/tests/TESTING.md`).
@@ -269,7 +272,9 @@ permanent alongside everything else in the file.
 
 Every migration and backfill must be **safe to run more than once**:
 
-- DDL: `IF NOT EXISTS` / `IF EXISTS` guards.
+- DDL: `IF NOT EXISTS` / `IF EXISTS` guards. Production's first run can find
+  the work already done by Replit's publish migration (*How a database
+  receives a change*, above).
 - Backfills: only touch rows that still need it (filter on the target state), so a
   re-run is a no-op for already-done rows.
 - Reference example: `taxonomyHealth/projectionRepair.ts` rewrites only the four
