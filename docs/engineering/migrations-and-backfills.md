@@ -138,6 +138,10 @@ database's state, never by a flag:
   ([`replit-environment.md`](../ai-context/replit-environment.md), settled
   2026-08-09); what it applies is a migration file run by the runner, and it
   reaches `main` through a pull request like every other change.
+- **A rehearsal restore builds no environment.** The upgrade rehearsal
+  (*Tests*, below) restores the frozen dev snapshot into a scratch database to
+  prove the migrations, and the scratch database is dropped (unless `--keep`);
+  nothing serves from it.
 - **A test runner's clone is a cache, not a route.** The api-server runners
   copy the structure of a test database that `migrate` has just built (the
   per-worker template databases, `run-test.sh`'s cached schema;
