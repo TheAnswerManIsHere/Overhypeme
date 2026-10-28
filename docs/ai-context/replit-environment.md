@@ -3,8 +3,9 @@
 Replit is where the app actually runs — dev and production both. It executes
 each PR's post-merge verification checks (see
 [`test-run-contract.md`](../tests/test-run-contract.md)), and it also
-diagnoses and repairs problems it finds there directly against the running
-environment, including database migrations. This file is the shared,
+diagnoses and verifies problems it finds there directly against the running
+environment, including database migrations (a schema repair is still a
+migration file, landed through a pull request: [`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)). This file is the shared,
 cross-agent account of how that access actually works and what it means for
 how the rest of us treat its output. Sibling to
 [`codex-environment.md`](codex-environment.md); AGENTS.md links both under
@@ -195,11 +196,11 @@ row that should violate it, confirm the rollback — in a way neither Codex nor
 Claude Code can from a diff. Migration 0098 (2026-08-09, restoring
 `facts_active_requires_concept` after a `drizzle-kit push` had silently
 dropped it — see the `known-failure-patterns.md` entry) is the example this
-was decided against: correct, verified live, and faster than routing it
-through a PR loop would have been. Do not propose gating this path; David
-settled it on 2026-08-09. What it applies is a migration file run by the
-runner, and that file reaches `main` through a pull request like any other
-([`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
+was decided against on 2026-08-09: correct, verified live, and faster than
+routing it through a PR loop would have been. **What survives 2026-10-03** is
+the live verification, which no one should propose gating; the file itself is a
+migration run by the runner, and it reaches `main` through a pull request like
+any other ([`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 
 ## The fast lane: David's own UI tweaks during UAT (David, 2026-08-28)
 
@@ -289,6 +290,10 @@ mechanisms determine what that workspace contains:
   pulled files, locally committed files, and any locally uncommitted files
   are all included — and builds/deploys that snapshot. It does not re-check
   GitHub as part of publishing.
+
+**Publish may offer to apply dev's schema differences to production.** The
+answer is to keep production as it is: the published app migrates itself at
+boot ([`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 
 So the only safe release sequence is: GitHub push to `main` → **manually**
 trigger the Repl sync (`git pull`, or the Git pane's Pull/Sync Changes
