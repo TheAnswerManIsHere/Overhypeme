@@ -15,8 +15,8 @@
  *      setting's row.
  *   3. A re-run is a no-op that captures nothing.
  *
- * The test database is built by a schema push before migrate, so the dropped
- * objects are already absent here. The migration case recreates them first,
+ * The test database is built from the schema baseline, whose cutoff is past
+ * 0110, so the dropped objects are already absent here. The migration case recreates them first,
  * which is the state the Repl's dev database is in when 0110 runs there.
  */
 

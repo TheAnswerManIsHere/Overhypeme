@@ -15,7 +15,7 @@
  * backend other than the local double. A failed load is not resumed; the
  * target is disposable and is recreated.
  *
- * Order (plan D7): schema push → migrations → THIS → the E2E account seed →
+ * Order (plan D7): migrations (from the schema baseline) → THIS → the E2E account seed →
  * boot. The account seed comes after because `applyAdminGrant` inserts
  * identity-keyed rows that would collide with the fixture's ids.
  */

@@ -8,8 +8,8 @@
  *   2. Migration 0109 drops route_stats and route_stat_events, and a re-run is
  *      a no-op.
  *
- * The test database is built by a schema push before migrate, so both tables
- * are already absent here. The migration case recreates them first, which is
+ * The test database is built from the schema baseline, whose cutoff is past
+ * 0109, so both tables are already absent here. The migration case recreates them first, which is
  * the state the Repl's dev database is in when 0109 runs there.
  */
 

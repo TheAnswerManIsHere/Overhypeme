@@ -1,9 +1,9 @@
 # Migrations and Backfills
 
 > Safe schema and data-change practices. Schema lives in `lib/db/src/schema/*.ts`
-> (Drizzle). Apply locally with `pnpm --filter @workspace/db run migrate`, which
-> builds an empty database from the schema baseline and upgrades one that carries
-> its ledger; no schema push runs (Launch Phase 3, #770). Verify with the test runners in
+> (Drizzle). Apply locally with `pnpm --filter @workspace/db run migrate`; how
+> every database is built and changed is *How a database receives a change*,
+> below. Verify with the test runners in
 > [`TESTING.md`](../tests/TESTING.md).
 
 ## Migration principles
@@ -54,6 +54,147 @@
   succeeds; the replacement `ADD CONSTRAINT` raises a check violation and
   rolls back the whole migration if a row the current, possibly-drifted
   constraint already admitted would fail the tightened one.
+
+## The migration policy: every migration leaves the previous release working
+
+Launch Phase 3, #770 (plan `docs/plans/PLAN_PHASE3_DATA_ENVIRONMENTS.md` §6).
+This section is the rule's only statement; the rest of this file is how to
+write a migration well, and this is what one is allowed to do.
+
+### Why the previous release matters
+
+Migrations run at boot, before the server listens
+(`artifacts/api-server/src/index.ts`: `runMigrations()`, then `ensureSchema()`,
+then `listen()`), and only forward: the runner has no down step. Two things
+follow, and neither needs a fault to happen:
+
+- **During a publish, the old code runs on the new schema.** The deployment is
+  autoscale (`.replit`, `deploymentTarget = "autoscale"`): instances of the new
+  release boot and migrate the one shared database while instances of the
+  previous release are still serving.
+- **Going back to the previous release leaves the schema where it is.**
+  Reverting the code, by any route, puts the old code on the migrated
+  database.
+
+So a migration that only the new code can live with breaks the product for
+the length of every rollout, and makes going back a second outage.
+
+**When it binds: from Seed, the first real user.** Until then the fleet's
+pre-launch latitude holds
+([`agent-working-rules.md`](../ai-context/agent-working-rules.md), *be
+brave*: destructive migrations are fine when simpler), because a broken
+rollout harms no one: a contract may ship in the same release as the code
+that stops using it. What binds now is the rest of this section: a migration
+is right on both paths a database takes, and nothing is built any other way.
+
+### Expand, then contract
+
+- **Expand — any release.** Add a table; add a column that is nullable or has
+  a default; add an index; add an enum label (by the recast below); add a
+  constraint **only if every write the previous release makes already
+  satisfies it**. Insert or update config rows the previous release ignores or
+  reads compatibly. The code that uses the new shape ships with it.
+- **Contract — a later release, in its own migration.** Drop a table or
+  column, rename one, make a column `NOT NULL`, narrow a type, remove an enum
+  label, or tighten a constraint the previous release can violate — only once
+  the release currently published neither reads nor writes what is removed.
+  A rename is therefore three steps over at least two releases: add the new
+  name and write both, switch reads to the new one, then drop the old one.
+- **A backfill tolerates the previous release.** Rows the old code writes
+  after the migration ran are one more row state in the matrix (*Migration
+  principles*): the new code reads them correctly, or a later idempotent pass
+  converts them.
+- **A migration says which it is.** The PR body names each migration as
+  expand or contract; a contract names the published release that stopped
+  using what it removes.
+
+### How a database receives a change
+
+The runner (`lib/db/src/migrate.ts`, under its advisory lock) decides by the
+database's state, never by a flag:
+
+| Database at boot | What it receives |
+|---|---|
+| empty: no tables in the schema, no ledger | the baseline (`lib/db/migrations/baseline/`), the ledger rows of every migration up to its cutoff, in one transaction; then every later migration |
+| ledger present | its pending migrations only, in journal order, each in its own transaction |
+| tables but no ledger | **refused**, with the reason; the server does not start |
+
+- **A new migration must be right on both paths.** On a fresh database it
+  runs on top of the baseline: every earlier migration's structure and seed
+  rows, and no product rows. On a long-lived one it runs on whatever rows
+  that database holds. CI's `Test` job builds fresh;
+  `lib/db/src/baseline.test.ts` upgrades the historical reference; the
+  upgrade rehearsal (*Tests*, below) runs it over real dev data.
+- **No database is built or changed any other way.** `drizzle-kit push`
+  never runs (`.claude/settings.json` denies it; `baseline.test.ts` fails on a
+  script that invokes it), and no database's schema or rows are copied into
+  another to stand in for its migrations: the dev-to-production copy tools
+  were deleted when production became code-built (`decisions.md`,
+  2026-10-28). When Replit's publish offers to apply dev's schema differences
+  to production, the answer is to keep production as it is: the published app
+  migrates itself at boot.
+- **A live repair is still a migration.** Replit Agent may repair a schema
+  problem against the running environment
+  ([`replit-environment.md`](../ai-context/replit-environment.md), settled
+  2026-08-09); what it applies is a migration file run by the runner, and it
+  reaches `main` through a pull request like every other change.
+- **A superuser runbook is the one change made outside the runner,** and only
+  for what the runner cannot do by design: a privilege boundary above the
+  application role (*Migration principles*, above;
+  [`ncmec-audit-ledger-hardening.md`](./ncmec-audit-ledger-hardening.md)). It
+  creates roles and changes ownership and grants, never tables, columns or rows.
+- **A rehearsal restore builds no environment.** The upgrade rehearsal
+  (*Tests*, below) restores the frozen dev snapshot into a scratch database to
+  prove the migrations, and the scratch database is dropped (unless `--keep`);
+  nothing serves from it.
+- **A test runner's clone is a cache, not a route.** The api-server runners
+  copy the structure of a test database that `migrate` has just built (the
+  per-worker template databases, `run-test.sh`'s cached schema;
+  [`TESTING.md`](../tests/TESTING.md)). The source is migration-built in the
+  same run, so the copy stands in for nothing. It is never taken from dev or
+  production.
+- **A hand-written constraint or index needs no `schema.ts` shadow to
+  survive.** That rule existed because a push rebuilt databases from the
+  TypeScript schema and dropped what only a migration created; no push runs
+  now. Declaring the object in `schema.ts` remains good practice for
+  readability, and `baseline.test.ts` holds tables and columns (not indexes or
+  checks) to parity with the TypeScript schema.
+
+### Cutting a new baseline
+
+The baseline is a cache of the history: the catalog and seed rows every
+migration up to its cutoff produces. A fresh database built from it, then
+upgraded, equals one built from an older baseline, then upgraded, so cutting a
+new one changes no database's shape. Existing databases never read it.
+
+- **When.** Only for a reason the PR names: the migrations after the cutoff
+  have made fresh builds (CI, every test database, acceptance) measurably
+  slower, or a post-cutoff migration does expensive work a fresh database
+  should not repeat. Never on a schedule, and never inside a PR that also
+  changes a migration or the schema.
+- **How.** Its own PR, holding only the regenerated
+  `lib/db/migrations/baseline/` (`baseline.sql`, `baseline.json`):
+
+  ```
+  DATABASE_URL=postgres://<local superuser>/… pnpm --filter @workspace/db exec tsx scripts/generate-baseline.ts
+  ```
+
+  The generator (`lib/db/scripts/generate-baseline.ts`) takes the journal head
+  as the new cutoff, builds the structure by upgrading the historical
+  reference (`lib/db/baseline-reference/`) through the real runner, takes the
+  seed rows from a full replay, and runs no push. It refuses a deployment.
+- **Never by hand.** `baseline.sql` is never edited: `migrate.ts` checks its
+  sha256 against `baseline.json` and refuses a mismatch. The historical
+  reference is never regenerated or replaced; it is dev's real catalog and
+  ledger before Phase 3, and the standing check upgrades it to the baseline.
+- **Every migration file stays.** A fresh database's ledger rows carry the
+  sha256 of each migration file up to the cutoff, read from the file, so no
+  migration is deleted or squashed when the cutoff moves past it.
+- **Verified by:** `baseline.test.ts` (the reference upgraded equals the
+  baseline's catalog; the baseline holds every object the full history
+  creates; a migration after the cutoff still runs), the full `Test` job on a
+  fresh build, and a `baseline.sql` diff that shows only the folded-in
+  migrations' objects and rows plus the seed rows' generation timestamps.
 
 ## Drizzle conventions
 
@@ -176,6 +317,9 @@ reference). Silent bulk mutation is a bug.
 
 ## PR checklist
 
+- [ ] Each migration is named expand or contract, and leaves the previous
+      release working (*The migration policy*); a contract names the release
+      that stopped using what it removes.
 - [ ] Schema change uses idempotent, hand-authored SQL (generator caveat).
 - [ ] Local `migrate` applied; test schema re-cloned.
 - [ ] Backfill is idempotent and filters to rows that need it.

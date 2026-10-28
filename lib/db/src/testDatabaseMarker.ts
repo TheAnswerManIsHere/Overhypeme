@@ -7,7 +7,7 @@
  * service database, `scripts/setup-test-db.sh`'s local cluster, a database a CI
  * step has just created) — never against an ambient `DATABASE_URL`. Every
  * destructive or test-only operation reads it and refuses without it:
- * `push-force`, the api-server test runners, the E2E account seed and the
+ * the api-server test runners, the E2E account seed and the
  * production-mode launcher.
  *
  * Why a marker in the database rather than a rule about its name or host
@@ -20,8 +20,8 @@
  *
  * The setting is read from the catalog (`pg_db_role_setting`), not through
  * `current_setting()`, so a connection string carrying `options=-c ...` cannot
- * claim it. `drizzle-kit push` does not touch database-level settings, so the
- * marker survives every schema push. It is NOT copied by `CREATE DATABASE ...
+ * claim it. Migrations do not touch database-level settings, so the marker
+ * survives every migration. It is NOT copied by `CREATE DATABASE ...
  * TEMPLATE`; nothing checks the per-worker clones, whose creator is the runner.
  */
 import pg from "pg";

@@ -1606,10 +1606,10 @@ describe("migration 0097 — database behaviour (skipped when DATABASE_URL is un
    * database.
    *
    * Without this the "re-runnable" test proves nothing about the transition that actually
-   * matters: the suite's lifecycle runs `push-force` then `migrate`, so the database is
+   * matters: the suite's database is built from the schema baseline, so it is
    * already at 0097 before the first line of any test — every application is a no-op over
    * objects that were there when it started. A missing `ADD COLUMN`, or an ordering failure
-   * masked by an object Drizzle's push created, would sail past both the column assertions
+   * masked by an object the baseline already holds, would sail past both the column assertions
    * and a two-run rerun check.
    */
   async function rewindTo0094(client: PoolClient): Promise<void> {

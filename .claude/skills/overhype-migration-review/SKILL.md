@@ -26,8 +26,10 @@ processing signatures, or bulk data reprocessing).
   skipped/no-op counts; surface async work with per-item + aggregate status.
 - **Human-decision preservation.** Bulk jobs must not silently overwrite manual
   overrides (mirror `factEnrichmentBackfillJob`'s skip-unless-forced).
-- **Tests or clear manual verification** for high-risk data changes: apply →
-  `run-test.sh --setup` → run affected tests; assert idempotency (twice == once).
+- **Tests or clear manual verification** for high-risk data changes: `migrate` →
+  `run-test.sh --setup` (a cache of the migrated schema:
+  [`migrations-and-backfills.md`, *How a database receives a change*](../../../docs/engineering/migrations-and-backfills.md#how-a-database-receives-a-change))
+  → run affected tests; assert idempotency (twice == once).
 - **No destructive ops** (drops, irreversible rewrites) unless the plan explicitly
   includes recovery/rollback. Prefer additive changes.
 

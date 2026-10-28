@@ -98,7 +98,7 @@ before(async () => {
   await cleanup();
 
   // Seed admin_config rows in case the migration hasn't been applied to the
-  // test DB (drizzle-kit push doesn't run our migration SQL). Idempotent.
+  // test DB. Idempotent.
   const seeds: Array<[string, string]> = [
     ["share_copy_twitter_template",         "{fact_text}"],
     ["share_copy_twitter_hashtags",         "overhype,legendsaremadeup"],

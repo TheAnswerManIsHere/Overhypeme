@@ -13,6 +13,37 @@
 
 ---
 
+### 2026-10-28 · The dev-to-production copy is retired; every database is built and changed by its migrations
+- **Decision:** copying one database into another is no longer a route for
+  building or updating any environment. The two copy tools are deleted:
+  `scripts/db-sync-prod.mjs` (dev → production, through admin dump and restore
+  routes that no longer exist in the server) and the root `package.json`'s
+  `db:pull-prod` and `db:pull-prod:schema-only` (production → dev). Every
+  database is built from the schema baseline and changed only by migrations
+  that leave the previous release working
+  ([`migrations-and-backfills.md`](../engineering/migrations-and-backfills.md),
+  *The migration policy*).
+- **What this does to the 2026-08-28 entry below:** its copy route is closed
+  from today. Its other half, that production's product data is disposable
+  until launch with four excluded row classes, still holds, because one act
+  still rests on it: the production reset in Launch Phase 3's increment 8,
+  which replaces production with a code-built database through the excluded-
+  classes sequence (plan `docs/plans/PLAN_PHASE3_DATA_ENVIRONMENTS.md` §5,
+  §7). **That reset fulfils the 2026-08-28 decision and closes it**; from then
+  on production holds real data and nothing replaces it.
+- **Why:** production is now built from code (Phase 3, increments 2 to 4), so
+  a copy is no longer the clean migration path the 2026-08-28 entry called it:
+  it would carry dev's ledger, operator values and test rows into a database
+  whose shape the runner already owns. After Seed, production holds real
+  users' data, which dev must not receive, so `db:pull-prod` becomes a privacy
+  leak rather than a debugging aid. A tool kept "for emergencies" is a route
+  someone takes.
+- **Reference:** #770; plan §6; PR #772 (the baseline and the runner's state
+  rules); `lib/db/src/migrate.ts`.
+- **Revisit if:** a debugging need for production data arises after Seed. It
+  is met by a scrubbed, purpose-built export reviewed as its own change, never
+  by restoring either tool.
+
 ### 2026-10-27 · Launch readiness row 8 names its alert sources and is proven by injected faults
 - **Decision:** row 8 of the launch readiness table requires alerts from five
   named sources — an unhandled error, the site down, a background job stopped
@@ -836,7 +867,7 @@
 
 ---
 
-### 2026-08-28 · Pre-launch, the dev database is the source of truth — production data is disposable
+### 2026-08-28 · Pre-launch, the dev database is the source of truth — production data is disposable — copy route closed by the 2026-10-28 entry above
 - **Decision:** Until launch, production's *product* data — facts, memes, users,
   membership rows — carries no value and may be replaced by a copy of the
   development database (David, 2026-08-28, during the deploy that shipped the

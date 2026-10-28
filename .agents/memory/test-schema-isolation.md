@@ -21,10 +21,13 @@ which isolate differently:
   single **cached** `heliumdb_test` schema, re-cloned from `public` only when
   stale or when `--setup` is passed. This is the inner-loop runner, not the gate.
 
-Only structure is cloned — **no data**. Tests create the rows they need.
+Only structure is cloned — **no data**. Tests create the rows they need. The
+source is the test database's own `public` schema, which `migrate` built first
+(the runner's own header says to run `migrate`, then `--setup`), so the clone is a cache, never a copy of dev
+([`migrations-and-backfills.md`, *How a database receives a change*](../../docs/engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 
 ## Production guard
-Both runners refuse to run against `heliumdb` (Overhype's prod *and* dev DB) or
+Both runners refuse to run against `heliumdb` (the Repl's dev database; production is a separate database) or
 with `NODE_ENV=production`. Point `DATABASE_URL` at the test DB (`heliumdb_test`
 on Replit via `TEST_DATABASE_URL`, `overhype_test` in CI/sandbox).
 

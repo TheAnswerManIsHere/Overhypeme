@@ -712,6 +712,15 @@ re-gather it when the work is scheduled.
 
 - **No CI guard against a migration's raw-SQL DDL missing its `schema.ts`
   shadow (found on PR #425's `/document` harvest review).**
+  - **CLOSED (Launch Phase 3, increment 6, 2026-10-28): the hazard is gone.**
+    It existed because a schema push rebuilt databases from `schema.ts` and
+    dropped what only a migration created; no push runs anywhere now
+    ([`migrations-and-backfills.md`, *How a database receives a change*](./migrations-and-backfills.md#how-a-database-receives-a-change)).
+    The blocking half below was met by increment 2 (PR #772): the baseline is
+    taken from a migrated database, `0112` restored the thirteen objects
+    pushes had stripped, and `lib/db/src/baseline.test.ts` fails if the
+    baseline lacks any object the full migration history creates. The rest of
+    this entry is history.
   - **Launch plan placement (David, 2026-10-12; widened 2026-10-13): split.** **Blocking, Phase 3, before the schema baseline is cut:** the baseline must reproduce every migration-only object — the ten gaps below (declare each, or give it a reasoned exemption) **and** the seven deliberately unshadowed objects listed above (six partial indexes and `uim_source_object_path_fk`), through a raw-SQL supplement or a baseline taken from a migrated database. A baseline generated from `schema.ts` alone would open Seed without them (Codex, #661). Production is safe today (`runMigrations()` at boot), but test databases built by `push-force` already lack all seventeen. The CI guard itself is not blocking: Phase 3 if it fits, otherwise the next tooling pass. All ten gaps were confirmed still missing from `lib/db/src/schema/` at `92024f3`.
   - **What.** [`raw-sql-migration-needs-schema-shadow.md`](../../.agents/memory/raw-sql-migration-needs-schema-shadow.md)
     documents the pattern — a migration's hand-written `CREATE INDEX`,

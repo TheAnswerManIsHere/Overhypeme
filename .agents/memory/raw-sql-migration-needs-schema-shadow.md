@@ -1,7 +1,15 @@
 ---
-name: Raw-SQL migration additions need a matching schema.ts declaration
-description: Why a hand-written migration's CHECK constraint or index can silently vanish from a drizzle-kit push–built database, and how to keep the two in sync.
+name: Raw-SQL migration additions needed a matching schema.ts declaration (retired with schema push)
+description: History. While a schema push built databases, a hand-written migration's CHECK constraint or index could vanish from a push-built database unless schema.ts declared it. No push runs since Launch Phase 3 (#770), so the rule is retired.
 ---
+
+> **Retired, 2026-10-28 (Launch Phase 3, increment 6, #770).** No schema push
+> runs anywhere: every database is built by the migration runner from the
+> schema baseline ([`migrations-and-backfills.md`, *How a database receives a
+> change*](../../docs/engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
+> A migration-only object therefore survives without a `schema.ts` shadow, and
+> the shadowing rule below no longer binds. Everything after this box is the
+> history of why it existed; read its present tense as of 2026-10-12.
 
 # A hand-authored migration's DDL needs a schema.ts shadow, or `push` and `migrate` diverge
 

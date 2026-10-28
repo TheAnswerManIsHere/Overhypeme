@@ -38,9 +38,8 @@ loader. Adding `--import tsx/esm` fixes the loader but still bypasses the
 wrappers, which is the dangerous case above.)
 
 The full-suite command runs its own `pretest`, which runs the test-database
-guard, `migrate` (an empty database is built from the schema baseline, one that
-carries its ledger gets its pending migrations — Launch Phase 3, #770; no schema
-push runs anywhere), codegen, and the api-zod build for you — so you don't need to
+guard, `migrate` (how it builds or upgrades a database:
+[`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)), codegen, and the api-zod build for you — so you don't need to
 run those by hand for a normal full run. You *may* run the schema step explicitly
 after schema work when you want to validate it directly:
 
@@ -196,11 +195,13 @@ status is reported. The image preview bench must **not** read the production
 `aiScenePrompts` cache (tests assert this) — see
 `.agents/memory/image-prompt-preview-parity.md`.
 
-**Migration / backfill tests** — Apply the migration to the local public schema,
+**Migration / backfill tests** — Run `migrate` against the local public schema,
 re-clone the test schema (`run-test.sh --setup`), then run the affected tests.
 Backfills should be tested for **idempotency** (run twice == once) and for
 old/partial/failed/skipped/no-op rows. See
-[`migrations-and-backfills.md`](./migrations-and-backfills.md).
+[`migrations-and-backfills.md`](../engineering/migrations-and-backfills.md) (how a
+database receives a change, and why the re-clone is only a cache:
+[*How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 
 **Regression fixtures** — When you fix a bug, add a regression case that proves
 the **general** invariant. Tokenizer/grammar regressions in particular should
@@ -460,8 +461,8 @@ A confirmed mismatch refuses the boot before the port opens; an unreadable
 setting leaves payments unavailable until a retry reads it. The fake setting has
 one writer, which only creates, and creates **empty** (`TEMPLATE template0`; it
 refuses an existing name), so a database with real-Stripe history can never
-carry it: nothing is copied from anywhere. The schema, migrations and accounts
-come from the same fill every test database gets. To run locally (with
+carry it: nothing is copied from anywhere. Its schema (by `migrate`, from the baseline)
+and accounts come from the same fill every test database gets. To run locally (with
 `DATABASE_URL` naming the marked test database, the proof this is a disposable
 server):
 
@@ -562,7 +563,8 @@ cd artifacts/api-server && DATABASE_URL=<a marked test database> \
   pnpm exec tsx scripts/acceptance-run.ts --mode acceptance [--variant fresh|fixture|both] [--report-dir <dir>]
 ```
 
-Each variant gets a fresh marked database (schema push, migrations); the
+Each variant gets a fresh marked database, built by `migrate` from the schema
+baseline; the
 fixture variant then loads the committed legacy fixture and pins the three AI
 prompt rows (`fact_enrichment_system`, `fact_visual_concepts_system`,
 `fact_image_prompt_system`) to the code defaults, so one recording set serves

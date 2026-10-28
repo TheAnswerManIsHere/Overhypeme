@@ -1,8 +1,8 @@
 /**
  * The baseline runner (Launch Phase 2, increments 4 and 6, #631; plans
  * `PLAN_PHASE2_INC4_AI_DOUBLES.md` D6/D7 and `PLAN_PHASE2_INC6_ACCEPTANCE.md`).
- * One scaffold, every mode: a fresh marked database per variant (schema push,
- * migrations), then the inner program (`src/testing/acceptance/inner.ts`) —
+ * One scaffold, every mode: a fresh marked database per variant (built by the
+ * migration runner from the schema baseline), then the inner program (`src/testing/acceptance/inner.ts`) —
  * the committed legacy fixture and the prompt pins for the fixture variant,
  * the account seed, the server booted from a constructed environment through
  * its launcher, journeys 2, 3, 4 and 7 — then the evidence report, and the database and

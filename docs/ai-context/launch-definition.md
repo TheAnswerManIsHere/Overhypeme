@@ -249,7 +249,8 @@ application is deployed does not satisfy row 3.
   ([`legal-safety-moderation.md`](./legal-safety-moderation.md)).
 - The 2026-08-28 disposable-production decision, its four excluded row classes
   and its inversion at launch (the fresh production database of Seed is that
-  inversion).
+  inversion). Its dev-to-production copy route is closed: production is built
+  from code and replaced once, by Phase 3's reset (`decisions.md`, 2026-10-28).
 - Codex review and the write-gate on every product PR; a UAT per phase.
 - No new external vendors without David; PostHog and Turnstile are approved.
 

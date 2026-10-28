@@ -5,7 +5,7 @@ description: Before #670, in a fresh cloud container, scripts/setup-test-db.sh (
 
 ## Symptom
 
-Every api-server test run, and `pnpm --filter @workspace/db push-force`, refuses with:
+Every api-server test run, and `pnpm --filter @workspace/db run require-test-db`, refuses with:
 
     [require-test-db] refusing: could not read the test-database marker (connect ECONNREFUSED 127.0.0.1:5432)
 
@@ -24,8 +24,8 @@ before the cluster is started. (Measured 2026-10-13, #566's session.)
 
     apt-get update -qq && bash scripts/setup-test-db.sh
 
-The script is idempotent; the second run creates the role and database, pushes
-the schema, applies migrations and marks the database.
+The script is idempotent; the second run creates the role and database, builds
+the schema by migration and marks the database.
 
 ## Fixed upstream
 
