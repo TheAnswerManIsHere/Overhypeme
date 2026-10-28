@@ -65,8 +65,10 @@ write a migration well, and this is what one is allowed to do.
 
 Migrations run at boot, before the server listens
 (`artifacts/api-server/src/index.ts`: `runMigrations()`, then `ensureSchema()`,
-then `listen()`), and only forward: the runner has no down step. Two things
-follow, and neither needs a fault to happen:
+then `listen()`), and only forward: the runner has no down step. On
+production, Replit's own publish migration changes the schema even earlier,
+when the publish is approved (*How a database receives a change*, below). Two things follow, and neither
+needs a fault to happen:
 
 - **During a publish, the old code runs on the new schema.** The deployment is
   autoscale (`.replit`, `deploymentTarget = "autoscale"`): instances of the new
@@ -85,14 +87,16 @@ pre-launch latitude holds
 brave*: destructive migrations are fine when simpler), because a broken
 rollout harms no one: a contract may ship in the same release as the code
 that stops using it. What binds now is the rest of this section: a migration
-is right on both paths a database takes, and nothing is built any other way.
+is right on both paths a database takes, and nothing is built any other way
+(*How a database receives a change*, below, names the exceptions).
 
 ### Expand, then contract
 
 - **Expand — any release.** Add a table; add a column that is nullable or has
   a default; add an index; add an enum label (by the recast below); add a
-  constraint **only if every write the previous release makes already
-  satisfies it**. Insert or update config rows the previous release ignores or
+  constraint **only if every write the previous release makes, and every row
+  production already holds, satisfies it** (Replit adds it validated at
+  publish, so a breaking row fails the publish). Insert or update config rows the previous release ignores or
   reads compatibly. The code that uses the new shape ships with it.
 - **Contract — a later release, in its own migration.** Drop a table or
   column, rename one, make a column `NOT NULL`, narrow a type, remove an enum
@@ -125,20 +129,38 @@ database's state, never by a flag:
   that database holds. CI's `Test` job builds fresh;
   `lib/db/src/baseline.test.ts` upgrades the historical reference; the
   upgrade rehearsal (*Tests*, below) runs it over real dev data.
-- **No database is built or changed any other way.** `drizzle-kit push`
-  never runs (`.claude/settings.json` denies it; `baseline.test.ts` fails on a
-  script that invokes it), and no database's schema or rows are copied into
-  another to stand in for its migrations: the dev-to-production copy tools
-  were deleted when production became code-built (`decisions.md`,
-  2026-10-28). When Replit's publish offers to apply dev's schema differences
-  to production, the answer is to keep production as it is: the published app
-  migrates itself at boot.
+- **No database is built any other way.** `drizzle-kit push` never runs
+  (`.claude/settings.json` denies it; `baseline.test.ts` fails on a script that
+  invokes it), and no database's schema or rows are copied into another to
+  stand in for its migrations: the dev-to-production copy tools were deleted
+  when production became code-built (`decisions.md`, 2026-10-28).
+- **Replit's publish changes production's schema before the runner does.**
+  At publish, Replit compares dev's catalog with production's, generates one
+  migration of its own, and applies it when the publish is approved; the new
+  release then boots and runs the runner (measured at the publish of
+  2026-10-28: Replit's generated SQL added 0112's checks, foreign keys and
+  indexes, then the boot recorded 0111–0113 and performed only 0111's two
+  renames; #770). Three things follow:
+  - **At the prompt, approve Replit's generated migration.** Where it offers
+    readings of an ambiguous difference, choose the one that keeps data: a
+    rename over drop-and-add, keep a column over delete. Cancel blocks the
+    publish; there is no "keep production as it is" (`decisions.md`,
+    2026-10-28).
+  - **Every migration's DDL must find its own work already done and skip
+    it** (`IF NOT EXISTS`, "old present and new absent"), because on
+    production Replit may have applied it first. Its data steps still run:
+    Replit's diff carries structure, not the rows a migration inserts or
+    rewrites.
+  - **Replit adds a constraint validated**, never `NOT VALID`, so a
+    production row that breaks a new check fails the publish. A migration
+    that tightens a rule on populated data repairs or counts the breaking
+    rows in an earlier release.
 - **A live repair is still a migration.** Replit Agent may repair a schema
   problem against the running environment
   ([`replit-environment.md`](../ai-context/replit-environment.md), settled
   2026-08-09); what it applies is a migration file run by the runner, and it
   reaches `main` through a pull request like every other change.
-- **A superuser runbook is the one change made outside the runner,** and only
+- **A superuser runbook is the one change we make outside the runner,** and only
   for what the runner cannot do by design: a privilege boundary above the
   application role (*Migration principles*, above;
   [`ncmec-audit-ledger-hardening.md`](./ncmec-audit-ledger-hardening.md)). It
@@ -204,7 +226,10 @@ new one changes no database's shape. Existing databases never read it.
   a **`SNAPSHOT_EXEMPT_TAGS`** workaround plus **hand-written idempotent SQL**
   (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, etc.). Do not assume
   `drizzle-kit generate` will produce a clean snapshot; follow the existing
-  hand-authored pattern and check recent migrations for the convention.
+  hand-authored pattern and check recent migrations for the convention. The
+  guards would be needed even with a working generator: on production,
+  Replit's publish migration may already have applied the DDL
+  (*How a database receives a change*, above).
 - Run `migrate` against the local public schema, then re-clone the test schema
   (`run-test.sh --setup`) so tests see the updated shape (see the api-context
   memory + `docs/tests/TESTING.md`).
@@ -247,7 +272,9 @@ permanent alongside everything else in the file.
 
 Every migration and backfill must be **safe to run more than once**:
 
-- DDL: `IF NOT EXISTS` / `IF EXISTS` guards.
+- DDL: `IF NOT EXISTS` / `IF EXISTS` guards. Production's first run can find
+  the work already done by Replit's publish migration (*How a database
+  receives a change*, above).
 - Backfills: only touch rows that still need it (filter on the target state), so a
   re-run is a no-op for already-done rows.
 - Reference example: `taxonomyHealth/projectionRepair.ts` rewrites only the four
@@ -320,7 +347,12 @@ reference). Silent bulk mutation is a bug.
 - [ ] Each migration is named expand or contract, and leaves the previous
       release working (*The migration policy*); a contract names the release
       that stopped using what it removes.
-- [ ] Schema change uses idempotent, hand-authored SQL (generator caveat).
+- [ ] Schema change uses idempotent, hand-authored SQL: every DDL step finds
+      its own work done and skips it, since Replit's publish migration may
+      have applied it first (*How a database receives a change*), and the
+      generator is broken besides.
+- [ ] A new constraint holds for every row production already has, or the
+      breaking rows are repaired or counted in an earlier release.
 - [ ] Local `migrate` applied; test schema re-cloned.
 - [ ] Backfill is idempotent and filters to rows that need it.
 - [ ] Human/admin-edited data is preserved (skip-unless-forced).

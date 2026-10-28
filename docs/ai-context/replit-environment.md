@@ -291,9 +291,14 @@ mechanisms determine what that workspace contains:
   are all included — and builds/deploys that snapshot. It does not re-check
   GitHub as part of publishing.
 
-**Publish may offer to apply dev's schema differences to production.** The
-answer is to keep production as it is: the published app migrates itself at
-boot ([`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
+**Publish applies a schema migration of its own to production.** When dev's
+catalog differs from production's, Replit generates one migration and offers
+**Approve and publish**, **Create preview deploy** or **Cancel**; it asks per
+difference only when a difference is ambiguous. Approve it, choosing the
+reading that keeps data where it offers several; the app's guarded migrations
+then reconcile the ledger at boot. There is no "keep production as it is"
+(David, 2026-10-28;
+[`migrations-and-backfills.md`, *How a database receives a change*](../engineering/migrations-and-backfills.md#how-a-database-receives-a-change)).
 
 So the only safe release sequence is: GitHub push to `main` → **manually**
 trigger the Repl sync (`git pull`, or the Git pane's Pull/Sync Changes
