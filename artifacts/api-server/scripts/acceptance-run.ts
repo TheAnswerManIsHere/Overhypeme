@@ -342,7 +342,6 @@ interface VariantReport {
   coverage: Row[];
   /** AI calls with no recording, so no operation can claim them (see coverage.ts). */
   unattributed: CallRecord[];
-  promptPins?: unknown;
   snapshotPins?: unknown;
   corrupted?: string;
   red: string[];
@@ -458,7 +457,6 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     ...(drive?.setupError ? { setupError: drive.setupError } : {}),
     ...(drive?.control ? { control: drive.control } : {}),
     ...(result.ok === false ? { innerError: redact(String(result.error)).slice(0, 2000) } : {}),
-    ...(result.promptPins ? { promptPins: result.promptPins } : {}),
     ...(result.snapshotPins ? { snapshotPins: result.snapshotPins } : {}),
     ...(result.corrupted ? { corrupted: result.corrupted } : {}),
   };

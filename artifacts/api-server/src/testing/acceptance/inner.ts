@@ -113,33 +113,6 @@ async function probe(cfg: InnerConfig): Promise<Record<string, unknown>> {
   return { database: rows[0]?.db ?? null, localHttp: body };
 }
 
-/** The three AI prompt rows set to the code defaults (David, 2026-10-14, option 2; plan D5). */
-async function pinPrompts(databaseUrl: string): Promise<Array<{ key: string; differed: boolean }>> {
-  process.env.DATABASE_URL = databaseUrl;
-  const { FACT_ENRICHMENT_SYSTEM_DEFAULT } = await import("../../lib/factEnrichmentConfig");
-  const { FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT } = await import("../../lib/visualConceptsConfig");
-  const { FACT_IMAGE_PROMPT_SYSTEM_DEFAULT } = await import("../../lib/imagePromptConfig");
-  const pins: Array<[string, string]> = [
-    ["fact_enrichment_system", FACT_ENRICHMENT_SYSTEM_DEFAULT],
-    ["fact_visual_concepts_system", FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT],
-    ["fact_image_prompt_system", FACT_IMAGE_PROMPT_SYSTEM_DEFAULT],
-  ];
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
-  const out: Array<{ key: string; differed: boolean }> = [];
-  try {
-    for (const [key, value] of pins) {
-      const { rows } = await client.query<{ value: string }>("SELECT value FROM admin_config WHERE key = $1", [key]);
-      if (rows.length === 0) throw new Error(`the fixture has no ${key} row to pin`);
-      await client.query("UPDATE admin_config SET value = $1 WHERE key = $2", [value, key]);
-      out.push({ key, differed: rows[0]!.value !== value });
-    }
-  } finally {
-    await client.end();
-  }
-  return out;
-}
-
 /**
  * The rest of a restored snapshot's state that shapes a recorded request or
  * runs on its own (restoredSnapshot, above): engines back to their code
@@ -229,7 +202,6 @@ async function journeys(cfg: InnerConfig): Promise<Record<string, unknown>> {
   if (cfg.variant === "fixture") {
     run("scripts/load-legacy-fixture.ts", { ...base, ...storage }, "loading the legacy fixture");
   }
-  if (cfg.variant === "fixture" || cfg.restoredSnapshot) out.promptPins = await pinPrompts(cfg.databaseUrl);
   if (cfg.restoredSnapshot) out.snapshotPins = await pinRestoredSnapshot(cfg.databaseUrl);
   run("scripts/seed-e2e-test-accounts.ts", { ...base, BCRYPT_SALT_ROUNDS: "4" }, "seeding the test accounts");
 

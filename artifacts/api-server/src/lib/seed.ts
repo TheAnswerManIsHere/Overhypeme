@@ -8,10 +8,8 @@ import { eq, sql, gt } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
-import { seedScenePromptConfig } from "./scenePromptConfig";
 import { seedFactEnrichmentConfig } from "./factEnrichmentConfig";
 import { seedImagePromptConfig } from "./imagePromptConfig";
-import { seedReferenceResearchConfig } from "./referenceResearchConfig";
 import { seedVisualConceptsConfig } from "./visualConceptsConfig";
 import { logger } from "./logger";
 
@@ -581,11 +579,6 @@ export async function ensureSchema(): Promise<void> {
     }
   }
 
-  // Seed the admin-configurable scene-prompt levers (system prompt, OpenAI
-  // model, temperature, max tokens) with their production defaults. Idempotent
-  // — existing rows / admin edits are preserved.
-  await seedScenePromptConfig();
-
   // Seed the admin-configurable fact-enrichment levers (the visual-taxonomy
   // classifier system prompt, OpenAI model, temperature, max tokens).
   await seedFactEnrichmentConfig();
@@ -593,9 +586,6 @@ export async function ensureSchema(): Promise<void> {
   // Seed the Phase 2 image-prompt admin config (image-prompt + source-classifier
   // system prompts, active classifier engine id).
   await seedImagePromptConfig();
-
-  // Seed the admin Reference Research tool's system prompt.
-  await seedReferenceResearchConfig();
 
   // Seed the Slice-2A candidate Visual-concept levers (concept system prompt +
   // engine id) used to auto-draft three "describe the picture" ideas per fact.

@@ -157,17 +157,11 @@ export function composeImagePromptSystemPrompt(configured: string): string {
 // ─── Getters ───────────────────────────────────────────────────────────────
 
 export async function getImagePromptSystem(): Promise<string> {
-  return getConfigString(
-    IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem,
-    FACT_IMAGE_PROMPT_SYSTEM_DEFAULT,
-  );
+  return FACT_IMAGE_PROMPT_SYSTEM_DEFAULT;
 }
 
 export async function getFactSourceClassifierSystem(): Promise<string> {
-  return getConfigString(
-    IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem,
-    FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT,
-  );
+  return FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT;
 }
 
 export async function getImageClassifierEngineId(): Promise<string> {
@@ -194,11 +188,11 @@ interface ConfigDef {
   description: string;
 }
 
-export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
+/** Their labels and descriptions for the admin screen's read-only rows (codeOwnedPrompts.ts). */
+export const IMAGE_PROMPT_PROMPT_DEFS = [
   {
     key: IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem,
     value: FACT_IMAGE_PROMPT_SYSTEM_DEFAULT,
-    dataType: "text",
     label: "Image Prompt — System Prompt",
     description:
       "LLM system prompt for the render-time image-prompt generator (Phase 2). Produces visualPlan + compiledPrompt + subjectFactCompatibility for Nano Banana 2.",
@@ -206,11 +200,13 @@ export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
   {
     key: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem,
     value: FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT,
-    dataType: "text",
     label: "Source Classifier — System Prompt",
     description:
       "LLM system prompt for the Tier-3 OpenAI Vision fallback classifier. Only fires when Tier-1 (fal detector) + Tier-2 (heuristics) produce ambiguous or low-confidence results.",
   },
+];
+
+export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
   {
     key: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierEngineId,
     value: DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID,

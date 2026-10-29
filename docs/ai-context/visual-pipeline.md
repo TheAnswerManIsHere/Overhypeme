@@ -46,13 +46,15 @@ model receives.** Enrichment is an input, not the prompt (see
    `buildRenderStatusPayload` comment for the historical-row mapping it left behind.)
    The "never blocks" instruction to the planner lives in **two** places that must
    stay in sync: the per-request user-message contract
-   (`generator.ts`'s `buildImagePromptUserMessage()`) and the admin-configurable
-   **system** prompt default (`imagePromptConfig.ts`'s
-   `FACT_IMAGE_PROMPT_SYSTEM_DEFAULT`, key `fact_image_prompt_system`). The system
-   prompt is seeded into `admin_config` with `ON CONFLICT DO NOTHING` — editing the
-   TS constant does **not** reach an already-seeded row; changing that copy needs an
-   idempotent DML migration too (see `0084_strip_stale_compatibility_fallback_rule.sql`,
-   which mirrors the `0082_strip_retired_text_modifiers.sql` pattern).
+   (`generator.ts`'s `buildImagePromptUserMessage()`) and the **system** prompt
+   (`imagePromptConfig.ts`'s `FACT_IMAGE_PROMPT_SYSTEM_DEFAULT`, key
+   `fact_image_prompt_system`). Since Launch Phase 3's amendment 1 the six AI system
+   prompts are **set in code** (`codeOwnedPrompts.ts`): every reader returns the
+   constant, boot no longer seeds them, and the admin screen shows them read-only.
+   Changing the copy is an edit to the constant in a reviewed PR; an `admin_config`
+   row an older database still holds is ignored. (Before that, the rows were seeded
+   `ON CONFLICT DO NOTHING` and a constant edit needed a DML migration too, which is
+   why `0082` and `0084` exist.)
 3. **Compiler** (`compileForSubjectRenderMode()`, Nano Banana 2) → the
    engine-specific `compiledPrompt`.
 4. **Production** (`imagePromptJobs.ts`) renders via fal.ai and persists an attempt

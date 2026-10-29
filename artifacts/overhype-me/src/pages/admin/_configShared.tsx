@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react";
 import {
-  Clock, Check, AlertCircle, Loader2, RotateCcw,
+  Clock, Check, AlertCircle, Loader2,
 } from "lucide-react";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 
@@ -153,6 +153,8 @@ export interface ConfigRow {
   maxValue: number | null;
   isPublic: boolean;
   updatedAt: string;
+  /** Set in code: shown read-only (Launch Phase 3, plan amendment 1). */
+  codeOwned?: boolean;
 }
 
 export interface FieldState {
@@ -366,6 +368,22 @@ export function ConfigInput({
   if (!state) return null;
   const isLong = row.dataType === "text" && !FLOAT_TEXT_CONFIGS.has(configKey);
   const dirty = stdDirty(configKey);
+
+  // The six AI system prompts are set in code (Launch Phase 3, plan amendment 1):
+  // shown here as the code has them, with no way to save.
+  if (row.codeOwned) {
+    return (
+      <div className="space-y-2" data-testid={`code-owned-${configKey}`}>
+        <textarea
+          rows={textRows ?? 3}
+          value={row.value}
+          readOnly
+          className="w-full bg-muted/40 border border-border rounded px-3 py-2 text-sm text-foreground/80 resize-y cursor-default"
+        />
+        <p className="text-xs text-muted-foreground">Set in code. Changing it is a reviewed pull request, not an edit here.</p>
+      </div>
+    );
+  }
   const isDelayMs = DELAY_MS_KEYS.has(configKey);
   const borderClass = "border-border";
 
@@ -450,78 +468,6 @@ export function ConfigInput({
   );
 }
 
-const FACT_ENRICHMENT_SYSTEM_KEY = "fact_enrichment_system";
-
-/**
- * Destructive admin action: replace the stored fact-enrichment system prompt
- * with the current code default. Confirms first,
- * showing current effective source + hash vs the code-default hash so the
- * admin sees exactly what is being replaced (the whole point: DB-backed config
- * can silently diverge from the code default).
- */
-function ResetEnrichmentPromptButton() {
-  const { load } = useConfigCtx();
-  const [busy, setBusy] = useState(false);
-
-  async function onReset() {
-    setBusy(true);
-    try {
-      let detail = "";
-      try {
-        const provRes = await fetch(
-          `/api/admin/config/${FACT_ENRICHMENT_SYSTEM_KEY}/provenance`,
-          { credentials: "include" },
-        );
-        if (provRes.ok) {
-          const p = (await provRes.json()) as {
-            source: string; hash: string; codeDefaultHash: string; matchesCodeDefault: boolean;
-          };
-          detail =
-            `\n\nCurrent effective prompt source: ${p.source}` +
-            `\nCurrent hash: ${p.hash}` +
-            `\nCode default hash: ${p.codeDefaultHash}` +
-            `\n${p.matchesCodeDefault ? "(already matches code default)" : "(differs from code default)"}`;
-        }
-      } catch { /* best-effort; confirm still proceeds */ }
-
-      const ok = window.confirm(
-        "This will replace the stored fact-enrichment system prompt with the current code default. Continue?" +
-          detail,
-      );
-      if (!ok) return;
-
-      const res = await fetch(
-        `/api/admin/config/${FACT_ENRICHMENT_SYSTEM_KEY}/reset-to-default`,
-        { method: "POST", credentials: "include" },
-      );
-      const data = (await res.json()) as { ok?: boolean; hash?: string; error?: string };
-      if (res.ok && data.ok) {
-        load();
-        window.alert(`Fact enrichment prompt reset to code default. New hash: ${data.hash ?? "(unknown)"}.`);
-      } else {
-        window.alert(`Reset failed: ${data.error ?? "unknown error"}`);
-      }
-    } catch {
-      window.alert("Reset failed: network error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <button
-      onClick={onReset}
-      disabled={busy}
-      data-testid="reset-enrichment-prompt"
-      className="text-xs px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 flex items-center gap-1 disabled:opacity-50 shrink-0"
-      title="Replace the stored prompt with the current code default"
-    >
-      {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-      Reset to code default
-    </button>
-  );
-}
-
 export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textareaRows?: number }) {
   const { stdEdits } = useConfigCtx();
   if (!stdEdits[row.key]) return null;
@@ -539,13 +485,16 @@ export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textarea
           {row.description && (
             <p className="text-sm text-muted-foreground mt-0.5">{row.description}</p>
           )}
-          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-            <Clock className="w-3 h-3" />
-            <span>Last updated {new Date(row.updatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
-          </div>
+          {row.codeOwned ? (
+            <div className="mt-1 text-xs text-muted-foreground">Set in code</div>
+          ) : (
+            <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+              <Clock className="w-3 h-3" />
+              <span>Last updated {new Date(row.updatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {row.key === FACT_ENRICHMENT_SYSTEM_KEY && <ResetEnrichmentPromptButton />}
           <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{row.key}</code>
         </div>
       </div>

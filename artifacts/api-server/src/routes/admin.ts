@@ -25,6 +25,7 @@ import {
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
+import { CODE_OWNED_PROMPT_REFUSAL, isCodeOwnedPromptKey, withCodeOwnedPrompts } from "../lib/codeOwnedPrompts";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import {
   validateEnrichment,
@@ -98,12 +99,6 @@ import {
   writeAdminRevocation,
 } from "../lib/membershipSources";
 import { authorizeAdminGrant, authorizeAdminRevocation } from "../lib/entitlementVerification";
-import {
-  FACT_ENRICHMENT_CONFIG_KEYS,
-  FACT_ENRICHMENT_SYSTEM_DEFAULT,
-  resolveFactEnrichmentSystemPrompt,
-  hashPromptText,
-} from "../lib/factEnrichmentConfig";
 import {
   acquireAdminPopulationLock,
   assertAdminPopulationSurvives,
@@ -2619,8 +2614,8 @@ router.get("/config/public", async (_req: Request, res: Response) => {
 
 router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) => {
   try {
-    const rows = await getAllConfig();
-    res.json(rows);
+    // The six code-owned prompts come from code, never from a stale row.
+    res.json(withCodeOwnedPrompts(await getAllConfig()));
   } catch (err) {
     res.status(500).json({ error: "Failed to load config" });
   }
@@ -2694,6 +2689,11 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   // window. The keys are owned by the safety admin surface instead.
   if (isNcmecReservedConfigKey(key)) {
     res.status(403).json({ error: NCMEC_RESERVED_KEY_REFUSAL });
+    return;
+  }
+  // The six AI system prompts are set in code (codeOwnedPrompts.ts).
+  if (isCodeOwnedPromptKey(key)) {
+    res.status(403).json({ error: CODE_OWNED_PROMPT_REFUSAL });
     return;
   }
 
@@ -2869,69 +2869,6 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 
   res.json(updated);
 });
-
-// ─── Fact-enrichment prompt provenance + reset ─────────────────────────────────
-
-/**
- * Report the EFFECTIVE fact-enrichment system prompt's provenance (without the
- * prompt text): source, hash, code-default hash, and whether they match. Powers
- * the "reset to code default" confirmation so admins see current vs code-default
- * before replacing a stored/overridden prompt.
- */
-router.get(
-  "/admin/config/fact-enrichment-system/provenance",
-  requireAdmin,
-  async (_req: Request, res: Response) => {
-    try {
-      const r = await resolveFactEnrichmentSystemPrompt();
-      res.json({
-        source: r.source,
-        hash: r.hash,
-        length: r.length,
-        codeDefaultHash: r.codeDefaultHash,
-        matchesCodeDefault: r.matchesCodeDefault,
-      });
-    } catch (err) {
-      logger.error({ err }, "[admin] failed to resolve fact-enrichment prompt provenance");
-      res.status(500).json({ error: "Failed to resolve prompt provenance" });
-    }
-  },
-);
-
-/**
- * Reset the stored fact-enrichment system prompt to the current code default.
- * Destructive (replaces admin-customized prompt), so the UI gates this behind a confirmation showing current vs code-default
- * hashes.
- */
-router.post(
-  "/admin/config/fact-enrichment-system/reset-to-default",
-  requireAdmin,
-  async (req: Request, res: Response) => {
-    const [updated] = await db
-      .update(adminConfigTable)
-      .set({
-        value: FACT_ENRICHMENT_SYSTEM_DEFAULT,
-        updatedAt: new Date(),
-        updatedById: req.user?.id ?? null,
-      })
-      .where(eq(adminConfigTable.key, FACT_ENRICHMENT_CONFIG_KEYS.system))
-      .returning();
-
-    bustConfigCache();
-
-    if (!updated) {
-      res.status(404).json({ error: "Config key not found" });
-      return;
-    }
-
-    res.json({
-      ok: true,
-      key: FACT_ENRICHMENT_CONFIG_KEYS.system,
-      hash: hashPromptText(FACT_ENRICHMENT_SYSTEM_DEFAULT),
-      length: FACT_ENRICHMENT_SYSTEM_DEFAULT.length,
-    });
-  },
-);
 
 // ─── Admin Stripe Endpoints ───────────────────────────────────────────────────
 
