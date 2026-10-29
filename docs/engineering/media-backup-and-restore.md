@@ -24,10 +24,12 @@ bucket, and refuses to run on the live one.
 Recovery supports **completed pairs** and promises nothing about the instants
 between them.
 
-- **A pair** is a window on the storage service's clock (two marker objects),
-  a database point inside it (the database's own time for point-in-time
-  restore, and a dump from a snapshot exported in the window), and, for every
-  stored object, the state the database point can reference. Its
+- **A pair** is a window on the storage service's clock — opened by one
+  marker object, closed by another written the moment the database snapshot
+  is fixed, before the dump runs — a database point inside it (the
+  database's own time for point-in-time restore, and a dump of exactly that
+  snapshot), and, for every stored object, the state the database point can
+  reference. Its
   `manifest.json` lists each object's backup copy and its metadata (the ACL
   policy included).
 - **Completed or incomplete.** A pair is `completed` only when every state it
@@ -36,6 +38,10 @@ between them.
   the recovery point. A dump that fails is recorded (`dumpError`); the pair
   still completes on the database time, restorable through point-in-time
   restore.
+- **A change between the two marks makes the pair incomplete** (`changed
+  while the database point was taken: <object>`). The two clocks cannot say
+  whether the snapshot saw it, so the pair is not guessed; the next hour's
+  pair retries. A change after the closing mark is simply not in the pair.
 - **Preserve-before-change.** Every delete and every access (ACL) change of an
   existing object goes through `artifacts/api-server/src/lib/mediaBackup/preserve.ts`: the exact state
   it destroys is copied to the backup first, and the change is conditional on
@@ -72,7 +78,7 @@ between them.
 ```
 states/<liveBucket>/<objectName>@g<generation>.m<metageneration>   bytes + backup:* metadata
 tombstones/<liveBucket>/<objectName>@g<generation>                  a delete's time
-pairs/<environment>/<pairId>/started | ended | database.dump | manifest.json
+pairs/<environment>/<pairId>/started | snapshot-<n> | ended | database.dump | manifest.json
 ```
 
 Every object there is written once and never rewritten. A backup copy carries
@@ -146,11 +152,27 @@ capture.
    is David's action. The pair's dump is the portable alternative.
 4. **The media:** `media-backup.ts restore --pair <pairId> --environment
    production --target-bucket <bucket> --target-prefix _restores/<name>`
-   restores it beside the live media, never over it.
+   restores it beside the live media, never over it, into
+   `_restores/<name>/<pairId>/` (the command prints that folder). Each pair
+   gets its own folder under the root, so restoring a second pair with the
+   same command can never blend into the first; re-running the same pair
+   resumes.
 5. **Putting restored media back in place is not tooled yet.** The restore
    lands under `_restores/` by design; moving objects back to their live
    names (or repointing the app at the restored prefix) is a decision made at
    the time, with David, and a gap recorded on #770 for a follow-up.
+
+## What the first real run proves
+
+The storage double behaves as Cloud Storage documents its preconditions, and
+increment 1 measured one of them on Replit's bucket: a second write with
+`ifGenerationMatch: 0` was refused with 412 (#770, comment of 2026-10-27
+18:02 UTC). The conditions on a metadata change and a delete
+(`ifGenerationMatch` with `ifMetagenerationMatch`) and on a copy's
+destination are first exercised on the real bucket by the recurring-recovery
+exercise after merge, whose ACL change and delete go through them. If either
+is refused for a reason other than a changed object, that is a stop, and the
+contract goes back to David as an amendment (plan §4).
 
 ## Safety rules, all enforced in code
 

@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   const environment = arg("environment") ?? "development";
   const targetBucket = arg("target-bucket") ?? live;
   const id = crypto.randomBytes(4).toString("hex");
-  const prefix = `_restores/rehearsal-${id}`;
+  const restoreRoot = `_restores/rehearsal-${id}`;
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "restore-rehearsal-"));
   const failures: string[] = [];
   const times: Record<string, number> = {};
@@ -152,7 +152,9 @@ async function main(): Promise<void> {
 
     // 3. The media, into the isolated prefix.
     const tm = Date.now();
-    const media = await restorePairMedia(backup, manifest, { bucket: targetBucket, prefix });
+    const media = await restorePairMedia(backup, manifest, { bucket: targetBucket, prefix: restoreRoot });
+    // restorePairMedia puts the pair in <root>/<pairId>/; everything below reads from there.
+    const prefix = `${restoreRoot}/${manifest.pairId}`;
     times.mediaMs = Date.now() - tm;
 
     // 4. The server, over both, with no credential.

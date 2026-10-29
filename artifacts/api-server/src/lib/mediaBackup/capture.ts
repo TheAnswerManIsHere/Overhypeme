@@ -3,8 +3,9 @@
  * @subsystem storage
  *
  * Plan: docs/plans/PLAN_PHASE3_DATA_ENVIRONMENTS.md §4. A pair is:
- *   - a window [start, end] on the storage service's clock, opened and closed
- *     by two marker objects written into the backup bucket;
+ *   - a window [start, end] on the storage service's clock: opened by a marker
+ *     object written into the backup bucket, closed by another written the
+ *     moment the database snapshot is fixed (before the dump runs);
  *   - a database point inside it: the database's own time, for the
  *     platform's point-in-time restore, and a pg_dump taken from a snapshot
  *     exported inside the window (portable, restorable anywhere). A dump that
@@ -18,7 +19,8 @@
  *
  * Backup layout (beside preserve.ts's states/ and tombstones/):
  *   pairs/<environment>/<pairId>/started   the window's opening marker
- *   pairs/<environment>/<pairId>/ended     the window's closing marker
+ *   pairs/<environment>/<pairId>/snapshot-<n>  the closing marker of database attempt n
+ *   pairs/<environment>/<pairId>/ended     the closing marker when no database point was taken
  *   pairs/<environment>/<pairId>/database.dump
  *   pairs/<environment>/<pairId>/manifest.json   last; its custom metadata
  *       carries `backup:status` and `backup:windowStart`, so a listing finds
@@ -97,8 +99,10 @@ export interface CaptureOptions {
   databaseUrl: string | undefined;
   /** Take the logical dump (default). Without it the pair's database side is the platform restore point alone. */
   dump?: boolean;
-  /** Test seam: called between the two window markers, to make changes inside the window. */
-  insideWindow?: () => Promise<void>;
+  /** Test seam: called after the window opens and before the database snapshot, to make changes in that gap. */
+  beforeDatabasePoint?: () => Promise<void>;
+  /** Test seam: called after the database snapshot and its marker, before the media listing. */
+  afterDatabasePoint?: () => Promise<void>;
   /** Defaults to DELETION_GRACE_MS. */
   deletionGraceMs?: number;
 }
@@ -159,17 +163,25 @@ export async function latestCompletedPair(backup: string, environment: string): 
 }
 
 /**
- * Choose, for one object name, the state a database point inside
- * [start, end] can reference. `states` holds every known state of the name:
- * its preserved copies and its current state, if it exists.
+ * Choose, for one object name, the state the database point can reference.
+ * `start` is the window's opening marker and `end` the marker written right
+ * after the database snapshot, both on the storage clock, so the snapshot lies
+ * in [start, end]. `states` holds every known state of the name: its preserved
+ * copies and its current state, if it exists.
  *
  *   - A generation tombstoned more than DELETION_GRACE_MS before `start` was
  *     gone before the window: its states are not candidates.
- *   - The state current at `start` is the latest whose `updated` ≤ start.
+ *   - A change inside [start, end] — a later metageneration, or a new
+ *     generation replacing one live at `start` — may or may not be in the
+ *     snapshot, and the two clocks cannot say which: "ambiguous", and the pair
+ *     is incomplete rather than guessed (plan §4: an overlapping change
+ *     "prevents the pair from completing"). The next pair retries.
+ *   - Otherwise the state current at `start` is the latest whose `updated` ≤
+ *     start; changes after `end` are not in the snapshot and are ignored.
  *   - If none, but a candidate was created at or before `start`, the state
  *     current then was changed without being preserved: "unpreserved".
- *   - Otherwise an object created inside the window contributes its first
- *     state; one created after `end` contributes nothing.
+ *   - An object created inside the window, and not changed in it, contributes
+ *     its first state; one created after `end` contributes nothing.
  */
 export function pickState(
   states: ObjectState[],
@@ -177,14 +189,18 @@ export function pickState(
   start: string,
   end: string,
   deletionGraceMs: number = DELETION_GRACE_MS,
-): { pick: ObjectState } | { unpreserved: true } | null {
+): { pick: ObjectState } | { unpreserved: true } | { ambiguous: true } | null {
   const cutoff = ms(start) - deletionGraceMs;
   const live = states.filter((s) => {
     const deletedAt = tombstonedAt.get(s.generation);
     return deletedAt === undefined || ms(deletedAt) > cutoff;
   });
+  const inGap = (iso: string) => ms(iso) > ms(start) && ms(iso) <= ms(end);
   const byUpdated = (a: ObjectState, b: ObjectState) => ms(a.updated) - ms(b.updated) || Number(a.metageneration) - Number(b.metageneration);
   const atStart = live.filter((s) => ms(s.updated) <= ms(start)).sort(byUpdated);
+  const changedInGap = live.some((s) => inGap(s.updated) && Number(s.metageneration) > 1);
+  const replacedInGap = atStart.length > 0 && live.some((s) => inGap(s.timeCreated) && s.generation !== atStart[atStart.length - 1].generation);
+  if (changedInGap || replacedInGap) return { ambiguous: true };
   if (atStart.length > 0) return { pick: atStart[atStart.length - 1] };
   if (live.some((s) => ms(s.timeCreated) <= ms(start))) return { unpreserved: true };
   const inWindow = live.filter((s) => ms(s.timeCreated) <= ms(end)).sort(byUpdated);
@@ -195,8 +211,14 @@ export function pickState(
  * The database point: the database's clock and its ledger size, read in one
  * transaction. With `dumpInto`, that transaction exports its snapshot and
  * pg_dump writes exactly that snapshot there, so the dump and the time agree.
+ * `afterSnapshot` runs as soon as the snapshot is fixed (its first statement)
+ * and before the dump, so the window it closes is not the dump's length.
  */
-async function databasePoint(databaseUrl: string, dumpInto?: string): Promise<{ at: string; ledgerEntries: number | null }> {
+async function databasePoint(
+  databaseUrl: string,
+  afterSnapshot: () => Promise<string>,
+  dumpInto?: string,
+): Promise<{ at: string; ledgerEntries: number | null; snapshotMark: string }> {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   try {
@@ -204,6 +226,7 @@ async function databasePoint(databaseUrl: string, dumpInto?: string): Promise<{ 
     const { rows } = await client.query<{ snapshot: string | null; at: Date }>(
       `SELECT ${dumpInto ? "pg_export_snapshot()" : "NULL"} AS snapshot, now() AS at`,
     );
+    const snapshotMark = await afterSnapshot();
     const ledgerEntries = await client
       .query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")
       .then((r) => Number(r.rows[0].n))
@@ -214,7 +237,7 @@ async function databasePoint(databaseUrl: string, dumpInto?: string): Promise<{ 
         maxBuffer: 16 * 1024 * 1024,
       });
     }
-    return { at: rows[0].at.toISOString(), ledgerEntries };
+    return { at: rows[0].at.toISOString(), ledgerEntries, snapshotMark };
   } finally {
     await client.query("COMMIT").catch(() => {});
     await client.end().catch(() => {});
@@ -241,14 +264,22 @@ export async function capturePair(opts: CaptureOptions): Promise<PairManifest> {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "media-pair-"));
   const database: PairManifest["database"] = { at: null, ledgerEntries: null, dump: null };
   let dumpFile: string | null = null;
+  // Each attempt's snapshot gets its own write-once marker; the one that sticks closes the window.
+  let attempt = 0;
+  const snapshotMarker = () => marker(opts.backupBucket, `${prefix}snapshot-${++attempt}`);
+  let end: string | null = null;
   try {
+    if (opts.beforeDatabasePoint) await opts.beforeDatabasePoint();
     if (!opts.databaseUrl) {
       reasons.push("no database point: no database was given");
     } else {
       if (opts.dump !== false) {
         dumpFile = path.join(work, "database.dump");
         try {
-          Object.assign(database, await databasePoint(opts.databaseUrl, dumpFile));
+          const point = await databasePoint(opts.databaseUrl, snapshotMarker, dumpFile);
+          database.at = point.at;
+          database.ledgerEntries = point.ledgerEntries;
+          end = point.snapshotMark;
         } catch (err) {
           // The dump is the portable copy; the platform's point-in-time restore
           // to the database's own time is the primary one, so a pair without a
@@ -259,7 +290,10 @@ export async function capturePair(opts: CaptureOptions): Promise<PairManifest> {
       }
       if (!database.at) {
         try {
-          Object.assign(database, await databasePoint(opts.databaseUrl));
+          const point = await databasePoint(opts.databaseUrl, snapshotMarker);
+          database.at = point.at;
+          database.ledgerEntries = point.ledgerEntries;
+          end = point.snapshotMark;
         } catch (err) {
           reasons.push(
             `no database point: ${database.dumpError ? `the dump failed (${database.dumpError}) and ` : ""}the database could not be read (${(err as Error).message})`,
@@ -267,8 +301,9 @@ export async function capturePair(opts: CaptureOptions): Promise<PairManifest> {
         }
       }
     }
-    if (opts.insideWindow) await opts.insideWindow();
-    const end = await marker(opts.backupBucket, `${prefix}ended`);
+    // With no database point the pair is already incomplete; close the window anyway.
+    if (!end) end = await marker(opts.backupBucket, `${prefix}ended`);
+    if (opts.afterDatabasePoint) await opts.afterDatabasePoint();
 
     if (dumpFile) {
       const bytes = fs.readFileSync(dumpFile);
@@ -321,6 +356,7 @@ export async function capturePair(opts: CaptureOptions): Promise<PairManifest> {
       const choice = pickState(list, tombstones.get(name) ?? new Map(), start, end, opts.deletionGraceMs);
       if (!choice) continue;
       if ("unpreserved" in choice) reasons.push(`unpreserved change: ${name}`);
+      else if ("ambiguous" in choice) reasons.push(`changed while the database point was taken: ${name}`);
       else picks.push(choice.pick);
     }
 

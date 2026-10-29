@@ -157,6 +157,35 @@ describe("media backup", () => {
       }
     });
 
+    it("an ACL change never lands on a replacement at the same name: it is retried, and the replacement's first state preserved", async () => {
+      await svc.uploadObjectBuffer({ subPath: "uploads/p6", buffer: bytes("old"), contentType: "image/png", aclPolicy: { owner: "u1", visibility: "private" } });
+      const original = await state("uploads/p6");
+      // Between preservation and the change, the object is deleted and recreated: metageneration 1 again.
+      let replaced = false;
+      const { setMetadataPreserved } = await import("../lib/mediaBackup/preserve.js");
+      const file = live("uploads/p6");
+      const origSetMetadata = Object.getPrototypeOf(file).setMetadata;
+      Object.getPrototypeOf(file).setMetadata = async function (this: unknown, ...args: unknown[]) {
+        if (!replaced) {
+          replaced = true;
+          await live("uploads/p6").delete();
+          await live("uploads/p6").save(bytes("new"), { contentType: "image/png", metadata: { metadata: { "custom:aclPolicy": JSON.stringify({ owner: "u9", visibility: "private" }) } } });
+        }
+        return origSetMetadata.apply(this, args);
+      };
+      try {
+        await setMetadataPreserved(LIVE, "private/uploads/p6", { "custom:aclPolicy": JSON.stringify({ owner: "u9", visibility: "public" }) });
+      } finally {
+        Object.getPrototypeOf(file).setMetadata = origSetMetadata;
+      }
+      const replacement = await state("uploads/p6");
+      assert.notEqual(replacement.generation, original.generation);
+      assert.equal(await backupHas(stateKey(LIVE, "private/uploads/p6", original.generation, "1")), true, "the original's state preserved");
+      assert.equal(await backupHas(stateKey(LIVE, "private/uploads/p6", replacement.generation, "1")), true, "the replacement's first state preserved before the change");
+      assert.equal((await getObjectAclPolicy(live("uploads/p6")))?.visibility, "public");
+      assert.deepEqual((await live("uploads/p6").download())[0], bytes("new"));
+    });
+
     it("gives up with a retryable conflict when the object keeps changing", async () => {
       await svc.uploadObjectBuffer({ subPath: "uploads/p5", buffer: bytes("five"), contentType: "image/png" });
       await assert.rejects(
@@ -177,16 +206,24 @@ describe("media backup", () => {
   });
 
   describe("pairs and restores", () => {
-    it("chooses the state current at the window's start, or an object's first state when it was created inside the window", () => {
+    it("chooses the state current at the window's start, or an object's first state when it was created inside the window; a change between the marks is ambiguous", () => {
       const s = (gen: string, m: string, created: string, updated: string) => ({
         name: "n", generation: gen, metageneration: m, timeCreated: created, updated, contentType: null, size: 0, md5Hash: null, metadata: {},
       });
       const t = (sec: number) => new Date(Date.UTC(2026, 9, 29, 0, 0, sec)).toISOString();
       const start = t(10);
       const end = t(20);
-      assert.deepEqual(pickState([s("1", "1", t(0), t(0)), s("1", "2", t(0), t(15))], new Map(), start, end), { pick: s("1", "1", t(0), t(0)) });
-      assert.deepEqual(pickState([s("1", "2", t(0), t(15))], new Map(), start, end), { unpreserved: true });
-      assert.deepEqual(pickState([s("1", "1", t(12), t(12)), s("1", "2", t(12), t(14))], new Map(), start, end), { pick: s("1", "1", t(12), t(12)) });
+      // A state at the start, then a change before the snapshot's mark: either could be the database's.
+      assert.deepEqual(pickState([s("1", "1", t(0), t(0)), s("1", "2", t(0), t(15))], new Map(), start, end), { ambiguous: true });
+      // The same change after the snapshot's mark: not in the snapshot, so the state at the start.
+      assert.deepEqual(pickState([s("1", "1", t(0), t(0)), s("1", "2", t(0), t(25))], new Map(), start, end), { pick: s("1", "1", t(0), t(0)) });
+      // Changed after the mark with the start state never preserved: unpreserved.
+      assert.deepEqual(pickState([s("1", "2", t(0), t(25))], new Map(), start, end), { unpreserved: true });
+      // Created and promoted inside the window: ambiguous; created alone inside it: its first state.
+      assert.deepEqual(pickState([s("1", "1", t(12), t(12)), s("1", "2", t(12), t(14))], new Map(), start, end), { ambiguous: true });
+      assert.deepEqual(pickState([s("1", "1", t(12), t(12))], new Map(), start, end), { pick: s("1", "1", t(12), t(12)) });
+      // A new generation replacing one live at the start, inside the window: ambiguous.
+      assert.deepEqual(pickState([s("1", "1", t(0), t(0)), s("2", "1", t(15), t(15))], new Map([["1", t(14)]]), start, end), { ambiguous: true });
       assert.equal(pickState([s("1", "1", t(25), t(25))], new Map(), start, end), null);
       assert.equal(pickState([s("1", "1", t(0), t(0))], new Map([["1", t(1)]]), start, end, 0), null, "deleted before the window");
       assert.ok(pickState([s("1", "1", t(0), t(0))], new Map([["1", t(9)]]), start, end, 5000), "deleted within the grace");
@@ -216,7 +253,10 @@ describe("media backup", () => {
       const r2 = await restorePairMedia(BACKUP, pair2, { bucket: LIVE, prefix: "_restores/pair2" });
       assert.equal(r1.restored, pair1.objects.length);
       assert.equal(r2.restored, pair2.objects.length);
-      const at = (prefix: string, name: string) => storage.bucket(LIVE).file(`_restores/${prefix}/private/uploads/${name}`);
+      // Each pair lands in its own folder under the root it was given.
+      assert.equal(r1.target, `/${LIVE}/_restores/pair1/${pair1.pairId}`);
+      const at = (prefix: string, name: string) =>
+        storage.bucket(LIVE).file(`_restores/${prefix}/${(prefix === "pair1" ? pair1 : pair2).pairId}/private/uploads/${name}`);
       assert.deepEqual((await at("pair1", "a").download())[0], bytes("A"));
       assert.equal((await getObjectAclPolicy(at("pair1", "a")))?.visibility, "public", "pair 1: a was public");
       assert.deepEqual((await at("pair1", "b").download())[0], bytes("B"));
@@ -228,18 +268,50 @@ describe("media backup", () => {
       assert.equal((await live("uploads/b").exists())[0], false);
     });
 
-    it("a change inside a window: the pair takes the state current when the window opened", async () => {
+    it("a change between the window opening and the database snapshot makes the pair incomplete; the recovery point does not advance", async () => {
       await svc.uploadObjectBuffer({ subPath: "uploads/c", buffer: bytes("C"), contentType: "image/png", aclPolicy: { owner: "u3", visibility: "private" } });
       await sleep(5);
+      const settled = await capture();
+      assert.equal(settled.status, "completed", settled.reasons.join("; "));
+      const before = await latestCompletedPair(BACKUP, "test");
+      await sleep(5);
+      // A profile-photo promotion landing after the window opens and before the snapshot is fixed.
       const pair = await capture({
-        insideWindow: async () => {
+        beforeDatabasePoint: async () => {
           await sleep(5);
           await svc.trySetObjectEntityAclPolicy("/objects/uploads/c", { owner: "u3", visibility: "public" });
+          await sleep(5);
+        },
+      });
+      assert.equal(pair.status, "incomplete");
+      assert.ok(pair.reasons.includes("changed while the database point was taken: private/uploads/c"), pair.reasons.join("; "));
+      assert.deepEqual(await latestCompletedPair(BACKUP, "test"), before);
+      // The next pair, with no change in its window, is whole and holds the change.
+      await sleep(5);
+      const next = await capture();
+      assert.equal(next.status, "completed", next.reasons.join("; "));
+      const c = next.objects.find((o) => o.name === "private/uploads/c")!;
+      assert.equal(JSON.parse(c.metadata["custom:aclPolicy"]).visibility, "public");
+    });
+
+    it("a change after the database snapshot is not in the pair: it completes with the state the snapshot saw", async () => {
+      await svc.uploadObjectBuffer({ subPath: "uploads/e", buffer: bytes("E"), contentType: "image/png", aclPolicy: { owner: "u5", visibility: "private" } });
+      await sleep(5);
+      await capture(); // e's private state is preserved
+      await sleep(5);
+      const pair = await capture({
+        afterDatabasePoint: async () => {
+          await sleep(5);
+          await svc.trySetObjectEntityAclPolicy("/objects/uploads/e", { owner: "u5", visibility: "public" });
         },
       });
       assert.equal(pair.status, "completed", pair.reasons.join("; "));
-      const c = pair.objects.find((o) => o.name === "private/uploads/c")!;
-      assert.equal(JSON.parse(c.metadata["custom:aclPolicy"]).visibility, "private");
+      const e = pair.objects.find((o) => o.name === "private/uploads/e")!;
+      assert.equal(JSON.parse(e.metadata["custom:aclPolicy"]).visibility, "private");
+      const r = await restorePairMedia(BACKUP, pair, { bucket: LIVE, prefix: "_restores/after-snapshot" });
+      const restored = storage.bucket(LIVE).file(`_restores/after-snapshot/${pair.pairId}/private/uploads/e`);
+      assert.equal(r.restored, pair.objects.length);
+      assert.equal((await getObjectAclPolicy(restored))?.visibility, "private", "restored as the snapshot saw it");
     });
 
     it("an unpreserved change inside a window makes the pair incomplete, and the recovery point does not advance", async () => {
@@ -248,7 +320,7 @@ describe("media backup", () => {
       const before = await latestCompletedPair(BACKUP, "test");
       await sleep(5);
       const pair = await capture({
-        insideWindow: async () => {
+        afterDatabasePoint: async () => {
           await sleep(5);
           await live("uploads/d").setMetadata({ metadata: { "custom:aclPolicy": JSON.stringify({ owner: "u4", visibility: "public" }) } });
         },
@@ -300,6 +372,19 @@ describe("media backup", () => {
       const again = await restorePairMedia(BACKUP, pair1, { bucket: LIVE, prefix: "_restores/pair1" });
       assert.equal(again.restored, 0);
       assert.equal(again.alreadyPresent, pair1.objects.length);
+    });
+
+    it("another pair given the same root lands in its own folder: no blend, nothing of the first pair touched", async () => {
+      const [beforeFiles] = await storage.bucket(LIVE).getFiles({ prefix: `_restores/pair1/${pair1.pairId}/` });
+      const r = await restorePairMedia(BACKUP, pair2, { bucket: LIVE, prefix: "_restores/pair1" });
+      assert.equal(r.target, `/${LIVE}/_restores/pair1/${pair2.pairId}`);
+      assert.equal(r.restored, pair2.objects.length, "every object of pair 2 copied, none taken as present");
+      assert.equal(r.alreadyPresent, 0);
+      const [afterFiles] = await storage.bucket(LIVE).getFiles({ prefix: `_restores/pair1/${pair1.pairId}/` });
+      assert.deepEqual(afterFiles.map((f) => f.name), beforeFiles.map((f) => f.name), "pair 1's folder unchanged");
+      // b existed only in pair 1: it is not in pair 2's folder.
+      assert.equal((await storage.bucket(LIVE).file(`_restores/pair1/${pair2.pairId}/private/uploads/b`).exists())[0], false);
+      assert.equal((await getObjectAclPolicy(storage.bucket(LIVE).file(`_restores/pair1/${pair2.pairId}/private/uploads/a`)))?.visibility, "private");
     });
 
     it("takes a portable database dump inside the window when a database is given", { skip: !hasPgDump() && "pg_dump is not installed" }, async () => {

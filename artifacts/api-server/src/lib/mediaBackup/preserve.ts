@@ -295,6 +295,8 @@ export async function setMetadataPreserved(
   entries: Record<string, string>,
 ): Promise<"changed" | "absent"> {
   return changeObject(bucketName, objectName, async (file, current) => {
-    await file.setMetadata({ metadata: entries }, { ifMetagenerationMatch: current.metageneration });
+    // Both: a replacement at the same name restarts at metageneration 1, so the
+    // metageneration alone could match a state that was never preserved.
+    await file.setMetadata({ metadata: entries }, { ifGenerationMatch: current.generation, ifMetagenerationMatch: current.metageneration });
   });
 }

@@ -14,7 +14,11 @@ import { COPY_CONCURRENCY, errorCode, forEachLimit } from "./preserve";
 
 export interface RestoreTarget {
   bucket: string;
-  /** Object-name prefix the pair's names are restored under; required, and `_restores/...` in the live bucket. */
+  /**
+   * The root the pair is restored under; required, and `_restores/...` in the
+   * live bucket. The pair lands in `<prefix>/<pairId>/`, never in the root
+   * itself, so two pairs can never share a folder.
+   */
   prefix: string;
 }
 
@@ -39,15 +43,18 @@ export interface RestoreResult {
 
 /**
  * Copy every object the manifest names from the backup to
- * `<target.prefix>/<original name>`, with its recorded content type and custom
- * metadata. Re-running finds its earlier work present and carries on.
+ * `<target.prefix>/<pairId>/<original name>`, with its recorded content type
+ * and custom metadata. The folder is derived from the pair, so an object
+ * already there can only be this pair's own earlier work: re-running the same
+ * pair resumes, and another pair can never blend into it. The result's
+ * `target` is the folder the pair is in.
  */
 export async function restorePairMedia(backup: string, manifest: PairManifest, target: RestoreTarget): Promise<RestoreResult> {
   const refusal = restoreTargetRefusal(target);
   if (refusal) throw new Error(`restore refused: ${refusal}`);
   if (manifest.status !== "completed") throw new Error(`restore refused: pair ${manifest.pairId} is ${manifest.status}`);
   const t0 = Date.now();
-  const prefix = target.prefix.replace(/^\/+/, "").replace(/\/+$/, "");
+  const prefix = `${target.prefix.replace(/^\/+/, "").replace(/\/+$/, "")}/${manifest.pairId}`;
   const client = storageClient();
   let restored = 0;
   let alreadyPresent = 0;
