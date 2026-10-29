@@ -15,7 +15,10 @@
  *   - `record.json`, the case record, with a sha256 over its body.
  * Both are written once (ifGenerationMatch: 0) and read back. Evidence bytes
  * are never read or copied: the manifest records what the store reports about
- * each object (size, md5 where the store gives one, generation).
+ * each object (size, md5, generation), and the reset stops unless every
+ * referenced object matches the expected manifest — the sizes and md5s
+ * measured on 2026-10-29, which the amendment was approved on (A1: "a missing
+ * or changed evidence object stops the reset").
  *
  * Production itself is only read. The restore check runs in a scratch
  * database on dev's server, dropped at the end with the dump's working copy.
@@ -61,6 +64,46 @@ export interface EvidenceEntry {
   generation: string | null;
 }
 
+/** The verified baseline: each evidence path's size and md5, in GCS's form (base64 of the raw digest). */
+export type ExpectedEvidence = Record<string, { size: number; md5: string }>;
+
+const BASE64_MD5 = /^[A-Za-z0-9+/]{22}==$/;
+
+/** Parses and checks an expected manifest; a malformed one is refused before anything runs. */
+export function parseExpectedEvidence(raw: unknown): ExpectedEvidence {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("the expected evidence manifest must be an object of path -> { size, md5 }");
+  const out: ExpectedEvidence = {};
+  for (const [p, v] of Object.entries(raw as Record<string, unknown>)) {
+    const e = v as { size?: unknown; md5?: unknown } | null;
+    if (!p.startsWith("/objects/")) throw new Error(`expected evidence path "${p}" is not an /objects/ path`);
+    if (!e || !Number.isSafeInteger(e.size) || (e.size as number) < 0) throw new Error(`expected evidence "${p}" has no valid size`);
+    if (typeof e.md5 !== "string" || !BASE64_MD5.test(e.md5)) throw new Error(`expected evidence "${p}" md5 is not a base64 MD5 digest (GCS's md5Hash form)`);
+    out[p] = { size: e.size as number, md5: e.md5 };
+  }
+  if (Object.keys(out).length === 0) throw new Error("the expected evidence manifest is empty");
+  return out;
+}
+
+/** Every way the observed evidence differs from the expected manifest; empty when it matches. */
+export function evidenceChanges(expected: ExpectedEvidence, observed: EvidenceEntry[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const o of observed) {
+    seen.add(o.path);
+    const e = expected[o.path];
+    if (!e) {
+      out.push(`evidence ${o.path} is not in the expected manifest`);
+      continue;
+    }
+    if (!o.present) continue; // reported as missing on its own
+    if (o.size !== e.size) out.push(`evidence ${o.path} changed: size ${o.size}, expected ${e.size}`);
+    if (o.md5 === null) out.push(`evidence ${o.path} cannot be verified: the store reports no md5 (expected ${e.md5})`);
+    else if (o.md5 !== e.md5) out.push(`evidence ${o.path} changed: md5 ${o.md5}, expected ${e.md5}`);
+  }
+  for (const p of Object.keys(expected)) if (!seen.has(p)) out.push(`expected evidence ${p} is no longer referenced by any child-safety row`);
+  return out;
+}
+
 export interface CaseRecord {
   kind: "production-reset-case-record";
   resetId: string;
@@ -70,6 +113,9 @@ export interface CaseRecord {
   /** Every row the child-safety rows reference, transitively, by foreign key. */
   referenced: Record<string, Row[]>;
   evidence: EvidenceEntry[];
+  /** The baseline the evidence was checked against, and what differed. */
+  expectedEvidence: ExpectedEvidence;
+  evidenceChanges: string[];
   inventory: unknown;
   /** Where the cases are handled after the reset (D2). */
   handling: string;
@@ -105,6 +151,8 @@ export interface ResetPrepareOptions {
   /** Names the case directory; one reset, one id. */
   resetId: string;
   workDir: string;
+  /** The verified evidence baseline; required, since an optional one would check nothing. */
+  expectedEvidence: ExpectedEvidence;
   /** Inventories the restored capture; the script runs excluded-classes-inventory.ts against it. */
   inventory: (scratchUrl: string) => Promise<{ verdict?: { blocksReplacement?: boolean; reasons?: string[] } }>;
   now?: () => Date;
@@ -353,6 +401,8 @@ export async function prepareReset(opts: ResetPrepareOptions): Promise<ResetPrep
     report.evidence = await evidenceManifest(paths);
     const missing = report.evidence.filter((e) => !e.present);
     if (missing.length > 0) report.reasons.push(`${missing.length} evidence object(s) missing: ${missing.map((e) => e.path).join(", ")}`);
+    const changes = evidenceChanges(opts.expectedEvidence, report.evidence);
+    report.reasons.push(...changes);
 
     // 5. Against dev, the handling copy.
     const d = await connect(opts.devUrl);
@@ -375,6 +425,8 @@ export async function prepareReset(opts: ResetPrepareOptions): Promise<ResetPrep
       childSafety: rows,
       referenced,
       evidence: report.evidence,
+      expectedEvidence: opts.expectedEvidence,
+      evidenceChanges: changes,
       inventory,
       handling: D2_HANDLING,
     };

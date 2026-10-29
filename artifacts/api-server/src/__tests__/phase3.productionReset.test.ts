@@ -29,7 +29,7 @@ process.env.STORAGE_DOUBLE_DIR = ROOT;
 process.env.PRIVATE_OBJECT_DIR = `/${LIVE}/private`;
 
 const { databaseUrl } = await import("../lib/devRebuild.js");
-const { prepareReset, otherSessions } = await import("../lib/productionReset.js");
+const { prepareReset, otherSessions, evidenceChanges, parseExpectedEvidence } = await import("../lib/productionReset.js");
 const { LocalObjectStorage } = await import("../lib/localObjectStorage.js");
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +40,10 @@ const devName = `p3_devcopy_${suffix}`;
 const url = (db: string) => databaseUrl(process.env.DATABASE_URL!, db);
 const storage = new LocalObjectStorage(ROOT);
 const EVIDENCE = "/objects/restricted/quarantine/2026/05/case-a.jpg";
+const EVIDENCE_BYTES = Buffer.from("evidence");
+const md5 = (b: Buffer) => crypto.createHash("md5").update(b).digest("base64");
+const expected: Record<string, { size: number; md5: string }> = { [EVIDENCE]: { size: EVIDENCE_BYTES.length, md5: md5(EVIDENCE_BYTES) } };
+const evidenceFile = () => storage.bucket(LIVE).file("private/restricted/quarantine/2026/05/case-a.jpg");
 
 let control: pg.Pool;
 let workDir: string;
@@ -63,6 +67,7 @@ const prepare = (resetId: string) =>
     backup: BACKUP,
     resetId,
     workDir,
+    expectedEvidence: expected,
     inventory: async (scratchUrl) => {
       inventoried.push(scratchUrl);
       return { verdict: { blocksReplacement: false, reasons: [] } };
@@ -96,7 +101,7 @@ describe("preparing production's reset", () => {
     await query(prodName, "INSERT INTO ncmec_reports (match_source, evidence_uri, user_id) VALUES ('classifier', $1, 'case-user')", [EVIDENCE]);
     // Dev holds byte-identical copies, as measured on 2026-10-29.
     await control.query(`CREATE DATABASE "${devName}" TEMPLATE "${prodName}"`);
-    await storage.bucket(LIVE).file("private/restricted/quarantine/2026/05/case-a.jpg").save(Buffer.from("evidence"), { resumable: false });
+    await evidenceFile().save(EVIDENCE_BYTES, { resumable: false });
   });
 
   after(async () => {
@@ -136,7 +141,7 @@ describe("preparing production's reset", () => {
     assert.equal(inventoried.length, 1, "the inventory ran on the restored capture");
     assert.deepEqual(report.childSafetyCounts, { ncmec_reports: 1, quarantined_memes: 1, ncmec_safety_audit_log: 0 });
     assert.equal(report.referencedCounts.users, 1);
-    assert.deepEqual(report.evidence.map((e) => [e.path, e.present, e.size]), [[EVIDENCE, true, 8]]);
+    assert.deepEqual(report.evidence.map((e) => [e.path, e.present, e.size, e.md5]), [[EVIDENCE, true, 8, md5(EVIDENCE_BYTES)]]);
 
     const body = await stored("cases/production-reset-r1/record.json");
     assert.ok(body, "the case record is in the bucket");
@@ -146,6 +151,8 @@ describe("preparing production's reset", () => {
     assert.equal(record.referenced.users[0].id, "case-user");
     assert.equal(record.childSafety.ncmec_reports[0].row.evidence_uri, EVIDENCE);
     assert.match(record.handling, /dev's rows are the authoritative handling copy/);
+    assert.deepEqual(record.expectedEvidence, expected);
+    assert.deepEqual(record.evidenceChanges, []);
 
     const dump = await stored("cases/production-reset-r1/final-capture.dump");
     assert.equal(crypto.createHash("sha256").update(dump!).digest("hex"), report.capture!.dumpSha256);
@@ -178,6 +185,23 @@ describe("preparing production's reset", () => {
     }
   });
 
+  it("stops the reset when evidence was replaced at the same path, even at the same size, and keeps the record", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
+    const replacement = Buffer.from("EVIDENCE"); // same length, other bytes
+    await evidenceFile().save(replacement, { resumable: false });
+    try {
+      const report = await prepare("r-changed");
+      assert.equal(report.verdict, "fail");
+      assert.deepEqual(report.differencesFromDev, [], "the rows are identical; only the bytes moved");
+      assert.deepEqual(report.reasons, [`evidence ${EVIDENCE} changed: md5 ${md5(replacement)}, expected ${md5(EVIDENCE_BYTES)}`]);
+      const { record } = JSON.parse((await stored("cases/production-reset-r-changed/record.json"))!.toString("utf8"));
+      assert.deepEqual(record.expectedEvidence, expected);
+      assert.equal(record.evidenceChanges.length, 1);
+    } finally {
+      await evidenceFile().save(EVIDENCE_BYTES, { resumable: false });
+    }
+  });
+
   it("stops the reset when evidence is missing", async (t) => {
     if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
     await query(prodName, "UPDATE quarantined_memes SET evidence_object_path = '/objects/restricted/quarantine/2026/05/gone.jpg'");
@@ -186,13 +210,39 @@ describe("preparing production's reset", () => {
     assert.equal(report.verdict, "fail");
     assert.deepEqual(report.differencesFromDev, []);
     assert.match(report.reasons.join("\n"), /1 evidence object\(s\) missing: .*gone\.jpg/);
+    assert.match(report.reasons.join("\n"), /gone\.jpg is not in the expected manifest/);
   });
 
   it("refuses a production connection that names dev's own database", async (t) => {
     if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
     await assert.rejects(
-      prepareReset({ productionUrl: url(devName), devUrl: url(devName), backup: BACKUP, resetId: "x", workDir, inventory: async () => ({}) }),
+      prepareReset({ productionUrl: url(devName), devUrl: url(devName), backup: BACKUP, resetId: "x", workDir, expectedEvidence: expected, inventory: async () => ({}) }),
       /names dev's own database/,
     );
+  });
+});
+
+describe("the evidence comparison", () => {
+  const P = "/objects/restricted/quarantine/x.jpg";
+  const M = "FbSEvoOU48j46ciNANsEsg==";
+  const seen = (over: Partial<{ present: boolean; size: number | null; md5: string | null }>) => [
+    { path: P, present: true, size: 33, md5: M, generation: "1", ...over },
+  ];
+
+  it("passes only what matches the expected manifest", () => {
+    assert.deepEqual(evidenceChanges({ [P]: { size: 33, md5: M } }, seen({})), []);
+    assert.match(evidenceChanges({ [P]: { size: 33, md5: M } }, seen({ size: 34 }))[0], /changed: size 34, expected 33/);
+    assert.match(evidenceChanges({ [P]: { size: 33, md5: M } }, seen({ md5: "AAAAAAAAAAAAAAAAAAAAAA==" }))[0], /changed: md5/);
+    assert.match(evidenceChanges({ [P]: { size: 33, md5: M } }, seen({ md5: null }))[0], /cannot be verified: the store reports no md5/);
+    assert.match(evidenceChanges({}, seen({}))[0], /not in the expected manifest/);
+    assert.match(evidenceChanges({ [P]: { size: 33, md5: M }, "/objects/y": { size: 1, md5: M } }, seen({}))[0], /\/objects\/y is no longer referenced/);
+  });
+
+  it("refuses a malformed manifest, and the committed one parses", () => {
+    assert.throws(() => parseExpectedEvidence({ [P]: { size: 33, md5: "15b484be8394e3c8f8e9c88d00db04b2" } }), /not a base64 MD5/);
+    assert.throws(() => parseExpectedEvidence({ [P]: { size: "33", md5: M } }), /no valid size/);
+    assert.throws(() => parseExpectedEvidence({}), /empty/);
+    const committed = parseExpectedEvidence(JSON.parse(fs.readFileSync(path.join(apiRoot, "scripts/production-reset.expected-evidence.json"), "utf8")));
+    assert.deepEqual(Object.values(committed).map((e) => e.size).sort((a, b) => a - b), [16, 33, 49, 415953]);
   });
 });

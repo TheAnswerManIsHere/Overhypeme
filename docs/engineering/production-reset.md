@@ -41,17 +41,27 @@ Production is only read.
    - every child-safety row, complete and hashed (NCMEC reports, quarantined
      memes, the safety audit log);
    - every row those rows reference, following foreign keys transitively;
-   - an evidence manifest: each evidence object's path, size, md5 where the
-     store reports one, and generation;
+   - an evidence manifest: each evidence object's path, size, md5 and
+     generation, as the store reports them, beside the expected manifest it
+     was checked against;
    - the inventory;
    - the D2 handling note.
 
    Both files are written once and read back. A sha256 over the record's body
    is stored beside it. Evidence bytes are never read or copied.
-5. **The equality check.** If any child-safety row in the capture differs from
-   dev's, the reset **stops**. That covers a new case, or a handling status
-   that moved on one side. The record is kept, and the differences go to
-   David. A missing evidence object also stops it.
+5. **The equality checks.** The reset **stops** if any child-safety row in the
+   capture differs from dev's: a new case, or a handling status that moved on
+   one side. It also stops if any evidence object is **missing or changed**
+   (A1). An object is changed when its size or md5 differs from the expected
+   manifest, the store reports no md5 for it, or the referenced set of objects
+   differs from the manifest's. The record is kept either way, and the
+   differences go to David.
+
+   The expected manifest is `artifacts/api-server/scripts/production-reset.expected-evidence.json`:
+   the four objects' sizes and md5s measured by the 2026-10-29 probe, which
+   the amendment was approved on. The md5s are in GCS's `md5Hash` form, the
+   base64 of the raw digest, not hex. `--expected-evidence <file>` names
+   another file. A malformed manifest is refused before anything runs.
 
 The command exits 0 only on `verdict: pass`. A reset id is used once. The case
 directory is write-once, so a second run of `prepare` takes a new id.
@@ -88,6 +98,6 @@ directory is write-once, so a second run of `prepare` takes a new id.
 - **The capture fails or will not restore:** nothing has been written.
   Fix the cause and run again with the same id. A version mismatch between
   `pg_dump` and production's server is the likeliest cause.
-- **The rows differ from dev's, or evidence is missing:** the reset does not
-  go ahead. The record is in the bucket. David settles the handling
+- **The rows differ from dev's, or evidence is missing or changed:** the
+  reset does not go ahead. The record is in the bucket. David settles the handling
   disposition before any new `prepare`, which takes a new id.

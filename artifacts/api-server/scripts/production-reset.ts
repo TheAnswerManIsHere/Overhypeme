@@ -6,12 +6,14 @@
  *
  * Run (on the Repl, with the production deployment paused):
  *   pnpm --filter @workspace/api-server exec tsx scripts/production-reset.ts check-connection
- *   pnpm --filter @workspace/api-server exec tsx scripts/production-reset.ts prepare --reset-id <id> [--out <report.json>]
+ *   pnpm --filter @workspace/api-server exec tsx scripts/production-reset.ts prepare --reset-id <id> [--expected-evidence <file>] [--out <report.json>]
  *
  * `check-connection` lists any other session on production and exits 1 if
  * there is one. `prepare` exits 0 only on `verdict: pass`: no other session,
  * a final capture that restores, an inventory that does not block, every
- * evidence object present, a case record written once and read back, and
+ * evidence object present and matching the expected manifest (by default
+ * scripts/production-reset.expected-evidence.json: the sizes and md5s measured
+ * on 2026-10-29, which amendment 1 was approved on), a case record written once and read back, and
  * child-safety rows equal to dev's. A reset id is used once: the case
  * directory is write-once, so a second prepare takes a new id.
  */
@@ -26,7 +28,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { backupBucket } from "../src/lib/mediaBackup/config.js";
-import { otherSessions, prepareReset } from "../src/lib/productionReset.js";
+import { otherSessions, parseExpectedEvidence, prepareReset } from "../src/lib/productionReset.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -44,7 +46,7 @@ if (command === "check-connection") {
   process.exit(others.length === 0 ? 0 : 1);
 }
 
-if (command !== "prepare") throw new Error("usage: production-reset.ts check-connection | prepare --reset-id <id> [--out <file>]");
+if (command !== "prepare") throw new Error("usage: production-reset.ts check-connection | prepare --reset-id <id> [--expected-evidence <file>] [--out <file>]");
 const devUrl = process.env.DATABASE_URL;
 if (!devUrl) throw new Error("DATABASE_URL (dev, the handling copy) is required");
 const backup = backupBucket();
@@ -52,6 +54,9 @@ if (!backup) throw new Error("MEDIA_BACKUP_BUCKET is not set");
 const resetId = arg("reset-id");
 if (!resetId) throw new Error("--reset-id is required");
 const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const expectedEvidence = parseExpectedEvidence(
+  JSON.parse(fs.readFileSync(arg("expected-evidence") ?? path.join(apiRoot, "scripts/production-reset.expected-evidence.json"), "utf8")),
+);
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "production-reset-"));
 
 let code = 1;
@@ -62,6 +67,7 @@ try {
     backup,
     resetId,
     workDir,
+    expectedEvidence,
     inventory: async (scratchUrl) =>
       JSON.parse(
         execFileSync("npx", ["tsx", "scripts/excluded-classes-inventory.ts"], {
