@@ -19,6 +19,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 
+import { STRIPE_APP_TAG } from "./stripeAppTag";
+
 /** Subscription statuses that still carry an obligation to the customer. */
 export const OBLIGATING_SUBSCRIPTION_STATUSES = [
   "active",
@@ -46,6 +48,31 @@ export interface LiveStripeSnapshot {
   unrefundedPayments: number;
   /** Succeeded payments excluded because their charge was fully refunded. */
   fullyRefundedPayments: number;
+  /**
+   * Live objects in the same account that this app did not create: shown for a
+   * look, never counted as an obligation (one Stripe account, David 2026-10-28).
+   */
+  notThisApp: {
+    subscriptions: number;
+    payments: Array<{ id: string; amount: number; currency: string; description: string | null }>;
+  };
+}
+
+
+type Metadata = Record<string, string> | null | undefined;
+/** A customer as a list returns it: an id when not expanded, or an object (a deleted one carries no metadata). */
+type MaybeCustomer = string | object | null | undefined;
+
+/**
+ * Whether a live Stripe object is this app's: tagged with the app tag, or carrying
+ * the userId the app has always written on its customers, checkout sessions and
+ * lifetime payment intents, on the object or on its customer. A subscription
+ * renewal carries no metadata of its own; its customer does.
+ */
+export function isThisAppsStripeObject(metadata: Metadata, customer: MaybeCustomer): boolean {
+  const owned = (m: Metadata) => !!m && (m[STRIPE_APP_TAG.key] === STRIPE_APP_TAG.value || !!m.userId);
+  if (owned(metadata)) return true;
+  return typeof customer === "object" && customer !== null && "metadata" in customer && owned(customer.metadata as Metadata);
 }
 
 /**
@@ -58,10 +85,22 @@ export type LiveStripeReader = () => Promise<LiveStripeSnapshot>;
 export interface LiveStripeClient {
   accounts: { retrieve(): Promise<{ id: string }> };
   balance: { retrieve(): Promise<{ livemode: boolean }> };
-  subscriptions: { list(params: { status: "all"; limit: number }): AsyncIterable<{ status: string }> };
+  subscriptions: {
+    list(params: { status: "all"; limit: number; expand: string[] }): AsyncIterable<{
+      status: string;
+      metadata?: Metadata;
+      customer?: MaybeCustomer;
+    }>;
+  };
   paymentIntents: {
     list(params: { limit: number; expand: string[] }): AsyncIterable<{
+      id: string;
       status: string;
+      amount: number;
+      currency: string;
+      description?: string | null;
+      metadata?: Metadata;
+      customer?: MaybeCustomer;
       latest_charge?: string | { refunded?: boolean } | null;
     }>;
   };
@@ -99,22 +138,30 @@ export function createLiveStripeReader(
 
     const obligating = new Set<string>(OBLIGATING_SUBSCRIPTION_STATUSES);
     const obligatingSubscriptions: Record<string, number> = {};
-    for await (const sub of client.subscriptions.list({ status: "all", limit: 100 })) {
-      if (obligating.has(sub.status)) obligatingSubscriptions[sub.status] = (obligatingSubscriptions[sub.status] ?? 0) + 1;
+    const notThisApp: LiveStripeSnapshot["notThisApp"] = { subscriptions: 0, payments: [] };
+    for await (const sub of client.subscriptions.list({ status: "all", limit: 100, expand: ["data.customer"] })) {
+      if (!obligating.has(sub.status)) continue;
+      if (!isThisAppsStripeObject(sub.metadata, sub.customer)) {
+        notThisApp.subscriptions += 1;
+        continue;
+      }
+      obligatingSubscriptions[sub.status] = (obligatingSubscriptions[sub.status] ?? 0) + 1;
     }
 
     let unrefundedPayments = 0;
     let fullyRefundedPayments = 0;
-    for await (const pi of client.paymentIntents.list({ limit: 100, expand: ["data.latest_charge"] })) {
+    for await (const pi of client.paymentIntents.list({ limit: 100, expand: ["data.latest_charge", "data.customer"] })) {
       if (pi.status !== "succeeded") continue;
       // Only a full refund is evidence that nothing is owed; a partial refund,
       // or a charge that did not expand, still counts.
       const charge = pi.latest_charge;
       if (charge && typeof charge === "object" && charge.refunded === true) fullyRefundedPayments += 1;
-      else unrefundedPayments += 1;
+      else if (!isThisAppsStripeObject(pi.metadata, pi.customer)) {
+        notThisApp.payments.push({ id: pi.id, amount: pi.amount, currency: pi.currency, description: pi.description ?? null });
+      } else unrefundedPayments += 1;
     }
 
-    return { accountId: account.id, livemode: true, obligatingSubscriptions, unrefundedPayments, fullyRefundedPayments };
+    return { accountId: account.id, livemode: true, obligatingSubscriptions, unrefundedPayments, fullyRefundedPayments, notThisApp };
   };
 }
 
@@ -285,6 +332,13 @@ async function inventoryWithin(
     reasons.push(
       `BLOCKS: ${livePayments} succeeded live-mode payment(s) not fully refunded ` +
         "(a lifetime purchase is one of these; each needs a preservation or reconciliation path)",
+    );
+  }
+  if (liveStripe.checked && (liveStripe.notThisApp.subscriptions > 0 || liveStripe.notThisApp.payments.length > 0)) {
+    const p = liveStripe.notThisApp.payments;
+    reasons.push(
+      `not this app's (does not block): ${liveStripe.notThisApp.subscriptions} subscription(s), ${p.length} payment(s)` +
+        (p.length > 0 ? `: ${p.map((x) => `${x.id} ${x.amount} ${x.currency}${x.description ? ` "${x.description}"` : ""}`).join("; ")}` : ""),
     );
   }
 

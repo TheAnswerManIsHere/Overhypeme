@@ -36,6 +36,7 @@ const cleanLive = async () => ({
   obligatingSubscriptions: {},
   unrefundedPayments: 0,
   fullyRefundedPayments: 0,
+  notThisApp: { subscriptions: 0, payments: [] },
 });
 
 async function* items<T>(list: T[], failAfter?: number): AsyncGenerator<T> {
@@ -50,15 +51,27 @@ async function* items<T>(list: T[], failAfter?: number): AsyncGenerator<T> {
 function stubClient(opts: {
   accountId?: string;
   livemode?: boolean;
-  subscriptions?: Array<{ status: string }>;
-  payments?: Array<{ status: string; latest_charge?: { refunded?: boolean } | string | null }>;
+  subscriptions?: Array<{ status: string; metadata?: Record<string, string>; customer?: { metadata?: Record<string, string> } | string }>;
+  payments?: Array<{
+    status: string;
+    latest_charge?: { refunded?: boolean } | string | null;
+    metadata?: Record<string, string>;
+    customer?: { metadata?: Record<string, string> } | string;
+    description?: string;
+  }>;
   paymentsFailAfter?: number;
 }): LiveStripeClient {
   return {
     accounts: { retrieve: async () => ({ id: opts.accountId ?? ACCOUNT }) },
     balance: { retrieve: async () => ({ livemode: opts.livemode ?? true }) },
     subscriptions: { list: () => items(opts.subscriptions ?? []) },
-    paymentIntents: { list: () => items(opts.payments ?? [], opts.paymentsFailAfter) },
+    paymentIntents: {
+      list: () =>
+        items(
+          (opts.payments ?? []).map((p, i) => ({ id: `pi_${i}`, amount: 14500, currency: "usd", ...p })),
+          opts.paymentsFailAfter,
+        ),
+    },
   };
 }
 
@@ -157,11 +170,43 @@ describe("excluded-classes inventory", () => {
 
   it("blocks when live mode still holds an obligating subscription", async () => {
     const r = await inventoryExcludedClasses(
-      createLiveStripeReader(stubClient({ subscriptions: [{ status: "active" }, { status: "active" }, { status: "canceled" }] }), ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"),
+      createLiveStripeReader(stubClient({
+          subscriptions: [
+            { status: "active", customer: { metadata: { userId: "u1" } } },
+            { status: "active", metadata: { app: "overhype" } },
+            { status: "canceled", metadata: { app: "overhype" } },
+          ],
+        }), ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"),
       now,
     );
     assert.equal(r.verdict.blocksReplacement, true);
     assert.ok(r.verdict.reasons.some((s) => s.includes("2 live-mode subscription")));
+  });
+
+  it("reports live objects this app did not create, without blocking on them", async () => {
+    const r = await inventoryExcludedClasses(
+      createLiveStripeReader(
+        stubClient({
+          subscriptions: [{ status: "active", customer: { metadata: {} } }],
+          payments: [
+            { status: "succeeded", latest_charge: { refunded: false }, description: "AVAILERON CONSULTING" },
+            { status: "succeeded", latest_charge: { refunded: false }, customer: "cus_unexpanded" },
+          ],
+        }),
+        ACCOUNT,
+        "STRIPE_ACCOUNT_ID_LIVE",
+      ),
+      now,
+    );
+    assert.ok(r.payments.liveStripe.checked);
+    if (r.payments.liveStripe.checked) {
+      assert.equal(r.payments.liveStripe.unrefundedPayments, 0);
+      assert.deepEqual(r.payments.liveStripe.obligatingSubscriptions, {});
+      assert.equal(r.payments.liveStripe.notThisApp.subscriptions, 1);
+      assert.deepEqual(r.payments.liveStripe.notThisApp.payments.map((p) => p.id), ["pi_0", "pi_1"]);
+    }
+    assert.equal(r.verdict.blocksReplacement, false);
+    assert.ok(r.verdict.reasons.some((s) => s.startsWith("not this app's (does not block): 1 subscription(s), 2 payment(s): pi_0 14500 usd \"AVAILERON CONSULTING\"")));
   });
 
   it("does not block on payments when live mode was read and holds nothing", async () => {
@@ -172,7 +217,7 @@ describe("excluded-classes inventory", () => {
 
   it("blocks on a lifetime purchase even with no subscription and no local entitlement", async () => {
     const r = await inventoryExcludedClasses(
-      createLiveStripeReader(stubClient({ payments: [{ status: "succeeded", latest_charge: { refunded: false } }] }), ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"),
+      createLiveStripeReader(stubClient({ payments: [{ status: "succeeded", latest_charge: { refunded: false }, metadata: { membership: "true", userId: "u1" } }] }), ACCOUNT, "STRIPE_ACCOUNT_ID_LIVE"),
       now,
     );
     assert.equal(r.payments.liveStripe.checked, true);
@@ -185,9 +230,9 @@ describe("excluded-classes inventory", () => {
       createLiveStripeReader(
         stubClient({
           payments: [
-            { status: "succeeded", latest_charge: { refunded: true } },
-            { status: "succeeded", latest_charge: { refunded: false } },
-            { status: "succeeded", latest_charge: "ch_unexpanded" },
+            { status: "succeeded", latest_charge: { refunded: true }, metadata: { app: "overhype" } },
+            { status: "succeeded", latest_charge: { refunded: false }, metadata: { app: "overhype" } },
+            { status: "succeeded", latest_charge: "ch_unexpanded", customer: { metadata: { userId: "u1" } } },
             { status: "canceled", latest_charge: null },
           ],
         }),

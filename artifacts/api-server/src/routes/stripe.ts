@@ -33,6 +33,7 @@ import { STRIPE_UNVERIFIED_CONFIRM_MESSAGE, STRIPE_UNVERIFIED_RECEIPT_MESSAGE } 
 import { handleReceiptRequest } from "../lib/receiptHandler";
 import { resolveCheckoutRequestKey } from "../lib/checkoutIdempotency";
 import { priceGrantsMembership } from "../lib/membershipPricing";
+import { STRIPE_APP_TAG } from "../lib/stripeAppTag";
 
 const router: IRouter = Router();
 
@@ -240,7 +241,7 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
-        metadata: { userId: user.id },
+        metadata: { [STRIPE_APP_TAG.key]: STRIPE_APP_TAG.value, userId: user.id },
       });
       // Bind CONDITIONALLY, and settle the race before any session exists.
       //
@@ -319,9 +320,17 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       mode: isOneTime ? "payment" : "subscription",
       // Pass userId so the webhook handler can link the purchase to the user even
       // if the Stripe customer lookup fails for any reason (safety net)
-      metadata: { userId: user.id },
-      // Tag one-time payments so the webhook can identify lifetime purchases
-      ...(isOneTime ? { payment_intent_data: { metadata: { membership: "true", plan: "lifetime", userId: user.id } } } : {}),
+      metadata: { [STRIPE_APP_TAG.key]: STRIPE_APP_TAG.value, userId: user.id },
+      // Tag one-time payments so the webhook can identify lifetime purchases. Every object
+      // carries the app tag too: the Stripe account is shared (decisions.md, 2026-10-28),
+      // and the excluded-classes inventory counts only this app's objects as obligations.
+      ...(isOneTime
+        ? {
+            payment_intent_data: {
+              metadata: { [STRIPE_APP_TAG.key]: STRIPE_APP_TAG.value, membership: "true", plan: "lifetime", userId: user.id },
+            },
+          }
+        : { subscription_data: { metadata: { [STRIPE_APP_TAG.key]: STRIPE_APP_TAG.value, userId: user.id } } }),
       // {CHECKOUT_SESSION_ID} is a Stripe template substituted at redirect time.
       // The confirm endpoint uses this ID to verify payment synchronously, so the
       // frontend can grant Legendary immediately without waiting for the webhook.
