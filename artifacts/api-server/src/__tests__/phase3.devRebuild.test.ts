@@ -117,6 +117,13 @@ describe("the dev rebuild", () => {
     ]);
     assert.deepEqual(await query(target, "SELECT value FROM admin_config WHERE key = $1", [adminKey]), [{ value: "7777" }]);
     assert.deepEqual(report.schemasCarried, { stripe: 1 });
+    // The child-safety audit log's append-only guards stay ALWAYS through the load.
+    assert.equal((report.auditBoundary as { triggersEnabled: boolean }).triggersEnabled, true);
+    const modes = await query<{ m: string }>(
+      target,
+      "SELECT tgenabled AS m FROM pg_trigger WHERE tgrelid = 'ncmec_safety_audit_log'::regclass AND NOT tgisinternal",
+    );
+    assert.deepEqual(modes.map((r) => r.m), ["A", "A"]);
     assert.deepEqual(await query(target, "SELECT id, email FROM stripe.customers"), [{ id: "cus_1", email: "a@example.com" }]);
     // The live database is only read.
     assert.equal((await query(sourceName, "SELECT count(*)::int AS n FROM sessions"))[0].n, 1);

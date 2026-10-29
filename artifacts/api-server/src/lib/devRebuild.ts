@@ -112,6 +112,19 @@ export async function liveDigest(sourceUrl: string): Promise<string> {
   }
 }
 
+/**
+ * Every user-defined trigger's firing mode (pg_trigger.tgenabled: O origin, A always,
+ * R replica, D disabled), keyed table.trigger. Loading rows must not change any: the
+ * child-safety audit log's append-only guards are ALWAYS so that a replica session
+ * cannot skip them.
+ */
+async function triggerModes(c: pg.ClientBase): Promise<Map<string, string>> {
+  const { rows } = await c.query<{ k: string; m: string }>(
+    "SELECT tgrelid::regclass::text || '.' || tgname AS k, tgenabled AS m FROM pg_trigger WHERE NOT tgisinternal ORDER BY 1",
+  );
+  return new Map(rows.map((r) => [r.k, r.m]));
+}
+
 function boot(apiRoot: string, url: string): void {
   execFileSync("npx", ["tsx", "scripts/boot-database.ts"], {
     cwd: apiRoot,
@@ -241,8 +254,10 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
     const t3 = Date.now();
     const target = await connect(targetUrl);
     let built: string[];
+    let builtModes: Map<string, string>;
     try {
       built = await publicTables(target);
+      builtModes = await triggerModes(target);
       const builtSet = new Set(built);
       const notBuilt = [...before.keys()].filter((t) => !t.includes(".") && !builtSet.has(t));
       for (const schema of (await carriedSchemas(target)).filter((x) => schemas.includes(x))) {
@@ -278,6 +293,10 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
     let extra: Partial<RebuildReport>;
     try {
       const sequencesAdvanced = await advanceSequences(check);
+      const modes = await triggerModes(check);
+      for (const [k, m] of builtModes) {
+        if (modes.get(k) !== m) failures.push(`trigger: ${k} was mode ${m} on the fresh build, now ${modes.get(k) ?? "absent"}`);
+      }
       const got = await fingerprint(check);
       const dispositions: RebuildReport["dispositions"] = {
         sessionsCleared: {},
@@ -408,7 +427,13 @@ function restoreSchema(dumpFile: string, targetUrl: string, schema: string): voi
   }
 }
 
-/** pg_restore of the dump's rows only — the listed tables and the sequences the build has — into the built schema. */
+/**
+ * pg_restore of the dump's rows only — the listed tables and the sequences the build
+ * has — into the built schema. In a replica session, so foreign keys and ordinary
+ * triggers do not fire while rows arrive in dump order, and no trigger's mode is
+ * touched: --disable-triggers would end with ENABLE TRIGGER ALL, which turns an
+ * ALWAYS trigger into an ordinary one. Both need a superuser, which dev's role is.
+ */
 function loadRows(dumpFile: string, targetUrl: string, tables: Set<string>, sequences: Set<string>, workDir: string): void {
   const toc = execFileSync("pg_restore", ["-l", dumpFile], { encoding: "utf8" });
   const keep = toc.split("\n").filter((line) => {
@@ -422,8 +447,8 @@ function loadRows(dumpFile: string, targetUrl: string, tables: Set<string>, sequ
   try {
     execFileSync(
       "pg_restore",
-      ["--data-only", "--disable-triggers", "--no-owner", "--no-acl", "--exit-on-error", "-L", list, "-d", conn.url, dumpFile],
-      { env: conn.env, stdio: "pipe" },
+      ["--data-only", "--no-owner", "--no-acl", "--exit-on-error", "-L", list, "-d", conn.url, dumpFile],
+      { env: { ...conn.env, PGOPTIONS: "-c session_replication_role=replica" }, stdio: "pipe" },
     );
   } catch (err) {
     const stderr = String((err as { stderr?: Buffer }).stderr ?? "").trim();

@@ -24,8 +24,11 @@ The mechanism is `artifacts/api-server/src/lib/devRebuild.ts`; the command is
    boots it by the bootstrap path (`artifacts/api-server/scripts/boot-database.ts`: the baseline,
    the migrations, the seeds, the engine catalogue).
 3. **Load.** It loads the dump's rows into the built schema
-   (`pg_restore --data-only`), except sessions and auth state. Then it boots
-   again, as the server will.
+   (`pg_restore --data-only`), except sessions and auth state. The load runs
+   in a replica session, not with `--disable-triggers`. That flag ends by
+   re-enabling every trigger as an ordinary one, which would quietly weaken the
+   child-safety audit log's always-on append-only guards. Then it boots again,
+   as the server will.
    A schema the code does not build is carried whole, objects and rows. Today
    that is the `stripe` mirror stripe-replit-sync creates at server start
    (`artifacts/api-server/src/lib/stripeInit.ts`). Without this, the mirror
@@ -36,6 +39,7 @@ The mechanism is `artifacts/api-server/src/lib/devRebuild.ts`; the command is
    - Configuration and runtime tables keep every row; a boot may add seeds.
    - Every operator setting reads as it did.
    - No foreign key has an orphan, and no sequence would collide.
+   - Every trigger keeps the firing mode the fresh build gave it.
    - Sessions are empty.
    - The audit-boundary status is recorded.
    - Finally, the live database must not have moved since the capture.
