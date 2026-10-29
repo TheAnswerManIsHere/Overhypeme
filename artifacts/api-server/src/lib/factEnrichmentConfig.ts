@@ -15,7 +15,6 @@ import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { getConfigString, type ConfigStringSource } from "./adminConfig";
-import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
 import { logger } from "./logger";
 
 /** Call-site sampling overrides (classification wants low temperature + room). */
@@ -326,7 +325,7 @@ Do not include explanation outside the JSON.`;
 
 // ─── Getter ───────────────────────────────────────────────────────────────────
 
-/** The fact-enrichment system prompt: set in code (codeOwnedPromptKeys.ts). */
+/** The fact-enrichment system prompt: set in code (codeOwnedPrompts.ts). */
 export async function getFactEnrichmentSystem(): Promise<string> {
   return FACT_ENRICHMENT_SYSTEM_DEFAULT;
 }
@@ -364,18 +363,21 @@ export interface FactEnrichmentSystemPromptResolution {
  * the two match. The enrichment service stamps this onto the blob so a stale or
  * overridden prompt can never hide behind a "current version" badge.
  */
-export async function resolveFactEnrichmentSystemPrompt(): Promise<FactEnrichmentSystemPromptResolution> {
-  const codeDefaultHash = hashPromptText(FACT_ENRICHMENT_SYSTEM_DEFAULT);
-  // Set in code: an `admin_config` row an older database still holds is ignored.
-  const prompt = FACT_ENRICHMENT_SYSTEM_DEFAULT;
+const FACT_ENRICHMENT_SYSTEM_RESOLUTION: FactEnrichmentSystemPromptResolution = (() => {
+  const hash = hashPromptText(FACT_ENRICHMENT_SYSTEM_DEFAULT);
   return {
-    prompt,
+    prompt: FACT_ENRICHMENT_SYSTEM_DEFAULT,
     source: "code_default",
-    hash: hashPromptText(prompt),
-    length: prompt.length,
-    codeDefaultHash,
-    matchesCodeDefault: prompt === FACT_ENRICHMENT_SYSTEM_DEFAULT,
+    hash,
+    length: FACT_ENRICHMENT_SYSTEM_DEFAULT.length,
+    codeDefaultHash: hash,
+    matchesCodeDefault: true,
   };
+})();
+
+export async function resolveFactEnrichmentSystemPrompt(): Promise<FactEnrichmentSystemPromptResolution> {
+  // Set in code: an `admin_config` row an older database still holds is ignored.
+  return FACT_ENRICHMENT_SYSTEM_RESOLUTION;
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────────────────
@@ -388,15 +390,17 @@ interface FactEnrichmentConfigDef {
   description: string;
 }
 
-export const FACT_ENRICHMENT_CONFIG_DEFS: FactEnrichmentConfigDef[] = [
+/** Their labels and descriptions for the admin screen's read-only rows (codeOwnedPrompts.ts). */
+export const FACT_ENRICHMENT_PROMPT_DEFS = [
   {
     key: FACT_ENRICHMENT_CONFIG_KEYS.system,
     value: FACT_ENRICHMENT_SYSTEM_DEFAULT,
-    // "text" renders as a multi-line textarea in the workbench.
-    dataType: "text",
     label: "Fact Enrichment — System Prompt",
     description: "LLM system prompt that classifies a submitted fact into the Overhype visual taxonomy. Must return JSON matching the enrichment schema (archetype, subtype, modifiers, etc.). The model + sampling come from the dedicated Fact Enricher engine (fact_enrichment_engine_id).",
   },
+];
+
+export const FACT_ENRICHMENT_CONFIG_DEFS: FactEnrichmentConfigDef[] = [
   {
     key: FACT_ENRICHMENT_CONFIG_KEYS.engineId,
     value: DEFAULT_FACT_ENRICHMENT_ENGINE_ID,
@@ -414,7 +418,6 @@ export const FACT_ENRICHMENT_CONFIG_DEFS: FactEnrichmentConfigDef[] = [
  */
 export async function seedFactEnrichmentConfig(): Promise<void> {
   for (const def of FACT_ENRICHMENT_CONFIG_DEFS) {
-    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)

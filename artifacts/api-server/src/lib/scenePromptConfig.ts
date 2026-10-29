@@ -3,16 +3,11 @@
  *
  * The system prompt that controls how the LLM turns a fact template into the
  * scene prompts used for AI image generation. It is set in code
- * (codeOwnedPromptKeys.ts; Launch Phase 3, plan amendment 1).
+ * (codeOwnedPrompts.ts; Launch Phase 3, plan amendment 1).
  *
  * The model + sampling are NOT configured here — they come from the shared
  * General Intelligence engine (see lib/utilityLLM.ts / /admin/engines).
  */
-
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
-import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
-import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────────
 
@@ -48,60 +43,17 @@ Return ONLY valid JSON in exactly this shape:
 
 // ─── Getter ───────────────────────────────────────────────────────────────────
 
-/** The image style-prompt system prompt: set in code (codeOwnedPromptKeys.ts). */
+/** The image style-prompt system prompt: set in code (codeOwnedPrompts.ts). */
 export async function getScenePromptSystem(): Promise<string> {
   return SCENE_PROMPT_SYSTEM_DEFAULT;
 }
 
-// ─── Seeding ─────────────────────────────────────────────────────────────────
+// ─── Admin view ──────────────────────────────────────────────────────────────
 
-interface ScenePromptConfigDef {
-  key: string;
-  value: string;
-  dataType: string;
-  label: string;
-  description: string;
-}
-
-export const SCENE_PROMPT_CONFIG_DEFS: ScenePromptConfigDef[] = [
-  {
-    key: SCENE_PROMPT_CONFIG_KEYS.system,
-    value: SCENE_PROMPT_SYSTEM_DEFAULT,
-    // "text" renders as a multi-line textarea in the workbench (vs a single-line input).
-    dataType: "text",
-    label: "AI Image Style Prompt — System Prompt",
-    description: "LLM system prompt that turns a fact template into the scene prompts used for AI image generation. Must still return JSON with fact_type/male/female/neutral. The model + sampling come from the General Intelligence engine.",
-  },
-];
-
-/**
- * Idempotently seed the image style-prompt system prompt with its production
- * default. Safe to call on every boot — existing rows (including admin edits)
- * are left untouched via ON CONFLICT DO NOTHING.
- */
-export async function seedScenePromptConfig(): Promise<void> {
-  for (const def of SCENE_PROMPT_CONFIG_DEFS) {
-    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
-    try {
-      await db.execute(sql`
-        INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
-        ON CONFLICT (key) DO NOTHING
-      `);
-      if (def.dataType === "text") {
-        await db.execute(sql`
-          UPDATE admin_config SET data_type = 'text'
-          WHERE key = ${def.key} AND data_type <> 'text'
-        `);
-      }
-      // Labels/descriptions are code-owned — force them to the current copy.
-      await db.execute(sql`
-        UPDATE admin_config SET label = ${def.label}, description = ${def.description}
-        WHERE key = ${def.key}
-          AND (label IS DISTINCT FROM ${def.label} OR description IS DISTINCT FROM ${def.description})
-      `);
-    } catch (err) {
-      logger.warn({ err, key: def.key }, "[scenePromptConfig] seed failed for key");
-    }
-  }
-}
+/** Its label and description for the admin screen's read-only row (codeOwnedPrompts.ts). */
+export const SCENE_PROMPT_DEF = {
+  key: SCENE_PROMPT_CONFIG_KEYS.system,
+  value: SCENE_PROMPT_SYSTEM_DEFAULT,
+  label: "AI Image Style Prompt — System Prompt",
+  description: "LLM system prompt that turns a fact template into the scene prompts used for AI image generation. Must still return JSON with fact_type/male/female/neutral. The model + sampling come from the General Intelligence engine.",
+};

@@ -23,7 +23,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { getConfigString } from "./adminConfig";
-import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────
@@ -189,11 +188,11 @@ interface ConfigDef {
   description: string;
 }
 
-export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
+/** Their labels and descriptions for the admin screen's read-only rows (codeOwnedPrompts.ts). */
+export const IMAGE_PROMPT_PROMPT_DEFS = [
   {
     key: IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem,
     value: FACT_IMAGE_PROMPT_SYSTEM_DEFAULT,
-    dataType: "text",
     label: "Image Prompt — System Prompt",
     description:
       "LLM system prompt for the render-time image-prompt generator (Phase 2). Produces visualPlan + compiledPrompt + subjectFactCompatibility for Nano Banana 2.",
@@ -201,11 +200,13 @@ export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
   {
     key: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem,
     value: FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT,
-    dataType: "text",
     label: "Source Classifier — System Prompt",
     description:
       "LLM system prompt for the Tier-3 OpenAI Vision fallback classifier. Only fires when Tier-1 (fal detector) + Tier-2 (heuristics) produce ambiguous or low-confidence results.",
   },
+];
+
+export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
   {
     key: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierEngineId,
     value: DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID,
@@ -250,7 +251,6 @@ export async function seedImagePromptConfig(): Promise<void> {
   }
 
   for (const def of IMAGE_PROMPT_CONFIG_DEFS) {
-    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)

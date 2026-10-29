@@ -49,7 +49,7 @@ model receives.** Enrichment is an input, not the prompt (see
    (`generator.ts`'s `buildImagePromptUserMessage()`) and the **system** prompt
    (`imagePromptConfig.ts`'s `FACT_IMAGE_PROMPT_SYSTEM_DEFAULT`, key
    `fact_image_prompt_system`). Since Launch Phase 3's amendment 1 the six AI system
-   prompts are **set in code** (`codeOwnedPromptKeys.ts`): every reader returns the
+   prompts are **set in code** (`codeOwnedPrompts.ts`): every reader returns the
    constant, boot no longer seeds them, and the admin screen shows them read-only.
    Changing the copy is an edit to the constant in a reviewed PR; an `admin_config`
    row an older database still holds is ignored. (Before that, the rows were seeded

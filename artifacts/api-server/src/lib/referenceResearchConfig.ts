@@ -1,15 +1,10 @@
 /**
- * Reference research — the system prompt (set in code; codeOwnedPromptKeys.ts) + sampling config.
+ * Reference research — the system prompt (set in code; codeOwnedPrompts.ts) + sampling config.
  *
  * One key: `reference_research_system`. Sampling defaults live in the
  * `referenceResearch/openaiResponses.ts` module as constants because the
  * Responses API call shape is different from the chat-completions path.
  */
-
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
-import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
-import { logger } from "./logger";
 
 export const REFERENCE_RESEARCH_CONFIG_KEYS = {
   system: "reference_research_system",
@@ -54,57 +49,16 @@ Focus on visual consequences:
 
 Return ONLY the JSON object matching the response schema. Do not include any prose outside the JSON.`;
 
-/**
- * The default this prompt shipped with before the move to the `web_search`
- * tool (it named `web_search_preview`). Retained ONLY so seeding can migrate an
- * unmodified production row to the current default without clobbering an
- * admin's customized prompt — the videoDirection precedent.
- */
-
 
 export async function getReferenceResearchSystem(): Promise<string> {
   return REFERENCE_RESEARCH_SYSTEM_DEFAULT;
 }
 
-interface ConfigDef {
-  key: string;
-  value: string;
-  dataType: string;
-  label: string;
-  description: string;
-}
-
-export const REFERENCE_RESEARCH_CONFIG_DEFS: ConfigDef[] = [
-  {
-    key: REFERENCE_RESEARCH_CONFIG_KEYS.system,
-    value: REFERENCE_RESEARCH_SYSTEM_DEFAULT,
-    dataType: "text",
-    label: "Reference Research — System Prompt",
-    description:
-      "LLM system prompt for the admin Research Reference tool. Uses OpenAI Responses API with web_search to produce explanation + visualImplication + sources for a cultural reference in context.",
-  },
-];
-
-export async function seedReferenceResearchConfig(): Promise<void> {
-  for (const def of REFERENCE_RESEARCH_CONFIG_DEFS) {
-    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
-    try {
-      await db.execute(sql`
-        INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
-        ON CONFLICT (key) DO NOTHING
-      `);
-      await db.execute(sql`
-        UPDATE admin_config SET data_type = ${def.dataType}
-        WHERE key = ${def.key} AND data_type <> ${def.dataType}
-      `);
-      await db.execute(sql`
-        UPDATE admin_config SET label = ${def.label}, description = ${def.description}
-        WHERE key = ${def.key}
-          AND (label IS DISTINCT FROM ${def.label} OR description IS DISTINCT FROM ${def.description})
-      `);
-    } catch (err) {
-      logger.warn({ err, key: def.key }, "[referenceResearchConfig] seed failed for key");
-    }
-  }
-}
+/** Its label and description for the admin screen's read-only row (codeOwnedPrompts.ts). */
+export const REFERENCE_RESEARCH_PROMPT_DEF = {
+  key: REFERENCE_RESEARCH_CONFIG_KEYS.system,
+  value: REFERENCE_RESEARCH_SYSTEM_DEFAULT,
+  label: "Reference Research — System Prompt",
+  description:
+    "LLM system prompt for the admin Research Reference tool. Uses OpenAI Responses API with web_search to produce explanation + visualImplication + sources for a cultural reference in context.",
+};

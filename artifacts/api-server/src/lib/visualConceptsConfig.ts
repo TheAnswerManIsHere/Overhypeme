@@ -20,7 +20,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { getConfigString } from "./adminConfig";
-import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────
@@ -79,15 +78,18 @@ interface ConfigDef {
   description: string;
 }
 
-export const VISUAL_CONCEPTS_CONFIG_DEFS: ConfigDef[] = [
+/** Their labels and descriptions for the admin screen's read-only rows (codeOwnedPrompts.ts). */
+export const VISUAL_CONCEPTS_PROMPT_DEFS = [
   {
     key: VISUAL_CONCEPTS_CONFIG_KEYS.system,
     value: FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT,
-    dataType: "text",
     label: "Visual Concepts — System Prompt",
     description:
       "LLM system prompt for candidate Visual-concept generation (Slice 2A). Drafts three distinct render-mode-agnostic 'describe the picture' briefs a moderator picks from into the Visual concept field.",
   },
+];
+
+export const VISUAL_CONCEPTS_CONFIG_DEFS: ConfigDef[] = [
   {
     key: VISUAL_CONCEPTS_CONFIG_KEYS.engineId,
     value: DEFAULT_VISUAL_CONCEPTS_ENGINE_ID,
@@ -105,7 +107,6 @@ export const VISUAL_CONCEPTS_CONFIG_DEFS: ConfigDef[] = [
  */
 export async function seedVisualConceptsConfig(): Promise<void> {
   for (const def of VISUAL_CONCEPTS_CONFIG_DEFS) {
-    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)

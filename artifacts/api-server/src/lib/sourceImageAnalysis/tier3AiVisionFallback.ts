@@ -8,7 +8,7 @@
  * Sampling: temperature 0.0, max_tokens 400. The classifier returns ONE
  * structured JSON object; no creative range needed.
  *
- * System prompt `fact_source_classifier_system`, set in code (codeOwnedPromptKeys.ts).
+ * System prompt `fact_source_classifier_system`, set in code (codeOwnedPrompts.ts).
  * The active utility LLM (model + temperature defaults) is shared with
  * fact-enrichment / visual-preview via `callUtilityLLM`.
  *

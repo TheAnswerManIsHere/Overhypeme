@@ -25,8 +25,7 @@ import {
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
-import { CODE_OWNED_PROMPT_KEYS, CODE_OWNED_PROMPT_REFUSAL } from "../lib/codeOwnedPromptKeys";
-import { withCodeOwnedPrompts } from "../lib/codeOwnedPrompts";
+import { CODE_OWNED_PROMPT_REFUSAL, isCodeOwnedPromptKey, withCodeOwnedPrompts } from "../lib/codeOwnedPrompts";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import {
   validateEnrichment,
@@ -100,7 +99,6 @@ import {
   writeAdminRevocation,
 } from "../lib/membershipSources";
 import { authorizeAdminGrant, authorizeAdminRevocation } from "../lib/entitlementVerification";
-import { resolveFactEnrichmentSystemPrompt } from "../lib/factEnrichmentConfig";
 import {
   acquireAdminPopulationLock,
   assertAdminPopulationSurvives,
@@ -2693,8 +2691,8 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     res.status(403).json({ error: NCMEC_RESERVED_KEY_REFUSAL });
     return;
   }
-  // The six AI system prompts are set in code (codeOwnedPromptKeys.ts).
-  if (CODE_OWNED_PROMPT_KEYS.has(key)) {
+  // The six AI system prompts are set in code (codeOwnedPrompts.ts).
+  if (isCodeOwnedPromptKey(key)) {
     res.status(403).json({ error: CODE_OWNED_PROMPT_REFUSAL });
     return;
   }
@@ -2871,34 +2869,6 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 
   res.json(updated);
 });
-
-// ─── Fact-enrichment prompt provenance ─────────────────────────────────────────
-
-/**
- * Report the fact-enrichment system prompt's provenance (without the prompt
- * text): source, hash, code-default hash, and whether they match. The prompt is
- * set in code, so the source is always the code.
- */
-router.get(
-  "/admin/config/fact-enrichment-system/provenance",
-  requireAdmin,
-  async (_req: Request, res: Response) => {
-    try {
-      const r = await resolveFactEnrichmentSystemPrompt();
-      res.json({
-        source: r.source,
-        hash: r.hash,
-        length: r.length,
-        codeDefaultHash: r.codeDefaultHash,
-        matchesCodeDefault: r.matchesCodeDefault,
-      });
-    } catch (err) {
-      logger.error({ err }, "[admin] failed to resolve fact-enrichment prompt provenance");
-      res.status(500).json({ error: "Failed to resolve prompt provenance" });
-    }
-  },
-);
-
 
 // ─── Admin Stripe Endpoints ───────────────────────────────────────────────────
 

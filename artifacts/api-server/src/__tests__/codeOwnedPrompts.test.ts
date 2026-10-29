@@ -18,7 +18,7 @@ import { eq, inArray } from "drizzle-orm";
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
-import { CODE_OWNED_PROMPT_KEYS } from "../lib/codeOwnedPromptKeys.js";
+import { isCodeOwnedPromptKey } from "../lib/codeOwnedPrompts.js";
 import {
   FACT_ENRICHMENT_SYSTEM_DEFAULT,
   getFactEnrichmentSystem,
@@ -32,8 +32,8 @@ import {
   getImagePromptSystem,
   seedImagePromptConfig,
 } from "../lib/imagePromptConfig.js";
-import { REFERENCE_RESEARCH_SYSTEM_DEFAULT, getReferenceResearchSystem, seedReferenceResearchConfig } from "../lib/referenceResearchConfig.js";
-import { SCENE_PROMPT_SYSTEM_DEFAULT, getScenePromptSystem, seedScenePromptConfig } from "../lib/scenePromptConfig.js";
+import { REFERENCE_RESEARCH_SYSTEM_DEFAULT, getReferenceResearchSystem } from "../lib/referenceResearchConfig.js";
+import { SCENE_PROMPT_SYSTEM_DEFAULT, getScenePromptSystem } from "../lib/scenePromptConfig.js";
 import {
   FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT,
   getVisualConceptsSystem,
@@ -41,7 +41,6 @@ import {
 } from "../lib/visualConceptsConfig.js";
 
 const md5 = (s: string) => createHash("md5").update(s).digest("hex");
-const KEYS = [...CODE_OWNED_PROMPT_KEYS];
 const READERS: Array<[string, () => Promise<string>, string]> = [
   ["fact_enrichment_system", getFactEnrichmentSystem, FACT_ENRICHMENT_SYSTEM_DEFAULT],
   ["fact_image_prompt_system", getImagePromptSystem, FACT_IMAGE_PROMPT_SYSTEM_DEFAULT],
@@ -50,6 +49,7 @@ const READERS: Array<[string, () => Promise<string>, string]> = [
   ["reference_research_system", getReferenceResearchSystem, REFERENCE_RESEARCH_SYSTEM_DEFAULT],
   ["scene_prompt_system", getScenePromptSystem, SCENE_PROMPT_SYSTEM_DEFAULT],
 ];
+const KEYS = READERS.map(([key]) => key);
 
 let saved: Array<typeof adminConfigTable.$inferSelect> = [];
 let adminId = "";
@@ -77,7 +77,8 @@ describe("the six AI system prompts are set in code", () => {
   });
 
   it("covers exactly the six keys of the amendment", () => {
-    assert.deepEqual(KEYS.sort(), READERS.map(([k]) => k).sort());
+    for (const key of KEYS) assert.ok(isCodeOwnedPromptKey(key), key);
+    assert.equal(isCodeOwnedPromptKey("fact_enrichment_engine_id"), false);
   });
 
   it("every reader returns the code text, even when a stale row says otherwise", async () => {
@@ -94,8 +95,6 @@ describe("the six AI system prompts are set in code", () => {
     await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
     await seedFactEnrichmentConfig();
     await seedImagePromptConfig();
-    await seedReferenceResearchConfig();
-    await seedScenePromptConfig();
     await seedVisualConceptsConfig();
     const rows = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
     assert.deepEqual(rows, []);
@@ -110,14 +109,14 @@ describe("the six AI system prompts are set in code", () => {
     }
   });
 
-  it("the admin API lists the six from code, marked code-owned, and removes the reset route", async () => {
+  it("the admin API lists the six from code, marked code-owned, and removes the reset and provenance routes", async () => {
     await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
     await db.insert(adminConfigTable).values({ key: "scene_prompt_system", value: "stale stored prompt", dataType: "text", label: "x" });
     bustConfigCache();
     const app = createApp();
     const res = await request(app).get("/api/admin/config").set("Authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 200);
-    const rows = (res.body as Array<{ key: string; value: string; codeOwned?: boolean }>).filter((r) => CODE_OWNED_PROMPT_KEYS.has(r.key));
+    const rows = (res.body as Array<{ key: string; value: string; codeOwned?: boolean }>).filter((r) => isCodeOwnedPromptKey(r.key));
     assert.equal(rows.length, 6);
     for (const [key, , text] of READERS) {
       const row = rows.find((r) => r.key === key);
@@ -126,6 +125,8 @@ describe("the six AI system prompts are set in code", () => {
     }
     const reset = await request(app).post("/api/admin/config/fact-enrichment-system/reset-to-default").set("Authorization", `Bearer ${adminSid}`);
     assert.equal(reset.status, 404);
+    const provenance = await request(app).get("/api/admin/config/fact-enrichment-system/provenance").set("Authorization", `Bearer ${adminSid}`);
+    assert.equal(provenance.status, 404);
   });
 
   it("holds the wording David chose (2026-10-29): the code's enrichment prompt, the tuned reference-research prompt with web_search", () => {

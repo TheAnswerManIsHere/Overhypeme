@@ -6,28 +6,19 @@
  * The prompt is set in code (Launch Phase 3, plan amendment 1).
  */
 
-import { describe, it, before } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-import {
-  seedScenePromptConfig,
-  getScenePromptSystem,
-  SCENE_PROMPT_SYSTEM_DEFAULT,
-} from "../lib/scenePromptConfig";
+import { getScenePromptSystem, SCENE_PROMPT_SYSTEM_DEFAULT } from "../lib/scenePromptConfig";
 import { bustConfigCache } from "../lib/adminConfig";
 
 describe("scenePromptConfig", () => {
-  before(async () => {
-    await seedScenePromptConfig();
-    bustConfigCache();
-  });
-
   it("the getter returns the code's production prompt", async () => {
     const systemPrompt = await getScenePromptSystem();
-    assert.ok(systemPrompt.length > 100, "system prompt should be the seeded default");
+    assert.ok(systemPrompt.length > 100, "system prompt should be the code's prompt");
     assert.match(systemPrompt, /Return ONLY valid JSON/);
   });
 
