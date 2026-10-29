@@ -39,7 +39,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
-import { TABLE_CLASSIFICATION, configTables } from "@workspace/db/table-classification";
+import { TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
+import { adminValues, exhaustedSequences, orphans, rowCounts } from "../src/lib/databaseChecks.js";
 import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
 
 function arg(name: string): string | undefined {
@@ -61,80 +62,6 @@ async function downloadSnapshot(label: string, into: string): Promise<{ file: st
   const file = path.join(into, "database.dump");
   await objectStorageClient.bucket(bucketName).file(object).download({ destination: file });
   return { file, object: `/${bucketName}/${object}` };
-}
-
-type Counts = Map<string, number>;
-
-async function rowCounts(c: pg.Client): Promise<Counts> {
-  const { rows } = await c.query<{ t: string }>(
-    "SELECT relname AS t FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r' ORDER BY 1",
-  );
-  const out: Counts = new Map();
-  for (const { t } of rows) out.set(t, Number((await c.query(`SELECT count(*) AS n FROM public."${t}"`)).rows[0].n));
-  return out;
-}
-
-/** Every admin-owned value, keyed table/key/column, honouring adminOnlyWhere. */
-async function adminValues(c: pg.Client): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  for (const [table, owners] of configTables()) {
-    if (owners.admin.length === 0) continue;
-    const flags = Object.entries(owners.adminOnlyWhere ?? {}).map(([col, p]) => `, (${p}) AS "__admin_${col}"`);
-    const { rows } = await c.query(`SELECT *${flags.join("")} FROM public."${table}"`);
-    for (const r of rows) {
-      const key = owners.key.map((k) => String(r[k])).join("/");
-      for (const col of owners.admin) {
-        if (owners.adminOnlyWhere?.[col] && r[`__admin_${col}`] !== true) continue;
-        out.set(`${table}/${key}/${col}`, JSON.stringify(r[col] instanceof Date ? r[col].toISOString() : r[col] ?? null));
-      }
-    }
-  }
-  return out;
-}
-
-/** Foreign keys with at least one row whose referenced row is missing. */
-async function orphans(c: pg.Client): Promise<string[]> {
-  const { rows } = await c.query<{ name: string; child: string; parent: string; ccols: string[]; pcols: string[] }>(`
-    SELECT con.conname AS name, ch.relname AS child, pa.relname AS parent,
-           array_agg(ca.attname::text ORDER BY k.n) AS ccols, array_agg(pa_att.attname::text ORDER BY k.n) AS pcols
-    FROM pg_constraint con
-    JOIN pg_class ch ON ch.oid = con.conrelid
-    JOIN pg_class pa ON pa.oid = con.confrelid
-    CROSS JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS k(c, p, n)
-    JOIN pg_attribute ca ON ca.attrelid = con.conrelid AND ca.attnum = k.c
-    JOIN pg_attribute pa_att ON pa_att.attrelid = con.confrelid AND pa_att.attnum = k.p
-    WHERE con.contype = 'f' AND ch.relnamespace = 'public'::regnamespace
-    GROUP BY con.conname, ch.relname, pa.relname`);
-  const out: string[] = [];
-  for (const fk of rows) {
-    const notNull = fk.ccols.map((col) => `c."${col}" IS NOT NULL`).join(" AND ");
-    const join = fk.ccols.map((col, i) => `p."${fk.pcols[i]}" = c."${col}"`).join(" AND ");
-    const { rows: n } = await c.query(
-      `SELECT count(*) AS n FROM public."${fk.child}" c WHERE ${notNull} AND NOT EXISTS (SELECT 1 FROM public."${fk.parent}" p WHERE ${join})`,
-    );
-    if (Number(n[0].n) > 0) out.push(`${fk.child}.${fk.name}: ${n[0].n} orphan row(s)`);
-  }
-  return out;
-}
-
-/** Sequence-backed columns whose next value would collide with an existing row. */
-async function exhaustedSequences(c: pg.Client): Promise<string[]> {
-  const { rows } = await c.query<{ seq: string; t: string; col: string }>(`
-    SELECT s.oid::regclass::text AS seq, t.relname AS t, a.attname AS col
-    FROM pg_class s
-    JOIN pg_depend d ON d.objid = s.oid AND d.classid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
-    JOIN pg_class t ON t.oid = d.refobjid
-    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
-    WHERE s.relkind = 'S' AND t.relnamespace = 'public'::regnamespace`);
-  const out: string[] = [];
-  for (const { seq, t, col } of rows) {
-    const { rows: r } = await c.query(
-      `SELECT nextval($1::regclass) AS next, (SELECT max("${col}") FROM public."${t}") AS max`,
-      [seq],
-    );
-    if (r[0].max !== null && BigInt(r[0].next) <= BigInt(r[0].max)) out.push(`${t}.${col}: next ${r[0].next} ≤ max ${r[0].max}`);
-  }
-  return out;
 }
 
 async function main(): Promise<void> {
