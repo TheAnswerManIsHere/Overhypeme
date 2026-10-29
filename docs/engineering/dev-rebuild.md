@@ -32,7 +32,11 @@ The mechanism is `artifacts/api-server/src/lib/devRebuild.ts`; the command is
    A schema the code does not build is carried whole, objects and rows. Today
    that is the `stripe` mirror stripe-replit-sync creates at server start
    (`artifacts/api-server/src/lib/stripeInit.ts`). Without this, the mirror
-   would vanish from dev unnoticed.
+   would vanish from dev unnoticed. The library also creates the functions its
+   triggers call (`set_updated_at()`, `set_updated_at_metadata()`) in `public`,
+   where the code does not build them. Those, and only the functions a carried
+   schema's triggers call, are carried first and listed in the report's
+   `functionsCarried`.
 4. **Verify, while dev still serves.**
    - Every product, child-safety and payment row, and every row of a carried
      schema, arrives unchanged.

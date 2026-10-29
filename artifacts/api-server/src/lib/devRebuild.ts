@@ -78,6 +78,33 @@ async function carriedSchemas(c: pg.ClientBase): Promise<string[]> {
 }
 
 /**
+ * Public functions the carried schemas' triggers call, as regprocedure text. A
+ * carried schema can depend on public objects its writer created there:
+ * stripe-replit-sync creates set_updated_at() and set_updated_at_metadata() in
+ * whichever schema comes first on its search path, which on dev is public.
+ */
+async function carriedFunctions(c: pg.ClientBase, schemas: string[]): Promise<string[]> {
+  if (schemas.length === 0) return [];
+  const { rows } = await c.query<{ f: string }>(
+    `SELECT DISTINCT p.oid::regprocedure::text AS f
+     FROM pg_trigger t JOIN pg_class r ON r.oid = t.tgrelid JOIN pg_proc p ON p.oid = t.tgfoid
+     WHERE r.relnamespace = ANY(SELECT oid FROM pg_namespace WHERE nspname = ANY($1))
+       AND p.pronamespace = 'public'::regnamespace
+     ORDER BY 1`,
+    [schemas],
+  );
+  return rows.map((r) => r.f);
+}
+
+/** Every function in public, as regprocedure text. */
+async function publicFunctions(c: pg.ClientBase): Promise<Set<string>> {
+  const { rows } = await c.query<{ f: string }>(
+    "SELECT p.oid::regprocedure::text AS f FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace",
+  );
+  return new Set(rows.map((r) => r.f));
+}
+
+/**
  * Each table's rows, hashed and sorted; independent of column order. Public tables
  * are keyed by name, a carried schema's as `schema.table`.
  */
@@ -162,6 +189,8 @@ export interface RebuildReport {
   };
   /** Schemas the code does not build, carried whole: tables per schema. */
   schemasCarried: Record<string, number>;
+  /** Public functions those schemas' triggers need that the code does not build, carried from dev. */
+  functionsCarried: string[];
   newInCode: string[];
   seededAfterLoad: Record<string, number>;
   sequencesAdvanced: string[];
@@ -189,10 +218,12 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
   let sourceSettings: Map<string, string>;
   let sourceLedger: number;
   let schemas: string[] = [];
+  let neededFunctions: string[] = [];
   let digest: string;
   try {
     before = await fingerprint(source);
     schemas = await carriedSchemas(source);
+    neededFunctions = await carriedFunctions(source, schemas);
     digest = digestOf(before);
     if (before.has("async_jobs")) {
       const { rows: queued } = await source.query<{ id: number; queue: string; status: string; next_attempt_at: Date }>(
@@ -234,6 +265,7 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
     target: { database: targetName, kept: false, tables: 0, rows: 0, ledger: 0 },
     dispositions: { sessionsCleared: {}, childSafetyCarried: {}, paymentsCarried: {} },
     schemasCarried: {},
+    functionsCarried: [],
     newInCode: [],
     seededAfterLoad: {},
     sequencesAdvanced: [],
@@ -255,6 +287,7 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
     const target = await connect(targetUrl);
     let built: string[];
     let builtModes: Map<string, string>;
+    let functionsCarried: string[] = [];
     try {
       built = await publicTables(target);
       builtModes = await triggerModes(target);
@@ -272,12 +305,15 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
       if (seeded.length > 0) await target.query(`TRUNCATE ${seeded.map((t) => `public."${t}"`).join(", ")} CASCADE`);
       // pg_restore -n restores a schema's contents, not the schema itself.
       const existing = await carriedSchemas(target);
+      const builtFunctions = await publicFunctions(target);
+      functionsCarried = neededFunctions.filter((f) => !builtFunctions.has(f));
       for (const schema of schemas.filter((x) => !existing.includes(x))) await target.query(`CREATE SCHEMA "${schema}"`);
       const { rows: seqs } = await target.query<{ s: string }>(
         "SELECT relname AS s FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'S'",
       );
       await target.end();
       loadRows(dumpFile, targetUrl, new Set(load), new Set(seqs.map((r) => r.s)), opts.workDir);
+      if (functionsCarried.length > 0) restoreFunctions(dumpFile, targetUrl, functionsCarried, opts.workDir);
       for (const schema of schemas) restoreSchema(dumpFile, targetUrl, schema);
     } catch (err) {
       await target.end().catch(() => {});
@@ -355,6 +391,7 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
         },
         dispositions,
         schemasCarried: Object.fromEntries(schemas.map((x) => [x, [...got.keys()].filter((k) => k.startsWith(`${x}.`)).length])),
+        functionsCarried,
         newInCode: [...got.keys()].filter((t) => !before.has(t)),
         seededAfterLoad,
         sequencesAdvanced,
@@ -404,6 +441,7 @@ function refusal(
     target: { database: targetName, kept: false, tables: 0, rows: 0, ledger: 0 },
     dispositions: { sessionsCleared: {}, childSafetyCarried: {}, paymentsCarried: {} },
     schemasCarried: {},
+    functionsCarried: [],
     newInCode: [],
     seededAfterLoad: {},
     sequencesAdvanced: [],
@@ -411,6 +449,32 @@ function refusal(
     auditBoundary: null,
     times,
   };
+}
+
+/** pg_restore of the named public functions from the dump; one the dump lacks fails the rebuild. */
+function restoreFunctions(dumpFile: string, targetUrl: string, functions: string[], workDir: string): void {
+  const squash = (sig: string) => sig.replace(/\s+/g, "");
+  const wanted = new Set(functions.map(squash));
+  const toc = execFileSync("pg_restore", ["-l", dumpFile], { encoding: "utf8" });
+  const keep = toc.split("\n").filter((line) => {
+    const m = /^\d+; \d+ \d+ FUNCTION public (.+\)) \S+$/.exec(line);
+    return m !== null && wanted.has(squash(m[1]));
+  });
+  if (keep.length !== wanted.size) {
+    throw new Error(`carrying functions failed: the dump holds ${keep.length} of ${functions.join(", ")}`);
+  }
+  const list = path.join(workDir, "functions.list");
+  fs.writeFileSync(list, `${keep.join("\n")}\n`);
+  const conn = pgCommandConnection(targetUrl);
+  try {
+    execFileSync("pg_restore", ["--no-owner", "--no-acl", "--exit-on-error", "-L", list, "-d", conn.url, dumpFile], {
+      env: conn.env,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    const stderr = String((err as { stderr?: Buffer }).stderr ?? "").trim();
+    throw new Error(`carrying functions failed: ${withoutPassword(stderr || (err as Error).message, targetUrl).slice(0, 800)}`);
+  }
 }
 
 /** pg_restore of one schema the code does not build: its objects and rows. */
