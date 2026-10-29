@@ -24,6 +24,7 @@
  * `objectStorage.ts`), because no browser flow uses one and the one vendor
  * consumer (the fal NSFW classifier) belongs to the AI doubles.
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
@@ -38,6 +39,8 @@ interface StoredMeta {
   metageneration?: string;
   timeCreated?: string;
   updated?: string;
+  /** As GCS: the base64 of the bytes' raw MD5 digest. */
+  md5Hash?: string;
 }
 
 /** The shape @google-cloud/storage throws for a missing object, which callers may check. */
@@ -117,7 +120,15 @@ class LocalFile {
   }
 
   async getMetadata(): Promise<[StoredMeta]> {
-    return [await this.readMeta()];
+    const meta = await this.readMeta();
+    // As GCS reports it: the base64 of the stored bytes' raw MD5 digest, a content checksum.
+    let bytes: Buffer;
+    try {
+      bytes = await fsp.readFile(this.dataPath);
+    } catch {
+      throw notFound(this.name);
+    }
+    return [{ ...meta, md5Hash: crypto.createHash("md5").update(bytes).digest("base64") }];
   }
 
   async setMetadata(update: { metadata?: Record<string, string | null> }, options?: Preconditions): Promise<[StoredMeta]> {

@@ -32,6 +32,7 @@ const ALLOWED: Record<string, string> = {
   "src/lib/mediaBackup/expiry.ts": "deletes only in the backup bucket, never the live one",
   "src/lib/objectStorage.ts": "uploadObjectBuffer: a write-once first write (ifGenerationMatch: 0)",
   "src/lib/localObjectStorage.ts": "the storage double implements these methods",
+  "src/lib/productionReset.ts": "writes the reset's case record and final capture once (ifGenerationMatch: 0) under cases/ in the backup bucket",
   "scripts/snapshot-database.ts": "writes a frozen snapshot write-once (ifGenerationMatch: 0) under _snapshots/",
   // Historical one-off key migrations, run before preservation existed. A
   // re-run would move objects without preserving them: retire or rewrite them
