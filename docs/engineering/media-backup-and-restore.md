@@ -183,3 +183,21 @@ contract goes back to David as an amendment (plan §4).
   generation is unchanged since it listed them.
 - Child-safety evidence, snapshots and rehearsal restores are never copied
   into the backup.
+
+## Reading production's records from its backup
+
+The workspace holds no connection to production's database, and the plan
+keeps production untouched before its reset. So production's excluded-classes
+inventory (plan §5 step 1, increment 8) is read from a production pair:
+
+```
+pnpm --filter @workspace/api-server exec tsx scripts/inventory-pair.ts --environment production --out /tmp/prod-inventory.json
+```
+
+It restores the latest completed production pair's dump into a scratch
+database on the Repl's server, checks the dump's sha256 against the manifest,
+runs the inventory there, then drops the scratch database and deletes the dump.
+Live Stripe is read as usual. Only objects tagged `app: overhype`, or carrying
+the `userId` the app has always written, count as this app's obligations.
+Anything else in the shared account is listed as "not this app's" and does not
+block.
