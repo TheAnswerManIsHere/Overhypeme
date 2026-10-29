@@ -342,7 +342,9 @@ requires it.
       the post-fix re-run of the oracle to zero, which the block cannot hold
       because it is posted before the batch is written (class-sweep step 3).
 
-   **Sign-in before the first dispatch, not mid-round.** `$CODEX_BIN login
+   **Sign-in is the session's first action** (`claude-core.md`, *Astra*,
+   David 2026-10-29); a dispatch only re-checks it, so a restarted container
+   is caught before a round starts rather than mid-round. `$CODEX_BIN login
    status` decides; the steps are in `claude-core.md`'s *Astra* section, and the
    device code expires in about fifteen minutes, so the ask and the code go to
    David in the same turn.

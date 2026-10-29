@@ -1733,7 +1733,21 @@ the build
 afterwards.
 
 - **Sign-in comes first, every session, and it is David's phone step.**
-  The binary is rarely on `PATH`: `npm install @openai/codex` in the
+  **It is the first thing a session does, in any repo, before any other
+  work** (David, 2026-10-29: *"As soon as you set up for any work in any
+  repo, the first thing you should do is have me sign in to Astra."*) — not
+  deferred to the first planning exchange or review round that needs it, and
+  not skipped because the work looks like it will need no review: the code
+  goes out while he is still at the screen that started the session.
+  **The first turn's shape:** start the detached login, then a background
+  command that exits when `login status` succeeds or the code's fifteen
+  minutes run out — a background command's exit is a wake (measured
+  2026-10-29, AI-Handbook #252), the detached login's is not — then the ask
+  as the turn's last text, footer `Next:` in the `after <event>` form
+  (*Waiting, and scheduled check-ins*, item 0). Work that needs no reply
+  from him runs on that wake or on any other, never only after he types. A
+  container that restarts mid-session loses the bundle, and the next `login
+  status` that fails asks again. The binary is rarely on `PATH`: `npm install @openai/codex` in the
   scratchpad, set `CODEX_BIN` to its `node_modules/.bin/codex`, and invoke
   it as `$CODEX_BIN` throughout. `$CODEX_BIN login status` decides. Not
   signed in means `$CODEX_BIN login --device-auth </dev/null`, detached;
