@@ -48,9 +48,11 @@ API key does; the API is metered separately. OpenAI documents seeding
 `auth.json` onto headless runners, so persistence was available and was
 declined on purpose: the bundle is the whole ChatGPT account, uncapped, and
 the harness classifier refuses to write it out for hand-off, which is the rule
-working. A session that needs the reviewer and finds no sign-in asks for the
-thirty-second phone step as a 🛑 with a push notification; it does not look
-for a stored copy.
+working. Every session asks for the thirty-second phone step as its first
+action, in any repo, before any other work (David, 2026-10-29; `claude-core.md`,
+*Astra*), as a 🛑 with a push notification, and one that later finds the
+sign-in gone — a restarted container — asks again; neither looks for a stored
+copy.
 
 **A missing key degrades, it does not break.** Claude Code still loads a
 `.mcp.json` whose variable is unset; it warns and passes the literal

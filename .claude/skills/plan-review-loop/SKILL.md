@@ -393,8 +393,11 @@ is discussing — were both one unnoticed flag away from being lost.
 ## When Astra cannot run
 
 **Sign-in is per session and never stored.** The script exits **2** when there
-is none, with the device-code instructions and without running anything. Get one
-before the loop starts, not mid-exchange:
+is none, with the device-code instructions and without running anything. The
+session's first action already asked for one (`claude-core.md`, *Astra*: sign-in
+is the first thing every session does, David 2026-10-29); a loop that still finds
+none — a restarted container, an unanswered code — gets one before the loop
+starts, not mid-exchange:
 
 1. `npm install @openai/codex` in a scratch directory; set `CODEX_BIN`.
 2. `$CODEX_BIN login --device-auth </dev/null`, detached — the poller must stay

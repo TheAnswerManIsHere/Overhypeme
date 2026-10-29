@@ -200,12 +200,16 @@ The block carries these seven, in order:
 2. **Read first** — `issue #N`, its State of Play and the handoff comment
    dated `<date>`, and every file the work rests on by its pushed path and
    branch — never a working-tree path (Step 2).
-3. **Setup** — the branch and how to get on it, which PR to re-subscribe to,
+3. **Setup** — opening with the Astra sign-in, which comes before
+   everything else in the new session, the attach step below included
+   ([`claude-core.md`](../../../.agents/core/claude-core.md), *Astra*:
+   David, 2026-10-29) — then the branch and how to get on it, which PR to
+   re-subscribe to,
    what to verify live rather than trust, and — **whenever the work is in a
    repository other than the new session's primary one** — the attach step,
-   named as the FIRST action and by its full tool name:
+   named as the first action after that sign-in, and by its full tool name:
 
-   > Attach the repo before anything else: call
+   > Right after the Astra sign-in, before anything else, attach the repo: call
    > `mcp__Claude_Code_Remote__add_repo` with owner `<owner>`, repo `<repo>`,
    > access `<read|push>`. Run the clone command it returns, then call
    > `mcp__Claude_Code_Remote__register_repo_root` with the clone path. If that
