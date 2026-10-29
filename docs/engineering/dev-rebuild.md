@@ -23,8 +23,13 @@ The mechanism is `artifacts/api-server/src/lib/devRebuild.ts`; the command is
    pending or processing are marked `failed`, with
    `disposed by the dev rebuild (Launch Phase 3, #770)`. Then it boots again,
    as the server will.
+   A schema the code does not build is carried whole, objects and rows. Today
+   that is the `stripe` mirror stripe-replit-sync creates at server start
+   (`artifacts/api-server/src/lib/stripeInit.ts`). Without this, the mirror
+   would vanish from dev unnoticed.
 4. **Verify, while dev still serves.**
-   - Every product, child-safety and payment row arrives unchanged.
+   - Every product, child-safety and payment row, and every row of a carried
+     schema, arrives unchanged.
    - Every finished job arrives unchanged, and each queued job is disposed of.
    - Configuration and runtime tables keep every row; a boot may add seeds.
    - Every operator setting reads as it did.

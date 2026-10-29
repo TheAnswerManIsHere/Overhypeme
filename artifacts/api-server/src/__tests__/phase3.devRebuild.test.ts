@@ -76,6 +76,8 @@ describe("the dev rebuild", () => {
     await query(sourceName, "INSERT INTO async_jobs (queue, payload, status) VALUES ('q', '{}', 'pending'), ('q', '{\"n\":2}', 'done')");
     adminKey = (await query<{ key: string }>(sourceName, "SELECT key FROM admin_config ORDER BY key LIMIT 1"))[0].key;
     await query(sourceName, "UPDATE admin_config SET value = '7777' WHERE key = $1", [adminKey]);
+    // A schema the code does not build, written at server start by stripe-replit-sync.
+    await query(sourceName, "CREATE SCHEMA stripe; CREATE TABLE stripe.customers (id text PRIMARY KEY, email text); INSERT INTO stripe.customers VALUES ('cus_1', 'a@example.com')");
   });
 
   after(async () => {
@@ -103,6 +105,8 @@ describe("the dev rebuild", () => {
       { status: "done", last_error: null },
     ]);
     assert.deepEqual(await query(target, "SELECT value FROM admin_config WHERE key = $1", [adminKey]), [{ value: "7777" }]);
+    assert.deepEqual(report.schemasCarried, { stripe: 1 });
+    assert.deepEqual(await query(target, "SELECT id, email FROM stripe.customers"), [{ id: "cus_1", email: "a@example.com" }]);
     // The live database is only read.
     assert.equal((await query(sourceName, "SELECT count(*)::int AS n FROM sessions"))[0].n, 1);
   });

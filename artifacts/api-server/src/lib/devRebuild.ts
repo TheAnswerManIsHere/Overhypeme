@@ -62,16 +62,38 @@ async function connect(url: string): Promise<pg.Client> {
   return c;
 }
 
-/** Each table's rows, hashed and sorted; independent of column order. `skipJobs` leaves those async_jobs rows out. */
+/**
+ * Schemas the code does not build but something else on dev wrote — today
+ * stripe-replit-sync's `stripe` mirror, created at server start (stripeInit.ts).
+ * They are carried whole, objects and rows, from the dump.
+ */
+async function carriedSchemas(c: pg.ClientBase): Promise<string[]> {
+  const { rows } = await c.query<{ s: string }>(
+    `SELECT nspname AS s FROM pg_namespace
+     WHERE nspname NOT LIKE 'pg\\_%' AND nspname NOT IN ('information_schema', 'public', 'drizzle') ORDER BY 1`,
+  );
+  return rows.map((r) => r.s);
+}
+
+/**
+ * Each table's rows, hashed and sorted; independent of column order. Public tables
+ * are keyed by name, a carried schema's as `schema.table`. `skipJobs` leaves those
+ * async_jobs rows out.
+ */
 async function fingerprint(c: pg.ClientBase, skipJobs: number[] = []): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
+  const hashes = async (from: string, where = "", params: unknown[] = []) =>
+    (await c.query<{ h: string }>(`SELECT md5(to_jsonb(r)::text) AS h FROM ${from} r${where} ORDER BY 1`, params)).rows.map((r) => r.h);
   for (const t of await publicTables(c)) {
     const skip = t === "async_jobs" && skipJobs.length > 0;
-    const { rows } = await c.query<{ h: string }>(
-      `SELECT md5(to_jsonb(r)::text) AS h FROM public."${t}" r${skip ? " WHERE NOT (r.id = ANY($1::int[]))" : ""} ORDER BY 1`,
-      skip ? [skipJobs] : [],
+    out.set(t, await hashes(`public."${t}"`, skip ? " WHERE NOT (r.id = ANY($1::int[]))" : "", skip ? [skipJobs] : []));
+  }
+  for (const schema of await carriedSchemas(c)) {
+    const { rows } = await c.query<{ t: string }>(
+      "SELECT relname AS t FROM pg_class WHERE relnamespace = $1::regnamespace AND relkind = 'r' ORDER BY 1",
+      [schema],
     );
-    out.set(t, rows.map((r) => r.h));
+    for (const { t } of rows) out.set(`${schema}.${t}`, await hashes(`"${schema}"."${t}"`));
   }
   return out;
 }
@@ -128,6 +150,8 @@ export interface RebuildReport {
     childSafetyCarried: Record<string, number>;
     paymentsCarried: Record<string, number>;
   };
+  /** Schemas the code does not build, carried whole: tables per schema. */
+  schemasCarried: Record<string, number>;
   newInCode: string[];
   seededAfterLoad: Record<string, number>;
   sequencesAdvanced: string[];
@@ -155,9 +179,11 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
   let sourceSettings: Map<string, string>;
   let sourceLedger: number;
   let disposedIds: number[] = [];
+  let schemas: string[] = [];
   let digest: string;
   try {
     const full = await fingerprint(source);
+    schemas = await carriedSchemas(source);
     digest = digestOf(full);
     if (full.has("async_jobs")) {
       disposedIds = (await source.query<{ id: number }>(`SELECT id FROM public.async_jobs WHERE ${NON_TERMINAL} ORDER BY id`)).rows.map((r) => r.id);
@@ -192,6 +218,7 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
     },
     target: { database: targetName, kept: false, tables: 0, rows: 0, ledger: 0 },
     dispositions: { sessionsCleared: {}, jobsDisposed: 0, childSafetyCarried: {}, paymentsCarried: {} },
+    schemasCarried: {},
     newInCode: [],
     seededAfterLoad: {},
     sequencesAdvanced: [],
@@ -215,7 +242,10 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
     try {
       built = await publicTables(target);
       const builtSet = new Set(built);
-      const notBuilt = [...before.keys()].filter((t) => !builtSet.has(t));
+      const notBuilt = [...before.keys()].filter((t) => !t.includes(".") && !builtSet.has(t));
+      for (const schema of (await carriedSchemas(target)).filter((x) => schemas.includes(x))) {
+        failures.push(`schema ${schema} is built by code and also written on dev; it is not carried`);
+      }
       for (const t of notBuilt) failures.push(`not built by code: dev's table ${t} (${before.get(t)!.length} rows) has no place in the rebuilt database`);
       const load = [...before.keys()].filter((t) => builtSet.has(t) && !sessionClass(t));
       const seeded: string[] = [];
@@ -223,11 +253,15 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
         if (Number((await target.query(`SELECT count(*) AS n FROM public."${t}"`)).rows[0].n) > 0) seeded.push(t);
       }
       if (seeded.length > 0) await target.query(`TRUNCATE ${seeded.map((t) => `public."${t}"`).join(", ")} CASCADE`);
+      // pg_restore -n restores a schema's contents, not the schema itself.
+      const existing = await carriedSchemas(target);
+      for (const schema of schemas.filter((x) => !existing.includes(x))) await target.query(`CREATE SCHEMA "${schema}"`);
       const { rows: seqs } = await target.query<{ s: string }>(
         "SELECT relname AS s FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'S'",
       );
       await target.end();
       loadRows(dumpFile, targetUrl, new Set(load), new Set(seqs.map((r) => r.s)), opts.workDir);
+      for (const schema of schemas) restoreSchema(dumpFile, targetUrl, schema);
     } catch (err) {
       await target.end().catch(() => {});
       throw err;
@@ -326,6 +360,7 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
           ledger: targetLedger,
         },
         dispositions,
+        schemasCarried: Object.fromEntries(schemas.map((x) => [x, [...got.keys()].filter((k) => k.startsWith(`${x}.`)).length])),
         newInCode: [...got.keys()].filter((t) => !before.has(t)),
         seededAfterLoad,
         sequencesAdvanced,
@@ -352,6 +387,20 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
   await control.end();
   result.target.kept = keep;
   return result;
+}
+
+/** pg_restore of one schema the code does not build: its objects and rows. */
+function restoreSchema(dumpFile: string, targetUrl: string, schema: string): void {
+  const conn = pgCommandConnection(targetUrl);
+  try {
+    execFileSync("pg_restore", ["--no-owner", "--no-acl", "--exit-on-error", "-n", schema, "-d", conn.url, dumpFile], {
+      env: conn.env,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    const stderr = String((err as { stderr?: Buffer }).stderr ?? "").trim();
+    throw new Error(`carrying schema ${schema} failed: ${withoutPassword(stderr || (err as Error).message, targetUrl).slice(0, 800)}`);
+  }
 }
 
 /** pg_restore of the dump's rows only — the listed tables and the sequences the build has — into the built schema. */
