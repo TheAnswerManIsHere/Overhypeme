@@ -281,7 +281,7 @@ CI, separate from the repo's.
 
 How Replit publishing works in general — deployment types, the
 `artifact.toml` layer, secrets, rollback, Agent modes, and the connector's
-60-second timeout — is the fleet's [`replit-platform.md`](replit-platform.md).
+60-second timeout — is the fleet's `replit-platform.md` (beside this file once the handbook sync that ships it lands).
 What follows is this Repl's own record. This app publishes as **Autoscale**
 (`.replit`: `deploymentTarget = "autoscale"`) and serves at
 `https://overhype.me` (`get_publish_status`, 2026-10-29).
