@@ -1,5 +1,5 @@
 /**
- * @purpose Rebuilds the Repl's dev database from code while keeping its content: builds a new database by the bootstrap path beside the live one, loads the live one's rows into it, clears sessions and disposes of queued jobs, verifies every row came across, and swaps the two by renaming — the old database is kept, so the swap is undone by renaming back.
+ * @purpose Rebuilds the Repl's dev database from code while keeping its content: refuses while jobs are still queued, builds a new database by the bootstrap path beside the live one, loads the live one's rows into it, clears sessions, verifies every row came across, and swaps the two by renaming — the old database is kept, so the swap is undone by renaming back.
  * @subsystem data-lifecycle
  *
  * Launch Phase 3, increment 7 (#770; plan docs/plans/PLAN_PHASE3_DATA_ENVIRONMENTS.md
@@ -17,8 +17,11 @@
  *   3. Stripe. Nothing is discarded, so no payment obligation loses its local
  *      record; a payment-class row that does not arrive unchanged fails the
  *      rebuild.
- *   4. Clean before serving. Sessions and auth state are not loaded; jobs
- *      still pending or processing are marked failed with DISPOSED_JOB_ERROR.
+ *   4. Clean before serving. Sessions and auth state are not loaded. Jobs are
+ *      drained, not disposed of: the rebuild refuses while any is pending or
+ *      processing, and lists them. Marking one failed by hand would bypass its
+ *      handler, which owns a status elsewhere that only the worker finalizes
+ *      (facts.visual_concept_status, for one), and strand that work.
  *   5. Restore and verify before exposure. All of the above is checked on the
  *      new database while the live one still serves; only `swapIn` exposes it.
  *
@@ -38,7 +41,6 @@ import { TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
 import { adminValues, advanceSequences, exhaustedSequences, orphans, publicTables } from "./databaseChecks.js";
 import { pgCommandConnection, withoutPassword } from "./pgCommandLine.js";
 
-export const DISPOSED_JOB_ERROR = "disposed by the dev rebuild (Launch Phase 3, #770)";
 const NON_TERMINAL = "status IN ('pending', 'processing')";
 
 /** The same server and connection settings, another database; the test runner's schema options dropped. */
@@ -77,17 +79,13 @@ async function carriedSchemas(c: pg.ClientBase): Promise<string[]> {
 
 /**
  * Each table's rows, hashed and sorted; independent of column order. Public tables
- * are keyed by name, a carried schema's as `schema.table`. `skipJobs` leaves those
- * async_jobs rows out.
+ * are keyed by name, a carried schema's as `schema.table`.
  */
-async function fingerprint(c: pg.ClientBase, skipJobs: number[] = []): Promise<Map<string, string[]>> {
+async function fingerprint(c: pg.ClientBase): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   const hashes = async (from: string, where = "", params: unknown[] = []) =>
     (await c.query<{ h: string }>(`SELECT md5(to_jsonb(r)::text) AS h FROM ${from} r${where} ORDER BY 1`, params)).rows.map((r) => r.h);
-  for (const t of await publicTables(c)) {
-    const skip = t === "async_jobs" && skipJobs.length > 0;
-    out.set(t, await hashes(`public."${t}"`, skip ? " WHERE NOT (r.id = ANY($1::int[]))" : "", skip ? [skipJobs] : []));
-  }
+  for (const t of await publicTables(c)) out.set(t, await hashes(`public."${t}"`));
   for (const schema of await carriedSchemas(c)) {
     const { rows } = await c.query<{ t: string }>(
       "SELECT relname AS t FROM pg_class WHERE relnamespace = $1::regnamespace AND relkind = 'r' ORDER BY 1",
@@ -146,7 +144,6 @@ export interface RebuildReport {
   /** What the rebuild did to the excluded classes. */
   dispositions: {
     sessionsCleared: Record<string, number>;
-    jobsDisposed: number;
     childSafetyCarried: Record<string, number>;
     paymentsCarried: Record<string, number>;
   };
@@ -178,25 +175,30 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
   let before: Map<string, string[]>;
   let sourceSettings: Map<string, string>;
   let sourceLedger: number;
-  let disposedIds: number[] = [];
   let schemas: string[] = [];
   let digest: string;
   try {
-    const full = await fingerprint(source);
+    before = await fingerprint(source);
     schemas = await carriedSchemas(source);
-    digest = digestOf(full);
-    if (full.has("async_jobs")) {
-      disposedIds = (await source.query<{ id: number }>(`SELECT id FROM public.async_jobs WHERE ${NON_TERMINAL} ORDER BY id`)).rows.map((r) => r.id);
+    digest = digestOf(before);
+    if (before.has("async_jobs")) {
+      const { rows: queued } = await source.query<{ id: number; queue: string; status: string; next_attempt_at: Date }>(
+        `SELECT id, queue, status, next_attempt_at FROM public.async_jobs WHERE ${NON_TERMINAL} ORDER BY id`,
+      );
+      for (const j of queued) {
+        failures.push(`job ${j.id} (${j.queue}) is ${j.status}, next attempt ${j.next_attempt_at.toISOString()}: let the queue drain, with the workflows running, then prepare again`);
+      }
     }
-    // Compared without the jobs the rebuild disposes of; the digest covers everything.
-    before = disposedIds.length > 0 ? await fingerprint(source, disposedIds) : full;
     sourceSettings = await adminValues(source);
     sourceLedger = Number((await source.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);
   } finally {
     await source.end();
   }
-  const nonTerminalJobs = disposedIds.length;
   times.fingerprintMs = Date.now() - t0;
+  if (failures.length > 0) {
+    times.totalMs = Date.now() - t0;
+    return refusal(failures, { database: sourceName, digest, tables: before.size, ledger: sourceLedger, before }, targetName, sourceSettings.size, times);
+  }
   const dumpFile = path.join(opts.workDir, `${sourceName}.dump`);
   const t1 = Date.now();
   const sourceConn = pgCommandConnection(opts.sourceUrl);
@@ -213,11 +215,11 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
       database: sourceName,
       digest,
       tables: before.size,
-      rows: [...before.values()].reduce((a, r) => a + r.length, 0) + nonTerminalJobs,
+      rows: [...before.values()].reduce((a, r) => a + r.length, 0),
       ledger: sourceLedger,
     },
     target: { database: targetName, kept: false, tables: 0, rows: 0, ledger: 0 },
-    dispositions: { sessionsCleared: {}, jobsDisposed: 0, childSafetyCarried: {}, paymentsCarried: {} },
+    dispositions: { sessionsCleared: {}, childSafetyCarried: {}, paymentsCarried: {} },
     schemasCarried: {},
     newInCode: [],
     seededAfterLoad: {},
@@ -235,7 +237,7 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
     boot(opts.apiRoot, targetUrl);
     times.buildMs = Date.now() - t2;
 
-    // 2–4. Load every row but sessions and auth state; dispose of queued jobs.
+    // 2–4. Load every row but sessions and auth state.
     const t3 = Date.now();
     const target = await connect(targetUrl);
     let built: string[];
@@ -266,17 +268,6 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
       await target.end().catch(() => {});
       throw err;
     }
-    const after = await connect(targetUrl);
-    try {
-      if (disposedIds.length > 0) {
-        await after.query(
-          "UPDATE public.async_jobs SET status = 'failed', last_error = $1, updated_at = now() WHERE id = ANY($2::int[])",
-          [DISPOSED_JOB_ERROR, disposedIds],
-        );
-      }
-    } finally {
-      await after.end();
-    }
     // The boot again, as the server will on its first start: seeds a code change added since dev last booted.
     boot(opts.apiRoot, targetUrl);
     times.loadMs = Date.now() - t3;
@@ -287,10 +278,9 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
     let extra: Partial<RebuildReport>;
     try {
       const sequencesAdvanced = await advanceSequences(check);
-      const got = await fingerprint(check, disposedIds);
+      const got = await fingerprint(check);
       const dispositions: RebuildReport["dispositions"] = {
         sessionsCleared: {},
-        jobsDisposed: 0,
         childSafetyCarried: {},
         paymentsCarried: {},
       };
@@ -318,21 +308,6 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
         if (entry?.class === "excluded" && entry.excluded === "childSafety") dispositions.childSafetyCarried[t] = now.length;
         if (entry?.class === "excluded" && entry.excluded === "payments") dispositions.paymentsCarried[t] = now.length;
       }
-      if (got.has("async_jobs")) {
-        dispositions.jobsDisposed = Number(
-          (
-            await check.query(
-              "SELECT count(*) AS n FROM public.async_jobs WHERE id = ANY($1::int[]) AND status = 'failed' AND last_error = $2",
-              [disposedIds, DISPOSED_JOB_ERROR],
-            )
-          ).rows[0].n,
-        );
-        if (dispositions.jobsDisposed !== nonTerminalJobs) {
-          failures.push(`jobs: ${nonTerminalJobs} were pending or processing, ${dispositions.jobsDisposed} disposed of`);
-        }
-        const live = Number((await check.query(`SELECT count(*) AS n FROM public.async_jobs WHERE ${NON_TERMINAL}`)).rows[0].n);
-        if (live > 0) failures.push(`jobs: ${live} still pending or processing`);
-      }
       const settings = await adminValues(check);
       for (const [key, value] of sourceSettings) {
         if (settings.get(key) !== value) failures.push(`setting: ${key} was ${value}, now ${settings.get(key) ?? "absent"}`);
@@ -356,7 +331,7 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
           database: targetName,
           kept: false,
           tables: got.size,
-          rows: [...got.values()].reduce((a, r) => a + r.length, 0) + dispositions.jobsDisposed,
+          rows: [...got.values()].reduce((a, r) => a + r.length, 0),
           ledger: targetLedger,
         },
         dispositions,
@@ -387,6 +362,36 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
   await control.end();
   result.target.kept = keep;
   return result;
+}
+
+/** The report of a rebuild refused before anything was built. */
+function refusal(
+  failures: string[],
+  source: { database: string; digest: string; tables: number; ledger: number; before: Map<string, string[]> },
+  targetName: string,
+  settingsChecked: number,
+  times: RebuildReport["times"],
+): RebuildReport {
+  return {
+    verdict: "fail",
+    failures,
+    source: {
+      database: source.database,
+      digest: source.digest,
+      tables: source.tables,
+      rows: [...source.before.values()].reduce((a, r) => a + r.length, 0),
+      ledger: source.ledger,
+    },
+    target: { database: targetName, kept: false, tables: 0, rows: 0, ledger: 0 },
+    dispositions: { sessionsCleared: {}, childSafetyCarried: {}, paymentsCarried: {} },
+    schemasCarried: {},
+    newInCode: [],
+    seededAfterLoad: {},
+    sequencesAdvanced: [],
+    settingsChecked,
+    auditBoundary: null,
+    times,
+  };
 }
 
 /** pg_restore of one schema the code does not build: its objects and rows. */
@@ -432,13 +437,65 @@ export interface SwapResult {
   ms: number;
 }
 
+/** A test's way to make the second rename fail, after the first has been made. */
+export interface SwapHooks {
+  beforeSecondRename?: () => Promise<void>;
+}
+
+interface Rename {
+  /** The database the statement is issued from; never one it renames. */
+  via: string;
+  from: string;
+  to: string;
+}
+
+async function rename(serverUrl: string, r: Rename): Promise<void> {
+  const c = await connect(databaseUrl(serverUrl, r.via));
+  try {
+    await endConnections(c, r.from);
+    await c.query(`ALTER DATABASE "${r.from}" RENAME TO "${r.to}"`);
+  } finally {
+    await c.end();
+  }
+}
+
+/**
+ * Two renames made one after the other. If the second cannot be made, the first is
+ * undone from a connection to the second's source — which still exists, and is
+ * neither of the first's names — and the error says whether that worked and, if
+ * not, which statement puts the live name back.
+ */
+async function renamePair(serverUrl: string, first: Rename, second: Rename, hooks: SwapHooks = {}): Promise<void> {
+  await rename(serverUrl, first);
+  try {
+    await hooks.beforeSecondRename?.();
+    await rename(serverUrl, second);
+  } catch (err) {
+    const why = withoutPassword(String((err as Error).message ?? err), serverUrl);
+    let state: string;
+    try {
+      await rename(serverUrl, { via: second.from, from: first.to, to: first.from });
+      state = `${first.from} was put back as it was`;
+    } catch (backErr) {
+      state =
+        `putting it back failed too (${withoutPassword(String((backErr as Error).message ?? backErr), serverUrl)}): ` +
+        `${first.from} is now named ${first.to}; from a connection to any other database, run ` +
+        `ALTER DATABASE "${first.to}" RENAME TO "${first.from}"`;
+    }
+    throw new Error(`${second.from} could not be renamed to ${second.to} (${why}); ${state}`);
+  }
+}
+
 /**
  * Exposes a prepared rebuild: renames the live database aside (kept, never dropped)
  * and the rebuilt one into its name. Refuses unless the live database still holds
  * exactly what the rebuild verified. Connections to both are ended first; the app's
  * workflows should be stopped so nothing reconnects mid-swap.
  */
-export async function swapIn(opts: { sourceUrl: string; targetName: string; expectDigest: string }): Promise<SwapResult> {
+export async function swapIn(
+  opts: { sourceUrl: string; targetName: string; expectDigest: string },
+  hooks: SwapHooks = {},
+): Promise<SwapResult> {
   const t0 = Date.now();
   const live = databaseName(opts.sourceUrl);
   const suffix = /_rebuild_([0-9a-f]+)$/.exec(opts.targetName)?.[1];
@@ -449,48 +506,28 @@ export async function swapIn(opts: { sourceUrl: string; targetName: string; expe
     throw new Error(`${live} has changed since the rebuild was verified; prepare it again with the workflows stopped`);
   }
   const previous = `${live}_pre_rebuild_${suffix}`;
-  // Connected to the rebuilt database, rename the live one aside; then, connected to that, the rebuilt one in.
-  const viaTarget = await connect(databaseUrl(opts.sourceUrl, opts.targetName));
-  try {
-    await endConnections(viaTarget, live);
-    await viaTarget.query(`ALTER DATABASE "${live}" RENAME TO "${previous}"`);
-  } finally {
-    await viaTarget.end();
-  }
-  const viaPrevious = await connect(databaseUrl(opts.sourceUrl, previous));
-  try {
-    await endConnections(viaPrevious, opts.targetName);
-    await viaPrevious.query(`ALTER DATABASE "${opts.targetName}" RENAME TO "${live}"`);
-  } catch (err) {
-    await viaPrevious.query(`ALTER DATABASE "${previous}" RENAME TO "${live}"`).catch(() => {});
-    throw err;
-  } finally {
-    await viaPrevious.end();
-  }
+  await renamePair(
+    opts.sourceUrl,
+    { via: opts.targetName, from: live, to: previous },
+    { via: previous, from: opts.targetName, to: live },
+    hooks,
+  );
   return { live, previous, ms: Date.now() - t0 };
 }
 
 /** Puts the database `swapIn` renamed aside back; the rebuilt one is kept under `<live>_rebuilt_<suffix>`. */
-export async function undoSwap(opts: { sourceUrl: string; previous: string }): Promise<SwapResult> {
+export async function undoSwap(opts: { sourceUrl: string; previous: string }, hooks: SwapHooks = {}): Promise<SwapResult> {
   const t0 = Date.now();
   const live = databaseName(opts.sourceUrl);
   const suffix = /_pre_rebuild_([0-9a-f]+)$/.exec(opts.previous)?.[1];
   if (!suffix || opts.previous !== `${live}_pre_rebuild_${suffix}`) throw new Error(`${opts.previous} is not ${live} set aside by a rebuild`);
   const rebuilt = `${live}_rebuilt_${suffix}`;
-  const viaPrevious = await connect(databaseUrl(opts.sourceUrl, opts.previous));
-  try {
-    await endConnections(viaPrevious, live);
-    await viaPrevious.query(`ALTER DATABASE "${live}" RENAME TO "${rebuilt}"`);
-  } finally {
-    await viaPrevious.end();
-  }
-  const viaRebuilt = await connect(databaseUrl(opts.sourceUrl, rebuilt));
-  try {
-    await endConnections(viaRebuilt, opts.previous);
-    await viaRebuilt.query(`ALTER DATABASE "${opts.previous}" RENAME TO "${live}"`);
-  } finally {
-    await viaRebuilt.end();
-  }
+  await renamePair(
+    opts.sourceUrl,
+    { via: opts.previous, from: live, to: rebuilt },
+    { via: rebuilt, from: opts.previous, to: live },
+    hooks,
+  );
   return { live, previous: rebuilt, ms: Date.now() - t0 };
 }
 

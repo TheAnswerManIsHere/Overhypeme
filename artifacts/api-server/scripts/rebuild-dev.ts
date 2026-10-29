@@ -51,10 +51,11 @@ if (command === "prepare") {
   // §5 step 1: the inventory beside the capture. Live Stripe is not read here: every payment row is carried, unchanged and checked.
   const inventory = await inventoryExcludedClasses(null);
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "rebuild-dev-"));
+  // The dump inside workDir is a full copy of dev: it is removed before the process exits, pass or fail.
   try {
     const report = await prepareRebuild({ sourceUrl, apiRoot, workDir, keepOnFail: process.argv.includes("--keep-on-fail") });
     print({ ...report, inventory });
-    process.exit(report.verdict === "pass" ? 0 : 1);
+    process.exitCode = report.verdict === "pass" ? 0 : 1;
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
   }
@@ -73,4 +74,5 @@ if (command === "prepare") {
 } else {
   throw new Error("usage: rebuild-dev.ts prepare [--out <file>] [--keep-on-fail] | swap --report <file> --confirm | undo --previous <name> --confirm");
 }
-process.exit(0);
+// Exits explicitly, as before, now keeping the status prepare set.
+process.exit(process.exitCode ?? 0);

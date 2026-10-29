@@ -12,17 +12,20 @@ The mechanism is `artifacts/api-server/src/lib/devRebuild.ts`; the command is
 
 ## What it does
 
-1. **Capture and inventory.** It runs the excluded-classes inventory,
+1. **Capture and inventory.** It refuses while any job is still pending or
+   processing, and lists each one. Queued jobs are drained by the worker
+   rather than cancelled by the rebuild. Marking a job failed by hand would
+   skip its handler, and some handlers own a status elsewhere that only the
+   worker sets (a fact's visual-concept status, for one). The review that job
+   served would then be stuck. It runs the excluded-classes inventory,
    fingerprints every row of every public table in the live dev database
    (hashed, independent of column order), and dumps it with `pg_dump`.
 2. **Build from code.** It creates `<dev>_rebuild_<id>` on the same server and
    boots it by the bootstrap path (`artifacts/api-server/scripts/boot-database.ts`: the baseline,
    the migrations, the seeds, the engine catalogue).
 3. **Load.** It loads the dump's rows into the built schema
-   (`pg_restore --data-only`), except sessions and auth state. Jobs still
-   pending or processing are marked `failed`, with
-   `disposed by the dev rebuild (Launch Phase 3, #770)`. Then it boots again,
-   as the server will.
+   (`pg_restore --data-only`), except sessions and auth state. Then it boots
+   again, as the server will.
    A schema the code does not build is carried whole, objects and rows. Today
    that is the `stripe` mirror stripe-replit-sync creates at server start
    (`artifacts/api-server/src/lib/stripeInit.ts`). Without this, the mirror
@@ -30,7 +33,6 @@ The mechanism is `artifacts/api-server/src/lib/devRebuild.ts`; the command is
 4. **Verify, while dev still serves.**
    - Every product, child-safety and payment row, and every row of a carried
      schema, arrives unchanged.
-   - Every finished job arrives unchanged, and each queued job is disposed of.
    - Configuration and runtime tables keep every row; a boot may add seeds.
    - Every operator setting reads as it did.
    - No foreign key has an orphan, and no sequence would collide.
@@ -52,7 +54,10 @@ expected here. It is not expected on production's reset (increment 8).
 
 ## Running it (on the Repl, through the connector)
 
-1. Stop the Repl's app workflows, so nothing writes to dev.
+1. With the workflows still running, let the job queue drain: the inventory's
+   `nonTerminalJobs` reads 0. Then stop the Repl's app workflows, so nothing
+   writes to dev. A job that will not drain is decided with David, not cleared
+   by the rebuild.
 2. Prepare:
 
    ```
@@ -68,7 +73,9 @@ expected here. It is not expected on production's reset (increment 8).
    pnpm --filter @workspace/api-server exec tsx scripts/rebuild-dev.ts swap --report /tmp/rebuild-dev.json --confirm
    ```
 
-   It refuses if dev has changed since the prepare; prepare again.
+   It refuses if dev has changed since the prepare; prepare again. If its
+   second rename fails, it renames dev back and says so. If even that fails,
+   its error names the one statement that restores dev's name.
 4. Restart the workflows. Check that the app boots, David's content is there,
    and he can sign in again (every session was cleared).
 
@@ -79,7 +86,8 @@ pnpm --filter @workspace/api-server exec tsx scripts/rebuild-dev.ts undo --previ
 ```
 
 This renames the old database back into dev's name and keeps the rebuild as
-`<dev>_rebuilt_<id>`. Anything written to dev after the swap stays in the
+`<dev>_rebuilt_<id>`. A failed second rename is put back the same way as in
+`swap`. Anything written to dev after the swap stays in the
 rebuild, not in the restored database.
 
 The set-aside databases are kept until David says to drop them. No tool here

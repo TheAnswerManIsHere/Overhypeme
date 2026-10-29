@@ -1,10 +1,12 @@
 /**
  * Launch Phase 3, increment 7 (#770; plan docs/plans/PLAN_PHASE3_DATA_ENVIRONMENTS.md
- * §5 and §7): the dev rebuild builds a database from code beside the live one,
- * carries every row across except sessions, disposes of queued jobs, keeps
- * every operator setting, and is exposed only by a rename that refuses when the
- * live database has moved — and that a second rename puts back. A table the
- * code does not build fails the rebuild, and the failed build is dropped.
+ * §5 and §7): the dev rebuild refuses while a job is still queued, builds a
+ * database from code beside the live one, carries every row across except
+ * sessions, keeps every operator setting, and is exposed only by a rename that
+ * refuses when the live database has moved — and that a second rename puts
+ * back. A swap or an undo whose second rename fails puts the first back. A
+ * table the code does not build fails the rebuild, and the failed build is
+ * dropped.
  *
  * Its own scratch databases, built and booted in a child process, like the
  * other phase-3 database tests.
@@ -21,7 +23,6 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 import {
-  DISPOSED_JOB_ERROR,
   databaseUrl,
   prepareRebuild,
   swapIn,
@@ -73,7 +74,7 @@ describe("the dev rebuild", () => {
     // Dev's content: a user, a live session, a queued and a finished job, an operator setting.
     await query(sourceName, "INSERT INTO users (id) VALUES ('rebuild-user')");
     await query(sourceName, "INSERT INTO sessions (sid, sess, expire) VALUES ('s1', '{}', now() + interval '1 day')");
-    await query(sourceName, "INSERT INTO async_jobs (queue, payload, status) VALUES ('q', '{}', 'pending'), ('q', '{\"n\":2}', 'done')");
+    await query(sourceName, "INSERT INTO async_jobs (queue, payload, status) VALUES ('fact_visual_concepts', '{}', 'pending'), ('q', '{\"n\":2}', 'done')");
     adminKey = (await query<{ key: string }>(sourceName, "SELECT key FROM admin_config ORDER BY key LIMIT 1"))[0].key;
     await query(sourceName, "UPDATE admin_config SET value = '7777' WHERE key = $1", [adminKey]);
     // A schema the code does not build, written at server start by stripe-replit-sync.
@@ -87,22 +88,32 @@ describe("the dev rebuild", () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  it("builds from code and carries every row but sessions, disposing of queued jobs", async (t) => {
+  it("refuses while a job is still queued, naming it, and builds nothing", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here; CI runs per-database");
+    const refused = await prepareRebuild({ sourceUrl: sourceUrl(), apiRoot, workDir });
+    assert.equal(refused.verdict, "fail");
+    assert.equal(refused.failures.length, 1);
+    assert.match(refused.failures[0], /^job \d+ \(fact_visual_concepts\) is pending, next attempt .*: let the queue drain/);
+    assert.equal(await exists(refused.target.database), false);
+    // The worker drains it.
+    await query(sourceName, "UPDATE async_jobs SET status = 'done' WHERE status = 'pending'");
+  });
+
+  it("builds from code and carries every row but sessions", async (t) => {
     if (!creatable) return t.skip("CREATE DATABASE is not permitted here; CI runs per-database");
     report = await prepareRebuild({ sourceUrl: sourceUrl(), apiRoot, workDir });
     assert.deepEqual(report.failures, []);
     assert.equal(report.verdict, "pass");
     assert.equal(report.target.kept, true);
     assert.equal(report.dispositions.sessionsCleared.sessions, 1);
-    assert.equal(report.dispositions.jobsDisposed, 1);
 
     const target = report.target.database;
     assert.deepEqual(await query(target, "SELECT id FROM users WHERE id = 'rebuild-user'"), [{ id: "rebuild-user" }]);
     assert.deepEqual(await query(target, "SELECT sid FROM sessions"), []);
-    const jobs = await query<{ status: string; last_error: string | null }>(target, "SELECT status, last_error FROM async_jobs ORDER BY id");
+    const jobs = await query<{ queue: string; status: string }>(target, "SELECT queue, status FROM async_jobs ORDER BY id");
     assert.deepEqual(jobs, [
-      { status: "failed", last_error: DISPOSED_JOB_ERROR },
-      { status: "done", last_error: null },
+      { queue: "fact_visual_concepts", status: "done" },
+      { queue: "q", status: "done" },
     ]);
     assert.deepEqual(await query(target, "SELECT value FROM admin_config WHERE key = $1", [adminKey]), [{ value: "7777" }]);
     assert.deepEqual(report.schemasCarried, { stripe: 1 });
@@ -121,6 +132,17 @@ describe("the dev rebuild", () => {
     await query(sourceName, "DELETE FROM users WHERE id = 'late-user'");
   });
 
+  it("puts dev back when the swap's second rename fails", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
+    const fail = { beforeSecondRename: async () => Promise.reject(new Error("injected")) };
+    await assert.rejects(
+      swapIn({ sourceUrl: sourceUrl(), targetName: report.target.database, expectDigest: report.source.digest }, fail),
+      new RegExp(`could not be renamed to ${sourceName} \\(injected\\); ${sourceName} was put back as it was`),
+    );
+    assert.equal((await query(sourceName, "SELECT count(*)::int AS n FROM sessions"))[0].n, 1);
+    assert.equal(await exists(report.target.database), true);
+  });
+
   it("swaps the rebuild in by renaming, keeps the old database, and undoes by renaming back", async (t) => {
     if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
     const swap = await swapIn({ sourceUrl: sourceUrl(), targetName: report.target.database, expectDigest: report.source.digest });
@@ -128,6 +150,11 @@ describe("the dev rebuild", () => {
     assert.equal(await exists(report.target.database), false);
     assert.deepEqual(await query(sourceName, "SELECT sid FROM sessions"), []);
     assert.equal((await query(swap.previous, "SELECT count(*)::int AS n FROM sessions"))[0].n, 1);
+
+    const fail = { beforeSecondRename: async () => Promise.reject(new Error("injected")) };
+    await assert.rejects(undoSwap({ sourceUrl: sourceUrl(), previous: swap.previous }, fail), /was put back as it was/);
+    assert.deepEqual(await query(sourceName, "SELECT sid FROM sessions"), []);
+    assert.equal(await exists(swap.previous), true);
 
     const undo = await undoSwap({ sourceUrl: sourceUrl(), previous: swap.previous });
     assert.equal((await query(sourceName, "SELECT count(*)::int AS n FROM sessions"))[0].n, 1);
