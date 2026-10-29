@@ -3,8 +3,7 @@
  * SYSTEM prompt. The model + sampling now come from the shared
  * general-intelligence engine, so only the system prompt lives here.
  *
- * Touches the real test DB. Verifies idempotent seeding and that the getter
- * returns the seeded default.
+ * The prompt is set in code (Launch Phase 3, plan amendment 1).
  */
 
 import { describe, it, before } from "node:test";
@@ -26,27 +25,17 @@ describe("scenePromptConfig", () => {
     bustConfigCache();
   });
 
-  it("seeds the production default that the getter returns", async () => {
+  it("the getter returns the code's production prompt", async () => {
     const systemPrompt = await getScenePromptSystem();
     assert.ok(systemPrompt.length > 100, "system prompt should be the seeded default");
     assert.match(systemPrompt, /Return ONLY valid JSON/);
   });
 
-  it("seeds the system prompt as a textarea (data_type text)", async () => {
-    const r = await db.execute(
-      sql`SELECT data_type FROM admin_config WHERE key = 'scene_prompt_system'`,
-    );
-    const row = (r.rows ?? (r as unknown as { data_type: string }[]))[0] as { data_type: string };
-    assert.equal(row.data_type, "text");
-  });
-
-  it("seeding is idempotent (re-seed leaves existing values untouched)", async () => {
-    await db.execute(sql`UPDATE admin_config SET value = 'custom prompt' WHERE key = 'scene_prompt_system'`);
+  it("ignores a stored row: the prompt is set in code (codeOwnedPrompts.test.ts covers all six)", async () => {
+    await db.execute(sql`INSERT INTO admin_config (key, value, data_type, label) VALUES ('scene_prompt_system', 'custom prompt', 'text', 'x') ON CONFLICT (key) DO UPDATE SET value = 'custom prompt'`);
     bustConfigCache();
-    await seedScenePromptConfig(); // ON CONFLICT DO NOTHING — must NOT overwrite
-    bustConfigCache();
-    assert.equal(await getScenePromptSystem(), "custom prompt");
-    await db.execute(sql`UPDATE admin_config SET value = ${SCENE_PROMPT_SYSTEM_DEFAULT} WHERE key = 'scene_prompt_system'`);
+    assert.equal(await getScenePromptSystem(), SCENE_PROMPT_SYSTEM_DEFAULT);
+    await db.execute(sql`DELETE FROM admin_config WHERE key = 'scene_prompt_system'`);
     bustConfigCache();
   });
 });

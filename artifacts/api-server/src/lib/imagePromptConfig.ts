@@ -23,6 +23,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { getConfigString } from "./adminConfig";
+import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────
@@ -157,17 +158,11 @@ export function composeImagePromptSystemPrompt(configured: string): string {
 // ─── Getters ───────────────────────────────────────────────────────────────
 
 export async function getImagePromptSystem(): Promise<string> {
-  return getConfigString(
-    IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem,
-    FACT_IMAGE_PROMPT_SYSTEM_DEFAULT,
-  );
+  return FACT_IMAGE_PROMPT_SYSTEM_DEFAULT;
 }
 
 export async function getFactSourceClassifierSystem(): Promise<string> {
-  return getConfigString(
-    IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem,
-    FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT,
-  );
+  return FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT;
 }
 
 export async function getImageClassifierEngineId(): Promise<string> {
@@ -255,6 +250,7 @@ export async function seedImagePromptConfig(): Promise<void> {
   }
 
   for (const def of IMAGE_PROMPT_CONFIG_DEFS) {
+    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)

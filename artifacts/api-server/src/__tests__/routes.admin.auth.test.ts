@@ -98,7 +98,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "get",    path: "/admin/config" },
   { method: "patch",  path: "/admin/config/:key" },
   { method: "get",    path: "/admin/config/fact-enrichment-system/provenance" },
-  { method: "post",   path: "/admin/config/fact-enrichment-system/reset-to-default" },
   { method: "get",    path: "/admin/stripe/summary" },
   { method: "post",   path: "/admin/stripe/full-sync" },
   { method: "post",   path: "/admin/stripe/sync" },

@@ -14,11 +14,8 @@
 import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import {
-  getConfigString,
-  getConfigStringWithSource,
-  type ConfigStringSource,
-} from "./adminConfig";
+import { getConfigString, type ConfigStringSource } from "./adminConfig";
+import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
 import { logger } from "./logger";
 
 /** Call-site sampling overrides (classification wants low temperature + room). */
@@ -327,11 +324,11 @@ Known modifier catalog:
 Return ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, "" if none), suggestedHashtags (array of 3-8 lowercase alphanumeric strings), taxonomyConfidence (number 0-1), adminReviewNotes (string, "" if none), culturalReferences (array; empty array if no outside-context dependency, otherwise objects with sourcePhrase, referenceType, canonicalReference, explanation, visualImplication, confidence, requiresAdminReview), semanticEntities (array; empty array when no capitalization-sensitive disambiguation is needed, otherwise objects with surfaceText, normalizedText, entityKind, visualReferent, capitalizationSignal, materiallyAffectsVisualPrompt, requiresAdminReview, confidence, notes).
 Do not include explanation outside the JSON.`;
 
-// ─── Getter (debug-overlay aware via adminConfig) ─────────────────────────────
+// ─── Getter ───────────────────────────────────────────────────────────────────
 
-/** Resolve the admin-configurable fact-enrichment system prompt. */
+/** The fact-enrichment system prompt: set in code (codeOwnedPromptKeys.ts). */
 export async function getFactEnrichmentSystem(): Promise<string> {
-  return getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.system, FACT_ENRICHMENT_SYSTEM_DEFAULT);
+  return FACT_ENRICHMENT_SYSTEM_DEFAULT;
 }
 
 export async function getFactEnrichmentEngineId(): Promise<string> {
@@ -369,14 +366,11 @@ export interface FactEnrichmentSystemPromptResolution {
  */
 export async function resolveFactEnrichmentSystemPrompt(): Promise<FactEnrichmentSystemPromptResolution> {
   const codeDefaultHash = hashPromptText(FACT_ENRICHMENT_SYSTEM_DEFAULT);
-  const resolution = await getConfigStringWithSource(
-    FACT_ENRICHMENT_CONFIG_KEYS.system,
-    FACT_ENRICHMENT_SYSTEM_DEFAULT,
-  );
-  const prompt = resolution.value;
+  // Set in code: an `admin_config` row an older database still holds is ignored.
+  const prompt = FACT_ENRICHMENT_SYSTEM_DEFAULT;
   return {
     prompt,
-    source: resolution.source,
+    source: "code_default",
     hash: hashPromptText(prompt),
     length: prompt.length,
     codeDefaultHash,
@@ -420,6 +414,7 @@ export const FACT_ENRICHMENT_CONFIG_DEFS: FactEnrichmentConfigDef[] = [
  */
 export async function seedFactEnrichmentConfig(): Promise<void> {
   for (const def of FACT_ENRICHMENT_CONFIG_DEFS) {
+    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)

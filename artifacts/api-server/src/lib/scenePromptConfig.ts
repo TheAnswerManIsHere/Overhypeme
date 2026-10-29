@@ -2,8 +2,8 @@
  * AI Image Style Prompt configuration.
  *
  * The system prompt that controls how the LLM turns a fact template into the
- * scene prompts used for AI image generation. It lives in `admin_config` so it
- * can be tuned from the workbench without a deploy.
+ * scene prompts used for AI image generation. It is set in code
+ * (codeOwnedPromptKeys.ts; Launch Phase 3, plan amendment 1).
  *
  * The model + sampling are NOT configured here — they come from the shared
  * General Intelligence engine (see lib/utilityLLM.ts / /admin/engines).
@@ -11,7 +11,7 @@
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getConfigString } from "./adminConfig";
+import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────────
@@ -46,11 +46,11 @@ Do not describe the image's shape or aspect ratio — framing is handled separat
 Return ONLY valid JSON in exactly this shape:
 {"fact_type":"action","male":"Cinematic ...","female":"Cinematic ...","neutral":"Cinematic ..."}`;
 
-// ─── Getter (debug-overlay aware via adminConfig) ─────────────────────────────
+// ─── Getter ───────────────────────────────────────────────────────────────────
 
-/** Resolve the admin-configurable image style-prompt system prompt. */
+/** The image style-prompt system prompt: set in code (codeOwnedPromptKeys.ts). */
 export async function getScenePromptSystem(): Promise<string> {
-  return getConfigString(SCENE_PROMPT_CONFIG_KEYS.system, SCENE_PROMPT_SYSTEM_DEFAULT);
+  return SCENE_PROMPT_SYSTEM_DEFAULT;
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────────────────
@@ -81,6 +81,7 @@ export const SCENE_PROMPT_CONFIG_DEFS: ScenePromptConfigDef[] = [
  */
 export async function seedScenePromptConfig(): Promise<void> {
   for (const def of SCENE_PROMPT_CONFIG_DEFS) {
+    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)

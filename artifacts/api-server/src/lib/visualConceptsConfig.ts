@@ -20,6 +20,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { getConfigString } from "./adminConfig";
+import { CODE_OWNED_PROMPT_KEYS } from "./codeOwnedPromptKeys";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ Return ONLY the JSON object. Do not include any explanation outside it.`;
 // ─── Getters ───────────────────────────────────────────────────────────────
 
 export async function getVisualConceptsSystem(): Promise<string> {
-  return getConfigString(VISUAL_CONCEPTS_CONFIG_KEYS.system, FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT);
+  return FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT;
 }
 
 export async function getVisualConceptsEngineId(): Promise<string> {
@@ -104,6 +105,7 @@ export const VISUAL_CONCEPTS_CONFIG_DEFS: ConfigDef[] = [
  */
 export async function seedVisualConceptsConfig(): Promise<void> {
   for (const def of VISUAL_CONCEPTS_CONFIG_DEFS) {
+    if (CODE_OWNED_PROMPT_KEYS.has(def.key)) continue; // set in code (codeOwnedPromptKeys.ts)
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)
