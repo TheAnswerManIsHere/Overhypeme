@@ -63,8 +63,10 @@ requires it.
   row reading **Completed**; a draft is reviewed only once marked ready — and
   pass its inline findings as `--findings-file` (step 3's findings shape), so
   both assessors weigh them, or `--codex-clean` when it reported Completed with
-  none. The script refuses a pass given neither. There is no timeout: a pass
-  that never comes back is the outage in *One standing stop*, below. The
+  none. The script refuses a pass given neither. It never proceeds without
+  that pass: a pass still Running at its 15-minute check-in gets the one
+  bare re-request, and a second stall is the outage in *One standing stop*,
+  below (step 6, *A stalled pass*). The
   range is derived from where the reviewed commit left `main`; nothing is
   typed. **The oracle file is the decision the prose
   records, quoted** — David's words, or the issue or merged PR where the rule
@@ -446,7 +448,9 @@ requires it.
      round", which under the write-gate meant a documentation correction with
      nothing behavioural behind it could never merge at all (#125 waited a week
      on that reading). What is refused is re-requesting on a head already
-     reviewed as it stands, to get a different answer. (Astra, 2026-09-19.)
+     reviewed as it stands, to get a different answer; a stalled pass
+     reviewed nothing, so its re-request is not one (*A stalled pass*,
+     below). (Astra, 2026-09-19.)
    - **No review is the last one by number** (David, 2026-10-21, retiring the
      two-review limit): the second review is where record-the-gap becomes the
      ordinary answer, and a further batch is written when the judgement says
@@ -489,6 +493,38 @@ requires it.
      `atC0dex r3view` and nothing else (`claude-core.md` interaction rule 11).
      Round context and flip conditions go in a separate defanged comment posted
      just before it.
+   - **A stalled pass: check in at 15 minutes, re-request once, then it is
+     an outage** (David, 2026-10-29; the rule is `claude-core.md`, *Waiting,
+     and scheduled check-ins* item 4). In the turn a review is requested —
+     the trigger posted, or the PR opened or marked ready, which requests
+     the automatic pass — arm `send_later` with `delay_minutes: 15`, naming
+     the PR, the head SHA and "Codex code review pending". On the wake, a
+     named SHA that is no longer the head is a silent no-op — the push's
+     request armed the head's own wake. Otherwise one `get_comments` and one
+     `get_reviews`: the pass has returned if a `chatgpt-codex-connector[bot]`
+     review or PR comment carries `**Reviewed commit:**` for the head (a
+     clean pass arrives as a comment, *"Didn't find any major issues"*,
+     measured on AI-Handbook #253), or the review-summary comment (`<!--
+     codex-pull-request-review-summary -->`) has its 📝 **Code Review** row
+     reading **Completed** against the head's short SHA — the hidden
+     `codex-review-state:v1` block says the same as `"status":"completed"`.
+     Returned is a silent no-op. Anything else — the row reading **Running**,
+     no row, or a row for an older commit — is a stall: post the bare
+     trigger `atC0dex r3view` at once, with no round-context comment, and arm
+     another 15-minute `send_later`. A second stall on the same head is the
+     outage below; a push in between makes it a new head and a first stall.
+     The security review's row is not read for this. **Where 15 comes
+     from**: 56 request-to-completion pairs, Overhype.me #736–#781 and
+     DojoOS #36–#56, 2026-10-20 to 2026-10-29, timed from the request (PR
+     creation or the trigger comment) to the `**Reviewed commit:**` review's
+     `submitted_at` or the row's Completed time — median 1.5 minutes, 90th
+     percentile 3.8, 95th 6.0, 99th 7.3, longest 7.8 (Overhype.me #779, a
+     findings round); clean passes 0.7–2, findings rounds and large diffs
+     2.5–8. Over the same window a code-review row stayed **Running** with
+     no completion on Overhype.me #781 (78 minutes, until a re-request
+     finished in 3.5) and on three DojoOS prototype-phase PRs that merged
+     without it, one still Running 255 minutes later. Re-measure if the
+     longest pass seen nears 15.
    - **Verify CI on the SHA that is actually HEAD**, not the one last looked
      at. `get_check_runs` returning `total_count: 0` means checks have not
      reported yet, which is not green and must never be reported as green.
@@ -619,7 +655,8 @@ requires it.
 ## One standing stop
 
 **A Codex code-review outage is a FULL STOP**, not the security-review
-usage-limit bounce. Stop building, tell David as a 🛑 with a push
+usage-limit bounce. A pass that stalls twice on the same head is one (step
+6, *A stalled pass*). Stop building, tell David as a 🛑 with a push
 notification, say which PRs are blocked and in what state, and wait. A
 Documentation-class PR still waiting on Codex's automatic pass is one of
 them; a prototype-phase PR owes Codex nothing and is not (`claude-core.md`,
