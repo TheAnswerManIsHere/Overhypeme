@@ -40,6 +40,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 import { TABLE_CLASSIFICATION, configTables } from "@workspace/db/table-classification";
+import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -165,7 +166,9 @@ async function main(): Promise<void> {
   try {
     await control.query(`CREATE DATABASE "${scratchName}" TEMPLATE template0`);
     const t0 = Date.now();
-    execFileSync("pg_restore", ["--no-owner", "--no-acl", "--exit-on-error", "-d", url.href, source.file], { stdio: "inherit" });
+    // The password travels in PGPASSWORD, so a failure's message cannot carry it.
+    const restoreConn = pgCommandConnection(url.href);
+    execFileSync("pg_restore", ["--no-owner", "--no-acl", "--exit-on-error", "-d", restoreConn.url, source.file], { stdio: "inherit", env: restoreConn.env });
     const restoreMs = Date.now() - t0;
 
     const db = new pg.Client({ connectionString: url.href });

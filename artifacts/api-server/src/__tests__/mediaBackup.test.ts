@@ -347,6 +347,51 @@ describe("media backup", () => {
       assert.ok(status.dataLossBoundMs !== null && status.dataLossBoundMs >= 0);
     });
 
+    it("a failing pg_dump never puts the database password in the manifest", { skip: !process.env.DATABASE_URL && "needs DATABASE_URL" }, async () => {
+      const url = new URL(process.env.DATABASE_URL!);
+      assert.ok(url.password, "the test database URL carries a password");
+      // A pg_dump that fails after being handed its arguments, as a version mismatch would.
+      const shim = fs.mkdtempSync(path.join(os.tmpdir(), "pg-dump-shim-"));
+      fs.writeFileSync(path.join(shim, "pg_dump"), '#!/bin/sh\necho "pg_dump: error: server version mismatch" >&2\nexit 1\n', { mode: 0o755 });
+      const savedPath = process.env.PATH;
+      process.env.PATH = `${shim}:${savedPath}`;
+      let pair: Awaited<ReturnType<typeof capturePair>>;
+      try {
+        pair = await capture({ dump: true });
+      } finally {
+        process.env.PATH = savedPath;
+        fs.rmSync(shim, { recursive: true, force: true });
+      }
+      assert.match(String(pair.database.dumpError), /server version mismatch/, "the failure is still explained");
+      const serialised = JSON.stringify(pair);
+      assert.equal(serialised.includes(`:${url.password}@`), false, "no user:password@ in the manifest");
+      assert.equal(serialised.includes(url.href), false, "the full URL is nowhere in the manifest");
+      assert.equal(pair.status, "completed", "the pair still completes on the database time");
+      assert.equal(pair.database.dump, null);
+    });
+
+    it("a failed listing is a recorded attempt: the pair is incomplete and counted, the recovery point unchanged", async () => {
+      const before = await latestCompletedPair(BACKUP, "test");
+      const proto = LocalObjectStorage.prototype as unknown as { bucket: (name: string) => Record<string, unknown> };
+      const original = proto.bucket;
+      proto.bucket = function (this: unknown, name: string) {
+        const b = original.call(this, name);
+        return name === LIVE ? { ...b, getFiles: async () => Promise.reject(new Error("listing unavailable")) } : b;
+      };
+      let pair: Awaited<ReturnType<typeof capturePair>>;
+      try {
+        pair = await capture();
+      } finally {
+        proto.bucket = original;
+      }
+      assert.equal(pair.status, "incomplete");
+      assert.ok(pair.reasons.some((r) => r === "capture failed: listing unavailable"), pair.reasons.join("; "));
+      assert.deepEqual(pair.objects, []);
+      assert.deepEqual(await latestCompletedPair(BACKUP, "test"), before);
+      const status = await backupStatus(BACKUP, "test");
+      assert.ok(status.failuresSince >= 1, "the failed attempt is counted");
+    });
+
     it("a pair always has a database point: without a database it is incomplete", async () => {
       const pair = await capture({ databaseUrl: undefined });
       assert.equal(pair.status, "incomplete");

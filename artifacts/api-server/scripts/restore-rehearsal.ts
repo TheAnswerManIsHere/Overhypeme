@@ -42,6 +42,7 @@ import pg from "pg";
 import { backupBucket, liveBucket, livePrivatePrefix } from "../src/lib/mediaBackup/config.js";
 import { capturePair, readManifest, type PairManifest } from "../src/lib/mediaBackup/capture.js";
 import { restorePairMedia } from "../src/lib/mediaBackup/restore.js";
+import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
 import { storageClient } from "../src/lib/storageClient.js";
 import { constructEnvironment, RESTORE_REHEARSAL_ENV_ALLOWLIST } from "../src/testing/launchEnvironment.js";
 
@@ -147,7 +148,8 @@ async function main(): Promise<void> {
     const digest = crypto.createHash("sha256").update(dumpBytes).digest("hex");
     if (digest !== manifest.database.dump.sha256) throw new Error(`the dump's sha256 is ${digest}, the manifest says ${manifest.database.dump.sha256}`);
     await control.query(`CREATE DATABASE "${scratchName}" TEMPLATE template0`);
-    execFileSync("pg_restore", ["--no-owner", "--no-acl", "--exit-on-error", "-d", scratch.href, dumpFile], { stdio: "inherit" });
+    const restoreConn = pgCommandConnection(scratch.href);
+    execFileSync("pg_restore", ["--no-owner", "--no-acl", "--exit-on-error", "-d", restoreConn.url, dumpFile], { stdio: "inherit", env: restoreConn.env });
     times.databaseMs = Date.now() - t0;
 
     // 3. The media, into the isolated prefix.

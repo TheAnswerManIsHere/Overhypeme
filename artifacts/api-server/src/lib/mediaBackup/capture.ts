@@ -34,6 +34,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
 import type { File } from "@google-cloud/storage";
+import { pgCommandConnection, withoutPassword } from "../pgCommandLine";
 import { storageClient } from "../storageClient";
 import { DELETION_GRACE_MS } from "./config";
 import {
@@ -232,8 +233,11 @@ async function databasePoint(
       .then((r) => Number(r.rows[0].n))
       .catch(() => null);
     if (dumpInto) {
-      // The exported snapshot lives while this transaction does.
-      await execFileAsync("pg_dump", ["-Fc", "--no-owner", "--no-acl", `--snapshot=${rows[0].snapshot}`, "-f", dumpInto, databaseUrl], {
+      // The exported snapshot lives while this transaction does. The password
+      // travels in PGPASSWORD, so a failure's message cannot carry it.
+      const conn = pgCommandConnection(databaseUrl);
+      await execFileAsync("pg_dump", ["-Fc", "--no-owner", "--no-acl", `--snapshot=${rows[0].snapshot}`, "-f", dumpInto, conn.url], {
+        env: conn.env,
         maxBuffer: 16 * 1024 * 1024,
       });
     }
@@ -284,7 +288,7 @@ export async function capturePair(opts: CaptureOptions): Promise<PairManifest> {
           // The dump is the portable copy; the platform's point-in-time restore
           // to the database's own time is the primary one, so a pair without a
           // dump still completes when that time is known. It is recorded.
-          database.dumpError = String((err as Error).message ?? err).slice(0, 500);
+          database.dumpError = withoutPassword(String((err as Error).message ?? err), opts.databaseUrl).slice(0, 500);
           dumpFile = null;
         }
       }
@@ -296,7 +300,7 @@ export async function capturePair(opts: CaptureOptions): Promise<PairManifest> {
           end = point.snapshotMark;
         } catch (err) {
           reasons.push(
-            `no database point: ${database.dumpError ? `the dump failed (${database.dumpError}) and ` : ""}the database could not be read (${(err as Error).message})`,
+            `no database point: ${database.dumpError ? `the dump failed (${database.dumpError}) and ` : ""}the database could not be read (${withoutPassword((err as Error).message, opts.databaseUrl)})`,
           );
         }
       }
@@ -316,84 +320,93 @@ export async function capturePair(opts: CaptureOptions): Promise<PairManifest> {
       }
     }
 
-    // Every known state, by name: current objects, preserved copies, tombstones.
-    const states = new Map<string, ObjectState[]>();
-    const add = (s: ObjectState) => {
-      const list = states.get(s.name) ?? [];
-      if (!list.some((x) => x.generation === s.generation && x.metageneration === s.metageneration)) list.push(s);
-      states.set(s.name, list);
-    };
-    let excluded = 0;
-    const [live] = await client.bucket(opts.sourceBucket).getFiles();
-    for (const f of live) {
-      if (isExcludedFromBackup(f.name)) {
-        excluded++;
-        continue;
-      }
-      add(objectState(f.name, (f.metadata ?? {}) as Parameters<typeof objectState>[1]));
-    }
-    const preserved = new Set<string>();
-    const [copies] = await backup.getFiles({ prefix: `${STATES_PREFIX}${opts.sourceBucket}/` });
-    for (const f of copies) {
-      const s = stateFromBackup((f.metadata ?? {}) as Parameters<typeof stateFromBackup>[0]);
-      if (!s) continue;
-      preserved.add(f.name);
-      add(s);
-    }
-    const tombstones = new Map<string, Map<string, string>>();
-    const [stones] = await backup.getFiles({ prefix: `${TOMBSTONES_PREFIX}${opts.sourceBucket}/` });
-    for (const f of stones) {
-      const parsed = parseBackupKey(f.name);
-      const at = ((f.metadata ?? {}) as { timeCreated?: string }).timeCreated;
-      if (!parsed || !at) continue;
-      const byGen = tombstones.get(parsed.objectName) ?? new Map<string, string>();
-      byGen.set(parsed.generation, at);
-      tombstones.set(parsed.objectName, byGen);
-    }
-
-    const picks: ObjectState[] = [];
-    for (const [name, list] of [...states.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-      const choice = pickState(list, tombstones.get(name) ?? new Map(), start, end, opts.deletionGraceMs);
-      if (!choice) continue;
-      if ("unpreserved" in choice) reasons.push(`unpreserved change: ${name}`);
-      else if ("ambiguous" in choice) reasons.push(`changed while the database point was taken: ${name}`);
-      else picks.push(choice.pick);
-    }
-
-    // Copy what the backup lacks, a few at a time; a first capture copies every object.
-    const keyOf = (s: ObjectState) => stateKey(opts.sourceBucket, s.name, s.generation, s.metageneration);
+    // From here a failure (a listing, the copies) is still a recorded attempt:
+    // it becomes a reason and the manifest below is written, incomplete, so
+    // the status counts it. Only a failure to write that manifest throws.
+    let objects: ManifestObject[] = [];
     let copied = 0;
-    const missing = new Set<string>();
-    await forEachLimit(
-      picks.filter((s) => !preserved.has(keyOf(s))),
-      COPY_CONCURRENCY,
-      async (s) => {
-        try {
-          const outcome = await preserveState(opts.backupBucket, opts.sourceBucket, s);
-          if (outcome === "copied") copied++;
-          // Gone since the listing: present only if the change that replaced it preserved it.
-          else if (outcome === "gone" && !(await backup.file(keyOf(s)).exists())[0]) {
-            reasons.push(`state vanished before it was copied: ${s.name}`);
+    let excluded = 0;
+    try {
+      // Every known state, by name: current objects, preserved copies, tombstones.
+      const states = new Map<string, ObjectState[]>();
+      const add = (s: ObjectState) => {
+        const list = states.get(s.name) ?? [];
+        if (!list.some((x) => x.generation === s.generation && x.metageneration === s.metageneration)) list.push(s);
+        states.set(s.name, list);
+      };
+      const [live] = await client.bucket(opts.sourceBucket).getFiles();
+      for (const f of live) {
+        if (isExcludedFromBackup(f.name)) {
+          excluded++;
+          continue;
+        }
+        add(objectState(f.name, (f.metadata ?? {}) as Parameters<typeof objectState>[1]));
+      }
+      const preserved = new Set<string>();
+      const [copies] = await backup.getFiles({ prefix: `${STATES_PREFIX}${opts.sourceBucket}/` });
+      for (const f of copies) {
+        const s = stateFromBackup((f.metadata ?? {}) as Parameters<typeof stateFromBackup>[0]);
+        if (!s) continue;
+        preserved.add(f.name);
+        add(s);
+      }
+      const tombstones = new Map<string, Map<string, string>>();
+      const [stones] = await backup.getFiles({ prefix: `${TOMBSTONES_PREFIX}${opts.sourceBucket}/` });
+      for (const f of stones) {
+        const parsed = parseBackupKey(f.name);
+        const at = ((f.metadata ?? {}) as { timeCreated?: string }).timeCreated;
+        if (!parsed || !at) continue;
+        const byGen = tombstones.get(parsed.objectName) ?? new Map<string, string>();
+        byGen.set(parsed.generation, at);
+        tombstones.set(parsed.objectName, byGen);
+      }
+
+      const picks: ObjectState[] = [];
+      for (const [name, list] of [...states.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+        const choice = pickState(list, tombstones.get(name) ?? new Map(), start, end, opts.deletionGraceMs);
+        if (!choice) continue;
+        if ("unpreserved" in choice) reasons.push(`unpreserved change: ${name}`);
+        else if ("ambiguous" in choice) reasons.push(`changed while the database point was taken: ${name}`);
+        else picks.push(choice.pick);
+      }
+
+      // Copy what the backup lacks, a few at a time; a first capture copies every object.
+      const keyOf = (s: ObjectState) => stateKey(opts.sourceBucket, s.name, s.generation, s.metageneration);
+      const missing = new Set<string>();
+      await forEachLimit(
+        picks.filter((s) => !preserved.has(keyOf(s))),
+        COPY_CONCURRENCY,
+        async (s) => {
+          try {
+            const outcome = await preserveState(opts.backupBucket, opts.sourceBucket, s);
+            if (outcome === "copied") copied++;
+            // Gone since the listing: present only if the change that replaced it preserved it.
+            else if (outcome === "gone" && !(await backup.file(keyOf(s)).exists())[0]) {
+              reasons.push(`state vanished before it was copied: ${s.name}`);
+              missing.add(s.name);
+            }
+          } catch (err) {
+            reasons.push(`copy failed for ${s.name}: ${(err as Error).message}`);
             missing.add(s.name);
           }
-        } catch (err) {
-          reasons.push(`copy failed for ${s.name}: ${(err as Error).message}`);
-          missing.add(s.name);
-        }
-      },
-    );
-    const objects: ManifestObject[] = picks
-      .filter((s) => !missing.has(s.name))
-      .map((s) => ({
-        name: s.name,
-        generation: s.generation,
-        metageneration: s.metageneration,
-        backupKey: keyOf(s),
-        contentType: s.contentType,
-        size: s.size,
-        md5Hash: s.md5Hash,
-        metadata: s.metadata,
-      }));
+        },
+      );
+      objects = picks
+        .filter((s) => !missing.has(s.name))
+        .map((s) => ({
+          name: s.name,
+          generation: s.generation,
+          metageneration: s.metageneration,
+          backupKey: keyOf(s),
+          contentType: s.contentType,
+          size: s.size,
+          md5Hash: s.md5Hash,
+          metadata: s.metadata,
+        }));
+    } catch (err) {
+      reasons.push(`capture failed: ${withoutPassword(String((err as Error).message ?? err), opts.databaseUrl ?? "")}`);
+      objects = [];
+    }
 
     const manifest: PairManifest = {
       pairId,
