@@ -122,9 +122,16 @@ The `env.DATABASE_URL` now points at the real **dev** database (`heliumdb`),
 not the sandbox test database it originally inherited from the versioned
 settings — wired in deliberately so in-Repl sessions can do real diagnostics
 and, eventually, database-touching post-merge verification steps. **Production (`neondb`
-on Neon) is not present anywhere in this file, or anywhere else in the Repl's
-environment, and that is deliberate** — see the dev/prod split noted below,
-which the production guard now protects explicitly.
+on Neon) is not present anywhere in this file, or in the Repl's environment
+variables, and that is deliberate** — see the dev/prod split noted below,
+which the production guard now protects explicitly. **Replit Agent itself can
+still read production**: it has a read-only production query tool of its own,
+outside this file and outside the environment (measured 2026-10-29 through
+the connector: `SELECT current_database(), now();` against production →
+`neondb,2026-10-29 21:58:06.18808+00`). A question that asks it to query
+production is a live read of user data, under the disclosure rules of
+`.claude/skills/bugfix/live-diagnosis.md`: aggregate or redact in the request
+itself. It cannot write there — *"Agent can't touch it"* (Replit's docs).
 
 ## Authoritative on what IS; the repo docs are authoritative on what SHOULD BE
 
@@ -271,6 +278,13 @@ describe Replit as having "no CI"; describe it accurately as running its own
 CI, separate from the repo's.
 
 ## GitHub ⇄ Repl sync and Publish (shared fact, not tool-specific)
+
+How Replit publishing works in general — deployment types, the
+`artifact.toml` layer, secrets, rollback, Agent modes, and the connector's
+60-second timeout — is the fleet's [`replit-platform.md`](replit-platform.md).
+What follows is this Repl's own record. This app publishes as **Autoscale**
+(`.replit`: `deploymentTarget = "autoscale"`) and serves at
+`https://overhype.me` (`get_publish_status`, 2026-10-29).
 
 Any agent that can trigger a Replit connector's `publish_app` — Claude Code
 today, potentially others later — needs this before calling it: **Publish
