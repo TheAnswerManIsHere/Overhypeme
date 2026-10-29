@@ -631,7 +631,8 @@ to every unit of work but a Trivial PR.
   assign it, and the PR body quotes him. His phase declaration for a feature
   is that declaration for the one-line registry PR recording it (David,
   2026-09-28; the phase bullet below). I request no review of any kind and
-  merge on green CI. Codex's automatic pass is read for one thing: **a P1,
+  merge on green CI; a stalled automatic pass still gets its one bare
+  re-request (*Waiting, and scheduled check-ins*, item 4). Codex's automatic pass is read for one thing: **a P1,
   which I judge and report** — fixed in a named commit, or merged with the
   reason in the merge report (David, 2026-10-21; until then it held the
   merge for him) — **except on a phase registry PR, where it is read for
@@ -645,8 +646,9 @@ to every unit of work but a Trivial PR.
   chapters. `review-proxy.mjs --documentation`, with the oracle being **the
   decision the prose records, quoted**, and Codex's automatic findings passed
   as `--findings-file` (or `--codex-clean`) once that pass reports Completed,
-  with no timeout.
-  I request no Codex round. One batch, merge on green CI, and the merge report
+  and never without it: a pass still Running at its 15-minute check-in gets
+  one bare re-request, and a second stall is an outage (*Waiting, and scheduled check-ins*, item 4).
+  Beyond that re-request I request no Codex round. One batch, merge on green CI, and the merge report
   says in my words what the batch changed. Each Codex thread is answered like
   any finding — fixed in a named commit, or declined with the reason — and
   resolved.
@@ -959,7 +961,8 @@ in the file that every session loads.
    base-branch merges included — in the standard loop; a Trivial change gets
    none, a Documentation change's one batch of corrections merges without a second review, and a prototype-phase PR
    merges on green CI, by design (*Two classes and a phase that leave the loop*, above). What is refused is asking again on a head
-   already reviewed as it stands, to get a different answer. The mechanical
+   already reviewed as it stands, to get a different answer; a stalled pass
+   reviewed nothing, so its re-request is not one (*Waiting, and scheduled check-ins*, item 4). The mechanical
    round needs no exception now, because it was never the anomaly — the old
    rule was. (Astra, 2026-09-19.) **Every review request carries pre-registered flip
    conditions**: what finding, count, or change of shape would make me stop,
@@ -1203,7 +1206,8 @@ product and internal PRs alike — except the two classes and the phase that lea
 threads, a P1 in Codex's automatic pass judged and reported (a phase registry
 PR reads it for nothing), and a **Documentation** PR
 on green CI, resolved threads and its one assessed batch — assessed once
-Codex's automatic pass reports Completed — with no Codex round requested —
+Codex's automatic pass reports Completed — with no Codex round requested
+beyond a stalled pass's one re-request (*Waiting, and scheduled check-ins*, item 4) —
 and a **prototype-phase** PR, on `main` only where
 nothing is downstream of it, waits for nothing but green CI, with Codex's
 automatic pass read only for a defect that stops the feature working; a
@@ -1223,7 +1227,8 @@ conversation resolution, so the Merge button is inert while a thread is open.
   Documentation waits only for the automatic pass, as an input to its one
   assessed batch; a prototype-phase PR is outside the standard
   loop and waits for none). A round I
-  requested but haven't received is not convergence. A pass on a commit I have
+  requested but haven't received is not convergence, and one still Running
+  15 minutes on is a stall (*Waiting, and scheduled check-ins*, item 4). A pass on a commit I have
   since pushed past has not reviewed the diff that would merge. What counts as
   the review returning is the `**Reviewed commit:**` announcement — or, on a
   round nobody requested, the connector's review-summary row reading
@@ -1246,8 +1251,14 @@ conversation resolution, so the Merge button is inert while a thread is open.
   to restart. A prototype-phase feature owes no Codex review, so an outage
   blocks nothing there and that work continues. A Documentation PR is among
   the blocked ones: its one pass waits for Codex's automatic review as an
-  input, with no timeout (*Two classes and a phase that leave the loop*,
-  above).
+  input and never proceeds without it (*Two classes and a phase that leave
+  the loop*, above). **When a stall becomes an outage** (David, 2026-10-29): a Codex
+  code review that stalls twice on the same head commit — no `**Reviewed
+  commit:**` review or comment and no review-summary row reading Completed against it,
+  15 minutes after the request and again 15 minutes after the one bare
+  re-request (*Waiting, and scheduled check-ins*, item 4) — is an outage,
+  and this bullet applies from that wake. A security review left Running
+  is not one: the merge bar is the code review.
 - **Two things no gate ever proved, and they are still mine to check by eye.**
   That every requested round came back — a permitted retry needs no push, so
   two requests can name one commit and a single pass satisfies both — and that
@@ -1484,8 +1495,8 @@ shows the true delta.
    [`github-rest-api-blocked-from-bash.md`](../../.agents/memory/github-rest-api-blocked-from-bash.md)).
    Short foreground sleeps run; long ones are blocked.
 2. **Scheduled check-ins** are allowed only while waiting on a **named external
-   condition that won't wake me** (stalled CI, a quiet PR before close-out, a
-   long Replit operation) — never a general heartbeat, never a substitute for
+   condition that won't wake me** (stalled CI, a pending Codex review (item 4), a quiet PR before
+   close-out, a long Replit operation) — never a general heartbeat, never a substitute for
    finishing now. Each carries the condition in one sentence, a cadence matched
    to it, and an exit condition. Caps: **3 consecutive no-op wakes**, or **6
    wakes / 24 hours**, whichever hits first — then stop, disarm, and tell David
@@ -1496,6 +1507,33 @@ shows the true delta.
    the permission classifier. Re-arming is a fresh `send_later`. An obsolete
    one-shot is left alone: it fires once, no-ops, and self-disables. If a
    `send_later` ever prompts, that's new information for the workstream issue.
+4. **A requested Codex review gets its own check-in at 15 minutes, sized to
+   the machine, not to reviewers** (David, 2026-10-29, after Overhype.me
+   #781's code review read Running for 78 minutes behind the platform's
+   50-minute safety net, and a bare re-request finished it in under four). Every
+   Codex review request — the automatic one at PR open or ready-for-review
+   included — arms a `send_later` 15 minutes out in the same turn, on any PR
+   whose merge waits on that pass (the standard loop, Documentation,
+   Trivial; never a prototype-phase PR or a phase registry PR, which wait on
+   none). The figure is measured: 56 request-to-completion pairs across
+   Overhype.me and DojoOS, 2026-10-20 to 2026-10-29 — median 1.5 minutes,
+   95th percentile 6.0, longest 7.8 — so 15 is about twice the longest pass
+   seen. **On the wake, a pass with neither a `**Reviewed commit:**` review
+   or comment nor a review-summary row reading Completed against the head is stalled**:
+   one bare re-request, posted at once — the trigger and nothing I wrote
+   (interaction rule 11), with no round-context comment, since the stalled
+   request's still stands — and a fresh 15-minute check-in. The re-request
+   restarts the stalled pass rather than asking for a round, so it is not a
+   second review of an unchanged head (review rule 4: nothing reviewed it),
+   and the Documentation and Trivial classes' "no round requested" does not
+   forbid it. **A second stall on the same head is an outage** (*Close-out*).
+   A pass that has returned, or a wake whose head has been pushed past (the
+   push's request armed its own), makes the wake a silent no-op, and a 👍
+   never counts as one returning. While a Codex pass is pending this is the
+   cadence, not the platform's safety net, which resumes once the pass is
+   in. These wakes are their own bound — at most two per head, ending when
+   the pass returns or at the outage — so rule 2's caps, written for an
+   open-ended wait, do not count them.
 
 ## Model, cost, and routing
 

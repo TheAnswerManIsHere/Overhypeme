@@ -654,7 +654,9 @@ standing declaration exists: a feature's phase declaration is the Trivial
 declaration for the one-line registry PR that records it (*The prototype
 phase, per feature*, below; David, 2026-09-28). No
 review of any kind is requested: no Codex round, no assessment, and no
-build report at close-out. The change merges on green CI. Codex's automatic pass on PR-open
+build report at close-out — a stalled automatic pass gets one bare
+re-request, which restarts it rather than requesting a round (`claude-core.md`,
+*Waiting, and scheduled check-ins*, item 4). The change merges on green CI. Codex's automatic pass on PR-open
 still runs; it is read for one thing, **a P1, which the builder judges and reports** —
 fixed in a named commit, or merged with the reason in the merge report
 (David, 2026-10-21; until then it held the merge for him) — and nothing else
@@ -677,11 +679,12 @@ PR-open is waited for and handed to both assessors as one input**: no Codex
 round is requested, and its findings are weighed like any other under the
 Worth rule rather than acted on because Codex raised them. **The wait ends
 only when that pass reports Completed** — a draft is reviewed once it is marked
-ready, so the wait runs from then — and it has no timeout: the pass is never
-composed without Codex's result, because a review that has not returned is
-not a clean one (Codex and Astra, #184 round 1). A pass that does not come
-back is an outage, which the core already takes to David, and the PR waits
-with everything else Codex is holding. One batch of corrections follows and
+ready, so the wait runs from then — and the pass is never composed without
+Codex's result, because a review that has not returned is not a clean one
+(Codex and Astra, #184 round 1). A pass still Running 15 minutes after the
+request gets one bare re-request, and a second stall on the same head is an
+outage, which the core takes to David; the PR then waits with everything else
+Codex is holding (`claude-core.md`, *Waiting, and scheduled check-ins*, item 4). One batch of corrections follows and
 the change merges on green CI; the batch is not reviewed again, and the merge
 report says what it changed. Each Codex thread gets the reply review rule 6
 gives any finding — fixed in a named commit, or declined with the reason — and
@@ -1197,7 +1200,9 @@ prototype phase, per feature*, above).
   change gets none, a Documentation change's one batch of corrections merges without a second review, and a
   prototype-phase PR merges on green CI with the automatic pass read only
   for a defect that stops the feature working, by design (above). What is refused is a round requested
-  merely to get a different answer on a head already reviewed as it stands.
+  merely to get a different answer on a head already reviewed as it stands;
+  a stalled pass reviewed nothing, so its re-request is not one
+  (`claude-core.md`, *Waiting, and scheduled check-ins*, item 4).
   (Astra, 2026-09-19.)
 - **No count bounds how long iteration runs** (the two-review limit is
   retired, above); the write-gate and the ship gate do, by judgement. These

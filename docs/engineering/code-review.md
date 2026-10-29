@@ -485,10 +485,12 @@ per finding and the ship gate shape what is written *within* that bound — this
 sentence used to hand them the length question itself, which is a different
 question than either answers. So an agent that cannot get a
 code review stops and says so loudly to David rather than proceeding on a
-docs-only or low-criticality exemption — that exemption is retired. The retry
-limit in the implementing agent's ceremony (for Claude Code,
-`.claude/skills/pr-watch/SKILL.md`) governs how many times to re-ask before
-escalating. A security-limit bounce does not qualify as an outage, and must
+docs-only or low-criticality exemption — that exemption is retired. The implementing
+agent's ceremony says when a silent request is re-asked and when it becomes
+an outage — for Claude Code, one bare re-request when the pass still reads
+Running 15 minutes on, and an outage at the second stall on the same head
+(`.agents/core/claude-core.md`, *Waiting, and scheduled check-ins*, item 4; mechanics in
+`.claude/skills/pr-watch/SKILL.md`). A security-limit bounce does not qualify as an outage, and must
 not be reported as one.
 
 **The failure mode this exists to prevent is a reading error, not a tooling
