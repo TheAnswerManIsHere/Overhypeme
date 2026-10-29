@@ -80,6 +80,31 @@ export const PRODUCTION_MODE_ENV_ALLOWLIST: readonly string[] = [
   "E2E_MAIL_SINK_DIR",
 ];
 
+/**
+ * The isolated restore rehearsal's server (`restoreRehearsalLauncher.ts`,
+ * Launch Phase 3, increment 5): real storage, read from a restored prefix, and
+ * no credential of any kind — no Stripe (left unconfigured: the fake's
+ * partition refuses copied real-Stripe history), no email, no AI key (the AI
+ * double with no recordings, so every AI call fails closed), and no media
+ * backup of its own. The storage double's two variables pass through only
+ * when the rehearsal itself runs on the double (a local proof of the script).
+ */
+export const RESTORE_REHEARSAL_ENV_ALLOWLIST: readonly string[] = [
+  ...BASE,
+  "DATABASE_URL",
+  "NODE_ENV",
+  "PORT",
+  "CRON_SECRET",
+  "STORAGE_BACKEND",
+  "STORAGE_DOUBLE_DIR",
+  "PRIVATE_OBJECT_DIR",
+  "PUBLIC_OBJECT_SEARCH_PATHS",
+  "AI_BACKEND",
+  "AI_RECORDINGS_DIR",
+  "AI_DOUBLE_MISS_LOG",
+  "AI_DOUBLE_CALL_LOG",
+];
+
 /** The variables in `env` that `allowlist` does not name. */
 export function outsideAllowlist(env: NodeJS.ProcessEnv, allowlist: readonly string[]): string[] {
   return Object.keys(env).filter((name) => !allowlist.includes(name)).sort();

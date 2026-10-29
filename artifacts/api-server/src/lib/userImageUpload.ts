@@ -372,17 +372,15 @@ export async function processAndStoreUserUpload(
   try {
     const ext = EXT_BY_CONTENT_TYPE[normalizedContentType] ?? "jpg";
     const subPath = uploadKey(randomUUID(), ext);
+    const visibility: "public" | "private" =
+      options.variant === "avatar" ? "public" : "private";
+    // The ACL is part of the first write, so the new object never has a
+    // state without it (write-once; lib/mediaBackup/preserve.ts).
     const objectPath = await objectStorageService.uploadObjectBuffer({
       subPath,
       buffer,
       contentType: normalizedContentType,
-    });
-
-    const visibility: "public" | "private" =
-      options.variant === "avatar" ? "public" : "private";
-    await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
-      owner: req.user.id,
-      visibility,
+      aclPolicy: { owner: req.user.id, visibility },
     });
 
     await persistUploadMetadata(objectPath, probed, req.user.id, layer1.arachnid, layer2.isNsfw);

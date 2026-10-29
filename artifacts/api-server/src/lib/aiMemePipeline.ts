@@ -246,22 +246,15 @@ async function generateAndStoreImage(
   }
 
   const subPath = aiBackgroundKey(factId, gender, uniqueKey, ext, false);
+  // Public-read ACL, set in the same write, so thumbnails can be served via
+  // /api/storage/objects/*. AI meme backgrounds are non-personal scene images —
+  // public read is safe.
   const storedPath = await objectStorage.uploadObjectBuffer({
     subPath,
     buffer: imageBuffer,
     contentType,
+    aclPolicy: { owner: "system", visibility: "public" },
   });
-
-  // Set public-read ACL so thumbnails can be served via /api/storage/objects/*
-  // AI meme backgrounds are non-personal scene images — public read is safe
-  try {
-    await objectStorage.trySetObjectEntityAclPolicy(storedPath, {
-      owner: `system`,
-      visibility: "public",
-    });
-  } catch (aclErr) {
-    logger.warn({ err: aclErr, storedPath }, "[aiMemePipeline] Failed to set ACL");
-  }
 
   return storedPath;
 }

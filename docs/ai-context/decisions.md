@@ -13,6 +13,30 @@
 
 ---
 
+### 2026-10-29 · Photos are preserved before every change from launch, and deleted ones stay in the backup 7 days
+- **Decision:** a delete or access change of a stored photo first copies the
+  state it destroys into a separate backup bucket, and is refused with "try
+  again shortly" when that copy cannot be made; new uploads are written once
+  and never held up by the backup. A published deployment with no backup
+  configured refuses such changes rather than making them unprotected.
+  Deleted and replaced photo states stay in the backup for 7 days, matching
+  the database's point-in-time restore, then the backup's own expiry job
+  erases them. Child-safety evidence is never copied into the backup and
+  keeps its own retention.
+- **Why:** David, 2026-10-28, on question 2: *"Until we're actually live,
+  nothing matters. If this has an effect on post-launch pictures, then those
+  must never be lost."* So the wait is a launch requirement, built in Launch
+  Phase 3's increment 5 to be in force at launch; before launch a lost photo
+  is acceptable, and development without a backup proceeds unpreserved. On
+  question 3 he chose 7 days. Replit's App Storage has no object versioning
+  or lifecycle rule, so the app owns both.
+- **Reference:** #770 (David's answers, comment of 2026-10-28 23:13 UTC);
+  plan `docs/plans/PLAN_PHASE3_DATA_ENVIRONMENTS.md` §4;
+  [`media-backup-and-restore.md`](../engineering/media-backup-and-restore.md).
+- **Revisit if:** Replit's App Storage gains versioning or retention rules
+  the app could use instead, or a longer window is wanted (Replit's paid
+  plans offer up to 28 days of point-in-time restore).
+
 ### 2026-10-28 · At publish, approve Replit's generated migration; the app's guarded migrations reconcile the ledger
 - **Decision:** when a publish finds dev's catalog different from
   production's, Replit generates one migration and offers Approve and
@@ -49,11 +73,12 @@
   decision it is a policy: nothing stops a future non-Overhype payment
   landing in the account, so the reset's inventory must still tell this
   app's payments from anyone else's.
-- **What follows:** every Stripe object Overhype creates is tagged (customers,
-  checkout sessions, `payment_intent_data` and `subscription_data` carry
-  `app: "overhype"`; subscriptions carry no metadata today,
-  `artifacts/api-server/src/routes/stripe.ts`), and Launch Phase 3's
-  increment 8 scopes its live-payment check to tagged or app-originated
+- **What follows:** Launch Phase 3's increment 8 tags every Stripe object
+  Overhype creates (customers, checkout sessions, `payment_intent_data` and
+  `subscription_data` will carry `app: "overhype"`; until then nothing is
+  tagged, and subscriptions carry no metadata today,
+  `artifacts/api-server/src/routes/stripe.ts`), and the same increment
+  scopes its live-payment check to tagged or app-originated
   payments, reporting anything else as "not this app's" for a look instead
   of blocking the reset. The Availeron charge stays in the account's history
   and in the app's mirrored `stripe` tables; the carry-forward ignores it.

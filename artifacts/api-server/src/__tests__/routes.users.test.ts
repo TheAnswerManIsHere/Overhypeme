@@ -10,6 +10,9 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import express, { type Express } from "express";
 import request from "supertest";
@@ -566,6 +569,43 @@ describe("GET /users/me/uploads", () => {
 });
 
 describe("POST /users/me/profile-image — task #507", () => {
+  // The photo exists in storage (the local double), because the endpoint makes
+  // it public before it saves anything (Launch Phase 3, increment 5).
+  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "users-profile-image-"));
+  const storageEnv: Record<string, string> = {
+    STORAGE_BACKEND: "local-double",
+    STORAGE_DOUBLE_DIR: storageRoot,
+    PRIVATE_OBJECT_DIR: "/users-test-bucket/private",
+    PUBLIC_OBJECT_SEARCH_PATHS: "/users-test-bucket/public",
+  };
+  const savedEnv: Record<string, string | undefined> = {};
+  before(() => {
+    for (const [k, v] of Object.entries(storageEnv)) {
+      savedEnv[k] = process.env[k];
+      process.env[k] = v;
+    }
+  });
+  after(() => {
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    fs.rmSync(storageRoot, { recursive: true, force: true });
+  });
+  async function storePhoto(objectPath: string, owner: string): Promise<void> {
+    const { ObjectStorageService } = await import("../lib/objectStorage.js");
+    await new ObjectStorageService().uploadObjectBuffer({
+      subPath: objectPath.replace(/^\/objects\//, ""),
+      buffer: Buffer.from("photo"),
+      contentType: "image/jpeg",
+      aclPolicy: { owner, visibility: "private" },
+    });
+  }
+  async function visibilityOf(objectPath: string): Promise<string | undefined> {
+    const { ObjectStorageService } = await import("../lib/objectStorage.js");
+    const { getObjectAclPolicy } = await import("../lib/objectAcl.js");
+    return (await getObjectAclPolicy(await new ObjectStorageService().getObjectEntityFile(objectPath)))?.visibility;
+  }
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -629,6 +669,7 @@ describe("POST /users/me/profile-image — task #507", () => {
       { objectPath: oldPath, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: true },
       { objectPath: newPath, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: false },
     ]);
+    await storePhoto(newPath, userId);
 
     const res = await request(makeApp())
       .post("/users/me/profile-image")
@@ -653,6 +694,42 @@ describe("POST /users/me/profile-image — task #507", () => {
       .where(eq(usersTable.id, userId));
     assert.equal(user.profileImageUrl, `/api/storage${newPath}`);
     assert.equal(user.avatarSource, "photo");
+    assert.equal(await visibilityOf(newPath), "public", "the profile photo is public");
+  });
+
+  it("saves nothing when the photo is missing from storage, rather than reporting a photo nobody can see", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const path = `/objects/uploads/${randomUUID()}-gone.jpg`;
+    await db.insert(uploadImageMetadataTable).values({ objectPath: path, width: 1, height: 1, fileSizeBytes: 1, userId, isProfile: false });
+    const res = await request(makeApp()).post("/users/me/profile-image").set("authorization", `Bearer ${sid}`).send({ objectPath: path });
+    assert.equal(res.status, 400);
+    const [row] = await db.select({ isProfile: uploadImageMetadataTable.isProfile }).from(uploadImageMetadataTable).where(eq(uploadImageMetadataTable.objectPath, path));
+    assert.equal(row.isProfile, false);
+    const [user] = await db.select({ profileImageUrl: usersTable.profileImageUrl }).from(usersTable).where(eq(usersTable.id, userId));
+    assert.notEqual(user.profileImageUrl, `/api/storage${path}`);
+  });
+
+  it("answers 'try again shortly' and saves nothing when the private photo cannot be backed up first", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const path = `/objects/uploads/${randomUUID()}-unbacked.jpg`;
+    await db.insert(uploadImageMetadataTable).values({ objectPath: path, width: 1, height: 1, fileSizeBytes: 1, userId, isProfile: false });
+    await storePhoto(path, userId);
+    // A backup bucket the double cannot write: its data directory is a file.
+    fs.mkdirSync(`${storageRoot}/data`, { recursive: true });
+    fs.writeFileSync(`${storageRoot}/data/broken-backup`, "");
+    process.env.MEDIA_BACKUP_BUCKET = "broken-backup";
+    try {
+      const res = await request(makeApp()).post("/users/me/profile-image").set("authorization", `Bearer ${sid}`).send({ objectPath: path });
+      assert.equal(res.status, 503);
+      assert.match(res.body.error, /try again shortly/);
+    } finally {
+      delete process.env.MEDIA_BACKUP_BUCKET;
+    }
+    assert.equal(await visibilityOf(path), "private", "the photo stays private");
+    const [row] = await db.select({ isProfile: uploadImageMetadataTable.isProfile }).from(uploadImageMetadataTable).where(eq(uploadImageMetadataTable.objectPath, path));
+    assert.equal(row.isProfile, false, "and is not the profile photo");
   });
 
   it("stores the photo but skips the avatarSource flip for an unentitled user", async () => {
@@ -667,6 +744,7 @@ describe("POST /users/me/profile-image — task #507", () => {
     await db.insert(uploadImageMetadataTable).values({
       objectPath: path, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: false,
     });
+    await storePhoto(path, userId);
 
     const res = await request(makeApp())
       .post("/users/me/profile-image")
@@ -718,6 +796,7 @@ describe("POST /users/me/profile-image — task #507", () => {
     await db.insert(uploadImageMetadataTable).values({
       objectPath: path, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: true,
     });
+    await storePhoto(path, userId);
     const res = await request(makeApp())
       .post("/users/me/profile-image")
       .set("authorization", `Bearer ${sid}`)

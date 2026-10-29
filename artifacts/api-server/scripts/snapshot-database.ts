@@ -36,6 +36,7 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } fro
 import { tmpdir } from "node:os";
 import path from "node:path";
 import pg from "pg";
+import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -69,8 +70,10 @@ function gitHead(): string {
 }
 
 // 1. The database, whole, and its catalog alone.
-execFileSync("pg_dump", ["-Fc", "--no-owner", "--no-acl", "-f", path.join(work, "database.dump"), databaseUrl]);
-execFileSync("pg_dump", ["--schema-only", "--no-owner", "--no-acl", "-f", path.join(work, "schema.sql"), databaseUrl]);
+// The password travels in PGPASSWORD, so a failure's message cannot carry it.
+const dumpConn = pgCommandConnection(databaseUrl);
+execFileSync("pg_dump", ["-Fc", "--no-owner", "--no-acl", "-f", path.join(work, "database.dump"), dumpConn.url], { env: dumpConn.env });
+execFileSync("pg_dump", ["--schema-only", "--no-owner", "--no-acl", "-f", path.join(work, "schema.sql"), dumpConn.url], { env: dumpConn.env });
 
 // 2. The ledger, as rows.
 const client = new pg.Client({ connectionString: databaseUrl });

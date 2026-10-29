@@ -74,7 +74,5 @@ export * from "./updateNotificationsRequest";
 export * from "./updateNotificationsResponse";
 export * from "./updateProfileRequest";
 export * from "./updateProfileResponse";
-export * from "./uploadUrlRequest";
-export * from "./uploadUrlResponse";
 export * from "./userProfile";
 export * from "./userProfileMembershipTier";
