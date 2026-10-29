@@ -79,6 +79,12 @@ describe("the dev rebuild", () => {
     await query(sourceName, "UPDATE admin_config SET value = '7777' WHERE key = $1", [adminKey]);
     // A schema the code does not build, written at server start by stripe-replit-sync.
     await query(sourceName, "CREATE SCHEMA stripe; CREATE TABLE stripe.customers (id text PRIMARY KEY, email text); INSERT INTO stripe.customers VALUES ('cus_1', 'a@example.com')");
+    // Its trigger calls a function stripe-replit-sync created in public, which the code does not build.
+    await query(
+      sourceName,
+      "CREATE FUNCTION public.set_updated_at() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END'; " +
+        "CREATE TRIGGER handle_updated_at BEFORE UPDATE ON stripe.customers FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()",
+    );
   });
 
   after(async () => {
@@ -117,6 +123,7 @@ describe("the dev rebuild", () => {
     ]);
     assert.deepEqual(await query(target, "SELECT value FROM admin_config WHERE key = $1", [adminKey]), [{ value: "7777" }]);
     assert.deepEqual(report.schemasCarried, { stripe: 1 });
+    assert.deepEqual(report.functionsCarried, ["set_updated_at()"]);
     // The child-safety audit log's append-only guards stay ALWAYS through the load.
     assert.equal((report.auditBoundary as { triggersEnabled: boolean }).triggersEnabled, true);
     const modes = await query<{ m: string }>(
