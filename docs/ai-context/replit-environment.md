@@ -131,7 +131,10 @@ the connector: `SELECT current_database(), now();` against production →
 `neondb,2026-10-29 21:58:06.18808+00`). A question that asks it to query
 production is a live read of user data, under the disclosure rules of
 `.claude/skills/bugfix/live-diagnosis.md`: aggregate or redact in the request
-itself. It cannot write there — *"Agent can't touch it"* (Replit's docs).
+itself. Whether it can write there is Replit's claim, not a measurement:
+the docs say *"Agent is not able to modify the production database"*, and only
+a read has been tested. So a request that touches production says read-only
+and names what it must not change, whatever the docs promise.
 
 ## Authoritative on what IS; the repo docs are authoritative on what SHOULD BE
 
