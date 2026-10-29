@@ -65,25 +65,17 @@ async function cleanup() {
 before(cleanup);
 after(cleanup);
 
-describe("POST /storage/uploads/request-url — auth + body validation", () => {
-
-  it("returns 401 when unauthenticated", async () => {
-    const res = await request(makeApp())
-      .post("/storage/uploads/request-url")
-      .send({ name: "x.png", size: 1, contentType: "image/png" });
-    assert.equal(res.status, 401);
-    assert.deepEqual(res.body, { error: "Authentication required" });
-  });
-
-  it("returns 400 when the body fails the Zod schema", async () => {
+describe("POST /storage/uploads/request-url — retired", () => {
+  // The signed direct-upload URL could not be made write-once, had no caller,
+  // and wrote unmoderated bytes; it was removed (Launch Phase 3, increment 5).
+  it("is gone", async () => {
     const userId = await createTestUser();
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
       .post("/storage/uploads/request-url")
       .set("authorization", `Bearer ${sid}`)
-      .send({});
-    assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Missing or invalid required fields" });
+      .send({ name: "x.png", size: 1, contentType: "image/png" });
+    assert.equal(res.status, 404);
   });
 });
 

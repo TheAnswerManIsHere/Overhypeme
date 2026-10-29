@@ -18,7 +18,8 @@ import { getSessionId, getSession, updateSession } from "../lib/auth";
 import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
-import { ObjectStorageService } from "../lib/objectStorage";
+import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
+import { isRetryableMediaError } from "../lib/mediaBackup/preserve";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 import { getConfigInt } from "../lib/adminConfig";
 import { verifyCaptcha } from "../lib/captcha";
@@ -26,6 +27,22 @@ import { logger } from "../lib/logger";
 import { effectiveTierExpr } from "../lib/membershipState";
 
 const router: IRouter = Router();
+
+/**
+ * A profile photo's ACL change failed, so nothing was saved. A retryable media
+ * error (its backup copy could not be made first) is 503 "try again shortly";
+ * a missing object is the caller's bad path; anything else is 500.
+ */
+function respondProfileImageAclFailure(res: Response, err: unknown, route: string): void {
+  logger.error({ err }, `[users] Failed to set ACL on profile image (${route})`);
+  if (isRetryableMediaError(err)) {
+    res.status(503).json({ error: "Your photo could not be updated right now. Please try again shortly." });
+  } else if (err instanceof ObjectNotFoundError) {
+    res.status(400).json({ error: "Invalid profile image URL" });
+  } else {
+    res.status(500).json({ error: "Failed to update profile image" });
+  }
+}
 
 const PROFILE_IMAGE_FIRST_PARTY_PREFIX = "/api/storage/objects/";
 const PROFILE_IMAGE_TRUSTED_HOSTS = new Set([
@@ -325,14 +342,17 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     if (!normalizedProfileImageUrl) { res.status(400).json({ error: "Invalid profile image URL" }); return; }
     updates.profileImageUrl = normalizedProfileImageUrl;
 
-    // Set the uploaded file as public so it can be served as an <img> to any viewer
+    // Set the uploaded file as public so it can be served as an <img> to any
+    // viewer — before anything is saved, so a failure saves nothing rather
+    // than a profile photo nobody else can see.
     if (typeof updates.profileImageUrl === "string" && updates.profileImageUrl.startsWith(PROFILE_IMAGE_FIRST_PARTY_PREFIX)) {
       const objectPath = updates.profileImageUrl.replace("/api/storage", "");
       try {
         const objectStorageService = new ObjectStorageService();
         await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: userId, visibility: "public" });
       } catch (err) {
-        logger.error({ err }, "[users] Failed to set ACL on profile image");
+        respondProfileImageAclFailure(res, err, "PATCH /users/me");
+        return;
       }
     }
   }
@@ -576,6 +596,19 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
   // every non-paying registered user.
   const mayFlipToPhoto = await can(principalFromRequest(req), "custom_avatar");
 
+  // Public first, then the database: a failed ACL change saves nothing, so
+  // the response never reports a profile photo nobody else can see.
+  try {
+    const objectStorageService = new ObjectStorageService();
+    await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
+      owner: userId,
+      visibility: "public",
+    });
+  } catch (err) {
+    respondProfileImageAclFailure(res, err, "POST /users/me/profile-image");
+    return;
+  }
+
   await db.transaction(async (tx) => {
     await tx.execute(sql`
       UPDATE upload_image_metadata
@@ -594,16 +627,6 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
       })
       .where(eq(usersTable.id, userId));
   });
-
-  try {
-    const objectStorageService = new ObjectStorageService();
-    await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
-      owner: userId,
-      visibility: "public",
-    });
-  } catch (err) {
-    logger.error({ err }, "[users] Failed to set ACL on profile image (POST /users/me/profile-image)");
-  }
 
   res.json({ success: true, profileImageUrl: newProfileImageUrl, objectPath });
 });
@@ -728,7 +751,9 @@ router.delete("/users/me/uploads", async (req: Request, res: Response) => {
     await storageService.deleteObject(objectPath);
   } catch (e) {
     logger.error({ err: e }, "[DELETE /users/me/uploads] Storage delete failed");
-    res.status(500).json({ error: "Failed to delete image from storage. Please try again." });
+    // A retryable media error means the photo is untouched: its backup copy
+    // could not be made first (lib/mediaBackup/preserve.ts).
+    res.status(isRetryableMediaError(e) ? 503 : 500).json({ error: "Failed to delete image from storage. Please try again." });
     return;
   }
 

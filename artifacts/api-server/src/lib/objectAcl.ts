@@ -1,10 +1,10 @@
 /**
- * @purpose Object-storage ACL policy kept as GCS object metadata: set and read the owner-and-visibility policy, and the permission check that lets anyone read a public object and requires the owner for every other access.
+ * @purpose Object-storage ACL policy kept as GCS object metadata: read the owner-and-visibility policy (it is written only through ObjectStorageService, which preserves the prior state first), and the permission check that lets anyone read a public object and requires the owner for every other access.
  * @subsystem security
  */
 import { File } from "@google-cloud/storage";
 
-const ACL_POLICY_METADATA_KEY = "custom:aclPolicy";
+export const ACL_POLICY_METADATA_KEY = "custom:aclPolicy";
 
 export enum ObjectPermission {
   READ = "read",
@@ -14,19 +14,6 @@ export enum ObjectPermission {
 export interface ObjectAclPolicy {
   owner: string;
   visibility: "public" | "private";
-}
-
-export async function setObjectAclPolicy(
-  objectFile: File,
-  aclPolicy: ObjectAclPolicy,
-): Promise<void> {
-  const [exists] = await objectFile.exists();
-  if (!exists) {
-    throw new Error(`Object not found: ${objectFile.name}`);
-  }
-  await objectFile.setMetadata({
-    metadata: { [ACL_POLICY_METADATA_KEY]: JSON.stringify(aclPolicy) },
-  });
 }
 
 export async function getObjectAclPolicy(

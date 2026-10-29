@@ -86,10 +86,22 @@ describe("local storage double", () => {
     assert.equal(await svc.canAccessObjectEntity({ userId: "user-a", objectFile: file }), false);
   });
 
-  it("a re-upload replaces the bytes and clears the old ACL", async () => {
-    await svc.uploadObjectBuffer({ subPath: "uploads/ab/one", buffer: Buffer.from("new"), contentType: "text/plain" });
+  it("refuses a second write to a key that holds an object (write-once), leaving it as it was", async () => {
+    await assert.rejects(
+      svc.uploadObjectBuffer({ subPath: "uploads/ab/one", buffer: Buffer.from("new"), contentType: "text/plain" }),
+      (e: { code?: number }) => e.code === 412,
+    );
     const file = await svc.getObjectEntityFile("/objects/uploads/ab/one");
-    assert.equal(await svc.canAccessObjectEntity({ userId: "user-a", objectFile: file }), false);
+    assert.deepEqual((await file.download())[0], PNG);
+    assert.equal(await svc.canAccessObjectEntity({ userId: "user-a", objectFile: file }), true);
+  });
+
+  it("sets an ACL given with the upload in the same write", async () => {
+    await svc.uploadObjectBuffer({ subPath: "uploads/with-acl", buffer: PNG, contentType: "image/png", aclPolicy: { owner: "user-c", visibility: "private" } });
+    const file = await svc.getObjectEntityFile("/objects/uploads/with-acl");
+    assert.equal(await svc.canAccessObjectEntity({ userId: "user-c", objectFile: file }), true);
+    const [meta] = await file.getMetadata();
+    assert.equal(String(meta.metageneration), "1", "one write, no later metadata change");
   });
 
   it("a missing object is ObjectNotFoundError, and deleting it is a no-op", async () => {
@@ -135,13 +147,9 @@ describe("local storage double", () => {
     await assert.rejects(file.save(PNG, { contentType: ["image/png"] as unknown as string }), /must be a string/);
   });
 
-  it("refuses to sign URLs, visibly", async () => {
-    await assert.rejects(svc.getObjectEntityUploadURL(), /signed URLs are not available/);
-  });
-
   it("has every File method objectStorage.ts, objectAcl.ts and the routes call", () => {
     const file = new LocalObjectStorage(ROOT).bucket("b").file("o") as unknown as Record<string, unknown>;
-    for (const method of ["exists", "getMetadata", "setMetadata", "save", "download", "createReadStream", "delete"]) {
+    for (const method of ["exists", "getMetadata", "setMetadata", "save", "copy", "download", "createReadStream", "delete"]) {
       assert.equal(typeof file[method], "function", `File.${method}`);
     }
     assert.equal(file.name, "o");

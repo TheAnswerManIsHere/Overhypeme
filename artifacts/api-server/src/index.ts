@@ -204,6 +204,36 @@ function scheduleRateLimitCounterPurger() {
 }
 
 // Daily cron: send Fact of the Day at 9:00 UTC
+// Hourly, in the published deployment only: one media-backup pair (the
+// database point and the media states it needs), and once a day the backup's
+// expiry (Launch Phase 3, increment 5; jobs/mediaBackupJob.ts). The first run
+// waits a few minutes so a boot is never slowed by it.
+function scheduleMediaBackup() {
+  // Said once at boot, loudly when a published deployment has no backup: every
+  // photo delete and ACL change is then refused (lib/mediaBackup/config.ts).
+  import("./lib/mediaBackup/config")
+    .then(({ preservation }) => {
+      const p = preservation();
+      if (p.mode === "unavailable") logger.error({ reason: p.reason }, "[media-backup] not configured: photo deletes and access changes are refused until it is");
+      else logger.info({ mode: p.mode }, "[media-backup] preservation");
+    })
+    .catch((err: unknown) => logger.error({ err }, "[media-backup] misconfigured: photo deletes and access changes will fail"));
+  if (process.env.REPLIT_DEPLOYMENT !== "1") return;
+  const schedule = (delayMs: number) => {
+    setTimeout(async () => {
+      try {
+        const { runScheduledMediaBackup } = await import("./jobs/mediaBackupJob");
+        const outcome = await runScheduledMediaBackup();
+        if (outcome.startsWith("skipped")) logger.info({ outcome }, "[media-backup] capture");
+      } catch (err) {
+        logger.error({ err }, "[media-backup] capture failed");
+      }
+      schedule(60 * 60 * 1000);
+    }, delayMs).unref();
+  };
+  schedule(5 * 60 * 1000);
+}
+
 function scheduleDailyFactJob() {
   const schedule = () => {
     const now = new Date();
@@ -398,6 +428,7 @@ backfillEmbeddings()
 scheduleDailyFactJob();
 scheduleTransientRenderPurger();
 scheduleRateLimitCounterPurger();
+scheduleMediaBackup();
 // Engines: reconcile the typed code catalogue into the DB before pricing
 // cache so the active engines drive the cache refresh.
 reconcileEngines()

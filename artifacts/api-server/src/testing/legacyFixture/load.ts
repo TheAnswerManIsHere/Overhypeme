@@ -186,8 +186,7 @@ export async function writePlaceholders(manifest: ExportManifest): Promise<numbe
     if (!bytes) encoded.set(key, (bytes = placeholderBytes(p)));
     const { buffer, contentType } = bytes;
     const subPath = objectPath.replace(/^\/objects\//, "");
-    await storage.uploadObjectBuffer({ subPath, buffer, contentType });
-    if (acl) await storage.trySetObjectEntityAclPolicy(objectPath, acl);
+    await storage.uploadObjectBuffer({ subPath, buffer, contentType, ...(acl ? { aclPolicy: acl } : {}) });
   };
   let n = 0;
   for (const p of manifest.placeholders) {

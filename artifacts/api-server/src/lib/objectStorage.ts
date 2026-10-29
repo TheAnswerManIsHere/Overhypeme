@@ -1,49 +1,10 @@
-import { Storage, File } from "@google-cloud/storage";
+import { File } from "@google-cloud/storage";
 import { Readable } from "stream";
-import { randomUUID } from "crypto";
-import { uploadKey } from "./storageKeys";
-import { selectedBackend } from "./doubleSelection";
-import { LocalObjectStorage, type BucketClient } from "./localObjectStorage";
-import {
-  ObjectAclPolicy,
-  ObjectPermission,
-  canAccessObject,
-  getObjectAclPolicy,
-  setObjectAclPolicy,
-} from "./objectAcl";
+import { storageClient } from "./storageClient";
+import { ACL_POLICY_METADATA_KEY, ObjectAclPolicy, ObjectPermission, canAccessObject, getObjectAclPolicy } from "./objectAcl";
+import { deletePreserved, setMetadataPreserved } from "./mediaBackup/preserve";
 
-const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
-
-export const objectStorageClient = new Storage({
-  credentials: {
-    audience: "replit",
-    subject_token_type: "access_token",
-    token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
-    type: "external_account",
-    credential_source: {
-      url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
-      format: {
-        type: "json",
-        subject_token_field_name: "access_token",
-      },
-    },
-    universe_domain: "googleapis.com",
-  },
-  projectId: "",
-});
-
-/**
- * The client every storage operation goes through: the Replit-sidecar GCS
- * client, or the local double when `STORAGE_BACKEND=local-double` names it
- * (`doubleSelection.ts` refuses that in a production boot, and re-checks here).
- * `objectStorageClient` stays exported for the maintenance scripts, which only
- * ever run against the real bucket.
- */
-function storageClient(): BucketClient {
-  if (selectedBackend("STORAGE_BACKEND") !== "local-double") return objectStorageClient;
-  // Cheap (no I/O); selectedBackend has already refused a missing or relative dir.
-  return new LocalObjectStorage(process.env.STORAGE_DOUBLE_DIR ?? "");
-}
+export { objectStorageClient } from "./storageClient";
 
 export class ObjectNotFoundError extends Error {
   constructor() {
@@ -122,30 +83,8 @@ export class ObjectStorageService {
     return new Response(webStream, { headers });
   }
 
-  async getObjectEntityUploadURL(): Promise<string> {
-    const privateObjectDir = this.getPrivateObjectDir();
-    if (!privateObjectDir) {
-      throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
-      );
-    }
-
-    const objectId = randomUUID();
-    const subPath = uploadKey(objectId);
-    const fullPath = `${privateObjectDir}/${subPath}`;
-
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-
-    return signObjectURL({
-      bucketName,
-      objectName,
-      method: "PUT",
-      ttlSec: 900,
-    });
-  }
-
-  async getObjectEntityFile(objectPath: string): Promise<File> {
+  /** The bucket and object name an `/objects/...` path names, or ObjectNotFoundError for anything else. */
+  private resolveObjectEntity(objectPath: string): { bucketName: string; objectName: string } {
     if (!objectPath.startsWith("/objects/")) {
       throw new ObjectNotFoundError();
     }
@@ -160,8 +99,11 @@ export class ObjectStorageService {
     if (!entityDir.endsWith("/")) {
       entityDir = `${entityDir}/`;
     }
-    const objectEntityPath = `${entityDir}${entityId}`;
-    const { bucketName, objectName } = parseObjectPath(objectEntityPath);
+    return parseObjectPath(`${entityDir}${entityId}`);
+  }
+
+  async getObjectEntityFile(objectPath: string): Promise<File> {
+    const { bucketName, objectName } = this.resolveObjectEntity(objectPath);
     const bucket = storageClient().bucket(bucketName);
     const objectFile = bucket.file(objectName);
     const [exists] = await objectFile.exists();
@@ -201,8 +143,14 @@ export class ObjectStorageService {
       return normalizedPath;
     }
 
-    const objectFile = await this.getObjectEntityFile(normalizedPath);
-    await setObjectAclPolicy(objectFile, aclPolicy);
+    // Preserve-before-change: the state this rewrite replaces is copied to the
+    // media backup first, and the rewrite is conditional on that state
+    // (lib/mediaBackup/preserve.ts). A retryable error means nothing changed.
+    const { bucketName, objectName } = this.resolveObjectEntity(normalizedPath);
+    const outcome = await setMetadataPreserved(bucketName, objectName, {
+      [ACL_POLICY_METADATA_KEY]: JSON.stringify(aclPolicy),
+    });
+    if (outcome === "absent") throw new ObjectNotFoundError();
     return normalizedPath;
   }
 
@@ -225,8 +173,13 @@ export class ObjectStorageService {
   /**
    * Delete an object from storage by its /objects/... path.
    * Silently succeeds if the object does not exist (already gone = success).
-   * Throws ObjectNotFoundError only if caught from resolution errors.
-   * Throws other errors as-is so callers can fail fast and abort DB mutations.
+   * Throws other errors as-is so callers can fail fast and abort DB mutations;
+   * a `MediaBackupUnavailableError` or `MediaChangeConflictError` means the
+   * object is untouched and the caller may retry shortly.
+   *
+   * The deleted state is copied to the media backup first, where it stays for
+   * the retention window (lib/mediaBackup/preserve.ts); quarantined evidence is
+   * never copied there.
    *
    * Refuses to delete `restricted/...` paths unless `force: true` is passed.
    * Quarantined evidence is preserved by `ncmec_reports.evidence_retention_until`
@@ -239,17 +192,16 @@ export class ObjectStorageService {
           `Pass { force: true } only from the retention worker after preservation expiry.`,
       );
     }
-    let file: File;
+    let target: { bucketName: string; objectName: string };
     try {
-      file = await this.getObjectEntityFile(objectPath);
+      target = this.resolveObjectEntity(objectPath);
     } catch (err) {
       if (err instanceof ObjectNotFoundError) {
-        return; // object does not exist — treat as success
+        return; // not an object path — nothing to delete
       }
-      throw err; // unexpected resolution error — propagate
+      throw err;
     }
-    // Object exists; attempt deletion and throw on failure so callers can abort DB mutations
-    await file.delete();
+    await deletePreserved(target.bucketName, target.objectName);
   }
 
   /**
@@ -274,14 +226,24 @@ export class ObjectStorageService {
     return this.uploadObjectBuffer({ subPath, buffer, contentType });
   }
 
+  /**
+   * Store a new object. Write-once: a key that already holds an object is
+   * refused (412 from the storage service) rather than replaced, so a retried
+   * or repeated write can never destroy a state the media backup has not
+   * preserved. An intended replacement deletes first, through the preserving
+   * path. `aclPolicy` is set in the same write, so a new object's first state
+   * is its final one and needs no preservation.
+   */
   async uploadObjectBuffer({
     subPath,
     buffer,
     contentType,
+    aclPolicy,
   }: {
     subPath: string;
     buffer: Buffer;
     contentType: string;
+    aclPolicy?: ObjectAclPolicy;
   }): Promise<string> {
     const privateObjectDir = this.getPrivateObjectDir();
     if (!privateObjectDir) {
@@ -299,7 +261,12 @@ export class ObjectStorageService {
     const bucket = storageClient().bucket(bucketName);
     const file = bucket.file(objectName);
 
-    await file.save(buffer, { contentType, resumable: false });
+    await file.save(buffer, {
+      contentType,
+      resumable: false,
+      ...(aclPolicy ? { metadata: { metadata: { [ACL_POLICY_METADATA_KEY]: JSON.stringify(aclPolicy) } } } : {}),
+      preconditionOpts: { ifGenerationMatch: 0 },
+    });
 
     return `/objects/${subPath}`;
   }
@@ -324,49 +291,4 @@ function parseObjectPath(path: string): {
     bucketName,
     objectName,
   };
-}
-
-async function signObjectURL({
-  bucketName,
-  objectName,
-  method,
-  ttlSec,
-}: {
-  bucketName: string;
-  objectName: string;
-  method: "GET" | "PUT" | "DELETE" | "HEAD";
-  ttlSec: number;
-}): Promise<string> {
-  if (selectedBackend("STORAGE_BACKEND") === "local-double") {
-    // Fail visibly: no browser flow uses a signed URL, and the one vendor that
-    // fetches one (the fal NSFW classifier) belongs to the AI doubles.
-    throw new Error("storage double: signed URLs are not available under STORAGE_BACKEND=local-double");
-  }
-  const request = {
-    bucket_name: bucketName,
-    object_name: objectName,
-    method,
-    expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
-  };
-  const response = await fetch(
-    `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-      signal: AbortSignal.timeout(30_000),
-    }
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Failed to sign object URL, errorcode: ${response.status}, ` +
-        `make sure you're running on Replit`
-    );
-  }
-
-  const body = await response.json() as { signed_url: string };
-  const signedURL = body.signed_url;
-  return signedURL;
 }
