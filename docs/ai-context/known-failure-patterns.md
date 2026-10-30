@@ -3138,5 +3138,8 @@ defaulted to a hand-back.
 the work is done; every startable item waits on an event that will wake me;
 a 🛑 stop; a report the contract makes a turn's last text, with the next
 item's resume armed before it is written; or a check-in that tripped its cap. If this recurs with that rule in place, the response is a
-deterministic check on the footer's **Next:** form (a Stop hook), not a
-better note (*Recurring failure patterns become CI guards*).
+deterministic check on the footer's **Next:** form (a Stop hook that
+refuses a malformed one), not a better note (*Recurring failure patterns
+become CI guards*). The alert hook already reads the form, to tier David's
+ring (`claude-core.md`, interaction rule 6; #264); it refuses nothing, so
+it is not that check.

@@ -426,7 +426,7 @@ retiring the Artifact page of 2026-09-09). The plan loop now matches the
 code-review loop, where the core already says: no page, no Artifact, no HTML, no
 link.
 
-1. **The approval ask, in chat**: a short readout, then **the complete plan**.
+1. **The approval ask, in chat**, as a 🛑 ask (`claude-core.md`, interaction rule 6: a plan before it is enacted is one of the four): a short readout, then **the complete plan**.
    The readout carries what will be built and what is excluded, why the approach
    fits, how success will be recognised, the remaining uncertainty and accepted
    trade-offs, anything still needing his decision, and any tie I settled over a

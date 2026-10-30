@@ -198,7 +198,9 @@ asked; the recommendation is taken and reported.
   he can clear, a UAT step that is his and that the next increment depends
   on, and the irreversible list, each with a push notification (David,
   2026-10-21: *"you should be able to autonomously complete all the steps in
-  the plan from start to finish"*). New
+  the plan from start to finish"*) — and every hand-back, those included,
+  rings his phone by the alert hook (`claude-core.md`, interaction rule 6).
+  New
   scope, a new increment the plan does not hold, a new feature, a new test plan or a new plan never
   proceed, in either phase — that is where his judgement bites, and it is almost
   always product-facing. Mid-flight scope is taken as **next** — recorded for

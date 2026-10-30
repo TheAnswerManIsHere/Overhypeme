@@ -607,7 +607,12 @@ by construction, and firing the 🛑 banner and a push for each one would make
 interaction rule 6 unusable exactly where he's most present. So, **scoped to
 an active run**: ordinary step-by-step turn-taking — including the
 continue-or-pause question right after a failure — gets **no banner and no
-notification**. He's at the keyboard; that's the premise of the session.
+`PushNotification` call**. He's at the keyboard; that's the premise of the
+session. The alert hook still rings once, quietly, on each of those turns,
+as it does on every hand-back (`claude-core.md`, interaction rule 6; David,
+2026-10-30, AI-Handbook #264): the hook cannot tell a walkthrough turn from
+any other, and David chose more alerts over fewer. What the carve-out
+withholds is the repeating 🛑 tier and the call, not the chime.
 
 The banner and the push fire normally when the **run ends** needing a
 decision from him, when an ask would hold work up after he's walked away, or

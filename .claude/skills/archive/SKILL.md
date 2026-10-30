@@ -121,7 +121,10 @@ CONTINUE — two things die with this session.
 The hand-back footer applies (*Done / Next / Needs you / Spend*); on an
 *archive* verdict, **Next:** takes the core's `nothing —` form:
 `nothing — the work here is done; archiving at <time> unless you write
-first`.
+first`. That form is the alert hook's idle tier (`claude-core.md`,
+interaction rule 6), so the verdict rings David's phone and repeats until
+he acknowledges it: a finished session with nothing startable is one he
+directs next, and he asked to know the moment any session is done.
 
 ## What this skill does not do
 
