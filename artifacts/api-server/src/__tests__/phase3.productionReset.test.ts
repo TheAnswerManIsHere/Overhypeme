@@ -107,7 +107,7 @@ describe("preparing production's reset", () => {
   after(async () => {
     if (creatable) {
       const { rows } = await control.query<{ d: string }>(
-        "SELECT datname AS d FROM pg_database WHERE datname = ANY($1) OR datname LIKE 'reset_capture_%'",
+        "SELECT datname AS d FROM pg_database WHERE datname = ANY($1)",
         [[prodName, devName]],
       );
       for (const { d } of rows) await control.query(`DROP DATABASE IF EXISTS "${d}" WITH (FORCE)`);

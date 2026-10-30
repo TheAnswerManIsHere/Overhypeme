@@ -123,6 +123,15 @@ database's state, never by a flag:
 | ledger present | its pending migrations only, in journal order, each in its own transaction |
 | tables but no ledger | **refused**, with the reason; the server does not start |
 
+**The one exception, once** (plan amendment 2, 2026-10-30): production's
+first database on Replit arrives with dev's structure and no ledger, because
+every publish copies dev's structure in, with no skip. The runner still
+refuses it, on that boot and every other. `artifacts/api-server/scripts/production-adopt.ts` is the only thing that lets it start: it proves the
+structure equal to what the code builds and the database free of rows, then
+installs the migrations' rows, ledger and sequence positions in one
+transaction (`docs/engineering/production-reset.md`, *The sequence*). It is
+not a route for any other database, and it copies nothing from dev.
+
 - **A new migration must be right on both paths.** On a fresh database it
   runs on top of the baseline: every earlier migration's structure and seed
   rows, and no product rows. On a long-lived one it runs on whatever rows

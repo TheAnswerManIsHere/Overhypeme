@@ -8,7 +8,8 @@
     "./schema": "./src/schema/index.ts",
     "./test-database": "./src/testDatabaseMarker.ts",
     "./baseline": "./src/baseline.ts",
-    "./table-classification": "./src/tableClassification.ts"
+    "./table-classification": "./src/tableClassification.ts",
+    "./migrate": "./src/migrate.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",

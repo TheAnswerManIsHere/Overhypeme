@@ -93,7 +93,7 @@ const DDL_ALREADY_EXISTS_CODES = new Set([
 // Fixed advisory lock key for the migration runner. Any 32-bit integer works;
 // this value was chosen to be recognizable in pg_locks output.
 // SELECT pid, granted FROM pg_locks WHERE classid = 7654 AND objid = 321;
-const MIGRATION_LOCK_KEY = 76_543_21;
+export const MIGRATION_LOCK_KEY = 76_543_21;
 
 export function getMigrationsFolder(): string {
   if (process.env.DRIZZLE_MIGRATIONS_FOLDER) {

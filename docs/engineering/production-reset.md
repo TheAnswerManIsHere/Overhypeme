@@ -82,8 +82,32 @@ directory is write-once, so a second run of `prepare` takes a new id.
    the record's key and sha256, and any differences. **Anything but `pass`
    stops here and goes to David.**
 3. **David:** remove production's database in Replit's Database tool, then
-   publish. The empty database builds itself from code at boot, by the
-   bootstrap path.
+   publish. **Measured 2026-10-30: the new database does not arrive empty.**
+   Every publish diffs dev's structure against production and applies the
+   difference (*Approve and publish*, with no skip), so production's first
+   database holds dev's tables and no migration record, and the runner
+   refuses it at boot (*tables but no ledger*). Resuming a paused deployment
+   keeps the old database binding, so it cannot stand in for a publish.
+   Plan amendment 2 (`docs/plans/PLAN_PHASE3_AMENDMENT_2.md`) adds the
+   adoption step, run once, on David's go, through the connector:
+
+   ```
+   pnpm --filter @workspace/api-server exec tsx scripts/production-adopt.ts --out /tmp/production-adopt.json
+   ```
+
+   It builds a reference database from code on dev's server, takes the
+   runner's advisory lock on production, and refuses unless production holds
+   only the schemas `public` and `drizzle` (plus the tolerated `stripe` and
+   test-cache schemas), no rows anywhere, no ledger rows, and a structure equal
+   to the reference's: columns, constraints, indexes, triggers and their firing
+   modes, full sequence definitions and owners, relation kinds and
+   persistence, and extensions with their schemas. On a difference it names
+   each line and says whether dev shares it (dev drift) or not (transfer).
+   When all of that holds it copies the reference's rows, ledger and sequence
+   positions into production in one transaction, verifies them by hash, and
+   commits; any failure rolls back, sequences included. It needs no
+   superuser. Exit 0 only on `verdict: adopted`. The crash-looping server
+   then boots with nothing pending; if it does not, David republishes.
 4. **The admin proof.** David signs in, and a script checks that his session
    reaches an admin endpoint.
 5. **The audit-boundary status** (`ncmecAuditBoundaryStatus()`) is recorded on
@@ -98,6 +122,9 @@ directory is write-once, so a second run of `prepare` takes a new id.
 - **The capture fails or will not restore:** nothing has been written.
   Fix the cause and run again with the same id. A version mismatch between
   `pg_dump` and production's server is the likeliest cause.
+- **Adoption refuses:** nothing in production changed. A structural
+  difference marked *dev drift* is dev's to fix at source; one marked
+  *transfer* goes to David. Neither is fixed by hand in production.
 - **The rows differ from dev's, or evidence is missing or changed:** the
   reset does not go ahead. The record is in the bucket. David settles the handling
   disposition before any new `prepare`, which takes a new id.
