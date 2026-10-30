@@ -170,7 +170,8 @@ not here.
 
 **This is my enactment of it.** When a bug is in that class, read
 **[`live-diagnosis.md`](live-diagnosis.md)**: which source answers which
-question (Sentry for what production threw, the Repl for live dev state, the
+question (Sentry for what production threw, the Agent's read-only production
+query for what production data is, the Repl for live dev state, the
 repo for what the code does), how to drive the connector so the answer is
 evidence rather than the agent's account of itself, and what must be redacted
 before any of it is quoted into a public artifact. It stays diagnosis — the fix
