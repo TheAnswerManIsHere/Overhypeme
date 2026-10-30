@@ -143,6 +143,14 @@ describe("adopting production's first database with proof", () => {
     // The server's own boot: runner (nothing pending), seeds, engine reconcile.
     execFileSync("npx", ["tsx", "scripts/boot-database.ts"], { cwd: apiRoot, env: { ...process.env, DATABASE_URL: url(db), PGOPTIONS: "" }, stdio: "pipe" });
     assert.equal(await ledgerCount(db), srcLedger.length);
+    // A feature-access read through the app's own module, against the adopted database.
+    const read = execFileSync(
+      "npx",
+      ["tsx", "-e", `import("./src/lib/featureAccess.ts").then(async (m) => { const g = await m.getAllTierFeatureMatrix(); console.log(JSON.stringify({ f: g.features.length, p: g.permissions.length })); process.exit(0); })`],
+      { cwd: apiRoot, env: { ...process.env, DATABASE_URL: url(db), PGOPTIONS: "" }, encoding: "utf8" },
+    );
+    const counts = JSON.parse(read.trim().split("\n").pop()!) as { f: number; p: number };
+    assert.ok(counts.f > 0 && counts.p > 0, `feature access read: ${read}`);
   });
 
   it("refuses a database holding any row, anywhere", async (t) => {
