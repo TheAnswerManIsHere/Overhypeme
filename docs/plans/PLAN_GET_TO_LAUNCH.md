@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v8 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8)
+# PLAN — Get to launch (parent programme) · v9 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8), 2026-10-30 (v9)
 
 Workstream: #628 · Planning loop: `.agents/reviews/get-to-launch/` · Never pushed unless David asks.
 
@@ -656,7 +656,7 @@ scope:
   screens: Reports (with 9), Invites (for 18), Read-only switch (with 16),
   Safety (scope from 14); user-facing help derived from the Manual source
   via the existing generator, surfaced on every user page; Manual refreshed.
-  **Settings into code** (David, 2026-10-30: *"this needs to be done … it
+  **Settings into code** (amendment v9; David, 2026-10-30: *"this needs to be done … it
   really belongs there"*; placed here rather than built now): a value stays
   editable only if it is an **incident lever**, something David must change
   faster than a reviewed deploy while something is going wrong. Everything
