@@ -247,10 +247,12 @@ in one line what this session is still on the hook for — normally nothing.
 An abandoned subscription is worse than none, because it looks like coverage.
 
 Then report: the issue written, the prompt, and the one-line verdict from
-Step 1. This hands the turn back to David, so it carries a push notification
-per CLAUDE.md's notification rule and ends with the hand-back footer — Done /
-Next / Needs you / Spend (`claude-core.md`, *A reversible choice proceeds,
-and every turn reports its spend*). Step 1's verdict also runs unasked at
+Step 1. This hands the turn back to David, so it rings his phone by the
+alert hook like every hand-back (`claude-core.md`, interaction rule 6) and
+ends with the hand-back footer — Done / Next / Needs you / Spend
+(`claude-core.md`, *A reversible choice proceeds, and every turn reports its
+spend*); the footer's `Next:` form is what decides whether that ring repeats
+— `stopped —`, since the new session is his to open. Step 1's verdict also runs unasked at
 every unit of work's close, inside the build report's *Session* section
 (`claude-core.md`, *Watching the PRs I open*), as the *hand off* branch of
 the `archive` skill's three-valued verdict.

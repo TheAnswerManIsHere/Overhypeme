@@ -139,7 +139,7 @@ where I put it and treat it as binding.
    fires `PushNotification` first, then writes the message once, as the
    turn's last text** — no threshold, no "he probably saw it", and "he's
    clearly active" is not a reason to skip: the tool dedupes, my judgement
-   doesn't. **The banner and the open-ask line are also the trigger for the
+   doesn't. **The banner and the open-ask line are also a trigger for the
    alert that does not depend on me** (David, 2026-10-30): a `Stop` hook reads
    the turn's last message and sends David a Pushover alert that repeats
    until he acknowledges it, for up to three hours (`scripts/needs-you-alert.mjs`), because 4 of 12
@@ -150,11 +150,34 @@ where I put it and treat it as binding.
    mid-line quotation of either is not an ask. Text between
    tool calls reaches him paraphrased
    ([`chat-text-between-tool-calls-is-summarised.md`](../../.agents/memory/chat-text-between-tool-calls-is-summarised.md)).
-   **A push notification means "read this", and fires for exactly four
-   things** (David, 2026-10-21): the three stops between increments — a
-   blocker only he can clear, a UAT step the next increment depends on, the
-   irreversible list — and a unit of work completed (its build report).
-   Routine progress never notifies. **An ask is shown once:** the banner alone
+   **Every hand-back rings his phone, and anything that leaves me idle until
+   he acts keeps ringing** (David, 2026-10-30, AI-Handbook #264: *"any time
+   that control is being handed back to me or anytime there's something I
+   should be made aware of … I'd rather be notified more than less because I
+   can always ignore the notification, I can't respond to one that I never
+   received"*; the goal: *"minimize the idle time that you incur waiting on
+   me … while also giving me notification the instant there is something
+   that I might care about knowing"*). The same hook reads the turn's
+   fixed footer (*A reversible choice proceeds*, rule 2) and tiers the
+   alert from it: a `**Next:**` in its `stopped —` or `nothing —` form, or a
+   `**Needs you:**` naming anything but nothing, repeats like an ask; a build
+   report landing (its first line, `**Build report — …**`) rings once,
+   loudly; a `running —` or `after <event> —` hand-back, or any other text
+   handed back, rings once, quietly, at the one Pushover priority his own
+   quiet-hours window silences; a turn that writes nothing rings nothing.
+   Two harness events ring the repeating tier as well, since each leaves
+   the session idle on him: a permission or input prompt it parks on, and a
+   turn that dies on an error, which nothing will resume.
+   So the footer's fields and the `Next:` forms are written exactly as
+   *Waiting, and scheduled check-ins* item 0 fixes them — the hook, not only
+   he, reads them — and an idle hand-back I dress as `running` rings him
+   wrongly quietly. The `PushNotification` call stays beside the hook for
+   what it already covered — a blocker only he can clear, a UAT step the
+   next increment depends on, the irreversible list, and a build report —
+   since it sometimes lands first and costs nothing (until 2026-10-30 this
+   paragraph said a push fires for exactly those four things and routine
+   progress never notifies; routine progress still does not, and every
+   hand-back now does, by the hook). **An ask is shown once:** the banner alone
    carries the options and recommendation; a later turn leaving it unchanged
    re-notifies and, if it has other text, ends with `Still waiting on you:
    <one-line ask>, above.`, else writes nothing; a changed ask replaces the
@@ -175,7 +198,16 @@ where I put it and treat it as binding.
    concern found along the way, a systemic issue beyond the one PR, a scope
    surprise, a process gap, anything contradicting stated product intent,
    and every reversible choice I proceeded on under *A reversible choice
-   proceeds* (below). Routine correctness findings don't. **Every 👀 FYI is
+   proceeds* (below). Routine correctness findings don't. **Every 👀 FYI
+   rings his phone the instant it is written** (David, 2026-10-30,
+   AI-Handbook #264): a `PostToolUse` hook reads the session transcript
+   after every tool call and alerts on each new `👀 **FYI** —` line, once,
+   quietly, so an FYI written between tool calls reaches him when it
+   happens rather than when the turn ends (`scripts/needs-you-alert.mjs`;
+   the `Stop` hook reads the hand-back's own). So the summary line is
+   written exactly as above, `👀 **FYI** —` at the start of its own line,
+   under the same shape rule as the ask: a paraphrase alerts nobody, and a
+   mid-line or fenced quotation is not an FYI. **Every 👀 FYI is
    also posted, in one line, as a comment on the workstream issue, in the
    turn it is shown** (David, 2026-10-23): the chat compacts and a fresh
    session never saw it, and the issue is where `/status` recovers what he
@@ -353,7 +385,11 @@ step's carve-out
    fields on one block: **Done:** the unit of work this turn advanced or
    finished · **Next:** what follows, against the plan, in one of the forms
    *Waiting, and scheduled check-ins* item 0 names · **Needs you:**
-   nothing, or the one thing · **Spend:** the turn's line. **Where it sits**:
+   nothing, or the one thing · **Spend:** the turn's line. **The footer is
+   read by a machine as well as by him** (David, 2026-10-30, AI-Handbook
+   #264): the alert hook tiers the hand-back's ring from the `Next:` form
+   and the `Needs you:` field (interaction rule 6), so each is written in
+   its fixed shape, `**Field:**` in bold with the colon inside. **Where it sits**:
    inside the message that hands the turn back — last, except on a turn
    that ends with a 🛑 ask or an open-ask line, where interaction rule 6
    keeps the ask last and the spend line sits directly above it; a turn that
@@ -558,7 +594,8 @@ enactment is `.claude/skills/document/`.
    (David, 2026-10-21: *"once we've built and agreed on a plan, even if it
    has many phases, you should be able to autonomously complete all the
    steps in the plan from start to finish"*). Between increments I stop for
-   three things only, each with a push notification: a blocker only he can
+   three things only, each with a push notification (and, like every
+   hand-back, the alert hook's ring, interaction rule 6): a blocker only he can
    clear (a key, a sign-in, a purchase), a UAT step that is his and that
    the next increment depends on, and the irreversible list. A UAT the next
    increment does not depend on never pauses the build: the machine lanes
@@ -1059,7 +1096,10 @@ this session can see its own context, so it is the `archive` skill's
 verdict, run here without being asked (that skill defers to the `handoff`
 skill's Step 1 for hand off), with the hand-off prompt following
 the report when the answer is hand off; only an explicit `/archive`
-archives. Delivered twice, verbatim: in chat,
+archives. Delivered twice, verbatim: in chat — where its landing rings
+David's phone once, loudly, by the alert hook reading its first line
+(interaction rule 6; David, 2026-10-30, AI-Handbook #264: *"build reports
+should trigger so that I know to go read them"*) —
 and as a comment on the workstream issue, so one place per feature holds
 the record without the chat — **except a workstream on the private path,
 whose report goes in chat only** and is kept by David pasting it into the
@@ -1316,7 +1356,8 @@ conversation resolution, so the Merge button is inert while a thread is open.
    (the `prototype` skill); the PR's **Decisions taken on my recommendation**
    entries, restated in one line each; and, as its last block, the fixed
    footer — Done / Next / Needs you / Spend (*A reversible choice proceeds,
-   and every turn reports its spend*). Push notification. **Nothing of mine
+   and every turn reports its spend*). Push notification, and the alert
+   hook's ring like every hand-back (interaction rule 6). **Nothing of mine
    follows the merge report** — it is the message that hands the turn back,
    and the footer is inside it, not after it; when more approved work is
    startable, its resume is armed before the report is written
@@ -1487,6 +1528,8 @@ shows the true delta.
    (a report's armed resume is this form, the event named); `stopped —
    <what I was waiting for and where it stood>; the next event or a
    message from David brings me back`; or `nothing — <the plan is done>`.
+   The alert hook reads the form too (interaction rule 6): `stopped` and
+   `nothing` ring David until he acknowledges, `running` and `after` once.
    A bare `Next: <a thing I could start>` is the failure, and it is
    visible to him at a glance. Never write my own next step in the future
    tense as the turn's last text: if it is next and startable, its tool
