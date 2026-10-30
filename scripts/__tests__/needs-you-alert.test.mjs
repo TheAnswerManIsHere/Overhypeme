@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { decide, send, pushoverBody, sessionUrl, plain, EMERGENCY } from "../needs-you-alert.mjs";
+import { decide, send, pushoverBody, sessionUrl, plain, EMERGENCY, withoutFences } from "../needs-you-alert.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "needs-you-alert.mjs");
 const env = { CLAUDE_PROJECT_DIR: "/home/user/Overhype.me" };
@@ -35,6 +35,19 @@ test("a message that only quotes the ask shapes owes nothing", () => {
   ]) {
     assert.equal(decide({ hook_event_name: "Stop", last_assistant_message: text }, env), null, text);
   }
+});
+
+test("an ask shape inside a fenced code block is an example, not an ask", () => {
+  for (const text of [
+    "The banner looks like this:\n```\n🛑 **NEED YOU** — pick a channel\n```\nNothing is blocked.",
+    "~~~md\nStill waiting on you: an example\n~~~",
+    "Unclosed:\n```\n🛑 **NEED YOU** — still inside",
+  ]) {
+    assert.equal(decide({ hook_event_name: "Stop", last_assistant_message: text }, env), null, text);
+  }
+  const real = "Code:\n```\nQI8B-3M46N\n```\n🛑 **NEED YOU** — sign in";
+  assert.equal(decide({ hook_event_name: "Stop", last_assistant_message: real }, env).message, "sign in");
+  assert.equal(withoutFences("a\n````\n```\nb\n````\nc"), "a\nc");
 });
 
 test("an ask dressed in a heading, bullet or emphasis still rings", () => {

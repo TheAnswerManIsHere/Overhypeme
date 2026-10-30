@@ -81,6 +81,29 @@ export const BLOCKING_NOTIFICATIONS = new Set([
   "elicitation_url_dialog",
 ]);
 
+/**
+ * The message with fenced code blocks removed: an ask shape inside one is an
+ * example being shown, not an ask (Overhype.me PR #794, Codex). An unclosed
+ * fence runs to the end, as Markdown renders it.
+ */
+export function withoutFences(text) {
+  const kept = [];
+  let fence = null;
+  for (const line of String(text).split("\n")) {
+    const open = line.match(/^[ \t]*(`{3,}|~{3,})/);
+    if (fence) {
+      if (open && open[1][0] === fence[0] && open[1].length >= fence.length) fence = null;
+      continue;
+    }
+    if (open) {
+      fence = open[1];
+      continue;
+    }
+    kept.push(line);
+  }
+  return kept.join("\n");
+}
+
 /** Markdown to one plain line, for a lock screen. */
 export function plain(text, max = 240) {
   const line = String(text)
@@ -110,7 +133,7 @@ export function decide(input, env = {}) {
   const event = input?.hook_event_name;
 
   if (event === "Stop") {
-    const text = input.last_assistant_message ?? "";
+    const text = withoutFences(input.last_assistant_message ?? "");
     const ask = text.match(ASK_BANNER) ?? text.match(OPEN_ASK);
     if (!ask) return null;
     return { ...EMERGENCY, title: `🛑 ${repo}: Claude needs you`, message: plain(ask[1]) };
