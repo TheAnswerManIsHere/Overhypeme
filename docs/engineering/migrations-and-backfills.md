@@ -129,7 +129,9 @@ every publish copies dev's structure in, with no skip. The runner still
 refuses it, on that boot and every other. `artifacts/api-server/scripts/production-adopt.ts` is the only thing that lets it start: it proves the
 structure equal to what the code builds and the database free of rows, then
 installs the migrations' rows, ledger and sequence positions in one
-transaction (`docs/engineering/production-reset.md`, *The sequence*). It is
+transaction, first creating the ledger's table with the runner's own
+statements when the copy left it out (amendment 3)
+(`docs/engineering/production-reset.md`, *The sequence*). It is
 not a route for any other database, and it copies nothing from dev.
 
 - **A new migration must be right on both paths.** On a fresh database it

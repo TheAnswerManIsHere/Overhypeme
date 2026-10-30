@@ -18,6 +18,14 @@
  * and the extension set with its schemas. Normalised: column order, owners and
  * grants, and an extension's version (printed, not compared).
  *
+ * Amendment 3 (docs/plans/PLAN_PHASE3_AMENDMENT_3.md, David 2026-10-30, "Go
+ * with option 1"): production as Replit left it has no `drizzle` schema and
+ * carries Replit's own publish record in `_system`. The ledger's schema is
+ * optional; when it is absent the transaction creates it with the runner's own
+ * statements and proves it equal to the reference's before the commit.
+ * `_system` is tolerated and exempt from the zero-row check only. A missing
+ * compared schema is a named difference, never an error.
+ *
  * What is installed (step 4): the reference's rows, by ordinary inserts in
  * foreign-key order with every constraint and trigger enabled (no superuser
  * privilege, which Neon does not give), its complete ledger, and each
@@ -35,17 +43,35 @@ import { MIGRATION_LOCK_KEY } from "@workspace/db/migrate";
 
 import { databaseUrl } from "./devRebuild.js";
 
-/** The schemas production may hold: the application's, the ledger's, and those D4 and the Stripe mirror account for. */
-export const REQUIRED_SCHEMAS = ["public", "drizzle"] as const;
-export const TOLERATED_SCHEMAS = ["stripe", "heliumdb_test", "drizzle_test"] as const;
-const COMPARED_SCHEMAS = ["public", "drizzle"] as const;
+/** The schemas production may hold: the application's, the ledger's, and those D4, the Stripe mirror and Replit account for. */
+export const REQUIRED_SCHEMAS = ["public"] as const;
+export const LEDGER_SCHEMA = "drizzle";
+export const TOLERATED_SCHEMAS = ["stripe", "heliumdb_test", "drizzle_test", "_system"] as const;
+/** Replit's publish record: tolerated, never compared, and its rows are Replit's. */
+const ROW_CHECK_EXEMPT = ["_system"];
+const COMPARED_SCHEMAS = ["public", LEDGER_SCHEMA] as const;
 const LEDGER = "drizzle.__drizzle_migrations";
+
+/**
+ * The runner's own statements for the ledger (lib/db/src/migrate.ts, the
+ * baseline path and the pending path alike). Copied rather than imported so
+ * the runner stays unedited; the in-transaction comparison with the
+ * reference, which the runner built, is what proves the copy faithful.
+ */
+const LEDGER_DDL = [
+  `CREATE SCHEMA IF NOT EXISTS "${LEDGER_SCHEMA}"`,
+  `CREATE TABLE IF NOT EXISTS "${LEDGER_SCHEMA}".__drizzle_migrations (
+        id SERIAL PRIMARY KEY,
+        hash text NOT NULL,
+        created_at bigint
+      )`,
+];
 
 export interface AdoptReport {
   verdict: "adopted" | "refused";
   reasons: string[];
   reference: { database: string; ledgerEntries: number };
-  eligibility: { ledgerRows: number | null; totalRows: number | null; schemas: string[] };
+  eligibility: { ledgerRows: number | null; totalRows: number | null; schemas: string[]; ledgerCreated: boolean };
   structure: { productionLines: number; referenceLines: number; onlyInProduction: string[]; onlyInReference: string[] };
   extensions: { production: Record<string, string>; reference: Record<string, string> };
   diagnosis: Array<{ line: string; side: "production" | "reference"; inDev: boolean; origin: "dev drift" | "transfer" }>;
@@ -95,10 +121,12 @@ async function ledgerRows(c: pg.ClientBase): Promise<number | null> {
   return Number((await c.query<{ n: string }>(`SELECT count(*) AS n FROM ${LEDGER}`)).rows[0].n);
 }
 
-/** Rows in every table of every user schema. */
+/** Rows in every table of every user schema but Replit's own record. */
 async function totalRows(c: pg.ClientBase): Promise<number> {
   const { rows } = await c.query<{ s: string; t: string }>(
-    `SELECT schemaname AS s, tablename AS t FROM pg_tables WHERE schemaname NOT LIKE 'pg\\_%' AND schemaname <> 'information_schema'`,
+    `SELECT schemaname AS s, tablename AS t FROM pg_tables
+     WHERE schemaname NOT LIKE 'pg\\_%' AND schemaname <> 'information_schema' AND schemaname <> ALL($1)`,
+    [ROW_CHECK_EXEMPT],
   );
   let n = 0;
   for (const r of rows) n += Number((await c.query<{ n: string }>(`SELECT count(*) AS n FROM ${q(r.s)}.${q(r.t)}`)).rows[0].n);
@@ -119,6 +147,8 @@ async function extensions(c: pg.ClientBase): Promise<{ versions: Record<string, 
  * and sequences' full definitions and ownership.
  */
 async function schemaStructure(c: pg.ClientBase, schema: string): Promise<string[]> {
+  const { rows: present } = await c.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema]);
+  if (present.length === 0) return [`${schema}: schema absent`];
   const lines = (await catalogFingerprint(c, schema)).map((l) => `${schema}: ${l}`);
   const rel = await c.query<{ n: string; k: string; p: string }>(
     "SELECT relname AS n, relkind AS k, relpersistence AS p FROM pg_class WHERE relnamespace = $1::regnamespace",
@@ -153,9 +183,12 @@ async function schemaStructure(c: pg.ClientBase, schema: string): Promise<string
   return lines;
 }
 
-export async function structure(c: pg.ClientBase): Promise<{ lines: string[]; versions: Record<string, string> }> {
+export async function structure(
+  c: pg.ClientBase,
+  compared: readonly string[] = COMPARED_SCHEMAS,
+): Promise<{ lines: string[]; versions: Record<string, string> }> {
   const lines: string[] = [];
-  for (const s of COMPARED_SCHEMAS) lines.push(...(await schemaStructure(c, s)));
+  for (const s of compared) lines.push(...(await schemaStructure(c, s)));
   const ext = await extensions(c);
   lines.push(...ext.lines);
   return { lines: lines.sort(), versions: ext.versions };
@@ -253,7 +286,7 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
     verdict: "refused",
     reasons: [],
     reference: { database: refName, ledgerEntries: 0 },
-    eligibility: { ledgerRows: null, totalRows: null, schemas: [] },
+    eligibility: { ledgerRows: null, totalRows: null, schemas: [], ledgerCreated: false },
     structure: { productionLines: 0, referenceLines: 0, onlyInProduction: [], onlyInReference: [] },
     extensions: { production: {}, reference: {} },
     diagnosis: [],
@@ -280,7 +313,7 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
       report.eligibility.ledgerRows = await ledgerRows(prod);
       report.eligibility.totalRows = await totalRows(prod);
       for (const s of REQUIRED_SCHEMAS) if (!report.eligibility.schemas.includes(s)) report.reasons.push(`production has no ${s} schema`);
-      const known = new Set<string>([...REQUIRED_SCHEMAS, ...TOLERATED_SCHEMAS]);
+      const known = new Set<string>([...REQUIRED_SCHEMAS, LEDGER_SCHEMA, ...TOLERATED_SCHEMAS]);
       const unknown = report.eligibility.schemas.filter((s) => !known.has(s));
       if (unknown.length > 0) report.reasons.push(`production holds unrecognised schema(s): ${unknown.join(", ")}`);
       if (report.eligibility.ledgerRows !== null && report.eligibility.ledgerRows > 0) {
@@ -288,9 +321,13 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
       }
       if (report.eligibility.totalRows > 0) report.reasons.push(`production holds ${report.eligibility.totalRows} row(s); adoption needs an empty database`);
 
-      // 3. The structural proof.
-      const p = await structure(prod);
-      const r = await structure(ref);
+      // 3. The structural proof. Without a ledger schema, `public` and the
+      // extensions are compared here and the ledger inside the transaction,
+      // once it is created (amendment 3).
+      const ledgerAbsent = !report.eligibility.schemas.includes(LEDGER_SCHEMA);
+      const compared = ledgerAbsent ? COMPARED_SCHEMAS.filter((s) => s !== LEDGER_SCHEMA) : COMPARED_SCHEMAS;
+      const p = await structure(prod, compared);
+      const r = await structure(ref, compared);
       report.extensions = { production: p.versions, reference: r.versions };
       const d = diff(p.lines, r.lines);
       report.structure = { productionLines: p.lines.length, referenceLines: r.lines.length, onlyInProduction: d.onlyA, onlyInReference: d.onlyB };
@@ -299,7 +336,7 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
         // 5. Three-way diagnosis: does dev share the difference?
         const dev = await connect(opts.devUrl);
         try {
-          const devLines = new Set((await structure(dev)).lines);
+          const devLines = new Set((await structure(dev, compared)).lines);
           for (const line of d.onlyA) report.diagnosis.push({ line, side: "production", inDev: devLines.has(line), origin: devLines.has(line) ? "dev drift" : "transfer" });
           for (const line of d.onlyB) report.diagnosis.push({ line, side: "reference", inDev: devLines.has(line), origin: devLines.has(line) ? "transfer" : "dev drift" });
         } finally {
@@ -314,6 +351,15 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
       await prod.query("BEGIN");
       try {
         const installed: Record<string, number> = {};
+        if (ledgerAbsent) {
+          for (const ddl of LEDGER_DDL) await prod.query(ddl);
+          const a = (await schemaStructure(prod, LEDGER_SCHEMA)).sort();
+          const b = (await schemaStructure(ref, LEDGER_SCHEMA)).sort();
+          const d = diff(a, b);
+          if (d.onlyA.length + d.onlyB.length > 0) {
+            throw new Error(`the created ledger differs from the reference's: ${[...d.onlyA.map((l) => `+ ${l}`), ...d.onlyB.map((l) => `- ${l}`)].join("; ")}`);
+          }
+        }
         for (const t of [...tables.map((x) => `public.${q(x)}`), LEDGER]) {
           const cols = (await insertableColumns(ref, t)).map(q).join(", ");
           const rows = await rowsJson(ref, t);
@@ -346,6 +392,7 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
         if (problems.length > 0) throw new Error(problems.join("; "));
         await prod.query("COMMIT");
         report.installed = { tables: installed, ledgerEntries: installed[LEDGER] ?? 0, sequences: refSeqs.length };
+        report.eligibility.ledgerCreated = ledgerAbsent;
         report.verdict = "adopted";
         return report;
       } catch (err) {

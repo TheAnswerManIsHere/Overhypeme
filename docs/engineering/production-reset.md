@@ -92,20 +92,28 @@ directory is write-once, so a second run of `prepare` takes a new id.
    adoption step, run once, on David's go, through the connector:
 
    ```
-   pnpm --filter @workspace/api-server exec tsx scripts/production-adopt.ts --out /tmp/production-adopt.json
+   cd artifacts/api-server && PATH="$PWD/node_modules/.bin:$PATH" tsx scripts/production-adopt.ts --out /tmp/production-adopt.json
    ```
+
+   (On the Repl, `pnpm --filter … exec tsx` failed with `tsx: command not
+   found` on 2026-10-30; the line above puts the package's binaries on the
+   PATH, which the reference build's own `npx tsx` also needs.)
 
    It builds a reference database from code on dev's server, takes the
    runner's advisory lock on production, and refuses unless production holds
-   only the schemas `public` and `drizzle` (plus the tolerated `stripe` and
-   test-cache schemas), no rows anywhere, no ledger rows, and a structure equal
-   to the reference's: columns, constraints, indexes, triggers and their firing
+   `public`, nothing outside `public`, `drizzle`, the tolerated `stripe` and
+   test-cache schemas and Replit's own publish record `_system`, no rows
+   anywhere but `_system`, no ledger rows, and a structure equal to the
+   reference's: columns, constraints, indexes, triggers and their firing
    modes, full sequence definitions and owners, relation kinds and
    persistence, and extensions with their schemas. On a difference it names
    each line and says whether dev shares it (dev drift) or not (transfer).
    When all of that holds it copies the reference's rows, ledger and sequence
    positions into production in one transaction, verifies them by hash, and
-   commits; any failure rolls back, sequences included. It needs no
+   commits; any failure rolls back, sequences included. When production has
+   no `drizzle` schema, as Replit left it on 2026-10-30 (plan amendment 3),
+   the transaction first creates the ledger's table with the runner's own
+   statements and proves it equal to the reference's. It needs no
    superuser. Exit 0 only on `verdict: adopted`. The crash-looping server
    then boots with nothing pending; if it does not, David republishes.
 4. **The admin proof.** David signs in, and a script checks that his session

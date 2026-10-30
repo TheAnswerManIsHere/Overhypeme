@@ -259,6 +259,72 @@ describe("adopting production's first database with proof", () => {
     }
   });
 
+  // Amendment 3: production as Replit left it on 2026-10-30 has no ledger schema
+  // and carries Replit's own publish record, with a row, in `_system`.
+  const replitShaped = async (db: string) => {
+    await query(
+      db,
+      `DROP SCHEMA drizzle CASCADE;
+       CREATE SCHEMA _system;
+       CREATE TABLE _system.replit_database_migrations_v1 (
+         id bigserial PRIMARY KEY, build_id text, deployment_id text, statement_count bigint, applied_at timestamptz);
+       INSERT INTO _system.replit_database_migrations_v1 (build_id, deployment_id, statement_count, applied_at)
+         VALUES ('b', 'd', 42, now());`,
+    );
+  };
+  const replitRecord = (db: string) => query<{ build_id: string; statement_count: string }>(db, "SELECT build_id, statement_count::text FROM _system.replit_database_migrations_v1");
+
+  it("adopts Replit's shape: creates the ledger's table, proves it, and leaves Replit's record alone", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
+    const db = await newCase();
+    await replitShaped(db);
+    const before = await replitRecord(db);
+    const report = await adopt(db);
+    assert.deepEqual(report.reasons, []);
+    assert.equal(report.verdict, "adopted");
+    assert.equal(report.eligibility.ledgerCreated, true);
+    assert.ok(report.eligibility.schemas.includes("_system") && !report.eligibility.schemas.includes("drizzle"));
+    const srcLedger = await query<{ id: number; hash: string; created_at: string }>(srcName, "SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id");
+    assert.deepEqual(await query(db, "SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id"), srcLedger);
+    assert.deepEqual(await replitRecord(db), before);
+    // The ledger's structure, sequence included, now equals the code's build.
+    const ledgerShape = (d: string) =>
+      query(d, "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'drizzle' ORDER BY column_name");
+    assert.deepEqual(await ledgerShape(db), await ledgerShape(srcName));
+    const [{ nv }] = await query<{ nv: string }>(db, "SELECT nextval('drizzle.__drizzle_migrations_id_seq')::text AS nv");
+    assert.ok(Number(nv) > srcLedger.length, `ledger sequence next ${nv} after ${srcLedger.length} rows`);
+    // The runner then finds nothing to do.
+    execFileSync("npx", ["tsx", "lib/db/src/migrate.ts"], { cwd: repoRoot, env: { ...process.env, DATABASE_URL: url(db), PGOPTIONS: "" }, stdio: "pipe" });
+    assert.equal(await ledgerCount(db), srcLedger.length);
+  });
+
+  it("in Replit's shape, a failure after the sequences moved leaves no ledger schema behind", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
+    const db = await newCase();
+    await replitShaped(db);
+    const report = await adopt(db, {
+      afterSequences: async () => {
+        throw new Error("forced failure after the sequences moved");
+      },
+    });
+    assert.equal(report.verdict, "refused");
+    assert.match(report.reasons.join("\n"), /installation rolled back: forced failure/);
+    assert.equal((await query(db, "SELECT 1 FROM pg_namespace WHERE nspname = 'drizzle'")).length, 0);
+    assert.equal((await query(db, "SELECT 1 FROM admin_config")).length, 0);
+    assert.equal((await replitRecord(db)).length, 1);
+  });
+
+  it("refuses a missing public schema with a reason, rather than failing", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
+    const db = await newCase();
+    await query(db, "DROP SCHEMA public CASCADE");
+    const report = await adopt(db);
+    assert.equal(report.verdict, "refused");
+    assert.match(report.reasons.join("\n"), /production has no public schema/);
+    assert.ok(report.structure.onlyInProduction.includes("public: schema absent"));
+    assert.equal(report.installed, null);
+  });
+
   it("adopts as a non-superuser owner, with no privilege to change replication settings", async (t) => {
     if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
     try {
