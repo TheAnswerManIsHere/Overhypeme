@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 import { databaseUrl } from "../lib/devRebuild.js";
-import { adoptProduction, type AdoptReport } from "../lib/productionAdopt.js";
+import { adoptProduction, structure, type AdoptReport } from "../lib/productionAdopt.js";
 import { pgCommandConnection } from "../lib/pgCommandLine.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -62,6 +62,16 @@ async function newCase(): Promise<string> {
 
 const adopt = (prod: string, extra: Partial<Parameters<typeof adoptProduction>[0]> = {}) =>
   adoptProduction({ productionUrl: url(prod), devUrl: url(srcName), migrate: (u) => restore(fullDump, u), ...extra });
+
+async function structureOf(database: string): Promise<string[]> {
+  const c = new pg.Client({ connectionString: url(database) });
+  await c.connect();
+  try {
+    return (await structure(c)).lines;
+  } finally {
+    await c.end();
+  }
+}
 
 const ledgerCount = async (db: string) => Number((await query<{ n: string }>(db, "SELECT count(*) AS n FROM drizzle.__drizzle_migrations"))[0].n);
 
@@ -312,6 +322,71 @@ describe("adopting production's first database with proof", () => {
     assert.equal((await query(db, "SELECT 1 FROM pg_namespace WHERE nspname = 'drizzle'")).length, 0);
     assert.equal((await query(db, "SELECT 1 FROM admin_config")).length, 0);
     assert.equal((await replitRecord(db)).length, 1);
+  });
+
+  // Amendment 4: Replit's copy also drops every non-extension function in
+  // `public`, and with them their triggers (measured 2026-10-30 ~18:40 UTC).
+  const dropRoutines = (db: string) =>
+    query(
+      db,
+      `DO $$ DECLARE r record; BEGIN
+         FOR r IN SELECT p.oid::regprocedure AS sig FROM pg_proc p
+                  WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p')
+                    AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e') LOOP
+           EXECUTE format('DROP FUNCTION %s CASCADE', r.sig);
+         END LOOP;
+       END $$;`,
+    );
+
+  it("adopts production's measured shape: creates the dropped functions and triggers with their modes, then proves the whole structure", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
+    const db = await newCase();
+    await replitShaped(db);
+    await dropRoutines(db);
+    assert.equal((await query(db, "SELECT 1 FROM pg_trigger WHERE tgrelid = 'ncmec_safety_audit_log'::regclass AND NOT tgisinternal")).length, 0);
+    const report = await adopt(db);
+    assert.deepEqual(report.reasons, []);
+    assert.equal(report.verdict, "adopted");
+    assert.ok(report.structure.onlyInReference.length > 0 && report.structure.onlyInReference.every((l) => /^public: (function|trigger|trigger-mode) /.test(l)));
+    assert.ok(report.installed!.created.functions.some((f) => f.startsWith("ncmec_safety_audit_log_append_only")));
+    assert.ok(report.installed!.created.triggers.includes("ncmec_safety_audit_log.ncmec_safety_audit_log_no_mutate"));
+    const modes = await query<{ n: string; m: string }>(
+      db,
+      "SELECT tgname AS n, tgenabled AS m FROM pg_trigger WHERE tgrelid = 'ncmec_safety_audit_log'::regclass AND NOT tgisinternal ORDER BY 1",
+    );
+    assert.deepEqual(modes, [
+      { n: "ncmec_safety_audit_log_no_mutate", m: "A" },
+      { n: "ncmec_safety_audit_log_no_truncate", m: "A" },
+    ]);
+    // The whole compared structure now equals the code's build.
+    const sp = await structureOf(db);
+    const sr = await structureOf(srcName);
+    assert.deepEqual(sp, sr);
+  });
+
+  it("refuses a function that exists but differs, before writing anything", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
+    const db = await newCase();
+    await query(db, "CREATE OR REPLACE FUNCTION ncmec_safety_audit_log_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$");
+    const report = await adopt(db);
+    await assertRefusedUnchanged(db, report, /structure differs from the code's/);
+    assert.ok(report.structure.onlyInProduction.some((l) => l.startsWith("public: function ncmec_safety_audit_log_append_only")));
+  });
+
+  it("refuses a missing table, even when it is the only difference", async (t) => {
+    if (!creatable) return t.skip("CREATE DATABASE is not permitted here");
+    const db = await newCase();
+    const [{ t: table }] = await query<{ t: string }>(
+      db,
+      `SELECT c.relname AS t FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+         AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.contype = 'f' AND (k.conrelid = c.oid OR k.confrelid = c.oid))
+         AND NOT EXISTS (SELECT 1 FROM pg_trigger g WHERE g.tgrelid = c.oid AND NOT g.tgisinternal)
+       ORDER BY 1 LIMIT 1`,
+    );
+    await query(db, `DROP TABLE public."${table}"`);
+    const report = await adopt(db);
+    await assertRefusedUnchanged(db, report, /structure differs from the code's/);
+    assert.ok(report.structure.onlyInReference.some((l) => l.includes(`relation ${table} kind r`)));
   });
 
   it("refuses a missing public schema with a reason, rather than failing", async (t) => {

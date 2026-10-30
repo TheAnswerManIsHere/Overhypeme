@@ -113,7 +113,12 @@ directory is write-once, so a second run of `prepare` takes a new id.
    commits; any failure rolls back, sequences included. When production has
    no `drizzle` schema, as Replit left it on 2026-10-30 (plan amendment 3),
    the transaction first creates the ledger's table with the runner's own
-   statements and proves it equal to the reference's. It needs no
+   statements and proves it equal to the reference's. Replit's copy also
+   drops functions and triggers (measured 2026-10-30): a function or trigger
+   the reference has and production lacks is created from the reference's
+   own definition, with its firing mode, and the whole structure is proven
+   equal before the commit (plan amendment 4). Anything else missing, or
+   present but different, still refuses. It needs no
    superuser. Exit 0 only on `verdict: adopted`. The crash-looping server
    then boots with nothing pending; if it does not, David republishes.
 4. **The admin proof.** David signs in, and a script checks that his session

@@ -26,6 +26,14 @@
  * `_system` is tolerated and exempt from the zero-row check only. A missing
  * compared schema is a named difference, never an error.
  *
+ * Amendment 4 (docs/plans/PLAN_PHASE3_AMENDMENT_4.md, David 2026-10-30, "Go
+ * with option 1"): Replit's copy drops functions and triggers. A function or
+ * trigger the reference has and production lacks is created inside the
+ * transaction from the reference's own definition, with the reference's
+ * firing mode; anything else missing, or anything present but different,
+ * still refuses before a write. The whole compared structure is proven equal
+ * inside the transaction before the commit.
+ *
  * What is installed (step 4): the reference's rows, by ordinary inserts in
  * foreign-key order with every constraint and trigger enabled (no superuser
  * privilege, which Neon does not give), its complete ledger, and each
@@ -75,7 +83,12 @@ export interface AdoptReport {
   structure: { productionLines: number; referenceLines: number; onlyInProduction: string[]; onlyInReference: string[] };
   extensions: { production: Record<string, string>; reference: Record<string, string> };
   diagnosis: Array<{ line: string; side: "production" | "reference"; inDev: boolean; origin: "dev drift" | "transfer" }>;
-  installed: { tables: Record<string, number>; ledgerEntries: number; sequences: number } | null;
+  installed: {
+    tables: Record<string, number>;
+    ledgerEntries: number;
+    sequences: number;
+    created: { functions: string[]; triggers: string[] };
+  } | null;
 }
 
 export interface AdoptOptions {
@@ -192,6 +205,62 @@ export async function structure(
   const ext = await extensions(c);
   lines.push(...ext.lines);
   return { lines: lines.sort(), versions: ext.versions };
+}
+
+/**
+ * The kinds of reference-only line adoption may create (amendment 4): a
+ * function, a trigger, and that trigger's firing mode. Only in `public`.
+ */
+const CREATABLE_LINE = /^public: (function|trigger|trigger-mode) /;
+
+interface FunctionDef { sig: string; def: string }
+interface TriggerDef { table: string; name: string; def: string; mode: string }
+
+/** `public` functions (not extension members), by signature, with their definitions. */
+async function publicFunctions(c: pg.ClientBase): Promise<FunctionDef[]> {
+  const { rows } = await c.query<FunctionDef>(
+    `SELECT p.oid::regprocedure::text AS sig, pg_get_functiondef(p.oid) AS def
+     FROM pg_proc p
+     WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p')
+       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+     ORDER BY 1`,
+  );
+  return rows;
+}
+
+/** User triggers on `public` tables, with their definitions and firing modes. */
+async function publicTriggers(c: pg.ClientBase): Promise<TriggerDef[]> {
+  const { rows } = await c.query<TriggerDef>(
+    `SELECT c.relname AS table, t.tgname AS name, pg_get_triggerdef(t.oid) AS def, t.tgenabled AS mode
+     FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+     WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal
+     ORDER BY 1, 2`,
+  );
+  return rows;
+}
+
+const TRIGGER_MODE_SQL: Record<string, string | null> = { O: null, A: "ENABLE ALWAYS TRIGGER", R: "ENABLE REPLICA TRIGGER", D: "DISABLE TRIGGER" };
+
+/** Creates, on `prod`, the `public` functions and triggers `ref` has and `prod` lacks. */
+async function createMissingRoutines(prod: pg.ClientBase, ref: pg.ClientBase): Promise<{ functions: string[]; triggers: string[] }> {
+  const have = new Set((await publicFunctions(prod)).map((f) => f.sig));
+  const functions: string[] = [];
+  for (const f of await publicFunctions(ref)) {
+    if (have.has(f.sig)) continue;
+    await prod.query(f.def);
+    functions.push(f.sig);
+  }
+  const haveTrg = new Set((await publicTriggers(prod)).map((t) => `${t.table}.${t.name}`));
+  const triggers: string[] = [];
+  for (const t of await publicTriggers(ref)) {
+    if (haveTrg.has(`${t.table}.${t.name}`)) continue;
+    await prod.query(t.def);
+    const mode = TRIGGER_MODE_SQL[t.mode];
+    if (mode === undefined) throw new Error(`trigger ${t.table}.${t.name} has an unknown firing mode ${t.mode}`);
+    if (mode) await prod.query(`ALTER TABLE public.${q(t.table)} ${mode} ${q(t.name)}`);
+    triggers.push(`${t.table}.${t.name}`);
+  }
+  return { functions, triggers };
 }
 
 function diff(a: string[], b: string[]): { onlyA: string[]; onlyB: string[] } {
@@ -331,7 +400,10 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
       report.extensions = { production: p.versions, reference: r.versions };
       const d = diff(p.lines, r.lines);
       report.structure = { productionLines: p.lines.length, referenceLines: r.lines.length, onlyInProduction: d.onlyA, onlyInReference: d.onlyB };
-      if (d.onlyA.length + d.onlyB.length > 0) {
+      // Amendment 4: absent functions and triggers are created in the
+      // transaction; any other difference refuses here, before a write.
+      const creatableOnly = d.onlyA.length === 0 && d.onlyB.every((l) => CREATABLE_LINE.test(l));
+      if (!creatableOnly) {
         report.reasons.push(`production's structure differs from the code's: ${d.onlyA.length} line(s) only in production, ${d.onlyB.length} only in the reference`);
         // 5. Three-way diagnosis: does dev share the difference?
         const dev = await connect(opts.devUrl);
@@ -351,15 +423,8 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
       await prod.query("BEGIN");
       try {
         const installed: Record<string, number> = {};
-        if (ledgerAbsent) {
-          for (const ddl of LEDGER_DDL) await prod.query(ddl);
-          const a = (await schemaStructure(prod, LEDGER_SCHEMA)).sort();
-          const b = (await schemaStructure(ref, LEDGER_SCHEMA)).sort();
-          const d = diff(a, b);
-          if (d.onlyA.length + d.onlyB.length > 0) {
-            throw new Error(`the created ledger differs from the reference's: ${[...d.onlyA.map((l) => `+ ${l}`), ...d.onlyB.map((l) => `- ${l}`)].join("; ")}`);
-          }
-        }
+        if (ledgerAbsent) for (const ddl of LEDGER_DDL) await prod.query(ddl);
+        const created = await createMissingRoutines(prod, ref);
         for (const t of [...tables.map((x) => `public.${q(x)}`), LEDGER]) {
           const cols = (await insertableColumns(ref, t)).map(q).join(", ");
           const rows = await rowsJson(ref, t);
@@ -378,8 +443,11 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
         }
         if (opts.afterSequences) await opts.afterSequences(prod);
 
-        // Verified before the commit.
+        // Verified before the commit: the whole compared structure first.
         const problems: string[] = [];
+        const after = diff((await structure(prod)).lines, (await structure(ref)).lines);
+        for (const l of after.onlyA) problems.push(`structure after creation: only in production: ${l}`);
+        for (const l of after.onlyB) problems.push(`structure after creation: only in the reference: ${l}`);
         for (const t of [...tables.map((x) => `public.${q(x)}`), LEDGER]) {
           const a = await rowHashes(prod, t);
           const b = await rowHashes(ref, t);
@@ -391,7 +459,7 @@ export async function adoptProduction(opts: AdoptOptions): Promise<AdoptReport> 
         }
         if (problems.length > 0) throw new Error(problems.join("; "));
         await prod.query("COMMIT");
-        report.installed = { tables: installed, ledgerEntries: installed[LEDGER] ?? 0, sequences: refSeqs.length };
+        report.installed = { tables: installed, ledgerEntries: installed[LEDGER] ?? 0, sequences: refSeqs.length, created };
         report.eligibility.ledgerCreated = ledgerAbsent;
         report.verdict = "adopted";
         return report;
