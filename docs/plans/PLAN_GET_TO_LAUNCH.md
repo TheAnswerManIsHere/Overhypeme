@@ -656,6 +656,33 @@ scope:
   screens: Reports (with 9), Invites (for 18), Read-only switch (with 16),
   Safety (scope from 14); user-facing help derived from the Manual source
   via the existing generator, surfaced on every user page; Manual refreshed.
+  **Settings into code** (David, 2026-10-30: *"this needs to be done … it
+  really belongs there"*; placed here rather than built now): a value stays
+  editable only if it is an **incident lever**, something David must change
+  faster than a reviewed deploy while something is going wrong. Everything
+  else moves to code, its rows retired by a capture-first migration. The
+  audit of 2026-10-30, proposed as this phase's settled scope and confirmed
+  at its plan approval:
+  - **Into code:** the entitlement grid (`tier_feature_permissions`; this
+    reverses the inventory's F21 line making `/admin/features` the source of
+    truth, and the grid's runtime revision machinery simplifies with it);
+    the four pipeline engine choices (`*_engine_id`); image-pipeline tuning
+    (fal endpoints and safety tolerance, the NSFW classifier's endpoint,
+    threshold and timeout); child-safety and legal policy (Arachnid on/off
+    and fail-open, NSFW fail-open, reporting classifier hits, evidence
+    retention, the NCMEC keys already refused on write, with the NCMEC
+    environment becoming a per-environment value); machine internals (email
+    and job retries and delays, heartbeat and lease timings, purge batches,
+    the pricing refresh); product copy and limits (share-copy templates,
+    email from and reply-to, name validation and denylist, meme, image and
+    background-picker limits, the duplicate threshold); every engine field
+    but its on/off switch.
+  - **Off the settings page, as running state:** `engine_revision` and the
+    two `ncmec_backlog_audit_*` keys.
+  - **Stays editable:** the two generation budgets and the budget period;
+    the two daily upload caps; each engine's on/off switch; Stripe live
+    mode (its verified-toggle machinery stays as built).
+  - **Deleted:** `quarantine_evidence_retention_days`, which nothing reads.
 - **Depends on:** Phases 7, 9, 14 for content; 16 for the switch.
 - **David's batch:** the dashboard's to-do list and metrics (asked once with
   a mock-up).
