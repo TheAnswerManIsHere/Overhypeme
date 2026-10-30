@@ -1695,9 +1695,14 @@ its findings; never more than 20 in parallel without David asking.
 
 ### Replit
 
-Authorization boundaries — the mechanics live in
-[`replit-environment.md`](../../docs/ai-context/replit-environment.md) and the
-`pr-docs` skill:
+Authorization boundaries. How the platform works — publishing, the two
+databases, secrets, rollback, Agent modes, and the connector's 60-second
+timeout that loses a long answer — is
+[`replit-platform.md`](../../docs/ai-context/replit-platform.md), read before
+any `publish_app` and before a connector question longer than a few lines;
+what this repo's Repl is configured as is
+[`replit-environment.md`](../../docs/ai-context/replit-environment.md); the
+close-out mechanics are the `pr-docs` skill:
 
 - **Syncing the Repl is authorized as part of close-out. Publishing is not** —
   `publish_app` is production-facing, per-use and explicitly asked, and we're
@@ -1707,8 +1712,9 @@ Authorization boundaries — the mechanics live in
   skill; *Two classes and a phase that leave the loop*, above).
 - **Never build product features through the connector.** Ops, diagnostics and
   debugging are what it's for. Ephemeral probes are fine and I revert them in
-  the same session — never commit or push one, since Publish snapshots
-  uncommitted files. Anything meant to persist as a fix goes through my
+  the same session — never commit or push one, and never leave one in the
+  worktree, since a publish may include uncommitted files (`replit-platform.md`,
+  *Publishing*). Anything meant to persist as a fix goes through my
   pipeline: branch → PR → Codex review → merge → sync (a prototype-phase
   feature takes the phase's own path to the same end — through my branch,
   never through the connector). A sanctioned live repair
@@ -1729,7 +1735,9 @@ Authorization boundaries — the mechanics live in
 - **`ask_question` reads, `update_app_using_prompt` acts.** Only
   `ask_question` returns text; the write channel returns a status and never the
   result, so polling it for an answer is a dead end. `phase: "busy"` means the
-  request was dropped — re-ask. `"updating"` is not busy: re-invoking opens a
+  request was dropped: wait two to three minutes, then re-ask — an answer that
+  outlives the 60-second timeout is lost and the Agent stays busy until it
+  finishes, so an immediate resend only bounces. `"updating"` is not busy: re-invoking opens a
   brand-new agent turn. Ask it to **run named commands and report output**
   (quotable evidence); asking how something *works* gets its own understanding,
   which can be confidently wrong.

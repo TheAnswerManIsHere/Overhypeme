@@ -37,21 +37,28 @@ tier moved with the answer.
 
 ## Which source answers which question
 
-Three sources, and picking the wrong one is the common waste:
+Four sources, and picking the wrong one is the common waste:
 
 | Question | Source |
 |---|---|
 | What did production actually throw, with what stack and how often | **Sentry** — see [`maintenance/SKILL.md`](../maintenance/SKILL.md) §2 and the repo's own Sentry notes |
+| What does production data or schema actually contain | **Replit Agent's read-only production query**, via the connector — aggregated, never rows (below) |
 | What does dev data/config/schema actually look like right now | **The Repl**, via the connector |
 | What does the code do with that input | **The repo** — read it, don't ask an agent to summarize it |
 
-**The Repl's database is the *development* database (`heliumdb`); production
-(`neondb`, on Neon) is deliberately not reachable from the workspace.** So a live
-query there tells me the *shape* of the data and whether the mechanism
-reproduces — it does not show me the production rows that broke. For a bug
-reported against production, Sentry is the production-facing source and the Repl
-is where I reproduce what Sentry describes. Conflating the two produces a
-confident "I checked the data" that checked a different database.
+**The Repl's workspace is wired to the *development* database; production is
+a separate database the workspace's shell and environment do not reach.**
+Replit Agent can still read production through a query tool of its own,
+which it describes as read-only (measured 2026-10-29;
+[`replit-platform.md`](../../../docs/ai-context/replit-platform.md), *The two
+databases*; this repo's names for both databases are in its
+`replit-environment.md`). So every query names which database it targets,
+and the answer is read as evidence about that database only. For a bug
+reported against production, Sentry says what production threw, a production
+read says what its data is, and the workspace is where I reproduce the
+mechanism. Conflating them produces a confident "I checked the data" that
+checked a different database. A production read is a live read of user data:
+it is under *Raw output is evidence* below before it is asked, not after.
 
 **Before a Repl reproduction counts as evidence, establish what code it ran.**
 GitHub-to-Repl sync is always manual — there is no auto-sync — and the
@@ -104,8 +111,13 @@ redaction check below, quoted.
 *building*. An unscoped diagnostic question can come back as a feature, so state
 read-only explicitly and name what is off-limits.
 
-**`phase: "busy"` means the request was dropped — re-ask.** `"updating"` is not
-busy; re-invoking there opens a brand-new agent turn.
+**`phase: "busy"` means the request was dropped — wait two to three minutes,
+then re-ask.** An answer that outlives the connector's 60-second timeout is
+lost and the Agent stays busy until it finishes, so an immediate resend only
+bounces; one short question per call keeps answers inside the limit
+([`replit-platform.md`](../../../docs/ai-context/replit-platform.md), *The
+connector*). `"updating"` is not busy; re-invoking there opens a brand-new
+agent turn.
 
 ## What this never becomes
 
@@ -119,8 +131,9 @@ shipping — a sanctioned live repair has to be David-originated.
 Ephemeral probes are fine and are reverted in the same session, except a
 probe or a reproduction that would start a paid AI run (a real render, a real model call), which
 runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*). **Never commit or
-push one**: Publish snapshots uncommitted files, so a forgotten probe is a
-production hazard sitting in the worktree.
+push one**, and never leave one in the worktree: a publish may include
+uncommitted files (`replit-platform.md`, *Publishing*), so a forgotten probe
+is a production hazard sitting there.
 
 ## Raw output is evidence, and this repository is public
 
@@ -166,11 +179,12 @@ Live evidence is only worth gathering if it survives into the artifact:
   reconcile quietly** — but **the read only outranks the code for the
   environment it actually read.** On a question about dev, the Repl's read is
   ground truth and second-guessing it from a diff or a schema file is the wrong
-  instinct. On a **production** defect it is not: `heliumdb` can carry
-  unapplied migrations, different seed data, or config drift, so a dev-vs-repo
-  disagreement there may have nothing to do with the production symptom, and
-  recording it as the root cause is the same "I checked the data" error as
-  above wearing different clothes. A production conclusion needs
-  production-correlated evidence — Sentry, or a dev reproduction whose
-  mechanism demonstrably explains what Sentry recorded. Either way the
+  instinct. On a **production** defect it is not: the development database can
+  carry unapplied migrations, different seed data, or config drift, so a
+  dev-vs-repo disagreement there may have nothing to do with the production
+  symptom, and recording it as the root cause is the same "I checked the
+  data" error as above wearing different clothes. A production conclusion
+  needs production-correlated evidence — Sentry, an aggregated read-only
+  production query, or a dev reproduction whose mechanism demonstrably
+  explains what Sentry recorded. Either way the
   disagreement is worth chasing; what it licenses is what changes.

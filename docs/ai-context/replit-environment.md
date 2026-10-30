@@ -29,7 +29,7 @@ environment:
 - **The `SessionStart` hook running `scripts/setup-test-db.sh`** — it
   apt-installs packages, starts a Postgres cluster, creates a SUPERUSER role,
   builds a test schema, and `pnpm install`s into the working copy. That last
-  one dirties the worktree that Publish snapshots. Fixed in the script itself,
+  one dirties the worktree, which a publish may include. Fixed in the script itself,
   which now exits early when Replit environment variables are present.
 
 ### `$HOME` is wiped on every restart — which is why `claude` kept vanishing
@@ -253,8 +253,8 @@ next post-merge sync will collide with it. Ordering is what keeps merge
 conflicts off David's screen: pull-first means the tweak is authored on top of
 `main` rather than diverging from it.
 
-**Never Publish while the Repl and GitHub disagree** — Publish snapshots the
-Repl's working tree (see the sync/Publish section below), so a
+**Never Publish while the Repl and GitHub disagree** — Publish takes the
+Repl's workspace, not GitHub's `main` (see the sync/Publish section below), so a
 still-unsynced tweak ships to production without ever having been seen.
 
 **The lane is an explicit exception to workstream tracking.**
@@ -284,7 +284,7 @@ CI, separate from the repo's.
 
 How Replit publishing works in general — deployment types, the
 `artifact.toml` layer, secrets, rollback, Agent modes, and the connector's
-60-second timeout — is the fleet's `replit-platform.md` (beside this file once the handbook sync that ships it lands).
+60-second timeout — is the fleet's [`replit-platform.md`](replit-platform.md).
 What follows is this Repl's own record. This app publishes as **Autoscale**
 (`.replit`: `deploymentTarget = "autoscale"`) and serves at
 `https://overhype.me` (`get_publish_status`, 2026-10-29).
@@ -303,10 +303,11 @@ mechanisms determine what that workspace contains:
   `main` on GitHub never reaches the Repl on its own; someone (or some agent)
   must run `git pull origin main` or use one of those Git-pane actions every
   time.
-- **Repl → Publish** takes a snapshot of the Repl's *current* workspace —
-  pulled files, locally committed files, and any locally uncommitted files
-  are all included — and builds/deploys that snapshot. It does not re-check
-  GitHub as part of publishing.
+- **Repl → Publish** takes a snapshot of the Repl's *current* workspace and
+  builds/deploys that snapshot. It does not re-check GitHub as part of
+  publishing. Whether uncommitted files are in it is undocumented and left
+  unmeasured by David's decision (2026-10-29); treat them as included
+  ([`replit-platform.md`](replit-platform.md), *Publishing*).
 
 **Publish applies a schema migration of its own to production.** When dev's
 catalog differs from production's, Replit generates one migration and offers
@@ -326,7 +327,7 @@ its worktree is clean** → Publish.
 Both halves are load-bearing, and neither is sufficient alone:
 
 - **SHA match without a clean worktree** still publishes the wrong thing.
-  Publish snapshots uncommitted files too (above), so a leftover local edit
+  Publish may snapshot uncommitted files too (above), so a leftover local edit
   — a debugging probe someone forgot to revert, most likely — ships to
   production even though HEAD is exactly right.
 - **A clean worktree without a SHA match** proves nothing about freshness. A
