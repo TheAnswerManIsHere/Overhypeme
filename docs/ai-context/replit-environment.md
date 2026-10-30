@@ -29,7 +29,7 @@ environment:
 - **The `SessionStart` hook running `scripts/setup-test-db.sh`** — it
   apt-installs packages, starts a Postgres cluster, creates a SUPERUSER role,
   builds a test schema, and `pnpm install`s into the working copy. That last
-  one dirties the worktree that Publish snapshots. Fixed in the script itself,
+  one dirties the worktree, which a publish may include. Fixed in the script itself,
   which now exits early when Replit environment variables are present.
 
 ### `$HOME` is wiped on every restart — which is why `claude` kept vanishing
@@ -253,8 +253,8 @@ next post-merge sync will collide with it. Ordering is what keeps merge
 conflicts off David's screen: pull-first means the tweak is authored on top of
 `main` rather than diverging from it.
 
-**Never Publish while the Repl and GitHub disagree** — Publish snapshots the
-Repl's working tree (see the sync/Publish section below), so a
+**Never Publish while the Repl and GitHub disagree** — Publish takes the
+Repl's workspace, not GitHub's `main` (see the sync/Publish section below), so a
 still-unsynced tweak ships to production without ever having been seen.
 
 **The lane is an explicit exception to workstream tracking.**
