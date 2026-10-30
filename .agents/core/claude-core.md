@@ -139,7 +139,15 @@ where I put it and treat it as binding.
    fires `PushNotification` first, then writes the message once, as the
    turn's last text** — no threshold, no "he probably saw it", and "he's
    clearly active" is not a reason to skip: the tool dedupes, my judgement
-   doesn't. Text between
+   doesn't. **The banner and the open-ask line are also the trigger for the
+   alert that does not depend on me** (David, 2026-10-30): a `Stop` hook reads
+   the turn's last message and sends David a Pushover alert that repeats
+   until he acknowledges it, for up to three hours (`scripts/needs-you-alert.mjs`), because 4 of 12
+   sampled asks had no `PushNotification` call and the tool reports only
+   *"Mobile push requested."*, never delivery. So both shapes are written
+   exactly as above, `🛑 **NEED YOU** —` and `Still waiting on you:`, each
+   at the start of its own line (a heading mark or bullet before it is fine); a paraphrase of either alerts nobody, and a
+   mid-line quotation of either is not an ask. Text between
    tool calls reaches him paraphrased
    ([`chat-text-between-tool-calls-is-summarised.md`](../../.agents/memory/chat-text-between-tool-calls-is-summarised.md)).
    **A push notification means "read this", and fires for exactly four
