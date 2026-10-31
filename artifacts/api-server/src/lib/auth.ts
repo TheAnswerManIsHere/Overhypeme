@@ -6,7 +6,7 @@ import * as client from "openid-client";
 import crypto from "crypto";
 import { type Request, type Response } from "express";
 import { db, sessionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq, ne, or, sql } from "drizzle-orm";
 import type { AuthUser } from "@workspace/api-zod";
 
 export const SESSION_COOKIE = "sid";
@@ -179,6 +179,32 @@ export async function updateSession(
 
 export async function deleteSession(sid: string): Promise<void> {
   await db.delete(sessionsTable).where(eq(sessionsTable.sid, sid));
+}
+
+type SessionExecutor = Pick<typeof db, "delete">;
+
+/**
+ * Ends every session of one user in a single statement, optionally keeping the
+ * caller's own (launch Phase 5, increment 2: every password change ends the
+ * user's other sessions). Matches the indexed `user_id` column and, for
+ * defence in depth, legacy rows whose user id lives only in the jsonb
+ * `sess.user.id`. Pass a transaction as `executor` so the revocation commits
+ * or rolls back with the password write it belongs to.
+ */
+export async function revokeUserSessions(
+  executor: SessionExecutor,
+  userId: string,
+  keepSid?: string,
+): Promise<number> {
+  const belongsToUser = or(
+    eq(sessionsTable.userId, userId),
+    sql`${sessionsTable.sess} -> 'user' ->> 'id' = ${userId}`,
+  );
+  const rows = await executor
+    .delete(sessionsTable)
+    .where(keepSid ? and(belongsToUser, ne(sessionsTable.sid, keepSid)) : belongsToUser)
+    .returning({ sid: sessionsTable.sid });
+  return rows.length;
 }
 
 export async function clearSession(

@@ -86,7 +86,9 @@ function applyFakeGoogleEnv(): () => void {
   return () => { Object.assign(process.env, prev); };
 }
 
-function makeFakeTokens(email: string): TokenEndpointResponse & TokenEndpointResponseHelpers {
+// Google's ID token carries `email_verified` as a boolean; a real sign-in has
+// it true. `emailVerified` lets a test send an unverified or absent claim.
+function makeFakeTokens(email: string, emailVerified: boolean | "absent" = true): TokenEndpointResponse & TokenEndpointResponseHelpers {
   return {
     access_token: "fake-access-token",
     token_type:   "bearer",
@@ -94,6 +96,7 @@ function makeFakeTokens(email: string): TokenEndpointResponse & TokenEndpointRes
       return {
         sub:         `google|${randomUUID()}`,
         email,
+        ...(emailVerified === "absent" ? {} : { email_verified: emailVerified }),
         given_name:  "Test",
         family_name: "User",
         picture:     null,
@@ -360,5 +363,69 @@ describe("GET /api/callback/google", () => {
     } finally {
       restoreEnv();
     }
+  });
+});
+
+// ── Provider-verified email (launch Phase 5, increment 2, #795) ──────────────
+
+describe("GET /api/callback/google — the provider's verified-email claim", () => {
+  async function signIn(email: string, emailVerified: boolean | "absent") {
+    const restoreEnv = applyFakeGoogleEnv();
+    _setClientDiscoveryForTest(makeFakeDiscovery());
+    _setAuthCodeGrantForTest(async () => makeFakeTokens(email, emailVerified));
+    const state = randomUUID();
+    await _storePendingStateForTest(state, { codeVerifier: "v", nonce: "n", returnTo: "/", isPopup: false });
+    try {
+      return await request(makeApp()).get("/api/callback/google").query({ code: "c", state });
+    } finally {
+      restoreEnv();
+    }
+  }
+  const row = async (email: string) =>
+    (await db.select().from(usersTable).where(eq(usersTable.email, email)))[0];
+
+  it("a new account with a verified claim is created verified", async () => {
+    const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+    const res = await signIn(email, true);
+    assert.equal(res.status, 302);
+    assert.ok((await row(email))?.emailVerifiedAt, "email_verified_at is set");
+  });
+
+  it("a new account whose claim is absent or false is created unverified and still signs in", async () => {
+    for (const claim of ["absent", false] as const) {
+      const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+      const res = await signIn(email, claim);
+      assert.equal(res.status, 302);
+      assert.doesNotMatch(res.headers["location"] ?? "", /unverified_provider_email/);
+      const u = await row(email);
+      assert.ok(u, "the account exists");
+      assert.equal(u.emailVerifiedAt, null);
+    }
+  });
+
+  it("an unverified claim matching an existing account is refused, with no session minted", async () => {
+    const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+    const [existing] = await db.insert(usersTable).values({ email }).returning({ id: usersTable.id });
+    for (const claim of ["absent", false] as const) {
+      const res = await signIn(email, claim);
+      assert.equal(res.status, 302);
+      assert.match(res.headers["location"] ?? "", /\/login\?error=unverified_provider_email$/);
+      const sessions = await db.select().from(sessionsTable).where(eq(sessionsTable.userId, existing.id));
+      assert.equal(sessions.length, 0, "no session for the existing account");
+    }
+    assert.equal((await row(email))?.googleLinked, false, "the account was not linked to the provider");
+  });
+
+  it("a verified claim verifies an existing unverified account, and never moves an earlier verification", async () => {
+    const unverified = `${USER_PREFIX}${randomUUID()}@test.local`;
+    await db.insert(usersTable).values({ email: unverified });
+    await signIn(unverified, true);
+    assert.ok((await row(unverified))?.emailVerifiedAt, "now verified");
+
+    const verified = `${USER_PREFIX}${randomUUID()}@test.local`;
+    const earlier = new Date("2026-01-02T03:04:05Z");
+    await db.insert(usersTable).values({ email: verified, emailVerifiedAt: earlier });
+    await signIn(verified, true);
+    assert.equal((await row(verified))?.emailVerifiedAt?.toISOString(), earlier.toISOString());
   });
 });

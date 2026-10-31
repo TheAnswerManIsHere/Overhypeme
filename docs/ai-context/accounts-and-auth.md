@@ -119,12 +119,20 @@ user in.
 **`emailVerifiedAt` gates nothing.** Checked directly: every server read of
 it (`routes/users.ts:98,184`; `routes/admin.ts:2306`; `localAuth.ts:477,483,538,550-551,593`)
 is display/audit-only — it never appears in `authMiddleware.ts`,
-`reviews.ts`, `facts.ts`, `ai.ts`, or `tierMiddleware.ts`. Google/Apple
-accounts never get it set at all by the OAuth flow (no such field write in
-`upsertUser`) — it stays `null` indefinitely for a pure-OAuth user unless an
-admin sets it manually. An unverified user can do everything a verified one
-can; verification status is a trust signal, not an access gate, as the
-system stands today.
+`reviews.ts`, `facts.ts`, `ai.ts`, or `tierMiddleware.ts`. An unverified
+user can do everything a verified one can; verification status is a trust
+signal, not an access gate, until launch Phase 5's Increment 3 adds the gate.
+
+**A provider's verified claim sets it** (launch Phase 5, increment 2).
+`upsertUser` reads the ID token's `email_verified` — Google sends a boolean,
+Apple the string `"true"`; anything else is unverified
+(`providerEmailVerified`). A verified claim sets `email_verified_at` on a new
+account, and on an existing one that was never verified, without moving an
+earlier time. **An unverified claim that matches an existing account is
+refused** (`UnverifiedProviderEmailError`, redirect
+`/login?error=unverified_provider_email`, no session minted), because
+matching by email alone would hand that account to whoever controls the
+unverified claim; on a new account it is created unverified.
 
 ## Password reset
 
@@ -143,25 +151,26 @@ system stands today.
   (`lib/db/src/schema/auth.ts:86-97`). The exact duration is already
   user-facing product copy on `ForgotPassword.tsx`, not just an internal
   config value.
-- On successful reset: new bcrypt hash written, token marked `usedAt`
-  (`localAuth.ts:403-423`). **Not atomically single-use** — the
-  password-write and the `usedAt`-write are two separate unconditional
-  statements with no transaction, row lock, or `WHERE used_at IS NULL`
-  claim, so two concurrent requests against the same still-valid token can
-  both pass the `usedAt === null` check before either writes it; both
-  succeed and the later write wins. And — this is the part
-  worth flagging to anyone touching this path — **every existing session
-  for that user is deleted in one query**, covering both the indexed
-  `sessions.userId` column and a legacy fallback matching the embedded
-  `sess->'user'->>'id'` JSON path for pre-migration rows
-  (`localAuth.ts:425-437`; also security-model.md's C8).
+- On successful reset: **atomically single-use** (launch Phase 5,
+  increment 2). A cheap read refuses an unknown, used or expired token
+  before any bcrypt work; then one transaction claims the token with a
+  conditional `UPDATE … WHERE used_at IS NULL AND expires_at > now()
+  RETURNING`, writes the new hash and **deletes every session of the
+  user**, so of two concurrent requests exactly one changes the password
+  and the other is told the link was used, and a failure after the claim
+  rolls the claim back. The deletion is `revokeUserSessions` in
+  `artifacts/api-server/src/lib/auth.ts`, covering the indexed `sessions.userId` column and the
+  legacy `sess->'user'->>'id'` JSON path (also security-model.md's C8).
 
 **`POST /auth/set-password`** (`localAuth.ts:613-670`) is a distinct,
 authenticated in-session path: requires the *current* password only if one
 already exists (`localAuth.ts:650-661`), so an OAuth-only user can set a
 first local password with no current-password check — this is how a
-Google/Apple user adds a local-login fallback. Unlike forgot-password, it
-does **not** force-logout other sessions.
+Google/Apple user adds a local-login fallback. It **ends every other session
+of the user** in the same transaction as the write and keeps the caller's
+own (launch Phase 5, increment 2). The operator route
+`POST /admin/users/set-password` ends all of the user's sessions the same
+way.
 
 ## Account lifecycle: deactivation and deletion
 

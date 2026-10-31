@@ -5,9 +5,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificationTokensTable } from "@workspace/db";
-import { eq, and, or, sql } from "drizzle-orm";
-import { createSession, updateSession, deleteSession, getSessionId, type SessionData } from "../lib/auth";
+import { db, usersTable, passwordResetTokensTable, emailVerificationTokensTable } from "@workspace/db";
+import { eq, and, or, sql, isNull, gt } from "drizzle-orm";
+import { createSession, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
 import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { isAdminById } from "./auth";
@@ -401,52 +401,49 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
 
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
+  // A cheap read first, so a bogus or spent token never costs a bcrypt hash.
   const [resetToken] = await db
-    .select()
+    .select({ usedAt: passwordResetTokensTable.usedAt, expiresAt: passwordResetTokensTable.expiresAt })
     .from(passwordResetTokensTable)
     .where(eq(passwordResetTokensTable.tokenHash, tokenHash))
     .limit(1);
-
-  if (!resetToken) {
-    res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
-    return;
-  }
-
-  if (resetToken.usedAt !== null) {
-    res.status(400).json({ error: "This reset link has already been used. Please request a new one." });
-    return;
-  }
-
-  if (resetToken.expiresAt < new Date()) {
-    res.status(400).json({ error: "This reset link has expired. Please request a new one." });
-    return;
-  }
+  const refuse = (state: "invalid" | "used" | "expired") => {
+    const error = {
+      invalid: "This reset link is invalid or has expired. Please request a new one.",
+      used: "This reset link has already been used. Please request a new one.",
+      expired: "This reset link has expired. Please request a new one.",
+    }[state];
+    res.status(400).json({ error });
+  };
+  if (!resetToken) { refuse("invalid"); return; }
+  if (resetToken.usedAt !== null) { refuse("used"); return; }
+  if (resetToken.expiresAt < new Date()) { refuse("expired"); return; }
 
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
-  await db
-    .update(usersTable)
-    .set({ passwordHash })
-    .where(eq(usersTable.id, resetToken.userId));
+  // One transaction: claim the token, write the hash, end every session. The
+  // claim is a conditional UPDATE, so of two concurrent requests that both
+  // passed the read above exactly one gets a row back and the other changes
+  // nothing (launch Phase 5, increment 2). A failure after the claim rolls the
+  // claim back with the hash, so the link still works for a retry.
+  const claimedUserId = await db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(passwordResetTokensTable)
+      .set({ usedAt: new Date() })
+      .where(and(
+        eq(passwordResetTokensTable.tokenHash, tokenHash),
+        isNull(passwordResetTokensTable.usedAt),
+        gt(passwordResetTokensTable.expiresAt, new Date()),
+      ))
+      .returning({ userId: passwordResetTokensTable.userId });
+    if (!claimed) return null;
+    await tx.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, claimed.userId));
+    await revokeUserSessions(tx, claimed.userId);
+    return claimed.userId;
+  });
 
-  await db
-    .update(passwordResetTokensTable)
-    .set({ usedAt: new Date() })
-    .where(eq(passwordResetTokensTable.id, resetToken.id));
-
-  // Invalidate all existing sessions for this user in a single DB-side delete.
-  // Match the indexed `userId` column (the common case) and, for defense in
-  // depth, legacy rows written before that column was populated (their user id
-  // lives only in the jsonb `sess.user.id`). This replaces the previous pattern
-  // of pulling the entire sessions table into app memory and filtering there.
-  await db
-    .delete(sessionsTable)
-    .where(
-      or(
-        eq(sessionsTable.userId, resetToken.userId),
-        sql`${sessionsTable.sess} -> 'user' ->> 'id' = ${resetToken.userId}`,
-      ),
-    );
+  // Lost the race to a concurrent request, or the link lapsed in between.
+  if (!claimedUserId) { refuse("used"); return; }
 
   res.status(200).json({ message: "Password reset successfully. You can now log in with your new password." });
 });
@@ -710,10 +707,15 @@ router.post("/auth/set-password", async (req: Request, res: Response) => {
   }
 
   const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-  await db
-    .update(usersTable)
-    .set({ passwordHash: newHash })
-    .where(eq(usersTable.id, req.user.id));
+  // A password change ends every OTHER session of this user, in the same
+  // transaction as the write; the session making the change stays signed in
+  // (launch Phase 5, increment 2).
+  const userId = req.user.id;
+  const currentSid = getSessionId(req);
+  await db.transaction(async (tx) => {
+    await tx.update(usersTable).set({ passwordHash: newHash }).where(eq(usersTable.id, userId));
+    await revokeUserSessions(tx, userId, currentSid);
+  });
 
   res.status(200).json({ message: "Password updated successfully." });
 });
