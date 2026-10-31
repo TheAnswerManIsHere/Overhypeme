@@ -123,6 +123,14 @@ export function FactComments({
     },
   });
 
+  // The challenge mounts only once a comment is being written: Cloudflare's
+  // script keeps network activity going while a widget is on the page, and a
+  // reader who never comments should not load a third-party script at all.
+  const showCaptcha = needsCaptcha && text.trim().length > 0;
+  useEffect(() => {
+    if (!showCaptcha) setCaptchaToken("");
+  }, [showCaptcha]);
+
   const canSubmit =
     text.trim().length > 0 &&
     (!needsCaptcha || !!captchaToken) &&
@@ -308,7 +316,7 @@ export function FactComments({
             className="flex-1 px-3.5 py-2 bg-secondary border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:border-primary/60 transition-colors disabled:opacity-50"
           />
         </div>
-        {needsCaptcha && (
+        {showCaptcha && (
           <div className="pl-9">
             <Turnstile
               ref={captchaRef}
@@ -366,7 +374,7 @@ export function FactComments({
             <div className="flex items-center gap-2 text-yellow-500 text-sm font-display font-bold uppercase tracking-wider">
               <Crown className="w-4 h-4" /> Captcha skipped (Legendary)
             </div>
-          ) : (
+          ) : showCaptcha ? (
             <div className="overflow-hidden rounded-sm border-2 border-border">
               <Turnstile
                 ref={captchaRef}
@@ -374,6 +382,8 @@ export function FactComments({
                 onExpire={() => setCaptchaToken("")}
               />
             </div>
+          ) : (
+            <span />
           )}
           <Button type="submit" isLoading={formState === "submitting"} disabled={!canSubmit} className="w-full sm:w-auto">
             POST COMMENT

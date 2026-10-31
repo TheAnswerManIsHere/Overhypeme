@@ -491,7 +491,10 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
                     {emailError && (
                       <p className="text-xs text-destructive leading-snug">{emailError}</p>
                     )}
-                    {needsCaptcha && (
+                    {/* Mounted only once an address is entered, like the
+                        comment forms: no third-party script for a visitor
+                        who never sends an invite. */}
+                    {needsCaptcha && isEmailValid && (
                       <Turnstile
                         ref={captchaRef}
                         size="flexible"
