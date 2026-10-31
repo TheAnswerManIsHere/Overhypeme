@@ -82,7 +82,8 @@ row is a full account. What functions like a lighter tier is a two-stage
 gate layered on top of a normal session:
 
 1. Being authenticated at all (`req.isAuthenticated()`).
-2. Having completed **onboarding** — a one-time hCaptcha challenge, tracked
+2. Having completed **onboarding** — a one-time Cloudflare Turnstile challenge (hCaptcha until launch
+   Phase 5, increment 1), tracked
    by `usersTable.captchaVerified` (schema: `lib/db/src/schema/auth.ts:21`),
    completed via `POST /users/me/complete-onboarding`
    (`routes/users.ts:713-744`).

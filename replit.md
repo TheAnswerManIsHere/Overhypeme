@@ -51,5 +51,5 @@ The `overhype-me` frontend is a React+Vite application with a dark theme and ora
 -   **Email Service:** Resend
 -   **Payments:** Stripe
 -   **Authentication:** Google and Apple OAuth
--   **Captcha:** hCaptcha
+-   **Captcha:** Cloudflare Turnstile (`TURNSTILE_SECRET_KEY`, `VITE_TURNSTILE_SITE_KEY`)
 -   **Hashing:** bcryptjs

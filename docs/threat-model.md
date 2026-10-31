@@ -34,7 +34,7 @@ today**; a separate purchasable-credits product is future scope only (see
 | `artifacts/api-server` | Express 5 API — auth, memes, rendering, Stripe, admin (`/api`) |
 | `lib/db` | PostgreSQL + pgvector via Drizzle ORM |
 | `cloudflare/og-router` | Cloudflare worker — OG unfurls + edge caching in front of public assets |
-| Vendors | Stripe (billing), OpenAI (enrichment/planning/embeddings), fal.ai (image gen + safety scan), Resend (email), hCaptcha, Sentry, Project Arachnid (external CSAM scan), NCMEC ISPWS (legal reporting, staged rollout) |
+| Vendors | Stripe (billing), OpenAI (enrichment/planning/embeddings), fal.ai (image gen + safety scan), Resend (email), Cloudflare Turnstile (bot check), Sentry, Project Arachnid (external CSAM scan), NCMEC ISPWS (legal reporting, staged rollout) |
 | Hosting | Replit deployment (`REPLIT_DEPLOYMENT`), Cloudflare in front |
 
 Auth: Google/Apple OAuth + local email/password (bcryptjs), all resolving to

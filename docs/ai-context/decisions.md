@@ -13,6 +13,53 @@
 
 ---
 
+### 2026-10-31 · A saved meme is a stored file, baked once at save; the recipe stays as metadata
+- **Decision:** from launch Phase 5, increment 4, the server renders a meme once
+  when it is saved and stores the image; `GET /memes/:slug/image` serves that
+  file. The recipe (source, text options, framing, aspect) stays on the row for
+  remixing and provenance, and the source photo is no longer a dependency:
+  deleting a photo touches no meme. Existing recipe memes on dev are baked by a
+  one-time backfill.
+- **Why:** David, 2026-10-30: *"The photo is used to generate the meme, but the
+  same photo may generate multiple memes against different facts. Once the meme
+  is generated it has its own life and should not be tied back to the source
+  photo in any way."* He asked for a researched decision rather than a default.
+  Systems that publish images store them: Imgflip's API answers with a
+  permanent file URL; Cloudinary, the archetype of on-demand rendering,
+  persists every derived image after its first render and bills it as storage;
+  Canva and non-destructive photo editors keep a recipe for editing and export
+  a flattened file for sharing. The recipe model also let a published meme
+  change its look whenever the renderer changed (`MEME_RENDER_VERSION` exists to
+  force that), served bytes the NSFW classifier never scored, and kept the
+  source photo alive for the renderer after its owner deleted it. The storage
+  it saved is cents a month at Google's Standard rate.
+- **Reference:** #795; `docs/plans/PLAN_PHASE5_ACCOUNT_IDENTITY.md` S16.
+- **Revisit if:** meme storage cost becomes material against render compute, or
+  a feature needs a published meme to change after it was saved.
+
+### 2026-10-30 · Everything a user puts in My content is undoable for 30 days
+- **Decision:** deleting any upload, generated image, derivative or meme from
+  My content moves it to Recently deleted for 30 days, restorable in one click,
+  then a purge job removes it; account deletion has its own 14-day cooling-off.
+- **Why:** David widened the earlier "generated content only": *"Photos that are
+  taken at the time of upload may not be stored locally on the user's device.
+  They might be using a webcam. … ALL user uploaded content needs to be
+  un-deletable."*
+- **Reference:** #795; the Phase 5 plan's oracle item 6.
+- **Revisit if:** storage held in the window becomes material.
+
+### 2026-10-30 · No Terms or Privacy text before Phase 14 writes it properly (David overrode the recommendation)
+- **Decision:** Phase 5's onboarding records marketing consent but no Terms
+  acknowledgement; Phase 14 adds the pages, the acknowledgement and a one-time
+  re-ask through the same onboarding redirect.
+- **Why:** David: *"no point in writing something useless now. We'll do it right
+  once."* **Dissent, recorded:** Astra and Claude both recommended minimal
+  versioned text in Phase 5 so Seed's first accounts carry a recorded
+  acknowledgement; the cost of the override is that accounts created before
+  Phase 14 acknowledge nothing until they are re-asked.
+- **Reference:** #795; the Phase 5 plan's S5.
+- **Revisit if:** Seed is scheduled before Phase 14 lands.
+
 ### 2026-10-29 · Photos are preserved before every change from launch, and deleted ones stay in the backup 7 days
 - **Decision:** a delete or access change of a stored photo first copies the
   state it destroys into a separate backup bucket, and is refused with "try

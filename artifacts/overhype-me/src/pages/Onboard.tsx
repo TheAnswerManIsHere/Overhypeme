@@ -1,18 +1,15 @@
 /**
- * @purpose Onboarding page for signed-in users (others are sent to /): an hCaptcha step posting to /api/users/me/complete-onboarding, which can instead be skipped to / in browse-only mode, then an optional square-cropped photo uploaded as an avatar and set via /api/users/me/profile-image, after which, or on skipping the photo, it goes to the safe returnTo.
+ * @purpose Onboarding page for signed-in users (others are sent to /): a Turnstile step posting to /api/users/me/complete-onboarding, which can instead be skipped to / in browse-only mode, then an optional square-cropped photo uploaded as an avatar and set via /api/users/me/profile-image, after which, or on skipping the photo, it goes to the safe returnTo.
  * @subsystem accounts-auth
  */
 import { useEffect, useRef, useState } from "react";
-import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 import { cropToSquareJpeg, uploadUserImage } from "@/lib/image-upload";
 import { getSafeReturnTo } from "@/lib/safe-return-to";
-
-const HCAPTCHA_SITE_KEY =
-  import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -21,7 +18,7 @@ type Step = "captcha" | "photo";
 export default function Onboard() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
-  const captchaRef = useRef<HCaptcha>(null);
+  const captchaRef = useRef<TurnstileHandle>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -70,14 +67,14 @@ export default function Onboard() {
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
         setError(data.error || "Verification failed. Please try again.");
-        captchaRef.current?.resetCaptcha();
+        captchaRef.current?.reset();
         setCaptchaToken("");
       } else {
         setStep("photo");
       }
     } catch {
       setError("Network error. Please try again.");
-      captchaRef.current?.resetCaptcha();
+      captchaRef.current?.reset();
       setCaptchaToken("");
     } finally {
       setSubmitting(false);
@@ -297,9 +294,8 @@ export default function Onboard() {
         </div>
 
         <div className="flex justify-center">
-          <HCaptcha
+          <Turnstile
             ref={captchaRef}
-            sitekey={HCAPTCHA_SITE_KEY}
             theme="dark"
             onVerify={setCaptchaToken}
             onExpire={() => setCaptchaToken("")}

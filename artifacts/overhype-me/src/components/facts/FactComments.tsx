@@ -2,7 +2,7 @@
  * @purpose A fact's comment list and composer in two variants, the compact feed form on expanded cards and the hero and the full form on the fact page, with optimistic adds, captcha gating and draft persistence.
  * @subsystem community
  */
-import { useState, useRef, useEffect, useMemo, Suspense } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
@@ -17,11 +17,7 @@ import { CommentHeartButton } from "@/components/comments/CommentHeartButton";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { AccessGate } from "@/components/AccessGate";
-import { lazyWithRetry } from "@/lib/lazy-retry";
-
-const HCaptcha = lazyWithRetry(() => import("@hcaptcha/react-hcaptcha"));
-const HCAPTCHA_SITE_KEY =
-  import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
+import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 
 type FormState = "idle" | "submitting" | "error";
 
@@ -92,7 +88,7 @@ export function FactComments({
   const comments = commentsData?.comments ?? [];
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const captchaRef = useRef<unknown>(null);
+  const captchaRef = useRef<TurnstileHandle>(null);
 
   const [formState, setFormState] = useState<FormState>("idle");
   const [text, setText] = useState(draft);
@@ -143,8 +139,7 @@ export function FactComments({
   }, [variant]);
 
   function resetCaptcha() {
-    const ref = captchaRef.current as { resetCaptcha?: () => void } | null;
-    ref?.resetCaptcha?.();
+    captchaRef.current?.reset();
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -315,16 +310,13 @@ export function FactComments({
         </div>
         {needsCaptcha && (
           <div className="pl-9">
-            <Suspense fallback={<div className="w-[164px] h-[144px] bg-muted animate-pulse rounded-sm" />}>
-              <HCaptcha
-                ref={captchaRef as never}
-                sitekey={HCAPTCHA_SITE_KEY}
-                theme="dark"
-                size="compact"
-                onVerify={setCaptchaToken}
-                onExpire={() => setCaptchaToken("")}
-              />
-            </Suspense>
+            <Turnstile
+              ref={captchaRef}
+              theme="dark"
+              size="compact"
+              onVerify={setCaptchaToken}
+              onExpire={() => setCaptchaToken("")}
+            />
           </div>
         )}
         <div className="flex justify-end pl-9">
@@ -376,13 +368,11 @@ export function FactComments({
             </div>
           ) : (
             <div className="overflow-hidden rounded-sm border-2 border-border">
-              <Suspense fallback={<div className="w-[303px] h-[78px] bg-muted animate-pulse rounded-sm" />}>
-                <HCaptcha
-                  ref={captchaRef as never}
-                  sitekey={HCAPTCHA_SITE_KEY}
-                  onVerify={setCaptchaToken}
-                />
-              </Suspense>
+              <Turnstile
+                ref={captchaRef}
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+              />
             </div>
           )}
           <Button type="submit" isLoading={formState === "submitting"} disabled={!canSubmit} className="w-full sm:w-auto">

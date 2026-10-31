@@ -1,6 +1,6 @@
-# PLAN — Get to launch (parent programme) · v9 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8), 2026-10-30 (v9)
+# PLAN — Get to launch (parent programme) · v9 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8), 2026-10-30 (v9), 2026-10-31 (v10)
 
-Workstream: #628 · Planning loop: `.agents/reviews/get-to-launch/` · Never pushed unless David asks.
+Workstream: #628 · Planning record: `docs/plans/reviews/get-to-launch/` · On `main` since PR #792; each amendment merges through a PR.
 
 ```plan-oracle
 # Oracle — Get to launch (parent programme plan)
@@ -486,7 +486,12 @@ scope:
   (B17); Turnstile replacing hCaptcha at registration, submission, comments
   and share-by-email (K14); age gate (13+ / 18+ for photo upload, pending
   Phase 14); marketing consent at sign-up with a stored flag; **"My
-  content"** (D27, B22); **staged, resumable self-service deletion** that
+  content"** (D27, B22), where **every upload, generation and meme is
+  undoable for 30 days** before a purge job removes it (amendment v10; David,
+  2026-10-30: *"ALL user uploaded content needs to be un-deletable"*), and
+  **a saved meme is a stored file baked at save**, independent of its source
+  photo (amendment v10; David, 2026-10-30, after research; `decisions.md`,
+  2026-10-31); **staged, resumable self-service deletion** that
   refuses to complete while a Stripe obligation is unresolved and preserves
   safety records (B24, S5); account suspension (H); audience flag and
   verified-adult state (NSFW-ready, nothing shipped); beta-overlay row in
@@ -495,7 +500,10 @@ scope:
   logout and single-use reset tokens as cheap hardening.
 - **Depends on:** Phase 1; Phase 2's production-config auth smoke for proof.
 - **David's batch:** the user-visible fate of a deleted user's published
-  facts and memes (S5); the consent wording.
+  facts and memes (S5); the consent wording. *Answered 2026-10-30 (#795): facts
+  persist forever, credited to "a former member" after purge; everything else
+  of the person's is deleted; the marketing box is pre-checked for US visitors
+  only; no Terms text until Phase 14 writes it (amendment v10).*
 - **Exit evidence:** CI invariants for the gate, the pronoun carry and the
   deletion state machine; scripted journeys for every sign-in method;
   David's human pass on the onboarding feel.

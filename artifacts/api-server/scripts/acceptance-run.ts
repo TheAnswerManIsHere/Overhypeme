@@ -125,7 +125,7 @@ if (sourceDump && !fs.existsSync(sourceDump)) refusals.push(`--source-dump ${sou
 const serveOrigin = arg("origin") ?? "http://localhost:5173";
 if (mode === "serve" && !/^http:\/\/localhost:\d{2,5}$/.test(serveOrigin)) refusals.push(`--origin must be http://localhost:<port>, got ${serveOrigin}`);
 if (mode !== "serve" && arg("origin") !== undefined) refusals.push("--origin applies to --mode serve only");
-const CREDENTIAL = /^(FAL_|OPENAI_|STRIPE_|RESEND_|ARACHNID_|NCMEC_|HCAPTCHA_|SENTRY_DSN)/;
+const CREDENTIAL = /^(FAL_|OPENAI_|STRIPE_|RESEND_|ARACHNID_|NCMEC_|TURNSTILE_|SENTRY_DSN)/;
 if (mode === "acceptance" || mode === "replay" || mode === "serve" || mode === "probe") {
   const held = Object.keys(process.env).filter((k) => CREDENTIAL.test(k) && (process.env[k] ?? "").trim() !== "");
   if (held.length) refusals.push(`a ${mode} run holds no credential; unset ${held.join(", ")}`);
