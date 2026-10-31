@@ -27,6 +27,7 @@ import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
 import { CODE_OWNED_PROMPT_REFUSAL, isCodeOwnedPromptKey, withCodeOwnedPrompts } from "../lib/codeOwnedPrompts";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
+import { revokeUserSessions } from "../lib/auth";
 import {
   validateEnrichment,
   computeBaselineChangedPaths,
@@ -2431,7 +2432,13 @@ router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Reque
     .from(usersTable).where(eq(usersTable.email, normalizedEmail)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const passwordHash = await bcrypt.hash(password, 12);
-  await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, user.id));
+  // A password set by an operator ends every session the user holds, in the
+  // same transaction (launch Phase 5, increment 2): the account's old
+  // credential may be the reason it is being reset.
+  await db.transaction(async (tx) => {
+    await tx.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, user.id));
+    await revokeUserSessions(tx, user.id);
+  });
   res.json({ success: true, email: user.email });
 });
 
