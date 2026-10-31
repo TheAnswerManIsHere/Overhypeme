@@ -42,12 +42,22 @@ process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 type Answer = "pass" | "fail" | "spent" | "http500" | "throw" | "garbage";
 let answer: Answer = "pass";
 let calls: Array<{ url: string; body: Record<string, string>; contentType: string | null }> = [];
-const realFetch = globalThis.fetch;
+
+// The sharded runner loads every test file into ONE process
+// (--test-isolation=none), and another file may have its own fetch stub in
+// place for the whole run (falPricing.test.ts installs one in a root `before`).
+// So the stub wraps and restores whatever fetch is current when it goes in —
+// never a reference captured at module load, which would silently remove that
+// other file's stub and send its requests to the real network.
+let fetchBeforeStub: typeof fetch | null = null;
 
 function installSiteverifyStub(): void {
+  if (fetchBeforeStub) return;
+  const previous = globalThis.fetch;
+  fetchBeforeStub = previous;
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url !== TURNSTILE_SITEVERIFY_URL) return realFetch(input, init);
+    if (url !== TURNSTILE_SITEVERIFY_URL) return previous(input, init);
     const headers = new Headers(init?.headers);
     calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")), contentType: headers.get("content-type") });
     switch (answer) {
@@ -61,20 +71,29 @@ function installSiteverifyStub(): void {
   }) as typeof fetch;
 }
 
+function uninstallSiteverifyStub(): void {
+  if (!fetchBeforeStub) return;
+  globalThis.fetch = fetchBeforeStub;
+  fetchBeforeStub = null;
+}
+
 const savedSecret = process.env.TURNSTILE_SECRET_KEY;
 const savedNodeEnv = process.env.NODE_ENV;
 
 function restoreEnv(): void {
+  // process.env coerces assigned values to strings, so an unset variable is
+  // deleted rather than set to "undefined".
   if (savedSecret === undefined) delete process.env.TURNSTILE_SECRET_KEY;
   else process.env.TURNSTILE_SECRET_KEY = savedSecret;
-  process.env.NODE_ENV = savedNodeEnv;
+  if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = savedNodeEnv;
 }
 
 // ── The verifier ────────────────────────────────────────────────────────────
 
 describe("verifyCaptcha — Turnstile siteverify", () => {
   beforeEach(() => { calls = []; answer = "pass"; installSiteverifyStub(); });
-  afterEach(() => { globalThis.fetch = realFetch; restoreEnv(); });
+  afterEach(() => { uninstallSiteverifyStub(); restoreEnv(); });
 
   it("posts the secret and the token as JSON to Cloudflare's siteverify URL", async () => {
     process.env.TURNSTILE_SECRET_KEY = "test-secret";
@@ -175,14 +194,14 @@ describe("Turnstile at every challenged route (a secret configured)", () => {
       .returning({ id: factsTable.id });
     factId = fact.id;
   });
-  after(async () => { await cleanup(); globalThis.fetch = realFetch; restoreEnv(); });
+  after(async () => { await cleanup(); uninstallSiteverifyStub(); restoreEnv(); });
   beforeEach(() => {
     calls = [];
     installSiteverifyStub();
     process.env.TURNSTILE_SECRET_KEY = "test-secret";
     __resetShareInviteGuardsForTests();
   });
-  afterEach(() => { globalThis.fetch = realFetch; });
+  afterEach(() => { uninstallSiteverifyStub(); });
 
   const inviteBody = (captchaToken?: string) => ({
     recipientEmail: `${RECIPIENT_PREFIX}${randomUUID()}@test.local`,
