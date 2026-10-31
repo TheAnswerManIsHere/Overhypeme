@@ -49,10 +49,14 @@ entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-ad
   by both **`ipFromRequest()`** (CF-Connecting-IP — the raw `X-Forwarded-For` is
   spoofable, so it is NOT used) and normalized email, via the DB-backed
   `checkSharedRateLimit`.
-- **Password-reset invalidates every session for that user** (C8) in one indexed
-  DELETE (`sessions.userId` = user, plus the legacy `sess -> 'user' ->> 'id'`
-  JSON path for rows predating the indexed column). Admin set-password and
-  registration enforce an **8-char minimum** (C7).
+- **Every password change invalidates the user's other sessions** (C8;
+  widened from password reset alone in launch Phase 5, increment 2): reset
+  and admin set-password end all of them, set-password keeps only the
+  caller's, each in the same transaction as the hash write, through one
+  indexed DELETE (`revokeUserSessions`: `sessions.userId` = user, plus the
+  legacy `sess -> 'user' ->> 'id'` JSON path). A reset token is consumed by a
+  conditional claim, so it is single-use under concurrency. Admin
+  set-password and registration enforce an **8-char minimum** (C7).
 - **CSRF**: double-submit `csrf_token` cookie + `x-csrf-token` header on
   cookie-session unsafe methods; origin allowlist enforced except for the
   intentional `ORIGIN_EXEMPT_PATHS` (Stripe webhook, Apple form_post callback,

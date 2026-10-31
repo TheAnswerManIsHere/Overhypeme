@@ -400,13 +400,32 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
   }
 
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+  // A cheap read first, so a bogus or spent token never costs a bcrypt hash.
+  const [resetToken] = await db
+    .select({ usedAt: passwordResetTokensTable.usedAt, expiresAt: passwordResetTokensTable.expiresAt })
+    .from(passwordResetTokensTable)
+    .where(eq(passwordResetTokensTable.tokenHash, tokenHash))
+    .limit(1);
+  const refuse = (state: "invalid" | "used" | "expired") => {
+    const error = {
+      invalid: "This reset link is invalid or has expired. Please request a new one.",
+      used: "This reset link has already been used. Please request a new one.",
+      expired: "This reset link has expired. Please request a new one.",
+    }[state];
+    res.status(400).json({ error });
+  };
+  if (!resetToken) { refuse("invalid"); return; }
+  if (resetToken.usedAt !== null) { refuse("used"); return; }
+  if (resetToken.expiresAt < new Date()) { refuse("expired"); return; }
+
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
   // One transaction: claim the token, write the hash, end every session. The
-  // claim is a conditional UPDATE, so of two concurrent requests holding the
-  // same token exactly one gets a row back and the other changes nothing
-  // (launch Phase 5, increment 2). A failure after the claim rolls the claim
-  // back with the hash, so the link still works for a retry.
+  // claim is a conditional UPDATE, so of two concurrent requests that both
+  // passed the read above exactly one gets a row back and the other changes
+  // nothing (launch Phase 5, increment 2). A failure after the claim rolls the
+  // claim back with the hash, so the link still works for a retry.
   const claimedUserId = await db.transaction(async (tx) => {
     const [claimed] = await tx
       .update(passwordResetTokensTable)
@@ -423,22 +442,8 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
     return claimed.userId;
   });
 
-  if (!claimedUserId) {
-    // Nothing was claimed: say why, from the row as it stands now.
-    const [resetToken] = await db
-      .select({ usedAt: passwordResetTokensTable.usedAt })
-      .from(passwordResetTokensTable)
-      .where(eq(passwordResetTokensTable.tokenHash, tokenHash))
-      .limit(1);
-    if (!resetToken) {
-      res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
-    } else if (resetToken.usedAt !== null) {
-      res.status(400).json({ error: "This reset link has already been used. Please request a new one." });
-    } else {
-      res.status(400).json({ error: "This reset link has expired. Please request a new one." });
-    }
-    return;
-  }
+  // Lost the race to a concurrent request, or the link lapsed in between.
+  if (!claimedUserId) { refuse("used"); return; }
 
   res.status(200).json({ message: "Password reset successfully. You can now log in with your new password." });
 });
