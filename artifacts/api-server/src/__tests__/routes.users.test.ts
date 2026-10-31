@@ -3,7 +3,7 @@
  *
  * Covers the public-shape, validation, and DB-write surface of every
  * endpoint that doesn't require an external service (Stripe, ObjectStorage
- * for delete success, hCaptcha-prod). Talks to the real test DB; isolates
+ * for delete success, Turnstile-prod). Talks to the real test DB; isolates
  * via per-test UUIDs and cleans up at the end.
  */
 
@@ -938,9 +938,9 @@ describe("POST /users/me/complete-onboarding", () => {
   });
 
   it("flips captchaVerified and returns success on the dev-bypass path", async () => {
-    // captcha.ts bypasses verification when HCAPTCHA_SECRET is unset and
+    // captcha.ts bypasses verification when TURNSTILE_SECRET_KEY is unset and
     // NODE_ENV !== 'production'. The test env satisfies both.
-    delete process.env.HCAPTCHA_SECRET;
+    delete process.env.TURNSTILE_SECRET_KEY;
 
     const userId = await createTestUser();
     const sid = await bearerForUser(userId);

@@ -424,7 +424,9 @@ deliberately excludes them and points here instead.
   background backfill) and safety scanning. (Its video engines and PuLID went
   in launch Phase 4.)
 - **Stripe** — billing/subscriptions/webhooks.
-- **Resend** — transactional email. **hCaptcha** — submission captcha.
+- **Resend** — transactional email. **Cloudflare Turnstile** — the bot check at fact tokenizing, comments,
+  share-by-email and onboarding (`lib/captcha.ts`, `components/ui/Turnstile.tsx`;
+  it replaced hCaptcha in launch Phase 5).
 - **Sentry** — error reporting (telemetry spans three tabs; see `docs/SENTRY.md`).
 - Generative models are configured **code-first** in
   `artifacts/api-server/src/lib/engines/` (`catalogue.ts`, `reconcile.ts`, one file

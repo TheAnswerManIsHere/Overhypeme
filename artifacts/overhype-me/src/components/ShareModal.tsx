@@ -5,6 +5,8 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { isCustomPronouns, parseCustom, displayPronouns, DEFAULT_PRONOUNS } from "@/lib/pronouns";
 import { Loader2, Copy, Check, Mail, ArrowRight, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@workspace/replit-auth-web";
+import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 
 // ── AI suggestion (mirrors NameTag logic) ───────────────────────────────────
 
@@ -145,10 +147,18 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  // A signed-out sender must pass Turnstile: POST /share/invite refuses an
+  // invite without a token unless the request carries a validated session
+  // (share.ts).
+  const { isAuthenticated } = useAuth();
+  const needsCaptcha = !isAuthenticated;
+  const captchaRef = useRef<TurnstileHandle>(null);
+  const [captchaToken, setCaptchaToken] = useState("");
   const { toast } = useToast();
 
   const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const isEmailValid = recipientEmail.trim().length > 0 && EMAIL_REGEX.test(recipientEmail.trim());
+  const canSendEmail = isEmailValid && !sending && (!needsCaptcha || !!captchaToken);
 
   const userChosenRef = useRef(false);
   const hasOverriddenRef = useRef(false);
@@ -275,7 +285,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
   }
 
   async function handleSendEmail() {
-    if (!isEmailValid || sending) return;
+    if (!canSendEmail) return;
     setSending(true);
     try {
       const res = await fetch("/api/share/invite", {
@@ -285,6 +295,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
           recipientEmail: recipientEmail.trim(),
           recipientName: recipientName.trim(),
           shareUrl,
+          ...(needsCaptcha ? { captchaToken } : {}),
         }),
       });
       if (res.ok) {
@@ -300,6 +311,11 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
       toast({ title: "Network error", description: "Please try again.", variant: "destructive" });
     } finally {
       setSending(false);
+      // A token is single-use: ask for a fresh one whatever the outcome.
+      if (needsCaptcha) {
+        setCaptchaToken("");
+        captchaRef.current?.reset();
+      }
     }
   }
 
@@ -466,7 +482,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
                       value={recipientEmail}
                       onChange={handleEmailChange}
                       onBlur={handleEmailBlur}
-                      onKeyDown={(e) => e.key === "Enter" && isEmailValid && !sending && handleSendEmail()}
+                      onKeyDown={(e) => e.key === "Enter" && canSendEmail && handleSendEmail()}
                       placeholder={`${recipientName.toLowerCase().split(" ")[0] ?? "friend"}@example.com`}
                       className={`w-full bg-background border rounded-[14px] px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground ${
                         emailError ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"
@@ -475,11 +491,22 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
                     {emailError && (
                       <p className="text-xs text-destructive leading-snug">{emailError}</p>
                     )}
+                    {/* Mounted only once an address is entered, like the
+                        comment forms: no third-party script for a visitor
+                        who never sends an invite. */}
+                    {needsCaptcha && isEmailValid && (
+                      <Turnstile
+                        ref={captchaRef}
+                        size="flexible"
+                        onVerify={setCaptchaToken}
+                        onExpire={() => setCaptchaToken("")}
+                      />
+                    )}
                     <Button
                       variant="primary"
                       className="w-full gap-2"
                       onClick={handleSendEmail}
-                      disabled={!isEmailValid || sending}
+                      disabled={!canSendEmail}
                       isLoading={sending}
                     >
                       <Send className="w-3.5 h-3.5" />

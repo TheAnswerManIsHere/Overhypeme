@@ -177,7 +177,7 @@ export default function AdminDashboard() {
               var to your Replit user ID to grant instant admin access.
             </li>
             <li>
-              Set <code className="text-primary bg-muted px-1 rounded">HCAPTCHA_SECRET</code> for
+              Set <code className="text-primary bg-muted px-1 rounded">TURNSTILE_SECRET_KEY</code> (and <code className="text-primary bg-muted px-1 rounded">VITE_TURNSTILE_SITE_KEY</code>) for
               production bot protection.
             </li>
             <li>Stripe integration available in the Billing section once ready.</li>

@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation, Link } from "wouter";
-import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useAuth } from "@workspace/replit-auth-web";
 import { validateTemplate } from "@workspace/api-zod";
 
 import { Layout } from "@/components/layout/Layout";
 import { AccessGate } from "@/components/AccessGate";
 import { Button } from "@/components/ui/Button";
+import { Turnstile } from "@/components/ui/Turnstile";
 import {
   Dialog,
   DialogContent,
@@ -25,9 +25,6 @@ import {
   CheckCircle2, ChevronRight, ChevronLeft, CheckCheck,
   ChevronDown, ChevronUp, GitBranch, Trash2,
 } from "lucide-react";
-
-const HCAPTCHA_SITE_KEY =
-  import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
 
 type Step = "write" | "preview";
 
@@ -496,7 +493,7 @@ export default function SubmitFact() {
                     <>
                       <p className="text-muted-foreground mb-4">Complete this once to unlock submission.</p>
                       <div className="bg-background rounded-lg border border-border inline-block p-3">
-                        <HCaptcha sitekey={HCAPTCHA_SITE_KEY} onVerify={setCaptchaToken} />
+                        <Turnstile onVerify={setCaptchaToken} onExpire={() => setCaptchaToken("")} />
                       </div>
                     </>
                   )}

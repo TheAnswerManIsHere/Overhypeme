@@ -41,11 +41,11 @@ const USER_PREFIX = "trouteshareu-";
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 
-// Ensure HCAPTCHA_SECRET is unset so verifyCaptcha uses its dev-bypass path.
+// Ensure TURNSTILE_SECRET_KEY is unset so verifyCaptcha uses its dev-bypass path.
 // In CI / local dev the secret may be injected by the environment; unset it
 // here so dummy captcha tokens are accepted without a real API call.
-const _savedHcaptchaSecret = process.env.HCAPTCHA_SECRET;
-delete process.env.HCAPTCHA_SECRET;
+const _savedTurnstileSecret = process.env.TURNSTILE_SECRET_KEY;
+delete process.env.TURNSTILE_SECRET_KEY;
 
 function makeApp(): Express {
   const app = express();
@@ -84,7 +84,7 @@ describe("POST /share/invite", () => {
   before(cleanup);
   after(async () => {
     await cleanup();
-    if (_savedHcaptchaSecret !== undefined) process.env.HCAPTCHA_SECRET = _savedHcaptchaSecret;
+    if (_savedTurnstileSecret !== undefined) process.env.TURNSTILE_SECRET_KEY = _savedTurnstileSecret;
   });
   beforeEach(async () => {
     __resetShareInviteGuardsForTests();
