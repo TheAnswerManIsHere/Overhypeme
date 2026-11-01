@@ -459,6 +459,14 @@ re-gather it when the work is scheduled.
     every newer 8.x tried (8.46.0, the latest in range) generates zod-v4 code
     (`z.int()`), which fails `pnpm run build` against zod 3
     (`lib/api-zod/src/generated/api.ts: Property 'int' does not exist`).
+  - **orval carries Critical advisories too.** The full `pnpm audit`, dev
+    dependencies included, reported 11 Critical on 2026-11-01, and every one is
+    `orval <8.21.0` (`lib__api-spec>orval`). Their fix (orval 8.21) escapes
+    spec-controlled strings in the generated code. The only spec orval reads
+    here is `lib/api-spec/openapi.yaml`, which is ours, so exploiting it needs
+    write access to this repository. orval 8.21.0 and 8.22.0 were both tried
+    on 2026-11-01, and both fail `pnpm run build` against zod 3, the same as
+    8.46.0. The orval fix cannot land before the zod migration.
   - **Why deferred now.** It is a major migration across five workspace
     packages (`overhype-me`, `api-server`, `mockup-sandbox`, `api-zod`, `db`)
     and the generated client. The maintenance pass does not do migrations.
