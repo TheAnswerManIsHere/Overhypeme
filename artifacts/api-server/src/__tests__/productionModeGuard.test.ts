@@ -63,6 +63,11 @@ describe("productionModeRefusals", () => {
     assert.deepEqual(refusalsWith({ TURNSTILE_SECRET_KEY: undefined }), []);
   });
 
+  it("takes the fake sign-in's port only as a port number", () => {
+    assert.deepEqual(refusalsWith({ E2E_FAKE_OAUTH_PORT: "8199" }), []);
+    assert.match(refusalsWith({ E2E_FAKE_OAUTH_PORT: "https://accounts.google.com" }).join(), /E2E_FAKE_OAUTH_PORT/);
+  });
+
   it("reports every refusal at once rather than the first", () => {
     assert.equal(
       productionModeRefusals({ NODE_ENV: "development", REPLIT_DEPLOYMENT: "1", RESEND_API_KEY: "k" }).length,

@@ -102,6 +102,11 @@ the server enforces it:
   account as usual and skips its `user_fact_preferences` write. The test
   that drives every declared unsafe route through the real app is
   `phase5.verifiedActorGate.test.ts`.
+  The browser journeys for every sign-in method run in production mode:
+  `e2e/authJourney.spec.ts` (local sign-up) and `e2e/oauthJourney.spec.ts`
+  (Google and Apple, vouched and not, through
+  `artifacts/api-server/src/testing/fakeOAuthIssuer.ts`, a fake sign-in page
+  the production-mode launcher serves only when given `E2E_FAKE_OAUTH_PORT`).
 - **Onboarding** is one screen for every sign-in method (`pages/Onboard.tsx`,
   `routes/onboarding.ts`): `GET /auth/onboarding` (the draft, the account's
   stored pronouns and name, the marketing default — ticked when Cloudflare's

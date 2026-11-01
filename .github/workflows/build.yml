@@ -648,6 +648,7 @@ jobs:
               SITE_BASE_URL=http://localhost:5174 ALLOWED_ORIGINS=http://localhost:5174 \
               E2E_MAIL_SINK_DIR=/tmp/overhype-mail-sink \
               TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA \
+              E2E_FAKE_OAUTH_PORT=8199 \
               node --import tsx/esm src/testing/productionModeLauncher.ts > /tmp/api-server-prodmode.log 2>&1 &)
             (cd artifacts/overhype-me && PORT=5174 BASE_PATH=/ API_PROXY_TARGET=http://localhost:8081 \
               pnpm exec vite > /tmp/vite-prodmode.log 2>&1 &)

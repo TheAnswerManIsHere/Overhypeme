@@ -80,6 +80,9 @@ export const PRODUCTION_MODE_ENV_ALLOWLIST: readonly string[] = [
   "E2E_MAIL_SINK_DIR",
   // A Cloudflare test secret only; productionModeGuard refuses any other value.
   "TURNSTILE_SECRET_KEY",
+  // The local port of the fake Google/Apple sign-in (fakeOAuthIssuer.ts);
+  // absent, no provider is configured at all.
+  "E2E_FAKE_OAUTH_PORT",
 ];
 
 /**
