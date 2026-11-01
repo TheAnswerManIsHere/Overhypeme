@@ -23,6 +23,7 @@ import {
 import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 
 import { acquireAdminPopulationLock, assertAdminPopulationSurvives } from "./adminLockoutGuard";
+import { isReachableAdminSql } from "./adminIdentity";
 import { revokeUserSessions } from "./auth";
 import { aiImageIsOwnersOwn } from "./contentVisibility";
 import { buildAccountDeletionCancelledEmail, buildAccountDeletionScheduledEmail, sendEmail } from "./email";
@@ -80,7 +81,9 @@ export async function acceptAccountDeletion(
       }
       return { status: "already_pending", purgeAfter: pending.purgeAfter };
     }
-    await assertAdminPopulationSurvives(tx, userId);
+    // Only an account that can reach the console can be the last one that can.
+    const [isAdmin] = await tx.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.id, userId), isReachableAdminSql()));
+    if (isAdmin) await assertAdminPopulationSurvives(tx, userId);
     await tx
       .insert(adr)
       .values({ userId, requestedAt: now, purgeAfter, requestedBy: opts.requestedBy, stage: "accepted", stageUpdatedAt: now })
@@ -177,20 +180,47 @@ async function cancelSubscriptions(userId: string): Promise<void> {
       inArray(membershipEntitlementsTable.lifecycleStatus, CANCELLABLE_SUBSCRIPTION_STATUSES),
     ));
   if (subs.length === 0) return;
-  const { getUncachableStripeClient } = await import("./stripeClient");
-  const { refreshSubscriptionSource } = await import("./membershipRefresh");
-  const stripe = await getUncachableStripeClient();
   for (const { subscriptionId } of subs) {
     if (!subscriptionId) continue;
     try {
-      await stripe.subscriptions.cancel(subscriptionId);
+      await billing.cancel(subscriptionId);
     } catch (err) {
       const code = (err as { code?: string }).code;
       const alreadyGone = code === "resource_missing" || /canceled|cancelled/i.test(err instanceof Error ? err.message : "");
       if (!alreadyGone) throw err;
     }
-    await refreshSubscriptionSource(stripe, subscriptionId, { expectedUserId: userId, transitionEvent: "account_deletion" });
+    await billing.refresh(subscriptionId, userId);
   }
+}
+
+/**
+ * The two Stripe calls the engine makes: cancel a subscription now, then
+ * refresh its source so membership recomputes. Replaced by tests
+ * (`setAccountDeletionBillingForTests`); the real ones load the Stripe
+ * client lazily, so a run with no subscriptions never touches it.
+ */
+export interface AccountDeletionBilling {
+  cancel(subscriptionId: string): Promise<void>;
+  refresh(subscriptionId: string, userId: string): Promise<void>;
+}
+
+const realBilling: AccountDeletionBilling = {
+  async cancel(subscriptionId) {
+    const { getUncachableStripeClient } = await import("./stripeClient");
+    await (await getUncachableStripeClient()).subscriptions.cancel(subscriptionId);
+  },
+  async refresh(subscriptionId, userId) {
+    const { getUncachableStripeClient } = await import("./stripeClient");
+    const { refreshSubscriptionSource } = await import("./membershipRefresh");
+    await refreshSubscriptionSource(await getUncachableStripeClient(), subscriptionId, { expectedUserId: userId, transitionEvent: "account_deletion" });
+  },
+};
+
+let billing: AccountDeletionBilling = realBilling;
+
+/** Tests only: swap the Stripe calls; `null` restores the real ones. */
+export function setAccountDeletionBillingForTests(fake: AccountDeletionBilling | null): void {
+  billing = fake ?? realBilling;
 }
 
 /** True when a billing dispute on any of the person's sources is still open: the purge waits for it. */
