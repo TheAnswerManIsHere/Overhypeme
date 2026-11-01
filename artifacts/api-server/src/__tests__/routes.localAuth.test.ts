@@ -366,7 +366,7 @@ describe("POST /auth/forgot-password — an account with no password yet (#800)"
     const email = uniqueEmail();
     const [user] = await db.insert(usersTable).values({ email, googleLinked: true }).returning({ id: usersTable.id });
     const app = makeApp();
-    const res = await request(app).post("/auth/forgot-password").set("CF-Connecting-IP", ipFor("no-password")).send({ email });
+    const res = await request(app).post("/auth/forgot-password").set("CF-Connecting-IP", "198.51.100.80").send({ email });
     assert.equal(res.status, 200);
     const tokens = await db.select().from(passwordResetTokensTable).where(eq(passwordResetTokensTable.userId, user!.id));
     assert.equal(tokens.length, 1, "a passwordless account gets a reset link");
