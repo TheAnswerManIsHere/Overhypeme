@@ -39,7 +39,7 @@ describe("AccountDeletion", () => {
     window.history.replaceState(null, "", "/account/deletion?scheduled=2026-11-15T12:00:00.000Z");
     render(<AccountDeletion />);
     expect(screen.getByRole("heading").textContent).toBe("Your account is scheduled for deletion");
-    expect(screen.getByText(/You've been signed out everywhere/)).toBeTruthy();
+    expect(screen.getByText(/signed out everywhere/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login?returnTo=%2Faccount%2Fdeletion");
   });
 

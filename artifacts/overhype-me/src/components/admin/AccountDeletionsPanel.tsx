@@ -130,7 +130,7 @@ export function AccountDeletionsPanel() {
             return (
               <div key={r.userId} className="px-5 py-3 space-y-2">
                 <div className="flex items-start gap-4 flex-wrap">
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-[14rem]">
                     <p className="text-sm font-medium text-foreground truncate">{r.displayName ?? r.email ?? `${r.userId.slice(0, 12)}…`}</p>
                     {r.email && r.displayName && <p className="text-xs text-muted-foreground truncate">{r.email}</p>}
                     <p className="text-xs text-muted-foreground mt-1">

@@ -36,15 +36,16 @@ function readAll(dir: string): CapturedEmail[] {
 }
 
 /**
- * Wait for the newest message to `to` whose body contains a link under `linkPath`,
+ * Wait for the newest message to `to` whose body contains a link to `linkPath`,
  * captured after `since`, and return that link. The email goes through the real
  * queue (enqueue → worker claim → job handler), so it arrives on the worker's
  * poll interval, not instantly.
  */
-export async function waitForEmailLink(opts: { to: string; linkPath: string; since: Date }): Promise<string> {
+export async function waitForEmailLink(opts: { to: string; linkPath: string; since: Date; tokenless?: boolean }): Promise<string> {
   const dir = mailSinkDir();
   const escapedPath = opts.linkPath.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-  const pattern = new RegExp(`https?://[^\\s"'<>]+${escapedPath}\\?token=[0-9a-f]+`);
+  // A sign-in link carries a token; a plain link (`tokenless`, e.g. "Keep my account") ends at the path.
+  const pattern = new RegExp(`https?://[^\\s"'<>]+${escapedPath}${opts.tokenless ? "(?![\\w/])" : "\\?token=[0-9a-f]+"}`);
   let link: string | undefined;
   await expect
     .poll(

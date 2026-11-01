@@ -96,8 +96,8 @@ export default function AccountDeletion() {
         {scheduledFor ? (
           <p className="text-muted-foreground text-sm">
             On <span className="text-foreground font-semibold">{deletionDateLabel(scheduledFor)}</span> your account, your memes,
-            photos and images are removed for good. You've been signed out everywhere, and your memes, photos and images are hidden
-            until then. Changed your mind? Sign in before that date and choose Keep my account.
+            photos and images are removed for good. Until then they're hidden, and you've been signed out everywhere. Changed your
+            mind? Sign in before that date and choose Keep my account.
           </p>
         ) : (
           <p className="text-muted-foreground text-sm">
