@@ -3,7 +3,7 @@ name: get_check_runs carries no head_sha — for an Actions job, get_workflow_jo
 description: pull_request_read method get_check_runs returns no head_sha, and neither does get_check_run. For a check run produced by GitHub Actions, re-fetch the same id through actions_get get_workflow_job, which carries head_sha. For a check run from any other App there is no known MCP route to its head_sha. The collection is also paginated — total_count is the collection size, not proof of a single page.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 ## Rule
 
@@ -30,7 +30,7 @@ When a readiness snapshot needs check runs bound to a commit:
 no other field naming a commit** — `html_url` embeds a *run* id, not a sha.
 
 `get_workflow_job` on the same id returns `head_sha` and `head_branch` beside
-the same `name` / `status` / `conclusion`. Measured on AI-Handbook PR #78
+the same `name` / `status` / `conclusion`. Measured on KITT PR #78
 (2026-09-11), job ids `103345180809` and `103345181037`: both returned
 `head_sha` for the PR's head commit.
 
@@ -43,7 +43,7 @@ assembled for it by this route. Say so rather than inventing the field.
 
 ## Why the binding matters rather than being pedantry
 
-The handbook's former readiness gate refused on exactly this:
+KITT's former readiness gate refused on exactly this:
 
 > `N check run(s) carry no head_sha, so they cannot be tied to <sha> -- capture head_sha with each run`
 

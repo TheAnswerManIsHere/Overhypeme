@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Vendored / externally-installed skills
 
@@ -179,7 +179,7 @@ Modification status:
   calibration block for its implementer prompt's escalations;
   `systematic-debugging`'s three-failed-fixes stop was left as an ask, and
   its note now says so, since a design flaw after three fixes is Tier C.
-  The 2026-10-17 paid-run sweep (AI-Handbook #219) added one clause to the
+  The 2026-10-17 paid-run sweep (KITT #219) added one clause to the
   existing notes of `prototype/LOGIC.md`, `prototype/UI.md` and
   `test-driven-development/SKILL.md`: a check that would start a paid AI run
   runs within David's paid-run budget — $5 a run, $25 a week across every product — and asks him

@@ -1,8 +1,8 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # UI Prototype
 
-> **Local note (AI-Handbook #168).** Read this file for its *technique*. Where it
+> **Local note (KITT #168).** Read this file for its *technique*. Where it
 > says where a prototype lives, how it is handed over, captured or hidden —
 > the throwaway branch out of `main`, the throwaway route, the
 > `NODE_ENV` gate on the switcher, the double-clicked file — [SKILL.md](SKILL.md)'s

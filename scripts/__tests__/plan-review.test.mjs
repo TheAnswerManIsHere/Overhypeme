@@ -1,4 +1,4 @@
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
  * The planning loop's suite.
  *
@@ -192,7 +192,7 @@ test("a missing contract refuses and names both attempts", () => {
 test("the sync banner is stripped, so the package does not open with a do-not-edit notice", () => {
   const root = fixtureRoot();
   const abs = join(root, `core/${CONTRACT_PATH}`);
-  writeFileSync(abs, "<!-- SYNCED FROM AI-Handbook — do not edit -->\n\n# The planning contract\n");
+  writeFileSync(abs, "<!-- SYNCED FROM KITT — do not edit -->\n\n# The planning contract\n");
   assert.equal(readVerbatim(CONTRACT_PATH, root).text.startsWith("# The planning contract"), true);
   drop(root);
 });

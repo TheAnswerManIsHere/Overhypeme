@@ -210,8 +210,8 @@ acceptance journey, or deferred with its feature — and **a deferred step is
 never a pass**. Paid paths are evidenced with ordinary free and paid test
 accounts, never admin-only evidence (admins are exempt from the budget gate).
 
-Handbook-shaped parts of that build (lane tags, the acceptance workflow, the
-readiness table as a reusable artefact) land in the handbook so a second app
+KITT-shaped parts of that build (lane tags, the acceptance workflow, the
+readiness table as a reusable artefact) land in KITT so a second app
 inherits them: the one named exception to the factory freeze that otherwise
 holds during launch work. `/maintenance` continues through the freeze.
 

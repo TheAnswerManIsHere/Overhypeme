@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # The agent-legible codebase: direction, tool and contract
 
@@ -19,7 +19,7 @@ behaviour whose name does not match its file, reading a four-thousand-line
 route file for one handler, and doing the class sweep
 [`working-modes.md`](working-modes.md) requires by text search. A swarm pays it
 in parallel and collides on the same large files. The research gathered
-before this was built (recorded in the AI-Handbook repository's research
+before this was built (recorded in the KITT repository's research
 notes) points one way:
 
 - **Context loaded up front buys rule-following, not navigation.** Repository
@@ -109,7 +109,7 @@ and by which guard" is itself a query:
   and vendored components belong here: they contribute edges and consumers.
 - **Headered**: indexed, minus `sets.headered.exclude` (tests by default),
   minus codegen-owned paths, minus `.d.ts`, minus any file carrying the
-  `SYNCED FROM AI-Handbook` header (the sync owns those).
+  `SYNCED FROM KITT` header (the sync owns those).
 - **Sized**: headered, minus `sets.sized.exclude`.
 
 **Reconciliation.** The build compares the indexed set with the files the
@@ -145,7 +145,7 @@ since its target could be the file asked about.
 The tool's contract with every consumer. Recognition is by the **resolved type
 from the repository's own dependencies**, never by variable name or product
 path. A form outside the matrix is reported as `unsupported-form` at its site;
-adding a form is a handbook change with a fixture, never a consumer patch.
+adding a form is a KITT change with a fixture, never a consumer patch.
 
 | Area | Recognised forms |
 |---|---|
@@ -168,7 +168,7 @@ separate file the check never compares, and a rebuild on unchanged inputs
 leaves it untouched. So a commit, a documentation change, a merge or a fresh
 checkout never makes the index stale; changing code, a test, a generated
 barrel, a package's exports, a lockfile or the compiler does. So does a
-handbook change to what the tool recognises: **any change to recognition
+KITT change to what the tool recognises: **any change to recognition
 bumps `TOOL_VERSION`** in `scripts/map.mjs`, so every consumer's committed
 index goes stale at the next sync and is rebuilt, rather than answering
 from what the previous recogniser found. (#211 changed two recognisers
@@ -271,7 +271,7 @@ rule does not apply. To adopt:
    configuration cannot skip it.
 7. Run [the eval](agent-legible-codebase-eval.md); its result sets `enabled`.
 
-The adoption steps for the handbook's consumers are also in the handbook's
+The adoption steps for KITT's consumers are also in KITT's
 consuming-repos guide.
 
 ## Backing out
@@ -288,7 +288,7 @@ corrective commit.
    Headers are inert comments and may stay.
 3. **Remove from the fleet, in this order**: every consumer first removes its
    CI invocation, its configuration and its rules file (the sync has no
-   authority over consumer-owned files); then the handbook deletes the payload
+   authority over consumer-owned files); then KITT deletes the payload
    files, and the next sync takes back every synced copy by its header; then
    the forcing rule's paragraph goes. Done out of order, an always-on check
    would call a script the sync had already removed.

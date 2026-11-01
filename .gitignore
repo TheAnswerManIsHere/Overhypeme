@@ -98,7 +98,7 @@ artifacts/api-server/assets/
 #   loop-round-check-*.claim  the atomic single-use claim on one such receipt
 #
 # Those receipt kinds (loop-budget-*, loop-extension-*) were retired with the
-# review-budget machinery in the handbook cutover; the files that remain here are
+# review-budget machinery in the KITT cutover; the files that remain here are
 # that loop's historical records.
 # They are taken once and bind afterwards, and they MUST survive the container
 # or tripwire 2 can never fire: an ephemeral extension record means a loop that

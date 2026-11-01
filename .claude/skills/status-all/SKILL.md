@@ -3,7 +3,7 @@ name: status-all
 description: Give David a cold-open summary of EVERY open workstream across all sessions in the active repository (never other repositories) — where each stands in the lifecycle, who's holding it, and which ones are stalled or need his input. Use when David says /status-all, "what's the state of everything", "what needs me across the board", or is picking work back up after time away and doesn't remember where he left off. This is the ALL-SESSIONS view of this repository; for "what is THIS session working on", use /status instead. Best run from a fresh, cheap session rather than an existing long thread.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # /status-all — the workstream board, read cold
 
@@ -39,7 +39,7 @@ sequence now.)
 
 **`/status-all` reports on one repository: the one this session is working
 in.** Every row comes from that repository's issues and PRs. Workstreams in
-other repositories — the handbook, a sibling product, anything remembered
+other repositories — KITT, a sibling product, anything remembered
 from another session — are out of scope: never listed, never counted, never
 mentioned as "also needs you."
 
@@ -52,7 +52,7 @@ mentioned as "also needs you."
   placeholder, stop and ask** which repository David means. A board that
   guesses its repository reports confidently on the wrong product.
 - **David naming a repository overrides the default** ("status-all for
-  AI-Handbook"). If this session has several repositories attached and he
+  KITT"). If this session has several repositories attached and he
   didn't name one, the working tree's repository is the answer — never a
   merge of all of them.
 - **Every GitHub call passes that `owner`/`repo` explicitly.** Never

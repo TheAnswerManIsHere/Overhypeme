@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 # Reconciling prose with a landed design change: sweep, never patch
 
 **This file is the only statement of the method.** `claude-core.md` and
@@ -8,7 +8,7 @@ A second copy is a second thing to drift, which is this failure one level up.
 
 **When it runs.** A retirement or a reshaping: a rule replaced, a mechanism
 deleted, an authority moved, or a rule whose requirement changes — which
-retires its previous reading (AI-Handbook #190: "either order" became
+retires its previous reading (KITT #190: "either order" became
 "notification first"). The trigger's home is the core's *Standing rituals*
 line; this is what it means. Only a rule added beside the others, changing
 none, has nothing to sweep for. **And it runs again after every batch of fixes** — each patch
@@ -20,7 +20,7 @@ sweep that is not cheap enough to re-run is always one batch behind.
 
 ## Why patching fails, measured
 
-AI-Handbook #96 replaced the review loop's binding-disposition and
+KITT #96 replaced the review loop's binding-disposition and
 critical-only model. The mechanism landed; the prose did not follow. Three
 author-side reconciliations each declared the class closed and each missed
 instances the next reader found — 4, then 3, then 3 — and a fourth pass by
@@ -292,7 +292,7 @@ whether a guard is in scope at all.
 
 ## Worked instances
 
-### The #96 / #134 review model (AI-Handbook #121, PR #141)
+### The #96 / #134 review model (KITT #121, PR #141)
 
 Six propositions, of which (e) and (f) were added by cold readers mid-sweep
 and (e) was proposed independently by three of six:

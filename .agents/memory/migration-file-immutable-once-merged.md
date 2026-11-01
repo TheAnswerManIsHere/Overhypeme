@@ -3,7 +3,7 @@ name: A migration file already on main is byte-for-byte immutable
 description: The migration runner tracks "already applied" by SHA-256 of the whole file — editing even a comment in an already-merged migration makes it replay.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Editing an already-merged migration file — even a comment — makes it replay
 

@@ -3,7 +3,7 @@ name: In the Claude app, text I write between tool calls reaches David as a para
 description: A question posted before a PushNotification (or any other tool call) in the same turn rendered on David's iPad as a one-paragraph summary in a different voice, and he could not tell what the question was. Anything he must read exactly — a question, an ask, a banner — goes after the last tool call of the turn, written once: the notification fires first, the message follows it.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Text between tool calls is summarised on David's side
 

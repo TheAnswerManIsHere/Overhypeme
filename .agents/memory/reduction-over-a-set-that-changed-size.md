@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 ## A change to a set's cardinality invalidates every reduction over it
 
@@ -10,7 +10,7 @@ error, and the singleton-era tests still pass because they only ever construct
 one element.
 
 **The worked example, stated precisely — because the imprecise version is the
-lesson.** In the handbook's former `pr-ready.mjs`, `acceptedAt` used `Math.min` over the
+lesson.** In KITT's former `pr-ready.mjs`, `acceptedAt` used `Math.min` over the
 qualifying review passes. Round 3 of PR #490 introduced a rule that let
 `qualifying` hold more than one element, and `min` then selected the *earliest*
 accepted response where the check needed the *latest*.

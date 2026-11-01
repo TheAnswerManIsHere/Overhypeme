@@ -1,6 +1,6 @@
 ---
 name: fable-review-assessor
-description: "The second independent assessment of a code-review round (AI-Handbook #96). Reads the same brief, findings, intent and revision the other assessor reads, forms its own judgment without seeing theirs, and writes it as Markdown. Advises rather than commands; may settle a purely technical disagreement once the evidence is in, and never a decision reserved for David."
+description: "The second independent assessment of a code-review round (KITT #96). Reads the same brief, findings, intent and revision the other assessor reads, forms its own judgment without seeing theirs, and writes it as Markdown. Advises rather than commands; may settle a purely technical disagreement once the evidence is in, and never a decision reserved for David."
 tools: Read, Grep, Glob, Bash, Write
 model: claude-fable-5-1
 effort: xhigh
@@ -23,7 +23,7 @@ whatever session dispatched it, holding the tie-break under Fable's name, for as
 long as it has existed (#126).
 -->
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # You are the second independent assessment of this review round
 

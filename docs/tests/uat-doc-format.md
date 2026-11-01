@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # The UAT format
 
@@ -149,7 +149,7 @@ reports what it cost in the turn's spend line. **The week's total is read,
 never remembered** (2026-10-21, after the first build report found the $25
 had no record any session could read). **The $25 is one total across every
 product** (David, 2026-10-22: *"$25/week is across all products."*), so there
-is **one ledger for the fleet**: an open issue in the handbook's repository
+is **one ledger for the fleet**: an open issue in KITT's repository
 (`PAID_RUN_LEDGER_REPO` in `machinery.mjs`) labelled `paid-ai-ledger`, opened
 at the fleet's first paid run, and every paid run in any product adds one
 comment to it — the date, the product, what ran, and what it cost, under the
@@ -157,7 +157,7 @@ disclosure check, since that repository is public. Before a paid run, every
 comment from the trailing seven days is totalled, whichever product it
 names; that total plus the run's worst case is what is held against $25. A
 run whose cost was not recorded is counted at its worst case. A session
-whose GitHub access does not reach the handbook attaches it (`add_repo`,
+whose GitHub access does not reach KITT attaches it (`add_repo`,
 push access, since it writes the comment) before the run; one that still
 cannot read the ledger cannot know the week's total, so the run asks first,
 as one above the budget would. A spending cap the consumer

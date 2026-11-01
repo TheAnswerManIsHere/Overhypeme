@@ -3,7 +3,7 @@ name: issue_write with method "update" silently drops an add_comment payload -- 
 description: Use add_issue_comment to post a comment; never pass a comment body to issue_write update. Verify a posted comment by reading it back, because the success response cannot be told from a real one by its status alone.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # A comment that was never posted, reported as posted
 

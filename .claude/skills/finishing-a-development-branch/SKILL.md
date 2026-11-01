@@ -3,11 +3,11 @@ name: finishing-a-development-branch
 description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Finishing a Development Branch
 
-> **Local note (AI-Handbook #168).** A `prototype/<feature>` branch is never
+> **Local note (KITT #168).** A `prototype/<feature>` branch is never
 > finished through the menu below: while its feature is in prototype phase it
 > merges nowhere and opens no PR, its environment tracks it, and the flip's
 > hardening PR is what eventually ends it — the rule is

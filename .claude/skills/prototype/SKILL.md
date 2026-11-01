@@ -3,7 +3,7 @@ name: prototype
 description: Build a feature in prototype phase to answer a design question with the product owner's own feedback — a planning loop for its first version, no code review for any version. Use when David wants to sanity-check whether a state model or logic feels right, explore what a UI should look like, or starts a feature he has declared prototype phase.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Prototype
 

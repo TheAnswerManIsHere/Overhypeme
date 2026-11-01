@@ -3,7 +3,7 @@ name: Never cite a docs/plans/ path from code — a plan is a point-in-time reco
 description: A module docstring cited docs/plans/PLAN_ASYNC_QUEUE_HARDENING.md as the tracking location for a deferred decision; that file only ever existed on the never-merged plan-review branch, so the citation was dangling from the first commit. Plans are committed now, but a plan still records what was approved then, not where a deferral is tracked.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # A `docs/plans/PLAN_*.md` path is never a tracking citation from implementation code
 

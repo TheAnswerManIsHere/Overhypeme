@@ -645,7 +645,7 @@ re-gather it when the work is scheduled.
     full sync both run a backfill — admin-visible work, kept on purpose.
 
 - **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
-  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking.** The risk is smaller since approved plans are committed (AI-Handbook #204), so a newer citation points at a file that exists; the guard stays for the next tooling pass.
+  - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking.** The risk is smaller since approved plans are committed (KITT #204), so a newer citation points at a file that exists; the guard stays for the next tooling pass.
   - **What.** [`plan-doc-path-never-cite-from-code.md`](../../.agents/memory/plan-doc-path-never-cite-from-code.md)
     documents the rule — a code comment or docstring citing a
     `docs/plans/*` path points at a point-in-time record rather than a
@@ -1000,7 +1000,7 @@ re-gather it when the work is scheduled.
     them. The candidate conversion was an on-merge workflow that moves the
     issue named on a PR's `Workstream:` line.
   - **Why deferred now.** The rule lives in `workstream-tracking.md`, which is
-    synced from AI-Handbook, so a conversion belongs there. The rule was
+    synced from KITT, so a conversion belongs there. The rule was
     tightened on 2026-09-25: whoever reaches close-out also closes the issue.
     Every stale issue the pass found was opened before that date; the newest
     was opened on 2026-08-29. That is the observation, not proof that no drift
@@ -1016,7 +1016,7 @@ re-gather it when the work is scheduled.
 
     Verification, UAT or named close-out work still open is not stale. If any
     issue is stale, bring the conversion back to David with that evidence, as
-    a handbook change. If none is, close this entry as fixed. Older issues are
+    a KITT change. If none is, close this entry as fixed. Older issues are
     outside this check, so it cannot rule out drift on them.
 
 ## Documentation

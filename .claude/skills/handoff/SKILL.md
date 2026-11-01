@@ -3,7 +3,7 @@ name: handoff
 description: Decide whether this session's context should move to a new session, and if so make it survive the move. Use when David says /handoff, "let's start a fresh session", "should we hand this off", or when a session that finished one thing is about to start something else. First judges whether a handoff is actually needed and stops if it isn't. When it is, externalizes the session's load-bearing context onto the workstream issue and delivers a copy-pasteable prompt for the new session. NOT for durable end-of-feature learnings (that's /document) and NOT the cross-tool docs/handoff/ folder.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # /handoff — moving a session's context to a new session
 

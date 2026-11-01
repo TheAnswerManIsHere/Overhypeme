@@ -21,7 +21,7 @@ security hardening; analytics and ops; UX polish; then Seed → Soft launch →
 Full launch US → Full launch Global). Each phase is a sub-issue of #628 with
 its own plan, PR(s) and UAT; the parent's Phases checklist is the live
 state. A factory freeze holds during launch work, with one exception:
-handbook work a launch phase needs and a second app would need identically;
+KITT work a launch phase needs and a second app would need identically;
 `/maintenance` continues through the freeze. See
 [`product-direction.md`](./product-direction.md).
 
@@ -303,7 +303,7 @@ handbook work a launch phase needs and a second app would need identically;
   its own recommendation instead of offering, and from 2026-10-23 it is a
   briefing for David (headline, plan and phase, progress, everything flagged
   since his last message, every open ask in full, what is next) with the five
-  states retired from its output; the handbook's `status` skill is the
+  states retired from its output; KITT's `status` skill is the
   current behavior, and the report-and-offer design above is history.
 - **CLAUDE.md cut roughly in half via skill migration + consolidation**
   (PR #300, #301). 81,099 → 41,683 chars (~20.3k → ~10.4k est. resident

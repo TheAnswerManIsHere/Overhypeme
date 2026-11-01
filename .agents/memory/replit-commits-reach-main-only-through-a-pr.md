@@ -3,7 +3,7 @@ name: Replit commits reach main only through a pull request — a commit on main
 description: The sanctioned direct-push lane from Replit to main was retired on 2026-10-03 when David removed every ruleset's bypass; what the old lane taught that still holds, and what replaced it.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Replit commits reach `main` only through a pull request
 

@@ -1,4 +1,4 @@
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
@@ -77,7 +77,7 @@ test("scope is git's tracked payload markdown plus the root files, and the direc
   for (const r of ROOT_FILES) assert.ok(files.includes(r), r);
   for (const d of ALWAYS_IN_SCOPE) assert.ok(files.some((f) => f.startsWith("core/" + d)), d);
   assert.ok(!files.includes("untracked.md"), "untracked files are not corpus");
-  assert.ok(!files.includes("docs/not-payload.md"), "handbook-root docs outside the payload are not scope by default");
+  assert.ok(!files.includes("docs/not-payload.md"), "KITT-root docs outside the payload are not scope by default");
   assert.ok(files.includes("core/docs/tests/uat-doc-format.md"), "the shipped UAT format is payload");
   assert.ok(!files.includes("docs/tests/TESTING.md") && !files.includes("docs/tests/UAT/PR1_X_UAT.md"), "the rest of docs/tests/ is not");
   assert.ok(!files.some((f) => f.endsWith(".mjs")), "prose only");

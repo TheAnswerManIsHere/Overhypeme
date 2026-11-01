@@ -1,13 +1,13 @@
 ---
 name: A control that cannot evaluate must refuse, and a PreToolUse hook that throws fails OPEN
-description: The blocking signal for a PreToolUse hook is exit code 2; an escaping exception exits 1, which the harness reads as a hook error and lets the tool call proceed. The handbook's PreToolUse hooks are gone (its one hook now is the needs-you alert, which never blocks), but the exit-code contract and the general rule both still apply to anything that runs as one.
+description: The blocking signal for a PreToolUse hook is exit code 2; an escaping exception exits 1, which the harness reads as a hook error and lets the tool call proceed. KITT's PreToolUse hooks are gone (its one hook now is the needs-you alert, which never blocks), but the exit-code contract and the general rule both still apply to anything that runs as one.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 ## The mechanism this was written about is gone
 
-The handbook shipped three `PreToolUse` hooks — a destructive-command guard, a
+KITT shipped three `PreToolUse` hooks — a destructive-command guard, a
 review-request guard and a merge gate — all forwarding to one decision script.
 The #89 cut removed them (#94, #97) in favour of server-side GitHub rulesets,
 which cannot fail open because there is no local process whose exit code

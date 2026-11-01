@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Known Failure Patterns
 
@@ -1008,7 +1008,7 @@ rule, name the durable location (a branch, a private tracking item) and the
 moment the artifact reaches it; when retiring a durable home, name its
 successor in the same change. A hand-off or resume pointer that names a
 location only one container holds is the same failure one step later, and is
-refused rather than written (`handoff` skill, Step 2). **Example (handbook,
+refused rather than written (`handoff` skill, Step 2). **Example (KITT,
 2026-09-09 to 2026-10-12):** "a plan is never published … the plan file is
 still pushed nowhere" removed, one step at a time, every durable home an
 approved plan had — the plan-review PR, then the private page — until the
@@ -1567,7 +1567,7 @@ restating it here.
 ### Sub-pattern: the author of the new rule cannot sweep for the old one
 
 The three sub-patterns above all assume the same reader can derive a better
-method next round. AI-Handbook #96 is the case where that failed four times.
+method next round. KITT #96 is the case where that failed four times.
 Its design change landed in the mechanism; the prose did not follow; and three
 successive reconciliations — grep for the retired phrases, then read the
 sections end to end by decision path, then both plus an acceptance check — each
@@ -1598,7 +1598,7 @@ is not restated here.
 
 Every sweep above hunts **references to** what was removed. None can find what
 the removed thing **held** that something surviving still needs, because an
-absence has no text to match. The #89 cut (AI-Handbook #102) hit it three times
+absence has no text to match. The #89 cut (KITT #102) hit it three times
 in two rounds: a skill section deleted as duplicate also held the only
 definition of three procedures the always-loaded contract still named; a rule
 deleted for its arithmetic had a definition wrapped inside it that a surviving
@@ -1913,9 +1913,9 @@ check whose two sides the same code owns guards nothing); or **change the
 operation**, which
 is the move that actually ends these.
 
-### The stop rule written from this entry did not work (AI-Handbook #91)
+### The stop rule written from this entry did not work (KITT #91)
 
-AI-Handbook #91 turned the tell above into review-loop rule 7 in
+KITT #91 turned the tell above into review-loop rule 7 in
 `claude-core.md`: a mandatory stop, keyed to that observable. **David removed
 it on 2026-09-15, after seven rounds.** The attempt is recorded here rather
 than deleted, because the next person to have this idea should meet the
@@ -1945,7 +1945,7 @@ each refining a boundary and exposing the next:
 once fired on that loop, by its own observable, while that loop exhibited this
 exact pattern throughout.** Checked at rounds 4, 5 and 7; negative every time.
 
-**The lesson is not "observables don't work."** AI-Handbook #85's finding
+**The lesson is not "observables don't work."** KITT #85's finding
 stands — a condition you have to interpret is one you will reinterpret. The
 lesson is the question #85 did not ask and #91 paid seven rounds to learn:
 **an observable trigger also has to be REACHABLE on a real loop, and nothing
@@ -1954,7 +1954,7 @@ read-off-the-record, and still never fire — because the state it names is
 narrower than the situation it was written for. Test a proposed trigger
 against loops that already happened before making it binding.
 
-**AI-Handbook, four instances inside one workstream (#36), plus the one that
+**KITT, four instances inside one workstream (#36), plus the one that
 shows the cure.** PR #28: two of round 2's findings were defects round 1's
 fixes introduced, and one slipped through a sweep whose exclusion pattern
 whitelisted its own target. PR #80: three rounds, each finding a defect on one
@@ -2926,7 +2926,7 @@ that was in your head, and the shape that arrives is a sibling of it. The
 observable rule and the class rule both survive intact; what neither of them
 supplies is the step where you ask *what is the harm, and what else produces it?*
 
-**The worked examples, all from AI-Handbook #124.** Three flip conditions in one
+**The worked examples, all from KITT #124.** Three flip conditions in one
 pull request had their wording and their intent pull apart:
 
 - **Round 2.** *"Three or more findings landing on the corrections themselves"* —
@@ -2990,13 +2990,13 @@ drafting failure; this is a category error about what the device is for.
 **It runs in both directions, and each has its own cost.** A stopping rule read
 as a triage rule **declines too much**: applied consistently it declines every
 finding in every round that does not happen to end the loop, which is a decline
-quota rebuilt out of a stopping rule — the exact shape AI-Handbook #96 retired.
+quota rebuilt out of a stopping rule — the exact shape KITT #96 retired.
 A triage rule read as a stopping rule **writes too much**: "this is worth
 fixing" authorises the *fix*, never the *round*, and treating it as though it
 settled the round's cost buys a full write-gate round for a change nobody
 needed.
 
-**The worked examples, both from AI-Handbook #124.**
+**The worked examples, both from KITT #124.**
 
 - **Round 7, declining too much.** A finding naming an incomplete oracle
   requirement — a fleet-wide instruction still cancelling the delegation the
@@ -3087,7 +3087,7 @@ round; what makes it dangerous is that mis-scoping the consequence is
 indistinguishable, in the moment and in the written reply, from applying it
 correctly.
 
-**The worked example (AI-Handbook #73).** Round 3 reported that
+**The worked example (KITT #73).** Round 3 reported that
 `fable-dispatch.mjs` — since deleted, #95 — checked its `--out` path
 *lexically*, so a symlinked component could put the receipt outside the
 repository. The decline weighed

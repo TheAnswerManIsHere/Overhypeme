@@ -3,7 +3,7 @@ name: status
 description: Brief David on where this session's work stands, the way a direct report would update a manager — a headline, the plan and where we are in it, everything flagged for him since he last looked, any open question in full, and what happens next. Use when David says /status, "where are we", "what's the state of this", "catch me up", or picks a session back up and needs re-orienting. Written for David to read in seconds, never for an agent; collects from chat, the issue record and live GitHub, and silently repairs stale tracking on the way. For "what needs me across everything" use /status-all; for "what should we do next" use /next.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # /status — the briefing David would get from a direct report
 

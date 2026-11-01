@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 // Prose-sweep scope: the deterministic half of `docs/ai-context/prose-sweep.md`.
 //
 // A sweep's two measured failures were both scope failures: a file set drawn
@@ -36,7 +36,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 /**
  * The payload's own Markdown roots, payload-relative. This is what the sync
  * carries, and it is the scope -- NOT "everything under the payload prefix",
- * which is the same thing only in the handbook. In a consumer the payload
+ * which is the same thing only in KITT. In a consumer the payload
  * sits at the repo root beside the product's own documentation, so a prefix
  * test there matched every tracked file and fanned cold readers across the
  * whole product corpus. That attacks the method's own justification (a sweep
@@ -97,7 +97,7 @@ export function validateSpec(spec) {
 // ---------------------------------------------------------------------------
 
 /**
- * Where the payload lives relative to the repo root. The handbook carries it
+ * Where the payload lives relative to the repo root. KITT carries it
  * under `core/` and governs itself with it; a consumer has it at the root.
  */
 export function payloadPrefix(root) {
@@ -143,7 +143,7 @@ export function scopeFiles(root, { include = [] } = {}) {
   return { prefix, files };
 }
 
-/** payload-relative -> repo-relative, so a spec written for a consumer works in the handbook unchanged. */
+/** payload-relative -> repo-relative, so a spec written for a consumer works in KITT unchanged. */
 export function toRepoPath(prefix, p) {
   const clean = p.replace(/^\.\//, "");
   if (ROOT_FILES.includes(clean)) return clean;
@@ -348,7 +348,7 @@ export function plan({ root, spec, workers = DEFAULT_WORKERS, include = [] }) {
   for (const g of spec.readInFull ?? []) {
     // A glob is payload-relative like `home`, but an `--include`d file is
     // repo-relative and outside the payload; match both spellings so the
-    // handbook can name a non-payload document for a full read.
+    // KITT can name a non-payload document for a full read.
     const asPayload = globToRegExp(toRepoPath(prefix, g));
     const asRepo = globToRegExp(g.replace(/^\.\//, ""));
     const hits = files.filter((f) => asPayload.test(f) || asRepo.test(f));
@@ -420,7 +420,7 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  // The script lives at <payload>/scripts/. In the handbook that payload is
+  // The script lives at <payload>/scripts/. In KITT that payload is
   // core/ and the repo root is one level up; in a consumer they are the same.
   const here = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const root = payloadPrefix(resolve(here, "..")) ? resolve(here, "..") : here;

@@ -3,7 +3,7 @@ name: bugfix
 description: Bug-fixing workflow — fix a bug without the planning ceremony. Use when David says /bugfix (the explicit override), or whenever a request is bugfix-shaped — a report that already-agreed behavior is broken, "just fix this", a defect with an observable symptom. Announce the classification in one line on entry; ask when it could really be a behavior change. One bug per branch per PR, opened as soon as the fix is verified. Drops the plan file and the plan-review loop; keeps (and tiers) verification — a Tier A/B fix carries a regression test, a blast-radius note, and a bugfix oracle in the PR body, while a trivial Tier C schema fix uses its own dedicated oracle block instead — and Codex still reviews the diff under the write-gate rule. Opposite of the default feature-building flow in CLAUDE.md.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Bug-fixing mode
 

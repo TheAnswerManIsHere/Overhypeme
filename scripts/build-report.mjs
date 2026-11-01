@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
  * The build report: one independent, plain-English account per unit of work
  * (David, 2026-10-21, replacing the per-round translation of #36).
@@ -203,7 +203,7 @@ export function buildBrief({
   // EVERY NUMBER CARRIES ITS TITLE, OR THE BRIEF REFUSES. The coordinates
   // recorded here are printed back to David as the report's *Evidence* line,
   // and a bare number tells him nothing (claude-core.md, interaction rule 14;
-  // AI-Handbook #241's build report named this line as the one bare-number
+  // KITT #241's build report named this line as the one bare-number
   // line nobody in the loop writes). The script fetches nothing from GitHub,
   // so the titles arrive from the builder, who holds them; a missing one is
   // refused rather than printed as a gap, since a report that reads
@@ -520,7 +520,7 @@ export function chatReport(report, { askedModel = null, session = null, coords =
     "**Spend**",
     "",
     `- This build: ${a.spend.build_total ?? "*no Spend so far line on the issue*"}`,
-    `- Paid AI runs, last seven days: ${a.spend.paid_runs_this_week ?? "*no paid-run ledger in the handbook yet*"}`,
+    `- Paid AI runs, last seven days: ${a.spend.paid_runs_this_week ?? "*no paid-run ledger in KITT yet*"}`,
   );
 
   out.push(

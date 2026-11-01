@@ -361,8 +361,8 @@
   world"' … I'll do all of the checking of generated imagery to make sure
   it matches my desired outcomes."*
 - **Why:** interpretive judgement of generated content is where Claude's
-  reading is unreliable. The fleet rule lives in the handbook's
-  `uat-doc-format.md`, *An image an AI model generated* (AI-Handbook #219).
+  reading is unreliable. The fleet rule lives in KITT's
+  `uat-doc-format.md`, *An image an AI model generated* (KITT #219).
 - **Reference:** #708 (PR223 step 1 and PR229 step 6), the split of PR223
   step 1 and PR229 steps 2, 4, 5, 6 and 13.
 - **Revisit if:** David says so.
@@ -425,7 +425,7 @@
 ### 2026-10-12 · Pre-launch, security details are not gated; no tokens are spent on leak prevention
 - **Decision:** Until the trigger below, the canonical disclosure check
   (`workstream-tracking.md`, *What must never happen*) and the private path
-  built on it (AI-Handbook #204, #205, and the follow-up #206) are **not
+  built on it (KITT #204, #205, and the follow-up #206) are **not
   applied here to security details**: unpatched-vulnerability details,
   auth-bypass specifics, payment-fraud abuse paths, and what a subsystem's own
   documents keep out of public prose (the safety subsystem's detection
@@ -443,7 +443,7 @@
   today, while the private path has cost several review rounds and still has
   nine open design gaps (#206). The protection belongs to the moment it buys
   something.
-- **Reference:** David, 2026-10-12, after AI-Handbook #205 merged.
+- **Reference:** David, 2026-10-12, after KITT #205 merged.
 - **Revisit if:** the product has launched, has real revenue, **and** is at
   risk of anyone caring about it, all three, in David's words. Real money
   starts at Full launch (US) (`launch-definition.md`), so Seed and Soft launch
@@ -484,7 +484,7 @@
   lane** — `ci`, `scripted`, `live` or `human` — and only `human` reaches
   David; a machine-lane step cites the check that runs it, and a step that
   cannot run in its lane yet is `Deferred:` to a named owner and is never a
-  pass (`docs/tests/uat-doc-format.md`, now shipped by the handbook). (2)
+  pass (`docs/tests/uat-doc-format.md`, now shipped by KITT). (2)
   **The Stripe fake gates only Phase 10** — *"Gate only Phase 10"* — so
   Phases 3–9 start once Phase 2's other increments land; Astra recommended
   keeping the original gate as the agreed order, recorded as dissent. (3)
@@ -498,7 +498,7 @@
   needs it; paid-user journeys run without it because paid users are granted
   through the entitlement model. The fixture's value is old row shapes, the
   repository is public, and approved facts are meant to be public anyway.
-- **Reference:** #631; TheAnswerManIsHere/AI-Handbook#187 (the lane format).
+- **Reference:** #631; TheAnswerManIsHere/KITT#187 (the lane format).
 - **Revisit if:** a step's lane hides a real gap (a `ci` check that does not
   assert what the step expects) — the fix is the check, not a return to
   manual steps.
@@ -691,8 +691,8 @@
   finding about such a scenario is declined in a sentence, not litigated.
 - **Why:** On 2026-09-07 one contract PR was stopped three times on
   self-registered conditions about hypothetical bypasses, a one-line bug on
-  the handbook went unfixed for want of an adjudication, and the day produced
-  more issue-filing than shipping. The handbook's purpose is efficient
+  KITT went unfixed for want of an adjudication, and the day produced
+  more issue-filing than shipping. KITT's purpose is efficient
   building, and the loop machinery exists to serve that, not the reverse.
 - **Reference:** Overhypeme #615; this file's earlier entries of the same date.
 - **Revisit if:** a real defect in product code, payments, auth or a migration
@@ -718,7 +718,7 @@
   with `grant 2, asOf 3` and four passes delivered the gate reads 5 and clears;
   at five delivered it stands again.
 - **Reference:** `CLAUDE.md` review-loop rule 3;
-  [`working-modes.md`](./working-modes.md); Overhypeme #615, AI-Handbook #47.
+  [`working-modes.md`](./working-modes.md); Overhypeme #615, KITT #47.
 - **Revisit if:** the merge gate learns to accept a bookkeeping-only delta
   (the deferred option). The headroom grant becomes unnecessary then, and
   keeping both would be two mechanisms for one job.

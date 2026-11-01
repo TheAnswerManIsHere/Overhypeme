@@ -3,13 +3,13 @@ name: using-superpowers
 description: Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 <SUBAGENT-STOP>
 If you were dispatched as a subagent to execute a specific task, ignore this skill.
 </SUBAGENT-STOP>
 
-> **Local note (AI-Handbook #168).** The routing below goes by the request's
+> **Local note (KITT #168).** The routing below goes by the request's
 > phrasing. Before it, the consumer's *Feature phases* registry: a request
 > about a feature David has declared prototype phase — "build X" or "fix
 > this" alike — goes to the `prototype` skill, whose first version runs the

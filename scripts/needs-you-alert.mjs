@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
  * needs-you-alert — David's phone says so whenever a session hands control
  * back to him or writes something he might act on, and it keeps saying so,
@@ -108,10 +108,14 @@
  * it has read, and the text of every FYI it has rung for, in a small state
  * file under the OS temp directory keyed by session id, so one FYI rings once
  * across the many `PostToolUse` events that follow it and the `Stop` that
- * ends the turn. The file is per container and dies with it, which is the
- * right life: the transcript it indexes does too. A cursor that cannot be
- * read starts from the beginning of the file; a missed alert costs more than
- * a repeated one (David, above).
+ * ends the turn. The file is per container and dies with it. Whether a
+ * resumed session's transcript survives a container restart is unable to
+ * verify (the Fable assessor, PR #265 round 1; the build report held it
+ * against the earlier claim here that the two die together): if it does,
+ * the first event after a restart re-reads the whole transcript and re-rings
+ * every FYI the session wrote, once, at the quiet tier, inside one send
+ * window. A cursor that cannot be read starts from the beginning of the
+ * file; a missed alert costs more than a repeated one (David, above).
  *
  * CREDENTIALS: `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN`, set as
  * environment variables in the cloud environment's settings. They can only

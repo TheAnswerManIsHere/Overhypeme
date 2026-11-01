@@ -1,4 +1,4 @@
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo.
+// SYNCED FROM KITT — do not edit in a consumer repo.
 /**
  * The review proxy's tests, rewritten for the advisory model (#96, 2026-09-17).
  *

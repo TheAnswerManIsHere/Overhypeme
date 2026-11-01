@@ -1,13 +1,13 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 # Agent instructions — portable core (all agents)
 
 <!--
   SYNCED FILE — do not edit in a consumer repo.
 
   This file is the fleet-wide, cross-agent half of the routing constitution.
-  It is maintained in the AI-Handbook repo and vendored into every consumer
-  repo by the handbook sync. An edit made here in a consumer repo is
-  overwritten by the next sync; change the handbook instead.
+  It is maintained in the KITT repo and vendored into every consumer
+  repo by the KITT sync. An edit made here in a consumer repo is
+  overwritten by the next sync; change KITT instead.
 
   Unlike CLAUDE.md, AGENTS.md does not support eager file imports, so a
   consumer's AGENTS.md LINKS here rather than importing. That matches how
@@ -23,7 +23,7 @@
 -->
 
 > **Who this is for.** Every AI agent working in a repo governed by the
-> AI-Handbook — Codex, Claude Code, Replit, and whatever comes next. It tells
+> KITT — Codex, Claude Code, Replit, and whatever comes next. It tells
 > you **how to behave and what is non-negotiable**, independent of which
 > product you are working on. The repo's own `AGENTS.md` carries the product
 > half: what this product is, where its truth lives, and how to build and
@@ -32,7 +32,7 @@
 > **One source of truth for all agents.** These rules are shared. Claude
 > Code's `CLAUDE.md` holds only Claude-specific ceremony and defers here for
 > every cross-agent principle. When a shared rule changes, it changes in the
-> handbook — never as a forked copy in one agent's own file or private
+> KITT — never as a forked copy in one agent's own file or private
 > memory.
 
 ## Working agreement with David
@@ -169,7 +169,7 @@ does not apply. The tool, its contract and its back-out:
   output: observe those and refuse on disagreement. Everything a script gets
   from the agent that runs it — its argv, a file it authored following its
   own protocol, a ref or path it chose — falls into one of two kinds, and
-  the rule differs (David, 2026-10-15, on AI-Handbook #211, where two
+  the rule differs (David, 2026-10-15, on KITT #211, where two
   assessments weighed an id the agent would have had to mistype against its
   own protocol: *"you are the one who would write the id"*):
   - **Derivable** — the script already holds every input needed to compute
@@ -177,7 +177,7 @@ does not apply. The tool, its contract and its back-out:
     input at all.** A check whose two sides you both own carries no
     independent information — it fails only when the code between them is
     wrong, and that code is exactly as likely to be wrong as the check
-    (AI-Handbook #73: four review rounds on one flag, then the flag was
+    (KITT #73: four review rounds on one flag, then the flag was
     deleted).
   - **A choice** — it encodes intent the script cannot know (`--role`,
     `--timeout`, `sync --to <repo>`). Take it. A cheap check that it is
@@ -187,7 +187,7 @@ does not apply. The tool, its contract and its back-out:
     planted symlink, a traversal, a hard link the operator would have to
     create on purpose, a file whose entries collide only if its author
     contradicts the format it is writing to — is not, and the response to
-    such a finding is to decline it, not to guard (AI-Handbook #7: eleven
+    such a finding is to decline it, not to guard (KITT #7: eleven
     findings and no added safety; #211: two assessments and a ruling, for a
     guard that was never written).
   **Ask who produced the value, never which directory the file sits in.** A

@@ -3,11 +3,11 @@ name: writing-plans
 description: Use when you have a spec or requirements for a multi-step task, before touching code
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Writing Plans
 
-> **Local note (AI-Handbook #168, corrected #173).** A feature David has
+> **Local note (KITT #168, corrected #173).** A feature David has
 > declared prototype phase has a short plan to write for its **first version**
 > — the design question, the hypothesis, the surface, what it leaves out — and
 > none for later versions unless David asks; the questions file is that plan's

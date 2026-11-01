@@ -3,7 +3,7 @@ name: A fetch refspec limited to main makes a pushed branch look unpushed
 description: A clone whose remote.origin.fetch names only main never gets a remote-tracking ref for a pushed feature branch, so the stop hook and `@{u}` report the branch as unpushed with no remote branch. Widen the refspec; do not re-push.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # A fetch refspec limited to `main` makes a pushed branch look unpushed
 
@@ -17,7 +17,7 @@ PR is open on it.
 `remote.origin.fetch = +refs/heads/main:refs/remotes/origin/main` — so no
 `refs/remotes/origin/claude/<branch>` ref is ever created or updated, and
 every tool that compares the branch to its remote-tracking ref sees nothing
-there. Measured twice on 2026-10-11 (ai-handbook, then DojoOS), both clones
+there. Measured twice on 2026-10-11 (kitt, then DojoOS), both clones
 set up by the session harness.
 
 **Fix.** Widen the refspec and fetch the branch once; never re-push to

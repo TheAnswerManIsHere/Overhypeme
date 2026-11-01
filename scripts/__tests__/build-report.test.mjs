@@ -1,4 +1,4 @@
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo.
+// SYNCED FROM KITT — do not edit in a consumer repo.
 /**
  * The build report's tests. The deliverable is a chat message, so these assert
  * on text. The rule under test throughout: **"agrees" is never printed over an
@@ -89,7 +89,7 @@ test("the brief carries the coordinates, the answer path and the whole schema in
   assert.ok(brief.includes(answerPath(root, "pr-7")));
   assert.ok(brief.includes('"what_was_built"'), "the schema travels with the brief");
   assert.match(brief, /no tool that can open a file/);
-  assert.match(brief, /`paid-ai-ledger` in `TheAnswerManIsHere\/AI-Handbook`/, "the ledger is the fleet's, not the unit's repository");
+  assert.match(brief, /`paid-ai-ledger` in `TheAnswerManIsHere\/KITT`/, "the ledger is the fleet's, not the unit's repository");
 });
 
 test("a branch-regime prototype version is a unit with no pull request", () => {
@@ -187,7 +187,7 @@ test("the report prints the fixed sections in order, in the role's words", () =>
   }
   assert.ok(text.includes("Revert the pin and bump Playwright."));
   assert.ok(text.includes("$4.10 over 6 turns"));
-  assert.match(text, /no paid-run ledger in the handbook yet/);
+  assert.match(text, /no paid-run ledger in KITT yet/);
   assert.doesNotMatch(text, /took_on_trust|did not read the logs/, "took_on_trust is collected, not shown");
   assert.doesNotMatch(text, /Written by/, "a matching model prints nothing");
 });

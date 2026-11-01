@@ -3,11 +3,11 @@ name: systematic-debugging
 description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Systematic Debugging
 
-> **Local note (AI-Handbook #168).** A defect on a feature David has declared
+> **Local note (KITT #168).** A defect on a feature David has declared
 > prototype phase is not a bug to fix under this skill: it is the next
 > version through the `prototype` skill, with no failing test required (its
 > scaled machine-lane checks are kept and updated with the version)

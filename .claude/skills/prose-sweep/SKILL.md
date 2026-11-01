@@ -3,7 +3,7 @@ name: prose-sweep
 description: Reconcile the payload's prose with a landed design change by sweeping, never patching. Use after any change that RETIRES OR RESHAPES a rule, a mechanism or an authority (a changed requirement retires its previous reading) — and again after every batch of fixes it produces, because each batch seeds fresh instances. Enumerates the retired rule's sub-shapes and exclusions as a spec, fixes the scope from git's tracked set including the role briefs and agent definitions a docs-shaped scope misses, fans the payload out to cold readers who declare what they read, and returns candidates with confidence plus every declined candidate with its exclusion. NOT a phrase checker; grep is a cross-check for a reader, never the method.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Prose sweep — the enactment
 
@@ -12,7 +12,7 @@ and that file is its only statement.** This skill is the mechanics: what I
 type, what I dispatch, what I read back. Nothing here restates a rule; where
 a step below seems to, the doc wins.
 
-Paths below are a consumer's. In the handbook the payload sits under
+Paths below are a consumer's. In KITT the payload sits under
 `core/`, the script knows, and a spec written payload-relative works in both.
 
 ## 1. Write the spec, before opening a file
@@ -49,10 +49,10 @@ node $P --spec <spec.json> --print-scope        # look
 node $P --spec <spec.json> --workers 4 --out <dir>
 ```
 
-The script sits at `core/scripts/` in the handbook and `scripts/` in a
+The script sits at `core/scripts/` in KITT and `scripts/` in a
 consumer, so the first line picks the one that exists — the same shape
 `plan-review-loop` and `pr-watch` already use. Spelling it `scripts/…` alone
-fails in the handbook, where this skill is live by symlink.
+fails in KITT, where this skill is live by symlink.
 
 It enumerates every tracked `.md` in the payload plus the root `CLAUDE.md`,
 `AGENTS.md` and `README.md` — `.agents/roles/`, `.claude/agents/` and
