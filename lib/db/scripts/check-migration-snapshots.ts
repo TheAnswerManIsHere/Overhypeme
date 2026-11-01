@@ -486,6 +486,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // admin_config row and adds one index on user_ai_images.storage_path.
   // DEFERRED like 0115's; source of truth: lib/db/src/schema/userAiImages.ts.
   "0116_content_restore_window",
+
+  // Hand-written expand (Launch Phase 5, increment 5): the
+  // account_deletion_requests table with two CHECKs and a partial index, and
+  // facts.submitter_deleted_at. DEFERRED like 0115's; source of truth:
+  // lib/db/src/schema/accountDeletion.ts and facts.ts.
+  "0117_account_deletion_requests",
 ]);
 
 interface JournalEntry {

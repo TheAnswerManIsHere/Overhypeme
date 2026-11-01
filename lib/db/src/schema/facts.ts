@@ -23,6 +23,8 @@ export const factsTable = pgTable("facts", {
   id: serial("id").primaryKey(),
   text: text("text").notNull(),
   submittedById: varchar("submitted_by_id").references(() => usersTable.id),
+  /** When the submitter's account was purged and `submitted_by_id` nulled (launch Phase 5, 0117): "a former member", not "no submitter". */
+  submitterDeletedAt: timestamp("submitter_deleted_at", { withTimezone: true }),
   parentId: integer("parent_id"),
   useCase: varchar("use_case", { length: 50 }),
   upvotes: integer("upvotes").notNull().default(0),

@@ -9,14 +9,15 @@ import { memesTable, uploadImageMetadataTable, userAiImagesTable } from "@worksp
 import { sql, and, eq } from "drizzle-orm";
 import type { ObjectStorageService } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
-import { liveContent } from "./contentVisibility";
+import { aiImageIsOwnersOwn, liveContent } from "./contentVisibility";
 import { memeSlugOfObjectPath } from "./storageKeys";
 
 /**
  * The content row whose bytes `objectPath` is, as the live rule sees it:
  * `{ isLive, ownerId }`, or null when no meme, upload or generated image names
  * it. One statement on the object-serving path. A file several generated-image
- * rows name (a mirror per request) is live while any of them is.
+ * rows name (a mirror per request) is live while any of them is, and a fact
+ * gallery's background always is.
  */
 export async function contentRowOfObject(objectPath: string): Promise<{ isLive: boolean; ownerId: string | null } | null> {
   const memeSlug = memeSlugOfObjectPath(objectPath);
@@ -30,7 +31,9 @@ export async function contentRowOfObject(objectPath: string): Promise<{ isLive: 
         SELECT ${liveContent(uploadImageMetadataTable)} AS is_live, ${uploadImageMetadataTable.userId} AS owner_id
         FROM ${uploadImageMetadataTable} WHERE ${uploadImageMetadataTable.objectPath} = ${objectPath}
         UNION ALL
-        SELECT bool_or(${liveContent(userAiImagesTable)}), min(${userAiImagesTable.userId})
+        -- A fact gallery's background is everyone's: live whatever happens to
+        -- the account it was filed under (PR #815's build report).
+        SELECT bool_or(${liveContent(userAiImagesTable)} OR NOT ${aiImageIsOwnersOwn(userAiImagesTable)}), min(${userAiImagesTable.userId})
         FROM ${userAiImagesTable} WHERE ${userAiImagesTable.storagePath} = ${objectPath}
         HAVING count(*) > 0
         LIMIT 1
