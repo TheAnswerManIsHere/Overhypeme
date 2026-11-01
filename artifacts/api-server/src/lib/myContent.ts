@@ -4,9 +4,9 @@
  */
 import { db } from "@workspace/db";
 import { memesTable, uploadImageMetadataTable, userAiImagesTable } from "@workspace/db/schema";
-import { and, desc, eq, gt, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, ne, sql } from "drizzle-orm";
 
-import { aiImageIsOwnersOwn, deletionStamp, liveContent } from "./contentVisibility";
+import { RESTORED, aiImageIsOwnersOwn, deletionStamp, liveContent, restorable } from "./contentVisibility";
 
 /** A page and where the next one starts; `nextCursor` is null on the last page. */
 export interface Page<T> {
@@ -19,6 +19,12 @@ function parseIdCursor(cursor: string | undefined): number | null {
   if (!cursor) return null;
   const id = Number.parseInt(cursor, 10);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/** The page of `rows` (fetched with one extra) and the id cursor of the next, if any. */
+function idPage<T extends { id: number }>(rows: T[], limit: number): Page<T> {
+  const items = rows.slice(0, limit);
+  return { items, nextCursor: rows.length > limit ? String(items[items.length - 1]!.id) : null };
 }
 
 /** A photo is never listed when a moderation scan matched it, live or deleted. */
@@ -86,7 +92,6 @@ export async function listUploadsPage(
         height: t.height,
         isLowRes: t.isLowRes,
         fileSizeBytes: t.fileSizeBytes,
-        createdAt: t.createdAt,
         // Full precision, so the cursor never skips or repeats a row.
         createdAtKey: sql<string>`${t.createdAt}::text`,
         transform: t.transform,
@@ -109,7 +114,7 @@ export async function listUploadsPage(
   const page = rows.slice(0, opts.limit);
   const last = page[page.length - 1];
   return {
-    items: page.map(({ createdAtKey: _key, createdAt, ...r }) => ({ ...r, createdAt: createdAt.toISOString() })),
+    items: page.map(({ createdAtKey, ...r }) => ({ ...r, createdAt: new Date(createdAtKey).toISOString() })),
     nextCursor: rows.length > opts.limit && last ? encodeUploadCursor(last.isProfile, last.createdAtKey, last.objectPath) : null,
     total,
   };
@@ -152,20 +157,19 @@ export async function restoreUpload(userId: string, objectPath: string): Promise
   return db.transaction(async (tx) => {
     const [row] = await tx
       .update(t)
-      .set({ deletedAt: null, purgeAfter: null })
+      .set(RESTORED)
       .where(and(
         eq(t.objectPath, objectPath),
         eq(t.userId, userId),
-        isNotNull(t.deletedAt),
-        gt(t.purgeAfter, new Date()),
+        restorable(t),
       ))
       .returning({ objectPath: t.objectPath });
     if (!row) return "not_found";
     // Its derivatives, deleted with it, come back with it.
     await tx
       .update(t)
-      .set({ deletedAt: null, purgeAfter: null })
-      .where(and(eq(t.userId, userId), eq(t.sourceObjectPath, objectPath), isNotNull(t.deletedAt), gt(t.purgeAfter, new Date())));
+      .set(RESTORED)
+      .where(and(eq(t.userId, userId), eq(t.sourceObjectPath, objectPath), restorable(t)));
     return "ok";
   });
 }
@@ -208,11 +212,8 @@ export async function listAiImagesPage(
     ))
     .orderBy(desc(t.id))
     .limit(opts.limit + 1);
-  const page = rows.slice(0, opts.limit);
-  return {
-    items: page.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
-    nextCursor: rows.length > opts.limit ? String(page[page.length - 1]!.id) : null,
-  };
+  const page = idPage(rows, opts.limit);
+  return { ...page, items: page.items.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })) };
 }
 
 /** Deletes one of the member's own generated images (never a shared fact background). */
@@ -232,8 +233,8 @@ export async function restoreAiImage(userId: string, id: number): Promise<Conten
   const t = userAiImagesTable;
   const [row] = await db
     .update(t)
-    .set({ deletedAt: null, purgeAfter: null })
-    .where(and(eq(t.id, id), eq(t.userId, userId), isNotNull(t.deletedAt), gt(t.purgeAfter, new Date())))
+    .set(RESTORED)
+    .where(and(eq(t.id, id), eq(t.userId, userId), restorable(t)))
     .returning({ id: t.id });
   return row ? "ok" : "not_found";
 }
@@ -267,11 +268,7 @@ export async function listMemesPage(userId: string, opts: { cursor?: string; lim
     ))
     .orderBy(desc(t.id))
     .limit(opts.limit + 1);
-  const page = rows.slice(0, opts.limit);
-  return {
-    items: page,
-    nextCursor: rows.length > opts.limit ? String(page[page.length - 1]!.id) : null,
-  };
+  return idPage(rows, opts.limit);
 }
 
 // ── Recently deleted ───────────────────────────────────────────────
@@ -282,7 +279,7 @@ export type DeletedItem =
   | { kind: "meme"; key: string; slug: string; deletedAt: string; purgeAfter: string };
 
 /** The most items Recently deleted shows; older ones are still restorable by their key. */
-export const RECENTLY_DELETED_LIMIT = 200;
+const RECENTLY_DELETED_LIMIT = 200;
 
 /**
  * Everything the member deleted that is still restorable, newest deletion
@@ -300,19 +297,19 @@ export async function listRecentlyDeleted(userId: string): Promise<{ items: Dele
     db
       .select({ objectPath: u.objectPath, deletedAt: u.deletedAt, purgeAfter: u.purgeAfter })
       .from(u)
-      .where(and(eq(u.userId, userId), isNotNull(u.deletedAt), gt(u.purgeAfter, now), isNull(u.transform), uploadNotQuarantined))
+      .where(and(eq(u.userId, userId), restorable(u, now), isNull(u.transform), uploadNotQuarantined))
       .orderBy(desc(u.deletedAt))
       .limit(RECENTLY_DELETED_LIMIT + 1),
     db
       .select({ id: a.id, storagePath: a.storagePath, deletedAt: a.deletedAt, purgeAfter: a.purgeAfter })
       .from(a)
-      .where(and(eq(a.userId, userId), isNotNull(a.deletedAt), gt(a.purgeAfter, now), aiImageIsOwnersOwn(a)))
+      .where(and(eq(a.userId, userId), restorable(a, now), aiImageIsOwnersOwn(a)))
       .orderBy(desc(a.deletedAt))
       .limit(RECENTLY_DELETED_LIMIT + 1),
     db
       .select({ slug: m.permalinkSlug, deletedAt: m.deletedAt, purgeAfter: m.purgeAfter })
       .from(m)
-      .where(and(eq(m.createdById, userId), isNotNull(m.deletedAt), gt(m.purgeAfter, now), ne(m.status, "quarantined")))
+      .where(and(eq(m.createdById, userId), restorable(m, now), ne(m.status, "quarantined")))
       .orderBy(desc(m.deletedAt))
       .limit(RECENTLY_DELETED_LIMIT + 1),
   ]);

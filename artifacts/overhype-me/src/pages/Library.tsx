@@ -164,6 +164,7 @@ export default function Library() {
     enabled: isAuthenticated,
     staleTime: 30_000,
   });
+  // The server's window; until it has answered, the default it ships with.
   const windowDays = deletedData?.restoreWindowDays ?? 30;
 
   /** Runs a delete or restore, then refreshes the lists it changed. */
@@ -560,7 +561,7 @@ export default function Library() {
           )}
 
           {activeTab === "deleted" && (
-            <RecentlyDeletedPanel data={deletedData} isLoading={isDeletedLoading} onRestore={restore} />
+            <RecentlyDeletedPanel data={deletedData} isLoading={isDeletedLoading} windowDays={windowDays} onRestore={restore} />
           )}
         </div>
       </div>
@@ -614,9 +615,10 @@ function daysLeft(purgeAfter: string): number {
  * deleted that can still come back, with how long each has left. Restoring
  * puts it back where it was, as it was.
  */
-function RecentlyDeletedPanel({ data, isLoading, onRestore }: {
+function RecentlyDeletedPanel({ data, isLoading, windowDays, onRestore }: {
   data: RecentlyDeleted | undefined;
   isLoading: boolean;
+  windowDays: number;
   onRestore: (item: DeletedItem) => Promise<void>;
 }) {
   const { toast } = useToast();
@@ -637,7 +639,7 @@ function RecentlyDeletedPanel({ data, isLoading, onRestore }: {
   return (
     <div>
       <p className="text-sm text-muted-foreground mb-6">
-        Photos, images and memes you deleted. Each stays here for {data?.restoreWindowDays ?? 30} days after you delete it,
+        Photos, images and memes you deleted. Each stays here for {windowDays} days after you delete it,
         then it is removed from Overhype.me for good. Restore puts it back exactly as it was.
       </p>
       {isLoading ? (

@@ -3,7 +3,8 @@ import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { Readable } from "stream";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { ObjectPermission } from "../lib/objectAcl";
-import { withdrawnObject, userCanReadObject } from "../lib/objectAccess";
+import { contentRowOfObject, userCanReadObject } from "../lib/objectAccess";
+import { byteAccess } from "../lib/contentVisibility";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { CACHE, setPublicCache, setPublicCors, setNoStore } from "../lib/cacheHeaders";
@@ -157,9 +158,10 @@ router.get("/storage/objects/*path", async (req: AuthenticatedRequest, res: Resp
     }
     const objectPath = `/objects/${wildcardPath}`;
     // Content its owner deleted is refused like a missing object, before any
-    // storage read, to everyone but that owner (plan S17; lib/objectAccess.ts).
-    const withdrawn = await withdrawnObject(objectPath);
-    if (withdrawn && (!withdrawn.ownerId || withdrawn.ownerId !== req.user?.id)) {
+    // storage read, to everyone but that owner (plan S17). This runs before
+    // userCanReadObject, whose legacy owner fallback does not ask.
+    const access = byteAccess(await contentRowOfObject(objectPath), req.user?.id);
+    if (access === "refuse") {
       res.status(404).json({ error: "Object not found" });
       return;
     }
@@ -188,7 +190,7 @@ router.get("/storage/objects/*path", async (req: AuthenticatedRequest, res: Resp
       if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
     });
 
-    if (withdrawn) {
+    if (access === "serve-uncached") {
       // Its owner looking at it in Recently deleted: never into a shared cache.
       setNoStore(res);
     } else if (isPublic) {

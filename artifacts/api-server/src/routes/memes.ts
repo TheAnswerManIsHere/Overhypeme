@@ -17,7 +17,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
 import { renderPersonalized } from "../lib/renderCanonical";
-import { memeKey } from "../lib/storageKeys";
+import { memeObjectPaths } from "../lib/storageKeys";
 import { renderStoredMeme } from "../lib/memeBake";
 import { BudgetExceededError, BudgetGateError } from "../lib/budgetGate";
 import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
@@ -30,7 +30,7 @@ import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 import { canViewMeme } from "../lib/memeVisibility";
-import { deletionStamp, liveContent } from "../lib/contentVisibility";
+import { RESTORED, byteAccess, deletionStamp, liveContent, restorable } from "../lib/contentVisibility";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -461,11 +461,12 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     .limit(1);
   if (!meme || !canViewMeme(meme, req)) { res.status(404).end(); return; }
   // A meme that is not live is refused at the byte path like one that never
-  // existed (plan S17), to everyone but its creator, who sees it in Recently
-  // deleted; its file stays in storage until the purge.
-  if (!meme.isLive && (!meme.createdById || meme.createdById !== req.user?.id)) { res.status(404).end(); return; }
+  // existed, to everyone but its creator, who sees it in Recently deleted
+  // (plan S17, lib/contentVisibility.ts byteAccess).
+  const access = byteAccess({ isLive: meme.isLive, ownerId: meme.createdById }, req.user?.id);
+  if (access === "refuse") { res.status(404).end(); return; }
   // Private and deleted meme images must be no-store (never publicly/edge cacheable).
-  const memeIsPrivate = !meme.isPublic || !meme.isLive;
+  const memeIsPrivate = !meme.isPublic || access === "serve-uncached";
 
   // ── The meme's file (plan S16) ───────────────────────────────────
   // A meme is baked to a file at save; a legacy meme was stored as one before
@@ -476,9 +477,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     const etag = `"meme-${slug}"`;
     if (checkConditional(req, res, etag)) return;
     // A baked meme has one key; a legacy one may sit under any of the older forms.
-    const candidates = meme.bakedAt
-      ? [`/objects/${memeKey(slug, "jpg")}`]
-      : [`/objects/${memeKey(slug, "jpg")}`, `/objects/${memeKey(slug, "png")}`, `/objects/memes/${slug}.jpg`, `/objects/memes/${slug}.png`];
+    const candidates = meme.bakedAt ? memeObjectPaths(slug).slice(0, 1) : memeObjectPaths(slug);
     for (const objectPath of candidates) {
       const objectFile = await objectStorageService.getObjectEntityFile(objectPath).catch(() => null);
       if (!objectFile) continue;
@@ -563,13 +562,8 @@ router.post("/memes/:slug/restore", async (req: Request, res: Response) => {
 
   const [restored] = await db
     .update(memesTable)
-    .set({ deletedAt: null, purgeAfter: null })
-    .where(and(
-      eq(memesTable.permalinkSlug, slug),
-      eq(memesTable.createdById, req.user.id),
-      sql`${memesTable.deletedAt} IS NOT NULL`,
-      gt(memesTable.purgeAfter, new Date()),
-    ))
+    .set(RESTORED)
+    .where(and(eq(memesTable.permalinkSlug, slug), eq(memesTable.createdById, req.user.id), restorable(memesTable)))
     .returning({ id: memesTable.id });
   if (!restored) { res.status(404).json({ error: "Nothing to restore" }); return; }
   res.json({ success: true });

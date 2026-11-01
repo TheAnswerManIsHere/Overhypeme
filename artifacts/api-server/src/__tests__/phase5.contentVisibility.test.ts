@@ -24,6 +24,7 @@ import shareIntentsRouter from "../routes/shareIntents.js";
 import { createMemeRecord, type CreateMemeError, type MemeAuthorizationDecisions } from "../lib/createMemeRecord.js";
 import { userOwnsUpload } from "../lib/uploadOwnership.js";
 import { runContentPurger } from "../jobs/contentPurger.js";
+import { listAiImagesPage, listMemesPage, listUploadsPage } from "../lib/myContent.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { memeKey } from "../lib/storageKeys.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -100,6 +101,10 @@ describe("content visibility (T4)", () => {
 
   it("a deleted photo leaves the listing, the builder and the byte path, shows in Recently deleted to its owner only, and a restore puts it back", async () => {
     const path_ = await photos.seed(owner);
+    // A real upload is stored with its owner's private ACL. Without one the
+    // read takes the legacy fallback, whose background ACL heal can race the
+    // read in the storage double.
+    await new ObjectStorageService().trySetObjectEntityAclPolicy(path_, { owner, visibility: "private" });
     const listed = async () => ((await request(app(owner)).get("/api/users/me/uploads")).body.uploads as Array<{ objectPath: string }>).map((u) => u.objectPath);
     assert.ok((await listed()).includes(path_));
 
@@ -114,7 +119,7 @@ describe("content visibility (T4)", () => {
     assert.equal((await request(app(other)).get(byteUrl)).status, 404, "another member is refused like a missing object");
     assert.equal((await request(app(null)).get(byteUrl)).status, 404, "so is a visitor");
     const own = await request(app(owner)).get(byteUrl);
-    assert.equal(own.status, 200, `its owner still sees it, to choose what to restore (${own.text})`);
+    assert.equal(own.status, 200, "its owner still sees it, to choose what to restore");
     assert.match(String(own.headers["cache-control"]), /no-store/, "and never into a shared cache");
 
     const deleted = await request(app(owner)).get("/api/users/me/recently-deleted");
@@ -130,6 +135,35 @@ describe("content visibility (T4)", () => {
     assert.ok((await listed()).includes(path_), "back in the listing");
     assert.equal(await userOwnsUpload(path_, owner), true);
     assert.equal((await request(app(other)).get(byteUrl)).status, 403, "back under its ACL: private to its owner, as before");
+  });
+
+  it("My content's lists page by cursor: every live item once, the profile photo first, deleted items never", async () => {
+    const pager = await createUser("Pager");
+    const keys = [await photos.seed(pager), await photos.seed(pager), await photos.seed(pager), await photos.seed(pager)];
+    await db.update(uploadImageMetadataTable).set({ isProfile: true }).where(eq(uploadImageMetadataTable.objectPath, keys[2]!));
+    await db.update(uploadImageMetadataTable).set({ deletedAt: new Date(), purgeAfter: new Date(Date.now() + 86_400_000) }).where(eq(uploadImageMetadataTable.objectPath, keys[3]!));
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 5; i++) {
+      const page = await listUploadsPage(pager, { transform: "raw", factId: null, cursor, limit: 1 });
+      seen.push(...page.items.map((u) => u.objectPath));
+      assert.equal(page.total, 3, "the count is of live photos");
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    assert.equal(seen[0], keys[2], "the profile photo first");
+    assert.deepEqual([...seen].sort(), [keys[0], keys[1], keys[2]].sort(), "each live photo exactly once, the deleted one never");
+
+    const slugs: string[] = [];
+    for (let n = 0; n < 3; n++) {
+      const saved = await createMemeRecord({ userId: pager, factId, imageSource: { type: "upload", uploadKey: keys[0]! }, textOptions: { topText: `page ${n}` }, aspectRatio: "landscape", decisions: ALLOW_ALL });
+      slugs.push(saved.permalinkSlug);
+    }
+    const first = await listMemesPage(pager, { limit: 2 });
+    const second = await listMemesPage(pager, { limit: 2, cursor: first.nextCursor! });
+    assert.deepEqual([...first.items, ...second.items].map((m) => m.permalinkSlug), [...slugs].reverse(), "newest first, each once");
+    assert.equal(second.nextCursor, null, "the last page says so");
+    assert.equal((await listAiImagesPage(pager, { imageType: "reference", factId: null, limit: 2 })).nextCursor, null);
   });
 
   it("the profile photo cannot be deleted while it is the profile photo", async () => {
@@ -170,6 +204,19 @@ describe("content visibility (T4)", () => {
     assert.equal((await request(app(null)).get(`/api/memes/${slug}/image`)).status, 200);
     assert.ok((await factListing()).includes(slug));
     assert.ok((await mine()).includes(slug));
+  });
+
+  it("a deleted legacy meme's file is refused under every key form it can sit under", async () => {
+    const slug = `p5vleg${randomUUID().slice(0, 6)}`;
+    const legacyPath = await storeObject(`memes/${slug}.jpg`);
+    await new ObjectStorageService().trySetObjectEntityAclPolicy(legacyPath, { owner, visibility: "public" });
+    const [legacy] = await db.insert(memesTable).values({
+      factId, createdById: owner, templateId: "legacy", imageUrl: `/api/memes/${slug}/image`, permalinkSlug: slug, isPublic: true,
+    } as never).returning();
+    assert.equal((await request(app(other)).get(`/api/storage${legacyPath}`)).status, 200, "a live legacy meme's file is public");
+    await db.update(memesTable).set({ deletedAt: new Date(), purgeAfter: new Date(Date.now() + 86_400_000) }).where(eq(memesTable.id, legacy!.id));
+    assert.equal((await request(app(other)).get(`/api/storage${legacyPath}`)).status, 404, "deleted, its legacy path is refused too");
+    assert.equal((await request(app(null)).get(`/api/memes/${slug}/image`)).status, 404);
   });
 
   it("My content lists and deletes only the member's own generated images, never a shared fact background", async () => {

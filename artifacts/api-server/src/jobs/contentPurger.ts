@@ -4,12 +4,13 @@
  */
 import { db } from "@workspace/db";
 import { memesTable, reactionsTable, uploadImageMetadataTable, userAiImagesTable } from "@workspace/db/schema";
-import { and, asc, eq, gt, inArray, isNotNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, getTableName, gt, inArray, sql } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 
-import { aiImageIsOwnersOwn } from "../lib/contentVisibility";
+import { aiImageIsOwnersOwn, purgeDue, type ContentTable } from "../lib/contentVisibility";
 import { logger } from "../lib/logger";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { memeKey } from "../lib/storageKeys";
+import { memeObjectPaths } from "../lib/storageKeys";
 
 const BATCH = 50;
 
@@ -75,141 +76,44 @@ async function purgeOne(
   }
 }
 
-async function purgePhotos(storage: ObjectStorageService, now: Date, scope: PurgeScope, counts: PurgeCounts): Promise<void> {
-  const t = uploadImageMetadataTable;
-  let after = "";
+/** One table's purge: its rows past their window, keyset-paged, each claimed and destroyed by `purgeOne`. */
+async function purgeTable<K extends string | number>(
+  spec: {
+    table: ContentTable;
+    /** The row's key column and the owner whose lock it is claimed under. */
+    key: PgColumn;
+    owner: PgColumn;
+    /** Restricts the run to these keys (tests). */
+    only: K[] | undefined;
+    /** Deletes the row's storage objects and then the row, inside the claim. */
+    destroy: (tx: Tx, key: K) => Promise<void>;
+  },
+  now: Date,
+  counts: PurgeCounts,
+): Promise<void> {
+  const { table, key, owner } = spec;
+  let after: K | null = null;
   for (;;) {
-    const rows = await db
-      .select({ objectPath: t.objectPath, userId: t.userId })
-      .from(t)
+    const rows = (await db
+      .select({ key, owner })
+      .from(table)
       .where(and(
-        isNotNull(t.deletedAt), isNotNull(t.purgeAfter), lt(t.purgeAfter, now),
-        gt(t.objectPath, after),
-        scope.photoPaths ? inArray(t.objectPath, scope.photoPaths) : undefined,
+        purgeDue(table, now),
+        after !== null ? gt(key, after) : undefined,
+        spec.only ? inArray(key, spec.only) : undefined,
       ))
-      .orderBy(asc(t.objectPath))
-      .limit(BATCH);
+      .orderBy(asc(key))
+      .limit(BATCH)) as Array<{ key: K; owner: string | null }>;
     if (rows.length === 0) return;
     for (const row of rows) {
-      after = row.objectPath;
+      after = row.key;
       counts.selected++;
       const outcome = await purgeOne(
-        row.userId,
-        async (tx) => {
-          const [still] = await tx
-            .select({ objectPath: t.objectPath })
-            .from(t)
-            .where(and(eq(t.objectPath, row.objectPath), isNotNull(t.deletedAt), lt(t.purgeAfter, new Date())))
-            .for("update");
-          return !!still;
-        },
-        async (tx) => {
-          await storage.deleteObject(row.objectPath);
-          await tx.delete(t).where(eq(t.objectPath, row.objectPath));
-        },
-        { objectPath: row.objectPath },
-      );
-      counts[outcome]++;
-    }
-  }
-}
-
-async function purgeGenerated(storage: ObjectStorageService, now: Date, scope: PurgeScope, counts: PurgeCounts): Promise<void> {
-  const t = userAiImagesTable;
-  let afterId = 0;
-  for (;;) {
-    const rows = await db
-      .select({ id: t.id, userId: t.userId, storagePath: t.storagePath })
-      .from(t)
-      .where(and(
-        isNotNull(t.deletedAt), isNotNull(t.purgeAfter), lt(t.purgeAfter, now),
-        gt(t.id, afterId),
-        scope.generatedIds ? inArray(t.id, scope.generatedIds) : undefined,
-      ))
-      .orderBy(asc(t.id))
-      .limit(BATCH);
-    if (rows.length === 0) return;
-    for (const row of rows) {
-      afterId = row.id;
-      counts.selected++;
-      const outcome = await purgeOne(
-        row.userId,
-        async (tx) => {
-          const [still] = await tx
-            .select({ id: t.id })
-            .from(t)
-            .where(and(eq(t.id, row.id), isNotNull(t.deletedAt), lt(t.purgeAfter, new Date())))
-            .for("update");
-          return !!still;
-        },
-        async (tx) => {
-          // The image is destroyed only when nothing else still serves it: no
-          // fact gallery (a shared background is everyone's), and no other
-          // row naming the same file.
-          const [ownOnly] = await tx
-            .select({ own: aiImageIsOwnersOwn(t) })
-            .from(t)
-            .where(eq(t.id, row.id));
-          const [{ others }] = await tx
-            .select({ others: sql<number>`count(*)::int` })
-            .from(t)
-            .where(and(eq(t.storagePath, row.storagePath), ne(t.id, row.id)));
-          if (ownOnly?.own && others === 0) await storage.deleteObject(row.storagePath);
-          await tx.delete(t).where(eq(t.id, row.id));
-        },
-        { generatedId: row.id },
-      );
-      counts[outcome]++;
-    }
-  }
-}
-
-/** Every key a meme's file can sit under: the baked key, and the older forms a legacy meme used. */
-function memeFilePaths(slug: string): string[] {
-  return [
-    `/objects/${memeKey(slug, "jpg")}`,
-    `/objects/${memeKey(slug, "png")}`,
-    `/objects/memes/${slug}.jpg`,
-    `/objects/memes/${slug}.png`,
-  ];
-}
-
-async function purgeMemes(storage: ObjectStorageService, now: Date, scope: PurgeScope, counts: PurgeCounts): Promise<void> {
-  const t = memesTable;
-  let afterId = 0;
-  for (;;) {
-    const rows = await db
-      .select({ id: t.id, createdById: t.createdById, slug: t.permalinkSlug })
-      .from(t)
-      .where(and(
-        isNotNull(t.deletedAt), isNotNull(t.purgeAfter), lt(t.purgeAfter, now),
-        gt(t.id, afterId),
-        scope.memeIds ? inArray(t.id, scope.memeIds) : undefined,
-      ))
-      .orderBy(asc(t.id))
-      .limit(BATCH);
-    if (rows.length === 0) return;
-    for (const row of rows) {
-      afterId = row.id;
-      counts.selected++;
-      const outcome = await purgeOne(
-        row.createdById,
-        async (tx) => {
-          const [still] = await tx
-            .select({ id: t.id })
-            .from(t)
-            .where(and(eq(t.id, row.id), isNotNull(t.deletedAt), lt(t.purgeAfter, new Date())))
-            .for("update");
-          return !!still;
-        },
-        async (tx) => {
-          // The meme's own file only: never the photo it was made from (S14).
-          // A key a meme never used is absent, which counts as deleted.
-          for (const path of memeFilePaths(row.slug)) await storage.deleteObject(path);
-          await tx.delete(reactionsTable).where(and(eq(reactionsTable.targetType, "meme"), eq(reactionsTable.targetId, row.id)));
-          await tx.delete(t).where(eq(t.id, row.id));
-        },
-        { memeId: row.id },
+        row.owner,
+        // Re-read under the lock: a restore since the selection wins.
+        async (tx) => (await tx.select({ key }).from(table).where(and(eq(key, row.key), purgeDue(table))).for("update")).length > 0,
+        (tx) => spec.destroy(tx, row.key),
+        { table: getTableName(table), key: row.key },
       );
       counts[outcome]++;
     }
@@ -225,9 +129,50 @@ async function purgeMemes(storage: ObjectStorageService, now: Date, scope: Purge
 export async function runContentPurger(scope: PurgeScope = {}, now = new Date()): Promise<ContentPurgeResult> {
   const storage = new ObjectStorageService();
   const result: ContentPurgeResult = { photos: zero(), generated: zero(), memes: zero() };
-  await purgePhotos(storage, now, scope, result.photos);
-  await purgeGenerated(storage, now, scope, result.generated);
-  await purgeMemes(storage, now, scope, result.memes);
+  const photos = uploadImageMetadataTable;
+  await purgeTable({
+    table: photos, key: photos.objectPath, owner: photos.userId, only: scope.photoPaths,
+    destroy: async (tx, objectPath: string) => {
+      await storage.deleteObject(objectPath);
+      await tx.delete(photos).where(eq(photos.objectPath, objectPath));
+    },
+  }, now, result.photos);
+
+  const generated = userAiImagesTable;
+  await purgeTable({
+    table: generated, key: generated.id, owner: generated.userId, only: scope.generatedIds,
+    destroy: async (tx, id: number) => {
+      // The image is destroyed only when nothing else still serves it: no
+      // fact gallery (a shared background is everyone's), and no other row
+      // naming the same file.
+      const [row] = await tx
+        .select({
+          storagePath: generated.storagePath,
+          own: aiImageIsOwnersOwn(generated),
+          // Spelled with the outer table's name: a single-table select renders
+          // its columns unqualified, which inside this subquery would bind to `o`.
+          others: sql<number>`(SELECT count(*)::int FROM user_ai_images o WHERE o.storage_path = user_ai_images.storage_path AND o.id <> user_ai_images.id)`,
+        })
+        .from(generated)
+        .where(eq(generated.id, id));
+      if (row && row.own && row.others === 0) await storage.deleteObject(row.storagePath);
+      await tx.delete(generated).where(eq(generated.id, id));
+    },
+  }, now, result.generated);
+
+  const memes = memesTable;
+  await purgeTable({
+    table: memes, key: memes.id, owner: memes.createdById, only: scope.memeIds,
+    destroy: async (tx, id: number) => {
+      const [row] = await tx.select({ slug: memes.permalinkSlug }).from(memes).where(eq(memes.id, id));
+      // The meme's own file only, in every key form it can use: never the
+      // photo it was made from (S14). A key it never used is absent, which
+      // counts as deleted.
+      if (row) await Promise.all(memeObjectPaths(row.slug).map((path) => storage.deleteObject(path)));
+      await tx.delete(reactionsTable).where(and(eq(reactionsTable.targetType, "meme"), eq(reactionsTable.targetId, id)));
+      await tx.delete(memes).where(eq(memes.id, id));
+    },
+  }, now, result.memes);
   const total = result.photos.selected + result.generated.selected + result.memes.selected;
   if (total > 0) logger.info(result, "[content-purger] run");
   return result;

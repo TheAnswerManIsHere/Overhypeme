@@ -8,11 +8,11 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
-  reactionsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
+  reactionsTable, searchHistoryTable, usersTable, emailVerificationTokensTable,
   userGenerationCostsTable, pendingReviewsTable, commentsTable, uploadImageMetadataTable,
 } from "@workspace/db/schema";
 import { getViewerFactRatings, getViewerReactionTargetIds } from "../lib/reactions";
-import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
+import { eq, desc, inArray, and, sql } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
 import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
