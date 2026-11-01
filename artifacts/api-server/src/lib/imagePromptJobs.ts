@@ -29,14 +29,12 @@
  */
 
 import { eq } from "drizzle-orm";
-import sharp from "sharp";
 import {
   db,
   factsTable,
   usersTable,
   imagePromptAttemptsTable,
   userAiImagesTable,
-  uploadImageMetadataTable,
   type ImagePromptAttempt,
 } from "@workspace/db";
 import type { AsyncJobRow } from "@workspace/db/schema";
@@ -374,14 +372,10 @@ export const imageGenerationHandler: JobHandler = {
       return { ok: false, error: `fal submit failed: ${msg}` };
     }
 
-    // Download + persist to object storage. Measure the ACTUAL output
-    // dimensions off the buffer (at 2K these are no longer 1024²) so the
-    // lineage row records the truth.
+    // Download + persist to object storage.
     let storedPath: string;
-    let outputDimensions: OutputDimensions = { width: 0, height: 0, byteSize: 0 };
     try {
       const buf = await downloadToBuffer(resultUrl);
-      outputDimensions = await measureImage(buf, p.attemptId);
       const subPath = `ai-bg-v2/${attempt.factId}/${attempt.id}-${Date.now()}.png`;
       storedPath = await objectStorage.uploadObjectBuffer({
         subPath,
@@ -408,7 +402,7 @@ export const imageGenerationHandler: JobHandler = {
     // route can still surface the image either way.
     const skipMirror = isEphemeralModerationRender(renderControls);
     if (!skipMirror) {
-      await mirrorToLegacyStorage(attempt, storedPath, outputDimensions);
+      await mirrorToLegacyStorage(attempt, storedPath);
     } else {
       logger.info(
         { attemptId: p.attemptId, factId: attempt.factId },
@@ -627,29 +621,16 @@ async function downloadToBuffer(url: string): Promise<Buffer> {
   return Buffer.from(arr);
 }
 
-interface OutputDimensions {
-  width: number;
-  height: number;
-  byteSize: number;
-}
-
-/** Read real pixel dimensions + byte size off a generated image buffer. */
-async function measureImage(buf: Buffer, attemptId: number): Promise<OutputDimensions> {
-  const byteSize = buf.length;
-  try {
-    const meta = await sharp(buf).metadata();
-    return { width: meta.width ?? 0, height: meta.height ?? 0, byteSize };
-  } catch (err) {
-    logger.warn({ err, attemptId }, "[imagePromptJobs] could not read output image dimensions");
-    return { width: 0, height: 0, byteSize };
-  }
-}
-
-async function mirrorToLegacyStorage(
-  attempt: ImagePromptAttempt,
-  storedPath: string,
-  dimensions: OutputDimensions,
-): Promise<void> {
+/**
+ * Records a generated fact background where the meme builder reads it:
+ * `facts.aiMemeImages`, and `user_ai_images` for the account that asked.
+ *
+ * It writes no `upload_image_metadata` row. That table holds a member's own
+ * uploaded photos, which the meme save and the private-photo read treat as
+ * theirs and My content will delete and purge (#806): a background shared by
+ * every member of the fact must never be one of them. Exported for its test.
+ */
+export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedPath: string): Promise<void> {
   try {
     // Append to facts.aiMemeImages[gender] so the legacy GET image endpoint
     // can serve this background by index. Gender resolution uses the
@@ -686,23 +667,6 @@ async function mirrorToLegacyStorage(
         storagePath: storedPath,
         imageType: "reference",
       });
-    }
-    // Drop a derivative row in upload_image_metadata for lineage too — best-effort.
-    try {
-      // Use the measured output dimensions; fall back to the engine's nominal
-      // square only if metadata couldn't be read (notNull columns).
-      await db.insert(uploadImageMetadataTable).values({
-        objectPath: storedPath,
-        width: dimensions.width > 0 ? dimensions.width : 1024,
-        height: dimensions.height > 0 ? dimensions.height : 1024,
-        isLowRes: false,
-        fileSizeBytes: dimensions.byteSize,
-        userId: attempt.userId ?? null,
-        transform: "phase2_v2",
-        factId: attempt.factId,
-      });
-    } catch (err) {
-      logger.warn({ err, storedPath }, "[imagePromptJobs] upload_image_metadata insert skipped (dup or ref)");
     }
   } catch (err) {
     logger.warn({ err, attemptId: attempt.id }, "[imagePromptJobs] mirror-to-legacy-storage failed (non-fatal)");

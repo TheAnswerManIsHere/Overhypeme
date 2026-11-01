@@ -238,8 +238,8 @@ await db.insert(t.uploadImageMetadataTable).values([
   { objectPath: uploadPath, width: 640, height: 480, fileSizeBytes: 1000, userId, arachnidClassification: "no-known-match", arachnidSha256Hex: S.arachnidHash, sourceImageAnalysis },
   { objectPath: profilePath, width: 256, height: 256, fileSizeBytes: 500, userId, isProfile: true },
   { objectPath: matchedPath, width: 64, height: 64, fileSizeBytes: 100, userId, arachnidMatchType: "exact", arachnidClassification: "csam" },
-  // The newer pipeline's lineage row (transform "phase2_v2", imagePromptJobs.ts:697-705) cannot exist: uim_transform_chk
-  // (0048_meme_builder_lineage.sql:49-50) allows only the PuLID values, so that best-effort insert is always refused.
+  // The newer pipeline never had a lineage row here: uim_transform_chk (0048_meme_builder_lineage.sql:49-50)
+  // refused its transform "phase2_v2" on every insert, and #806 removed the write.
 ]);
 // The form the product stores (routes/users.ts:326 strips it back off).
 await db.update(t.usersTable).set({ profileImageUrl: `/api/storage${profilePath}`, avatarSource: "photo" }).where(sql`id = ${userId}`);
