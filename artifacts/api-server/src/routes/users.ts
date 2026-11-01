@@ -22,6 +22,7 @@ import { isRetryableMediaError } from "../lib/mediaBackup/preserve";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 import { getConfigInt } from "../lib/adminConfig";
 import { logger } from "../lib/logger";
+import { userOwnsUpload } from "../lib/uploadOwnership";
 import { effectiveTierExpr } from "../lib/membershipState";
 
 const router: IRouter = Router();
@@ -345,6 +346,13 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     // than a profile photo nobody else can see.
     if (typeof updates.profileImageUrl === "string" && updates.profileImageUrl.startsWith(PROFILE_IMAGE_FIRST_PARTY_PREFIX)) {
       const objectPath = updates.profileImageUrl.replace("/api/storage", "");
+      // Only the caller's own upload, checked before the ACL write: making an
+      // object public and recording the caller as its owner is the one thing
+      // this branch must never do to someone else's photo (#810).
+      if (!(await userOwnsUpload(objectPath, userId))) {
+        res.status(403).json({ error: "upload_not_owned" });
+        return;
+      }
       try {
         const objectStorageService = new ObjectStorageService();
         await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: userId, visibility: "public" });
@@ -568,7 +576,9 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
     return;
   }
 
-  // Verify the upload row exists and belongs to this user.
+  // Verify the upload row exists and belongs to this user. A row with no
+  // owner is no one's photo to take (#810), the same answer as another
+  // member's.
   const owner = await db.execute(sql`
     SELECT user_id FROM upload_image_metadata WHERE object_path = ${objectPath} LIMIT 1
   `);
@@ -577,7 +587,7 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Upload not found" });
     return;
   }
-  if (ownerRow.user_id && ownerRow.user_id !== userId) {
+  if (ownerRow.user_id !== userId) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
