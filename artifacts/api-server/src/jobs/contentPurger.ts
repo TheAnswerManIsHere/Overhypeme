@@ -7,7 +7,7 @@ import { memesTable, reactionsTable, uploadImageMetadataTable, userAiImagesTable
 import { and, asc, eq, getTableName, gt, inArray, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 
-import { aiImageIsOwnersOwn, purgeDue, type ContentTable } from "../lib/contentVisibility";
+import { aiImageIsOwnersOwn, ownerStaying, purgeDue, type ContentTable } from "../lib/contentVisibility";
 import { logger } from "../lib/logger";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeObjectPaths } from "../lib/storageKeys";
@@ -110,8 +110,9 @@ async function purgeTable<K extends string | number>(
       counts.selected++;
       const outcome = await purgeOne(
         row.owner,
-        // Re-read under the lock: a restore since the selection wins.
-        async (tx) => (await tx.select({ key }).from(table).where(and(eq(key, row.key), purgeDue(table))).for("update")).length > 0,
+        // Re-read under the lock: a restore since the selection wins, and an
+        // owner whose account is being deleted leaves the row to that purge.
+        async (tx) => (await tx.select({ key }).from(table).where(and(eq(key, row.key), purgeDue(table), ownerStaying(table))).for("update")).length > 0,
         (tx) => spec.destroy(tx, row.key),
         { table: getTableName(table), key: row.key },
       );

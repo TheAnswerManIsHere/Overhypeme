@@ -31,6 +31,7 @@ import { type Request } from "express";
 import { usersTable } from "@workspace/db/schema";
 import { and, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { BOOTSTRAP_ADMIN_EMAIL, isAdminByEmail } from "./auth";
+import { ownerLeaving } from "./contentVisibility";
 
 /** The ids in ADMIN_USER_IDS, read at call time so tests can vary the env. */
 function adminUserIds(): string[] {
@@ -80,7 +81,9 @@ export function isRealAdminSql(): SQL {
  * happily approve deactivating the last one.
  */
 export function isReachableAdminSql(): SQL {
-  return and(isRealAdminSql(), eq(usersTable.isActive, true))!;
+  // An account being deleted cannot reach the console for long: its sessions
+  // are gone and its purge is scheduled (launch Phase 5, plan S14).
+  return and(isRealAdminSql(), eq(usersTable.isActive, true), sql`NOT ${ownerLeaving(sql`${sql.identifier("users")}.${sql.identifier("id")}`)}`)!;
 }
 
 /**

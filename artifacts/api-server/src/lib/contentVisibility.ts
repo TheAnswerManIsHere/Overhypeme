@@ -77,6 +77,15 @@ export async function restoreWindowDays(): Promise<number> {
   return days >= 1 ? days : DEFAULT_RESTORE_WINDOW_DAYS;
 }
 
+/**
+ * True while the row's owner is not being deleted. The content purger skips a
+ * row whose owner is leaving: from the acceptance on, the account purge and
+ * its dispute hold decide what happens to it (plan S14).
+ */
+export function ownerStaying(table: ContentTable): SQL<boolean> {
+  return sql<boolean>`NOT ${ownerLeaving(outer(table, ownerColumn(table)))}`.mapWith(Boolean);
+}
+
 /** A row its owner deleted that is still inside its restore window. */
 export function restorable(table: ContentTable, now = new Date()): SQL | undefined {
   return and(isNotNull(table.deletedAt), gt(table.purgeAfter, now));

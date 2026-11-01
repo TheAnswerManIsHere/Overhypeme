@@ -530,6 +530,64 @@ ${divider()}
   return { subject, text, html };
 }
 
+/** The long date an account deletion email names, in UTC so it reads the same everywhere. */
+function deletionDate(when: Date): string {
+  return when.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+}
+
+/**
+ * Sent when an account deletion is accepted (launch Phase 5, plan S14): what
+ * happens on which date, and how to keep the account. Facts stay, credited to
+ * a former member; the copy never promises that no copy remains (S15).
+ */
+export function buildAccountDeletionScheduledEmail(purgeAfter: Date, keepUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const date = deletionDate(purgeAfter);
+  const subject = "Your Overhype.me account is scheduled for deletion";
+  const text = [
+    "YOUR ACCOUNT IS SCHEDULED FOR DELETION.",
+    "",
+    `On ${date} your account, your memes, photos and images are removed from Overhype.me for good.`,
+    "Facts you submitted stay on the site, credited to a former member.",
+    "Until then you are signed out everywhere and your content is hidden.",
+    "",
+    "Changed your mind? Sign in before that date and choose Keep my account:",
+    keepUrl,
+    "",
+    "Didn't ask for this? Sign in and keep your account, then change your password.",
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account Is<br/>Scheduled For Deletion</h1>
+<p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">On <strong style="color:#ffffff;">${date}</strong> your account, your memes, photos and images are removed from Overhype.me for&nbsp;good. Facts you submitted stay on the site, credited to a former&nbsp;member.</p>
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Until then you are signed out everywhere and your content is hidden. Changed your mind? Sign in before that date and keep your&nbsp;account.</p>
+${ctaButton(keepUrl, "Keep My Account")}
+${linkFallback(keepUrl)}
+${divider()}
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't ask for this? Sign in, keep your account, then change your&nbsp;password.</p>`;
+  const html = buildEmailShell(body, "You&#39;re receiving this because deletion was requested for your Overhype.me account.");
+  return { subject, text, html };
+}
+
+/** Sent when a scheduled account deletion is cancelled: the account and its content are back. */
+export function buildAccountDeletionCancelledEmail(siteUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "Your Overhype.me account is staying";
+  const text = [
+    "YOUR ACCOUNT IS STAYING.",
+    "",
+    "The deletion is cancelled. Your memes, photos and images are back where they were.",
+    siteUrl,
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account<br/>Is Staying</h1>
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">The deletion is cancelled. Your memes, photos and images are back where they&nbsp;were.</p>
+${ctaButton(siteUrl, "Back To Overhype.me")}`;
+  const html = buildEmailShell(body, "You&#39;re receiving this because a deletion of your Overhype.me account was cancelled.");
+  return { subject, text, html };
+}
+
 export function buildPasswordResetEmail(resetUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
   const subject = "Reset your password — Overhype.me";
 

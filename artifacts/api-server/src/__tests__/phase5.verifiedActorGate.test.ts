@@ -37,9 +37,9 @@ const RECOVERY = [
 ];
 const PLAN_EXCEPTIONS = {
   suspended: ["POST /auth/logout"],
-  deletion_pending: [...RECOVERY],
+  deletion_pending: [...RECOVERY, "POST /users/me/deletion/cancel"],
   unverified: [...RECOVERY],
-  unonboarded: [...RECOVERY, "PUT /users/me/onboarding/draft", "POST /users/me/onboarding"],
+  unonboarded: [...RECOVERY, "PUT /users/me/onboarding/draft", "POST /users/me/onboarding", "POST /users/me/deletion"],
 };
 
 type State = "unverified" | "unonboarded" | "eligible";
