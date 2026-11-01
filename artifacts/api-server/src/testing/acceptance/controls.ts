@@ -76,10 +76,14 @@ export function controlVerdict(control: ControlName, r: ControlInput): ControlVe
       );
     }
     case "corrupt-source": {
+      // A meme is rendered from its photo when it is saved (launch Phase 5,
+      // plan S16), so a photo that is not an image is refused at the save, with
+      // render_failed, before any image could be served.
+      const SAVE_REFUSED = /POST \/api\/memes: 422 .*render_failed/;
       const four = r.journeys.find((j) => j.journey === "4");
-      const held = four?.status === "failed" && /anyone reads the public meme image/.test(four.error ?? "");
-      const others = r.red.filter((x) => !(x.startsWith("journey 4 failed:") && /anyone reads the public meme image/.test(x)));
-      return verdict(held, held ? `journey 4 failed reading its composed image: ${four!.error}` : `journey 4 is ${four?.status} (${four?.error ?? "no error"})`, others);
+      const held = four?.status === "failed" && SAVE_REFUSED.test(four.error ?? "");
+      const others = r.red.filter((x) => !(x.startsWith("journey 4 failed:") && SAVE_REFUSED.test(x)));
+      return verdict(held, held ? `journey 4's save was refused for its corrupt photo: ${four!.error}` : `journey 4 is ${four?.status} (${four?.error ?? "no error"})`, others);
     }
   }
 }
