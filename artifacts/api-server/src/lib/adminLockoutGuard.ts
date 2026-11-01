@@ -34,14 +34,11 @@
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
+import { ADVISORY_LOCK_KEYS } from "./advisoryLockKeys";
 import { isAdminByEmail } from "./auth";
 import { isReachableAdminSql } from "./adminIdentity";
 
-/**
- * Distinct from the migration runner's key (7654321) so a running migration and
- * an admin mutation never block each other.
- */
-const ADMIN_POPULATION_LOCK_KEY = 76_543_22;
+const ADMIN_POPULATION_LOCK_KEY = ADVISORY_LOCK_KEYS.adminPopulation;
 
 export class AdminLockoutError extends Error {
   public readonly code = "last_admin";

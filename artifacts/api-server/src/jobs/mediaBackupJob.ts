@@ -14,6 +14,7 @@
  * manifest and the previous completed pair as the recovery point.
  */
 import { pool } from "@workspace/db";
+import { ADVISORY_LOCK_KEYS } from "../lib/advisoryLockKeys";
 import { logger } from "../lib/logger";
 import { backupStatus, capturePair, latestCompletedPair } from "../lib/mediaBackup/capture";
 import { liveBucket, preservation } from "../lib/mediaBackup/config";
@@ -21,8 +22,7 @@ import { runBackupExpiry } from "../lib/mediaBackup/expiry";
 
 const CAPTURE_INTERVAL_MS = 60 * 60 * 1000;
 const EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000;
-/** Distinct from the migration runner's key (7654321). */
-const ADVISORY_LOCK_KEY = 7654322;
+const ADVISORY_LOCK_KEY = ADVISORY_LOCK_KEYS.mediaBackup;
 
 let lastExpiryAt = 0;
 
