@@ -15,7 +15,7 @@
 # the same hole remains for the plan loop.)
 #
 # WHY THERE ARE TWO COPIES. Git does not follow a symlinked .gitignore, so a
-# pointer is impossible and a real file at each root is the only option. The
+# pointer is impossible and a real file at each root is the only option.
 # KITT mirrors this one at .agents/reviews/.gitignore, and
 # scripts/check-root-wiring.mjs compares the pattern lines so the duplication
 # is enforced rather than merely intended. Edit THIS copy; the root follows.

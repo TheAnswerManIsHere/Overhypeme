@@ -17,7 +17,7 @@ PR is open on it.
 `remote.origin.fetch = +refs/heads/main:refs/remotes/origin/main` — so no
 `refs/remotes/origin/claude/<branch>` ref is ever created or updated, and
 every tool that compares the branch to its remote-tracking ref sees nothing
-there. Measured twice on 2026-10-11 (kitt, then DojoOS), both clones
+there. Measured twice on 2026-10-11 (ai-handbook, then DojoOS), both clones
 set up by the session harness.
 
 **Fix.** Widen the refspec and fetch the branch once; never re-push to

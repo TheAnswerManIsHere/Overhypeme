@@ -2,7 +2,7 @@
 //
 // The map tool's pure functions, on bare Node: no compiler, no sync, no
 // fixture repository. This file ships with the payload, so it must run
-// wherever it lands; the compiler-backed behaviour is proven by the
+// wherever it lands; the compiler-backed behaviour is proven by
 // KITT's own integration suite, which never ships.
 import test from "node:test";
 import assert from "node:assert/strict";

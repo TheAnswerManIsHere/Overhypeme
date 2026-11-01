@@ -249,7 +249,7 @@ export const PAID_RUN_LEDGER_REPO = "TheAnswerManIsHere/KITT";
  * equal to the pin; `review-proxy.mjs` reads the declared effort to say, in an
  * assessment's header, what the role actually runs at. Those are the two ends
  * of one fact, and a second copy of the reader is a second thing to drift --
- * the failure this whole area is about. KITT-only checker can import
+ * the failure this whole area is about. The KITT-only checker can import
  * payload code; payload code cannot import the checker, so the shared copy
  * lives here. (Both assessors, #131 round 1.)
  *
