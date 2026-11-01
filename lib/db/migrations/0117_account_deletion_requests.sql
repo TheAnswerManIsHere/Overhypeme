@@ -7,7 +7,9 @@
 --     "purge now"), whether it was cancelled, and the stage the engine has
 --     reached. A stage only advances by compare-and-set on the one before,
 --     so a cancel and the purge can never both win. ON DELETE CASCADE: the
---     row goes with the account at the end of the purge.
+--     row goes with the account at the end of the purge. No index beyond the
+--     primary key: the live rule probes it by user_id, and the hourly worker
+--     reads a table that only ever holds pending requests.
 --   * facts.submitter_deleted_at — set when the purge nulls a fact's
 --     submitter, so a fact whose submitter left reads apart from one that
 --     never had one (plan S3).
@@ -15,7 +17,7 @@
 -- Row states: no existing row is touched. A request is "active" while
 -- cancelled_at is null and stage is not 'done'.
 --
--- Idempotent: CREATE TABLE / INDEX IF NOT EXISTS, ADD COLUMN IF NOT EXISTS,
+-- Idempotent: CREATE TABLE IF NOT EXISTS, ADD COLUMN IF NOT EXISTS,
 -- and the CHECK added only when absent.
 
 CREATE TABLE IF NOT EXISTS "account_deletion_requests" (
@@ -45,8 +47,5 @@ BEGIN
       CHECK (((requested_by)::text = ANY ((ARRAY['self'::character varying, 'admin'::character varying, 'unonboarded'::character varying])::text[])));
   END IF;
 END $$;
-
--- The worker's selection: active requests by stage and purge date.
-CREATE INDEX IF NOT EXISTS "IDX_adr_active" ON "account_deletion_requests" ("stage", "purge_after") WHERE "cancelled_at" IS NULL;
 
 ALTER TABLE "facts" ADD COLUMN IF NOT EXISTS "submitter_deleted_at" timestamp with time zone;

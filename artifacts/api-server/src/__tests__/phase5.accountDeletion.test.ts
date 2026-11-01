@@ -26,7 +26,7 @@ import storageRouter from "../routes/storage.js";
 import adminRouter from "../routes/admin.js";
 import {
   acceptAccountDeletion, advanceAccountDeletion, cancelAccountDeletion, runAccountDeletionWorker,
-  setAccountDeletionBillingForTests, type AccountDeletionBilling,
+  __setAccountDeletionBillingForTests, type AccountDeletionBilling,
 } from "../lib/accountDeletion.js";
 import { isReachableAdminSql } from "../lib/adminIdentity.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -119,7 +119,8 @@ describe("the account deletion state machine (T3)", () => {
     await cleanup();
     factId = await createFact();
   });
-  afterEach(() => setAccountDeletionBillingForTests(null));
+  let restoreBilling: (() => void) | null = null;
+  afterEach(() => { restoreBilling?.(); restoreBilling = null; });
   after(async () => {
     await cleanup();
     await photos.tearDown();
@@ -190,7 +191,7 @@ describe("the account deletion state machine (T3)", () => {
 
   it("cancel and purge race: whichever compare-and-set lands first wins, and the other is told", async () => {
     const { fake } = fakeBilling();
-    setAccountDeletionBillingForTests(fake);
+    restoreBilling = __setAccountDeletionBillingForTests(fake);
     const keeper = await createUser();
     await acceptAccountDeletion(keeper, { requestedBy: "self", purgeAfter: past(), kick: false });
     await advanceAccountDeletion(keeper, new Date(Date.now() - 120_000)); // notified, not yet due at that time
@@ -216,7 +217,7 @@ describe("the account deletion state machine (T3)", () => {
       if (n === 1 && failOnce) { failOnce = false; throw new Error("Stripe is down"); }
       if (n === 3) throw Object.assign(new Error("No such subscription"), { code: "resource_missing" });
     });
-    setAccountDeletionBillingForTests(fake);
+    restoreBilling = __setAccountDeletionBillingForTests(fake);
     await acceptAccountDeletion(userId, { requestedBy: "self", kick: false });
 
     await assert.rejects(advanceAccountDeletion(userId), /Stripe is down/);
@@ -234,7 +235,7 @@ describe("the account deletion state machine (T3)", () => {
   });
 
   it("an open billing dispute holds the account purge and the content purger alike", async () => {
-    setAccountDeletionBillingForTests(fakeBilling().fake);
+    restoreBilling = __setAccountDeletionBillingForTests(fakeBilling().fake);
     const userId = await createUser();
     const trash = await photos.seed(userId);
     await db.update(uploadImageMetadataTable).set({ deletedAt: past(), purgeAfter: past() }).where(eq(uploadImageMetadataTable.objectPath, trash));
@@ -255,7 +256,7 @@ describe("the account deletion state machine (T3)", () => {
   });
 
   it("the purge removes the person's files and rows, keeps facts and safety records, recounts what survives, and keeps a fact gallery's background", async () => {
-    setAccountDeletionBillingForTests(fakeBilling().fake);
+    restoreBilling = __setAccountDeletionBillingForTests(fakeBilling().fake);
     const userId = await createUser();
     const other = await createUser();
     const standalone = await photos.seed(userId);
@@ -298,7 +299,7 @@ describe("the account deletion state machine (T3)", () => {
   });
 
   it("the admin's hard delete purges now through the engine, and a departing administrator no longer counts as reachable", async () => {
-    setAccountDeletionBillingForTests(fakeBilling().fake);
+    restoreBilling = __setAccountDeletionBillingForTests(fakeBilling().fake);
     const admin = await createUser({ admin: true });
     const target = await createUser();
     const adminSid = await sessionFor(admin, { isAdmin: true });

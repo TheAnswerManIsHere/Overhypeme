@@ -6,7 +6,7 @@ import { type Request, type Response, type NextFunction } from "express";
 import type { AuthUser } from "@workspace/api-zod";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   clearSession,
   deleteSession,
@@ -18,7 +18,7 @@ import {
 import { deriveUserRole } from "../lib/userRole";
 import { effectiveTierExpr } from "../lib/membershipState";
 import { identityFieldsOf } from "../lib/eligibility";
-import { ownerLeaving } from "../lib/contentVisibility";
+import { userLeaving } from "../lib/contentVisibility";
 
 declare global {
   namespace Express {
@@ -122,7 +122,7 @@ export async function authMiddleware(
         emailVerifiedAt: usersTable.emailVerifiedAt,
         onboardingCompletedAt: usersTable.onboardingCompletedAt,
         dateOfBirth: usersTable.dateOfBirth,
-        deletionPending: ownerLeaving(sql`${sql.identifier("users")}.${sql.identifier("id")}`),
+        deletionPending: userLeaving(),
       })
       .from(usersTable)
       .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))

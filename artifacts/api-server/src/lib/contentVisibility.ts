@@ -4,6 +4,7 @@
  */
 import { and, getTableName, gt, isNotNull, lt, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
+import type { db } from "@workspace/db";
 import { memesTable, uploadImageMetadataTable, userAiImagesTable } from "@workspace/db/schema";
 
 import { getConfigInt } from "./adminConfig";
@@ -75,6 +76,23 @@ const DEFAULT_RESTORE_WINDOW_DAYS = 30;
 export async function restoreWindowDays(): Promise<number> {
   const days = await getConfigInt(RESTORE_WINDOW_CONFIG_KEY, DEFAULT_RESTORE_WINDOW_DAYS);
   return days >= 1 ? days : DEFAULT_RESTORE_WINDOW_DAYS;
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Takes an owner's content lock for the rest of the transaction. The content
+ * purger and the account purge both take it, so destroying one row of trash
+ * and purging the whole account never interleave (plan S14). Per-owner locks
+ * are `hashtext` keys, not registry numbers (`lib/advisoryLockKeys.ts`).
+ */
+export async function lockOwnerContent(tx: Tx, ownerId: string | null): Promise<void> {
+  if (ownerId) await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`content-owner:${ownerId}`}))`);
+}
+
+/** The signed-in account's own row (`users.id`) is being deleted: for readers of an account rather than its content. */
+export function userLeaving(): SQL<boolean> {
+  return ownerLeaving(sql`${sql.identifier("users")}.${sql.identifier("id")}`);
 }
 
 /**

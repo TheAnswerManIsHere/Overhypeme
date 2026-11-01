@@ -25,7 +25,7 @@ import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { acquireAdminPopulationLock, assertAdminPopulationSurvives } from "./adminLockoutGuard";
 import { isReachableAdminSql } from "./adminIdentity";
 import { revokeUserSessions } from "./auth";
-import { aiImageIsOwnersOwn } from "./contentVisibility";
+import { aiImageIsOwnersOwn, lockOwnerContent } from "./contentVisibility";
 import { buildAccountDeletionCancelledEmail, buildAccountDeletionScheduledEmail, sendEmail } from "./email";
 import { logger } from "./logger";
 import { ObjectStorageService } from "./objectStorage";
@@ -75,11 +75,9 @@ export async function acceptAccountDeletion(
     const [pending] = await tx.select({ purgeAfter: adr.purgeAfter }).from(adr).where(active(userId));
     if (pending) {
       // An admin's purge-now brings a pending request's date forward; nothing else changes it.
-      if (opts.purgeAfter && opts.purgeAfter < pending.purgeAfter) {
-        await tx.update(adr).set({ purgeAfter: opts.purgeAfter }).where(active(userId));
-        return { status: "already_pending", purgeAfter: opts.purgeAfter };
-      }
-      return { status: "already_pending", purgeAfter: pending.purgeAfter };
+      const next = opts.purgeAfter && opts.purgeAfter < pending.purgeAfter ? opts.purgeAfter : pending.purgeAfter;
+      if (next !== pending.purgeAfter) await tx.update(adr).set({ purgeAfter: next }).where(active(userId));
+      return { status: "already_pending", purgeAfter: next };
     }
     // Only an account that can reach the console can be the last one that can.
     const [isAdmin] = await tx.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.id, userId), isReachableAdminSql()));
@@ -196,7 +194,7 @@ async function cancelSubscriptions(userId: string): Promise<void> {
 /**
  * The two Stripe calls the engine makes: cancel a subscription now, then
  * refresh its source so membership recomputes. Replaced by tests
- * (`setAccountDeletionBillingForTests`); the real ones load the Stripe
+ * (`__setAccountDeletionBillingForTests`); the real ones load the Stripe
  * client lazily, so a run with no subscriptions never touches it.
  */
 export interface AccountDeletionBilling {
@@ -218,9 +216,10 @@ const realBilling: AccountDeletionBilling = {
 
 let billing: AccountDeletionBilling = realBilling;
 
-/** Tests only: swap the Stripe calls; `null` restores the real ones. */
-export function setAccountDeletionBillingForTests(fake: AccountDeletionBilling | null): void {
-  billing = fake ?? realBilling;
+/** Tests only: swap the Stripe calls; returns the restore (the repo's `__…ForTests` convention). */
+export function __setAccountDeletionBillingForTests(fake: AccountDeletionBilling): () => void {
+  billing = fake;
+  return () => { billing = realBilling; };
 }
 
 /** True when a billing dispute on any of the person's sources is still open: the purge waits for it. */
@@ -319,10 +318,15 @@ async function ownedObjects(userId: string): Promise<string[]> {
  */
 async function purgeAccount(userId: string): Promise<void> {
   const storage = new ObjectStorageService();
-  for (const path of await ownedObjects(userId)) await storage.deleteObject(path);
+  const paths = await ownedObjects(userId);
+  // A few at a time: each delete is a preserve-then-delete round trip, most
+  // of a meme's candidate keys are absent, and the admin purge-now waits on it.
+  for (let i = 0; i < paths.length; i += 8) {
+    await Promise.all(paths.slice(i, i + 8).map((path) => storage.deleteObject(path)));
+  }
 
   await db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`content-owner:${userId}`}))`);
+    await lockOwnerContent(tx, userId);
     const [still] = await tx.select({ stage: adr.stage }).from(adr).where(and(active(userId), eq(adr.stage, "purging"))).for("update");
     if (!still) return;
 

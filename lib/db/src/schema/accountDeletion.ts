@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { check, integer, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 
 /** The stages a deletion request moves through, each reached only from the one before (plan S14). */
@@ -33,7 +33,6 @@ export const accountDeletionRequestsTable = pgTable("account_deletion_requests",
 }, (t) => [
   check("account_deletion_requests_stage_check", sql`${t.stage} IN ('accepted', 'subscription_cancelled', 'notified', 'held', 'purging', 'done')`),
   check("account_deletion_requests_requested_by_check", sql`${t.requestedBy} IN ('self', 'admin', 'unonboarded')`),
-  index("IDX_adr_active").on(t.stage, t.purgeAfter).where(sql`${t.cancelledAt} IS NULL`),
 ]);
 
 export type AccountDeletionRequest = typeof accountDeletionRequestsTable.$inferSelect;

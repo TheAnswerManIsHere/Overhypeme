@@ -122,6 +122,7 @@ import { exportUserData, runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import { logger } from "../lib/logger";
 import { stripeDriver } from "../lib/stripeDriver.js";
+import { acceptAccountDeletion, advanceAccountDeletion, pendingDeletion } from "../lib/accountDeletion";
 
 /**
  * The human-readable label an admin action is attributed by.
@@ -193,8 +194,6 @@ async function refreshSourcesForReinstatement(
     return { complete: false, verifiedSourceIds: new Set() };
   }
 }
-
-import { acceptAccountDeletion, advanceAccountDeletion, pendingDeletion } from "../lib/accountDeletion";
 
 const router: IRouter = Router();
 
@@ -558,8 +557,9 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
   }
 
   // ── Reserve BEFORE any irreversible work ────────────────────────────────
-  // Both delete paths run object-storage deletion, Stripe cancellation, and
-  // session revocation before the DB mutation that removes admin access. A
+  // The soft path (the hard one returned above, through the engine) runs
+  // Stripe cancellation and session revocation before the DB mutation that
+  // removes admin access. A
   // guard on the final write would reject the last-admin case correctly but
   // only after the damage it exists to prevent — so the reservation
   // (is_active = false, under the population lock) runs first, and an
@@ -578,83 +578,81 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
   }
   const resuming = reservation.status === "resuming";
 
-  {
-    // Soft delete: cancel subscription (non-fatal), revoke sessions, mark inactive
-    type SoftDeleteStage = "stripe" | "sessions" | "deactivate";
-    let currentStage: SoftDeleteStage = "stripe";
+  // Soft delete: cancel subscription (non-fatal), revoke sessions, mark inactive
+  type SoftDeleteStage = "stripe" | "sessions" | "deactivate";
+  let currentStage: SoftDeleteStage = "stripe";
 
-    try {
-      // Step 1: Cancel active Stripe subscription (non-fatal)
-      let subscriptionCanceled = false;
-      const activeSubs = await db
-        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
-        .from(membershipEntitlementsTable)
-        .where(and(
-          eq(membershipEntitlementsTable.userId, id),
-          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
-          or(
-            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
-            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
-          ),
-        ));
-      if (activeSubs.length > 0) {
-        try {
-          const { getUncachableStripeClient } = await import("../lib/stripeClient");
-          const stripe = await getUncachableStripeClient();
-          let canceledCount = 0;
-          for (const sub of activeSubs) {
-            const subscriptionId = sub.stripeSubscriptionId;
-            if (!subscriptionId) continue;
-            try {
-              // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(subscriptionId);
-              // Apply the cancellation LOCALLY rather than waiting for the
-              // webhook. Under a derived model, leaving the row `active` means a
-              // later reinstatement recomputes Legendary for a user whose
-              // subscription Stripe has already cancelled — and "the webhook
-              // usually closes the gap" is exactly what this model refuses.
-              // subscription_cancelled is recorded unconditionally by
-              // applySubscription itself on the status transition — passing it
-              // as a transitionEvent too would double-write it whenever this
-              // cancellation also happens to change the user's aggregate tier.
-              await refreshSubscriptionSource(stripe, subscriptionId);
-              canceledCount++;
-            } catch (e) {
-              logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
-            }
+  try {
+    // Step 1: Cancel active Stripe subscription (non-fatal)
+    let subscriptionCanceled = false;
+    const activeSubs = await db
+      .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
+      .from(membershipEntitlementsTable)
+      .where(and(
+        eq(membershipEntitlementsTable.userId, id),
+        eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+        or(
+          eq(membershipEntitlementsTable.lifecycleStatus, "active"),
+          eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
+        ),
+      ));
+    if (activeSubs.length > 0) {
+      try {
+        const { getUncachableStripeClient } = await import("../lib/stripeClient");
+        const stripe = await getUncachableStripeClient();
+        let canceledCount = 0;
+        for (const sub of activeSubs) {
+          const subscriptionId = sub.stripeSubscriptionId;
+          if (!subscriptionId) continue;
+          try {
+            // Update cancel_at_period_end to false first to ensure cancel() is immediate
+            await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+            await stripe.subscriptions.cancel(subscriptionId);
+            // Apply the cancellation LOCALLY rather than waiting for the
+            // webhook. Under a derived model, leaving the row `active` means a
+            // later reinstatement recomputes Legendary for a user whose
+            // subscription Stripe has already cancelled — and "the webhook
+            // usually closes the gap" is exactly what this model refuses.
+            // subscription_cancelled is recorded unconditionally by
+            // applySubscription itself on the status transition — passing it
+            // as a transitionEvent too would double-write it whenever this
+            // cancellation also happens to change the user's aggregate tier.
+            await refreshSubscriptionSource(stripe, subscriptionId);
+            canceledCount++;
+          } catch (e) {
+            logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
           }
-          subscriptionCanceled = canceledCount > 0;
-        } catch (e) {
-          logger.error({ err: e }, "[soft-delete] Stripe client initialization failed");
         }
+        subscriptionCanceled = canceledCount > 0;
+      } catch (e) {
+        logger.error({ err: e }, "[soft-delete] Stripe client initialization failed");
       }
-
-      // Step 2: Invalidate all active sessions immediately
-      currentStage = "sessions";
-      const deletedSessions = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id)).returning({ sid: sessionsTable.sid });
-      const sessionsRevoked = deletedSessions.length;
-
-      // Step 3: Confirm the deactivation the reservation already performed.
-      //
-      // The reservation above IS this write — it was moved ahead of the Stripe
-      // and session stages so the last-admin case is rejected before any
-      // irreversible work. What remains here is reading back the row, which
-      // deliberately no longer filters on `isActive = true`: that filter is
-      // what turned a resumed half-done deletion into a bogus 404.
-      currentStage = "deactivate";
-      const [updated] = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.id, id))
-        .limit(1);
-      if (!updated) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
-
-      res.json({ success: true, deleted: false, resumed: resuming, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
-    } catch (e) {
-      logger.error({ err: e, stage: currentStage }, "[soft-delete] Failed");
-      res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });
     }
+
+    // Step 2: Invalidate all active sessions immediately
+    currentStage = "sessions";
+    const deletedSessions = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id)).returning({ sid: sessionsTable.sid });
+    const sessionsRevoked = deletedSessions.length;
+
+    // Step 3: Confirm the deactivation the reservation already performed.
+    //
+    // The reservation above IS this write — it was moved ahead of the Stripe
+    // and session stages so the last-admin case is rejected before any
+    // irreversible work. What remains here is reading back the row, which
+    // deliberately no longer filters on `isActive = true`: that filter is
+    // what turned a resumed half-done deletion into a bogus 404.
+    currentStage = "deactivate";
+    const [updated] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    if (!updated) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
+
+    res.json({ success: true, deleted: false, resumed: resuming, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
+  } catch (e) {
+    logger.error({ err: e, stage: currentStage }, "[soft-delete] Failed");
+    res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });
   }
 });
 

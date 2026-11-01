@@ -7,7 +7,7 @@ import { memesTable, reactionsTable, uploadImageMetadataTable, userAiImagesTable
 import { and, asc, eq, getTableName, gt, inArray, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 
-import { aiImageIsOwnersOwn, ownerStaying, purgeDue, type ContentTable } from "../lib/contentVisibility";
+import { aiImageIsOwnersOwn, lockOwnerContent, ownerStaying, purgeDue, type ContentTable } from "../lib/contentVisibility";
 import { logger } from "../lib/logger";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeObjectPaths } from "../lib/storageKeys";
@@ -42,15 +42,6 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const zero = (): PurgeCounts => ({ selected: 0, purged: 0, skipped: 0, failed: 0 });
 
-/**
- * Takes the owner's content lock for the rest of the transaction, so a purge
- * and anything else that changes the owner's content in bulk (Increment 5's
- * account deletion) never interleave. Per-owner locks are `hashtext` keys,
- * not registry numbers (`lib/advisoryLockKeys.ts`).
- */
-async function lockOwner(tx: Tx, ownerId: string | null): Promise<void> {
-  if (ownerId) await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`content-owner:${ownerId}`}))`);
-}
 
 /**
  * Runs one claim: in a transaction, under the owner's lock, re-reads the row
@@ -65,7 +56,7 @@ async function purgeOne(
 ): Promise<"purged" | "skipped" | "failed"> {
   try {
     return await db.transaction(async (tx) => {
-      await lockOwner(tx, ownerId);
+      await lockOwnerContent(tx, ownerId);
       if (!(await claim(tx))) return "skipped" as const;
       await destroy(tx);
       return "purged" as const;
