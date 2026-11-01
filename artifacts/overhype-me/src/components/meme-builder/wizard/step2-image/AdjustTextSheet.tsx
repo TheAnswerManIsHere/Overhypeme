@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { MemeTextOptions } from "../../types";
+import { DEFAULT_BOTTOM_Y, DEFAULT_TOP_Y, type MemeTextOptions } from "../../types";
 import { SplitSlider } from "./sliders/SplitSlider";
 import { VerticalPositionSlider } from "./sliders/VerticalPositionSlider";
 import {
@@ -39,8 +39,8 @@ export function AdjustTextSheet({
   const topLines = Math.max(1, Math.ceil(effectiveSplit / 8));
   const fontSize = textOptions.fontSize ?? 64;
   const canvasH = 720;
-  const topY = textOptions.topY ?? 17;
-  const bottomY = textOptions.bottomY ?? 88;
+  const topY = textOptions.topY ?? DEFAULT_TOP_Y;
+  const bottomY = textOptions.bottomY ?? DEFAULT_BOTTOM_Y;
   const { maxTopY, minBottomY } = computeTextCollisionConstraints({
     topLines,
     fontSize,

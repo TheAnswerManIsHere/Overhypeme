@@ -36,6 +36,14 @@ export type MyImageSource =
  * `lib/render-fact.ts` — the user does NOT edit the text directly, only the
  * styling and pronouns/name.
  */
+/**
+ * Where the position sliders start: each caption half's vertical midpoint as a
+ * percentage of the image height. The preview draws untouched halves here, and
+ * the save sends these so the saved meme matches the preview (#707).
+ */
+export const DEFAULT_TOP_Y = 17;
+export const DEFAULT_BOTTOM_Y = 88;
+
 export interface MemeTextOptions {
   topText?: string;
   bottomText?: string;

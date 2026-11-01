@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { renderFactSegments } from "@/lib/render-fact";
-import type { AspectRatio, MemeTextOptions } from "../types";
+import { DEFAULT_BOTTOM_Y, DEFAULT_TOP_Y, type AspectRatio, type MemeTextOptions } from "../types";
 
 const NAME_COLOR = "#ff6b35";
 
@@ -227,8 +227,8 @@ export function LivePreview({
         textOptions.bottomText !== undefined
       ) {
         // Split mode — each half at its own vertical position.
-        if (textOptions.topText) drawBlock(textOptions.topText, textOptions.topY ?? 17);
-        if (textOptions.bottomText) drawBlock(textOptions.bottomText, textOptions.bottomY ?? 88);
+        if (textOptions.topText) drawBlock(textOptions.topText, textOptions.topY ?? DEFAULT_TOP_Y);
+        if (textOptions.bottomText) drawBlock(textOptions.bottomText, textOptions.bottomY ?? DEFAULT_BOTTOM_Y);
       } else {
         // Legacy / single-block mode — full fact text centred.
         drawBlock(factText, 50);
