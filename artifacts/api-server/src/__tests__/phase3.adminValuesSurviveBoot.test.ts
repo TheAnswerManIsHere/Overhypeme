@@ -26,6 +26,7 @@ import pg from "pg";
 
 import { configTables, TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
+import { droppablePool } from "./helpers/droppablePool.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const apiRoot = path.resolve(here, "../..");
@@ -62,7 +63,7 @@ let scratch: pg.Pool | null = null;
 
 describe("admin-owned configuration survives a boot", () => {
   before(async () => {
-    control = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    control = droppablePool(process.env.DATABASE_URL!);
   });
 
   after(async () => {
@@ -87,7 +88,7 @@ describe("admin-owned configuration survives a boot", () => {
       return;
     }
     boot(); // the first boot: the baseline, then the seeds and the engine catalogue
-    scratch = new pg.Pool({ connectionString: scratchUrl(), max: 1 });
+    scratch = droppablePool(scratchUrl()); // its database is force-dropped in after() (#808)
 
     const set: Array<{ table: string; where: string; params: unknown[]; col: string; value: unknown }> = [];
     for (const [table, owners] of configTables()) {

@@ -373,6 +373,10 @@ export async function prepareRebuild(opts: RebuildOptions & { keepOnFail?: boole
       // Reported, not compared: the rebuild's ledger is the bootstrap path's, and dev's carries its own history
       // (dev 124 rows, a fresh build 114, on 2026-10-29; #770).
       const auditPool = new pg.Pool({ connectionString: targetUrl, max: 1 });
+      // Pool.end() resolves before its connection closes, and this database's
+      // connections are ended and it is renamed next: an error on the closing
+      // connection must not be thrown at the process (#808).
+      auditPool.on("error", () => {});
       let auditBoundary: unknown;
       try {
         auditBoundary = await ncmecAuditBoundaryStatus(auditPool);
