@@ -21,6 +21,10 @@
 -- leave a cancelled subscription granting access. billing_version is bumped
 -- with it before the cancels and after each one returns; a settlement clears
 -- the flag only if the version it read before refreshing is unchanged.
+-- billing_cancel_started_at is set while a Stripe cancel is in flight and
+-- cleared when its return is recorded; a settlement does not clear the flag
+-- while one started within ten minutes of its observations (a crash leaves it
+-- set, so the flag survives until a refresh that is certainly post-cancel).
 --
 -- Row states: no existing row is touched. A request is "active" while
 -- cancelled_at is null and stage is not 'done'.
@@ -40,7 +44,8 @@ CREATE TABLE IF NOT EXISTS "account_deletion_requests" (
   "last_error" text,
   "attempts" integer DEFAULT 0 NOT NULL,
   "billing_unsettled" boolean DEFAULT false NOT NULL,
-  "billing_version" integer DEFAULT 0 NOT NULL
+  "billing_version" integer DEFAULT 0 NOT NULL,
+  "billing_cancel_started_at" timestamp with time zone
 );
 
 DO $$

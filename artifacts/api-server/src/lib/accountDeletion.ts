@@ -20,7 +20,7 @@ import {
   type AccountDeletionStage,
   type ReactionTargetType,
 } from "@workspace/db/schema";
-import { and, eq, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 
 import { acquireAdminPopulationLock, assertAdminPopulationSurvives } from "./adminLockoutGuard";
 import { isReachableAdminSql } from "./adminIdentity";
@@ -210,6 +210,10 @@ async function cancelSubscriptions(userId: string): Promise<void> {
   await markBillingUnsettled(userId);
   for (const { subscriptionId } of subs) {
     if (!subscriptionId) continue;
+    // A cancel in flight: until its return is recorded, no settlement may
+    // trust an observation made shortly after it started (a crash before the
+    // return is recorded leaves this set, which is the point).
+    await db.update(adr).set({ billingCancelStartedAt: new Date() }).where(eq(adr.userId, userId));
     try {
       await billing.cancel(subscriptionId);
     } catch (err) {
@@ -226,13 +230,20 @@ async function cancelSubscriptions(userId: string): Promise<void> {
   }
 }
 
-/** Raises the billing marker and bumps its version, so a settlement begun before this moment cannot clear it. */
+/**
+ * Raises the billing marker and bumps its version, so a settlement begun
+ * before this moment cannot clear it; also records that no cancel is in
+ * flight (the one before it, if any, has returned).
+ */
 async function markBillingUnsettled(userId: string): Promise<void> {
   await db
     .update(adr)
-    .set({ billingUnsettled: true, billingVersion: sql`${adr.billingVersion} + 1` })
+    .set({ billingUnsettled: true, billingVersion: sql`${adr.billingVersion} + 1`, billingCancelStartedAt: null })
     .where(eq(adr.userId, userId));
 }
+
+/** Longer than any one Stripe call can take: a cancel started this long before an observation has resolved at Stripe. */
+const CANCEL_SETTLE_BOUND_MS = 10 * 60 * 1000;
 
 /**
  * Refreshes one subscription source and throws when the refresh did not apply
@@ -253,6 +264,7 @@ async function refreshOrThrow(subscriptionId: string, userId: string): Promise<v
  * never reached stays as Stripe says. Clears the flag once all applied.
  */
 async function settleBilling(userId: string): Promise<void> {
+  const observedFrom = new Date();
   const [marker] = await db.select({ version: adr.billingVersion }).from(adr).where(eq(adr.userId, userId));
   if (!marker) return;
   const subs = await db
@@ -269,7 +281,15 @@ async function settleBilling(userId: string): Promise<void> {
   await db
     .update(adr)
     .set({ billingUnsettled: false })
-    .where(and(eq(adr.userId, userId), isNotNull(adr.cancelledAt), eq(adr.billingVersion, marker.version)));
+    .where(and(
+      eq(adr.userId, userId),
+      isNotNull(adr.cancelledAt),
+      eq(adr.billingVersion, marker.version),
+      // No cancel in flight whose result these observations could predate
+      // (one that never recorded its return — a crash — only once it is
+      // older than any Stripe call can take).
+      or(isNull(adr.billingCancelStartedAt), lt(adr.billingCancelStartedAt, new Date(observedFrom.getTime() - CANCEL_SETTLE_BOUND_MS))),
+    ));
 }
 
 /**
@@ -438,7 +458,9 @@ async function purgeAccount(userId: string): Promise<void> {
     await tx.delete(reactionsTable).where(eq(reactionsTable.userId, userId));
 
     const memeIds = (await tx.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.createdById, userId))).map((m) => m.id);
-    const commentIds = (await tx.select({ id: commentsTable.id }).from(commentsTable).where(eq(commentsTable.authorId, userId))).map((c) => c.id);
+    const comments = await tx.select({ id: commentsTable.id, factId: commentsTable.factId }).from(commentsTable).where(eq(commentsTable.authorId, userId));
+    const commentIds = comments.map((c) => c.id);
+    const commentedFacts = [...new Set(comments.map((c) => c.factId))];
     if (memeIds.length > 0) {
       await tx.delete(reactionsTable).where(and(eq(reactionsTable.targetType, "meme"), inArray(reactionsTable.targetId, memeIds)));
       await tx.delete(memesTable).where(inArray(memesTable.id, memeIds));
@@ -446,6 +468,15 @@ async function purgeAccount(userId: string): Promise<void> {
     if (commentIds.length > 0) {
       await tx.delete(reactionsTable).where(and(eq(reactionsTable.targetType, "comment"), inArray(reactionsTable.targetId, commentIds)));
       await tx.delete(commentsTable).where(inArray(commentsTable.id, commentIds));
+      // Each fact the person commented on is recounted from the comments that
+      // survive, by the public listing's predicate (approved, not flagged):
+      // the same "recount what survives" the reactions get below.
+      await tx.execute(sql`
+        UPDATE facts f SET comment_count = (
+          SELECT count(*)::int FROM comments c WHERE c.fact_id = f.id AND c.status = 'approved' AND c.flagged = false
+        )
+        WHERE f.id IN (${sql.join(commentedFacts.map((id) => sql`${id}`), sql`, `)})
+      `);
     }
     await tx.execute(sql`DELETE FROM external_links WHERE added_by_id = ${userId}`);
     await tx.execute(sql`DELETE FROM pending_reviews WHERE submitted_by_id = ${userId}`);

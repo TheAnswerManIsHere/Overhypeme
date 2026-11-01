@@ -338,6 +338,29 @@ describe("the account deletion state machine (T3)", () => {
     assert.equal(after!.billingUnsettled, false);
   });
 
+  it("a cancel whose return was never recorded (a crash) keeps billing unsettled until it is certainly over", async () => {
+    const userId = await createUser();
+    const [src] = await db.insert(membershipEntitlementsTable).values([subscription(userId)] as never).returning({ ref: membershipEntitlementsTable.providerRef });
+    restoreBilling = __setAccountDeletionBillingForTests(fakeBilling().fake);
+    await acceptAccountDeletion(userId, { requestedBy: "self", kick: false });
+    // The process died with a Stripe cancel in flight: started, return never recorded.
+    await db.update(accountDeletionRequestsTable)
+      .set({ billingUnsettled: true, billingCancelStartedAt: new Date(), cancelledAt: new Date() })
+      .where(eq(accountDeletionRequestsTable.userId, userId));
+    await runAccountDeletionWorker({ userIds: [userId] });
+    const [held] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
+    assert.equal(held!.billingUnsettled, true, "an observation that may predate the cancel's result does not settle it");
+
+    await db.update(accountDeletionRequestsTable)
+      .set({ billingCancelStartedAt: new Date(Date.now() - 11 * 60 * 1000) })
+      .where(eq(accountDeletionRequestsTable.userId, userId));
+    await runAccountDeletionWorker({ userIds: [userId] });
+    const [settled] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
+    assert.equal(settled!.billingUnsettled, false, "once the cancel is older than any Stripe call, a refresh is final");
+    const [source] = await db.select({ status: membershipEntitlementsTable.lifecycleStatus }).from(membershipEntitlementsTable).where(eq(membershipEntitlementsTable.providerRef, src!.ref!));
+    assert.equal(source!.status, "canceled");
+  });
+
   it("acceptance waits for a content purge already holding the owner's lock", async () => {
     const userId = await createUser();
     let released = 0;
@@ -389,7 +412,15 @@ describe("the account deletion state machine (T3)", () => {
       .values({ text: `${PREFIX}{NAME} submitted`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}submitted`, submittedById: userId })
       .returning();
     factIds.push(ownFact!.id);
-    await db.insert(commentsTable).values({ factId, authorId: userId, text: `${PREFIX}comment` });
+    // Comment counts: the person's approved comment and another member's on the same fact.
+    const [countedFact] = await db.insert(factsTable)
+      .values({ text: `${PREFIX}{NAME} is discussed`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}discussed`, commentCount: 2 })
+      .returning();
+    factIds.push(countedFact!.id);
+    await db.insert(commentsTable).values([
+      { factId: countedFact!.id, authorId: userId, text: `${PREFIX}comment`, status: "approved" },
+      { factId: countedFact!.id, authorId: other, text: `${PREFIX}survivor`, status: "approved" },
+    ] as never);
     const shared = await new ObjectStorageService().uploadObjectBuffer({ subPath: `ai-images/t_p5del_${randomUUID()}.jpg`, buffer: solidJpeg(32, 32), contentType: "image/jpeg" });
     await db.update(factsTable).set({ aiMemeImages: { neutral: [shared] } }).where(eq(factsTable.id, factId));
     await db.insert(userAiImagesTable).values({ userId, factId, gender: "neutral", storagePath: shared, imageType: "reference" });
@@ -408,6 +439,8 @@ describe("the account deletion state machine (T3)", () => {
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, ownFact!.id));
     assert.equal(fact!.submittedById, null, "the fact stays");
     assert.ok(fact!.submitterDeletedAt, "credited to a former member");
+    const [recounted] = await db.select({ commentCount: factsTable.commentCount }).from(factsTable).where(eq(factsTable.id, countedFact!.id));
+    assert.equal(recounted!.commentCount, 1, "the fact's comment count drops the person's comment and keeps the survivor's");
     const [survivor] = await db.select({ heartCount: memesTable.heartCount }).from(memesTable).where(eq(memesTable.id, othersMemeId));
     assert.equal(survivor!.heartCount, 0, "another member's meme is recounted without the person's heart");
     assert.equal(await objectExists(shared), true, "a fact gallery's background is everyone's and stays");

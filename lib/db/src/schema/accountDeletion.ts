@@ -40,6 +40,8 @@ export const accountDeletionRequestsTable = pgTable("account_deletion_requests",
   billingUnsettled: boolean("billing_unsettled").notNull().default(false),
   /** Bumped before the cancels and after each returns; a settlement clears the flag only at the version it read first. */
   billingVersion: integer("billing_version").notNull().default(0),
+  /** Set while a Stripe cancel is in flight, cleared when its return is recorded; a crash leaves it set. */
+  billingCancelStartedAt: timestamp("billing_cancel_started_at", { withTimezone: true }),
 }, (t) => [
   check("account_deletion_requests_stage_check", sql`${t.stage} IN ('accepted', 'subscription_cancelled', 'notified', 'held', 'purging', 'done')`),
   check("account_deletion_requests_requested_by_check", sql`${t.requestedBy} IN ('self', 'admin', 'unonboarded')`),
