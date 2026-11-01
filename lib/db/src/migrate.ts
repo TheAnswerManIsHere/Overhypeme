@@ -50,6 +50,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 import { baselineSqlPath, readBaselineMeta, type BaselineMeta } from "./baseline.js";
+import { guardPool } from "./connectionErrors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -401,6 +402,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   const pool = new pg.Pool({ connectionString: DATABASE_URL });
+  // A dropped connection mid-migration must fail the migration, not crash the
+  // process with an uncaught error event (#826).
+  guardPool(pool, "migration pool");
   const client = await pool.connect();
   // NOTE: the notice listener lives in applyMigrations(), not here — see the
   // comment there. Registering it in this block too would double-print every
