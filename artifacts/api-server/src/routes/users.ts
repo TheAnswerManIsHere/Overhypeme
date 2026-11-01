@@ -9,7 +9,7 @@ import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
   reactionsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
-  userGenerationCostsTable, pendingReviewsTable, commentsTable,
+  userGenerationCostsTable, pendingReviewsTable, commentsTable, uploadImageMetadataTable,
 } from "@workspace/db/schema";
 import { getViewerFactRatings, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
@@ -23,6 +23,11 @@ import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "..
 import { getConfigInt } from "../lib/adminConfig";
 import { logger } from "../lib/logger";
 import { userOwnsUpload } from "../lib/uploadOwnership";
+import { liveContent, restoreWindowDays } from "../lib/contentVisibility";
+import {
+  deleteAiImage, deleteUpload, listAiImagesPage, listMemesPage, listRecentlyDeleted, listUploadsPage,
+  restoreAiImage, restoreUpload, type ContentChangeResult,
+} from "../lib/myContent";
 import { effectiveTierExpr } from "../lib/membershipState";
 
 const router: IRouter = Router();
@@ -483,76 +488,26 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
   // Filters: transform = 'raw' (raw uploads only — the default) or 'all' (no
   // filter). With 'all' the caller may also pass factId to scope to one fact.
   // The AI-styling filters went with PuLID (launch Phase 4, removal 3); its
-  // historical rows stay and are reachable only through 'all'.
-  const transformParam = typeof req.query.transform === "string" ? req.query.transform : "raw";
+  // historical rows stay and are reachable only through 'all'. One page of
+  // `displayLimit` at a time; `cursor` is the previous page's `nextCursor`
+  // (plan S18). Only live photos are listed (plan S2).
+  const transform = req.query.transform === "all" ? "all" : "raw";
   const factIdParam = typeof req.query.factId === "string" ? parseInt(req.query.factId, 10) : NaN;
-  const factIdFilter = Number.isFinite(factIdParam) ? factIdParam : null;
+  const factId = Number.isFinite(factIdParam) ? factIdParam : null;
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
 
-  const transformPredicate = (() => {
-    switch (transformParam) {
-      case "raw":
-        return sql`AND transform IS NULL`;
-      case "all":
-        return sql``;
-      default:
-        return sql`AND transform IS NULL`;
-    }
-  })();
-
-  const factPredicate = factIdFilter !== null
-    ? sql`AND fact_id = ${factIdFilter}`
-    : sql``;
-
-  const [rows, countResult, maxUploads] = await Promise.all([
-    db.execute(sql`
-      SELECT object_path, width, height, is_low_res, file_size_bytes, created_at,
-             transform, source_object_path, fact_id, transform_params_hash, is_profile
-      FROM upload_image_metadata
-      WHERE user_id = ${req.user.id}
-        ${transformPredicate}
-        ${factPredicate}
-      ORDER BY is_profile DESC, created_at DESC
-      LIMIT ${displayLimit}
-    `),
-    db.execute(sql`
-      SELECT COUNT(*)::integer AS total
-      FROM upload_image_metadata
-      WHERE user_id = ${req.user.id}
-        ${transformPredicate}
-        ${factPredicate}
-    `),
+  const [page, maxUploads] = await Promise.all([
+    listUploadsPage(req.user.id, { transform, factId, cursor, limit: displayLimit }),
     getConfigInt("user_max_images", 1000),
   ]);
 
-  const uploads = (rows.rows as Array<{
-    object_path: string;
-    width: number;
-    height: number;
-    is_low_res: boolean;
-    file_size_bytes: number;
-    created_at: string;
-    transform: string | null;
-    source_object_path: string | null;
-    fact_id: number | null;
-    transform_params_hash: string | null;
-    is_profile: boolean;
-  }>).map(r => ({
-    objectPath: r.object_path,
-    width: r.width,
-    height: r.height,
-    isLowRes: r.is_low_res,
-    fileSizeBytes: r.file_size_bytes,
-    createdAt: r.created_at,
-    transform: r.transform,
-    sourceObjectPath: r.source_object_path,
-    factId: r.fact_id,
-    transformParamsHash: r.transform_params_hash,
-    isProfile: r.is_profile,
-  }));
-
-  const uploadCount = (countResult.rows[0] as { total: number } | undefined)?.total ?? 0;
-
-  res.json({ uploads, uploadCount, maxUploads, displayLimit });
+  res.json({
+    uploads: page.items,
+    uploadCount: page.total,
+    maxUploads,
+    displayLimit,
+    nextCursor: page.nextCursor,
+  });
 });
 
 /**
@@ -576,11 +531,13 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
     return;
   }
 
-  // Verify the upload row exists and belongs to this user. A row with no
-  // owner is no one's photo to take (#810), the same answer as another
-  // member's.
+  // Verify the upload row exists, is live and belongs to this user. A row
+  // with no owner is no one's photo to take (#810), the same answer as
+  // another member's; a deleted photo is not found until it is restored.
   const owner = await db.execute(sql`
-    SELECT user_id FROM upload_image_metadata WHERE object_path = ${objectPath} LIMIT 1
+    SELECT user_id FROM upload_image_metadata
+    WHERE object_path = ${objectPath} AND ${liveContent(uploadImageMetadataTable)}
+    LIMIT 1
   `);
   const ownerRow = owner.rows[0] as { user_id: string | null } | undefined;
   if (!ownerRow) {
@@ -639,41 +596,27 @@ router.post("/users/me/profile-image", async (req: Request, res: Response) => {
   res.json({ success: true, profileImageUrl: newProfileImageUrl, objectPath });
 });
 
-// GET /users/me/memes — list all non-deleted memes created by the current user
+// GET /users/me/memes — one page of the current user's live memes, newest
+// first; `cursor` is the previous page's `nextCursor` (plan S18).
+const MY_MEMES_PAGE = 48;
 router.get("/users/me/memes", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const memes = await db
-    .select({
-      id: memesTable.id,
-      factId: memesTable.factId,
-      templateId: memesTable.templateId,
-      imageUrl: memesTable.imageUrl,
-      permalinkSlug: memesTable.permalinkSlug,
-      isPublic: memesTable.isPublic,
-      createdAt: memesTable.createdAt,
-      originalWidth: memesTable.originalWidth,
-      originalHeight: memesTable.originalHeight,
-      uploadFileSizeBytes: memesTable.uploadFileSizeBytes,
-      heartCount: memesTable.heartCount,
-    })
-    .from(memesTable)
-    .where(and(eq(memesTable.createdById, req.user.id), isNull(memesTable.deletedAt)))
-    .orderBy(desc(memesTable.createdAt))
-    .limit(100);
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+  const page = await listMemesPage(req.user.id, { cursor, limit: MY_MEMES_PAGE });
 
   const heartedIds = await getViewerReactionTargetIds(
     req.user.id,
     "meme",
     "heart",
-    memes.map((m) => m.id),
+    page.items.map((m) => m.id),
   );
 
   res.json({
-    memes: memes.map(m => ({
+    memes: page.items.map(m => ({
       ...m,
       createdAt: m.createdAt.toISOString(),
       originalWidth: m.originalWidth ?? null,
@@ -682,11 +625,14 @@ router.get("/users/me/memes", async (req: Request, res: Response) => {
       heartCount: m.heartCount ?? 0,
       viewerHasHearted: heartedIds.has(m.id),
     })),
+    nextCursor: page.nextCursor,
   });
 });
 
-// GET /users/me/ai-images — list AI-generated images owned by the current user
-// Query params: factId (optional), imageType (optional, default 'reference')
+// GET /users/me/ai-images — one page of the current user's own live generated
+// images, newest first. Query params: factId (optional), imageType (optional,
+// default 'reference'), cursor (the previous page's `nextCursor`).
+const MY_AI_IMAGES_PAGE = 48;
 router.get("/users/me/ai-images", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -697,38 +643,29 @@ router.get("/users/me/ai-images", async (req: Request, res: Response) => {
   }
 
   const imageType = String(req.query["imageType"] ?? "reference");
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+  const page = await listAiImagesPage(req.user.id, { imageType, factId, cursor, limit: MY_AI_IMAGES_PAGE });
 
-  const rows = await db.execute<{
-    id: number;
-    fact_id: number;
-    gender: string;
-    storage_path: string;
-    image_type: string;
-    created_at: string;
-  }>(sql`
-    SELECT id, fact_id, gender, storage_path, image_type, created_at
-    FROM user_ai_images
-    WHERE user_id = ${req.user.id}
-      ${factId !== null ? sql`AND fact_id = ${factId}` : sql``}
-      AND image_type = ${imageType}
-    ORDER BY created_at DESC
-    LIMIT 200
-  `);
-
-  const images = rows.rows.map(r => ({
-    id: r.id,
-    factId: r.fact_id,
-    gender: r.gender,
-    storagePath: r.storage_path,
-    imageType: r.image_type,
-    createdAt: r.created_at,
-  }));
-
-  res.json({ images });
+  res.json({ images: page.items, nextCursor: page.nextCursor });
 });
 
-// DELETE /users/me/uploads — hard-delete an uploaded image owned by the current user
-// Query param: path (the object_path value from GET /users/me/uploads)
+/** The answer for a delete or restore that found nothing to act on, or the profile photo. */
+function respondContentChange(res: Response, result: ContentChangeResult, notFound: string): void {
+  if (result === "ok") { res.json({ success: true }); return; }
+  if (result === "profile_photo") {
+    res.status(409).json({
+      error: "This is your profile photo. Choose a different profile photo before deleting it.",
+      code: "profile_photo",
+    });
+    return;
+  }
+  res.status(404).json({ error: notFound });
+}
+
+// DELETE /users/me/uploads — delete one of the current user's photos.
+// Query param: path (the objectPath value from GET /users/me/uploads). It moves
+// to Recently deleted for the restore window; the content purger removes it
+// from storage after that (plan S2; jobs/contentPurger.ts).
 router.delete("/users/me/uploads", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -741,37 +678,40 @@ router.delete("/users/me/uploads", async (req: Request, res: Response) => {
     return;
   }
 
-  // Verify the upload belongs to the requesting user
-  const rows = await db.execute(sql`
-    SELECT object_path FROM upload_image_metadata
-    WHERE user_id = ${req.user.id} AND object_path = ${objectPath}
-    LIMIT 1
-  `);
+  respondContentChange(res, await deleteUpload(req.user.id, objectPath), "Upload not found or does not belong to you");
+});
 
-  if (!rows.rows.length) {
-    res.status(404).json({ error: "Upload not found or does not belong to you" });
-    return;
-  }
+// POST /users/me/uploads/restore — body { path }: undo a photo's delete inside the window.
+router.post("/users/me/uploads/restore", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const objectPath = typeof req.body?.path === "string" ? req.body.path.trim() : "";
+  if (!objectPath) { res.status(400).json({ error: "path is required" }); return; }
+  respondContentChange(res, await restoreUpload(req.user.id, objectPath), "Nothing to restore");
+});
 
-  // Hard-delete from storage FIRST — if this fails, do not touch DB (strict hard-delete)
-  try {
-    const storageService = new ObjectStorageService();
-    await storageService.deleteObject(objectPath);
-  } catch (e) {
-    logger.error({ err: e }, "[DELETE /users/me/uploads] Storage delete failed");
-    // A retryable media error means the photo is untouched: its backup copy
-    // could not be made first (lib/mediaBackup/preserve.ts).
-    res.status(isRetryableMediaError(e) ? 503 : 500).json({ error: "Failed to delete image from storage. Please try again." });
-    return;
-  }
+// DELETE /users/me/ai-images/:id — delete one of the current user's own generated images.
+router.delete("/users/me/ai-images/:id", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (!Number.isSafeInteger(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  respondContentChange(res, await deleteAiImage(req.user.id, id), "Image not found or not yours");
+});
 
-  // Remove metadata row only after confirmed storage delete
-  await db.execute(sql`
-    DELETE FROM upload_image_metadata
-    WHERE user_id = ${req.user.id} AND object_path = ${objectPath}
-  `);
+// POST /users/me/ai-images/:id/restore — undo a generated image's delete inside the window.
+router.post("/users/me/ai-images/:id/restore", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (!Number.isSafeInteger(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  respondContentChange(res, await restoreAiImage(req.user.id, id), "Nothing to restore");
+});
 
-  res.json({ success: true });
+// GET /users/me/recently-deleted — everything the current user deleted that is
+// still restorable, newest deletion first, with when each will be removed.
+router.get("/users/me/recently-deleted", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const [list, restoreWindow] = await Promise.all([listRecentlyDeleted(req.user.id), restoreWindowDays()]);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ...list, restoreWindowDays: restoreWindow });
 });
 
 // GET /api/users/me/spend — authenticated user's monthly spend history (computed at request time)

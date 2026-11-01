@@ -9,15 +9,16 @@ import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFr
 import { AccessGate } from "@/components/AccessGate";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { Link, useLocation } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, CheckCircle, Clock,
-  FileText, ImageIcon, Images, Lock, Plus, ThumbsUp,
+  FileText, ImageIcon, Images, Lock, Plus, RotateCcw, ThumbsUp, Trash2,
 } from "lucide-react";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
-type LibraryTab = "liked" | "submitted" | "history" | "images" | "memes" | "activity";
+type LibraryTab = "liked" | "submitted" | "history" | "images" | "memes" | "deleted" | "activity";
 
 interface UploadItem {
   objectPath: string;
@@ -35,6 +36,52 @@ interface AiImageItem {
   storagePath: string;
   imageType: string;
   createdAt: string;
+}
+
+type DeletedItem =
+  | { kind: "photo"; key: string; objectPath: string; deletedAt: string; purgeAfter: string }
+  | { kind: "generated"; key: string; id: number; storagePath: string; deletedAt: string; purgeAfter: string }
+  | { kind: "meme"; key: string; slug: string; deletedAt: string; purgeAfter: string };
+
+interface RecentlyDeleted {
+  items: DeletedItem[];
+  truncated: boolean;
+  restoreWindowDays: number;
+}
+
+/** Reads a failed response's `error` message, so a refusal reaches the person as the server gave it. */
+async function failure(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => null) as { error?: string } | null;
+  return new Error(body?.error ?? fallback);
+}
+
+/**
+ * One cursor-paged list of the account's content (plan S18): each page
+ * carries the next page's cursor, and `loadMore` fetches it.
+ */
+function usePagedList<T>(key: string, url: string, pick: (page: Record<string, unknown>) => T[], enabled: boolean) {
+  const query = useInfiniteQuery({
+    queryKey: [key],
+    queryFn: async ({ pageParam }) => {
+      const sep = url.includes("?") ? "&" : "?";
+      const res = await fetch(pageParam ? `${url}${sep}cursor=${encodeURIComponent(pageParam)}` : url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load");
+      return res.json() as Promise<Record<string, unknown> & { nextCursor?: string | null }>;
+    },
+    initialPageParam: "" as string,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled,
+    staleTime: 30_000,
+  });
+  const items = query.data ? query.data.pages.flatMap(pick) : undefined;
+  return {
+    items,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    hasMore: query.hasNextPage,
+    loadingMore: query.isFetchingNextPage,
+    loadMore: () => { void query.fetchNextPage(); },
+  };
 }
 
 interface MyMemeItem {
@@ -92,53 +139,60 @@ export default function Library() {
     };
   }, []);
 
-  const { data: uploadsData, isLoading: isUploadsLoading, isError: isUploadsError } = useQuery<{ uploads: UploadItem[] }>({
-    queryKey: ["my-uploads"],
+  const uploads = usePagedList<UploadItem>(
+    "my-uploads", `${BASE_URL}api/users/me/uploads`,
+    (page) => page.uploads as UploadItem[], isAuthenticated && activeTab === "images",
+  );
+  const aiImages = usePagedList<AiImageItem>(
+    "my-ai-images", `${BASE_URL}api/users/me/ai-images?imageType=reference`,
+    (page) => page.images as AiImageItem[], isAuthenticated && activeTab === "images",
+  );
+  const myMemes = usePagedList<MyMemeItem>(
+    "profile-my-memes", `${BASE_URL}api/users/me/memes`,
+    (page) => page.memes as MyMemeItem[], isAuthenticated && activeTab === "memes",
+  );
+
+  // Read on every visit: its count labels the tab, and its window is what the
+  // delete confirmations promise.
+  const { data: deletedData, isLoading: isDeletedLoading } = useQuery<RecentlyDeleted>({
+    queryKey: ["my-recently-deleted"],
     queryFn: async () => {
-      const res = await fetch(`${BASE_URL}api/users/me/uploads`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch uploads");
-      return res.json() as Promise<{ uploads: UploadItem[] }>;
+      const res = await fetch(`${BASE_URL}api/users/me/recently-deleted`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load Recently deleted");
+      return res.json() as Promise<RecentlyDeleted>;
     },
-    enabled: isAuthenticated && activeTab === "images",
+    enabled: isAuthenticated,
     staleTime: 30_000,
   });
+  const windowDays = deletedData?.restoreWindowDays ?? 30;
 
-  const { data: aiImagesData, isLoading: isAiImagesLoading } = useQuery<{ images: AiImageItem[] }>({
-    queryKey: ["my-ai-images"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE_URL}api/users/me/ai-images?imageType=reference`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch AI images");
-      return res.json() as Promise<{ images: AiImageItem[] }>;
-    },
-    enabled: isAuthenticated && activeTab === "images",
-    staleTime: 30_000,
-  });
-
-  const { data: myMemesData, isLoading: isMyMemesLoading } = useQuery<{ memes: MyMemeItem[] }>({
-    queryKey: ["profile-my-memes"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE_URL}api/users/me/memes`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch memes");
-      return res.json() as Promise<{ memes: MyMemeItem[] }>;
-    },
-    enabled: isAuthenticated && activeTab === "memes",
-    staleTime: 30_000,
-  });
-
-  async function deleteMeme(slug: string) {
-    const res = await fetch(`${BASE_URL}api/memes/${slug}`, { method: "DELETE", credentials: "include" });
-    if (!res.ok) throw new Error("Failed to delete meme");
-    await queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
+  /** Runs a delete or restore, then refreshes the lists it changed. */
+  async function change(url: string, method: "DELETE" | "POST", lists: string[], body?: unknown) {
+    const res = await fetch(url, {
+      method,
+      credentials: "include",
+      ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+    });
+    if (!res.ok) throw await failure(res, method === "DELETE" ? "Delete failed" : "Restore failed");
+    await Promise.all([...lists, "my-recently-deleted"].map((key) => queryClient.invalidateQueries({ queryKey: [key] })));
   }
 
-  async function deleteUpload(objectPath: string) {
-    const encodedPath = encodeURIComponent(objectPath);
-    const res = await fetch(`${BASE_URL}api/users/me/uploads?path=${encodedPath}`, { method: "DELETE", credentials: "include" });
-    if (!res.ok) {
-      const body = await res.json() as { error?: string };
-      throw new Error(body.error ?? "Delete failed");
+  const deleteMeme = (slug: string) =>
+    change(`${BASE_URL}api/memes/${encodeURIComponent(slug)}`, "DELETE", ["profile-my-memes"]);
+  const deleteUpload = (objectPath: string) =>
+    change(`${BASE_URL}api/users/me/uploads?path=${encodeURIComponent(objectPath)}`, "DELETE", ["my-uploads"]);
+  const deleteAiImage = (id: number) =>
+    change(`${BASE_URL}api/users/me/ai-images/${id}`, "DELETE", ["my-ai-images"]);
+
+  function restore(item: DeletedItem) {
+    switch (item.kind) {
+      case "photo":
+        return change(`${BASE_URL}api/users/me/uploads/restore`, "POST", ["my-uploads"], { path: item.objectPath });
+      case "generated":
+        return change(`${BASE_URL}api/users/me/ai-images/${item.id}/restore`, "POST", ["my-ai-images"]);
+      case "meme":
+        return change(`${BASE_URL}api/memes/${encodeURIComponent(item.slug)}/restore`, "POST", ["profile-my-memes"]);
     }
-    await queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
   }
 
   if (authLoading || (isAuthenticated && isLoading)) {
@@ -217,6 +271,9 @@ export default function Library() {
               icon={<ImageIcon className="w-5 h-5" />} label="My Memes" />
             <TabButton active={activeTab === "images"} onClick={() => setActiveTab("images")}
               icon={<Images className="w-5 h-5" />} label="My Images" />
+            <TabButton active={activeTab === "deleted"} onClick={() => setActiveTab("deleted")}
+              icon={<Trash2 className="w-5 h-5" />}
+              label={deletedData && deletedData.items.length > 0 ? `Recently Deleted (${deletedData.items.length}${deletedData.truncated ? "+" : ""})` : "Recently Deleted"} />
             <TabButton active={activeTab === "history"} onClick={() => setActiveTab("history")}
               icon={<Clock className="w-5 h-5" />} label="Search History" />
             <TabButton active={false} onClick={() => setLocation("/activity")}
@@ -347,20 +404,21 @@ export default function Library() {
           {activeTab === "images" && (
             <div>
               <p className="text-sm text-muted-foreground mb-6">Images you've uploaded for meme creation. Click an image to copy its link for reuse in the meme builder.</p>
-              {isUploadsError ? (
+              {uploads.isError ? (
                 <div className="text-center py-12 bg-card border-2 border-destructive/30 rounded-sm">
                   <AlertTriangle className="w-10 h-10 text-destructive/60 mx-auto mb-3" />
                   <p className="text-muted-foreground font-medium">Could not load your images. Please try again later.</p>
                 </div>
-              ) : isUploadsLoading ? (
+              ) : uploads.isLoading ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="aspect-square bg-card border-2 border-border rounded-sm animate-pulse" />
                   ))}
                 </div>
-              ) : uploadsData && uploadsData.uploads.length > 0 ? (
+              ) : uploads.items && uploads.items.length > 0 ? (
+                <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {uploadsData.uploads.map((upload) => {
+                  {uploads.items.map((upload) => {
                     const imgUrl = `${BASE_URL}api/storage${upload.objectPath}`;
                     const permalink = `${window.location.origin}${BASE_URL}api/storage${upload.objectPath}`;
                     return (
@@ -372,7 +430,7 @@ export default function Library() {
                         aspectRatio="aspect-square"
                         actions={["delete", "copyLink", "openFull"]}
                         onDelete={() => deleteUpload(upload.objectPath)}
-                        deleteConfirmMessage="Permanently delete this uploaded image? This cannot be undone."
+                        deleteConfirmMessage={`Delete this photo? It moves to Recently deleted, where you can restore it for ${windowDays} days. Memes you made with it stay as they are.`}
                         permalink={permalink}
                         imageOverlay={upload.isLowRes ? (
                           <div className="absolute top-1 left-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm z-10">
@@ -384,6 +442,8 @@ export default function Library() {
                     );
                   })}
                 </div>
+                <LoadMore list={uploads} />
+                </>
               ) : (
                 <div className="text-center py-16 bg-card border-2 border-dashed border-border rounded-sm">
                   <Images className="w-16 h-16 text-muted-foreground/40 mx-auto mb-4" />
@@ -393,19 +453,20 @@ export default function Library() {
                 </div>
               )}
 
-              {(isAiImagesLoading || (aiImagesData && aiImagesData.images.length > 0)) && (
+              {(aiImages.isLoading || (aiImages.items && aiImages.items.length > 0)) && (
                 <div className="mt-10">
                   <h3 className="text-lg font-display uppercase tracking-wider text-foreground mb-1">AI Reference Backgrounds</h3>
                   <p className="text-sm text-muted-foreground mb-6">Backgrounds generated from your reference photos before AI styling was retired. They stay here for you to view.</p>
-                  {isAiImagesLoading ? (
+                  {aiImages.isLoading ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                       {Array.from({ length: 4 }).map((_, i) => (
                         <div key={i} className="aspect-square bg-card border-2 border-border rounded-sm animate-pulse" />
                       ))}
                     </div>
                   ) : (
+                    <>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                      {aiImagesData!.images.map((img) => {
+                      {aiImages.items!.map((img) => {
                         const imgUrl = `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(img.storagePath)}`;
                         return (
                           <ImageCard
@@ -414,7 +475,9 @@ export default function Library() {
                             alt="AI reference background"
                             isAuthProtected
                             aspectRatio="aspect-square"
-                            actions={["openFull"]}
+                            actions={["delete", "openFull"]}
+                            onDelete={() => deleteAiImage(img.id)}
+                            deleteConfirmMessage={`Delete this image? It moves to Recently deleted, where you can restore it for ${windowDays} days.`}
                             imageOverlay={
                               <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5 z-10">
                                 <span className="text-[10px] text-white/70 uppercase tracking-wider">{img.gender}</span>
@@ -425,6 +488,8 @@ export default function Library() {
                         );
                       })}
                     </div>
+                    <LoadMore list={aiImages} />
+                    </>
                   )}
                 </div>
               )}
@@ -434,15 +499,16 @@ export default function Library() {
           {activeTab === "memes" && (
             <div>
               <p className="text-sm text-muted-foreground mb-6">Memes you've created.</p>
-              {isMyMemesLoading ? (
+              {myMemes.isLoading ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="aspect-video bg-card border-2 border-border rounded-sm animate-pulse" />
                   ))}
                 </div>
-              ) : myMemesData && myMemesData.memes.length > 0 ? (
+              ) : myMemes.items && myMemes.items.length > 0 ? (
+                <>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {myMemesData.memes.map(meme => {
+                  {myMemes.items.map(meme => {
                     const memePermalink = `${window.location.origin}/m/${meme.permalinkSlug}`;
                     return (
                       <div key={meme.id} className="space-y-1.5">
@@ -453,7 +519,7 @@ export default function Library() {
                           aspectRatio="aspect-video"
                           actions={["delete", "copyLink", "openFull"]}
                           onDelete={() => deleteMeme(meme.permalinkSlug)}
-                          deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                          deleteConfirmMessage={`Delete this meme? It leaves Overhype.me now and moves to Recently deleted, where you can restore it for ${windowDays} days. A copy someone already loaded can stay visible to them for up to a day.`}
                           permalink={memePermalink}
                            imageOverlay={!meme.isPublic ? (
                              <div
@@ -480,6 +546,8 @@ export default function Library() {
                     );
                   })}
                 </div>
+                <LoadMore list={myMemes} />
+                </>
               ) : (
                 <div className="text-center py-16 bg-card border-2 border-dashed border-border rounded-sm">
                   <ImageIcon className="w-16 h-16 text-muted-foreground/40 mx-auto mb-4" />
@@ -489,6 +557,10 @@ export default function Library() {
                 </div>
               )}
             </div>
+          )}
+
+          {activeTab === "deleted" && (
+            <RecentlyDeletedPanel data={deletedData} isLoading={isDeletedLoading} onRestore={restore} />
           )}
         </div>
       </div>
@@ -506,5 +578,111 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
     >
       {icon} {label}
     </button>
+  );
+}
+
+/** The "Load more" control under a paged list, shown while the server has more. */
+function LoadMore({ list }: { list: { hasMore: boolean; loadingMore: boolean; loadMore: () => void } }) {
+  if (!list.hasMore) return null;
+  return (
+    <div className="flex justify-center mt-6">
+      <Button variant="outline" onClick={list.loadMore} disabled={list.loadingMore}>
+        {list.loadingMore ? "LOADING…" : "LOAD MORE"}
+      </Button>
+    </div>
+  );
+}
+
+const KIND_LABEL: Record<DeletedItem["kind"], string> = { photo: "Photo", generated: "Generated image", meme: "Meme" };
+
+/** Where a deleted item's picture is read from; its owner may still see it until it is removed. */
+function deletedItemSrc(item: DeletedItem): string {
+  switch (item.kind) {
+    case "photo": return `${BASE_URL}api/storage${item.objectPath}`;
+    case "generated": return `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(item.storagePath)}`;
+    case "meme": return `${BASE_URL}api/memes/${encodeURIComponent(item.slug)}/image`;
+  }
+}
+
+/** Whole days until the purge, at least one while it is still listed. */
+function daysLeft(purgeAfter: string): number {
+  return Math.max(1, Math.ceil((Date.parse(purgeAfter) - Date.now()) / 86_400_000));
+}
+
+/**
+ * Recently deleted (launch Phase 5, plan S2/S18): everything the person
+ * deleted that can still come back, with how long each has left. Restoring
+ * puts it back where it was, as it was.
+ */
+function RecentlyDeletedPanel({ data, isLoading, onRestore }: {
+  data: RecentlyDeleted | undefined;
+  isLoading: boolean;
+  onRestore: (item: DeletedItem) => Promise<void>;
+}) {
+  const { toast } = useToast();
+  const [restoring, setRestoring] = useState<string | null>(null);
+
+  async function restoreItem(item: DeletedItem) {
+    setRestoring(`${item.kind}:${item.key}`);
+    try {
+      await onRestore(item);
+      toast({ title: `${KIND_LABEL[item.kind]} restored` });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Restore failed", description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setRestoring(null);
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground mb-6">
+        Photos, images and memes you deleted. Each stays here for {data?.restoreWindowDays ?? 30} days after you delete it,
+        then it is removed from Overhype.me for good. Restore puts it back exactly as it was.
+      </p>
+      {isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="aspect-square bg-card border-2 border-border rounded-sm animate-pulse" />
+          ))}
+        </div>
+      ) : data && data.items.length > 0 ? (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {data.items.map((item) => {
+              const id = `${item.kind}:${item.key}`;
+              const left = daysLeft(item.purgeAfter);
+              return (
+                <div key={id} className="bg-card border-2 border-border rounded-sm overflow-hidden flex flex-col">
+                  <div className={`${item.kind === "meme" ? "aspect-video" : "aspect-square"} bg-secondary`}>
+                    <img src={deletedItemSrc(item)} alt={`Deleted ${KIND_LABEL[item.kind].toLowerCase()}`}
+                      className="w-full h-full object-cover opacity-60" loading="lazy" />
+                  </div>
+                  <div className="p-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-foreground">{KIND_LABEL[item.kind]}</span>
+                      <span className="font-mono text-[11px] text-muted-foreground" title={`Removed for good on ${new Date(item.purgeAfter).toLocaleString()}`}>
+                        {left} {left === 1 ? "day" : "days"} left
+                      </span>
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-2" disabled={restoring === id} onClick={() => void restoreItem(item)}>
+                      <RotateCcw className="w-4 h-4" /> {restoring === id ? "RESTORING…" : "RESTORE"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {data.truncated && (
+            <p className="text-xs text-muted-foreground mt-4">Showing your most recent deletions; older ones are still restorable and appear here as these are restored or removed.</p>
+          )}
+        </>
+      ) : (
+        <div className="text-center py-16 bg-card border-2 border-dashed border-border rounded-sm">
+          <Trash2 className="w-16 h-16 text-muted-foreground/40 mx-auto mb-4" />
+          <p className="text-muted-foreground text-lg font-medium">Nothing recently deleted.</p>
+        </div>
+      )}
+    </div>
   );
 }

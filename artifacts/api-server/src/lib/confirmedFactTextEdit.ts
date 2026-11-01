@@ -20,7 +20,8 @@
  *      fresh prep jobs after commit.
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { liveContent } from "./contentVisibility";
 import { db } from "@workspace/db";
 import { factsTable, factTextEditHistoryTable, memesTable } from "@workspace/db/schema";
 import {
@@ -69,7 +70,7 @@ async function countMemes(factId: number, tx: DbTx): Promise<{ persisted: number
     tx
       .select({ n: sql<number>`count(*)::int` })
       .from(memesTable)
-      .where(and(eq(memesTable.factId, factId), isNull(memesTable.deletedAt), eq(memesTable.status, "live"))),
+      .where(and(eq(memesTable.factId, factId), liveContent(memesTable), eq(memesTable.status, "live"))),
   ]);
   return { persisted: persisted?.n ?? 0, live: live?.n ?? 0 };
 }

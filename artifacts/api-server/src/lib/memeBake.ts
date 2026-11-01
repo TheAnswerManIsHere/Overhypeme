@@ -8,6 +8,7 @@ import { and, asc, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import type { z } from "zod";
 import type { MemeAspectRatio } from "@workspace/api-zod";
 
+import { liveContent } from "./contentVisibility";
 import { logger } from "./logger";
 import { errorCode } from "./mediaBackup/preserve";
 import { generateMemeBuffer } from "./memeGenerator";
@@ -112,7 +113,7 @@ export async function backfillMemeBakes(opts: { ids?: number[] } = {}): Promise<
         and(
           isNotNull(memesTable.imageSource),
           isNull(memesTable.bakedAt),
-          isNull(memesTable.deletedAt),
+          liveContent(memesTable),
           ne(memesTable.status, "quarantined"),
           // Paging by id keeps a row that failed from being selected again in this run.
           gt(memesTable.id, afterId),

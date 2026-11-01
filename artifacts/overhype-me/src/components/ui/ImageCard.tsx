@@ -418,7 +418,10 @@ export function ImageCard({
     if (!onDelete) return;
     setDeleting(true);
     try { await onDelete(); }
-    catch { toast({ variant: "destructive", title: "Delete failed" }); }
+    catch (err) {
+      // A refusal the server explains (your profile photo, say) is shown as it was given.
+      toast({ variant: "destructive", title: "Delete failed", description: err instanceof Error && err.message ? err.message : undefined });
+    }
     finally { setDeleting(false); setConfirmingDelete(false); }
   }, [onDelete, toast]);
 

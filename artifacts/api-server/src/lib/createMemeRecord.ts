@@ -21,7 +21,7 @@ import {
   factsTable,
   usersTable,
 } from "@workspace/db/schema";
-import { and, eq, gt, count, isNull } from "drizzle-orm";
+import { and, eq, gt, count } from "drizzle-orm";
 import { type ImageSource, type AllowedPronouns } from "./validators/memeBuilder";
 import { renderPersonalized } from "./renderCanonical";
 import { getConfigInt } from "./adminConfig";
@@ -30,6 +30,7 @@ import { can, type Principal } from "./featureAccess";
 import { getUploadImageMetadata } from "./userImageUpload";
 import { renderMemeRecipe, storeMemeFile } from "./memeBake";
 import { logger } from "./logger";
+import { liveContent } from "./contentVisibility";
 import { effectiveTierExpr } from "./membershipState";
 
 const FREE_TIER_DAILY_SAVE_CAP_DEFAULT = 30;
@@ -220,7 +221,7 @@ export async function createMemeRecord(
       and(
         eq(memesTable.createdById, userId),
         gt(memesTable.createdAt, oneDayAgo),
-        isNull(memesTable.deletedAt),
+        liveContent(memesTable),
       ),
     );
   if (Number(recentCount) >= dailyCap) {
