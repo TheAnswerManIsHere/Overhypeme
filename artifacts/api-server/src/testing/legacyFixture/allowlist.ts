@@ -40,6 +40,8 @@ export type SyntheticKind =
   | "display-name"
   | "true"
   | "verified-at-created"
+  | "onboarded-at-created"
+  | "adult-birth-date"
   | "stripe-customer"
   | "stripe-provider-ref"
   | "stripe-price"
@@ -191,6 +193,15 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     avatarSource: "keep",
     pronouns: "keep",
     emailVerifiedAt: "synthetic:verified-at-created",
+    // Launch Phase 5 (0114). The fixture's people are established accounts, so
+    // each reads as onboarded at creation with an adult date of birth (a
+    // synthetic one: a real date is personal data). No consent is invented.
+    onboardingCompletedAt: "synthetic:onboarded-at-created",
+    onboardingDraft: "null",
+    dateOfBirth: "synthetic:adult-birth-date",
+    marketingConsentAt: "null",
+    marketingConsentMethod: "null",
+    marketingConsentWordingVersion: "null",
     monthlyGenerationLimitOverrideUsd: "keep",
     nsfwModeEnabled: "keep",
     createdAt: "keep",

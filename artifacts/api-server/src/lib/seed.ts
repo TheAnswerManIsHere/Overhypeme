@@ -27,7 +27,8 @@ export async function ensureSchema(): Promise<void> {
     },
     {
       label: "users.pronouns",
-      ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS pronouns varchar(20) DEFAULT 'he/him'`,
+      // No default: launch Phase 5 (0114) dropped it; null means "not chosen yet".
+      ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS pronouns varchar(20)`,
     },
     {
       label: "users.pronouns widen to varchar(80)",

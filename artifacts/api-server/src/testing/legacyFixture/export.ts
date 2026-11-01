@@ -515,6 +515,10 @@ async function exportWithin(client: pg.Client, opts: ExportOptions): Promise<Exp
         return true;
       case "verified-at-created":
         return row.created_at;
+      case "onboarded-at-created":
+        return row.created_at;
+      case "adult-birth-date":
+        return "1990-01-01";
       case "stripe-customer":
         return value != null && isTestId("customers", value) ? scrubber.stripeId(String(value)) : null;
       case "stripe-provider-ref":
