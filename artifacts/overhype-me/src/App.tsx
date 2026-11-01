@@ -23,6 +23,7 @@ const SubmitFact = lazy(() => import("@/pages/SubmitFact"));
 const Profile = lazy(() => import("@/pages/Profile"));
 const Onboard = lazy(() => import("@/pages/Onboard"));
 const CheckEmail = lazy(() => import("@/pages/CheckEmail"));
+const AccountDeletion = lazy(() => import("@/pages/AccountDeletion"));
 const AdminDashboard = lazy(() => import("@/pages/admin/index"));
 const AdminFacts = lazy(() => import("@/pages/admin/facts"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
@@ -288,6 +289,7 @@ function Router() {
         <Route path="/profile" component={Profile} />
         <Route path="/onboard" component={Onboard} />
         <Route path="/check-email" component={CheckEmail} />
+        <Route path="/account/deletion" component={AccountDeletion} />
         <Route path="/admin/facts" component={AdminFacts} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/billing" component={AdminBilling} />

@@ -10,6 +10,11 @@ describe("setupRedirectFor", () => {
     expect(setupRedirectFor("unverified", "/submit")).toBe("/check-email?returnTo=%2Fsubmit");
     expect(setupRedirectFor("unonboarded", "/facts/12?x=1")).toBe("/onboard?returnTo=%2Ffacts%2F12%3Fx%3D1");
   });
+  it("an account scheduled for deletion is sent to keep-my-account from anywhere else", () => {
+    expect(setupRedirectFor("deletion_pending", "/submit")).toBe("/account/deletion");
+    expect(setupRedirectFor("deletion_pending", "/onboarding-tips")).toBe("/account/deletion");
+    for (const p of ["/account/deletion", "/account/deletion?scheduled=1", "/login"]) expect(setupRedirectFor("deletion_pending", p)).toBeNull();
+  });
   it("an eligible account, or one not signed in, is left where it is", () => {
     expect(setupRedirectFor("eligible", "/submit")).toBeNull();
     expect(setupRedirectFor(undefined, "/submit")).toBeNull();
