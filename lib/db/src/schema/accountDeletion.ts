@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, integer, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, check, integer, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 
 /** The stages a deletion request moves through, each reached only from the one before (plan S14). */
@@ -18,6 +18,12 @@ export type AccountDeletionRequester = (typeof ACCOUNT_DELETION_REQUESTERS)[numb
  */
 export const accountDeletionRequestsTable = pgTable("account_deletion_requests", {
   userId: varchar("user_id").primaryKey().references(() => usersTable.id, { onDelete: "cascade" }),
+  /**
+   * The request's generation: every stage change is fenced to it, so a cancel
+   * and re-request (the same row rewritten) can never be advanced by work
+   * decided for the old one. Always written by the engine from JavaScript, so
+   * it round-trips exactly; the default is only a backstop.
+   */
   requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
   /** When the destructive stage may run: 14 days after the request, or now for an admin's purge-now. */
   purgeAfter: timestamp("purge_after", { withTimezone: true }).notNull(),
@@ -30,6 +36,8 @@ export const accountDeletionRequestsTable = pgTable("account_deletion_requests",
   /** The last stage failure, for the admin panel; cleared when a stage succeeds. */
   lastError: text("last_error"),
   attempts: integer("attempts").notNull().default(0),
+  /** True from the first Stripe cancel until every source is refreshed; survives a cancel (the worker settles it). */
+  billingUnsettled: boolean("billing_unsettled").notNull().default(false),
 }, (t) => [
   check("account_deletion_requests_stage_check", sql`${t.stage} IN ('accepted', 'subscription_cancelled', 'notified', 'held', 'purging', 'done')`),
   check("account_deletion_requests_requested_by_check", sql`${t.requestedBy} IN ('self', 'admin', 'unonboarded')`),

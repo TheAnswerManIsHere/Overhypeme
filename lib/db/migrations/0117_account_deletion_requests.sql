@@ -14,6 +14,12 @@
 --     submitter, so a fact whose submitter left reads apart from one that
 --     never had one (plan S3).
 --
+-- requested_at is the request's generation: every stage change is fenced to
+-- it, so it is always written by the engine (never left to its default).
+-- billing_unsettled is true from the first Stripe cancel until every source
+-- has been refreshed, and survives a cancel, so keeping the account cannot
+-- leave a cancelled subscription granting access.
+--
 -- Row states: no existing row is touched. A request is "active" while
 -- cancelled_at is null and stage is not 'done'.
 --
@@ -30,7 +36,8 @@ CREATE TABLE IF NOT EXISTS "account_deletion_requests" (
   "stage_updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   "hold_reason" text,
   "last_error" text,
-  "attempts" integer DEFAULT 0 NOT NULL
+  "attempts" integer DEFAULT 0 NOT NULL,
+  "billing_unsettled" boolean DEFAULT false NOT NULL
 );
 
 DO $$

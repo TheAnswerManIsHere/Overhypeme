@@ -20,7 +20,7 @@ import {
   type AccountDeletionStage,
   type ReactionTargetType,
 } from "@workspace/db/schema";
-import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 
 import { acquireAdminPopulationLock, assertAdminPopulationSurvives } from "./adminLockoutGuard";
 import { isReachableAdminSql } from "./adminIdentity";
@@ -70,6 +70,12 @@ export async function acceptAccountDeletion(
   const purgeAfter = opts.purgeAfter ?? new Date(now.getTime() + DELETION_COOLING_OFF_DAYS * 86_400_000);
   const outcome = await db.transaction(async (tx): Promise<AcceptOutcome> => {
     await acquireAdminPopulationLock(tx);
+    // The owner's content lock, so a content purge already past its in-lock
+    // re-check finishes before this acceptance hides the owner's content, and
+    // one after it sees the request (plan S14). Lock order: population, then
+    // owner, then the user row — the account purge holds the owner lock while
+    // it deletes the user row, so the reverse order here could deadlock.
+    await lockOwnerContent(tx, userId);
     const [user] = await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, userId)).for("update");
     if (!user) return { status: "not_found" };
     const [pending] = await tx.select({ purgeAfter: adr.purgeAfter }).from(adr).where(active(userId));
@@ -114,10 +120,18 @@ export async function cancelAccountDeletion(userId: string, opts: { notify?: boo
     .update(adr)
     .set({ cancelledAt: new Date(), holdReason: null, lastError: null })
     .where(and(active(userId), notInArray(adr.stage, ["purging", "done"])))
-    .returning({ userId: adr.userId });
+    .returning({ userId: adr.userId, billingUnsettled: adr.billingUnsettled });
   if (!row) {
     const [existing] = await db.select({ stage: adr.stage }).from(adr).where(active(userId));
     return existing ? "too_late" : "not_pending";
+  }
+  // A subscription the engine already cancelled whose local record has not
+  // caught up is still the engine's to settle: keeping the account must not
+  // leave a cancelled subscription granting access (refresh only, never cancel).
+  if (row.billingUnsettled) {
+    void settleBilling(userId).catch((err: unknown) =>
+      logger.warn({ err, userId }, "[account-deletion] billing refresh after cancel did not finish; the worker resumes it"),
+    );
   }
   if (opts.notify !== false) {
     const [user] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId));
@@ -137,22 +151,35 @@ export async function pendingDeletion(userId: string) {
 
 // ── Advancing ─────────────────────────────────────────────────────────
 
-/** Moves a request from one stage to the next only if it is still at the first and still active. */
-async function compareAndSet(userId: string, from: AccountDeletionStage[], to: AccountDeletionStage, extra: Partial<typeof adr.$inferInsert> = {}): Promise<boolean> {
+/**
+ * Moves a request from one stage to the next only if it is still the request
+ * that was read (`generation`, its `requested_at`), still active and still at
+ * the first stage, and `premises` — whatever else the decision rested on —
+ * still hold. A cancel and re-request rewrites the same row with a new
+ * `requested_at`, so work decided for one request can never advance another.
+ */
+async function compareAndSet(
+  userId: string,
+  generation: Date,
+  from: AccountDeletionStage[],
+  to: AccountDeletionStage,
+  extra: Partial<typeof adr.$inferInsert> = {},
+  premises?: SQL,
+): Promise<boolean> {
   const rows = await db
     .update(adr)
     .set({ stage: to, stageUpdatedAt: new Date(), lastError: null, ...extra })
-    .where(and(active(userId), inArray(adr.stage, from)))
+    .where(and(active(userId), eq(adr.requestedAt, generation), inArray(adr.stage, from), premises))
     .returning({ userId: adr.userId });
   return rows.length > 0;
 }
 
-async function recordFailure(userId: string, err: unknown): Promise<void> {
+async function recordFailure(userId: string, generation: Date, err: unknown): Promise<void> {
   const message = err instanceof Error ? err.message : String(err);
   await db
     .update(adr)
     .set({ lastError: message.slice(0, 1000), attempts: sql`${adr.attempts} + 1` })
-    .where(eq(adr.userId, userId));
+    .where(and(eq(adr.userId, userId), eq(adr.requestedAt, generation)));
 }
 
 /** Runs `advanceAccountDeletion` without waiting for it: the request is already safe, the worker is the recovery. */
@@ -178,6 +205,9 @@ async function cancelSubscriptions(userId: string): Promise<void> {
       inArray(membershipEntitlementsTable.lifecycleStatus, CANCELLABLE_SUBSCRIPTION_STATUSES),
     ));
   if (subs.length === 0) return;
+  // From the first cancel until every source has caught up, the engine owes a
+  // refresh even if the person keeps their account (`settleBilling`).
+  await db.update(adr).set({ billingUnsettled: true }).where(eq(adr.userId, userId));
   for (const { subscriptionId } of subs) {
     if (!subscriptionId) continue;
     try {
@@ -187,8 +217,39 @@ async function cancelSubscriptions(userId: string): Promise<void> {
       const alreadyGone = code === "resource_missing" || /canceled|cancelled/i.test(err instanceof Error ? err.message : "");
       if (!alreadyGone) throw err;
     }
-    await billing.refresh(subscriptionId, userId);
+    await refreshOrThrow(subscriptionId, userId);
   }
+}
+
+/**
+ * Refreshes one subscription source and throws when the refresh did not apply
+ * (a busy source lease, a failed retrieval, a verification refusal): the stage
+ * stays where it is, the reason is recorded, and the worker retries. The
+ * engine's stance for any Stripe state it cannot reconcile is "pending,
+ * visible, retried", never "advance anyway".
+ */
+async function refreshOrThrow(subscriptionId: string, userId: string): Promise<void> {
+  const result = await billing.refresh(subscriptionId, userId);
+  if (!result.applied) throw new Error(`Stripe subscription ${subscriptionId}: local refresh not applied (${result.reason ?? "unknown"})`);
+}
+
+/**
+ * For a request cancelled while its billing was unsettled: refreshes (never
+ * cancels) every subscription source of the person still recorded as billable,
+ * so a subscription the engine cancelled stops granting access while one it
+ * never reached stays as Stripe says. Clears the flag once all applied.
+ */
+async function settleBilling(userId: string): Promise<void> {
+  const subs = await db
+    .select({ subscriptionId: membershipEntitlementsTable.providerRef })
+    .from(membershipEntitlementsTable)
+    .where(and(
+      eq(membershipEntitlementsTable.userId, userId),
+      eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+      inArray(membershipEntitlementsTable.lifecycleStatus, CANCELLABLE_SUBSCRIPTION_STATUSES),
+    ));
+  for (const { subscriptionId } of subs) if (subscriptionId) await refreshOrThrow(subscriptionId, userId);
+  await db.update(adr).set({ billingUnsettled: false }).where(and(eq(adr.userId, userId), isNotNull(adr.cancelledAt)));
 }
 
 /**
@@ -199,7 +260,8 @@ async function cancelSubscriptions(userId: string): Promise<void> {
  */
 export interface AccountDeletionBilling {
   cancel(subscriptionId: string): Promise<void>;
-  refresh(subscriptionId: string, userId: string): Promise<void>;
+  /** `applied: false` (with a reason) when the local source did not take the refresh. */
+  refresh(subscriptionId: string, userId: string): Promise<{ applied: boolean; reason?: string }>;
 }
 
 const realBilling: AccountDeletionBilling = {
@@ -210,7 +272,8 @@ const realBilling: AccountDeletionBilling = {
   async refresh(subscriptionId, userId) {
     const { getUncachableStripeClient } = await import("./stripeClient");
     const { refreshSubscriptionSource } = await import("./membershipRefresh");
-    await refreshSubscriptionSource(await getUncachableStripeClient(), subscriptionId, { expectedUserId: userId, transitionEvent: "account_deletion" });
+    const result = await refreshSubscriptionSource(await getUncachableStripeClient(), subscriptionId, { expectedUserId: userId, transitionEvent: "account_deletion" });
+    return { applied: result.applied, reason: result.applied ? undefined : String((result as { reason?: unknown }).reason ?? "") };
   },
 };
 
@@ -222,15 +285,26 @@ export function __setAccountDeletionBillingForTests(fake: AccountDeletionBilling
   return () => { billing = realBilling; };
 }
 
-/** True when a billing dispute on any of the person's sources is still open: the purge waits for it. */
-async function openDispute(userId: string): Promise<boolean> {
-  const rows = await db.execute(sql`
+/** A billing dispute on any of the person's sources is still open: the purge waits for it. */
+function disputeOpen(userId: string): SQL {
+  return sql`EXISTS (
     SELECT 1 FROM entitlement_source_disputes d
     JOIN membership_entitlements e ON e.id = d.source_id
     WHERE e.user_id = ${userId} AND NOT d.is_terminal
-    LIMIT 1
-  `);
-  return rows.rows.length > 0;
+  )`;
+}
+
+async function openDispute(userId: string): Promise<boolean> {
+  const rows = await db.execute(sql`SELECT ${disputeOpen(userId)} AS open`);
+  return Boolean((rows.rows[0] as { open?: boolean } | undefined)?.open);
+}
+
+let beforePurgeClaim: ((userId: string) => Promise<void>) | null = null;
+
+/** Tests only: run `fn` between the purge decision and its claim, where a stale worker would sit. */
+export function __setBeforePurgeClaimForTests(fn: (userId: string) => Promise<void>): () => void {
+  beforePurgeClaim = fn;
+  return () => { beforePurgeClaim = null; };
 }
 
 export type AdvanceResult = AccountDeletionStage | "cancelled" | "gone";
@@ -245,11 +319,12 @@ export async function advanceAccountDeletion(userId: string, now = new Date()): 
     const [row] = await db.select().from(adr).where(eq(adr.userId, userId));
     if (!row) return "gone";
     if (row.cancelledAt) return "cancelled";
+    const generation = row.requestedAt;
     try {
       switch (row.stage) {
         case "accepted":
           await cancelSubscriptions(userId);
-          if (!(await compareAndSet(userId, ["accepted"], "subscription_cancelled"))) continue;
+          if (!(await compareAndSet(userId, generation, ["accepted"], "subscription_cancelled", { billingUnsettled: false }))) continue;
           break;
         case "subscription_cancelled": {
           // An admin's purge-now tells no one; a scheduled deletion is told its date.
@@ -263,17 +338,21 @@ export async function advanceAccountDeletion(userId: string, now = new Date()): 
               });
             }
           }
-          if (!(await compareAndSet(userId, ["subscription_cancelled"], "notified"))) continue;
+          if (!(await compareAndSet(userId, generation, ["subscription_cancelled"], "notified"))) continue;
           break;
         }
         case "notified":
         case "held":
           if (row.purgeAfter > now) return row.stage;
           if (await openDispute(userId)) {
-            if (row.stage === "notified") await compareAndSet(userId, ["notified"], "held", { holdReason: "An open billing dispute on this account's purchases" });
+            if (row.stage === "notified") await compareAndSet(userId, generation, ["notified"], "held", { holdReason: "An open billing dispute on this account's purchases" });
             return "held";
           }
-          if (!(await compareAndSet(userId, ["notified", "held"], "purging", { holdReason: null }))) continue;
+          await beforePurgeClaim?.(userId);
+          // The claim restates both premises it was decided on — the deadline
+          // has passed and no dispute is open — in the same statement.
+          if (!(await compareAndSet(userId, generation, ["notified", "held"], "purging", { holdReason: null },
+            and(lte(adr.purgeAfter, now), sql`NOT ${disputeOpen(userId)}`)))) continue;
           break;
         case "purging":
           await purgeAccount(userId);
@@ -282,7 +361,7 @@ export async function advanceAccountDeletion(userId: string, now = new Date()): 
           return "done";
       }
     } catch (err) {
-      await recordFailure(userId, err);
+      await recordFailure(userId, generation, err);
       throw err;
     }
   }
@@ -394,11 +473,22 @@ export interface DeletionWorkerCounts {
 export async function runAccountDeletionWorker(opts: { userIds?: string[]; now?: Date } = {}): Promise<DeletionWorkerCounts> {
   const counts: DeletionWorkerCounts = { selected: 0, advanced: 0, purged: 0, held: 0, failed: 0 };
   const rows = await db
-    .select({ userId: adr.userId, stage: adr.stage })
+    .select({ userId: adr.userId, stage: adr.stage, cancelledAt: adr.cancelledAt })
     .from(adr)
-    .where(and(isNull(adr.cancelledAt), ne(adr.stage, "done"), opts.userIds ? inArray(adr.userId, opts.userIds) : undefined));
+    .where(and(
+      or(and(isNull(adr.cancelledAt), ne(adr.stage, "done")), and(isNotNull(adr.cancelledAt), eq(adr.billingUnsettled, true))),
+      opts.userIds ? inArray(adr.userId, opts.userIds) : undefined,
+    ));
   for (const row of rows) {
     counts.selected++;
+    if (row.cancelledAt) {
+      // Kept, but a subscription the engine cancelled has not been refreshed yet.
+      await settleBilling(row.userId).then(
+        () => { counts.advanced++; },
+        (err: unknown) => { counts.failed++; logger.warn({ err, userId: row.userId }, "[account-deletion] billing refresh after cancel failed; retried next run"); },
+      );
+      continue;
+    }
     try {
       const reached = await advanceAccountDeletion(row.userId, opts.now);
       if (reached === "done") counts.purged++;

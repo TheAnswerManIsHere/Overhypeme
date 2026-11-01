@@ -26,12 +26,13 @@ import storageRouter from "../routes/storage.js";
 import adminRouter from "../routes/admin.js";
 import {
   acceptAccountDeletion, advanceAccountDeletion, cancelAccountDeletion, runAccountDeletionWorker,
-  __setAccountDeletionBillingForTests, type AccountDeletionBilling,
+  __setAccountDeletionBillingForTests, __setBeforePurgeClaimForTests, type AccountDeletionBilling,
 } from "../lib/accountDeletion.js";
 import { isReachableAdminSql } from "../lib/adminIdentity.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import { createMemeRecord, type MemeAuthorizationDecisions } from "../lib/createMemeRecord.js";
 import { runContentPurger } from "../jobs/contentPurger.js";
+import { lockOwnerContent } from "../lib/contentVisibility.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { memeKey } from "../lib/storageKeys.js";
 import { photoBackgrounds, solidJpeg } from "./helpers/photoBackground.js";
@@ -86,17 +87,25 @@ async function objectExists(path: string): Promise<boolean> {
 
 const past = () => new Date(Date.now() - 60_000);
 
-/** A fake for the two Stripe calls, recording what it was asked. */
-function fakeBilling(behaviour: (subscriptionId: string, call: number) => void = () => {}) {
+/** A fake for the two Stripe calls, recording what it was asked. `refreshApplies` decides each refresh (default: applied). */
+function fakeBilling(behaviour: (subscriptionId: string, call: number) => void = () => {}, refreshApplies: (call: number) => boolean = () => true) {
   const calls: string[] = [];
+  let refreshes = 0;
   const fake: AccountDeletionBilling = {
     async cancel(id) { calls.push(`cancel:${id}`); behaviour(id, calls.length); },
     async refresh(id) {
       calls.push(`refresh:${id}`);
+      if (!refreshApplies(++refreshes)) return { applied: false, reason: "source_busy" };
       await db.update(membershipEntitlementsTable).set({ lifecycleStatus: "canceled" }).where(eq(membershipEntitlementsTable.providerRef, id));
+      return { applied: true };
     },
   };
   return { fake, calls };
+}
+
+/** A subscription source row for `userId`. */
+function subscription(userId: string, status = "active") {
+  return { userId, sourceType: "stripe_subscription" as const, providerRef: `sub_${randomUUID()}`, isMembershipProduct: true, lifecycleStatus: status, sourceStateAsOf: 1 };
 }
 
 async function cleanup(): Promise<void> {
@@ -232,6 +241,64 @@ describe("the account deletion state machine (T3)", () => {
     assert.ok(calls.filter((c) => c.startsWith("cancel:")).length >= 2, "both the past_due and the active subscription were cancelled");
     const left = await db.select({ status: membershipEntitlementsTable.lifecycleStatus }).from(membershipEntitlementsTable).where(eq(membershipEntitlementsTable.userId, userId));
     assert.ok(left.every((l) => l.status === "canceled"), "and both sources refreshed");
+  });
+
+  it("a purge decided for one request never claims its replacement", async () => {
+    restoreBilling = __setAccountDeletionBillingForTests(fakeBilling().fake);
+    const userId = await createUser();
+    await acceptAccountDeletion(userId, { requestedBy: "self", purgeAfter: past(), kick: false });
+    // Between the old request's purge decision and its claim, the person keeps
+    // the account and asks again; the replacement reaches notified.
+    const restoreHook = __setBeforePurgeClaimForTests(async (id) => {
+      restoreHook();
+      assert.equal(await cancelAccountDeletion(id, { notify: false }), "cancelled");
+      await acceptAccountDeletion(id, { requestedBy: "self", kick: false, now: new Date(Date.now() + 5) });
+      assert.equal(await advanceAccountDeletion(id), "notified");
+    });
+    try {
+      assert.equal(await advanceAccountDeletion(userId), "notified", "the stale claim does not land; the replacement waits its 14 days");
+    } finally {
+      restoreHook();
+    }
+    const [row] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
+    assert.equal(row!.stage, "notified");
+    assert.ok(row!.purgeAfter.getTime() > Date.now() + 13 * 86_400_000);
+    assert.equal((await db.select().from(usersTable).where(eq(usersTable.id, userId))).length, 1);
+  });
+
+  it("a subscription refresh that did not apply keeps the stage, and keeping the account still settles it", async () => {
+    const userId = await createUser();
+    await db.insert(membershipEntitlementsTable).values([subscription(userId)] as never);
+    const { fake } = fakeBilling(() => {}, (n) => n > 1);
+    restoreBilling = __setAccountDeletionBillingForTests(fake);
+    await acceptAccountDeletion(userId, { requestedBy: "self", kick: false });
+    await assert.rejects(advanceAccountDeletion(userId), /not applied \(source_busy\)/);
+    const [stuck] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
+    assert.equal(stuck!.stage, "accepted", "a refresh that did not apply is not done");
+    assert.equal(stuck!.billingUnsettled, true);
+
+    // The person keeps the account before the worker retries: the engine still owes the refresh.
+    assert.equal(await cancelAccountDeletion(userId, { notify: false }), "cancelled");
+    await runAccountDeletionWorker({ userIds: [userId] });
+    const [settled] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
+    assert.equal(settled!.billingUnsettled, false);
+    const [source] = await db.select({ status: membershipEntitlementsTable.lifecycleStatus }).from(membershipEntitlementsTable).where(eq(membershipEntitlementsTable.userId, userId));
+    assert.equal(source!.status, "canceled", "the cancelled subscription no longer grants access");
+  });
+
+  it("acceptance waits for a content purge already holding the owner's lock", async () => {
+    const userId = await createUser();
+    let released = 0;
+    const holder = db.transaction(async (tx) => {
+      await lockOwnerContent(tx, userId);
+      await new Promise((r) => setTimeout(r, 300));
+      released = Date.now();
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    await acceptAccountDeletion(userId, { requestedBy: "self", kick: false });
+    const accepted = Date.now();
+    await holder;
+    assert.ok(released > 0 && accepted >= released, "acceptance committed only after the purge's lock was released");
   });
 
   it("an open billing dispute holds the account purge and the content purger alike", async () => {
