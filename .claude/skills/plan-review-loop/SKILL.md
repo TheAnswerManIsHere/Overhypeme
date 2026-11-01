@@ -3,7 +3,7 @@ name: plan-review-loop
 description: Use in feature-building mode once the pre-plan conversation has settled intent, or whenever a plan needs to be delivered to David for approval. Runs the planning loop in-session — Astra and I develop the plan together as peers, reading one contract, with the next action stated by me rather than derived from an assessment. No plan-review PR and no page; everything reaches David in chat, and the approved plan is committed on its feature branch. NOT for bugfix mode, which skips planning entirely.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # The in-session planning loop
 
@@ -17,7 +17,7 @@ git, while we develop it; at approval it is committed on the feature branch
 
 **The script's path differs by repository, so resolve it once per session**
 rather than typing either form. The sync routes `core/X -> X`, so the file is
-`core/scripts/plan-review.mjs` in the handbook and `scripts/plan-review.mjs`
+`core/scripts/plan-review.mjs` in KITT and `scripts/plan-review.mjs`
 in every consumer:
 
 ```

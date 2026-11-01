@@ -1,9 +1,9 @@
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 //
 // The map tool's pure functions, on bare Node: no compiler, no sync, no
 // fixture repository. This file ships with the payload, so it must run
 // wherever it lands; the compiler-backed behaviour is proven by the
-// handbook's own integration suite, which never ships.
+// KITT's own integration suite, which never ships.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -123,8 +123,9 @@ test("sets: codegen, synced and test files leave the headered set but stay index
   const s = computeSets(files, cfg, (f) => f === "scripts/sync.mjs");
   assert.deepEqual(s.indexed, files);
   assert.deepEqual(s.headered, ["src/a.ts"]);
-  assert.ok(carriesSyncBanner("#!/usr/bin/env node\n// SYNCED FROM AI-Handbook — x\n"));
-  assert.ok(!carriesSyncBanner('const s = "SYNCED FROM AI-Handbook";\n'));
+  assert.ok(carriesSyncBanner("#!/usr/bin/env node\n// SYNCED FROM KITT — x\n"));
+  assert.ok(!carriesSyncBanner('const s = "SYNCED FROM KITT";\n'));
+  assert.ok(carriesSyncBanner("// SYNCED FROM AI-Handbook — x\n"), "a copy synced before the rename still counts as synced");
 });
 
 test("not-found answers suggest the nearest real paths", () => {

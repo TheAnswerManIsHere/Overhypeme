@@ -3,7 +3,7 @@ name: An inline tool result can be recovered byte-exact from the session transcr
 description: A tool response small enough to come back inline is normally re-typed into a capture file, which is where evidence gets corrupted. The same bytes are on disk at ~/.claude/projects/<encoded-project>/<session-id>.jsonl as tool_result blocks. Write the extract OUTSIDE any tool-results directory, or captureSource() will classify it harness-capture and discard your declared fetch time.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 ## Rule
 
@@ -43,14 +43,14 @@ costs nothing to refresh, and evidence it hands back inline costs a
 transcription.** So any rule demanding a large capture per round is free, and
 one demanding a small capture is a tax — and the discipline that is expensive
 is the one that gets skipped, which is how evidence got fabricated in the
-first place (AI-Handbook #38, round 4: a snapshot carrying invented ids).
+first place (KITT #38, round 4: a snapshot carrying invented ids).
 
 The transcript closes that gap for the inline case. The bytes exist; the
 retyping step is optional.
 
 ## The trap: where you save the extract decides how it is classified
 
-The handbook's former snapshot assembler classified a capture **solely from
+KITT's former snapshot assembler classified a capture **solely from
 the path** its `captureSource()` was handed — and anything that rebuilds this
 for #95 or #96 will face the same choice:
 
@@ -84,7 +84,7 @@ GitHub's actual timestamps.
 
 ## Related
 
-- AI-Handbook #75 — the mechanical record's evidence path had an unguarded
+- KITT #75 — the mechanical record's evidence path had an unguarded
   hand step. **Closed** by #79, which made this recovery a script; the #89 cut
   then removed that script with the record it fed. The note stays because the
   technique is still worth knowing, the `tool-results/` trap is still live,

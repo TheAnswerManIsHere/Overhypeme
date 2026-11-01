@@ -1,11 +1,11 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 # Token pricing — the published list prices the spend line uses
 
 **What this is.** The per-million-token list prices that every spend line
 (`claude-core.md`, *A reversible choice proceeds, and every turn reports its
 spend*, item 2) converts tokens with. They are read from the vendors'
 published pricing pages, quoted here with the date they were read, and
-**refreshed at the handbook's `/maintenance` pass** (the `maintenance` skill,
+**refreshed at KITT's `/maintenance` pass** (the `maintenance` skill,
 step 6b) — the one source; a consumer's copy is vendored and read-only, and
 a consumer's pass reports its dates rather than editing it.
 A spend line cites a rate from this table; `unable to verify` is for a model
@@ -83,7 +83,7 @@ Three readings behind that formula, each settled rather than assumed:
   the output tokens", and its example totals input plus output alone (328 +
   52 = 380 with `reasoning_tokens: 0`); the CLI copies both counters straight
   from the turn total. So `reasoning_output_tokens` is diagnostic, not a
-  bucket (Codex, AI-Handbook #199 round 2).
+  bucket (Codex, KITT #199 round 2).
 - **The usage is the turn's cumulative total, but the 272K threshold is per
   request** — "Prompts with more than 272K input tokens are priced at 2x input
   and cache rates and 1.5x output for the full request" (the `gpt-6-astra`
@@ -95,13 +95,13 @@ Three readings behind that formula, each settled rather than assumed:
   from the long-context row, and the spend line says so** (`≤ $X, long-context
   row as ceiling`), since which requests crossed is not in the reading. That
   overstates and never understates, the side the Haiku rule below takes for
-  the same reason (Codex, AI-Handbook #199 round 2).
+  the same reason (Codex, KITT #199 round 2).
 
 A run whose log says `usage not reported` is `unable to verify` in the
 spend line, as the rule at the top says. That covers a usage object lacking
 any of the five buckets, the CLI's all-zero default for a turn that reported
 no usage at all, and a stream in which the CLI rerouted the run to another
-model — whose counts would be priced at the wrong rates (AI-Handbook #197
+model — whose counts would be priced at the wrong rates (KITT #197
 items 4 and 5). (This replaces the single $15/M Astra proxy row and
 answers Overhype.me #639 `4243652049` and DojoOS #8 `4243765922`.)
 
@@ -141,19 +141,19 @@ by a decision recorded here; the rates change at every refresh.
 
 ## Refreshing this table
 
-At **AI-Handbook's** `/maintenance`, step 6b — and only there, since this
+At **KITT's** `/maintenance`, step 6b — and only there, since this
 file is payload and a consumer's copy is overwritten by the next sync: fetch
 both pricing pages, re-quote the rows for every model this table names and
-for any new model the handbook's own `.agents/machinery.json` pins, update
+for any new model KITT's own `.agents/machinery.json` pins, update
 the two tables and each section's read date, and recompute the proxy column
 from the rule above. A consumer that pins a model this table does not carry
-gets its row by a pull request to the handbook, never by a local edit — a
-consumer's pins are its own, so the handbook's pass cannot see them, and
+gets its row by a pull request to KITT, never by a local edit — a
+consumer's pins are its own, so KITT's pass cannot see them, and
 until the row lands every spend line there reads `unable to verify`, which
 is the signal to open that pull request. A consumer's `/maintenance` reads
 this table and reports each section's read date and how old it is; it never
-edits it, and it does not judge the copy stale against the handbook's pass,
+edits it, and it does not judge the copy stale against KITT's pass,
 whose date it has no way to read — a newer table reaches a consumer only by
-the next sync from the handbook. A page that cannot be fetched leaves its
+the next sync from KITT. A page that cannot be fetched leaves its
 section as is with the old date, and the maintenance report says so — a
 stale rate with its date is a reading; a guessed one is not.

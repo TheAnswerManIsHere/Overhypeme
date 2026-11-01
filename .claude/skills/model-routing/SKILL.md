@@ -3,7 +3,7 @@ name: model-routing
 description: Use when deciding or explaining a model/effort escalation beyond what CLAUDE.md's *Model, cost, and routing* states, or when David asks whether a switch can be automated.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Model and effort routing — the reference detail
 
@@ -195,7 +195,7 @@ Opus side) — so it is always a deliberate escalation.
   That route is for design and diagnosis only: the code itself is written on
   Opus (*Fable to explore, Opus to build*, above).
   **The two layers take different values, and this bullet used to say they take
-  the same ones** (AI-Handbook #131 round 2, where the Fable assessor found the
+  the same ones** (KITT #131 round 2, where the Fable assessor found the
   sentence contradicting the measured table below it, in the same file):
   the **per-invocation `model` parameter takes an alias only** — the Agent
   tool declares it as an enum of `sonnet`, `opus`, `haiku`, `fable`, and
@@ -324,7 +324,7 @@ covers the other's failure:
 **The declarations are derived from the pin, never typed.**
 `node scripts/check-agent-models.mjs` fails when a `fable-*` definition
 disagrees with `models.strongestClaude`, and `--fix` rewrites it from there, so
-David's one-line edit propagates. It runs in the handbook's CI and not in a
+David's one-line edit propagates. It runs in KITT's CI and not in a
 consumer's: a consumer receives the definitions carrying THIS repository's pin
 and must not edit a synced file, so a check shipped to them would be
 permanently red with no fix available. What reaches a consumer's own tier is
@@ -377,7 +377,7 @@ disagrees", which round 2 removed. Each time the sentence survived the change it
 described. That is the defect this skill's own rule names: two live instructions
 that contradict each other mean either can fire.)*
 
-The reporting side has its own limit, measured on AI-Handbook #131 rounds 1–3:
+The reporting side has its own limit, measured on KITT #131 rounds 1–3:
 the assessor answered `at unable to name` every time, because its context shows
 reasoning effort as a number (`80`) rather than a named level. **An effort
 nobody can name is a limit to state once, not a mismatch to raise every round.**

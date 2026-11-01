@@ -1,5 +1,5 @@
 {
-  "$comment": "SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. The schema scripts/map.mjs validates each .agents/map/*.json against; the contract is docs/ai-context/agent-legible-codebase.md.",
+  "$comment": "SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. The schema scripts/map.mjs validates each .agents/map/*.json against; the contract is docs/ai-context/agent-legible-codebase.md.",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
     "doc": { "type": "string", "minLength": 1 },

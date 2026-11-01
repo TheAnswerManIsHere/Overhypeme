@@ -3,11 +3,11 @@ name: executing-plans
 description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Executing Plans
 
-> **Local note (AI-Handbook, 2026-10-11).** Read "stop and ask" below with the
+> **Local note (KITT, 2026-10-11).** Read "stop and ask" below with the
 > fleet's ask/decide boundary: an instruction unclear about *what the product
 > should do* is plan ambiguity and stops for David; a technical choice that is
 > yours to recommend and a corrective commit would undo proceeds on the

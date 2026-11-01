@@ -3,7 +3,7 @@ name: archive
 description: Answer one question cheaply — "are we done with everything this session needs to do, and should we archive it?" — and archive the session when the answer is yes. Use when David says /archive, "can we archive this", "are we done here", or "should I close this session". Checks only what dies with the session (unpushed work, a PR this session watches, armed check-ins, running tasks, unpaid close-out, unpersisted learnings, an open ask), returns one of three verdicts — continue, hand off, archive — and on archive schedules the session's own archiving a minute after the verdict is shown. NOT /handoff (which moves context and costs far more) and NOT /next or /status (which rank or report work); this skill reads no workstream but its own.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # /archive — is this session finished?
 

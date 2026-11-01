@@ -3,7 +3,7 @@ name: next
 description: Answer "given where we are in our development lifecycle, what is the next thing we should be doing?" — the prioritized recommendation across all work in the active repository only, not one session's state and never other repositories. Use when David says /next, "what's next", "what should I work on", or has just finished something and needs the next task. Ranks work closest to done ahead of new starts, reads every approved plan still being built so the next step of a build is named even where no issue lists it, follows Blocked-by chains so an interrupted UAT is never lost, and names which candidates can safely run in parallel sessions. For "where does THIS session stand" use /status; for "what needs me across everything" use /status-all.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # /next — what should we work on now
 
@@ -32,7 +32,7 @@ this skill's.
 **`/next` answers for one repository: the one this session is working in.**
 Every candidate, every recommendation, and the empty-queue proposal come
 from that repository's issues, PRs, and docs. Work in other repositories —
-the handbook, a sibling product, anything remembered from another session —
+KITT, a sibling product, anything remembered from another session —
 is out of scope: never ranked, never recommended, never mentioned as "also
 worth a look." "What's next" means next *here*.
 
@@ -45,7 +45,7 @@ worth a look." "What's next" means next *here*.
   placeholder, stop and ask** which repository David means. A `/next` that
   guesses its repository answers confidently about the wrong product.
 - **David naming a repository overrides the default** ("what's next in
-  AI-Handbook"). If this session has several repositories attached and he
+  KITT"). If this session has several repositories attached and he
   didn't name one, the working tree's repository is the answer — never a
   merge of all of them.
 - **Every GitHub call passes that `owner`/`repo` explicitly.** Never

@@ -15,7 +15,7 @@ no argument, so this is its only route. Reasoning and measurements:
 `model-routing`.
 -->
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Report this unit of work to David
 
@@ -87,7 +87,7 @@ one that has repeatedly caught what nobody else did.
   thing is open. Recorded-gap tables in a pull request body count, and so
   does anything you see that nobody named.
 - **`overbuilt`** — each place the builder wrote more than a finding was
-  worth. The measured case (AI-Handbook #109): the reviewer's login is a
+  worth. The measured case (KITT #109): the reviewer's login is a
   constant, and it got a config key, a reader, a refusal and a normalisation
   rule before being replaced by the constant. A fix is not overbuilt merely
   for being large. Empty is the common answer.

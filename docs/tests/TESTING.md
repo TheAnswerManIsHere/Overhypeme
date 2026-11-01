@@ -682,7 +682,7 @@ outright (`docs/ai-context/decisions.md`).
 - **`Build`** — install, validate migration snapshots, the repo-health guards
   (docs accuracy, codegen drift, manual tuning language, UAT format,
   project-sync label mapping and CI-classifier logic; the review-counting and
-  Bash-guard steps went with the machinery they tested in the AI-Handbook
+  Bash-guard steps went with the machinery they tested in KITT
   cutover, and the loop-metrics ledger guard with the loop ledger,
   2026-08-20), and
   `pnpm run build` (typecheck + build). **Never** skipped.

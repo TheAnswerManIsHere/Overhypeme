@@ -3,7 +3,7 @@ name: Codex CLI in a cloud session — closed stdin, a sandbox that blocks /tmp,
 description: Running `codex exec` from a Bash tool call has four traps that each look like something else. An open stdin hangs forever (looks like a slow model). `--sandbox read-only` blocks /tmp, so a reviewer told to run the suite gets EROFS (looks like a broken repo). A run longer than the tool timeout needs setsid nohup plus an exit file. And `pkill -f 'codex exec'` matches the calling shell's own command line and kills the session's shell.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Spawning Codex CLI inside a Claude cloud session
 
@@ -104,5 +104,5 @@ the same turn rather than preparing work first.
 A background waiter for the sign-in (or for any detached `codex` run) polls
 `login status` or a file the run writes — never `pgrep -f '<pattern>'`, whose
 pattern is in the waiter's own command line, so it matches itself and the loop
-never exits (measured 2026-10-29: a 30-minute background wait on AI-Handbook
+never exits (measured 2026-10-29: a 30-minute background wait on KITT
 #252 ran to its time limit after the run it watched had finished).

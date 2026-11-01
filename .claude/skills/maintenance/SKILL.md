@@ -3,7 +3,7 @@ name: maintenance
 description: Weekly repo maintenance ritual. Use when David says /maintenance or asks for the weekly maintenance pass. Triages the Dependabot PR queue (merges green minor/patch bumps, merges majors on its recommendation and reports them), reviews production errors (Sentry), checks CI health on main, and delivers a "what shipped this week" digest. Ops-shaped, Sonnet-tier work.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Weekly maintenance
 
@@ -237,7 +237,7 @@ stored records. From the merged-PR list for the window:
   **A reversal is counted in the window it lands**, against the decision it
   reverses, whichever window counted that decision — a reversal that follows
   the pass that counted its decision belongs to the next pass, not to none
-  (Codex, Overhype.me #639 `4243652055`; AI-Handbook #197 item 2). Two
+  (Codex, Overhype.me #639 `4243652055`; KITT #197 item 2). Two
   numbers, reported
   together: a high reversal rate says the reversible default is proceeding
   on choices that were his; a zero over many decisions says the asks that
@@ -245,10 +245,10 @@ stored records. From the merged-PR list for the window:
   the per-turn spend cap from these
   ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
 
-- **Refresh the token price table — in the handbook's pass only** (David,
-  2026-10-11; AI-Handbook #194 round 4). The table
+- **Refresh the token price table — in KITT's pass only** (David,
+  2026-10-11; KITT #194 round 4). The table
   [`token-pricing.md`](../../../docs/ai-context/token-pricing.md) has one
-  source, so it has one refresher: when this pass runs **in AI-Handbook**,
+  source, so it has one refresher: when this pass runs **in KITT**,
   fetch the two pricing pages the table names, re-quote the rows for every
   model it carries and any new model this repository's `.agents/machinery.json`
   pins, update each section's read date and recompute its proxy column by
@@ -256,8 +256,8 @@ stored records. From the merged-PR list for the window:
   vendored copy the sync overwrites (its banner says so), so the pass edits
   nothing: it reads the shipped table and reports each section's read date
   and how old it is in this report — and nothing more, since a consumer
-  holds no record of when the handbook's pass last ran, and a newer table
-  reaches this repository only by the next sync from the handbook, where the
+  holds no record of when KITT's pass last ran, and a newer table
+  reaches this repository only by the next sync from KITT, where the
   source is refreshed. The spend line on every turn converts tokens with
   that table, so an old copy misprices every turn until that sync; a page
   that cannot be fetched keeps its old rows and date, and the report says so.
@@ -533,7 +533,7 @@ This is now a standalone maintenance-skill rule.)
   dependency merges, **with three narrow exceptions**: committing updates to
   [`docs/engineering/deferred-work.md`](../../../docs/engineering/deferred-work.md)
   (step 4) — recording a newly-parked item or updating an entry's status —
-  the batched documentation harvest (step 6a), and, in the handbook's pass
+  the batched documentation harvest (step 6a), and, in KITT's pass
   only, the token price table refresh (step 6b;
   [`token-pricing.md`](../../../docs/ai-context/token-pricing.md), *Refreshing
   this table*). All three are

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 // Docs-accuracy gate for the repo-native agent context system.
 //
 // Two checks, run over the shared context docs:
@@ -43,7 +43,7 @@ const LINK_ONLY_DIRS = [".claude/skills"];
 // and why, at the time, and is never edited afterwards. When a decision retires
 // a document, every older entry that linked to it becomes a dead link BY
 // DESIGN -- there is nothing to repair without rewriting history. It is also
-// consumer-owned: it does not exist in this repository at all, so the handbook
+// consumer-owned: it does not exist in this repository at all, so KITT
 // cannot fix its citations even in principle. Both passes are exempt for it.
 //
 // NOTHING ELSE IS EXEMPT, and one near-miss is worth recording. An earlier
@@ -52,7 +52,7 @@ const LINK_ONLY_DIRS = [".claude/skills"];
 // happened rather than where a file is. Measured on a rehearsal of the first
 // consumer cutover, that file names 41 checkable paths: 37 are LIVE paths in
 // the consumer, which entries actively send an agent to go and read, and 4
-// were retired handbook scripts. The exemption would have switched off 37 real
+// were retired KITT scripts. The exemption would have switched off 37 real
 // checks to permit 4 -- in the consumer, which is the only repository where
 // this check runs against that file. The four are written without backticks
 // instead, per the convention now stated in that file's own header.

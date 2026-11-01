@@ -3,7 +3,7 @@ name: restart the branch onto origin/main BEFORE exploring/planning, not just be
 description: Why an Explore/Plan pass can silently read a stale local working tree after a prior PR on the same branch squash-merged, and produce a wrong plan a live-code check would have caught.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Explore/plan against a stale local checkout after a squash-merge
 

@@ -3,7 +3,7 @@ name: A backgrounded subagent's answer is in its transcript's handback call -- p
 description: The harness pairs a backgrounded Agent tool_use with a launch notice, not the agent's answer. The answer is the last SubagentHandback tool_use's input.message in <session-transcript-without-.jsonl>/subagents/agent-<agentId>.jsonl -- NOT the last assistant text block, which is closing chatter (measured 2026-09-16: 'Report delivered.' on both agents sampled). Those are the ORIGINAL bytes — the copy rendered back into the session is neutralized where it matched an instruction-shaped pattern. Measured 2026-09-11: this harness backgrounds every Agent dispatch even when run_in_background is false, so "dispatch in the foreground" is not an available remedy.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 ## Rule
 
@@ -75,7 +75,7 @@ and a call made with `true` the same day returned *"Async agent launched
 successfully"* and completed later as a harness task notification. So the flag
 has now been observed both ways, dated. A rule that depends on it was written
 anyway, off the single favourable sample, in the same commit that edited this
-note; the reviewer caught it (Codex, AI-Handbook #109 round 4). **The one thing
+note; the reviewer caught it (Codex, KITT #109 round 4). **The one thing
 every observation shares is that the harness reports completion** — in the tool
 result when the call blocked, as a later notification when it did not. Depend
 on that signal, whichever way it arrives; never on the flag, and never assume
@@ -139,7 +139,7 @@ transcript is genuinely missing rather than blaming the agent.
   retyping. That note covers `tool_result` blocks in the session transcript;
   this one covers the case where the block you want is not there at all.
 - `capture-from-transcript.mjs` implemented this (`backgroundAgentId`,
-  `agentAnswer`), discovered by running it rather than by review — AI-Handbook
+  `agentAnswer`), discovered by running it rather than by review — KITT
   #79 — and was removed by the #89 cut. **The measured failure is worth
   carrying into #96**: on #91 the harness moved the answer one block further
   out than the recovery path expected, the script refused, and its refusal

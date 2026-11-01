@@ -3,11 +3,11 @@ name: brainstorming
 description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Brainstorming Ideas Into Designs
 
-> **Local note (AI-Handbook #168, corrected #173).** A feature David has
+> **Local note (KITT #168, corrected #173).** A feature David has
 > declared prototype phase passes the gate below for its **first version**:
 > the design conversation and Astra's review produce its short plan and its
 > questions file, and David approves before the build. Later versions skip it

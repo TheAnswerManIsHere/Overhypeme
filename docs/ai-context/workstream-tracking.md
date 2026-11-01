@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Workstream tracking — the board, the labels, and who updates what
 
@@ -323,7 +323,7 @@ of the workstream issue's body, with these fields:
   the build report can state what the build
   cost (David, 2026-10-21; `claude-core.md`, *A reversible choice proceeds,
   and every turn reports its spend*). The one ledger line a workstream
-  keeps; the other is the fleet's `paid-ai-ledger` issue in the handbook's
+  keeps; the other is the fleet's `paid-ai-ledger` issue in KITT's
   repository, one comment per paid AI run in any product, which the weekly
   paid-run budget — one total across every product — is read from
   (`uat-doc-format.md`, *Lanes*).
@@ -472,7 +472,7 @@ regime, at the flip, at abandonment — say `Refs #N` and own no lifecycle. Wher
 verify after the close-out sync, so the issue closes then. (David, 2026-09-25. Before this,
 the only step that closed an issue was an accepted `/uat` run. Every
 workstream with no UAT — every docs, devops and Tier A bugfix PR, and in
-AI-Handbook nearly every PR — parked at `stage:close-out` with "David's to
+KITT nearly every PR — parked at `stage:close-out` with "David's to
 set" `stage:done`, and nothing ever asked him to.)
 
 - **Close-out is a moment, not a resting state.** Whoever moves a

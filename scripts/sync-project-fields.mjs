@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
  * Mirror an issue's workstream labels into the Projects v2 board's fields.
  *

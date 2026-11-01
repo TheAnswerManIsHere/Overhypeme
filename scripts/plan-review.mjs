@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
  * One exchange of the in-session planning loop: two peers, one contract, and a
  * draft plan that stays in this container, ignored by git, until David approves
@@ -44,7 +44,7 @@
  * as one line by reference.
  *
  * USAGE  (`--help` prints these with the path THIS checkout actually has:
- *         `core/scripts/...` in the handbook, `scripts/...` in a consumer)
+ *         `core/scripts/...` in KITT, `scripts/...` in a consumer)
  * -----
  *   # The scope exchange, before a plan exists: the oracle alone.
  *   node <this file> --kind scope --slug <slug> --oracle <file>
@@ -104,7 +104,7 @@ import {
  * directories.
  *
  * THIS FILE SITS AT A DIFFERENT DEPTH IN EVERY REPOSITORY THAT RUNS IT. The
- * sync routes `core/X -> X`, so the handbook's `core/scripts/plan-review.mjs`
+ * sync routes `core/X -> X`, so KITT's `core/scripts/plan-review.mjs`
  * lands at `scripts/plan-review.mjs` in a consumer. A fixed `"..", ".."` is
  * therefore correct in exactly one of the two layouts: it finds the repo root
  * here and the repo's PARENT in every consumer, where the script would then
@@ -155,7 +155,7 @@ export const REVIEWS_DIR = ".agents/reviews";
 
 /**
  * The two files read VERBATIM into every package, by their CONSUMER paths
- * first. In the handbook the payload sits one directory deeper and there is no
+ * first. In KITT the payload sits one directory deeper and there is no
  * consumer-shaped copy, so the resolver retries under `core/`.
  *
  * VERBATIM RATHER THAN BY PATH, which is the change from the old design. The
@@ -1259,8 +1259,8 @@ export function parseArgs(argv) {
 /**
  * How to invoke THIS copy, computed rather than written down.
  *
- * The sync routes `core/X -> X`, so the same file is `core/scripts/...` in the
- * handbook and `scripts/...` in every consumer. A hardcoded usage line is
+ * The sync routes `core/X -> X`, so the same file is `core/scripts/...` in
+ * KITT and `scripts/...` in every consumer. A hardcoded usage line is
  * therefore wrong in one of them, and wrong in the place a reader is most
  * likely to trust it: `--help` and every argument-error response, which is
  * exactly what someone copies when they are already confused.

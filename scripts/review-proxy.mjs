@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
  * The review proxy: independent technical advice on a code-review round (#96).
  *
@@ -51,7 +51,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
  * The command to run this script, COMPUTED rather than written down.
  *
  * The sync routes `core/X -> X`, so this file is `core/scripts/review-proxy.mjs`
- * in the handbook and `scripts/review-proxy.mjs` in every consumer. A literal
+ * in KITT and `scripts/review-proxy.mjs` in every consumer. A literal
  * path in the usage text is therefore wrong in one of the two layouts, and it
  * is printed on every argument error -- telling an operator who has just
  * mistyped a flag to run a file that is not there. `plan-review.mjs` has
@@ -815,7 +815,7 @@ export function prComment(result, { reviewedCommit = null, findingIds = [], requ
         const parts = [`expected \`${r.id}\``];
         if (r.alias) parts.push(`instructed alias \`${r.alias}\``);
         // The declared model is shown only when it disagrees with the pin: in
-        // the handbook the check holds them equal, and a line repeating itself
+        // KITT the check holds them equal, and a line repeating itself
         // trains a reader to skip the place the real notice appears.
         if (r.definitionModel && r.definitionModel !== r.id) parts.push(`definition model \`${r.definitionModel}\``);
         // Effort is always shown when it can be read, because the definition is
@@ -1130,7 +1130,7 @@ export function main(
       // per call, so the pin IS the request. A Claude subagent is handed none,
       // so the value that applies is the role definition's -- read from
       // `.claude/agents/<role>.md`, one path that resolves in both layouts
-      // because the handbook links that directory per file into `core/`. Null
+      // because KITT links that directory per file into `core/`. Null
       // when it cannot be read, and never the pin instead: see `prComment`.
       const requested =
         source === "astra"

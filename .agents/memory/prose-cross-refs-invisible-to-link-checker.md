@@ -3,7 +3,7 @@ name: Moving a section between CLAUDE.md and a skill leaves prose cross-referenc
 description: check-docs-accuracy.mjs only validates `[text](path)` markdown links. A sentence like "see CLAUDE.md's *Automated plan review* section" that names a heading rather than linking to a file passes the checker clean even after that heading moves or is renamed — the check has nothing to verify.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Moving a section between CLAUDE.md and a skill leaves prose cross-references stale and invisible to the link checker
 

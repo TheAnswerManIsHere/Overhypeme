@@ -1,4 +1,4 @@
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -29,7 +29,7 @@ const SCRIPTS = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 //
 // This file exists because that check lived in `guard-decision.test.mjs`,
 // which went with the guard. `scripts/__tests__/entry-point-comparison.test.mjs`
-// is the handbook's own copy; this is the payload's, and neither suite can see
+// is KITT's own copy; this is the payload's, and neither suite can see
 // the other's directory.
 // ---------------------------------------------------------------------------
 

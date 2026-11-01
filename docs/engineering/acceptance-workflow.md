@@ -5,7 +5,7 @@ check, written so a second product in this fleet can adopt it unchanged and
 supply only its own journeys, doubles and harness. Overhype.me is the first
 consumer (Launch Phase 2, increment 6, #631; plan
 `docs/plans/PLAN_PHASE2_INC6_ACCEPTANCE.md`); it appears below only as the
-worked example. Moving this file into the handbook is the next step after the
+worked example. Moving this file into KITT is the next step after the
 increment merges (David, 2026-10-14). Where this repository's implementation
 lives: [`docs/tests/TESTING.md`](../tests/TESTING.md), *The acceptance run*.
 

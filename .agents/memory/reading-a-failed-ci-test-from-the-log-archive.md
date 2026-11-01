@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Finding which test actually failed in CI — and why the obvious route is blocked
 
@@ -17,7 +17,7 @@ archive (`actions_get` → `get_workflow_run_logs_url`, then download + `grep -r
 "not ok [0-9]* - "`) does contain it, and the signed
 `results-receiver.actions.githubusercontent.com` URL is a blob host rather than
 `api.github.com`. But downloading it needs `curl`/`wget`, and
-The handbook's former shell guard **refused those categorically** — no exception for
+KITT's former shell guard **refused those categorically** — no exception for
 argument shape or host (see `github-rest-api-blocked-from-bash.md`). Do not
 plan around this by reaching for the fetch anyway.
 

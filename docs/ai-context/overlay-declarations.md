@@ -11,7 +11,7 @@ ceremony or weaker review, silently. That is why they are written here rather
 than discovered when something goes wrong.
 
 Each answer below was carried over from the text Overhype already carried before
-the handbook cutover, so nothing about how this repo is reviewed changed on the
+the KITT cutover, so nothing about how this repo is reviewed changed on the
 day the contract arrived.
 
 ---
@@ -43,7 +43,7 @@ sensitive row:
   [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md) and
   [`moderation-workflow.md`](./moderation-workflow.md).
 
-That split is how each was routed before the handbook cutover: the old
+That split is how each was routed before the KITT cutover: the old
 `CLAUDE.md` gave the specialist review to the visual pipeline alone among
 these, and the old `working-modes.md` named the other two in Q1.
 
@@ -192,7 +192,7 @@ produced.
 ## Adding a further declaration
 
 **A new question gets a new section here, never a new file**, and a matching row
-in the handbook's consuming-repos document. The handbook gained the first four
+in KITT's consuming-repos document. KITT gained the first four
 one at a time, and each was installed separately or not at all — one document
 with a growing list is the shape that cannot repeat that.
 

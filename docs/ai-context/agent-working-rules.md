@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Agent Working Rules
 
@@ -184,7 +184,7 @@ asked; the recommendation is taken and reported.
   spend above a per-turn cap once David sets one; **a paid AI run, or any
   cost beyond the session's own tokens, above $5 for one run, and any such
   spend once the week's total across every product — read from the fleet's
-  paid-run ledger in the handbook (`uat-doc-format.md`, *Lanes*) — would pass
+  paid-run ledger in KITT (`uat-doc-format.md`, *Lanes*) — would pass
   $25** (David, 2026-10-21: *"Include
   paid AI runs or anything that incurs cost above just the tokens in my
   plan. Limit it to $5/run and set a weekly budget of $25 just in case."*) —
@@ -276,7 +276,7 @@ asked; the recommendation is taken and reported.
   workstreams*, referenced here and never restated): a decision that fails
   it is recorded sanitized in all of them, with its specifics on the private
   path, exactly as the prototype ledger rule already does (Codex, DojoOS #8
-  and AI-Handbook #198). His reversal afterwards is a corrective commit, and the
+  and KITT #198). His reversal afterwards is a corrective commit, and the
   advice rule's override record applies.
 - **`/maintenance` counts them**: decisions taken this way in the window, and
   how many he reversed. A reversal rate is the signal that the default is set

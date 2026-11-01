@@ -3,7 +3,7 @@ name: pr-watch
 description: Use after opening or being re-engaged on any PR, and whenever a github-webhook-activity event arrives for a watched PR. Implementation PRs only — plan review runs in-session and opens no PR.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Watching the PRs I open
 
@@ -127,7 +127,7 @@ requires it.
    `workstream-tracking.md`). **Such a PR is also assessed when its round
    comes back clean**, once before merge (David, 2026-10-12; `claude-core.md`,
    *Internal tooling: what is downstream*). **No script mode runs that
-   assessment yet** (AI-Handbook #206), and the documentation mode is not a
+   assessment yet** (KITT #206), and the documentation mode is not a
    substitute: it declares the Documentation class and applies its rubric to
    code. Until the mode exists, such a PR's clean round is a 👀 FYI to David
    saying the assessment it is owed cannot run, and I decide how it proceeds
@@ -428,7 +428,7 @@ requires it.
      exists, that a class has no other member — is a load-bearing claim under
      `claude-core.md`'s *A load-bearing claim is quoted, or it is marked
      unverified*: it quotes what was read, or it carries `unable to verify:`.
-     The reply that motivated this is on file in AI-Handbook #113.
+     The reply that motivated this is on file in KITT #113.
 
    - **A decline is recorded, not just replied to**: a row in the PR body's
      **Recorded gaps** table naming what ships unfixed and why, so the final
@@ -504,7 +504,7 @@ requires it.
      `get_reviews`: the pass has returned if a `chatgpt-codex-connector[bot]`
      review or PR comment carries `**Reviewed commit:**` for the head (a
      clean pass arrives as a comment, *"Didn't find any major issues"*,
-     measured on AI-Handbook #253), or the review-summary comment (`<!--
+     measured on KITT #253), or the review-summary comment (`<!--
      codex-pull-request-review-summary -->`) has its 📝 **Code Review** row
      reading **Completed** against the head's short SHA — the hidden
      `codex-review-state:v1` block says the same as `"status":"completed"`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 // map.mjs — the agent-legible codebase tool.
 //
 // Builds a structural index of this repository from its own TypeScript
@@ -319,8 +319,10 @@ export function formatAnswer({ banners = [], title, resolved = [], unresolved = 
   return out.join("\n");
 }
 
-/** The same header line the sync recognises, within the same window. */
-const BANNER_LINE = /^[ \t]*(?:<!--|\/\/|#|"\$comment":[ \t]*")[ \t]*SYNCED FROM AI-Handbook\b/;
+/** The same header line the sync recognises, within the same window: either
+ * name, since KITT was AI-Handbook until 2026-11-01 and a copy synced before
+ * then still carries the old one. */
+const BANNER_LINE = /^[ \t]*(?:<!--|\/\/|#|"\$comment":[ \t]*")[ \t]*SYNCED FROM (?:KITT|AI-Handbook)\b/;
 export function carriesSyncBanner(text) {
   return text.split("\n", 40).some((l) => BANNER_LINE.test(l));
 }
@@ -418,13 +420,13 @@ function schemaFailures(root, cfgs) {
   const schemaPath = join(root, MAP_DIR, SCHEMA_FILE);
   if (!existsSync(schemaPath)) {
     return [failure("schema", "the configuration schema is missing", [`${MAP_DIR}/${SCHEMA_FILE}`],
-      "run the handbook sync, which delivers it", "configuration")];
+      "run the KITT sync, which delivers it", "configuration")];
   }
   const schema = readJson(schemaPath);
   const defs = { config: "config", subsystems: "subsystems", architecture: "architecture", sizeBaseline: "sizeBaseline" };
   for (const [key, def] of Object.entries(defs)) {
     const c = cfgs[key];
-    if (c.missing) { fails.push(failure("schema", `${c.path} is missing`, [c.path], "run the handbook sync to seed it, then complete it", "configuration")); continue; }
+    if (c.missing) { fails.push(failure("schema", `${c.path} is missing`, [c.path], "run the KITT sync to seed it, then complete it", "configuration")); continue; }
     if (c.error) { fails.push(failure("schema", `${c.path} is not valid JSON: ${c.error}`, [c.path], `repair the JSON in ${c.path}`, "configuration")); continue; }
     const errs = validateSchema({ $ref: `#/$defs/${def}` }, c.value, schema);
     if (errs.length) fails.push(failure("schema", `${c.path} does not match the schema`, errs, `edit ${c.path} so each line above holds (schema: ${MAP_DIR}/${SCHEMA_FILE})`, "configuration"));
@@ -1339,7 +1341,7 @@ function requireConfig(cfgs) {
   const c = cfgs.config;
   if (c.missing || c.error) {
     throw new MapError("configuration", `${c.path} is ${c.missing ? "missing" : "not valid JSON"}`, {
-      fix: "run the handbook sync to seed it, then complete it", anchor: "configuration",
+      fix: "run the KITT sync to seed it, then complete it", anchor: "configuration",
     });
   }
   return c.value;
@@ -1431,7 +1433,7 @@ function cmdBaseline(root, mode, log) {
   const cfgs = readConfigs(root);
   const cfg = requireConfig(cfgs);
   const b = cfgs.sizeBaseline.value;
-  if (!b) throw new MapError("configuration", `${MAP_DIR}/size-baseline.json is missing or invalid`, { fix: "run the handbook sync to seed it", anchor: "the-size-ratchet" });
+  if (!b) throw new MapError("configuration", `${MAP_DIR}/size-baseline.json is missing or invalid`, { fix: "run the KITT sync to seed it", anchor: "the-size-ratchet" });
   const sizes = sizesNow(root, cfg);
   const baselines = { ...(b.baselines || {}) };
   const changes = [];

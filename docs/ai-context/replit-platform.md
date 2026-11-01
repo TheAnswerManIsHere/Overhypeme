@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Replit — how the platform works, for every product hosted on it
 
@@ -322,20 +322,46 @@ a value can still print it from the environment (docs, *secrets*).
   send the next message"* (docs, *agent-modes*, *model-selector*).
 - **The connector exposes no way to choose the mode.** Its `ask_question`
   and `update_app_using_prompt` both take a `policy` argument whose own schema
-  reads *"Ignored. Don't waste tokens sending this."* **How the server picks
-  the mode for a connector request is unknown**: neither the docs nor the
-  tool descriptions say it follows David's dropdown, and the Agent cannot see
-  which mode it ran in (Agent, 2026-10-29: *"I can't see which Free, Power, or
-  Max tier or exact model handled this request"*). What is measured is
-  the outcome: **a connector request runs Free whatever the dropdown says.**
-  Connector questions appear in the Repl's own Agent chat footed *"Free · No
-  credits used"*; with DojoOS's dropdown switched to **Power**, a connector
-  question still ran Free, while the same question typed by David ran Power
-  and cost **$0.27** (screen, 2026-10-29). Only `ask_question` was tested
-  under Power; `update_app_using_prompt` was not.
-  Replit documents none of this, so it is an observation that can change, not
-  a promise: a connector request's cost is read off its footer, never assumed.
-  And every question sent is visible to anyone who opens that Repl's Agent chat, which the tool's own description warns.
+  reads *"Ignored. Don't waste tokens sending this."*, and the Agent cannot
+  see which mode it ran in (Agent, 2026-10-29: *"I can't see which Free,
+  Power, or Max tier or exact model handled this request"*).
+- **A connector request runs in the mode of the last message David typed in
+  that Repl's Agent chat** — not the dropdown's current value, and the same
+  for `ask_question` and `update_app_using_prompt` (DojoOS, 2026-11-01, read
+  off each message's footer on his screen, one variable at a time):
+
+  | Last typed message | Dropdown | Connector question | Connector update |
+  |---|---|---|---|
+  | Free | Free | Free, no credits | Free, no credits |
+  | Free | **Power** | Free, no credits | Free, no credits |
+  | **Power** | Power | Power, $0.03 | Power, $0.03 |
+  | Free (typed after the Power row) | Free | Free, no credits | — |
+
+  So the dropdown takes effect only with David's next typed message, and from
+  then on every connector request to that Repl bills at that mode until he
+  types again under another. Three earlier connector requests to DojoOS
+  billed Power at $0.11, $0.03 and $0.03 (screen, 2026-11-01); the rule
+  explains them if his last typed message there was under Power, which
+  nobody read at the time. **The way back to Free is one short
+  message he types with the dropdown on Free**; it costs nothing. Max was not
+  tested, and whether the inheritance is per Repl or per account was not
+  separated — each Repl was only ever observed after a message typed in it.
+  This replaces the 2026-10-29 reading that *"a connector request runs Free
+  whatever the dropdown says"*: that day's Power test switched the dropdown
+  without a typed message after it, which is exactly the row that stays Free.
+- **A typed message can cost far more than a connector request at the same
+  mode.** David's five-second *"Switching to power mode"*, no actions, cost
+  **$0.30** in Power, against $0.03 for each connector request in the row
+  after it (screen, 2026-11-01). Why is unknown.
+- **`list_app_files` and `read_app_file` reach no Agent**: nothing appears in
+  the Agent chat (DojoOS, 2026-11-01), so no mode applies. They are the read
+  path whenever a file's contents answer the question. Whether they bill
+  anything (they may wake the Repl's machine) is unable to verify: a Usage
+  page read for the day would settle it.
+- Replit documents none of this, so it is an observation that can change, not
+  a promise: a connector request's cost is read off its footer, never
+  assumed. And every question sent is visible to anyone who opens that Repl's
+  Agent chat, which the tool's own description warns.
 - **Billing**: paid modes are effort-priced per request, one checkpoint per
   request, and Replit asks for confirmation before a paid action starts;
   Plan Mode bills reasoning even when nothing changes; usage takes up to 30
@@ -345,7 +371,8 @@ a value can still print it from the environment (docs, *secrets*).
   requests, **Free allowance read 0% used** and that day's *Agent* line held
   one entry — **DojoOS $0.27**, David's typed question, billed to the
   project it was asked in. Connector requests appear nowhere, not even at $0,
-  and neither does `get_publish_status`. Most of a month's spend need not be
+  and neither does `get_publish_status`. Whether a Power-billed connector
+  request reaches the page was not read. Most of a month's spend need not be
   AI at all: in that period production database compute was $25.08 of $42.75
   (156.74 hours at $0.16/hour), against $13.37 of AI.
 - **Plans** that matter here: Starter allows one published app that expires
@@ -438,7 +465,10 @@ Two things not yet seen, each settled only by David's screen:
    before every publish.
 
 Settled on 2026-10-29 by his screenshots: production secrets, the history
-list and its reach, what a preview deploy is, that connector requests run
-Free regardless of the dropdown and never reach the Usage page. Left
+list and its reach, what a preview deploy is, and that Free connector
+requests never reach the Usage page. Settled on 2026-11-01 by his
+screenshots: a connector request runs in the mode of the last message he
+typed in that Repl's chat (*Agent modes*), replacing the 2026-10-29 reading that
+it ran Free regardless of the dropdown. Left
 unmeasured by decision: whether a publish includes uncommitted files
 (*Publishing*).

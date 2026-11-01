@@ -3,11 +3,11 @@ name: test-driven-development
 description: Use when implementing any feature or bugfix, before writing implementation code
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Test-Driven Development (TDD)
 
-> **Local note (AI-Handbook #168).** The "ask your human partner" exception
+> **Local note (KITT #168).** The "ask your human partner" exception
 > below for a throwaway prototype is already answered for a feature David has
 > declared prototype phase: the declaration removes tests as a bar — the
 > version still carries the machine lanes — `ci`, `scripted`, and `live` where
@@ -32,7 +32,7 @@ description: Use when implementing any feature or bugfix, before writing impleme
 > A Tier A or B bugfix's tier oracle is that rule's plan (David,
 > 2026-10-11), and what proceeds inside it is the fix's *other* technical
 > choices; "I do not know how to test it" is a question to answer, not a
-> choice to proceed on (Codex, DojoOS #8 and AI-Handbook #201; AI-Handbook
+> choice to proceed on (Codex, DojoOS #8 and KITT #201; KITT
 > #197 item 3, #198).
 
 ## Overview

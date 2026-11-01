@@ -14,7 +14,7 @@ description: The Overhype.me lens on a plan review. Use when David asks to revie
 
 **Why it is not a second reviewer.** It used to be — a standalone procedure with
 its own status labels and a twenty-heading report, enacting a
-`plan-review-contract.md` that the handbook cutover retired. The shared contract
+`plan-review-contract.md` that the KITT cutover retired. The shared contract
 supplies the roles, the output and the tie-break through the dispatch, and it
 tells a reader who arrives without a role block to stop. A second procedure
 beside it would be two live instructions for one job, and either could fire.

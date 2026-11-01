@@ -1,9 +1,9 @@
 ---
 name: The machinery's threat model is my own mistakes, not an adversary — a local script is not a security boundary
-description: Ten review rounds on AI-Handbook PR #7 hardened repository identity against an attacker who can edit the working tree, commit to the branch, or substitute another repository's receipts. That attacker is me. The controls against deliberate action are GitHub's server-side ruleset and the human working alongside, who reads the one line every authority-widening PR carries naming what latitude it grants; the scripts exist to catch mistakes, and designing them to resist their own operator produced three trust anchors, eleven findings, and no additional safety.
+description: Ten review rounds on KITT PR #7 hardened repository identity against an attacker who can edit the working tree, commit to the branch, or substitute another repository's receipts. That attacker is me. The controls against deliberate action are GitHub's server-side ruleset and the human working alongside, who reads the one line every authority-widening PR carries naming what latitude it grants; the scripts exist to catch mistakes, and designing them to resist their own operator produced three trust anchors, eleven findings, and no additional safety.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # The machinery's threat model is my own mistakes, not an adversary — a local script is not a security boundary
 
@@ -66,7 +66,7 @@ A finding of the shape "an edit to the working tree could…" is declined by
 pointing at the rule's home (`agents-core.md`, *Important product principles*) and at this note for the history. It is not a
 defect in a mistake-catcher that its operator can disable it.
 
-## The fifth time, and why the rule did not fire (AI-Handbook #211, 2026-10-15)
+## The fifth time, and why the rule did not fire (KITT #211, 2026-10-15)
 
 The rule above was on file, in `agents-core.md` and in this note, when
 Codex's second review of #211 reported that an eval task file carrying the
@@ -95,7 +95,7 @@ section:
 The first four instances: #7 (ten rounds, above), #73 (four rounds on one
 flag; `agents-core.md`, the home, and `known-failure-patterns.md`'s
 decline-scoped-to-the-example entry), the link checker of #64 (four rounds
-returning 2, 2, 6 and 7 findings; the handbook's `docs/consuming-repos.md`),
+returning 2, 2, 6 and 7 findings; KITT's `docs/consuming-repos.md`),
 and Overhype.me #425 (a guard scoped to habitual mistakes at round seven;
 `known-failure-patterns.md`'s adversarial-reviewer entry). The cost each
 time was review rounds, never a defect.

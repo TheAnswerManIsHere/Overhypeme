@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 // map-eval.mjs — the eval that decides whether the map earns its keep.
 //
 // Protocol: docs/ai-context/agent-legible-codebase-eval.md. This script does
@@ -358,7 +358,7 @@ function relationKey(ts, root, svcs, name) {
 
 function readJson(root, rel) {
   const p = join(root, rel);
-  if (!existsSync(p)) fail(`${rel} is missing`, "run the handbook sync to seed it, then complete it");
+  if (!existsSync(p)) fail(`${rel} is missing`, "run the KITT sync to seed it, then complete it");
   return JSON.parse(readFileSync(p, "utf8"));
 }
 

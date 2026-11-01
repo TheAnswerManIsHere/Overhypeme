@@ -1,4 +1,4 @@
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 //
 // The shared module's own suite. Every case here was already covered before
 // the #89 cut -- the configuration half by `review-budget.test.mjs` and the
@@ -42,7 +42,7 @@ const repoWith = (config) => {
 };
 
 test("findRepoRoot asks the filesystem rather than matching the path string", () => {
-  // The scripts live one level deeper in the handbook than in a consumer, and
+  // The scripts live one level deeper in KITT than in a consumer, and
   // deciding that by looking for "/core/" in a path is the compare-a-path-as-a
   // -string defect class this repository has paid for repeatedly.
   const root = repoWith({ repo: "o/r" });

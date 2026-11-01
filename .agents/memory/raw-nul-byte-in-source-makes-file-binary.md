@@ -3,7 +3,7 @@ name: A raw NUL byte in a TS/JS source file makes Git (and grep) treat the whole
 description: Why using a literal `\x00` character as a string delimiter in source silently breaks diffing, review, and text search for that file.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # A raw NUL byte in source code makes Git treat the file as binary
 

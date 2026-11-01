@@ -3,7 +3,7 @@ name: uat
 description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, resolve every machine-lane step myself first (a screen fact whose action I can perform is mine to check in a browser, whatever the script labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT script — that's `pr-docs`.
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # /uat — I run the test session, David does the judging
 
@@ -610,7 +610,7 @@ continue-or-pause question right after a failure — gets **no banner and no
 `PushNotification` call**. He's at the keyboard; that's the premise of the
 session. The alert hook still rings once, quietly, on each of those turns,
 as it does on every hand-back (`claude-core.md`, interaction rule 6; David,
-2026-10-30, AI-Handbook #264): the hook cannot tell a walkthrough turn from
+2026-10-30, KITT #264): the hook cannot tell a walkthrough turn from
 any other, and David chose more alerts over fewer. What the carve-out
 withholds is the repeating 🛑 tier and the call, not the chime.
 

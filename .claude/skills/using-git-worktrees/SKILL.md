@@ -3,11 +3,11 @@ name: using-git-worktrees
 description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
 ---
 
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Using Git Worktrees
 
-> **Local note (AI-Handbook, 2026-10-11).** Creating a worktree is setup
+> **Local note (KITT, 2026-10-11).** Creating a worktree is setup
 > mechanics, not a decision: it is undone by removing the worktree, not by a
 > commit, so it is neither asked about nor reported as a reversible choice —
 > Step 0's consent prompt below does not run here, and nothing about it goes

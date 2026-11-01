@@ -1,4 +1,4 @@
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
  * The skill's own recipe text, RUN.
  *
@@ -35,8 +35,8 @@
  * BOTH PAYLOAD LAYOUTS ARE RUN, and until #124 round 8 only one was. The sync
  * routes `core/X -> X`, so the payload sits at `core/scripts/...` here and at
  * `scripts/...` in every consumer -- and the consumer layout is the one every
- * repository except this one actually runs. The fixture built only the
- * handbook's, so two consumer-only mechanisms were documented and never
+ * repository except this one actually runs. The fixture built only
+ * KITT's, so two consumer-only mechanisms were documented and never
  * executed: the `P=` line's `[ -f "$P" ] || P=scripts/plan-review.mjs` fallback
  * (`SKILL.md:23`), and `readVerbatim`'s consumer-first candidate, which tries
  * `docs/ai-context/...` before retrying under `core/`. `LAYOUTS` below runs
@@ -67,13 +67,13 @@
  *                                concerns.json, and exchange(s) 0 already ran`
  *
  * THE LAYOUT SPLIT IS MEASURED THE SAME WAY, once per consumer-only mechanism,
- * and the discriminating result is that the handbook half stays green -- a
+ * and the discriminating result is that the KITT half stays green -- a
  * check that went all-red would not have told us which half it was exercising:
  *
  *   `readVerbatim`'s consumer candidate removed  -> 5 consumer cases fail,
- *                                                   5 handbook cases pass
+ *                                                   5 KITT cases pass
  *   the `P=` fallback removed from SKILL.md:23   -> 5 consumer cases fail,
- *                                                   5 handbook cases pass
+ *                                                   5 KITT cases pass
  *
  * The third is reached by changing the fixture rather than the document, which
  * is the honest shape of that one: the staging is authored here, so it holds
@@ -89,7 +89,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// `../..` is `core/` in the handbook and the repository root in a consumer, so
+// `../..` is `core/` in KITT and the repository root in a consumer, so
 // one relative path reaches the skill in both payload layouts.
 const PAYLOAD = resolve(HERE, "..", "..");
 const SKILL = join(PAYLOAD, ".claude/skills/plan-review-loop/SKILL.md");
@@ -206,13 +206,13 @@ const neverSpawns = (cmd) => (/--prompt-only|--dry-run/.test(cmd) ? cmd : `${cmd
  * passing.
  */
 const LAYOUTS = [
-  { name: "handbook", prefix: "core" },
+  { name: "KITT", prefix: "core" },
   { name: "consumer", prefix: "" },
 ];
 
 function fixture({ stage, layout }) {
   const root = mkdtempSync(join(tmpdir(), "recipes-"));
-  // `core/` in the handbook, nothing in a consumer -- the one difference the
+  // `core/` in KITT, nothing in a consumer -- the one difference the
   // sync makes, and the whole point of running every recipe twice.
   const at = (rel) => join(root, layout.prefix, rel);
   mkdirSync(join(root, layout.prefix || "."), { recursive: true });

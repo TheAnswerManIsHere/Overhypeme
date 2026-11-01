@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead.
+// SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
 /**
  * The small shared module: this repository's machinery configuration, and the
  * dependency-free schema validator both dispatched roles answer through.
@@ -33,8 +33,8 @@ export const MACHINERY_CONFIG_FILE = ".agents/machinery.json";
  *
  * WHY NOT `dirname(script)/..`, WHICH THIS REPLACES. That form assumes the
  * scripts sit exactly one level below the root. True in a consumer, where the
- * sync lands them at `<repo>/scripts/`; false in the handbook, where they are
- * payload at `<repo>/core/scripts/` and `..` is `core/`. So the handbook read
+ * sync lands them at `<repo>/scripts/`; false in KITT, where they are
+ * payload at `<repo>/core/scripts/` and `..` is `core/`. So KITT read
  * a configuration that is not there -- `core/.agents/machinery.json` does not
  * exist -- and wrote its artifacts INSIDE its own payload, where a sync would
  * carry one repository's history to every other.
@@ -226,7 +226,7 @@ export function repoSlug(io = nodeIo()) {
 }
 
 /**
- * Where the fleet's paid-run ledger lives: the handbook's own repository.
+ * Where the fleet's paid-run ledger lives: KITT's own repository.
  *
  * A FLEET FACT, NOT THIS CHECKOUT'S IDENTITY, which is why it is a constant
  * here rather than a field in `.agents/machinery.json`: that file is seeded
@@ -235,7 +235,7 @@ export function repoSlug(io = nodeIo()) {
  * products."), so every product must read and write the same issue.
  * (`uat-doc-format.md`, *Lanes*.)
  */
-export const PAID_RUN_LEDGER_REPO = "TheAnswerManIsHere/AI-Handbook";
+export const PAID_RUN_LEDGER_REPO = "TheAnswerManIsHere/KITT";
 
 // ---------------------------------------------------------------------------
 // Agent-definition frontmatter
@@ -249,7 +249,7 @@ export const PAID_RUN_LEDGER_REPO = "TheAnswerManIsHere/AI-Handbook";
  * equal to the pin; `review-proxy.mjs` reads the declared effort to say, in an
  * assessment's header, what the role actually runs at. Those are the two ends
  * of one fact, and a second copy of the reader is a second thing to drift --
- * the failure this whole area is about. The handbook-only checker can import
+ * the failure this whole area is about. KITT-only checker can import
  * payload code; payload code cannot import the checker, so the shared copy
  * lives here. (Both assessors, #131 round 1.)
  *
@@ -332,7 +332,7 @@ export function claudeAlias(id) {
  * One key from an agent definition, or null if anything at all is in the way.
  *
  * THE PATH IS THE SAME IN BOTH LAYOUTS. `.claude/agents/<name>.md` is a real
- * file in a consumer and a per-file symlink into `core/` in the handbook, so
+ * file in a consumer and a per-file symlink into `core/` in KITT, so
  * one relative path resolves in both -- which is why this does not need the
  * `core/scripts` vs `scripts` dance `INVOCATION` does.
  *
@@ -643,7 +643,7 @@ export function runCodex({ prompt, outFile, model, effort, sandbox, cwd, timeout
     // review emitting verbose events would die before its answer and its
     // turn.completed event were written. Inherited stdout had no ceiling;
     // this one is set well above any event stream a round has produced.
-    // (Codex, AI-Handbook #199 round 1.)
+    // (Codex, KITT #199 round 1.)
     maxBuffer: CODEX_EVENTS_MAX_BUFFER,
   });
   const events = typeof result.stdout === "string" ? result.stdout : "";
@@ -685,7 +685,7 @@ export function codexUsage(jsonl) {
     // rerouted: <from> -> <to> (<reason>)", not as an event of its own, and
     // the later turn.completed carries counters only. Priced at Astra's rates
     // they would be the wrong model's spend, so the reading is withheld.
-    // (Codex, AI-Handbook #199 round 3, `4243932759`; #197 item 5.)
+    // (Codex, KITT #199 round 3, `4243932759`; #197 item 5.)
     if (ev?.type === "item.completed" && typeof ev.item?.message === "string" && /^model rerouted:/i.test(ev.item.message)) rerouted = true;
   }
   if (!usage || rerouted) return null;
@@ -693,14 +693,14 @@ export function codexUsage(jsonl) {
   // non-negative number makes the whole reading null -- `unable to verify` in
   // the spend line -- never a zero that prices the run confidently low. The
   // CLI is installed unpinned, so a schema change is a real path, not a
-  // hypothetical. (Codex, AI-Handbook #199 round 2.)
+  // hypothetical. (Codex, KITT #199 round 2.)
   const keys = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"];
   if (!keys.every((k) => Number.isFinite(usage[k]) && usage[k] >= 0)) return null;
   // ALL ZERO IS NO READING. The CLI emits `Usage::default()` -- every bucket
   // 0 -- on a turn that completed without any token-usage notification, and a
   // run that read a prompt cannot have consumed zero input tokens. So the
   // all-zero object is the CLI saying "none", never a $0 run. (Codex,
-  // AI-Handbook #199 round 3, `4243932761`; #197 item 4.)
+  // KITT #199 round 3, `4243932761`; #197 item 4.)
   if (keys.every((k) => usage[k] === 0)) return null;
   return {
     input: usage.input_tokens,

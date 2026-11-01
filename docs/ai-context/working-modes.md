@@ -1,4 +1,4 @@
-<!-- SYNCED FROM AI-Handbook — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change the handbook instead. -->
+<!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
 
 # Working Modes: feature (default) vs. bugfix
 
@@ -777,7 +777,7 @@ by the same agent in the same turn, on green CI. Codex's automatic pass on PR-op
 run or produce reasonable output, which is fixed at prototype depth as a
 further commit of the version — or, since the PR merges on green CI without
 waiting for the pass, as a same-day follow-up PR on `main` when the pass
-lands after the merge (David, 2026-10-21: *"Yes skim."*; Codex, AI-Handbook
+lands after the merge (David, 2026-10-21: *"Yes skim."*; Codex, KITT
 #221 round 2, named the timing gap). Every
 other thread is resolved with one line naming this phase and starts no fix.
 **The one fix a prototype owes regardless of who finds it** is a defect that
@@ -864,7 +864,7 @@ every commit is under, whatever the phase: no secret and no customer data is
 ever committed (Codex, #168 round 6).
 
 **What it does not remove.** The phase is a property of product features. The
-repository's machinery — CI, settings, permissions, the vendored handbook
+repository's machinery — CI, settings, permissions, the vendored KITT
 payload, an agent role's definition — has no phase and stays in the standard
 loop or the two classes above. A PR that touches **any** production-phase
 feature is in the standard loop for the **whole** PR: the stricter rule wins,

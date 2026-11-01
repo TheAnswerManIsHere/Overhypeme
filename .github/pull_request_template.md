@@ -49,7 +49,7 @@ Workstream: #<!-- issue number — every feature, bugfix, and doc harvest is
        - `no plan`, for a genuinely trivial change with no plan and no bug
          behind it.
      (Until 2026-09-25 this was a fenced `plan-provenance` block with a fixed
-     key set per kind. It was retired, AI-Handbook #103; do not write one.)
+     key set per kind. It was retired, KITT #103; do not write one.)
 
      PART 2 — THE ORACLE PROSE, which the source line does not replace. Fill in the
      live fields for your mode below and delete the other mode's fields.
