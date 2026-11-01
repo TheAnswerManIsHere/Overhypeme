@@ -330,16 +330,18 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   const { text, captchaToken } = bodyParsed.data;
 
   // Captcha gate — bypass for: admin, legendary/premium, or users who already
-  // completed onboarding (captchaVerified in session or persisted on user row).
+  // completed onboarding (`onboarding_completed_at` on the user row).
   // Membership/admin/captcha state on `req.user` is always fresh from the
   // database (rebuilt by authMiddleware on every authenticated request).
   // The entitlement half is one resolver call; the onboarding half is an
   // identity prerequisite and stays where it is. Splitting them this way is
   // what lets an operator grant the bypass to another tier from the grid.
   const hasBypassEntitlement = await can(principalFromRequest(req), "fact_submit_captcha_bypass");
-  const isCaptchaVerified = req.isAuthenticated() && !!req.user.captchaVerified;
+  // An onboarded account passed a challenge at onboarding (launch Phase 5;
+  // `captcha_verified` is no longer read, plan S23).
+  const isOnboarded = req.isAuthenticated() && !!req.user.onboardingCompleted;
 
-  const captchaRequired = !hasBypassEntitlement && !isCaptchaVerified;
+  const captchaRequired = !hasBypassEntitlement && !isOnboarded;
 
   if (captchaRequired) {
     if (!captchaToken || !(await verifyCaptcha(captchaToken))) {

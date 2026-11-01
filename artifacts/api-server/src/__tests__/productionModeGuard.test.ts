@@ -55,6 +55,14 @@ describe("productionModeRefusals", () => {
     assert.deepEqual(refusalsWith({ SITE_BASE_URL: "http://127.0.0.1:5174" }), []);
   });
 
+  it("admits only Cloudflare's published Turnstile test secrets", () => {
+    for (const secret of ["1x0000000000000000000000000000000AA", "2x0000000000000000000000000000000AA", "3x0000000000000000000000000000000AA"]) {
+      assert.deepEqual(refusalsWith({ TURNSTILE_SECRET_KEY: secret }), [], secret);
+    }
+    assert.match(refusalsWith({ TURNSTILE_SECRET_KEY: "0x4AAAAAAArealSiteSecret" }).join(), /TURNSTILE_SECRET_KEY/);
+    assert.deepEqual(refusalsWith({ TURNSTILE_SECRET_KEY: undefined }), []);
+  });
+
   it("reports every refusal at once rather than the first", () => {
     assert.equal(
       productionModeRefusals({ NODE_ENV: "development", REPLIT_DEPLOYMENT: "1", RESEND_API_KEY: "k" }).length,

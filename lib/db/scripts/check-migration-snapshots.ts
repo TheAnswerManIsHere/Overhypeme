@@ -469,6 +469,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
 
   // Data only: seeds one admin_config row. No schema delta.
   "0113_seed_nsfw_classifier_fail_open",
+
+  // Hand-written expand (Launch Phase 5, increment 3): six nullable users
+  // columns, one CHECK and the pronouns default dropped. The generator is
+  // broken past 0063, so the delta is DEFERRED like 0103's; source of truth:
+  // lib/db/src/schema/auth.ts.
+  "0114_account_onboarding_columns",
 ]);
 
 interface JournalEntry {

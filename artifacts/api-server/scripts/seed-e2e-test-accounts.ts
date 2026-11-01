@@ -69,6 +69,10 @@ async function upsertAccount(def: AccountDefinition): Promise<string> {
     lastName: def.lastName,
     pronouns: def.pronouns,
     emailVerifiedAt: new Date(),
+    // Set up and adult (launch Phase 5): the journeys exercise an account that
+    // can act and upload a photo. A first-time journey makes its own account.
+    onboardingCompletedAt: new Date(),
+    dateOfBirth: "1990-01-01",
     isActive: true,
   };
   const [existing] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email)).limit(1);
@@ -78,7 +82,7 @@ async function upsertAccount(def: AccountDefinition): Promise<string> {
   }
   const [created] = await db
     .insert(usersTable)
-    .values({ ...values, email, captchaVerified: false })
+    .values({ ...values, email })
     .returning({ id: usersTable.id });
   return created.id;
 }

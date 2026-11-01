@@ -60,10 +60,11 @@ export default function SubmitFact() {
   // this screen: revoking the bypass from Legendary would leave the CAPTCHA
   // hidden while the server started rejecting every submission, and granting
   // it to another tier wouldn't remove the CAPTCHA here. The onboarding half
-  // (`user?.captchaVerified`) stays separate — it's an identity prerequisite,
-  // not an entitlement.
+  // (`user?.onboardingCompleted`: the account passed a challenge when it
+  // onboarded) stays separate — it's an identity prerequisite, not an
+  // entitlement.
   const hasBypassEntitlement = can("fact_submit_captcha_bypass");
-  const isCaptchaVerified = hasBypassEntitlement || !!user?.captchaVerified;
+  const isCaptchaVerified = hasBypassEntitlement || !!user?.onboardingCompleted;
 
   const [step, setStep] = useState<Step>("write");
 

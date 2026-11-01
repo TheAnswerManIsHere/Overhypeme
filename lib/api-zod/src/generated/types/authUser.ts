@@ -5,6 +5,7 @@
  * API specification for Overhype.me
  * OpenAPI spec version: 0.1.0
  */
+import type { AuthUserEligibility } from './authUserEligibility';
 import type { AuthUserMembershipTier } from './authUserMembershipTier';
 import type { AuthUserUserRole } from './authUserUserRole';
 
@@ -21,7 +22,14 @@ export interface AuthUser {
   pronouns?: string | null;
   userRole?: AuthUserUserRole;
   realUserRole?: AuthUserUserRole;
-  captchaVerified?: boolean | null;
+  /** Whether the account may act, or the first reason it may not (launch Phase 5). */
+  eligibility?: AuthUserEligibility;
+  emailVerified?: boolean | null;
+  onboardingCompleted?: boolean | null;
+  /** Derived from the stored date of birth at read time; never stored. */
+  is13Plus?: boolean | null;
+  /** Derived from the stored date of birth at read time; never stored. Photo uploads require it. */
+  is18Plus?: boolean | null;
   /** When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset. */
   nsfwModeEnabled?: boolean | null;
 }

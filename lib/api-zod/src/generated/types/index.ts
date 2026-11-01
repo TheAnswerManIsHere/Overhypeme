@@ -9,6 +9,7 @@
 export * from "./addCommentRequest";
 export * from "./authorizationSessionHeaderParameter";
 export * from "./authUser";
+export * from "./authUserEligibility";
 export * from "./authUserEnvelope";
 export * from "./authUserEnvelopeEntitlements";
 export * from "./authUserMembershipTier";

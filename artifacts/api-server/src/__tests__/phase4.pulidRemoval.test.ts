@@ -55,7 +55,6 @@ async function bearer(userId: string): Promise<string> {
     user: { id: userId, membershipTier: "legendary" } as unknown as SessionData["user"],
     access_token: "test-token",
     isAdmin: true,
-    captchaVerified: true,
   };
   return createSession(data, userId);
 }
@@ -79,7 +78,7 @@ before(async () => {
     email: `${adminId}@test.local`,
     isAdmin: true,
     membershipTier: "legendary",
-    captchaVerified: true,
+    emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
   });
   adminSid = await bearer(adminId);
   const [fact] = await db

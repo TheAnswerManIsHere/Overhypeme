@@ -190,7 +190,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       firstName: firstNameTrimmed,
       lastName:  lastNameTrimmed,
       pronouns: sanitizedPronouns,
-      captchaVerified: false,
       isActive: true,
     })
     .returning();
@@ -203,7 +202,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       membershipTier: effectiveTierForRow(user),
     },
     access_token: "",
-    captchaVerified: false,
     isAdmin: user.isAdmin || isAdminById(user.id),
   };
 
@@ -304,7 +302,6 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
       membershipTier: effectiveTierForRow(user),
     },
     access_token: "",
-    captchaVerified: user.captchaVerified,
     isAdmin: user.isAdmin || isAdminById(user.id),
   };
 
@@ -551,7 +548,6 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
         membershipTier: effectiveTierForRow(verifiedUser),
       },
       access_token: "",
-      captchaVerified: verifiedUser.captchaVerified,
       isAdmin: verifiedUser.isAdmin || isAdminById(verifiedUser.id),
     };
 
@@ -819,7 +815,6 @@ async function handleDevAdminLogin(req: Request, res: Response) {
       membershipTier: effectiveTierForRow(adminUser),
     },
     access_token: "",
-    captchaVerified: adminUser.captchaVerified,
     isAdmin: adminUser.isAdmin || isAdminById(adminUser.id),
     adminModeDisabled: false,
   };

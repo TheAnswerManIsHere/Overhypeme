@@ -88,13 +88,12 @@ before(async () => {
     email: `${adminId}@test.local`,
     isAdmin: true,
     membershipTier: "legendary",
-    captchaVerified: true,
+    emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
   });
   const sessionData: SessionData = {
     user: { id: adminId, membershipTier: "legendary" } as unknown as SessionData["user"],
     access_token: "test-token",
     isAdmin: true,
-    captchaVerified: true,
   };
   adminSid = await createSession(sessionData, adminId);
 });

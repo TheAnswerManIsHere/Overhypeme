@@ -74,7 +74,7 @@ async function createUser(opts: { isAdmin?: boolean } = {}): Promise<string> {
     email: `${id}@test.local`,
     isAdmin: opts.isAdmin ?? false,
     membershipTier: opts.isAdmin ? "legendary" : "registered",
-    captchaVerified: true,
+    emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
   });
   return id;
 }
@@ -84,7 +84,6 @@ async function bearer(userId: string, isAdmin: boolean): Promise<string> {
     user: { id: userId, membershipTier: isAdmin ? "legendary" : "registered" } as unknown as SessionData["user"],
     access_token: "test-token",
     isAdmin,
-    captchaVerified: true,
   };
   return createSession(sessionData, userId);
 }

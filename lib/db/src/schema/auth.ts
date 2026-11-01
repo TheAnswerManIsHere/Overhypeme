@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, numeric, pgTable, pgEnum, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, jsonb, numeric, pgTable, pgEnum, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
 export const membershipTierEnum = pgEnum("membership_tier", ["unregistered", "registered", "legendary"]);
 
@@ -39,8 +39,24 @@ export const usersTable = pgTable("users", {
   membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
   avatarStyle: varchar("avatar_style", { length: 30 }).default("bottts"),
   avatarSource: varchar("avatar_source", { length: 10 }).default("avatar"),
-  pronouns: varchar("pronouns", { length: 80 }).default("he/him"),
+  // No default (launch Phase 5, 0114): null means "not chosen yet", and the
+  // onboarding screen fills it. No account is assigned pronouns unseen.
+  pronouns: varchar("pronouns", { length: 80 }),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  // Onboarding (launch Phase 5, 0114): set once, when the one onboarding
+  // screen is completed after verification. Null means the account is asked
+  // at its next sign-in, and the verified-actor gate refuses its writes.
+  onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
+  // The half-finished form, so a reload resumes it. Cleared at completion.
+  onboardingDraft: jsonb("onboarding_draft"),
+  // Age is derived from this at read time (13+, 18+), never stored as a flag.
+  // A date under 13 is refused before it is written.
+  dateOfBirth: date("date_of_birth", { mode: "string" }),
+  // Marketing consent is a record, not a boolean: when, how it was given
+  // ('default_checked' | 'ticked' | 'declined') and which wording was shown.
+  marketingConsentAt: timestamp("marketing_consent_at", { withTimezone: true }),
+  marketingConsentMethod: varchar("marketing_consent_method", { length: 20 }),
+  marketingConsentWordingVersion: varchar("marketing_consent_wording_version", { length: 40 }),
   monthlyGenerationLimitOverrideUsd: numeric("monthly_generation_limit_override_usd", { precision: 10, scale: 4 }),
   // When true, NSFW-classified uploads/outputs are accepted and tagged
   // with `is_nsfw` instead of rejected. Plumbed for future tier-gating;
@@ -48,7 +64,12 @@ export const usersTable = pgTable("users", {
   nsfwModeEnabled: boolean("nsfw_mode_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  check(
+    "users_marketing_consent_method_check",
+    sql`${t.marketingConsentMethod} IS NULL OR ${t.marketingConsentMethod} IN ('default_checked', 'ticked', 'declined')`,
+  ),
+]);
 
 export type UpsertUser = typeof usersTable.$inferInsert;
 export type User = typeof usersTable.$inferSelect;

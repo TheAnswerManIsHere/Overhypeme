@@ -28,6 +28,7 @@ import { verifyCaptcha, TURNSTILE_SITEVERIFY_URL } from "../lib/captcha.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import usersRouter from "../routes/users.js";
+import onboardingRouter from "../routes/onboarding.js";
 import factsRouter from "../routes/facts.js";
 import aiRouter from "../routes/ai.js";
 import shareRouter, { __resetShareInviteGuardsForTests } from "../routes/share.js";
@@ -152,6 +153,7 @@ function makeApp(): Express {
   app.use(express.json());
   app.use(authMiddleware);
   app.use(usersRouter);
+  app.use(onboardingRouter);
   app.use(factsRouter);
   app.use(aiRouter);
   app.use(shareRouter);
@@ -223,20 +225,22 @@ describe("Turnstile at every challenged route (a secret configured)", () => {
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
   });
 
-  it("onboarding completion: a failing token is refused and the flag stays off; a passing one sets it", async () => {
+  it("onboarding completion: a failing token is refused and nothing is recorded; a passing one completes it", async () => {
     const userId = await createUser();
+    await db.update(usersTable).set({ emailVerifiedAt: new Date() }).where(eq(usersTable.id, userId));
     const sid = await bearerFor(userId);
     const app = makeApp();
+    const body = { pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: false };
     answer = "spent";
-    const bad = await request(app).post("/users/me/complete-onboarding").set("authorization", `Bearer ${sid}`).send({ captchaToken: "used" });
+    const bad = await request(app).post("/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({ ...body, captchaToken: "used" });
     assert.equal(bad.status, 400);
-    let [row] = await db.select({ v: usersTable.captchaVerified }).from(usersTable).where(eq(usersTable.id, userId));
-    assert.equal(row.v, false);
+    let [row] = await db.select({ v: usersTable.onboardingCompletedAt }).from(usersTable).where(eq(usersTable.id, userId));
+    assert.equal(row.v, null);
     answer = "pass";
-    const good = await request(app).post("/users/me/complete-onboarding").set("authorization", `Bearer ${sid}`).send({ captchaToken: "fresh" });
-    assert.equal(good.status, 200);
-    [row] = await db.select({ v: usersTable.captchaVerified }).from(usersTable).where(eq(usersTable.id, userId));
-    assert.equal(row.v, true);
+    const good = await request(app).post("/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({ ...body, captchaToken: "fresh" });
+    assert.equal(good.status, 200, JSON.stringify(good.body));
+    [row] = await db.select({ v: usersTable.onboardingCompletedAt }).from(usersTable).where(eq(usersTable.id, userId));
+    assert.ok(row.v instanceof Date);
   });
 
   it("a comment from a registered user without the bypass: refused on a failing token, posted on a passing one", async () => {

@@ -28,6 +28,7 @@ import { eq } from "drizzle-orm";
 
 import { deriveUserRole } from "../../lib/userRole.js";
 import { effectiveTierExpr } from "../../lib/membershipState.js";
+import { identityFieldsOf } from "../../lib/eligibility.js";
 
 export type FakeAuth =
   | { kind: "unauthenticated" }
@@ -71,7 +72,7 @@ export function buildTestApp(
           isRealAdmin: boolean;
           userRole: ReturnType<typeof deriveUserRole>;
           realUserRole: ReturnType<typeof deriveUserRole>;
-        }
+        } & ReturnType<typeof identityFieldsOf>
       | null
       | undefined;
 
@@ -87,6 +88,9 @@ export function buildTestApp(
             // The EFFECTIVE tier, matching authMiddleware's chokepoint. The
             // raw column would report Legendary past a lapsed grace horizon.
             membershipTier: effectiveTierExpr(),
+            emailVerifiedAt: usersTable.emailVerifiedAt,
+            onboardingCompletedAt: usersTable.onboardingCompletedAt,
+            dateOfBirth: usersTable.dateOfBirth,
           })
           .from(usersTable)
           .where(eq(usersTable.id, userId))
@@ -116,6 +120,8 @@ export function buildTestApp(
               isRealAdmin:     isAdmin,
               userRole:        deriveUserRole(dbUser.membershipTier, isAdmin),
               realUserRole:    deriveUserRole(dbUser.membershipTier, isAdmin),
+              // Eligibility and age, by authMiddleware's own derivation.
+              ...identityFieldsOf(dbUser),
             }
           : null;
       }

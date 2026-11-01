@@ -76,7 +76,7 @@ async function createUser(isAdmin: boolean): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({
     id, email: `${id}@test.local`, isAdmin,
-    membershipTier: isAdmin ? "legendary" : "registered", captchaVerified: true,
+    membershipTier: isAdmin ? "legendary" : "registered", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
   });
   return id;
 }
@@ -84,7 +84,7 @@ async function createUser(isAdmin: boolean): Promise<string> {
 async function bearer(userId: string, isAdmin: boolean): Promise<string> {
   return createSession({
     user: { id: userId, membershipTier: isAdmin ? "legendary" : "registered" } as unknown as SessionData["user"],
-    access_token: "test-token", isAdmin, captchaVerified: true,
+    access_token: "test-token", isAdmin,
   }, userId);
 }
 

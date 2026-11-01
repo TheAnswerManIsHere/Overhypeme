@@ -413,7 +413,6 @@ async function handleOAuthCallback(
       membershipTier: effectiveTierForRow(dbUser),
     },
     access_token: tokens.access_token,
-    captchaVerified: dbUser.captchaVerified,
     isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
   };
 

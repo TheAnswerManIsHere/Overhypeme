@@ -78,6 +78,8 @@ export const PRODUCTION_MODE_ENV_ALLOWLIST: readonly string[] = [
   "SITE_BASE_URL",
   "ALLOWED_ORIGINS",
   "E2E_MAIL_SINK_DIR",
+  // A Cloudflare test secret only; productionModeGuard refuses any other value.
+  "TURNSTILE_SECRET_KEY",
 ];
 
 /**

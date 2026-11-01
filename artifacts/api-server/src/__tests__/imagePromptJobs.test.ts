@@ -107,7 +107,7 @@ before(async () => {
     email: `${userId}@test.local`,
     isAdmin: false,
     membershipTier: "registered",
-    captchaVerified: true,
+    emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
   });
 });
 

@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useRef } from "react";
 import { lazyWithRetry as lazy } from "@/lib/lazy-retry";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation, useSearch } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sentry } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,6 +12,7 @@ import { ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
+import { currentDestination, setupRedirectFor } from "@/lib/setup-redirect";
 import SentryFallback from "@/components/SentryFallback";
 
 // Pages — lazy-loaded so each route is its own JS chunk
@@ -21,6 +22,7 @@ const FactDetail = lazy(() => import("@/pages/FactDetail"));
 const SubmitFact = lazy(() => import("@/pages/SubmitFact"));
 const Profile = lazy(() => import("@/pages/Profile"));
 const Onboard = lazy(() => import("@/pages/Onboard"));
+const CheckEmail = lazy(() => import("@/pages/CheckEmail"));
 const AdminDashboard = lazy(() => import("@/pages/admin/index"));
 const AdminFacts = lazy(() => import("@/pages/admin/facts"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
@@ -80,7 +82,7 @@ function AdminModerationRedirect() {
  */
 function AuthProfileSync() {
   const { isAuthenticated, isLoading, user } = useAuth();
-  const { syncFromProfile } = usePersonName();
+  const { syncFromProfile, pronouns: devicePronouns, pronounsSupplied } = usePersonName();
   const prevAuthRef = useRef<boolean | null>(null);
 
   // Keep Sentry's user scope in sync with the auth state.
@@ -128,7 +130,9 @@ function AuthProfileSync() {
         .then((data) => {
           if (cancelled) return;
           if (data?.displayName) {
-            syncFromProfile(data.displayName, data.pronouns ?? "");
+            // An account with no pronouns yet keeps the device's own choice,
+            // so the onboarding screen can offer it (launch Phase 5, plan S22).
+            syncFromProfile(data.displayName, data.pronouns ?? (pronounsSupplied ? devicePronouns : ""));
             // Update Sentry user scope with the resolved display name so the
             // feedback widget pre-populates the name field. Format:
             // "First Last (DisplayName)" e.g. "David Franklin (Hyperion)"
@@ -152,6 +156,24 @@ function AuthProfileSync() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, isLoading]);
 
+  return null;
+}
+
+/**
+ * Sends a signed-in account that is not set up yet to the step it is on
+ * (launch Phase 5). Convenience only: the server's gate refuses its writes.
+ */
+function SetupRedirect() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const [location, setLocation] = useLocation();
+  // Subscribed so a query-only navigation re-runs the effect; the value read
+  // is the raw query (see currentDestination).
+  const search = useSearch();
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    const target = setupRedirectFor(user?.eligibility, currentDestination(location, window.location.search));
+    if (target) setLocation(target);
+  }, [isAuthenticated, isLoading, user?.eligibility, location, search, setLocation]);
   return null;
 }
 
@@ -255,6 +277,7 @@ function Router() {
       <GAPageTracker />
       <PrefetchCriticalRoutes />
       <AuthProfileSync />
+      <SetupRedirect />
       <ShareLinkResolver />
       <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
       <Switch>
@@ -264,6 +287,7 @@ function Router() {
         <Route path="/submit" component={SubmitFact} />
         <Route path="/profile" component={Profile} />
         <Route path="/onboard" component={Onboard} />
+        <Route path="/check-email" component={CheckEmail} />
         <Route path="/admin/facts" component={AdminFacts} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/billing" component={AdminBilling} />

@@ -291,16 +291,16 @@ before(async () => {
   adminEmail = `${adminId}@test.local`;
   const plainId = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values([
-    { id: adminId, email: adminEmail, isAdmin: true, membershipTier: "legendary", captchaVerified: true },
-    { id: plainId, email: `${plainId}@test.local`, isAdmin: false, membershipTier: "registered", captchaVerified: true },
+    { id: adminId, email: adminEmail, isAdmin: true, membershipTier: "legendary", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() },
+    { id: plainId, email: `${plainId}@test.local`, isAdmin: false, membershipTier: "registered", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() },
   ]);
   adminSid = await createSession({
     user: { id: adminId, membershipTier: "legendary" } as unknown as SessionData["user"],
-    access_token: "test-token", isAdmin: true, captchaVerified: true,
+    access_token: "test-token", isAdmin: true,
   }, adminId);
   plainSid = await createSession({
     user: { id: plainId, membershipTier: "registered" } as unknown as SessionData["user"],
-    access_token: "test-token", isAdmin: false, captchaVerified: true,
+    access_token: "test-token", isAdmin: false,
   }, plainId);
 });
 

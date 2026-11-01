@@ -90,7 +90,7 @@ function makeApp(): Express {
 async function createTestUser(opts: {
   isAdmin?: boolean;
   membershipTier?: "unregistered" | "registered" | "legendary";
-  captchaVerified?: boolean;
+  onboarded?: boolean;
 } = {}): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({
@@ -98,10 +98,10 @@ async function createTestUser(opts: {
     email: `${id}@test.local`,
     isAdmin: opts.isAdmin ?? false,
     membershipTier: opts.membershipTier ?? "registered",
-    // Default to true so the onboarding gate is bypassed in most tests.
-    // The middleware ORs DB and session captchaVerified, so tests that
-    // need the gate to fire must set this to false here.
-    captchaVerified: opts.captchaVerified ?? true,
+    // Verified and onboarded by default, so the onboarding check passes in
+    // most tests; a test that needs it to fire passes `onboarded: false`.
+    emailVerifiedAt: new Date(),
+    onboardingCompletedAt: (opts.onboarded ?? true) ? new Date() : null,
   });
   return id;
 }
@@ -109,7 +109,6 @@ async function createTestUser(opts: {
 async function bearerForUser(userId: string, opts: {
   isAdmin?: boolean;
   membershipTier?: "unregistered" | "registered" | "legendary";
-  captchaVerified?: boolean;
 } = {}): Promise<string> {
   const sessionData: SessionData = {
     user: {
@@ -118,7 +117,6 @@ async function bearerForUser(userId: string, opts: {
     } as unknown as SessionData["user"],
     access_token: "test-token",
     isAdmin: opts.isAdmin,
-    captchaVerified: opts.captchaVerified ?? true,
   };
   return createSession(sessionData, userId);
 }
@@ -167,9 +165,9 @@ describe("POST /facts/submit-review", () => {
     assert.equal(res.status, 401);
   });
 
-  it("returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users", async () => {
-    const userId = await createTestUser({ captchaVerified: false });
-    const sid = await bearerForUser(userId, { captchaVerified: false });
+  it("returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary users who have not onboarded", async () => {
+    const userId = await createTestUser({ onboarded: false });
+    const sid = await bearerForUser(userId);
     const res = await request(makeApp())
       .post("/facts/submit-review")
       .set("authorization", `Bearer ${sid}`)

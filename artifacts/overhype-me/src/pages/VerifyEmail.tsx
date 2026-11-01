@@ -1,5 +1,5 @@
 /**
- * @purpose Email-verification landing page: sends the URL token to /api/auth/verify-email, then hard-navigates to the profile on success so the new session is picked up, or shows already-verified or the error.
+ * @purpose Email-verification landing page: sends the URL token to /api/auth/verify-email, then hard-navigates to onboarding on success (which forwards to the profile once set up) so the new session is picked up, or shows already-verified or the error.
  * @subsystem accounts-auth
  */
 import { useEffect, useState } from "react";
@@ -36,7 +36,7 @@ export default function VerifyEmail() {
             setMessage("Your email is already verified.");
           } else {
             // Hard navigation so the new session cookie is picked up by the auth cache
-            window.location.assign("/profile?emailVerified=1");
+            window.location.assign("/onboard?returnTo=%2Fprofile%3FemailVerified%3D1");
             return;
           }
         } else {
