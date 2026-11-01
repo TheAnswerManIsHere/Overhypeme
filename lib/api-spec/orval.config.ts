@@ -34,6 +34,11 @@ export default defineConfig({
       clean: false,
       formatter: "prettier",
       override: {
+        // Pinned, not detected: orval's detection of the installed react-query
+        // differs between machines (CI fell back to v4 hooks, #824).
+        query: {
+          version: 5,
+        },
         fetch: {
           includeHttpResponseReturnType: false,
         },
