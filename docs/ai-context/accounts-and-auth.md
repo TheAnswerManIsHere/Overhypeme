@@ -141,12 +141,10 @@ a fresh registration mints/refreshes a session as a side effect
 (`localAuth.ts:499-526`) — clicking the link from a cold browser logs the
 user in.
 
-**`emailVerifiedAt` gates nothing.** Checked directly: every server read of
-it (`routes/users.ts:98,184`; `routes/admin.ts:2306`; `localAuth.ts:477,483,538,550-551,593`)
-is display/audit-only — it never appears in `authMiddleware.ts`,
-`reviews.ts`, `facts.ts`, `ai.ts`, or `tierMiddleware.ts`. An unverified
-user can do everything a verified one can; verification status is a trust
-signal, not an access gate, until launch Phase 5's Increment 3 adds the gate.
+**`emailVerifiedAt` gates every write** since launch Phase 5's Increment 3:
+`authMiddleware` derives `req.user.eligibility` from it, and the
+verified-actor gate refuses an unverified account's writes outside the
+recovery routes (see *Account creation*, above).
 
 **A provider's verified claim sets it** (launch Phase 5, increment 2).
 `upsertUser` reads the ID token's `email_verified` — Google sends a boolean,
@@ -168,9 +166,12 @@ unverified claim; on a new account it is created unverified.
   email matches an account (`GENERIC_RESET_MESSAGE`, `localAuth.ts:313`) —
   no account-existence disclosure.
 - Rate-limited by IP (`localAuth.ts:34-35,319-327`).
-- **Silently no-ops for an OAuth-only account** (no `passwordHash`) —
-  `localAuth.ts:340-344` — Google/Apple-only users can't reset a password
-  that doesn't exist; they'd use `POST /auth/set-password` instead (below).
+- **An account with no password yet (made by Google or Apple sign-in) gets
+  the link too**, and following it sets its first password (#800): the
+  sign-in refusal for an unconfirmed provider email points here, and before
+  the fix this route skipped such accounts, so the person was locked out. A
+  signed-in account can also add a first password with
+  `POST /auth/set-password` (below).
 - Token: 32 random bytes, SHA-256 hash stored, fixed expiry
   (`localAuth.ts:348`), row in `passwordResetTokensTable`
   (`lib/db/src/schema/auth.ts:86-97`). The exact duration is already

@@ -345,9 +345,12 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
     .where(eq(usersTable.email, email.toLowerCase().trim()))
     .limit(1);
 
-  // Silently skip if user not found or has no local password (Google or Apple
-  // sign-in only)
-  if (!user || !user.passwordHash) {
+  // Silently skip an unknown address (the reply is the same either way). An
+  // account with no password yet (made by Google or Apple sign-in) gets the
+  // link too: following it proves the person controls the address, and sets
+  // their first password. This is the way in the sign-in refusal for an
+  // unconfirmed provider email points at (#800).
+  if (!user) {
     res.status(200).json({ message: GENERIC_RESET_MESSAGE });
     return;
   }
