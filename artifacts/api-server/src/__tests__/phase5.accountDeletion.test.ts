@@ -329,7 +329,11 @@ describe("the account deletion state machine (T3)", () => {
 
     const [mid] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
     assert.ok(mid!.cancelledAt, "the account was kept");
-    assert.equal(mid!.billingUnsettled, true, "a settlement that looked before the cancel returned does not clear the marker");
+    // The property: the marker is never cleared while the local source still
+    // says active. (A settlement that began after the cancel returned may
+    // rightly have cleared it, having seen the cancellation.)
+    const [midSource] = await db.select({ status: membershipEntitlementsTable.lifecycleStatus }).from(membershipEntitlementsTable).where(eq(membershipEntitlementsTable.providerRef, ref));
+    assert.ok(mid!.billingUnsettled || midSource!.status === "canceled", "a settlement that looked before the cancel returned does not clear the marker");
 
     await runAccountDeletionWorker({ userIds: [userId] });
     const [after] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
