@@ -709,9 +709,12 @@ router.post("/auth/set-password", async (req: Request, res: Response) => {
   const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
   // A password change ends every OTHER session of this user, in the same
   // transaction as the write; the session making the change stays signed in
-  // (launch Phase 5, increment 2).
+  // (launch Phase 5, increment 2). "The session making the change" is the
+  // one the middleware authenticated, not the raw Bearer header: a stale
+  // token in localStorage beside a valid cookie must not cost the caller
+  // their own session.
   const userId = req.user.id;
-  const currentSid = getSessionId(req);
+  const currentSid = req.authSessionId;
   await db.transaction(async (tx) => {
     await tx.update(usersTable).set({ passwordHash: newHash }).where(eq(usersTable.id, userId));
     await revokeUserSessions(tx, userId, currentSid);

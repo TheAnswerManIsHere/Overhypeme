@@ -168,7 +168,10 @@ already exists (`localAuth.ts:650-661`), so an OAuth-only user can set a
 first local password with no current-password check — this is how a
 Google/Apple user adds a local-login fallback. It **ends every other session
 of the user** in the same transaction as the write and keeps the caller's
-own (launch Phase 5, increment 2). The operator route
+own (launch Phase 5, increment 2) — "the caller's own" being
+`req.authSessionId`, the session the middleware actually authenticated, not
+`getSessionId(req)`, which names a stale Bearer token even when the cookie
+beside it is what signed the request in. The operator route
 `POST /admin/users/set-password` ends all of the user's sessions the same
 way.
 

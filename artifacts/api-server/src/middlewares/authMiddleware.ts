@@ -1,5 +1,5 @@
 /**
- * @purpose Resolves the session (Bearer token, then cookie) and rebuilds req.user from the active user row: effective tier, admin over all three grants with the view-as-user toggle applied to isAdmin only, and captcha from the row or the session; a session that is expired or whose user is missing or inactive is deleted, and with none valid, the request proceeds unauthenticated.
+ * @purpose Resolves the session (Bearer token, then cookie), records the id of the session that authenticated as req.authSessionId, and rebuilds req.user from the active user row: effective tier, admin over all three grants with the view-as-user toggle applied to isAdmin only, and captcha from the row or the session; a session that is expired or whose user is missing or inactive is deleted, and with none valid, the request proceeds unauthenticated.
  * @subsystem accounts-auth
  */
 import { type Request, type Response, type NextFunction } from "express";
@@ -26,6 +26,15 @@ declare global {
       isAuthenticated(): this is AuthedRequest;
 
       user?: User | undefined;
+
+      /**
+       * The session id that produced `req.user` — the Bearer token or the
+       * cookie, whichever the loop below accepted. Set only alongside
+       * `req.user`. An operation meaning "this signed-in session" reads it,
+       * never `getSessionId(req)`, which returns the Bearer header even when
+       * that token is stale and the cookie is what authenticated.
+       */
+      authSessionId?: string | undefined;
     }
 
     export interface AuthedRequest {
@@ -143,6 +152,7 @@ export async function authMiddleware(
       userRole: deriveUserRole(dbUser.membershipTier, isAdmin),
       realUserRole: deriveUserRole(dbUser.membershipTier, isRealAdmin),
     };
+    req.authSessionId = sid;
 
     next();
     return;

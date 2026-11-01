@@ -3,7 +3,7 @@
  * consumed atomically, and every password change ends the user's other
  * sessions in the same transaction as the write.
  *
- * @purpose Proves one reset token yields exactly one password change under concurrency, that the reset ends every session while set-password keeps only the caller's, that the admin password route ends them all, and that a refused reset changes nothing.
+ * @purpose Proves one reset token yields exactly one password change under concurrency, that the reset ends every session while set-password keeps only the session that authenticated the request (Bearer, cookie, a stale Bearer beside a valid cookie, or two valid credentials), that the admin password route ends them all, and that a refused reset changes nothing.
  * @subsystem accounts-auth
  */
 import { describe, it, before, after } from "node:test";
@@ -11,7 +11,6 @@ import assert from "node:assert/strict";
 import { randomUUID, createHash, randomBytes } from "node:crypto";
 
 import express, { type Express } from "express";
-import cookieParser from "cookie-parser";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 
@@ -22,7 +21,8 @@ import { eq, like } from "drizzle-orm";
 import localAuthRouter from "../routes/localAuth.js";
 import adminRouter from "../routes/admin.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
-import { createSession, type SessionData } from "../lib/auth.js";
+import { createSession, SESSION_COOKIE, type SessionData } from "../lib/auth.js";
+import { createApp } from "../app.js";
 import { providerEmailVerified } from "../routes/auth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
@@ -32,7 +32,6 @@ const API_KEY = "test-admin-key-pwhard-only";
 function makeApp(): Express {
   const app = express();
   app.use(express.json());
-  app.use(cookieParser());
   app.use(authMiddleware);
   app.use(localAuthRouter);
   return app;
@@ -146,6 +145,52 @@ describe("POST /auth/set-password — ends the other sessions, keeps the caller'
       .send({ currentPassword: "wrong", newPassword: "next-pass-22" });
     assert.equal(res.status, 401);
     assert.deepEqual((await sessionsOf(userId)).sort(), [mine, other].sort());
+  });
+});
+
+// Through the full app stack (CSRF, then the real auth middleware), so the
+// session set-password keeps is the one that authenticated the request, not
+// whichever credential the raw headers name first (Codex, PR #798 round 1).
+describe("POST /api/auth/set-password — keeps exactly the session that authenticated", () => {
+  const ORIGIN = "https://app.example.com";
+  const savedOrigins = process.env.ALLOWED_ORIGINS;
+  before(() => { process.env.ALLOWED_ORIGINS = ORIGIN; });
+  after(() => { if (savedOrigins === undefined) delete process.env.ALLOWED_ORIGINS; else process.env.ALLOWED_ORIGINS = savedOrigins; });
+
+  function post(headers: { bearer?: string; cookieSid?: string }) {
+    let req = request(createApp()).post("/api/auth/set-password").set("Origin", ORIGIN);
+    const cookies = ["csrf_token=pwhard-csrf"];
+    if (headers.cookieSid) cookies.push(`${SESSION_COOKIE}=${headers.cookieSid}`);
+    req = req.set("Cookie", cookies).set("X-CSRF-Token", "pwhard-csrf");
+    if (headers.bearer) req = req.set("Authorization", `Bearer ${headers.bearer}`);
+    return req.send({ currentPassword: "current-pass-1", newPassword: "next-pass-22" });
+  }
+
+  it("cookie only: keeps the cookie's session", async () => {
+    const userId = await createUser("current-pass-1");
+    const mine = await sessionFor(userId);
+    await sessionFor(userId);
+    const res = await post({ cookieSid: mine });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(await sessionsOf(userId), [mine]);
+  });
+
+  it("a stale Bearer beside a valid cookie: keeps the cookie's session, the one that authenticated", async () => {
+    const userId = await createUser("current-pass-1");
+    const mine = await sessionFor(userId);
+    await sessionFor(userId);
+    const res = await post({ bearer: randomBytes(32).toString("hex"), cookieSid: mine });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(await sessionsOf(userId), [mine]);
+  });
+
+  it("two valid credentials: the Bearer wins, so its session is the one kept", async () => {
+    const userId = await createUser("current-pass-1");
+    const bearer = await sessionFor(userId);
+    const cookie = await sessionFor(userId);
+    const res = await post({ bearer, cookieSid: cookie });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(await sessionsOf(userId), [bearer]);
   });
 });
 
