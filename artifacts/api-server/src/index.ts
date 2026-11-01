@@ -225,6 +225,27 @@ function scheduleContentPurger() {
   schedule(5 * 60 * 1000);
 }
 
+// Hourly: advance every pending account deletion (launch Phase 5;
+// lib/accountDeletion.ts). Recovery for a stage the acceptance's kick did not
+// finish, and the only path to the purge once a request's 14 days are up.
+// Safe on several instances at once: every stage is a compare-and-set, and the
+// purge runs under the owner's lock.
+function scheduleAccountDeletionWorker() {
+  const HOURLY_MS = 60 * 60 * 1000;
+  const schedule = (delayMs: number) => {
+    setTimeout(async () => {
+      try {
+        const { runAccountDeletionWorker } = await import("./lib/accountDeletion");
+        await runAccountDeletionWorker();
+      } catch (err) {
+        logger.error({ err }, "[account-deletion] worker run failed");
+      }
+      schedule(HOURLY_MS);
+    }, delayMs).unref();
+  };
+  schedule(7 * 60 * 1000);
+}
+
 // Once per boot, a couple of minutes in: bake every recipe meme saved before
 // memes were baked at save (launch Phase 5, plan S16; lib/memeBake.ts). A
 // no-op once every meme is a file, and safe on several instances at once: a
@@ -467,6 +488,7 @@ scheduleDailyFactJob();
 scheduleTransientRenderPurger();
 scheduleRateLimitCounterPurger();
 scheduleContentPurger();
+scheduleAccountDeletionWorker();
 scheduleMediaBackup();
 scheduleMemeBakeBackfill();
 // Engines: reconcile the typed code catalogue into the DB before pricing

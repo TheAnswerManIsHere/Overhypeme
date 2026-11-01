@@ -33,6 +33,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
+import { guardClient } from "@workspace/db";
 import type { File } from "@google-cloud/storage";
 import { pgCommandConnection, withoutPassword } from "../pgCommandLine";
 import { storageClient } from "../storageClient";
@@ -221,6 +222,9 @@ async function databasePoint(
   dumpInto?: string,
 ): Promise<{ at: string; ledgerEntries: number | null; snapshotMark: string }> {
   const client = new pg.Client({ connectionString: databaseUrl });
+  // Held through the dump: a connection the database drops must fail this
+  // capture, not crash the server with an uncaught error event (#826).
+  guardClient(client, "media backup snapshot");
   await client.connect();
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");

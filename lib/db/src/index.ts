@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
 import { applyMigrations } from "./migrate";
+import { guardPool } from "./connectionErrors";
 
 const { Pool } = pg;
 
@@ -87,12 +88,13 @@ export const pool = new Pool({
     isNodeTestRunner || process.env.TEST_DB_ALLOW_EXIT_ON_IDLE === "1",
 });
 
-// Without this handler, an ECONNRESET on an idle pool client (e.g. from Neon
-// auto-suspend) becomes an uncaught exception and crashes the process.
-// The pool automatically removes the errored client and opens a fresh one.
-pool.on("error", (err) => {
-  console.error("Idle db client error (pool will reconnect):", err.message);
-});
+// Without these listeners, a connection the database drops (an ECONNRESET from
+// Neon auto-suspend, or a server-side termination) becomes an uncaught
+// exception and crashes the process. That covers idle clients AND checked-out
+// ones: pg-pool removes its own idle listener while a client is checked out,
+// which is how a held client crashed production on 2026-10-31 (#826). The pool
+// still discards a broken client and opens a fresh one.
+guardPool(pool, "main pool");
 
 export const db = drizzle(pool, { schema });
 
@@ -587,3 +589,4 @@ export async function ncmecAuditBoundaryStatus(
 }
 
 export * from "./schema";
+export { guardPool, guardClient } from "./connectionErrors";

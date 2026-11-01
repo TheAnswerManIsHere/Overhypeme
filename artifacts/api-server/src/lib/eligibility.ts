@@ -5,19 +5,23 @@
 
 /**
  * Why a signed-in account may not act yet, or `eligible`. Launch Phase 5
- * (plan S8, S19): verify, then onboard, then act. `suspended` and
- * `deletion_pending` are named here so the contract does not change when
- * increments 5 and 6 add the tables that decide them; nothing returns them yet.
+ * (plan S8, S19): verify, then onboard, then act. An account whose deletion
+ * is pending can only cancel it (Increment 5). `suspended` is named here so
+ * the contract does not change when Increment 6 adds the column that decides
+ * it; nothing returns it yet.
  */
 export type Eligibility = "eligible" | "suspended" | "deletion_pending" | "unverified" | "unonboarded";
 
 export interface EligibilityRow {
   emailVerifiedAt: Date | string | null;
   onboardingCompletedAt: Date | string | null;
+  /** True while the account has an active deletion request (`ownerLeaving`, lib/contentVisibility.ts). */
+  deletionPending?: boolean;
 }
 
-/** In precedence order: an unverified account is never asked to onboard first. */
+/** In precedence order: a pending deletion first, then an unverified account is never asked to onboard first. */
 export function eligibilityOf(row: EligibilityRow): Eligibility {
+  if (row.deletionPending) return "deletion_pending";
   if (row.emailVerifiedAt == null) return "unverified";
   if (row.onboardingCompletedAt == null) return "unonboarded";
   return "eligible";

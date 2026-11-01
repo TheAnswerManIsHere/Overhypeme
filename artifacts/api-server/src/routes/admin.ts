@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGenerationCostsTable, membershipEntitlementsTable, entitlementSourceDisputesTable, membershipHistoryTable, asyncJobsTable, stripeWebhookAuditTable, enrichmentOverrideHistoryTable, factTextEditHistoryTable, factEnrichmentVersionsTable, pendingReviewsTable, type InsertEnrichmentOverrideHistory } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -116,14 +116,13 @@ import {
   UnknownFeatureError,
   UnknownTierError,
 } from "../lib/featureAccess";
-import { ObjectStorageService } from "../lib/objectStorage";
-import { memeKey } from "../lib/storageKeys";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
 import { exportUserData, runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import { logger } from "../lib/logger";
 import { stripeDriver } from "../lib/stripeDriver.js";
+import { acceptAccountDeletion, advanceAccountDeletion, pendingDeletion } from "../lib/accountDeletion";
 
 /**
  * The human-readable label an admin action is attributed by.
@@ -530,9 +529,37 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
 
   const hard = req.query["hard"] === "true";
 
+  // ── Hard delete: the account deletion engine, purging now ───────────────
+  // One engine owns every account deletion (launch Phase 5, plan S14): the
+  // request is accepted under the admin population lock (never the last
+  // administrator), the person's subscriptions are cancelled, and the purge
+  // runs at once unless a billing dispute holds it. A failed stage is
+  // recorded and the hourly worker resumes it.
+  if (hard) {
+    try {
+      assertNotSelfDemotion(req.user?.id, id);
+      const accepted = await acceptAccountDeletion(id, { requestedBy: "admin", purgeAfter: new Date(), kick: false });
+      if (accepted.status === "not_found") { res.status(404).json({ error: "User not found" }); return; }
+      const stage = await advanceAccountDeletion(id);
+      res.json({
+        success: true,
+        deleted: stage === "done",
+        stage,
+        ...(stage === "held" ? { message: "Held: an open billing dispute on this account. The purge runs when it resolves." } : {}),
+      });
+    } catch (err) {
+      if (respondToGuardError(err, res)) return;
+      logger.error({ err, userId: id }, "[hard-delete] engine stage failed; the worker retries it");
+      const pending = await pendingDeletion(id).catch(() => null);
+      res.status(500).json({ error: err instanceof Error ? err.message : "Deletion failed", stage: pending?.stage ?? "unknown" });
+    }
+    return;
+  }
+
   // ── Reserve BEFORE any irreversible work ────────────────────────────────
-  // Both delete paths run object-storage deletion, Stripe cancellation, and
-  // session revocation before the DB mutation that removes admin access. A
+  // The soft path (the hard one returned above, through the engine) runs
+  // Stripe cancellation and session revocation before the DB mutation that
+  // removes admin access. A
   // guard on the final write would reject the last-admin case correctly but
   // only after the damage it exists to prevent — so the reservation
   // (is_active = false, under the population lock) runs first, and an
@@ -551,191 +578,81 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
   }
   const resuming = reservation.status === "resuming";
 
-  if (hard) {
-    // stage tracks which logical phase is running so the UI can show accurate progress on error
-    type HardDeleteStage = "reserve" | "collect" | "membership" | "nullify" | "delete";
-    let currentStage: HardDeleteStage = "collect";
+  // Soft delete: cancel subscription (non-fatal), revoke sessions, mark inactive
+  type SoftDeleteStage = "stripe" | "sessions" | "deactivate";
+  let currentStage: SoftDeleteStage = "stripe";
 
-    try {
-      const storage = new ObjectStorageService();
-
-      // Step 1: Collect storage paths before DB cleanup (must happen before we nullify createdById)
-      const [aiImages, userMemes] = await Promise.all([
-        db.select({ storagePath: userAiImagesTable.storagePath })
-          .from(userAiImagesTable)
-          .where(eq(userAiImagesTable.userId, id)),
-        db.select({ permalinkSlug: memesTable.permalinkSlug, imageSource: memesTable.imageSource })
-          .from(memesTable)
-          .where(eq(memesTable.createdById, id)),
-      ]);
-
-      // Step 2: Delete object storage files (non-fatal — log errors but continue)
-      // Storage errors never abort the deletion; they are counted and surfaced in the summary.
-      let aiImagesDeleted = 0;
-      let memeImagesDeleted = 0;
-      let storageErrors = 0;
-
-      for (const img of aiImages) {
-        try { await storage.deleteObject(img.storagePath); aiImagesDeleted++; }
-        catch (e) { logger.error({ err: e, storagePath: img.storagePath }, "[hard-delete] AI image cleanup failed"); storageErrors++; }
-      }
-      for (const meme of userMemes) {
-        const src = meme.imageSource as { type?: string; uploadKey?: string } | null;
-        if (src === null) {
-          // Pre-rendered meme image stored in object storage
-          try { await storage.deleteObject(`/objects/${memeKey(meme.permalinkSlug, "jpg")}`); memeImagesDeleted++; }
-          catch (e) { logger.error({ err: e, slug: meme.permalinkSlug }, "[hard-delete] Meme image cleanup failed"); storageErrors++; }
-        } else if (src?.type === "upload" && src.uploadKey) {
-          // User-uploaded background photo
-          try { await storage.deleteObject(src.uploadKey); memeImagesDeleted++; }
-          catch (e) { logger.error({ err: e }, "[hard-delete] Upload image cleanup failed"); storageErrors++; }
-        }
-      }
-
-      // Step 2.5: Cancel active Stripe subscription (non-fatal — user is being permanently deleted)
-      let subscriptionCanceled = false;
-      const activeSubs = await db
-        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
-        .from(membershipEntitlementsTable)
-        .where(and(
-          eq(membershipEntitlementsTable.userId, id),
-          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
-          or(
-            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
-            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
-          ),
-        ));
-      if (activeSubs.length > 0) {
-        try {
-          const { getUncachableStripeClient } = await import("../lib/stripeClient");
-          const stripe = await getUncachableStripeClient();
-          let canceledCount = 0;
-          for (const sub of activeSubs) {
-            const subscriptionId = sub.stripeSubscriptionId;
-            if (!subscriptionId) continue;
-            try {
-              // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(subscriptionId);
-              canceledCount++;
-            } catch (e) {
-              logger.error({ err: e, subscriptionId }, "[hard-delete] Failed to cancel subscription");
-            }
+  try {
+    // Step 1: Cancel active Stripe subscription (non-fatal)
+    let subscriptionCanceled = false;
+    const activeSubs = await db
+      .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
+      .from(membershipEntitlementsTable)
+      .where(and(
+        eq(membershipEntitlementsTable.userId, id),
+        eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
+        or(
+          eq(membershipEntitlementsTable.lifecycleStatus, "active"),
+          eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
+        ),
+      ));
+    if (activeSubs.length > 0) {
+      try {
+        const { getUncachableStripeClient } = await import("../lib/stripeClient");
+        const stripe = await getUncachableStripeClient();
+        let canceledCount = 0;
+        for (const sub of activeSubs) {
+          const subscriptionId = sub.stripeSubscriptionId;
+          if (!subscriptionId) continue;
+          try {
+            // Update cancel_at_period_end to false first to ensure cancel() is immediate
+            await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
+            await stripe.subscriptions.cancel(subscriptionId);
+            // Apply the cancellation LOCALLY rather than waiting for the
+            // webhook. Under a derived model, leaving the row `active` means a
+            // later reinstatement recomputes Legendary for a user whose
+            // subscription Stripe has already cancelled — and "the webhook
+            // usually closes the gap" is exactly what this model refuses.
+            // subscription_cancelled is recorded unconditionally by
+            // applySubscription itself on the status transition — passing it
+            // as a transitionEvent too would double-write it whenever this
+            // cancellation also happens to change the user's aggregate tier.
+            await refreshSubscriptionSource(stripe, subscriptionId);
+            canceledCount++;
+          } catch (e) {
+            logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
           }
-          subscriptionCanceled = canceledCount > 0;
-        } catch (e) {
-          logger.error({ err: e }, "[hard-delete] Stripe client initialization failed");
         }
+        subscriptionCanceled = canceledCount > 0;
+      } catch (e) {
+        logger.error({ err: e }, "[soft-delete] Stripe client initialization failed");
       }
-
-      // Step 3: Delete records with NOT NULL user_id FKs and no cascade
-      currentStage = "membership";
-      await db.delete(stripeCheckoutRequestLedgerTable).where(eq(stripeCheckoutRequestLedgerTable.userId, id));
-      // membership_entitlements is NOT deleted here: its user_id FK is
-      // ON DELETE CASCADE, so the rows go with the user in step 5. Deleting
-      // them explicitly would also destroy the disputes that cascade off them
-      // before the user row is gone, for no benefit.
-
-      await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
-      await db.delete(activityFeedTable).where(eq(activityFeedTable.userId, id));
-
-      // Step 4: Nullify nullable user FKs on shared content (content outlives the user)
-      currentStage = "nullify";
-      await db.update(memesTable).set({ createdById: null }).where(eq(memesTable.createdById, id));
-      await db.update(factsTable).set({ submittedById: null }).where(eq(factsTable.submittedById, id));
-      await db.update(commentsTable).set({ authorId: null }).where(eq(commentsTable.authorId, id));
-      await db.execute(sql`UPDATE external_links SET added_by_id = NULL WHERE added_by_id = ${id}`);
-      await db.execute(sql`UPDATE pending_reviews SET submitted_by_id = NULL WHERE submitted_by_id = ${id}`);
-      await db.execute(sql`UPDATE pending_reviews SET reviewed_by_id = NULL WHERE reviewed_by_id = ${id}`);
-
-      // Step 5: Delete the user row — DB cascades handle sessions (via sessions.user_id FK),
-      //         user_ai_images, user_fact_preferences, reactions, search_history, email/password tokens
-      currentStage = "delete";
-      const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
-      if (!deleted) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
-
-      res.json({ success: true, deleted: true, summary: { aiImagesDeleted, memeImagesDeleted, storageErrors, subscriptionCanceled } });
-    } catch (e) {
-      logger.error({ err: e, stage: currentStage }, "[hard-delete] Failed");
-      res.status(500).json({ error: e instanceof Error ? e.message : "Deletion failed", stage: currentStage });
     }
-  } else {
-    // Soft delete: cancel subscription (non-fatal), revoke sessions, mark inactive
-    type SoftDeleteStage = "stripe" | "sessions" | "deactivate";
-    let currentStage: SoftDeleteStage = "stripe";
 
-    try {
-      // Step 1: Cancel active Stripe subscription (non-fatal)
-      let subscriptionCanceled = false;
-      const activeSubs = await db
-        .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
-        .from(membershipEntitlementsTable)
-        .where(and(
-          eq(membershipEntitlementsTable.userId, id),
-          eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
-          or(
-            eq(membershipEntitlementsTable.lifecycleStatus, "active"),
-            eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
-          ),
-        ));
-      if (activeSubs.length > 0) {
-        try {
-          const { getUncachableStripeClient } = await import("../lib/stripeClient");
-          const stripe = await getUncachableStripeClient();
-          let canceledCount = 0;
-          for (const sub of activeSubs) {
-            const subscriptionId = sub.stripeSubscriptionId;
-            if (!subscriptionId) continue;
-            try {
-              // Update cancel_at_period_end to false first to ensure cancel() is immediate
-              await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
-              await stripe.subscriptions.cancel(subscriptionId);
-              // Apply the cancellation LOCALLY rather than waiting for the
-              // webhook. Under a derived model, leaving the row `active` means a
-              // later reinstatement recomputes Legendary for a user whose
-              // subscription Stripe has already cancelled — and "the webhook
-              // usually closes the gap" is exactly what this model refuses.
-              // subscription_cancelled is recorded unconditionally by
-              // applySubscription itself on the status transition — passing it
-              // as a transitionEvent too would double-write it whenever this
-              // cancellation also happens to change the user's aggregate tier.
-              await refreshSubscriptionSource(stripe, subscriptionId);
-              canceledCount++;
-            } catch (e) {
-              logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
-            }
-          }
-          subscriptionCanceled = canceledCount > 0;
-        } catch (e) {
-          logger.error({ err: e }, "[soft-delete] Stripe client initialization failed");
-        }
-      }
+    // Step 2: Invalidate all active sessions immediately
+    currentStage = "sessions";
+    const deletedSessions = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id)).returning({ sid: sessionsTable.sid });
+    const sessionsRevoked = deletedSessions.length;
 
-      // Step 2: Invalidate all active sessions immediately
-      currentStage = "sessions";
-      const deletedSessions = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id)).returning({ sid: sessionsTable.sid });
-      const sessionsRevoked = deletedSessions.length;
+    // Step 3: Confirm the deactivation the reservation already performed.
+    //
+    // The reservation above IS this write — it was moved ahead of the Stripe
+    // and session stages so the last-admin case is rejected before any
+    // irreversible work. What remains here is reading back the row, which
+    // deliberately no longer filters on `isActive = true`: that filter is
+    // what turned a resumed half-done deletion into a bogus 404.
+    currentStage = "deactivate";
+    const [updated] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    if (!updated) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
 
-      // Step 3: Confirm the deactivation the reservation already performed.
-      //
-      // The reservation above IS this write — it was moved ahead of the Stripe
-      // and session stages so the last-admin case is rejected before any
-      // irreversible work. What remains here is reading back the row, which
-      // deliberately no longer filters on `isActive = true`: that filter is
-      // what turned a resumed half-done deletion into a bogus 404.
-      currentStage = "deactivate";
-      const [updated] = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.id, id))
-        .limit(1);
-      if (!updated) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
-
-      res.json({ success: true, deleted: false, resumed: resuming, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
-    } catch (e) {
-      logger.error({ err: e, stage: currentStage }, "[soft-delete] Failed");
-      res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });
-    }
+    res.json({ success: true, deleted: false, resumed: resuming, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
+  } catch (e) {
+    logger.error({ err: e, stage: currentStage }, "[soft-delete] Failed");
+    res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });
   }
 });
 

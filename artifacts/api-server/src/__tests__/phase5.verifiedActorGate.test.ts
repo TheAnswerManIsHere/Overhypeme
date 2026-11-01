@@ -37,9 +37,9 @@ const RECOVERY = [
 ];
 const PLAN_EXCEPTIONS = {
   suspended: ["POST /auth/logout"],
-  deletion_pending: [...RECOVERY],
+  deletion_pending: [...RECOVERY, "POST /users/me/deletion/cancel"],
   unverified: [...RECOVERY],
-  unonboarded: [...RECOVERY, "PUT /users/me/onboarding/draft", "POST /users/me/onboarding"],
+  unonboarded: [...RECOVERY, "PUT /users/me/onboarding/draft", "POST /users/me/onboarding", "POST /users/me/deletion"],
 };
 
 type State = "unverified" | "unonboarded" | "eligible";
@@ -130,8 +130,9 @@ for (const state of ["unverified", "unonboarded"] as const) {
       const app = createApp();
       for (const key of GATE_EXCEPTIONS[state]) {
         const [method, path] = key.split(" ") as [string, string];
-        // A fresh session each time: logout, one of the exceptions, ends it.
-        const own = await bearer(userId);
+        // A fresh account each time: some exceptions act on it for real —
+        // logout ends the session, a deletion request schedules the account.
+        const own = await bearer(await userIn(state));
         const res = await request(app)[method.toLowerCase() as "post"](`/api${path}`)
           .set("authorization", `Bearer ${own}`)
           .send({});

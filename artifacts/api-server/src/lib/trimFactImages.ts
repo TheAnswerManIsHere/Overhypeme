@@ -31,9 +31,13 @@ export function trimAiMemeImages(
 ): AiMemeImages | null {
   if (!images) return null;
   const n = sanitizeCap(cap);
+  // A stored gallery can lack a gender key: the image-prompt worker creates it
+  // one gender at a time from `{}` (imagePromptJobs.ts). A missing or non-list
+  // entry is an empty list here, so a partial gallery cannot 500 a listing.
+  const list = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]).slice(0, n) : []);
   return {
-    male: images.male.slice(0, n),
-    female: images.female.slice(0, n),
-    neutral: images.neutral.slice(0, n),
+    male: list(images.male),
+    female: list(images.female),
+    neutral: list(images.neutral),
   };
 }

@@ -17,6 +17,12 @@ export interface SessionData {
   access_token: string;
   isAdmin?: boolean;
   adminModeDisabled?: boolean;
+  /**
+   * When the person signed in to create this session (ms since epoch), set by
+   * `createSession`. Deleting an account asks a provider-only member for a
+   * sign-in this recent (launch Phase 5, `routes/accountDeletion.ts`).
+   */
+  signedInAt?: number;
 }
 
 // The bootstrap admin email is always granted admin access regardless of the
@@ -142,7 +148,7 @@ export async function createSession(data: SessionData, userId?: string): Promise
   const sid = crypto.randomBytes(32).toString("hex");
   await db.insert(sessionsTable).values({
     sid,
-    sess: data as unknown as Record<string, unknown>,
+    sess: { ...data, signedInAt: data.signedInAt ?? Date.now() } as unknown as Record<string, unknown>,
     expire: new Date(Date.now() + SESSION_TTL),
     userId: userId ?? null,
   });

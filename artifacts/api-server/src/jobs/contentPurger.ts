@@ -7,7 +7,7 @@ import { memesTable, reactionsTable, uploadImageMetadataTable, userAiImagesTable
 import { and, asc, eq, getTableName, gt, inArray, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 
-import { aiImageIsOwnersOwn, purgeDue, type ContentTable } from "../lib/contentVisibility";
+import { aiImageIsOwnersOwn, lockOwnerContent, ownerStaying, purgeDue, type ContentTable } from "../lib/contentVisibility";
 import { logger } from "../lib/logger";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeObjectPaths } from "../lib/storageKeys";
@@ -42,15 +42,6 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const zero = (): PurgeCounts => ({ selected: 0, purged: 0, skipped: 0, failed: 0 });
 
-/**
- * Takes the owner's content lock for the rest of the transaction, so a purge
- * and anything else that changes the owner's content in bulk (Increment 5's
- * account deletion) never interleave. Per-owner locks are `hashtext` keys,
- * not registry numbers (`lib/advisoryLockKeys.ts`).
- */
-async function lockOwner(tx: Tx, ownerId: string | null): Promise<void> {
-  if (ownerId) await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`content-owner:${ownerId}`}))`);
-}
 
 /**
  * Runs one claim: in a transaction, under the owner's lock, re-reads the row
@@ -65,7 +56,7 @@ async function purgeOne(
 ): Promise<"purged" | "skipped" | "failed"> {
   try {
     return await db.transaction(async (tx) => {
-      await lockOwner(tx, ownerId);
+      await lockOwnerContent(tx, ownerId);
       if (!(await claim(tx))) return "skipped" as const;
       await destroy(tx);
       return "purged" as const;
@@ -110,8 +101,9 @@ async function purgeTable<K extends string | number>(
       counts.selected++;
       const outcome = await purgeOne(
         row.owner,
-        // Re-read under the lock: a restore since the selection wins.
-        async (tx) => (await tx.select({ key }).from(table).where(and(eq(key, row.key), purgeDue(table))).for("update")).length > 0,
+        // Re-read under the lock: a restore since the selection wins, and an
+        // owner whose account is being deleted leaves the row to that purge.
+        async (tx) => (await tx.select({ key }).from(table).where(and(eq(key, row.key), purgeDue(table), ownerStaying(table))).for("update")).length > 0,
         (tx) => spec.destroy(tx, row.key),
         { table: getTableName(table), key: row.key },
       );
