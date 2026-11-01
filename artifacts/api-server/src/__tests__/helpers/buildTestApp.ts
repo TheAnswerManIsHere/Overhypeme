@@ -28,7 +28,7 @@ import { eq } from "drizzle-orm";
 
 import { deriveUserRole } from "../../lib/userRole.js";
 import { effectiveTierExpr } from "../../lib/membershipState.js";
-import { ADULT_AGE, MINIMUM_AGE, ageInYears, eligibilityOf, type Eligibility } from "../../lib/eligibility.js";
+import { identityFieldsOf } from "../../lib/eligibility.js";
 
 export type FakeAuth =
   | { kind: "unauthenticated" }
@@ -72,12 +72,7 @@ export function buildTestApp(
           isRealAdmin: boolean;
           userRole: ReturnType<typeof deriveUserRole>;
           realUserRole: ReturnType<typeof deriveUserRole>;
-          eligibility: Eligibility;
-          emailVerified: boolean;
-          onboardingCompleted: boolean;
-          is13Plus: boolean;
-          is18Plus: boolean;
-        }
+        } & ReturnType<typeof identityFieldsOf>
       | null
       | undefined;
 
@@ -114,9 +109,6 @@ export function buildTestApp(
         //
         // Not previewing: these tests exercise the ordinary authenticated path.
         const isAdmin = !!dbUser?.isAdmin;
-        // Eligibility and age, derived from the row exactly as authMiddleware
-        // derives them (launch Phase 5).
-        const age = ageInYears(dbUser?.dateOfBirth ?? null);
         cachedUser = dbUser
           ? {
               id:              dbUser.id,
@@ -128,11 +120,8 @@ export function buildTestApp(
               isRealAdmin:     isAdmin,
               userRole:        deriveUserRole(dbUser.membershipTier, isAdmin),
               realUserRole:    deriveUserRole(dbUser.membershipTier, isAdmin),
-              eligibility:     eligibilityOf(dbUser),
-              emailVerified:   dbUser.emailVerifiedAt != null,
-              onboardingCompleted: dbUser.onboardingCompletedAt != null,
-              is13Plus:        age != null && age >= MINIMUM_AGE,
-              is18Plus:        age != null && age >= ADULT_AGE,
+              // Eligibility and age, by authMiddleware's own derivation.
+              ...identityFieldsOf(dbUser),
             }
           : null;
       }

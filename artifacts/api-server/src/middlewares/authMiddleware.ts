@@ -17,7 +17,7 @@ import {
 } from "../lib/auth";
 import { deriveUserRole } from "../lib/userRole";
 import { effectiveTierExpr } from "../lib/membershipState";
-import { ADULT_AGE, MINIMUM_AGE, ageInYears, eligibilityOf } from "../lib/eligibility";
+import { identityFieldsOf } from "../lib/eligibility";
 
 declare global {
   namespace Express {
@@ -137,9 +137,6 @@ export async function authMiddleware(
 
     const isRealAdmin = !!(dbUser.isAdmin || isAdminById(dbUser.id) || isAdminByEmail(dbUser.email));
     const isAdmin = isRealAdmin && !session.adminModeDisabled;
-    // Age is derived from the stored date on every request, never stored
-    // (launch Phase 5, plan S4); eligibility from the row the same way (S19).
-    const age = ageInYears(dbUser.dateOfBirth);
 
     req.user = {
       id: dbUser.id,
@@ -153,11 +150,9 @@ export async function authMiddleware(
       isAdmin,
       isRealAdmin,
       nsfwModeEnabled: !!dbUser.nsfwModeEnabled,
-      eligibility: eligibilityOf(dbUser),
-      emailVerified: dbUser.emailVerifiedAt != null,
-      onboardingCompleted: dbUser.onboardingCompletedAt != null,
-      is13Plus: age != null && age >= MINIMUM_AGE,
-      is18Plus: age != null && age >= ADULT_AGE,
+      // Eligibility and age, derived from the row on every request, never
+      // stored (launch Phase 5, plan S4, S19).
+      ...identityFieldsOf(dbUser),
       userRole: deriveUserRole(dbUser.membershipTier, isAdmin),
       realUserRole: deriveUserRole(dbUser.membershipTier, isRealAdmin),
     };

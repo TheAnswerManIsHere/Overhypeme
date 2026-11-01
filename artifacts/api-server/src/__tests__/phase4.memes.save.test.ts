@@ -9,6 +9,7 @@
  *   - PuLID tier gate
  */
 
+import { identityFieldsOf } from "../lib/eligibility.js";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -70,8 +71,7 @@ function makeAuthedApp(userId: string): Express {
         membershipTier: u.membershipTier,
         isAdmin: !!u.isAdmin,
         isRealAdmin: !!u.isAdmin,
-        eligibility: u.emailVerifiedAt == null ? "unverified" : u.onboardingCompletedAt == null ? "unonboarded" : "eligible",
-        onboardingCompleted: u.onboardingCompletedAt != null,
+        ...identityFieldsOf(u),
         nsfwModeEnabled: !!u.nsfwModeEnabled,
         // Derived exactly as authMiddleware derives it, rather than pinned to
         // "registered". A hardcoded role made the admin-vs-tier distinction

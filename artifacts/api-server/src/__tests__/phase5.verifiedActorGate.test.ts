@@ -139,6 +139,13 @@ for (const state of ["unverified", "unonboarded"] as const) {
       }
     });
 
+    it("is refused through a mixed-case path, which Express routes the same", async () => {
+      const own = await bearer(userId);
+      const res = await request(createApp()).patch("/API/Users/Me").set("authorization", `Bearer ${own}`).send({ pronouns: "she/her" });
+      assert.equal(res.status, 403);
+      assert.equal(res.body.code, REFUSAL_CODE[state]);
+    });
+
     it("is refused the inventoried mutating GET", async () => {
       const own = await bearer(userId);
       const res = await request(createApp()).get("/api/link/google").set("authorization", `Bearer ${own}`);

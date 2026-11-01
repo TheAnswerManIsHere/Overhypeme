@@ -11,14 +11,6 @@
  */
 export type Eligibility = "eligible" | "suspended" | "deletion_pending" | "unverified" | "unonboarded";
 
-export const ELIGIBILITY_STATES: readonly Eligibility[] = [
-  "eligible",
-  "suspended",
-  "deletion_pending",
-  "unverified",
-  "unonboarded",
-];
-
 export interface EligibilityRow {
   emailVerifiedAt: Date | string | null;
   onboardingCompletedAt: Date | string | null;
@@ -34,13 +26,11 @@ export function eligibilityOf(row: EligibilityRow): Eligibility {
 /**
  * Whole years between a `YYYY-MM-DD` birth date and `now`, by calendar date in
  * UTC: the birthday itself counts (13 on the day you turn 13). Null for a
- * missing or unparseable date.
+ * missing date or one `isPlausibleBirthDate` refuses.
  */
 export function ageInYears(dateOfBirth: string | null | undefined, now: Date = new Date()): number | null {
-  if (!dateOfBirth) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOfBirth);
-  if (!m) return null;
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (!dateOfBirth || !isPlausibleBirthDate(dateOfBirth, now)) return null;
+  const [y, mo, d] = dateOfBirth.split("-").map(Number) as [number, number, number];
   let age = now.getUTCFullYear() - y;
   const beforeBirthday = now.getUTCMonth() + 1 < mo || (now.getUTCMonth() + 1 === mo && now.getUTCDate() < d);
   if (beforeBirthday) age -= 1;
@@ -59,3 +49,23 @@ export function isPlausibleBirthDate(dateOfBirth: string, now: Date = new Date()
 
 export const MINIMUM_AGE = 13;
 export const ADULT_AGE = 18;
+
+export interface IdentityRow extends EligibilityRow {
+  dateOfBirth: string | null;
+}
+
+/**
+ * The identity fields `req.user` carries, derived from the row: the one
+ * derivation the auth middleware and the test app both spread, so a test
+ * double cannot drift from production.
+ */
+export function identityFieldsOf(row: IdentityRow, now: Date = new Date()) {
+  const age = ageInYears(row.dateOfBirth, now);
+  return {
+    eligibility: eligibilityOf(row),
+    emailVerified: row.emailVerifiedAt != null,
+    onboardingCompleted: row.onboardingCompletedAt != null,
+    is13Plus: age != null && age >= MINIMUM_AGE,
+    is18Plus: age != null && age >= ADULT_AGE,
+  };
+}

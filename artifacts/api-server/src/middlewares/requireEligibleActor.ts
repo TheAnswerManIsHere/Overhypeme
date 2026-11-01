@@ -90,7 +90,9 @@ function compile(keys: readonly RouteKey[]): Array<{ method: string; re: RegExp 
       .split("/")
       .map((seg) => (seg.startsWith(":") ? "[^/]+" : seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
       .join("/");
-    return { method, re: new RegExp(`^${pattern}/?$`) };
+    // Case-insensitive, as Express routing is: `/API/Users/...` reaches the
+    // same handler, so it must meet the same gate.
+    return { method, re: new RegExp(`^${pattern}/?$`, "i") };
   });
 }
 
@@ -105,10 +107,16 @@ const exceptionFor = Object.fromEntries(
   Object.entries(GATE_EXCEPTIONS).map(([state, keys]) => [state, matcher(keys)]),
 ) as Record<Exclude<Eligibility, "eligible">, (method: string, path: string) => boolean>;
 
-/** The request's path relative to the `/api` mount, without a query string. */
+/**
+ * The request's path relative to the `/api` mount, without a query string.
+ * The mount is matched case-insensitively, as Express matches it.
+ */
 function apiPath(req: Request): string | null {
-  const path = (req.originalUrl ?? req.url).split("?")[0] ?? "";
-  if (path === "/api" || path.startsWith("/api/")) return path.slice(4) || "/";
+  const url = req.originalUrl ?? req.url;
+  const q = url.indexOf("?");
+  const path = q === -1 ? url : url.slice(0, q);
+  const prefix = path.slice(0, 5).toLowerCase();
+  if (prefix === "/api" || prefix === "/api/") return path.slice(4) || "/";
   return null;
 }
 
@@ -120,12 +128,14 @@ export function isStateChanging(method: string, path: string): boolean {
 export function requireEligibleActor(req: Request, res: Response, next: NextFunction): void {
   const user = req.user;
   if (!user) return next();
+  const state = (user.eligibility ?? "eligible") as Eligibility;
+  // An eligible account can only be refused an adult-only upload, all POSTs.
+  if (state === "eligible" && req.method !== "POST") return next();
   const path = apiPath(req);
   if (path === null) return next();
   const method = req.method.toUpperCase();
   if (!isStateChanging(method, path)) return next();
 
-  const state = (user.eligibility ?? "eligible") as Eligibility;
   if (state !== "eligible") {
     if (exceptionFor[state](method, path)) return next();
     res.status(403).json({ error: REFUSAL_MESSAGE[state], code: REFUSAL_CODE[state] });

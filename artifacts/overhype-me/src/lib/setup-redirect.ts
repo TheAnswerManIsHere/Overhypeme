@@ -7,6 +7,7 @@
 const SETUP_EXEMPT_ROOTS = ["/onboard", "/check-email", "/verify-email", "/login", "/forgot-password", "/reset-password"];
 
 export function setupRedirectFor(eligibility: string | null | undefined, location: string): string | null {
+  if (eligibility !== "unverified" && eligibility !== "unonboarded") return null;
   const path = location.split("?")[0] ?? location;
   if (SETUP_EXEMPT_ROOTS.some((root) => path === root || path.startsWith(`${root}/`))) return null;
   const returnTo = encodeURIComponent(location);

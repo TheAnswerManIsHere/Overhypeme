@@ -44,3 +44,8 @@ export function getSafeReturnTo(value: unknown): string | null {
     return null;
   }
 }
+
+/** The safe `returnTo` from a query string, or `/`. */
+export function returnToFromSearch(search: string): string {
+  return getSafeReturnTo(new URLSearchParams(search).get("returnTo")) ?? "/";
+}

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { cropToSquareJpeg, uploadUserImage } from "@/lib/image-upload";
-import { getSafeReturnTo } from "@/lib/safe-return-to";
+import { returnToFromSearch } from "@/lib/safe-return-to";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { usePersonName } from "@/hooks/use-person-name";
 
@@ -88,6 +88,7 @@ export default function Onboard() {
   const [photoError, setPhotoError] = useState("");
   const [photoUploading, setPhotoUploading] = useState(false);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedDraft = useRef("");
   const loaded = useRef(false);
 
   // Revoke any outstanding object URL on unmount to avoid memory leaks if the
@@ -98,11 +99,7 @@ export default function Onboard() {
     };
   }, [photoPreview]);
 
-  const returnTo = (() => {
-    if (typeof window === "undefined") return "/";
-    const params = new URLSearchParams(window.location.search);
-    return getSafeReturnTo(params.get("returnTo")) ?? "/";
-  })();
+  const returnTo = typeof window === "undefined" ? "/" : returnToFromSearch(window.location.search);
 
   function finish() {
     setLocation(returnTo);
@@ -130,7 +127,17 @@ export default function Onboard() {
         setDobYear(state.draft?.dobYear ?? "");
         setDobMonth(state.draft?.dobMonth ?? "");
         setDobDay(state.draft?.dobDay ?? "");
-        setMarketingOptIn(state.draft?.marketingOptIn ?? state.marketingDefault);
+        const marketing = state.draft?.marketingOptIn ?? state.marketingDefault;
+        setMarketingOptIn(marketing);
+        // What the form opens with is already saved, or is the default: no
+        // save until the visitor changes something.
+        lastSavedDraft.current = JSON.stringify({
+          pronouns: initialPronouns(state, { pronouns: device.pronouns, supplied: device.pronounsSupplied }),
+          dobYear: state.draft?.dobYear ?? "",
+          dobMonth: state.draft?.dobMonth ?? "",
+          dobDay: state.draft?.dobDay ?? "",
+          marketingOptIn: marketing,
+        });
         setStep("details");
       } catch {
         setLoadError("We couldn't load your set-up. Refresh to try again.");
@@ -142,6 +149,8 @@ export default function Onboard() {
   // Save progress a moment after each change, so a reload resumes the form.
   useEffect(() => {
     if (step !== "details") return;
+    const body = JSON.stringify({ pronouns, dobYear, dobMonth, dobDay, marketingOptIn });
+    if (body === lastSavedDraft.current) return;
     if (draftTimer.current) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(async () => {
       try {
@@ -149,8 +158,9 @@ export default function Onboard() {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ pronouns, dobYear, dobMonth, dobDay, marketingOptIn }),
+          body,
         });
+        if (res.ok) lastSavedDraft.current = body;
         if (res.status === 422) setUnderAge(true);
       } catch {
         // A missed draft save loses nothing the form still holds.
@@ -167,6 +177,8 @@ export default function Onboard() {
 
   async function handleSubmit() {
     if (!canSubmit) return;
+    // A pending draft save must not race the completion.
+    if (draftTimer.current) clearTimeout(draftTimer.current);
     setSubmitting(true);
     setError("");
     try {

@@ -7,7 +7,9 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { verifyCaptcha } from "../lib/captcha";
-import { MINIMUM_AGE, ageInYears, isPlausibleBirthDate } from "../lib/eligibility";
+import { MINIMUM_AGE, ageInYears } from "../lib/eligibility";
+import { ipFromRequest } from "../lib/transientRenderLog";
+import { REFUSAL_CODE } from "../middlewares/requireEligibleActor";
 import { sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 
 const router: IRouter = Router();
@@ -101,7 +103,7 @@ function requireVerified(req: Request, res: Response): req is Request & { user: 
     return false;
   }
   if (req.user.eligibility === "suspended" || req.user.eligibility === "deletion_pending") {
-    res.status(403).json({ error: "This account cannot be set up now." });
+    res.status(403).json({ error: "This account cannot be set up now.", code: REFUSAL_CODE[req.user.eligibility] });
     return false;
   }
   return true;
@@ -115,30 +117,20 @@ router.get("/auth/onboarding", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
+  // The rest is on req.user already; only the draft is not.
   const [row] = await db
-    .select({
-      firstName: usersTable.firstName,
-      displayName: usersTable.displayName,
-      pronouns: usersTable.pronouns,
-      emailVerifiedAt: usersTable.emailVerifiedAt,
-      onboardingCompletedAt: usersTable.onboardingCompletedAt,
-      onboardingDraft: usersTable.onboardingDraft,
-    })
+    .select({ onboardingDraft: usersTable.onboardingDraft })
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
-  if (!row) {
-    res.status(404).json({ error: "User not found" });
-    return;
-  }
   res.json({
-    completed: row.onboardingCompletedAt != null,
-    emailVerified: row.emailVerifiedAt != null,
+    completed: !!req.user.onboardingCompleted,
+    emailVerified: !!req.user.emailVerified,
     marketingDefault: marketingDefaultFor(req),
     marketingWordingVersion: MARKETING_WORDING_VERSION,
-    accountPronouns: row.pronouns ?? null,
-    name: row.displayName ?? row.firstName ?? null,
-    draft: (row.onboardingDraft as OnboardingDraft | null) ?? null,
+    accountPronouns: req.user.pronouns ?? null,
+    name: req.user.displayName ?? req.user.firstName ?? null,
+    draft: (row?.onboardingDraft as OnboardingDraft | null) ?? null,
   });
 });
 
@@ -151,13 +143,10 @@ router.put("/users/me/onboarding/draft", async (req: Request, res: Response) => 
     return;
   }
   const draft = toDraft((req.body ?? {}) as DraftBody);
-  const dob = birthDateOf(draft);
-  if (dob && isPlausibleBirthDate(dob)) {
-    const age = ageInYears(dob);
-    if (age != null && age < MINIMUM_AGE) {
-      refuseUnderAge(res);
-      return;
-    }
+  const age = ageInYears(birthDateOf(draft));
+  if (age != null && age < MINIMUM_AGE) {
+    refuseUnderAge(res);
+    return;
   }
   await db
     .update(usersTable)
@@ -178,12 +167,12 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
   const draft = toDraft(body);
 
   const dob = birthDateOf(draft);
-  if (!dob || !isPlausibleBirthDate(dob)) {
+  const age = ageInYears(dob);
+  if (!dob || age == null) {
     res.status(400).json({ error: "Enter your date of birth.", field: "dateOfBirth" });
     return;
   }
-  const age = ageInYears(dob);
-  if (age == null || age < MINIMUM_AGE) {
+  if (age < MINIMUM_AGE) {
     refuseUnderAge(res);
     return;
   }
@@ -201,7 +190,8 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
     return;
   }
   const token = typeof body.captchaToken === "string" ? body.captchaToken : "";
-  if (!token || !(await verifyCaptcha(token, req.ip))) {
+  const ip = ipFromRequest(req);
+  if (!token || !(await verifyCaptcha(token, ip === "unknown" ? undefined : ip))) {
     res.status(400).json({ error: "The challenge didn't pass. Try it again.", code: "CAPTCHA_FAILED" });
     return;
   }

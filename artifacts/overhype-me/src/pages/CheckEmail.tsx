@@ -7,7 +7,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { getSafeReturnTo } from "@/lib/safe-return-to";
+import { returnToFromSearch } from "@/lib/safe-return-to";
 import { useSignOut } from "@/hooks/use-sign-out";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -20,11 +20,7 @@ export default function CheckEmail() {
   const [resendError, setResendError] = useState("");
   const [checking, setChecking] = useState(false);
 
-  const returnTo = (() => {
-    if (typeof window === "undefined") return "/";
-    const params = new URLSearchParams(window.location.search);
-    return getSafeReturnTo(params.get("returnTo")) ?? "/";
-  })();
+  const returnTo = typeof window === "undefined" ? "/" : returnToFromSearch(window.location.search);
 
   useEffect(() => {
     if (isLoading) return;
