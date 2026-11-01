@@ -207,7 +207,7 @@ async function cancelSubscriptions(userId: string): Promise<void> {
   if (subs.length === 0) return;
   // From the first cancel until every source has caught up, the engine owes a
   // refresh even if the person keeps their account (`settleBilling`).
-  await db.update(adr).set({ billingUnsettled: true }).where(eq(adr.userId, userId));
+  await markBillingUnsettled(userId);
   for (const { subscriptionId } of subs) {
     if (!subscriptionId) continue;
     try {
@@ -217,8 +217,21 @@ async function cancelSubscriptions(userId: string): Promise<void> {
       const alreadyGone = code === "resource_missing" || /canceled|cancelled/i.test(err instanceof Error ? err.message : "");
       if (!alreadyGone) throw err;
     }
+    // A cancel has returned: any settlement whose observations began before
+    // now may have seen the subscription still active, so its clear must not
+    // land. Committed before this cancel's own refresh, whose failure is what
+    // would otherwise be lost.
+    await markBillingUnsettled(userId);
     await refreshOrThrow(subscriptionId, userId);
   }
+}
+
+/** Raises the billing marker and bumps its version, so a settlement begun before this moment cannot clear it. */
+async function markBillingUnsettled(userId: string): Promise<void> {
+  await db
+    .update(adr)
+    .set({ billingUnsettled: true, billingVersion: sql`${adr.billingVersion} + 1` })
+    .where(eq(adr.userId, userId));
 }
 
 /**
@@ -240,6 +253,8 @@ async function refreshOrThrow(subscriptionId: string, userId: string): Promise<v
  * never reached stays as Stripe says. Clears the flag once all applied.
  */
 async function settleBilling(userId: string): Promise<void> {
+  const [marker] = await db.select({ version: adr.billingVersion }).from(adr).where(eq(adr.userId, userId));
+  if (!marker) return;
   const subs = await db
     .select({ subscriptionId: membershipEntitlementsTable.providerRef })
     .from(membershipEntitlementsTable)
@@ -248,8 +263,13 @@ async function settleBilling(userId: string): Promise<void> {
       eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
       inArray(membershipEntitlementsTable.lifecycleStatus, CANCELLABLE_SUBSCRIPTION_STATUSES),
     ));
+  // `marker.version` was read before any observation: a cancel returning
+  // meanwhile bumps it, and the clear below then does not land.
   for (const { subscriptionId } of subs) if (subscriptionId) await refreshOrThrow(subscriptionId, userId);
-  await db.update(adr).set({ billingUnsettled: false }).where(and(eq(adr.userId, userId), isNotNull(adr.cancelledAt)));
+  await db
+    .update(adr)
+    .set({ billingUnsettled: false })
+    .where(and(eq(adr.userId, userId), isNotNull(adr.cancelledAt), eq(adr.billingVersion, marker.version)));
 }
 
 /**

@@ -286,6 +286,58 @@ describe("the account deletion state machine (T3)", () => {
     assert.equal(source!.status, "canceled", "the cancelled subscription no longer grants access");
   });
 
+  it("keeping the account during an in-flight Stripe cancel cannot settle billing on a pre-cancel look", async () => {
+    const userId = await createUser();
+    const [source] = await db.insert(membershipEntitlementsTable).values([subscription(userId)] as never).returning({ ref: membershipEntitlementsTable.providerRef });
+    const ref = source!.ref!;
+    const stripe = new Map<string, string>([[ref, "active"]]);
+    let failEngineRefresh = true;
+    let settleObserved!: () => void;
+    const observed = new Promise<void>((r) => { settleObserved = r; });
+    let engineRefreshStarted!: () => void;
+    const engineStarted = new Promise<void>((r) => { engineRefreshStarted = r; });
+    let settles: Promise<unknown> = Promise.resolve();
+    // A fake that models Stripe: the subscription is active until cancel returns.
+    restoreBilling = __setAccountDeletionBillingForTests({
+      async cancel(id) {
+        // While the cancel is in flight the person keeps the account; the
+        // worker's settlement observes Stripe still active...
+        assert.equal(await cancelAccountDeletion(userId, { notify: false }), "cancelled");
+        settles = runAccountDeletionWorker({ userIds: [userId] });
+        await observed;
+        stripe.set(id, "canceled");
+      },
+      async refresh(id) {
+        const state = stripe.get(id)!;
+        if (state === "active") {
+          // ...and its clear lands only after the engine has marked the
+          // returned cancel and started its own refresh.
+          await db.update(membershipEntitlementsTable).set({ lifecycleStatus: state }).where(eq(membershipEntitlementsTable.providerRef, id));
+          settleObserved();
+          await engineStarted;
+          return { applied: true };
+        }
+        if (failEngineRefresh) { failEngineRefresh = false; engineRefreshStarted(); return { applied: false, reason: "retrieval_failed" }; }
+        await db.update(membershipEntitlementsTable).set({ lifecycleStatus: state }).where(eq(membershipEntitlementsTable.providerRef, id));
+        return { applied: true };
+      },
+    });
+    await acceptAccountDeletion(userId, { requestedBy: "self", kick: false });
+    await advanceAccountDeletion(userId).catch(() => undefined);
+    await settles;
+    await new Promise((r) => setTimeout(r, 50)); // the cancel's own kicked settlement
+
+    const [mid] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
+    assert.ok(mid!.cancelledAt, "the account was kept");
+    assert.equal(mid!.billingUnsettled, true, "a settlement that looked before the cancel returned does not clear the marker");
+
+    await runAccountDeletionWorker({ userIds: [userId] });
+    const [after] = await db.select().from(accountDeletionRequestsTable).where(eq(accountDeletionRequestsTable.userId, userId));
+    const [afterSource] = await db.select({ status: membershipEntitlementsTable.lifecycleStatus }).from(membershipEntitlementsTable).where(eq(membershipEntitlementsTable.providerRef, ref));
+    assert.equal(afterSource!.status, "canceled", "the cancelled subscription stops granting access");
+    assert.equal(after!.billingUnsettled, false);
+  });
+
   it("acceptance waits for a content purge already holding the owner's lock", async () => {
     const userId = await createUser();
     let released = 0;

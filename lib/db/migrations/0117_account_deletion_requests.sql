@@ -18,7 +18,9 @@
 -- it, so it is always written by the engine (never left to its default).
 -- billing_unsettled is true from the first Stripe cancel until every source
 -- has been refreshed, and survives a cancel, so keeping the account cannot
--- leave a cancelled subscription granting access.
+-- leave a cancelled subscription granting access. billing_version is bumped
+-- with it before the cancels and after each one returns; a settlement clears
+-- the flag only if the version it read before refreshing is unchanged.
 --
 -- Row states: no existing row is touched. A request is "active" while
 -- cancelled_at is null and stage is not 'done'.
@@ -37,7 +39,8 @@ CREATE TABLE IF NOT EXISTS "account_deletion_requests" (
   "hold_reason" text,
   "last_error" text,
   "attempts" integer DEFAULT 0 NOT NULL,
-  "billing_unsettled" boolean DEFAULT false NOT NULL
+  "billing_unsettled" boolean DEFAULT false NOT NULL,
+  "billing_version" integer DEFAULT 0 NOT NULL
 );
 
 DO $$
