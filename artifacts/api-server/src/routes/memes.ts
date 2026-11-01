@@ -7,7 +7,7 @@ import { customAlphabet } from "nanoid";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, lookStylesTable } from "@workspace/db/schema";
 import { toggleHeart, getViewerReactionTargetIds } from "../lib/reactions";
-import { eq, ne, desc, and, inArray, isNull, gt, count, sql } from "drizzle-orm";
+import { eq, ne, desc, and, inArray, gt, count, sql, getTableColumns } from "drizzle-orm";
 import {
   SaveMemeBody,
 } from "../lib/validators/memeBuilder";
@@ -17,7 +17,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
 import { renderPersonalized } from "../lib/renderCanonical";
-import { memeKey } from "../lib/storageKeys";
+import { memeObjectPaths } from "../lib/storageKeys";
 import { renderStoredMeme } from "../lib/memeBake";
 import { BudgetExceededError, BudgetGateError } from "../lib/budgetGate";
 import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
@@ -30,6 +30,7 @@ import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 import { canViewMeme } from "../lib/memeVisibility";
+import { RESTORED, byteAccess, deletionStamp, liveContent, restorable } from "../lib/contentVisibility";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -212,16 +213,16 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
   if (!slug) { res.status(400).json({ error: "Slug required" }); return; }
 
   const [meme] = await db
-    .select()
+    .select({ ...getTableColumns(memesTable), isLive: liveContent(memesTable) })
     .from(memesTable)
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
   // Owner-only enforcement for private memes — 404 (not 403), and BEFORE the
-  // deletedAt 410 below, so a non-owner cannot distinguish a private meme
+  // not-live 410 below, so a non-owner cannot distinguish a private meme
   // (live or deleted) from one that never existed. See lib/memeVisibility.ts.
   if (!canViewMeme(meme, req)) { res.status(404).json({ error: "Meme not found" }); return; }
-  if (meme.deletedAt) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
+  if (!meme.isLive) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
   // A private meme visible to its owner must never be cached publicly.
   if (!meme.isPublic) setNoStore(res);
 
@@ -334,16 +335,16 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
       ? and(
           factFilter,
           eq(memesTable.isPublic, true),
-          isNull(memesTable.deletedAt),
+          liveContent(memesTable),
           userId ? ne(memesTable.createdById, userId) : undefined,
         )
     : visibility === "my-public"
-      ? and(factFilter, eq(memesTable.createdById, userId!), eq(memesTable.isPublic, true), isNull(memesTable.deletedAt))
+      ? and(factFilter, eq(memesTable.createdById, userId!), eq(memesTable.isPublic, true), liveContent(memesTable))
     : visibility === "my-private"
-      ? and(factFilter, eq(memesTable.createdById, userId!), eq(memesTable.isPublic, false), isNull(memesTable.deletedAt))
+      ? and(factFilter, eq(memesTable.createdById, userId!), eq(memesTable.isPublic, false), liveContent(memesTable))
     : visibility === "mine"
-      ? and(factFilter, eq(memesTable.createdById, userId!), isNull(memesTable.deletedAt))
-      : and(factFilter, eq(memesTable.isPublic, true), isNull(memesTable.deletedAt));
+      ? and(factFilter, eq(memesTable.createdById, userId!), liveContent(memesTable))
+      : and(factFilter, eq(memesTable.isPublic, true), liveContent(memesTable));
 
   const maxMemes = await getConfigInt("max_memes_per_fact", 40);
   const orderBy = sort === "new"
@@ -388,7 +389,7 @@ router.post("/memes/:id/heart", async (req: AuthenticatedRequest, res: Response)
 
   const [exists] = await db.select({ id: memesTable.id })
     .from(memesTable)
-    .where(and(eq(memesTable.id, memeId), isNull(memesTable.deletedAt)))
+    .where(and(eq(memesTable.id, memeId), liveContent(memesTable)))
     .limit(1);
   if (!exists) { res.status(404).json({ error: "Meme not found" }); return; }
 
@@ -454,17 +455,18 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   if (!slug) { res.status(400).end(); return; }
 
   const [meme] = await db
-    .select()
+    .select({ ...getTableColumns(memesTable), isLive: liveContent(memesTable) })
     .from(memesTable)
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
-  if (!meme) { res.status(404).end(); return; }
-  // Owner-only enforcement, BEFORE the deletedAt 410, so a non-owner can't
-  // distinguish a private meme (live or deleted) from a nonexistent one.
-  if (!canViewMeme(meme, req)) { res.status(404).end(); return; }
-  if (meme.deletedAt) { res.status(410).end(); return; }
-  // Private meme images must be no-store (never publicly/edge cacheable).
-  const memeIsPrivate = !meme.isPublic;
+  if (!meme || !canViewMeme(meme, req)) { res.status(404).end(); return; }
+  // A meme that is not live is refused at the byte path like one that never
+  // existed, to everyone but its creator, who sees it in Recently deleted
+  // (plan S17, lib/contentVisibility.ts byteAccess).
+  const access = byteAccess({ isLive: meme.isLive, ownerId: meme.createdById }, req.user?.id);
+  if (access === "refuse") { res.status(404).end(); return; }
+  // Private and deleted meme images must be no-store (never publicly/edge cacheable).
+  const memeIsPrivate = !meme.isPublic || access === "serve-uncached";
 
   // ── The meme's file (plan S16) ───────────────────────────────────
   // A meme is baked to a file at save; a legacy meme was stored as one before
@@ -475,9 +477,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     const etag = `"meme-${slug}"`;
     if (checkConditional(req, res, etag)) return;
     // A baked meme has one key; a legacy one may sit under any of the older forms.
-    const candidates = meme.bakedAt
-      ? [`/objects/${memeKey(slug, "jpg")}`]
-      : [`/objects/${memeKey(slug, "jpg")}`, `/objects/${memeKey(slug, "png")}`, `/objects/memes/${slug}.jpg`, `/objects/memes/${slug}.png`];
+    const candidates = meme.bakedAt ? memeObjectPaths(slug).slice(0, 1) : memeObjectPaths(slug);
     for (const objectPath of candidates) {
       const objectFile = await objectStorageService.getObjectEntityFile(objectPath).catch(() => null);
       if (!objectFile) continue;
@@ -527,7 +527,10 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /memes/:slug — soft-delete a meme (creator only)
+// DELETE /memes/:slug — delete a meme (creator only). It stays restorable
+// from Recently deleted for the restore window; the content purger removes
+// its row and its file after that (plan S2, jobs/contentPurger.ts). Its photo
+// is untouched (S14).
 router.delete("/memes/:slug", async (req: Request, res: Response) => {
   if (!req.user) { res.status(401).json({ error: "Authentication required" }); return; }
   const slug = req.params["slug"] as string;
@@ -543,11 +546,26 @@ router.delete("/memes/:slug", async (req: Request, res: Response) => {
   if (meme.createdById !== req.user.id) { res.status(403).json({ error: "You can only delete your own memes" }); return; }
   if (meme.deletedAt) { res.status(410).json({ error: "Meme already deleted" }); return; }
 
+  const stamp = await deletionStamp();
   await db
     .update(memesTable)
-    .set({ deletedAt: new Date() })
-    .where(eq(memesTable.id, meme.id));
+    .set(stamp)
+    .where(and(eq(memesTable.id, meme.id), liveContent(memesTable)));
 
+  res.json({ success: true, purgeAfter: stamp.purgeAfter.toISOString() });
+});
+
+// POST /memes/:slug/restore — undo the creator's delete inside the restore window.
+router.post("/memes/:slug/restore", async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: "Authentication required" }); return; }
+  const slug = req.params["slug"] as string;
+
+  const [restored] = await db
+    .update(memesTable)
+    .set(RESTORED)
+    .where(and(eq(memesTable.permalinkSlug, slug), eq(memesTable.createdById, req.user.id), restorable(memesTable)))
+    .returning({ id: memesTable.id });
+  if (!restored) { res.status(404).json({ error: "Nothing to restore" }); return; }
   res.json({ success: true });
 });
 

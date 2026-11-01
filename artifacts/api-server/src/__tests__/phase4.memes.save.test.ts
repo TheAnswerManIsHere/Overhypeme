@@ -227,6 +227,29 @@ describe("POST /api/memes (photos in the local storage double)", () => {
 
       assert.notEqual(a.body.id, b.body.id);
     });
+
+    // The caption is baked with the save's identity (plan S16), so it is part of
+    // what a save is: a different name or profile identity is a different meme.
+    it("creates a distinct meme when only the requested name differs", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact("distinct name", { submittedById: userId });
+      const body = { factId, imageSource: photoFor(userId) };
+      const a = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, name: "Ada" }).expect(201);
+      const b = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, name: "Grace" }).expect(201);
+      assert.notEqual(a.body.id, b.body.id);
+      const rows = await db.select({ text: memesTable.renderedFactText }).from(memesTable).where(eq(memesTable.createdById, userId));
+      assert.equal(rows.length, 2, "two memes, each baked with its own name");
+    });
+
+    it("creates a distinct meme when the account's own name changed between saves", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact("distinct profile", { submittedById: userId });
+      const body = { factId, imageSource: photoFor(userId) };
+      const a = await request(makeAuthedApp(userId)).post("/memes").send(body).expect(201);
+      await db.update(usersTable).set({ displayName: "Renamed Tester" }).where(eq(usersTable.id, userId));
+      const b = await request(makeAuthedApp(userId)).post("/memes").send(body).expect(201);
+      assert.notEqual(a.body.id, b.body.id);
+    });
   });
 
   describe("POST /api/memes — daily save cap", () => {

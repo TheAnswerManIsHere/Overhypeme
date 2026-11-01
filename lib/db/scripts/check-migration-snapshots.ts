@@ -481,6 +481,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // upload_image_metadata, six partial indexes. DEFERRED like 0114's; source
   // of truth: lib/db/src/schema/memes.ts and userAiImages.ts.
   "0115_content_lifecycle_and_meme_bake",
+
+  // Hand-written (Launch Phase 5, increment 4b): seeds the restore window's
+  // admin_config row and adds one index on user_ai_images.storage_path.
+  // DEFERRED like 0115's; source of truth: lib/db/src/schema/userAiImages.ts.
+  "0116_content_restore_window",
 ]);
 
 interface JournalEntry {

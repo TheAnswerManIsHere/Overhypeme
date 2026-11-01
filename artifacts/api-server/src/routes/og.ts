@@ -17,10 +17,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableColumns } from "drizzle-orm";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { canViewMeme } from "../lib/memeVisibility";
+import { liveContent } from "../lib/contentVisibility";
 
 const router: IRouter = Router();
 
@@ -153,7 +154,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
   }
 
   const [meme] = await db
-    .select()
+    .select({ ...getTableColumns(memesTable), isLive: liveContent(memesTable) })
     .from(memesTable)
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
@@ -175,7 +176,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
 
   // Private (owner-only) memes must never render a rich public preview. OG
   // requests come from unauthenticated crawlers, so a private meme is not
-  // viewable here. This runs BEFORE the deletedAt branch so a non-viewer gets
+  // viewable here. This runs BEFORE the not-live branch so a non-viewer gets
   // the SAME generic not-found card whether the private meme is live or
   // deleted (no existence disclosure). no-store so a later visibility change
   // isn't masked by a stale edge cache and the worker can't publicly cache it.
@@ -195,7 +196,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
     return;
   }
 
-  if (meme.deletedAt) {
+  if (!meme.isLive) {
     // Don't leak any of the deleted meme's content (text, image URL, creator
     // name) — generic card only.
     res.status(410).send(renderOgShell({

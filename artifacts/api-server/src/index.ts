@@ -203,6 +203,28 @@ function scheduleRateLimitCounterPurger() {
   schedule(BACKLOG_FOLLOW_UP_MS);
 }
 
+// Hourly: remove from Overhype.me the photos, generated images and memes their
+// owners deleted more than the restore window ago (launch Phase 5;
+// jobs/contentPurger.ts). Safe on several instances at once: each row is
+// claimed under its owner's lock and re-read, and an object already gone
+// counts as deleted. A row it cannot finish stays for the next run.
+function scheduleContentPurger() {
+  const HOURLY_MS = 60 * 60 * 1000;
+  const schedule = (delayMs: number) => {
+    setTimeout(async () => {
+      try {
+        const { runContentPurger } = await import("./jobs/contentPurger");
+        await runContentPurger();
+      } catch (err) {
+        logger.error({ err }, "[content-purger] run failed");
+      }
+      schedule(HOURLY_MS);
+    }, delayMs).unref();
+  };
+  // Not at boot: nothing about it is urgent to the minute.
+  schedule(5 * 60 * 1000);
+}
+
 // Once per boot, a couple of minutes in: bake every recipe meme saved before
 // memes were baked at save (launch Phase 5, plan S16; lib/memeBake.ts). A
 // no-op once every meme is a file, and safe on several instances at once: a
@@ -444,6 +466,7 @@ backfillEmbeddings()
 scheduleDailyFactJob();
 scheduleTransientRenderPurger();
 scheduleRateLimitCounterPurger();
+scheduleContentPurger();
 scheduleMediaBackup();
 scheduleMemeBakeBackfill();
 // Engines: reconcile the typed code catalogue into the DB before pricing

@@ -21,7 +21,7 @@ import {
   factsTable,
   usersTable,
 } from "@workspace/db/schema";
-import { and, eq, gt, count, isNull } from "drizzle-orm";
+import { and, eq, gt, count } from "drizzle-orm";
 import { type ImageSource, type AllowedPronouns } from "./validators/memeBuilder";
 import { renderPersonalized } from "./renderCanonical";
 import { getConfigInt } from "./adminConfig";
@@ -30,6 +30,7 @@ import { can, type Principal } from "./featureAccess";
 import { getUploadImageMetadata } from "./userImageUpload";
 import { renderMemeRecipe, storeMemeFile } from "./memeBake";
 import { logger } from "./logger";
+import { liveContent } from "./contentVisibility";
 import { effectiveTierExpr } from "./membershipState";
 
 const FREE_TIER_DAILY_SAVE_CAP_DEFAULT = 30;
@@ -220,7 +221,7 @@ export async function createMemeRecord(
       and(
         eq(memesTable.createdById, userId),
         gt(memesTable.createdAt, oneDayAgo),
-        isNull(memesTable.deletedAt),
+        liveContent(memesTable),
       ),
     );
   if (Number(recentCount) >= dailyCap) {
@@ -232,6 +233,17 @@ export async function createMemeRecord(
     });
   }
 
+  // ── Personalisation snapshot ────────────────────────────────────────
+  // Resolved before the idempotency lookup: the baked caption depends on it,
+  // so two saves that differ only in who the caption names are two memes.
+  const [profile] = await db
+    .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  const effectiveName = input.name ?? profile?.displayName ?? null;
+  const effectivePronouns = input.pronouns ?? profile?.pronouns ?? null;
+
   // ── Idempotency window ──────────────────────────────────────────────
   const now = Date.now();
   pruneIdempotencyMap(now);
@@ -242,6 +254,8 @@ export async function createMemeRecord(
     framingTransform: framingTransform ?? null,
     aspectRatio,
     isPublic,
+    name: effectiveName,
+    pronouns: effectivePronouns,
   });
   const idemHit = idempotencyMap.get(idemKey);
   if (idemHit && idemHit.expiresAt > now) {
@@ -264,14 +278,6 @@ export async function createMemeRecord(
     throw new CreateMemeError(404, { error: "Fact not found" });
   }
 
-  // ── Personalisation snapshot ────────────────────────────────────────
-  const [profile] = await db
-    .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
-    .limit(1);
-  const effectiveName = input.name ?? profile?.displayName ?? null;
-  const effectivePronouns = input.pronouns ?? profile?.pronouns ?? null;
   const rawTemplate = fact.text ?? fact.canonicalText ?? "";
   const renderedFactText = effectiveName && rawTemplate
     ? renderPersonalized(rawTemplate, effectiveName, effectivePronouns)

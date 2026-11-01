@@ -1,14 +1,42 @@
 /**
- * @purpose The read-authorization gates for private storage objects: userCanReadObject layers the legacy upload-owner fallback and ACL heal over the object ACL, and userOwnsAiReferenceImage gates AI reference images by their user_ai_images row.
+ * @purpose The read-authorization gates for storage objects: contentRowOfObject names the content row whose bytes a path is, for byteAccess (plan S17), userCanReadObject layers the legacy upload-owner fallback and ACL heal over the object ACL, and userOwnsAiReferenceImage gates AI reference images by their live user_ai_images row.
  * @subsystem security
  */
 import type { Request } from "express";
 import type { File } from "@google-cloud/storage";
 import { db } from "@workspace/db";
-import { userAiImagesTable } from "@workspace/db/schema";
+import { memesTable, uploadImageMetadataTable, userAiImagesTable } from "@workspace/db/schema";
 import { sql, and, eq } from "drizzle-orm";
 import type { ObjectStorageService } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
+import { liveContent } from "./contentVisibility";
+import { memeSlugOfObjectPath } from "./storageKeys";
+
+/**
+ * The content row whose bytes `objectPath` is, as the live rule sees it:
+ * `{ isLive, ownerId }`, or null when no meme, upload or generated image names
+ * it. One statement on the object-serving path. A file several generated-image
+ * rows name (a mirror per request) is live while any of them is.
+ */
+export async function contentRowOfObject(objectPath: string): Promise<{ isLive: boolean; ownerId: string | null } | null> {
+  const memeSlug = memeSlugOfObjectPath(objectPath);
+  const result = memeSlug
+    ? await db
+        .select({ isLive: liveContent(memesTable), ownerId: memesTable.createdById })
+        .from(memesTable)
+        .where(eq(memesTable.permalinkSlug, memeSlug))
+        .limit(1)
+    : await db.execute<{ is_live: boolean; owner_id: string | null }>(sql`
+        SELECT ${liveContent(uploadImageMetadataTable)} AS is_live, ${uploadImageMetadataTable.userId} AS owner_id
+        FROM ${uploadImageMetadataTable} WHERE ${uploadImageMetadataTable.objectPath} = ${objectPath}
+        UNION ALL
+        SELECT bool_or(${liveContent(userAiImagesTable)}), min(${userAiImagesTable.userId})
+        FROM ${userAiImagesTable} WHERE ${userAiImagesTable.storagePath} = ${objectPath}
+        HAVING count(*) > 0
+        LIMIT 1
+      `).then((r) => r.rows.map((x) => ({ isLive: Boolean(x.is_live), ownerId: x.owner_id })));
+  return result[0] ?? null;
+}
 
 /**
  * Canonical READ-authorization for a private storage object — the single

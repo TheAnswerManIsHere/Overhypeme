@@ -25,6 +25,7 @@ export const userAiImagesTable = pgTable("user_ai_images", {
   index("IDX_uai_user_live").on(table.userId).where(isNull(table.deletedAt)),
   index("IDX_uai_purge_after").on(table.purgeAfter).where(isNotNull(table.purgeAfter)),
   index("IDX_uai_fact_id").on(table.factId),
+  index("IDX_uai_storage_path").on(table.storagePath),
 ]);
 
 export type UserAiImage = typeof userAiImagesTable.$inferSelect;

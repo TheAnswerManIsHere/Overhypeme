@@ -28,11 +28,12 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
 import type { ShareIntentPlatform } from "@workspace/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableColumns } from "drizzle-orm";
 import { getConfigString } from "../lib/adminConfig";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { canViewMeme } from "../lib/memeVisibility";
+import { liveContent } from "../lib/contentVisibility";
 
 const router: IRouter = Router();
 
@@ -123,7 +124,7 @@ async function resolveMeme(slug: string, req: Request): Promise<ResolvedMeme> {
   const permalink = `${baseUrl}/m/${slug}`;
 
   const [meme] = await db
-    .select()
+    .select({ ...getTableColumns(memesTable), isLive: liveContent(memesTable) })
     .from(memesTable)
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
@@ -132,12 +133,12 @@ async function resolveMeme(slug: string, req: Request): Promise<ResolvedMeme> {
     return { status: "not_found", creatorName: "", factText: "", permalink };
   }
   // Private (owner-only) memes: a non-owner gets nothing — report not_found so
-  // the private meme's existence and content stay hidden. BEFORE the deletedAt
+  // the private meme's existence and content stay hidden. BEFORE the not-live
   // branch so a deleted private meme is also indistinguishable from missing.
   if (!canViewMeme(meme, req)) {
     return { status: "not_found", creatorName: "", factText: "", permalink };
   }
-  if (meme.deletedAt) {
+  if (!meme.isLive) {
     return { status: "deleted", creatorName: "", factText: "", permalink };
   }
 

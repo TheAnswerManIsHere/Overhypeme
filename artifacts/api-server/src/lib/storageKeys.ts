@@ -38,6 +38,27 @@ export function memeKey(slug: string, ext: string = "jpg"): string {
 }
 
 /**
+ * Every `/objects/...` path a meme's file can sit under: the baked key first,
+ * then the older forms a legacy meme (stored before recipes) used. The one
+ * list the image route reads, the purger deletes, and `memeSlugOfObjectPath`
+ * inverts.
+ */
+export function memeObjectPaths(slug: string): string[] {
+  return [
+    `/objects/${memeKey(slug, "jpg")}`,
+    `/objects/${memeKey(slug, "png")}`,
+    `/objects/memes/${slug}.jpg`,
+    `/objects/memes/${slug}.png`,
+  ];
+}
+
+/** The slug whose file `objectPath` is, in any form `memeObjectPaths` gives; null for any other path. */
+export function memeSlugOfObjectPath(objectPath: string): string | null {
+  const slug = /^\/objects\/memes\/(?:[0-9a-f]{2}\/)?([^/]+)\.(?:jpg|png)$/.exec(objectPath)?.[1];
+  return slug && memeObjectPaths(slug).includes(objectPath) ? slug : null;
+}
+
+/**
  * Key for a user-uploaded image (avatar or meme background).
  * Format: uploads/{hash2}/{uploadId}.{ext}  or  uploads/{hash2}/{uploadId}
  */
