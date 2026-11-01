@@ -732,6 +732,68 @@ describe("POST /users/me/profile-image — task #507", () => {
     assert.equal(row.isProfile, false, "and is not the profile photo");
   });
 
+  it("refuses an upload no member owns (#810)", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const path = `/objects/uploads/${randomUUID()}-ownerless.jpg`;
+    await db.insert(uploadImageMetadataTable).values({ objectPath: path, width: 1, height: 1, fileSizeBytes: 1, userId: null });
+    await storePhoto(path, "someone-else");
+    const res = await request(makeApp()).post("/users/me/profile-image").set("authorization", `Bearer ${sid}`).send({ objectPath: path });
+    assert.equal(res.status, 403);
+    assert.equal(await visibilityOf(path), "private", "the photo stays private");
+  });
+
+  it("PATCH /users/me refuses another member's photo, and leaves it private and theirs (#810)", async () => {
+    const ownerId = await createTestUser();
+    const otherId = await createTestUser();
+    const sid = await bearerForUser(otherId);
+    const path = `/objects/uploads/${randomUUID()}-not-yours.jpg`;
+    await db.insert(uploadImageMetadataTable).values({ objectPath: path, width: 1, height: 1, fileSizeBytes: 1, userId: ownerId });
+    await storePhoto(path, ownerId);
+    const res = await request(makeApp())
+      .patch("/users/me")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ profileImageUrl: `/api/storage${path}` });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "upload_not_owned");
+    assert.equal(await visibilityOf(path), "private", "the photo stays private");
+    const { ObjectStorageService } = await import("../lib/objectStorage.js");
+    const { getObjectAclPolicy } = await import("../lib/objectAcl.js");
+    const acl = await getObjectAclPolicy(await new ObjectStorageService().getObjectEntityFile(path));
+    assert.equal(acl?.owner, ownerId, "and its owner is unchanged");
+    const [user] = await db.select({ profileImageUrl: usersTable.profileImageUrl }).from(usersTable).where(eq(usersTable.id, otherId));
+    assert.notEqual(user.profileImageUrl, `/api/storage${path}`);
+  });
+
+  it("PATCH /users/me refuses a photo path no member owns (#810)", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const path = `/objects/uploads/${randomUUID()}-no-row.jpg`;
+    await storePhoto(path, "someone-else");
+    const res = await request(makeApp())
+      .patch("/users/me")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ profileImageUrl: `/api/storage${path}` });
+    assert.equal(res.status, 403);
+    assert.equal(await visibilityOf(path), "private");
+  });
+
+  it("PATCH /users/me sets the caller's own photo and makes it public", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const path = `/objects/uploads/${randomUUID()}-mine.jpg`;
+    await db.insert(uploadImageMetadataTable).values({ objectPath: path, width: 1, height: 1, fileSizeBytes: 1, userId });
+    await storePhoto(path, userId);
+    const res = await request(makeApp())
+      .patch("/users/me")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ profileImageUrl: `/api/storage${path}` });
+    assert.equal(res.status, 200);
+    assert.equal(await visibilityOf(path), "public");
+    const [user] = await db.select({ profileImageUrl: usersTable.profileImageUrl }).from(usersTable).where(eq(usersTable.id, userId));
+    assert.equal(user.profileImageUrl, `/api/storage${path}`);
+  });
+
   it("stores the photo but skips the avatarSource flip for an unentitled user", async () => {
     // The onboarding path. A 403 here would fail free photo onboarding for
     // every non-paying registered user, and would remove a capability that is
