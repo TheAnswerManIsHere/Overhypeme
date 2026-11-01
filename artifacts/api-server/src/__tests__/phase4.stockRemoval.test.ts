@@ -70,12 +70,11 @@ async function cleanup() {
 before(async () => {
   await cleanup();
   adminId = `${PREFIX}${randomUUID()}`;
-  await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary", captchaVerified: true });
+  await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
   const data: SessionData = {
     user: { id: adminId, membershipTier: "legendary" } as unknown as SessionData["user"],
     access_token: "test-token",
     isAdmin: true,
-    captchaVerified: true,
   };
   adminSid = await createSession(data, adminId);
   const [fact] = await db

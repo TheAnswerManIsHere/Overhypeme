@@ -917,45 +917,6 @@ describe("DELETE /users/me/uploads", () => {
   });
 });
 
-describe("POST /users/me/complete-onboarding", () => {
-
-  it("returns 401 when unauthenticated", async () => {
-    const res = await request(makeApp())
-      .post("/users/me/complete-onboarding")
-      .send({ captchaToken: "x" });
-    assert.equal(res.status, 401);
-  });
-
-  it("returns 400 when captchaToken is missing", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .post("/users/me/complete-onboarding")
-      .set("authorization", `Bearer ${sid}`)
-      .send({});
-    assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "captchaToken is required" });
-  });
-
-  it("flips captchaVerified and returns success on the dev-bypass path", async () => {
-    // captcha.ts bypasses verification when TURNSTILE_SECRET_KEY is unset and
-    // NODE_ENV !== 'production'. The test env satisfies both.
-    delete process.env.TURNSTILE_SECRET_KEY;
-
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .post("/users/me/complete-onboarding")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ captchaToken: "irrelevant-in-dev" });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-
-    const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-    assert.equal(row.captchaVerified, true);
-  });
-});
-
 describe("GET /users/me/spend", () => {
 
   it("returns 401 when unauthenticated", async () => {

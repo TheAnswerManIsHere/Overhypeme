@@ -21,11 +21,12 @@
  *   - Steps 1-3 name `custom_avatar`, observed on Profile's Photo pill. That
  *     pill only renders for an account with a `profileImageUrl`, which needs
  *     object storage. This file proves the same MECHANISM on a different
- *     feature key (`fact_submit_captcha_bypass`); `custom_avatar`'s own wiring
+ *     feature key (`comment_captcha_bypass`); `custom_avatar`'s own wiring
  *     is not covered here.
  *   - Step 6 says "the site reloads as a registered user would see it". What is
  *     asserted is that the resolver's answer for this session becomes the
- *     non-admin answer AND that one gated product surface (`/submit`) follows.
+ *     non-admin answer AND that one gated product surface (the comment form's
+ *     challenge) follows.
  *     That is the substance of the step, but it is not every surface: the
  *     Legendary-feature half is steps 10/12, which need a fact and a photo.
  *   - Steps 22/23 (the video generation feature's grid row) went with video in
@@ -47,8 +48,7 @@
  *      That includes BOTH tiers the resolver can pick: the account's stored
  *      tier while admin mode is on, and `registered` while previewing, which
  *      `principalFromUser` substitutes regardless of the stored tier. The two
- *      account-row facts the file cannot set (the stored tier and
- *      `captchaVerified`) are asserted as explicit, self-explaining
+ *      account-row fact the file cannot set (the stored tier) is asserted as explicit, self-explaining
  *      preconditions rather than assumed. See `establishGridPremise`.
  */
 
@@ -59,16 +59,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { FREE_ACCOUNT, PAID_ACCOUNT, TEST_ACCOUNT_PASSWORD, csrfToken, signInThroughForm } from "./helpers/testAccounts";
+import { factDetail, stubPublicFacts } from "./helpers/apiStubs";
 
 /**
- * The feature this file uses to observe the resolver. Chosen because its gated
- * surface (`/submit`) needs no fixtures at all, unlike every other entitlement
- * whose UI needs a fact row or a stored photo.
+ * The feature this file uses to observe the resolver: the comment form's
+ * challenge, which a signed-in account without the bypass meets as soon as it
+ * starts typing (`FactComments.tsx`). Until launch Phase 5 this was the
+ * submit page's challenge, but an account that can submit is now always
+ * onboarded, and an onboarded account never sees that one, so it can no
+ * longer show the entitlement (increment 3, #795).
  */
-const FEATURE = "fact_submit_captcha_bypass";
+const FEATURE = "comment_captcha_bypass";
 
 /** Its `displayName` in the grid, which is what the cell's `title` is built from. */
-const FEATURE_LABEL = "Skip Captcha on Fact Submission";
+const FEATURE_LABEL = "CAPTCHA Bypass for Comments";
 /**
  * The tier every previewing admin resolves as, whatever their stored tier —
  * `principalFromUser` hardcodes it (featureAccess.ts:161) so that a
@@ -147,16 +151,6 @@ async function establishGridPremise(page: Page): Promise<string> {
     state.membershipTier,
     "this suite needs a bootstrap admin whose STORED tier is not itself `admin`",
   ).not.toBe("admin");
-
-  // `/submit` hides its captcha gate when EITHER the entitlement or the
-  // account's own onboarding flag says so (`SubmitFact.tsx:69`), so the DOM
-  // half of these tests can only observe the entitlement while this is false.
-  // Asserted rather than assumed, so a retained stack fails with this sentence
-  // instead of with a confusing count mismatch.
-  expect(
-    state.captchaVerified,
-    "this suite needs an admin that has NOT completed captcha onboarding, or the /submit gate cannot observe the entitlement",
-  ).toBe(false);
 
   // The account's OWN tier, which is what resolves while admin mode is on.
   await setGridCell(page, state.membershipTier, FEATURE, false);
@@ -262,8 +256,8 @@ test.describe("Admin · permissions core", () => {
 
     // ...and the product half, on a surface a user would actually meet.
     await expect(
-      await captchaGate(page),
-      "a previewing admin should meet the same submission gate a registered member meets",
+      await commentChallenge(page),
+      "a previewing admin should meet the same comment challenge a registered member meets",
     ).toHaveCount(1);
   });
 
@@ -338,12 +332,12 @@ test.describe("Admin · permissions core", () => {
     ).toBe(true);
 
     // Step 1 — the capability is real on the gated surface.
-    await expect(await captchaGate(page), "an entitled account should not be gated").toHaveCount(0);
+    await expect(await commentChallenge(page), "an entitled account should not be gated").toHaveCount(0);
 
     // Step 2 — unchecking the Admin cell actually removes the capability.
     await toggleGridCellInUi(page, "disable");
     await expect(
-      await captchaGate(page),
+      await commentChallenge(page),
       "revoking the Admin row should re-gate the account — if not, the column is still decorative",
     ).toHaveCount(1);
     expect((await readAuthState(page)).allowed, "the resolver should now refuse").toBe(false);
@@ -351,7 +345,7 @@ test.describe("Admin · permissions core", () => {
     // Step 3 — re-checking restores it. The restore direction matters: a screen
     // stuck showing the gate would pass step 2 on its own.
     await toggleGridCellInUi(page, "enable");
-    await expect(await captchaGate(page), "restoring the Admin row should un-gate it").toHaveCount(0);
+    await expect(await commentChallenge(page), "restoring the Admin row should un-gate it").toHaveCount(0);
     expect((await readAuthState(page)).allowed, "the resolver should grant again").toBe(true);
   });
 
@@ -609,10 +603,6 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
     const admin = await browser.newContext({ baseURL: new URL(page.url()).origin });
     expect((await admin.request.post("/api/auth/dev-admin-login")).ok()).toBe(true);
     const adminCsrf = (await admin.cookies()).find((c) => c.name === "csrf_token")?.value ?? "";
-    const freeId = String((await (await page.context().request.get("/api/users/me")).json()).id);
-    // Read before onboarding is set below, and restored as read: a retained database
-    // may hold this account already onboarded, and the seeder leaves the flag alone.
-    const captchaWas = (await (await page.context().request.get("/api/auth/user")).json()).user?.captchaVerified === true;
     let reviewId: number | null = null;
     try {
       // PR425 step 20 — a stored, unselected photo: the account's own Profile shows the generated icon.
@@ -628,15 +618,10 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
       await lockedPhotoPill(page).click();
       await expect(page, "PR425 step 17: tapping the locked Photo pill should lead to the upgrade prompt").toHaveURL(/\/pricing\/?$/);
 
-      // PR242 step 1. Onboarding (the one-time captcha) is set as done through
-      // the admin route, since the captcha widget is a third party's; the AI
-      // conversion and its two helpers are answered here, since they are a
-      // vendor call. The submission itself reaches the real server.
-      const onboard = await admin.request.patch(`/api/admin/users/${freeId}`, {
-        headers: { "X-CSRF-Token": adminCsrf },
-        data: { captchaVerified: true },
-      });
-      expect(onboard.ok(), `setting captchaVerified -> ${onboard.status()}`).toBe(true);
+      // PR242 step 1. The seeded account is onboarded (seed-e2e-test-accounts.ts),
+      // which is what lets it submit; the AI conversion and its two helpers are
+      // answered here, since they are a vendor call. The submission itself
+      // reaches the real server.
       const template = `{NAME} out-lifted a crane, run ${Date.now()}.`;
       await page.route("**/api/ai/tokenize-fact", (route) => route.fulfill({ json: { template } }));
       await page.route("**/api/ai/check-duplicate", (route) => route.fulfill({ json: { isDuplicate: false, confidence: 0 } }));
@@ -658,11 +643,6 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
         });
         expect(rej.ok(), `cleanup: rejecting review ${reviewId} -> ${rej.status()}`).toBe(true);
       }
-      const reset = await admin.request.patch(`/api/admin/users/${freeId}`, {
-        headers: { "X-CSRF-Token": adminCsrf },
-        data: { captchaVerified: captchaWas },
-      });
-      expect(reset.ok(), `cleanup: restoring captchaVerified -> ${reset.status()}`).toBe(true);
       await admin.close();
     }
   });
@@ -686,19 +666,26 @@ test.describe("7b — Admin permissions on the features the steps name (PR425, P
   });
 });
 
-/** The `/submit` captcha gate — visible only when the account lacks the bypass. */
-async function captchaGate(page: Page) {
-  await page.goto("/submit", { waitUntil: "domcontentloaded" });
+/**
+ * The comment form's challenge — mounted once a comment is being typed, and
+ * only for an account without the bypass. The fact page is stubbed, so the
+ * check needs no fact row.
+ */
+async function commentChallenge(page: Page) {
+  await stubPublicFacts(page, { facts: [factDetail({ id: 551, text: "{NAME} makes onions cry." })] });
+  await page.goto("/facts/551", { waitUntil: "domcontentloaded" });
+  const box = page.getByPlaceholder("Smack some knowledge on us...");
   // Gate on the form itself before counting, so an unrendered page cannot read
-  // as "no captcha gate".
-  await expect(page.getByRole("heading", { name: /Submit a fact/i })).toBeVisible({ timeout: 30_000 });
-  return page.getByText("Quick Verification");
+  // as "no challenge".
+  await expect(box).toBeVisible({ timeout: 30_000 });
+  await box.fill("Legend.");
+  return page.getByTestId("turnstile-widget");
 }
 
 /** What the server currently believes about this session, read from the page. */
 async function readAuthState(
   page: Page,
-): Promise<{ membershipTier: string; captchaVerified: boolean; allowed: boolean }> {
+): Promise<{ membershipTier: string; allowed: boolean }> {
   // The relative URL below needs a document on the app's origin to resolve
   // against; a helper called before the first navigation would otherwise fail
   // on about:blank rather than on anything to do with the assertion.
@@ -708,7 +695,6 @@ async function readAuthState(
     const body = await res.json();
     return {
       membershipTier: body.user?.membershipTier,
-      captchaVerified: body.user?.captchaVerified === true,
       allowed: body.entitlements?.[feature]?.allowed === true,
     };
   }, FEATURE);

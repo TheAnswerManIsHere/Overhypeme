@@ -70,7 +70,8 @@ function makeAuthedApp(userId: string): Express {
         membershipTier: u.membershipTier,
         isAdmin: !!u.isAdmin,
         isRealAdmin: !!u.isAdmin,
-        captchaVerified: !!u.captchaVerified,
+        eligibility: u.emailVerifiedAt == null ? "unverified" : u.onboardingCompletedAt == null ? "unonboarded" : "eligible",
+        onboardingCompleted: u.onboardingCompletedAt != null,
         nsfwModeEnabled: !!u.nsfwModeEnabled,
         // Derived exactly as authMiddleware derives it, rather than pinned to
         // "registered". A hardcoded role made the admin-vs-tier distinction

@@ -56,11 +56,10 @@ async function cleanup() {
 before(async () => {
   await cleanup();
   userId = `${PREFIX}${randomUUID()}`;
-  await db.insert(usersTable).values({ id: userId, email: `${userId}@test.local`, captchaVerified: true });
+  await db.insert(usersTable).values({ id: userId, email: `${userId}@test.local`, emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
   const data: SessionData = {
     user: { id: userId, membershipTier: "registered" } as unknown as SessionData["user"],
     access_token: "test-token",
-    captchaVerified: true,
   };
   sid = await createSession(data, userId);
   const [fact] = await db

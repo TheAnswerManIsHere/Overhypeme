@@ -14,7 +14,6 @@ import {
 import { getViewerFactRatings, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
-import { getSessionId, getSession, updateSession } from "../lib/auth";
 import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -22,7 +21,6 @@ import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage"
 import { isRetryableMediaError } from "../lib/mediaBackup/preserve";
 import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 import { getConfigInt } from "../lib/adminConfig";
-import { verifyCaptcha } from "../lib/captcha";
 import { logger } from "../lib/logger";
 import { effectiveTierExpr } from "../lib/membershipState";
 
@@ -762,39 +760,6 @@ router.delete("/users/me/uploads", async (req: Request, res: Response) => {
     DELETE FROM upload_image_metadata
     WHERE user_id = ${req.user.id} AND object_path = ${objectPath}
   `);
-
-  res.json({ success: true });
-});
-
-router.post("/users/me/complete-onboarding", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  const { captchaToken } = req.body as { captchaToken?: string };
-  if (!captchaToken) {
-    res.status(400).json({ error: "captchaToken is required" });
-    return;
-  }
-
-  const ok = await verifyCaptcha(captchaToken);
-  if (!ok) {
-    res.status(400).json({ error: "CAPTCHA verification failed" });
-    return;
-  }
-
-  await db.update(usersTable)
-    .set({ captchaVerified: true })
-    .where(eq(usersTable.id, req.user.id));
-
-  const sid = getSessionId(req);
-  if (sid) {
-    const session = await getSession(sid);
-    if (session) {
-      await updateSession(sid, { ...session, captchaVerified: true });
-    }
-  }
 
   res.json({ success: true });
 });

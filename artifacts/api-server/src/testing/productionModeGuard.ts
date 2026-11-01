@@ -27,6 +27,13 @@ function isLocalHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
+/** Cloudflare's documented Turnstile test secrets (always passes, always fails, token already spent). */
+export const CLOUDFLARE_TURNSTILE_TEST_SECRETS: readonly string[] = [
+  "1x0000000000000000000000000000000AA",
+  "2x0000000000000000000000000000000AA",
+  "3x0000000000000000000000000000000AA",
+];
+
 export function productionModeRefusals(env: NodeJS.ProcessEnv): string[] {
   const refusals: string[] = [];
 
@@ -45,6 +52,15 @@ export function productionModeRefusals(env: NodeJS.ProcessEnv): string[] {
   const sinkDir = env.E2E_MAIL_SINK_DIR ?? "";
   if (!sinkDir.startsWith("/")) {
     refusals.push("E2E_MAIL_SINK_DIR must be an absolute directory path for the captured email");
+  }
+
+  // Onboarding completes behind a Turnstile challenge, which production mode
+  // verifies for real (it fails closed with no secret). Only Cloudflare's
+  // published test secrets may be given here — the always-pass, always-fail
+  // and spent-token ones — never a site's real secret (launch Phase 5).
+  const turnstile = (env.TURNSTILE_SECRET_KEY ?? "").trim();
+  if (turnstile !== "" && !CLOUDFLARE_TURNSTILE_TEST_SECRETS.includes(turnstile)) {
+    refusals.push("TURNSTILE_SECRET_KEY must be one of Cloudflare's published test secrets, never a real one");
   }
 
   const siteBase = env.SITE_BASE_URL ?? "";

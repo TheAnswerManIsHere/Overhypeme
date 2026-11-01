@@ -16,12 +16,12 @@ interface User {
   profileImageUrl: string | null;
   isAdmin: boolean;
   isActive: boolean;
-  captchaVerified: boolean;
   nsfwModeEnabled: boolean;
   membershipTier: "unregistered" | "registered" | "legendary";
   pronouns: string | null;
   stripeCustomerId: string | null;
   emailVerifiedAt: string | null;
+  onboardingCompletedAt: string | null;
   monthlyGenerationLimitOverrideUsd: string | null;
   createdAt: string;
   updatedAt: string;
@@ -34,7 +34,7 @@ interface UsersResponse {
   limit: number;
 }
 
-type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "nsfwModeEnabled" | "pronouns" | "monthlyGenerationLimitOverrideUsd">;
+type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "nsfwModeEnabled" | "pronouns" | "monthlyGenerationLimitOverrideUsd">;
 
 interface AppSubscription {
   id: number;
@@ -256,9 +256,9 @@ export default function AdminUsers() {
       displayName: user.displayName ?? "",
       email: user.email ?? "",
       isAdmin: user.isAdmin,
-      captchaVerified: user.captchaVerified,
       nsfwModeEnabled: user.nsfwModeEnabled,
-      pronouns: user.pronouns ?? "he/him",
+      // Never a default: an account with no pronouns keeps none until it chooses.
+      pronouns: user.pronouns ?? "",
       monthlyGenerationLimitOverrideUsd: user.monthlyGenerationLimitOverrideUsd,
     });
     setSaveResult(null);
@@ -348,9 +348,8 @@ export default function AdminUsers() {
           displayName: draft.displayName || null,
           email: draft.email || null,
           isAdmin: draft.isAdmin,
-          captchaVerified: draft.captchaVerified,
           nsfwModeEnabled: draft.nsfwModeEnabled,
-          pronouns: draft.pronouns,
+          ...(draft.pronouns ? { pronouns: draft.pronouns } : {}),
           monthlyGenerationLimitOverrideUsd: draft.monthlyGenerationLimitOverrideUsd
             ? parseFloat(draft.monthlyGenerationLimitOverrideUsd)
             : null,
@@ -1324,18 +1323,17 @@ export default function AdminUsers() {
                 </button>
               </div>
               <div>
-                <FieldLabel>CAPTCHA Verified</FieldLabel>
-                <button
-                  onClick={() => setDraft((d) => d ? { ...d, captchaVerified: !d.captchaVerified } : d)}
-                  className={`w-full h-9 flex items-center justify-center gap-2 rounded-sm border text-sm font-medium transition-colors ${
-                    draft.captchaVerified
-                      ? "border-green-500 bg-green-500/10 text-green-500"
-                      : "border-border text-muted-foreground hover:border-green-500/40"
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${draft.captchaVerified ? "bg-green-500" : "bg-muted-foreground"}`} />
-                  {draft.captchaVerified ? "Verified" : "Unverified"}
-                </button>
+                <FieldLabel>Account set-up</FieldLabel>
+                <div className="w-full h-9 flex items-center justify-center gap-3 rounded-sm border border-border text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${selectedUser?.emailVerifiedAt ? "bg-green-500" : "bg-muted-foreground"}`} />
+                    {selectedUser?.emailVerifiedAt ? "Email verified" : "Email unverified"}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${selectedUser?.onboardingCompletedAt ? "bg-green-500" : "bg-muted-foreground"}`} />
+                    {selectedUser?.onboardingCompletedAt ? "Onboarded" : "Not onboarded"}
+                  </span>
+                </div>
               </div>
               <div className="col-span-2">
                 <FieldLabel>NSFW Mode</FieldLabel>

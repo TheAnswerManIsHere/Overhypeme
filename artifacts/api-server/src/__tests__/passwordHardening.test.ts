@@ -39,7 +39,8 @@ function makeApp(): Express {
 
 async function createUser(password = "old-password-1"): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
-  await db.insert(usersTable).values({ id, email: `${id}@test.local`, passwordHash: await bcrypt.hash(password, 4) });
+  // Verified and onboarded: the full-stack cases run behind the verified-actor gate.
+  await db.insert(usersTable).values({ id, email: `${id}@test.local`, passwordHash: await bcrypt.hash(password, 4), emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
   return id;
 }
 

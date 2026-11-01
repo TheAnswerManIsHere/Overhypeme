@@ -136,9 +136,10 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
   // Mirrors the tokenize-fact gate in ai.ts: the entitlement half resolves
   // through the grid, the onboarding half stays an identity prerequisite.
   const hasBypassEntitlement = await can(principalFromRequest(req), "fact_submit_captcha_bypass");
-  const isCaptchaVerified = !!req.user.captchaVerified;
+  // `captcha_verified` is no longer read (launch Phase 5, plan S23).
+  const isOnboarded = !!req.user.onboardingCompleted;
 
-  if (!hasBypassEntitlement && !isCaptchaVerified) {
+  if (!hasBypassEntitlement && !isOnboarded) {
     res.status(403).json({
       error: "You must complete onboarding before submitting facts.",
       code: "ONBOARDING_REQUIRED",

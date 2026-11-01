@@ -64,42 +64,67 @@ documented as security-model.md's C1 finding; this spec doesn't duplicate it.
 (`localAuth.ts:146-154`) — the frontend's requirement that a submitter pick
 pronouns before registering (`Login.tsx:118-123`) is a client-side-only
 gate; the server accepts a registration with no `pronouns` field and stores
-`null`. Google/Apple signups never present pronoun selection at all — and
-because the OAuth insert (`auth.ts:189-199`) omits the `pronouns` key
-entirely rather than explicitly writing `null`, Postgres applies the
-column's own default (`lib/db/src/schema/auth.ts:41`, `"he/him"`). A fresh
-OAuth account is **not** pronoun-unset — it starts on that default until
-the user visits their profile and changes it.
+`null`. Google/Apple signups present no pronoun selection at sign-up; since launch
+Phase 5 (0114) the column has **no default**, so such an account's pronouns
+are null — "not chosen yet" — until the onboarding screen asks. No account
+is assigned pronouns without a screen having been shown (the admin user
+editor sends pronouns only when it holds a value).
 
-On success: the row is inserted `isActive: true, captchaVerified: false`
+On success: the row is inserted `isActive: true`
 (`localAuth.ts:173-185`); **a session is created and the cookie set
 immediately** — the user is logged in before doing anything else
 (`localAuth.ts:199-200`); a verification email fires asynchronously,
 non-blocking (`localAuth.ts:203-207`).
 
 **There is no separate anonymous/guest account type.** Every `usersTable`
-row is a full account. What functions like a lighter tier is a two-stage
-gate layered on top of a normal session:
+row is a full account. Since launch Phase 5 (increment 3, #795) a signed-in
+account moves through one order — **verify, then onboard, then act** — and
+the server enforces it:
 
-1. Being authenticated at all (`req.isAuthenticated()`).
-2. Having completed **onboarding** — a one-time Cloudflare Turnstile challenge (hCaptcha until launch
-   Phase 5, increment 1), tracked
-   by `usersTable.captchaVerified` (schema: `lib/db/src/schema/auth.ts:21`),
-   completed via `POST /users/me/complete-onboarding`
-   (`routes/users.ts:713-744`).
-
-Google/Apple sign-ups are redirected to `/onboard?returnTo=...` on their
-first login only (`isNewUser` branch, `auth.ts:380-394`). Local
-registrations are **not** auto-redirected there — nothing routes a fresh
-local account to onboarding proactively.
-
-**Gate that actually blocks a first fact submission is `captchaVerified`,
-not email verification.** `POST /facts/submit-review`
-(`routes/reviews.ts:131-146`) 403s with `ONBOARDING_REQUIRED` unless the
-caller is admin, Legendary, or already `captchaVerified` — those three skip
-the gate entirely. So a signed-in, unverified-email user can still attempt
-a submission; they're bounced to `/onboard` only if they also haven't
-passed the captcha step.
+- **Eligibility** is derived from the row on every request
+  (`artifacts/api-server/src/lib/eligibility.ts`, `eligibilityOf`): `unverified` while
+  `email_verified_at` is null, `unonboarded` while
+  `onboarding_completed_at` is null, else `eligible` (`suspended` and
+  `deletion_pending` are reserved for increments 5 and 6).
+  `authMiddleware` puts it on `req.user.eligibility`, with `is13Plus` and
+  `is18Plus` derived from `date_of_birth` at read time, never stored.
+- **The verified-actor gate** (`middlewares/requireEligibleActor.ts`,
+  installed after `authMiddleware` in `app.ts`) refuses every unsafe-method
+  request, and the inventoried GETs that write (`GET /link/:provider`), from
+  a signed-in account that is not eligible: 403 with
+  `EMAIL_VERIFICATION_REQUIRED` or `ONBOARDING_REQUIRED`. Its exported
+  `GATE_EXCEPTIONS` table opens the recovery routes (register, local login,
+  forgot/reset password, resend verification, logout, the Apple callback,
+  the dev-admin login) to both states, and the two onboarding routes to an
+  un-onboarded one. Anonymous requests are untouched. Photo uploads
+  (`POST /storage/upload-avatar`, `/storage/upload-meme`) also need
+  `is18Plus` (`ADULT_REQUIRED`). `GET /facts/hero` answers an ineligible
+  account as usual and skips its `user_fact_preferences` write. The test
+  that drives every declared unsafe route through the real app is
+  `phase5.verifiedActorGate.test.ts`.
+- **Onboarding** is one screen for every sign-in method (`pages/Onboard.tsx`,
+  `routes/onboarding.ts`): `GET /auth/onboarding` (the draft, the account's
+  stored pronouns and name, the marketing default — ticked when Cloudflare's
+  `CF-IPCountry` is `US`, unticked otherwise or when absent — and the
+  wording version), `PUT /users/me/onboarding/draft` (saves the
+  half-finished form; a complete date under 13 is refused `UNDER_AGE` and
+  nothing is written), and `POST /users/me/onboarding` (a fresh Turnstile
+  token, then date of birth, pronouns, the consent record —
+  `marketing_consent_at`, `_method` `default_checked`/`ticked`/`declined`,
+  `_wording_version` — and `onboarding_completed_at` in one write, the draft
+  cleared; under 13 refused with nothing stored and nothing destroyed;
+  completing twice changes nothing). An adult is then offered the optional
+  profile photo.
+- **The web shell** (`App.tsx`'s `SetupRedirect`, rule in
+  `artifacts/overhype-me/src/lib/setup-redirect.ts`) sends an unverified account to `/check-email`
+  and an un-onboarded one to `/onboard`, each with `returnTo`; the
+  verification link lands on `/onboard`. Convenience only: the gate is the
+  enforcement. Google/Apple sign-ups are still sent to `/onboard` on their
+  first login (`isNewUser`), which the shell would do anyway.
+- **`captcha_verified` is no longer read or written** (plan S23): the
+  submit-review and tokenize-fact bypass reads `onboardingCompleted`
+  instead, since every onboarded account passed a challenge at onboarding.
+  The column is dropped by migration 0119 in increment 7.
 
 ## Email verification
 
@@ -276,11 +301,8 @@ resolving to nothing.
 **`req.user` is rebuilt from the DB on every authenticated request** — role,
 admin, and membership are never trusted from the session blob
 (`authMiddleware.ts:88-141`; also security-model.md invariant #3).
-**Captcha state is the one exception**: `authMiddleware.ts:124` computes it
-as `dbUser.captchaVerified || session.captchaVerified`, so a session that
-recorded captcha completion keeps granting it even if the DB column
-somehow lagged — role/admin/membership have no equivalent session-blob
-fallback, but captcha does.
+There is no session-blob exception any more: the captcha flag that used to
+be OR-ed in from the session was retired in launch Phase 5.
 **No sliding expiration** — each session's `expire` is set once at creation
 and only bumped by specific `updateSession()` callers (e.g. the admin-mode
 toggle, an email-verification-triggered refresh), not on ordinary

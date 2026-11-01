@@ -200,6 +200,14 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     await paid.json("7", "POST", "/api/auth/local-login", { email: accounts.paid.email, password: accounts.password });
     await admin.json("3", "POST", "/api/auth/dev-admin-login");
     log("signed in: free, paid, admin");
+    // Existing accounts are asked once at their next sign-in (launch Phase 5):
+    // each completes the one onboarding screen before it acts. A second
+    // completion is a no-op, so an already-onboarded account passes through.
+    const onboarding = { pronouns: "they/them", dobYear: "1990", dobMonth: "1", dobDay: "1", marketingOptIn: false, captchaToken: "baseline" };
+    await free.json("2", "POST", "/api/users/me/onboarding", onboarding);
+    await paid.json("7", "POST", "/api/users/me/onboarding", onboarding);
+    await admin.json("3", "POST", "/api/users/me/onboarding", onboarding);
+    log("onboarded: free, paid, admin");
   } catch (err) {
     return { ...result(), setupError: (err as Error).message };
   }
@@ -208,7 +216,6 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
   let reviewId = 0;
   let hashtags: string[] = [];
   await run("2", [], async (ev) => {
-    await free.json("2", "POST", "/api/users/me/complete-onboarding", { captchaToken: "baseline" });
     const { template } = await free.json<{ template: string }>("2", "POST", "/api/ai/tokenize-fact", { text: BASELINE_FACT });
     const dup = await free.json<{ isDuplicate: boolean; confidence: number; matchingFactId?: number }>("2", "POST", "/api/ai/check-duplicate", { text: template });
     ({ hashtags } = await free.json<{ hashtags: string[] }>("2", "POST", "/api/ai/suggest-hashtags", { text: template }));

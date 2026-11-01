@@ -1,5 +1,5 @@
 /**
- * @purpose Resolves the session (Bearer token, then cookie), records the id of the session that authenticated as req.authSessionId, and rebuilds req.user from the active user row: effective tier, admin over all three grants with the view-as-user toggle applied to isAdmin only, and captcha from the row or the session; a session that is expired or whose user is missing or inactive is deleted, and with none valid, the request proceeds unauthenticated.
+ * @purpose Resolves the session (Bearer token, then cookie), records the id of the session that authenticated as req.authSessionId, and rebuilds req.user from the active user row: effective tier, admin over all three grants with the view-as-user toggle applied to isAdmin only, eligibility to act (verified, then onboarded) and the 13+/18+ thresholds derived from the row; a session that is expired or whose user is missing or inactive is deleted, and with none valid, the request proceeds unauthenticated.
  * @subsystem accounts-auth
  */
 import { type Request, type Response, type NextFunction } from "express";
@@ -17,6 +17,7 @@ import {
 } from "../lib/auth";
 import { deriveUserRole } from "../lib/userRole";
 import { effectiveTierExpr } from "../lib/membershipState";
+import { ADULT_AGE, MINIMUM_AGE, ageInYears, eligibilityOf } from "../lib/eligibility";
 
 declare global {
   namespace Express {
@@ -116,8 +117,10 @@ export async function authMiddleware(
         // This is the chokepoint every `req.user.membershipTier` reader inherits.
         membershipTier: effectiveTierExpr(),
         isAdmin: usersTable.isAdmin,
-        captchaVerified: usersTable.captchaVerified,
         nsfwModeEnabled: usersTable.nsfwModeEnabled,
+        emailVerifiedAt: usersTable.emailVerifiedAt,
+        onboardingCompletedAt: usersTable.onboardingCompletedAt,
+        dateOfBirth: usersTable.dateOfBirth,
       })
       .from(usersTable)
       .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))
@@ -134,7 +137,9 @@ export async function authMiddleware(
 
     const isRealAdmin = !!(dbUser.isAdmin || isAdminById(dbUser.id) || isAdminByEmail(dbUser.email));
     const isAdmin = isRealAdmin && !session.adminModeDisabled;
-    const captchaVerified = !!(dbUser.captchaVerified || session.captchaVerified);
+    // Age is derived from the stored date on every request, never stored
+    // (launch Phase 5, plan S4); eligibility from the row the same way (S19).
+    const age = ageInYears(dbUser.dateOfBirth);
 
     req.user = {
       id: dbUser.id,
@@ -147,8 +152,12 @@ export async function authMiddleware(
       membershipTier: dbUser.membershipTier,
       isAdmin,
       isRealAdmin,
-      captchaVerified,
       nsfwModeEnabled: !!dbUser.nsfwModeEnabled,
+      eligibility: eligibilityOf(dbUser),
+      emailVerified: dbUser.emailVerifiedAt != null,
+      onboardingCompleted: dbUser.onboardingCompletedAt != null,
+      is13Plus: age != null && age >= MINIMUM_AGE,
+      is18Plus: age != null && age >= ADULT_AGE,
       userRole: deriveUserRole(dbUser.membershipTier, isAdmin),
       realUserRole: deriveUserRole(dbUser.membershipTier, isRealAdmin),
     };

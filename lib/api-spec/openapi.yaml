@@ -1001,8 +1001,29 @@ components:
           type: string
           enum: [unregistered, registered, legendary, admin]
           nullable: true
-        captchaVerified:
+        eligibility:
+          type: string
+          description: >-
+            Whether the account may act, or the first reason it may not (launch
+            Phase 5): verify the email, then onboard, then act. A signed-in
+            request that writes while this is not `eligible` is refused with the
+            matching code. `suspended` and `deletion_pending` are reserved for
+            later increments.
+          enum: [eligible, suspended, deletion_pending, unverified, unonboarded]
+          nullable: true
+        emailVerified:
           type: boolean
+          nullable: true
+        onboardingCompleted:
+          type: boolean
+          nullable: true
+        is13Plus:
+          type: boolean
+          description: Derived from the stored date of birth at read time; never stored.
+          nullable: true
+        is18Plus:
+          type: boolean
+          description: Derived from the stored date of birth at read time; never stored. Photo uploads require it.
           nullable: true
         nsfwModeEnabled:
           type: boolean

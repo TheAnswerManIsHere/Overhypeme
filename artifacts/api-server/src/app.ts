@@ -8,6 +8,7 @@ import { scrubObject, scrubUrl } from "@workspace/redact";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
+import { requireEligibleActor } from "./middlewares/requireEligibleActor";
 import { WebhookHandlers } from "./lib/webhookHandlers";
 import { noStore } from "./lib/cacheHeaders";
 import { fallbackErrorHandler } from "./lib/errorHandler";
@@ -298,6 +299,10 @@ export function createApp(options: { limiterOverrides?: GlobalRateLimiterOverrid
     next();
   });
   app.use(authMiddleware);
+  // The verified-actor gate (launch Phase 5, plan S1): a signed-in account
+  // that is not yet eligible cannot write, except through the routes its state
+  // allows. After authMiddleware, which sets req.user.eligibility.
+  app.use(requireEligibleActor);
 
   // Attach the authenticated user (id only — no PII) to the per-request Sentry
   // isolation scope so every reported error/transaction in this request can be

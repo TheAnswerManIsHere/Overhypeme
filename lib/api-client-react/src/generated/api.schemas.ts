@@ -41,6 +41,21 @@ export const AuthUserRealUserRole = {
   admin: "admin",
 } as const;
 
+/**
+ * Whether the account may act, or the first reason it may not (launch Phase 5): verify the email, then onboard, then act. A signed-in request that writes while this is not `eligible` is refused with the matching code. `suspended` and `deletion_pending` are reserved for later increments.
+ */
+export type AuthUserEligibility =
+  | (typeof AuthUserEligibility)[keyof typeof AuthUserEligibility]
+  | null;
+
+export const AuthUserEligibility = {
+  eligible: "eligible",
+  suspended: "suspended",
+  deletion_pending: "deletion_pending",
+  unverified: "unverified",
+  unonboarded: "unonboarded",
+} as const;
+
 export interface AuthUser {
   id: string;
   email?: string | null;
@@ -54,7 +69,14 @@ export interface AuthUser {
   pronouns?: string | null;
   userRole?: AuthUserUserRole;
   realUserRole?: AuthUserRealUserRole;
-  captchaVerified?: boolean | null;
+  /** Whether the account may act, or the first reason it may not (launch Phase 5): verify the email, then onboard, then act. A signed-in request that writes while this is not `eligible` is refused with the matching code. `suspended` and `deletion_pending` are reserved for later increments. */
+  eligibility?: AuthUserEligibility;
+  emailVerified?: boolean | null;
+  onboardingCompleted?: boolean | null;
+  /** Derived from the stored date of birth at read time; never stored. */
+  is13Plus?: boolean | null;
+  /** Derived from the stored date of birth at read time; never stored. Photo uploads require it. */
+  is18Plus?: boolean | null;
   /** When true, NSFW-classified uploads are accepted and tagged on the resulting asset. */
   nsfwModeEnabled?: boolean | null;
 }

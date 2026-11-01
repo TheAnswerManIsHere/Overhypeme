@@ -49,7 +49,7 @@ async function createTestUser(opts: { isAdmin?: boolean } = {}): Promise<string>
   await db.insert(usersTable).values({
     id,
     email: `${id}@test.local`,
-    captchaVerified: true,
+    emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
     isAdmin: !!opts.isAdmin,
   });
   return id;
@@ -59,7 +59,6 @@ async function bearerForUser(userId: string): Promise<string> {
   const sessionData: SessionData = {
     user: { id: userId } as unknown as SessionData["user"],
     access_token: "test-token",
-    captchaVerified: true,
   };
   return createSession(sessionData, userId);
 }

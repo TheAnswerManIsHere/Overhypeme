@@ -30,8 +30,11 @@ DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_marketing_consent_method_check' AND conrelid = 'users'::regclass) THEN
     -- Every row is null here (the column is new), so the constraint validates.
+    -- Written in the form PostgreSQL prints for the schema's declaration (as
+    -- 0112 does), so a database built by these migrations and one built by a
+    -- schema push carry the same text and the structure proof compares equal.
     ALTER TABLE "users" ADD CONSTRAINT "users_marketing_consent_method_check"
-      CHECK ("marketing_consent_method" IS NULL OR "marketing_consent_method" IN ('default_checked', 'ticked', 'declined'));
+      CHECK (((marketing_consent_method IS NULL) OR ((marketing_consent_method)::text = ANY ((ARRAY['default_checked'::character varying, 'ticked'::character varying, 'declined'::character varying])::text[]))));
   END IF;
 END $$;
 

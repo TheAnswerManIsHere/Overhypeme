@@ -55,7 +55,7 @@ async function createUser(): Promise<string> {
     email: `${id}@test.local`,
     isAdmin: true,
     membershipTier: "legendary",
-    captchaVerified: true,
+    emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
   });
   return id;
 }
@@ -65,7 +65,6 @@ async function bearer(userId: string): Promise<string> {
     user: { id: userId, membershipTier: "legendary" } as unknown as SessionData["user"],
     access_token: "test-token",
     isAdmin: true,
-    captchaVerified: true,
   };
   return createSession(data, userId);
 }

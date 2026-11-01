@@ -59,12 +59,11 @@ describe("the six AI system prompts are set in code", () => {
   before(async () => {
     saved = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
     adminId = `t_cop_${randomUUID()}`;
-    await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary", captchaVerified: true });
+    await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
     const data: SessionData = {
       user: { id: adminId, membershipTier: "legendary" } as unknown as SessionData["user"],
       access_token: "test-token",
       isAdmin: true,
-      captchaVerified: true,
     };
     adminSid = await createSession(data, adminId);
   });

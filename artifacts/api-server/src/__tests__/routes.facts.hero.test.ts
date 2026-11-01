@@ -59,7 +59,7 @@ const USER_PREFIX = "t_routes_hero_";
 
 async function createTestUser(): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
-  await db.insert(usersTable).values({ id, email: `${id}@test.local` });
+  await db.insert(usersTable).values({ id, email: `${id}@test.local`, emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
   return id;
 }
 

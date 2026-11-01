@@ -74,13 +74,45 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   expect(sid).toMatchObject({ secure: true, sameSite: "None", httpOnly: true });
   expect((await currentUser(page))?.["email"]).toBe(email);
 
+  // Refused until verified (launch Phase 5): signed in, but no write lands.
+  const refused = await page.evaluate(async () => {
+    const csrf = document.cookie.split("; ").find((c) => c.startsWith("csrf_token="))?.slice("csrf_token=".length);
+    const res = await fetch("/api/users/me", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+      body: JSON.stringify({ pronouns: "she/her" }),
+    });
+    return { status: res.status, code: ((await res.json()) as { code?: string }).code };
+  });
+  expect(refused, "an unverified account cannot write").toEqual({ status: 403, code: "EMAIL_VERIFICATION_REQUIRED" });
+
   // Verify through the link in the captured email.
   const verifyLink = await waitForEmailLink({ to: email, linkPath: "/verify-email", since: registeredAt });
   await page.goto(verifyLink);
-  // A signed-in account lands on its profile with the confirmation; a signed-out
-  // one would see the standalone "Email Verified!" page. Either way the server
-  // must have accepted the token, which the next assertion checks directly.
+
+  // The link lands on the one onboarding screen (launch Phase 5). The pronouns
+  // chosen at sign-up come back for confirmation; a reload part-way through
+  // brings the saved draft back.
+  await expect(page.getByRole("heading", { name: /one quick set-up/i })).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Month").fill("6");
+  await page.getByLabel("Day").fill("15");
+  await page.getByLabel("Year").fill("1990");
+  await page.waitForResponse((r) => r.url().endsWith("/api/users/me/onboarding/draft") && r.request().method() === "PUT");
+  await page.reload();
+  await expect(page.getByLabel("Year"), "the draft survives a reload").toHaveValue("1990", { timeout: 30_000 });
+  await expect(page.getByLabel("Month")).toHaveValue("6");
+  // Cloudflare's always-pass test keys: the widget solves itself.
+  const finish = page.getByRole("button", { name: "Finish set-up" });
+  await expect(finish).toBeEnabled({ timeout: 30_000 });
+  await finish.click();
+  // An adult is offered the optional photo; skipping it lands on the profile.
+  await page.getByRole("button", { name: "Skip for now" }).click();
+  // The profile carries the verification confirmation; the server must have
+  // accepted the token, which the next assertion checks directly.
   await expect(page.getByText(/verified successfully/i)).toBeVisible();
+  expect((await currentUser(page))?.["pronouns"], "the sign-up choice was kept through onboarding").toBe("they/them");
+  expect((await currentUser(page))?.["eligibility"]).toBe("eligible");
   const profile = await page.request.get("/api/users/me");
   expect(profile.status()).toBe(200);
   expect((await profile.json()).emailVerified).toBe(true);

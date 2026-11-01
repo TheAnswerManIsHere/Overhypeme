@@ -28,6 +28,7 @@ import { eq } from "drizzle-orm";
 
 import { deriveUserRole } from "../../lib/userRole.js";
 import { effectiveTierExpr } from "../../lib/membershipState.js";
+import { ADULT_AGE, MINIMUM_AGE, ageInYears, eligibilityOf, type Eligibility } from "../../lib/eligibility.js";
 
 export type FakeAuth =
   | { kind: "unauthenticated" }
@@ -71,6 +72,11 @@ export function buildTestApp(
           isRealAdmin: boolean;
           userRole: ReturnType<typeof deriveUserRole>;
           realUserRole: ReturnType<typeof deriveUserRole>;
+          eligibility: Eligibility;
+          emailVerified: boolean;
+          onboardingCompleted: boolean;
+          is13Plus: boolean;
+          is18Plus: boolean;
         }
       | null
       | undefined;
@@ -87,6 +93,9 @@ export function buildTestApp(
             // The EFFECTIVE tier, matching authMiddleware's chokepoint. The
             // raw column would report Legendary past a lapsed grace horizon.
             membershipTier: effectiveTierExpr(),
+            emailVerifiedAt: usersTable.emailVerifiedAt,
+            onboardingCompletedAt: usersTable.onboardingCompletedAt,
+            dateOfBirth: usersTable.dateOfBirth,
           })
           .from(usersTable)
           .where(eq(usersTable.id, userId))
@@ -105,6 +114,9 @@ export function buildTestApp(
         //
         // Not previewing: these tests exercise the ordinary authenticated path.
         const isAdmin = !!dbUser?.isAdmin;
+        // Eligibility and age, derived from the row exactly as authMiddleware
+        // derives them (launch Phase 5).
+        const age = ageInYears(dbUser?.dateOfBirth ?? null);
         cachedUser = dbUser
           ? {
               id:              dbUser.id,
@@ -116,6 +128,11 @@ export function buildTestApp(
               isRealAdmin:     isAdmin,
               userRole:        deriveUserRole(dbUser.membershipTier, isAdmin),
               realUserRole:    deriveUserRole(dbUser.membershipTier, isAdmin),
+              eligibility:     eligibilityOf(dbUser),
+              emailVerified:   dbUser.emailVerifiedAt != null,
+              onboardingCompleted: dbUser.onboardingCompletedAt != null,
+              is13Plus:        age != null && age >= MINIMUM_AGE,
+              is18Plus:        age != null && age >= ADULT_AGE,
             }
           : null;
       }

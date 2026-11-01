@@ -211,8 +211,9 @@ router.get("/facts/hero", async (req: AuthenticatedRequest, res: Response) => {
   const pick = pool[pickIdx];
 
   // Record seen-as-hero for auth users.  Best-effort: don't block the response
-  // on the write.
-  if (req.isAuthenticated()) {
+  // on the write. An account that cannot act yet gets the same read and no
+  // write (launch Phase 5, plan S21: a public read keeps its read).
+  if (req.isAuthenticated() && req.user.eligibility === "eligible") {
     void db
       .insert(userFactPreferencesTable)
       .values({ userId: req.user.id, factId: pick.id, lastSeenAsHeroAt: new Date() })
