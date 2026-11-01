@@ -79,6 +79,14 @@ export interface TextOptions {
   verticalPosition?: "top" | "middle" | "bottom";
   topText?: string;
   bottomText?: string;
+  /**
+   * Where the builder's position slider put each caption half: the half's
+   * vertical midpoint, as a percentage (0–100) of the image height, the same
+   * rule LivePreview's `drawBlock` draws by. Absent: the fixed top/bottom
+   * bands, as before (#707).
+   */
+  topY?: number;
+  bottomY?: number;
   fontFamily?: string;
   outlineColor?: string;
   textEffect?: "shadow" | "outline" | "none";
@@ -147,6 +155,31 @@ function centerCropParams(
  * in the wrong position is bad; a public, shareable image reading "{NAME}
  * MAKES ONIONS CRY" is worse.
  */
+/**
+ * The baseline of a caption block's first line. With `yPct`, the block's
+ * vertical midpoint sits at `yPct`% of `logicalH`, clamped so the block stays
+ * on the canvas. Without it, the fixed `position` band, unchanged (#707).
+ * A block occupies `[startY - fontSize, startY - fontSize + totalH]`.
+ */
+export function blockStartY(args: {
+  totalH: number;
+  fontSize: number;
+  logicalH: number;
+  padding: number;
+  position: "top" | "middle" | "bottom";
+  yPct?: number;
+}): number {
+  const { totalH, fontSize, logicalH, padding, position, yPct } = args;
+  if (typeof yPct === "number" && Number.isFinite(yPct)) {
+    const half = totalH / 2;
+    const mid = Math.min(Math.max((yPct / 100) * logicalH, half), logicalH - half);
+    return mid - half + fontSize;
+  }
+  if (position === "top") return padding + fontSize;
+  if (position === "bottom") return logicalH - padding - totalH + fontSize;
+  return (logicalH - totalH) / 2 + fontSize;
+}
+
 export type ResolvedTextBlocks =
   | { mode: "split"; topText: string; bottomText: string }
   | { mode: "single"; text: string };
@@ -292,14 +325,11 @@ export async function generateMemeBuffer(
     return lines;
   }
 
-  function renderBlock(lines: string[], position: "top" | "middle" | "bottom") {
+  function renderBlock(lines: string[], position: "top" | "middle" | "bottom", yPct?: number) {
     if (lines.length === 0) return;
     const lineH = fontSize * 1.25;
     const totalH = lines.length * lineH;
-    let startY: number;
-    if (position === "top") startY = padding + fontSize;
-    else if (position === "bottom") startY = logicalH - padding - totalH + fontSize;
-    else startY = (logicalH - totalH) / 2 + fontSize;
+    const startY = blockStartY({ totalH, fontSize, logicalH, padding, position, yPct });
 
     ctx.save();
     ctx.globalAlpha = textOpacity;
@@ -331,8 +361,9 @@ export async function generateMemeBuffer(
   }
 
   if (blocks.mode === "split") {
-    if (blocks.topText.trim()) renderBlock(wrapText(blocks.topText), "top");
-    if (blocks.bottomText.trim()) renderBlock(wrapText(blocks.bottomText), "bottom");
+    // The builder's slider positions, when it sent them (#707).
+    if (blocks.topText.trim()) renderBlock(wrapText(blocks.topText), "top", options?.topY);
+    if (blocks.bottomText.trim()) renderBlock(wrapText(blocks.bottomText), "bottom", options?.bottomY);
   } else {
     renderBlock(wrapText(blocks.text), options?.verticalPosition ?? "middle");
   }

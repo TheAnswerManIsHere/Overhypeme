@@ -64,6 +64,10 @@ export const TextOptionsSchema = z.object({
   verticalPosition: z.enum(["top", "middle", "bottom"]).optional(),
   topText: z.string().max(500).optional(),
   bottomText: z.string().max(500).optional(),
+  // The builder's caption-position slider: each half's vertical midpoint as a
+  // percentage of the image height (#707). Stripped as unknown keys before.
+  topY: z.number().min(0).max(100).optional(),
+  bottomY: z.number().min(0).max(100).optional(),
   fontFamily: z.string().max(50).optional(),
   outlineColor: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
   textEffect: z.enum(["shadow", "outline", "none"]).optional(),

@@ -11,7 +11,7 @@
  * PuLID-stylised mode with PuLID (removal 3); this never produces a stock
  * `imageSource`.
  */
-import type { AspectRatio, MemeTextOptions } from "../../types";
+import { DEFAULT_BOTTOM_Y, DEFAULT_TOP_Y, type AspectRatio, type MemeTextOptions } from "../../types";
 import type { WizardRuntimeState } from "../state/useWizardState";
 
 export interface SaveMemePayload {
@@ -38,6 +38,21 @@ export interface BuildPayloadArgs {
   factId: number;
 }
 
+/**
+ * A split caption is saved with the positions the preview drew it at, the
+ * slider defaults when the user never moved them, so the saved meme places
+ * each half where the preview showed it (#707). A caption that is not split
+ * is sent unchanged.
+ */
+function withCaptionPositions(options: MemeTextOptions | undefined): MemeTextOptions | undefined {
+  if (!options || options.topText === undefined || options.bottomText === undefined) return options;
+  return {
+    ...options,
+    topY: options.topY ?? DEFAULT_TOP_Y,
+    bottomY: options.bottomY ?? DEFAULT_BOTTOM_Y,
+  };
+}
+
 export function buildSaveMemePayload(args: BuildPayloadArgs): SaveMemePayload | null {
   const { state, factId } = args;
   if (!state.source) return null;
@@ -49,7 +64,7 @@ export function buildSaveMemePayload(args: BuildPayloadArgs): SaveMemePayload | 
     factId,
     name: state.name,
     pronouns: state.pronouns,
-    textOptions: state.textOptions,
+    textOptions: withCaptionPositions(state.textOptions),
     framingTransform: state.framingOffset
       ? { offsetX: state.framingOffset.x, offsetY: state.framingOffset.y }
       : null,
