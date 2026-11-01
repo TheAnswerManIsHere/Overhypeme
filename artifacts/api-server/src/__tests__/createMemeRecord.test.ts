@@ -17,7 +17,8 @@ import {
 import { eq, like, inArray } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
-import { createMemeRecord, type MemeAuthorizationDecisions } from "../lib/createMemeRecord.js";
+import { createMemeRecord, CreateMemeError, type MemeAuthorizationDecisions } from "../lib/createMemeRecord.js";
+import { ownUpload } from "./helpers/ownedUpload.js";
 
 const USER_PREFIX = "t-cmr-";
 
@@ -81,6 +82,32 @@ const ALLOW_ALL: MemeAuthorizationDecisions = {
   meme_rate_limit_high: true,
 };
 
+// #804: a meme is made from the saver's own upload only; the image route
+// renders those bytes, publicly when the meme is public.
+describe("createMemeRecord — the photo must be the saver's own (#804)", () => {
+  it("refuses another member's upload and saves nothing", async () => {
+    const owner = await createTestUser();
+    const stranger = await createTestUser();
+    const factId = await insertFact();
+    const key = await ownUpload(owner, `/objects/uploads/t_cmr_private_${owner}.jpg`);
+    await assert.rejects(
+      createMemeRecord({ userId: stranger, factId, imageSource: { type: "upload", uploadKey: key }, aspectRatio: "landscape", decisions: ALLOW_ALL }),
+      (err: unknown) => err instanceof CreateMemeError && err.status === 403,
+    );
+    const rows = await db.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.createdById, stranger));
+    assert.equal(rows.length, 0);
+  });
+
+  it("refuses an upload no member owns", async () => {
+    const userId = await createTestUser();
+    const factId = await insertFact();
+    await assert.rejects(
+      createMemeRecord({ userId, factId, imageSource: { type: "upload", uploadKey: "/objects/uploads/t_cmr_nobody.jpg" }, aspectRatio: "landscape", decisions: ALLOW_ALL }),
+      (err: unknown) => err instanceof CreateMemeError && err.status === 403,
+    );
+  });
+});
+
 describe("createMemeRecord — image variant", () => {
   it("persists an upload-photo meme with the expected shape", async () => {
     const userId = await createTestUser();
@@ -90,7 +117,7 @@ describe("createMemeRecord — image variant", () => {
       factId,
       imageSource: {
         type: "upload",
-        uploadKey: "/objects/uploads/t_cmr_shape.jpg",
+        uploadKey: await ownUpload(userId, `/objects/uploads/t_cmr_shape_${userId}.jpg`),
       },
       aspectRatio: "landscape",
       decisions: ALLOW_ALL,
@@ -119,7 +146,7 @@ describe("createMemeRecord — image variant", () => {
       factId,
       imageSource: {
         type: "upload" as const,
-        uploadKey: "/objects/uploads/t_cmr_idem.jpg",
+        uploadKey: await ownUpload(userId, `/objects/uploads/t_cmr_idem_${userId}.jpg`),
       },
       aspectRatio: "square" as const,
       decisions: ALLOW_ALL,
