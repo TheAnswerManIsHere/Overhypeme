@@ -22,7 +22,7 @@
   routes, its subsystem map, and its setup/verification/CI commands.
 -->
 
-> **Who this is for.** Every AI agent working in a repo governed by the
+> **Who this is for.** Every AI agent working in a repo governed by
 > KITT — Codex, Claude Code, Replit, and whatever comes next. It tells
 > you **how to behave and what is non-negotiable**, independent of which
 > product you are working on. The repo's own `AGENTS.md` carries the product
@@ -31,7 +31,7 @@
 
 > **One source of truth for all agents.** These rules are shared. Claude
 > Code's `CLAUDE.md` holds only Claude-specific ceremony and defers here for
-> every cross-agent principle. When a shared rule changes, it changes in the
+> every cross-agent principle. When a shared rule changes, it changes in
 > KITT — never as a forked copy in one agent's own file or private
 > memory.
 

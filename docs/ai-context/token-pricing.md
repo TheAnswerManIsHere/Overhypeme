@@ -15,7 +15,7 @@ published!"*).
 
 ## Anthropic — Claude API list prices
 
-Read 2026-10-12 from
+Read 2026-11-01 from
 <https://platform.claude.com/docs/en/about-claude/pricing> (the `.md` form of
 the page). Standard tier; USD per million tokens. Rows quoted as the page
 printed them, whitespace collapsed and the cache-read column's footnote
@@ -43,20 +43,37 @@ write, cache read, output.
 
 ## OpenAI — the Codex reviewer (Astra)
 
-Read 2026-10-12 from <https://developers.openai.com/api/docs/pricing>
-(`openai.com/api/pricing` answered 403 to this container's fetch). Standard
-tier, prompts up to 272K tokens; USD per million tokens. Row quoted as the
-page printed it: input, cached input, cache write, output, then the four
-long-context columns:
+Read 2026-11-01 from <https://developers.openai.com/api/docs/pricing>, the
+rendered HTML fetched directly (`openai.com/api/pricing` answered 403 to this
+container's fetch on 2026-10-12). Standard tab; USD per million tokens.
+Header and row as the page's text-token table prints them:
 
 ```
-| gpt-6-astra | $10.00 | $1.00 | $12.50 | $50.00 | $20.00 | $2.00 | $25.00 | $75.00 |
+| Model | Input | Output | Cached input | 30m write | 12h write |
+| gpt-6-astra | $10.00 | $50.00 | $1.00 | $12.50 | $25.00 |
 ```
 
-| Model | Input | Cached input | Cache write | Output |
-|---|---|---|---|---|
-| `gpt-6-astra` (the `strongestCodex` pin), prompt ≤ 272K | $10 | $1 | $12.50 | $50 |
-| `gpt-6-astra`, prompt > 272K (the long-context columns) | $20 | $2 | $25 | $75 |
+The page no longer prints long-context figures for this model. The long-context
+row below is **derived, not quoted**, from the rule the `gpt-6-astra` model
+page (<https://developers.openai.com/api/docs/models/gpt-6-astra>) prints,
+read the same day: "Prompts with more than 272K input tokens are priced at 2x
+input and cache rates and 1.5x output for the full request." The derived
+figures for input, cached input, the 30-minute write and output match the
+long-context columns the pricing page printed on 2026-10-12.
+
+| Model | Input | Cached input | Cache write 30m | Cache write 12h | Output |
+|---|---|---|---|---|---|
+| `gpt-6-astra` (the `strongestCodex` pin), prompt ≤ 272K | $10 | $1 | $12.50 | $25 | $50 |
+| `gpt-6-astra`, prompt > 272K (derived: 2x input and cache, 1.5x output) | $20 | $2 | $25 | $50 | $75 |
+
+Until 2026-11-01 the page printed one cache-write column, at the figure it
+now prints as the 30-minute write, and the model page still prints that
+single figure; the 12-hour write is new, and every other short-context
+figure is unchanged from the 2026-10-12 read. **The CLI's cache-write bucket
+does not say which retention it bought, so it is priced at the 12-hour rate**
+— the higher of the two, which overstates and never understates, the side
+the long-context and Haiku rules below take for the same reason. Every probe
+so far has read that bucket as 0, so the choice has not yet moved a figure.
 
 ### Pricing an Astra run — per bucket, never by the proxy
 
@@ -87,7 +104,7 @@ Three readings behind that formula, each settled rather than assumed:
 - **The usage is the turn's cumulative total, but the 272K threshold is per
   request** — "Prompts with more than 272K input tokens are priced at 2x input
   and cache rates and 1.5x output for the full request" (the `gpt-6-astra`
-  model page, read 2026-10-12), and the CLI's `turn.completed` is built from
+  model page, read 2026-10-12 and again, unchanged, 2026-11-01), and the CLI's `turn.completed` is built from
   the turn's running `total`. A turn of several tool-using requests can sum
   past 272K with every request short. So: **`input_tokens` at or under
   272,000 is priced exactly from the short row** — no single request can

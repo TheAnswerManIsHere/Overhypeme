@@ -347,7 +347,7 @@ export function plan({ root, spec, workers = DEFAULT_WORKERS, include = [] }) {
   const fullSet = new Set();
   for (const g of spec.readInFull ?? []) {
     // A glob is payload-relative like `home`, but an `--include`d file is
-    // repo-relative and outside the payload; match both spellings so the
+    // repo-relative and outside the payload; match both spellings so
     // KITT can name a non-payload document for a full read.
     const asPayload = globToRegExp(toRepoPath(prefix, g));
     const asRepo = globToRegExp(g.replace(/^\.\//, ""));
