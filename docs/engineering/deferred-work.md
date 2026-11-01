@@ -1,6 +1,6 @@
 # Deferred Engineering Work
 
-Last maintenance pass: 2026-10-12 — the `/maintenance` run updates this line
+Last maintenance pass: 2026-11-01 — the `/maintenance` run updates this line
 every pass (it is the durable window boundary the batched documentation
 harvest reads).
 
@@ -422,6 +422,18 @@ re-gather it when the work is scheduled.
     excluded. Afterwards `pnpm audit --prod` reports critical 0, high 3,
     moderate 17, low 2. All three High rows are the parked sharp 0.34.5 above,
     so they are not this entry's to triage.
+  - **Second sweep, 2026-11-01 (#817).** Before it, `pnpm audit --prod` on
+    `main` (`c36d821`) reported critical 0, high 6, moderate 20, low 2. The
+    High rows were sharp ×3 (parked above), `body-parser` 2.2.2 on the API
+    request path (GHSA-27r3-jxmh-p828), and `zod` (GHSA-mrhx-c7xc-m3w5). The
+    sweep was an in-range, lockfile-only update of `body-parser`, `qs`,
+    `ip-address`, `minimatch` and `@tootallnate/once`, plus the safe half of
+    Dependabot PR #648 (`js-yaml`, `yaml`, `linkify-it`, `markdown-it`).
+    Afterwards: critical 0, moderate 11, and the only High rows are sharp ×3
+    and `zod`. zod has its own entry below, because its fix needs a major.
+    PR #648 itself was closed as superseded: its lockfile no longer installed
+    against `main` (`ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`), and its `orval`
+    bump breaks the build (see the zod entry).
   - **Revisit trigger.** At each `/maintenance` pass, run a sweep, then
     `pnpm audit --prod`. A High or Critical row that the sweep did not clear
     gets individual triage. Rows for a package parked elsewhere in this doc are
@@ -438,6 +450,29 @@ re-gather it when the work is scheduled.
   - **Cost of waiting.** No further bugfixes or security patches on the v2 line.
   - **Revisit trigger.** Next time we do meaningful charts work, or a security
     advisory on recharts v2, or the weekly maintenance sweep judges it overdue.
+
+- **zod 3 → 4, which also unblocks orval (found 2026-11-01 `/maintenance`).**
+  - **What.** `zod` is pinned by the workspace catalog at `^3.25.76`.
+    GHSA-mrhx-c7xc-m3w5 (High: *"Zod can exhaust memory while validating
+    oversized constrained collections"*) is fixed only in `>=4.6.6`, so no
+    in-range sweep clears it. `orval` is held at 8.5.3 for the same reason:
+    every newer 8.x tried (8.46.0, the latest in range) generates zod-v4 code
+    (`z.int()`), which fails `pnpm run build` against zod 3
+    (`lib/api-zod/src/generated/api.ts: Property 'int' does not exist`).
+  - **Why deferred now.** It is a major migration across five workspace
+    packages (`overhype-me`, `api-server`, `mockup-sandbox`, `api-zod`, `db`)
+    and the generated client. The maintenance pass does not do migrations.
+    Exposure is bounded: the advisory needs an oversized collection to reach
+    a constrained zod schema, and the API's body-size limits cap what a
+    request can carry.
+  - **Cost of waiting.** One High row in `pnpm audit --prod`. That breaks the
+    launch bar Phase 15 sets in the entry above, "no High or Critical", so
+    the migration has to land before Phase 15 closes. orval stays frozen at
+    8.5.3 until then, and Dependabot will keep proposing orval bumps that
+    cannot build.
+  - **Revisit trigger.** Placing it in the launch plan (#628) before Phase 15,
+    or a second zod advisory that reaches a request path, whichever comes
+    first. Bump zod and orval together and regenerate the client.
 
 ## Code-level tech debt
 
@@ -595,49 +630,6 @@ re-gather it when the work is scheduled.
     reclaims its connections when that work finishes.
   - **What remains, not a defect.** The toggle PATCH's setup pass and its
     full sync both run a backfill — admin-visible work, kept on purpose.
-
-- **Three gaps PR #577 recorded for "an immediate follow-up PR" that never shipped (found in the 2026-10-12 batched harvest).**
-  - **Launch plan review (2026-10-13): nothing to place.** All three are fixed on `main`: (1) by #658, (2) by the #653 follow-up, (3) by #655.
-  - **What.** Recorded on workstream #571's harvest notes. Re-read against
-    `main` at the harvest. None of the three has a fix in the window, but
-    none was reproduced either:
-    1. **(P1 as recorded) — both halves FIXED by the bugfixes that
-       followed the harvest.** Diagnosis found the
-       recorded case was one instance of a class: initialization completion
-       was a single process-wide flag, so any switch of the active mode
-       left the new account's webhook unregistered. It is now per mode, and a
-       committed toggle starts setup for the new mode
-       (`stripeModeToggle.test.ts`, *a mode change initializes the newly
-       active mode*). **Observability half FIXED by the bugfix that
-       followed (workstream #652):** the Billing summary attaches a setup
-       state to a verified mode, and the panel reads *Account verified —
-       Stripe setup not finished* with the failing step until the webhook
-       is registered (`stripeModeToggle.test.ts`, *a verified mode whose
-       setup keeps failing reads as failing on the Billing summary*).
-    2. **(P2) — FIXED by the follow-up to #653.** `runStripeVerificationRetryOnce`
-       made its deterministic-refusal skip on the lenient cached mode
-       (`isLiveMode()`) before the strict read, so after a toggle committed
-       by another instance it skipped the newly active mode until the config
-       cache expired. The pass now reads the mode strictly first and skips
-       only once the stored mode is known to be the refused one
-       (`stripeModeToggle.test.ts`, *a refused old mode does not stop the
-       retry seeing a remote switch its cache has not caught up with*).
-    3. **(P2) — FIXED by #655**, with the same leak found and fixed in
-       `routes.stripe` and `routes.adminStripeSync`. As recorded:
-       `stripePaymentRefusal.test.ts` sets `STRIPE_SECRET_KEY_TEST`,
-       `STRIPE_PUBLISHABLE_KEY_TEST` and `STRIPE_ACCOUNT_ID_TEST` in a
-       `beforeEach`. The hook is already scoped inside its `describe`, which
-       is the first half of the fix. Nothing restores the variables, though,
-       so under the api-server runner's `--test-isolation=none` they stay set
-       for every later test in the same process
-       ([`node-test-top-level-hook-is-root-hook.md`](../../.agents/memory/node-test-top-level-hook-is-root-hook.md)).
-  - **Why deferred.** Not deliberately deferred: the follow-up was promised in
-    the harvest notes and never opened. Recorded here so the promise lives
-    somewhere with an owner.
-  - **Cost of waiting.** None now: all three are fixed (workstream #652).
-    The entry stays as the record until the next `/maintenance` prunes it.
-  - **Revisit trigger.** Before the live-mode work in launch Phase 10 (#628),
-    which is the first time a mode toggle is a real operator action.
 
 - **No CI guard against dangling `docs/plans/*` citations from code (found on PR #319's `/document` harvest review).**
   - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking.** The risk is smaller since approved plans are committed (AI-Handbook #204), so a newer citation points at a file that exists; the guard stays for the next tooling pass.
@@ -1000,6 +992,28 @@ re-gather it when the work is scheduled.
     issue is stale, bring the conversion back to David with that evidence, as
     a handbook change. If none is, close this entry as fixed. Older issues are
     outside this check, so it cannot rule out drift on them.
+
+## Documentation
+
+- **Type 2 documentation harvest of production-phase features merged since 2026-10-12 — deferred to the Seed stage (2026-11-01 `/maintenance`).**
+  - **What.** Step 6a of `/maintenance`, the batched harvest of subsystem
+    docs and Manual chapters, did not run on 2026-11-01. The window it owes
+    is every production-phase feature merged since 2026-10-12, the previous
+    pass's marker, and this entry pins that start date. Without the entry,
+    the next pass's mechanical window would start at 2026-11-01 and skip
+    these weeks.
+  - **Why deferred now.** The launch phases (#628) are still deleting and
+    rewriting the surfaces those docs would describe, so a chapter written
+    now would be rewritten at the next pass. This was settled in the planning
+    session for this pass, on its recommendation (#816).
+  - **Cost of waiting.** Subsystem docs and the Manual lag `main` for the
+    length of the window. The harvest-notes comments on each workstream
+    issue keep the source material, so nothing is lost; the harvest just
+    gets larger.
+  - **Revisit trigger.** The launch reaches the **Seed** stage
+    (`docs/ai-context/launch-definition.md`). The first `/maintenance` pass
+    after that runs step 6a over a window that starts on **2026-10-12**,
+    whatever its own marker says, then closes this entry.
 
 ---
 
