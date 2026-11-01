@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { logger } from "./logger";
 import { stripeDriver } from "./stripeDriver.js";
+import { guardPool } from "@workspace/db";
 import type { StripeApi, StripeSyncApi } from "./stripeApi.js";
 import {
   readStripeLiveModeStrict,
@@ -211,7 +212,15 @@ async function buildStripeSync(liveMode: boolean) {
   stripeSyncBuilds++;
   const secretKey = await getStripeSecretKey(liveMode);
   const webhookSecret = await getStripeWebhookSecret(liveMode);
-  return stripeDriver().buildSync({ liveMode, secretKey, webhookSecret });
+  const build = await stripeDriver().buildSync({ liveMode, secretKey, webhookSecret });
+  // stripe-replit-sync builds its own `pg.Pool` with no error listener at all
+  // (`dist/index.js:37`), so a connection the database drops, idle or held,
+  // would crash the server (#826). Guard it where it is reachable.
+  const syncPool = (build as unknown as { postgresClient?: { pool?: unknown } }).postgresClient?.pool;
+  if (syncPool && typeof (syncPool as { on?: unknown }).on === "function") {
+    guardPool(syncPool as Parameters<typeof guardPool>[0], "Stripe sync pool");
+  }
+  return build;
 }
 
 /**
