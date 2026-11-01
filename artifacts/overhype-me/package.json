@@ -18,7 +18,7 @@
     "e2e:surfaces": "playwright test adminQueueHealth adminHelp adminPermissions",
     "e2e:screens": "playwright test publicScreens adminScreens uploadConversion identityFlow",
     "e2e:accounts": "playwright test testAccounts",
-    "e2e:auth": "playwright test authJourney",
+    "e2e:auth": "playwright test authJourney oauthJourney",
     "e2e:storage": "playwright test photoUpload",
     "e2e:billing": "playwright test adminBillingSync",
     "e2e:capture": "playwright test capture/"

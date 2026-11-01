@@ -48,5 +48,12 @@ if (refusals.length > 0) {
 const { installEmailTransportForTestHarness } = await import("../lib/email");
 const { createMailSink } = await import("./mailSink");
 installEmailTransportForTestHarness(createMailSink(process.env.E2E_MAIL_SINK_DIR!));
+// A fake Google and Apple sign-in, only when the journey asks for one (launch
+// Phase 5, plan T6): the server's own callback, upsert and session code run
+// against it; no real provider is reachable from this launcher either way.
+if (process.env.E2E_FAKE_OAUTH_PORT) {
+  const { installFakeOAuthIssuer } = await import("./fakeOAuthIssuer");
+  installFakeOAuthIssuer(Number(process.env.E2E_FAKE_OAUTH_PORT));
+}
 
 await import("../index");

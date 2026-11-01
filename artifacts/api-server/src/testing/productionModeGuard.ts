@@ -63,6 +63,11 @@ export function productionModeRefusals(env: NodeJS.ProcessEnv): string[] {
     refusals.push("TURNSTILE_SECRET_KEY must be one of Cloudflare's published test secrets, never a real one");
   }
 
+  const fakeOAuthPort = (env.E2E_FAKE_OAUTH_PORT ?? "").trim();
+  if (fakeOAuthPort !== "" && !/^\d{4,5}$/.test(fakeOAuthPort)) {
+    refusals.push("E2E_FAKE_OAUTH_PORT must be a local port number for the fake sign-in page");
+  }
+
   const siteBase = env.SITE_BASE_URL ?? "";
   try {
     const url = new URL(siteBase);
