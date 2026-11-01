@@ -235,6 +235,8 @@ async function upsertUser(
       appleLinked: provider === "apple",
       isActive: true,
       emailVerifiedAt: verifiedNow,
+      // Set on insert only: an existing account signing in is not a new registration (0118).
+      registeredUnderOnboarding: true,
     })
     .onConflictDoUpdate({
       target: usersTable.email,

@@ -1,5 +1,5 @@
 /**
- * @purpose The self-service account deletion routes (launch Phase 5, plan S14, David's answers 2 and 7): request deletion after re-authenticating — the password for an account that has one, a sign-in from the last ten minutes for a Google- or Apple-only account — read the pending request, and keep the account. Every transition is the engine's (`lib/accountDeletion.ts`); these routes only authenticate, rate-limit and answer.
+ * @purpose The self-service account deletion routes (launch Phase 5, plan S14, David's answers 2 and 7): request deletion after re-authenticating — the password for an account that has one, a sign-in from the last ten minutes for a Google- or Apple-only account — read the pending request, and keep the account. The admin deletion panel reads every request in progress here, and an admin can keep an account on its owner's behalf. Every transition is the engine's (`lib/accountDeletion.ts`); these routes only authenticate, rate-limit and answer.
  * @subsystem accounts-auth
  */
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -8,10 +8,11 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
-import { acceptAccountDeletion, cancelAccountDeletion, pendingDeletion } from "../lib/accountDeletion";
+import { acceptAccountDeletion, cancelAccountDeletion, listDeletionRequestsForAdmin, pendingDeletion } from "../lib/accountDeletion";
 import { respondToGuardError } from "../lib/adminLockoutGuard";
 import { getSession } from "../lib/auth";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
+import { requireRole } from "../middlewares/tierMiddleware";
 
 const router: IRouter = Router();
 
@@ -88,6 +89,40 @@ router.post("/users/me/deletion/cancel", async (req: Request, res: Response) => 
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (await rateLimited(req, res, "users.deletion.cancel")) return;
   const outcome = await cancelAccountDeletion(req.user.id);
+  if (outcome === "cancelled") { res.json({ cancelled: true }); return; }
+  if (outcome === "too_late") {
+    res.status(409).json({ error: "This account is already being deleted and can no longer be kept.", code: "DELETION_IN_PROGRESS" });
+    return;
+  }
+  res.status(404).json({ error: "This account has no deletion pending." });
+});
+
+// ── The admin deletion panel (plan, Admin/User UX Impact) ─────────────
+// "Purge now" is the admin hard delete (`DELETE /admin/users/:id?hard=true`),
+// which brings a pending request's date forward and runs the engine; on a
+// purge that failed part-way it is also the retry.
+
+const requireAdmin = requireRole("admin");
+
+// GET /admin/account-deletions — every request in progress, and every kept
+// account whose billing clean-up is unfinished.
+router.get("/admin/account-deletions", requireAdmin, async (_req: Request, res: Response) => {
+  const rows = await listDeletionRequestsForAdmin();
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    requests: rows.map((r) => ({
+      ...r,
+      requestedAt: r.requestedAt.toISOString(),
+      purgeAfter: r.purgeAfter.toISOString(),
+      stageUpdatedAt: r.stageUpdatedAt.toISOString(),
+    })),
+  });
+});
+
+// POST /admin/users/:id/deletion/cancel — keep the account on its owner's
+// behalf (they are emailed, as when they keep it themselves).
+router.post("/admin/users/:id/deletion/cancel", requireAdmin, async (req: Request, res: Response) => {
+  const outcome = await cancelAccountDeletion(String(req.params["id"] ?? ""));
   if (outcome === "cancelled") { res.json({ cancelled: true }); return; }
   if (outcome === "too_late") {
     res.status(409).json({ error: "This account is already being deleted and can no longer be kept.", code: "DELETION_IN_PROGRESS" });

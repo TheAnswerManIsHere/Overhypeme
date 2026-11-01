@@ -492,6 +492,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // facts.submitter_deleted_at. DEFERRED like 0115's; source of truth:
   // lib/db/src/schema/accountDeletion.ts and facts.ts.
   "0117_account_deletion_requests",
+
+  // Hand-written expand (Launch Phase 5, increment 5b): one nullable column,
+  // users.registered_under_onboarding, with no default on purpose. DEFERRED
+  // like 0115's; source of truth: lib/db/src/schema/auth.ts.
+  "0118_registered_under_onboarding",
 ]);
 
 interface JournalEntry {

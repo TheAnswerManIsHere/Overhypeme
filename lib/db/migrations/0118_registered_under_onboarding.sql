@@ -1,0 +1,28 @@
+-- Launch Phase 5, increment 5b (plan docs/plans/PLAN_PHASE5_ACCOUNT_IDENTITY.md,
+-- "Account deletion", last sentence; David's answer 6, 2026-10-30): a new
+-- registration that never finishes onboarding is cleaned up 30 days after it
+-- was created, through the deletion engine, and an account created before
+-- the onboarding flow existed is never selected.
+--
+-- `users.registered_under_onboarding` is how the worker tells the two apart.
+-- The two sign-up paths (email and password, and a first Google or Apple
+-- sign-in) set it to true on the row they insert; nothing else writes it.
+--
+-- Row states:
+--   * existing rows — null, which reads as "not a registration under the
+--     onboarding flow": never selected by the clean-up, whatever their
+--     onboarding state. The 26 dev accounts and every production account
+--     created before this release are in this state.
+--   * new self-registrations — true from insert.
+--   * accounts an admin creates — null, like existing rows: an account made
+--     for someone is not a registration they abandoned.
+--
+-- No column default, on purpose. A default of true would mark every existing
+-- row true if anything other than this file added the column (Replit's
+-- publish compares the schema and may add it first), and those accounts would
+-- then be scheduled for deletion. Null-by-default fails safe: a row this file
+-- never touched is never selected.
+--
+-- Idempotent: ADD COLUMN IF NOT EXISTS; no row is rewritten.
+
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "registered_under_onboarding" boolean;

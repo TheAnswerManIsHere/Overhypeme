@@ -198,6 +198,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // synthetic one: a real date is personal data). No consent is invented.
     onboardingCompletedAt: "synthetic:onboarded-at-created",
     onboardingDraft: "null",
+    // 0118: the fixture's people are established accounts, never abandoned registrations.
+    registeredUnderOnboarding: "null",
     dateOfBirth: "synthetic:adult-birth-date",
     marketingConsentAt: "null",
     marketingConsentMethod: "null",

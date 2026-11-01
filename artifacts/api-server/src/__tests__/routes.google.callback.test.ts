@@ -231,6 +231,7 @@ describe("GET /api/callback/google", () => {
       const createdUser = users.find((u) => u.email === testEmail);
       assert.ok(createdUser, `User with email ${testEmail} should exist`);
       assert.ok(createdUser.googleLinked, "googleLinked should be true");
+      assert.equal(createdUser.registeredUnderOnboarding, true, "a first sign-in is a registration the never-onboarded clean-up may select (0118)");
 
       const sessions = await db
         .select()
@@ -238,6 +239,25 @@ describe("GET /api/callback/google", () => {
         .where(eq(sessionsTable.userId, createdUser.id));
 
       assert.ok(sessions.length > 0, "A session row should have been created");
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("an account that already existed is not marked as a new registration when it signs in with Google", async () => {
+    const restoreEnv = applyFakeGoogleEnv();
+    _setClientDiscoveryForTest(makeFakeDiscovery());
+    const testEmail = `${USER_PREFIX}${randomUUID()}@test.local`;
+    await db.insert(usersTable).values({ email: testEmail, isActive: true });
+    _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
+    const state = randomUUID();
+    await _storePendingStateForTest(state, { codeVerifier: "v-legacy", nonce: "n-legacy", returnTo: "/", isPopup: false });
+    try {
+      const res = await request(makeApp()).get("/api/callback/google").query({ code: "fake-google-code-legacy", state });
+      assert.equal(res.status, 302);
+      const [row] = await db.select().from(usersTable).where(eq(usersTable.email, testEmail));
+      assert.ok(row!.googleLinked, "the sign-in linked Google");
+      assert.equal(row!.registeredUnderOnboarding, null, "an older account is never selected by the clean-up");
     } finally {
       restoreEnv();
     }

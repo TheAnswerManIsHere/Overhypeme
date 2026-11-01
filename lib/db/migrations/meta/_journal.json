@@ -827,6 +827,13 @@
       "when": 1785000000000,
       "tag": "0117_account_deletion_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1785100000000,
+      "tag": "0118_registered_under_onboarding",
+      "breakpoints": true
     }
   ]
 }

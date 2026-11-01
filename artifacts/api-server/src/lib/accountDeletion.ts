@@ -26,7 +26,12 @@ import { acquireAdminPopulationLock, assertAdminPopulationSurvives } from "./adm
 import { isReachableAdminSql } from "./adminIdentity";
 import { revokeUserSessions } from "./auth";
 import { aiImageIsOwnersOwn, lockOwnerContent } from "./contentVisibility";
-import { buildAccountDeletionCancelledEmail, buildAccountDeletionScheduledEmail, sendEmail } from "./email";
+import {
+  buildAccountDeletionCancelledEmail,
+  buildAccountDeletionScheduledEmail,
+  buildUnfinishedAccountDeletionEmail,
+  sendEmail,
+} from "./email";
 import { logger } from "./logger";
 import { ObjectStorageService } from "./objectStorage";
 import { refreshTargetCounts } from "./reactions";
@@ -36,6 +41,12 @@ import { memeObjectPaths } from "./storageKeys";
 
 /** The cooling-off before a self-service deletion is purged (David, pick 1). */
 export const DELETION_COOLING_OFF_DAYS = 14;
+
+/** A self-registration still not onboarded this long after it was created is scheduled for deletion (David, answer 6). */
+export const NEVER_ONBOARDED_AFTER_DAYS = 30;
+
+/** At most this many never-onboarded accounts are scheduled per worker run; the next run takes the rest. */
+const NEVER_ONBOARDED_BATCH = 100;
 
 /** Subscription states that still bill or can resume billing: each is cancelled at acceptance (the gap `past_due` left open). */
 const CANCELLABLE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due", "unpaid", "paused", "incomplete"];
@@ -60,11 +71,13 @@ export type AcceptOutcome =
  * reads the request) and they can only cancel. A repeated request returns the
  * pending one unchanged; a request after a cancel starts a new window.
  * The non-destructive stages are kicked right after the commit; the hourly
- * worker finishes whatever that kick did not.
+ * worker finishes whatever that kick did not. `userPremise`, when given, must
+ * hold on the user row once it is locked, or nothing is written and the answer
+ * is `not_found` (the never-onboarded clean-up re-checks its selection here).
  */
 export async function acceptAccountDeletion(
   userId: string,
-  opts: { requestedBy: AccountDeletionRequester; purgeAfter?: Date; now?: Date; kick?: boolean },
+  opts: { requestedBy: AccountDeletionRequester; purgeAfter?: Date; now?: Date; kick?: boolean; userPremise?: SQL },
 ): Promise<AcceptOutcome> {
   const now = opts.now ?? new Date();
   const purgeAfter = opts.purgeAfter ?? new Date(now.getTime() + DELETION_COOLING_OFF_DAYS * 86_400_000);
@@ -76,7 +89,7 @@ export async function acceptAccountDeletion(
     // owner, then the user row — the account purge holds the owner lock while
     // it deletes the user row, so the reverse order here could deadlock.
     await lockOwnerContent(tx, userId);
-    const [user] = await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, userId)).for("update");
+    const [user] = await tx.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.id, userId), opts.userPremise)).for("update");
     if (!user) return { status: "not_found" };
     const [pending] = await tx.select({ purgeAfter: adr.purgeAfter }).from(adr).where(active(userId));
     if (pending) {
@@ -147,6 +160,59 @@ export async function cancelAccountDeletion(userId: string, opts: { notify?: boo
 export async function pendingDeletion(userId: string) {
   const [row] = await db.select().from(adr).where(active(userId));
   return row ?? null;
+}
+
+/** One row of the admin deletion panel. */
+export interface AdminDeletionRow {
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  requestedBy: AccountDeletionRequester;
+  requestedAt: Date;
+  purgeAfter: Date;
+  stage: AccountDeletionStage;
+  stageUpdatedAt: Date;
+  holdReason: string | null;
+  lastError: string | null;
+  attempts: number;
+  /** Kept by its owner, but a subscription the engine cancelled is not settled yet (the worker retries it hourly). */
+  keptWithBillingUnsettled: boolean;
+}
+
+/** The most rows the admin panel shows; more is a sign of a fault, not a page to scroll. */
+const ADMIN_PANEL_LIMIT = 200;
+
+/**
+ * What the admin deletion panel lists: every request still in progress, and
+ * every kept account whose billing clean-up is unfinished, so neither a stuck
+ * purge nor a stuck refresh is invisible. Rows with an error come first, then
+ * the soonest purge.
+ */
+export async function listDeletionRequestsForAdmin(): Promise<AdminDeletionRow[]> {
+  const rows = await db
+    .select({
+      userId: adr.userId,
+      email: usersTable.email,
+      displayName: usersTable.displayName,
+      requestedBy: adr.requestedBy,
+      requestedAt: adr.requestedAt,
+      purgeAfter: adr.purgeAfter,
+      stage: adr.stage,
+      stageUpdatedAt: adr.stageUpdatedAt,
+      holdReason: adr.holdReason,
+      lastError: adr.lastError,
+      attempts: adr.attempts,
+      cancelledAt: adr.cancelledAt,
+    })
+    .from(adr)
+    .innerJoin(usersTable, eq(usersTable.id, adr.userId))
+    .where(or(
+      and(isNull(adr.cancelledAt), ne(adr.stage, "done")),
+      and(isNotNull(adr.cancelledAt), eq(adr.billingUnsettled, true)),
+    ))
+    .orderBy(sql`${adr.lastError} IS NULL`, adr.purgeAfter)
+    .limit(ADMIN_PANEL_LIMIT);
+  return rows.map(({ cancelledAt, ...row }) => ({ ...row, keptWithBillingUnsettled: cancelledAt != null }));
 }
 
 // ── Advancing ─────────────────────────────────────────────────────────
@@ -367,14 +433,18 @@ export async function advanceAccountDeletion(userId: string, now = new Date()): 
           if (!(await compareAndSet(userId, generation, ["accepted"], "subscription_cancelled", { billingUnsettled: false }))) continue;
           break;
         case "subscription_cancelled": {
-          // An admin's purge-now tells no one; a scheduled deletion is told its date.
+          // An admin's purge-now tells no one; a scheduled deletion is told its
+          // date, and an unfinished sign-up is told why it is going.
           if (row.requestedBy !== "admin") {
             const [user] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId));
             if (user?.email) {
+              const keepUrl = `${getSiteBaseUrl()}/account/deletion`;
               await sendEmail({
                 to: user.email,
                 kind: "account_deletion_scheduled",
-                ...buildAccountDeletionScheduledEmail(row.purgeAfter, `${getSiteBaseUrl()}/account/deletion`),
+                ...(row.requestedBy === "unonboarded"
+                  ? buildUnfinishedAccountDeletionEmail(row.purgeAfter, keepUrl)
+                  : buildAccountDeletionScheduledEmail(row.purgeAfter, keepUrl)),
               });
             }
           }
@@ -508,7 +578,54 @@ async function purgeAccount(userId: string): Promise<void> {
 
 // ── The worker ────────────────────────────────────────────────────────
 
+/**
+ * Schedules the deletion of every self-registration that is still not
+ * onboarded `NEVER_ONBOARDED_AFTER_DAYS` after it was created (David, answer
+ * 6): the ordinary request, 14-day window and email, requested by
+ * `unonboarded`. An account created before the onboarding flow, or by an
+ * admin, is never selected (`registered_under_onboarding` is null on both),
+ * and neither is one that has ever had a request: an account that kept itself
+ * once is not scheduled again. Returns how many were scheduled.
+ */
+export async function openNeverOnboardedRequests(opts: { userIds?: string[]; now?: Date } = {}): Promise<{ opened: number; failed: number }> {
+  const now = opts.now ?? new Date();
+  const cutoff = new Date(now.getTime() - NEVER_ONBOARDED_AFTER_DAYS * 86_400_000);
+  // Re-checked on the locked row at acceptance, so an account that finishes
+  // onboarding between this read and its acceptance is left alone.
+  const stillUnfinished = and(
+    eq(usersTable.registeredUnderOnboarding, true),
+    isNull(usersTable.onboardingCompletedAt),
+    lte(usersTable.createdAt, cutoff),
+  );
+  const due = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(and(
+      stillUnfinished,
+      // Spelled by table name: in a single-table select Drizzle renders the
+      // outer column bare, and inside this subquery it would bind to the inner table.
+      sql`NOT EXISTS (SELECT 1 FROM "account_deletion_requests" r WHERE r."user_id" = "users"."id")`,
+      opts.userIds ? inArray(usersTable.id, opts.userIds) : undefined,
+    ))
+    .orderBy(usersTable.createdAt)
+    .limit(NEVER_ONBOARDED_BATCH);
+  let opened = 0;
+  let failed = 0;
+  for (const { id } of due) {
+    try {
+      const outcome = await acceptAccountDeletion(id, { requestedBy: "unonboarded", now, kick: false, userPremise: stillUnfinished });
+      if (outcome.status === "accepted") opened++;
+    } catch (err) {
+      failed++;
+      logger.warn({ err, userId: id }, "[account-deletion] could not schedule a never-onboarded account; retried next run");
+    }
+  }
+  return { opened, failed };
+}
+
 export interface DeletionWorkerCounts {
+  /** Never-onboarded accounts scheduled by this run. */
+  opened: number;
   selected: number;
   advanced: number;
   purged: number;
@@ -522,7 +639,11 @@ export interface DeletionWorkerCounts {
  * destructive stage. `userIds` restricts the run (tests).
  */
 export async function runAccountDeletionWorker(opts: { userIds?: string[]; now?: Date } = {}): Promise<DeletionWorkerCounts> {
-  const counts: DeletionWorkerCounts = { selected: 0, advanced: 0, purged: 0, held: 0, failed: 0 };
+  const counts: DeletionWorkerCounts = { opened: 0, selected: 0, advanced: 0, purged: 0, held: 0, failed: 0 };
+  // New requests first, so this same run sends their emails.
+  const scheduled = await openNeverOnboardedRequests(opts);
+  counts.opened = scheduled.opened;
+  counts.failed += scheduled.failed;
   const rows = await db
     .select({ userId: adr.userId, stage: adr.stage, cancelledAt: adr.cancelledAt })
     .from(adr)
@@ -550,6 +671,6 @@ export async function runAccountDeletionWorker(opts: { userIds?: string[]; now?:
       logger.warn({ err, userId: row.userId }, "[account-deletion] stage failed; retried next run");
     }
   }
-  if (counts.selected > 0) logger.info(counts, "[account-deletion] worker run");
+  if (counts.selected > 0 || counts.failed > 0) logger.info(counts, "[account-deletion] worker run");
   return counts;
 }
