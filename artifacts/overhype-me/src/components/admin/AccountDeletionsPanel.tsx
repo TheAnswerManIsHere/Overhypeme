@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Loader2, RefreshCw, Trash2, UserX } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 
 export interface AdminDeletionRequest {
   userId: string;
@@ -20,7 +21,7 @@ export interface AdminDeletionRequest {
   keptWithBillingUnsettled: boolean;
 }
 
-export const STAGE_LABEL: Record<AdminDeletionRequest["stage"], string> = {
+const STAGE_LABEL: Record<AdminDeletionRequest["stage"], string> = {
   accepted: "Cancelling subscriptions",
   subscription_cancelled: "Emailing the member",
   notified: "Waiting out the 14 days",
@@ -29,7 +30,7 @@ export const STAGE_LABEL: Record<AdminDeletionRequest["stage"], string> = {
   done: "Done",
 };
 
-export const REQUESTER_LABEL: Record<AdminDeletionRequest["requestedBy"], string> = {
+const REQUESTER_LABEL: Record<AdminDeletionRequest["requestedBy"], string> = {
   self: "The member asked",
   admin: "An admin deleted it",
   unonboarded: "Sign-up never finished",
@@ -40,6 +41,11 @@ function when(iso: string): string {
 }
 
 type Busy = { userId: string; action: "keep" | "purge" } | null;
+type Notice = { userId: string; text: string; tone: "ok" | "error" };
+
+function NoticeLine({ notice, className = "" }: { notice: Notice; className?: string }) {
+  return <p className={`text-xs ${notice.tone === "ok" ? "text-green-400" : "text-destructive"} ${className}`} role="status">{notice.text}</p>;
+}
 
 export function AccountDeletionsPanel() {
   const [rows, setRows] = useState<AdminDeletionRequest[] | null>(null);
@@ -47,7 +53,7 @@ export function AccountDeletionsPanel() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [confirmPurge, setConfirmPurge] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ userId: string; text: string; tone: "ok" | "error" } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,9 +93,11 @@ export function AccountDeletionsPanel() {
     try {
       const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}?hard=true`, { method: "DELETE", credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as { deleted?: boolean; message?: string; error?: string; stage?: string };
-      if (res.ok && data.deleted) setNotice({ userId, text: "Purged.", tone: "ok" });
-      else if (res.ok) setNotice({ userId, text: data.message ?? "Not finished yet; the hourly job completes it.", tone: "error" });
-      else setNotice({ userId, text: `${data.error ?? "Purge failed"}${data.stage ? ` (stopped at: ${STAGE_LABEL[data.stage as AdminDeletionRequest["stage"]] ?? data.stage})` : ""}. The hourly job retries it.`, tone: "error" });
+      const stoppedAt = data.stage ? ` (stopped at: ${STAGE_LABEL[data.stage as AdminDeletionRequest["stage"]] ?? data.stage})` : "";
+      const text = res.ok
+        ? (data.deleted ? "Purged." : data.message ?? "Not finished yet; the hourly job completes it.")
+        : `${data.error ?? "Purge failed"}${stoppedAt}. The hourly job retries it.`;
+      setNotice({ userId, text, tone: res.ok && data.deleted ? "ok" : "error" });
       await load();
     } finally {
       setBusy(null);
@@ -151,45 +159,31 @@ export function AccountDeletionsPanel() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {canKeep && (
-                      <button
-                        type="button"
-                        onClick={() => void keep(r.userId)}
-                        disabled={rowBusy}
-                        className="px-3 py-1.5 rounded-sm border border-border text-xs font-medium text-foreground hover:border-muted-foreground/50 disabled:opacity-50"
-                      >
+                      <Button variant="outline" size="sm" onClick={() => void keep(r.userId)} disabled={rowBusy}>
                         {rowBusy && busy?.action === "keep" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Keep account"}
-                      </button>
+                      </Button>
                     )}
                     {canPurge && confirmPurge !== r.userId && (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmPurge(r.userId)}
-                        disabled={rowBusy}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-destructive/60 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                      >
+                      <Button variant="danger" size="sm" onClick={() => setConfirmPurge(r.userId)} disabled={rowBusy} className="gap-1.5">
                         {rowBusy && busy?.action === "purge" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Trash2 className="w-3.5 h-3.5" /> {r.lastError && r.stage === "purging" ? "Retry purge" : "Purge now"}</>}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
                 {confirmPurge === r.userId && (
                   <div className="flex items-center gap-2 flex-wrap border border-destructive/40 rounded-sm px-3 py-2">
                     <p className="text-xs text-foreground flex-1 min-w-[12rem]">Purge this account now? Its memes, photos, images, comments and reactions are removed for good.</p>
-                    <button type="button" onClick={() => void purge(r.userId)} className="px-3 py-1.5 rounded-sm bg-destructive text-destructive-foreground text-xs font-bold">Purge</button>
-                    <button type="button" onClick={() => setConfirmPurge(null)} className="px-3 py-1.5 rounded-sm border border-border text-xs">Cancel</button>
+                    <Button variant="danger" size="sm" onClick={() => void purge(r.userId)}>Purge</Button>
+                    <Button variant="outline" size="sm" onClick={() => setConfirmPurge(null)}>Cancel</Button>
                   </div>
                 )}
-                {notice?.userId === r.userId && (
-                  <p className={`text-xs ${notice.tone === "ok" ? "text-green-400" : "text-destructive"}`} role="status">{notice.text}</p>
-                )}
+                {notice?.userId === r.userId && <NoticeLine notice={notice} />}
               </div>
             );
           })}
         </div>
       )}
-      {notice && rows && !rows.some((r) => r.userId === notice.userId) && (
-        <p className={`px-5 py-3 text-xs ${notice.tone === "ok" ? "text-green-400" : "text-destructive"}`} role="status">{notice.text}</p>
-      )}
+      {notice && rows && !rows.some((r) => r.userId === notice.userId) && <NoticeLine notice={notice} className="px-5 py-3" />}
     </div>
   );
 }

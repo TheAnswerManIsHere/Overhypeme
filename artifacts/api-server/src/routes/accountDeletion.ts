@@ -12,7 +12,7 @@ import { acceptAccountDeletion, cancelAccountDeletion, listDeletionRequestsForAd
 import { respondToGuardError } from "../lib/adminLockoutGuard";
 import { getSession } from "../lib/auth";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
-import { requireRole } from "../middlewares/tierMiddleware";
+import { requireAdmin } from "./admin";
 
 const router: IRouter = Router();
 
@@ -102,21 +102,12 @@ router.post("/users/me/deletion/cancel", async (req: Request, res: Response) => 
 // which brings a pending request's date forward and runs the engine; on a
 // purge that failed part-way it is also the retry.
 
-const requireAdmin = requireRole("admin");
-
 // GET /admin/account-deletions — every request in progress, and every kept
 // account whose billing clean-up is unfinished.
 router.get("/admin/account-deletions", requireAdmin, async (_req: Request, res: Response) => {
   const rows = await listDeletionRequestsForAdmin();
   res.setHeader("Cache-Control", "no-store");
-  res.json({
-    requests: rows.map((r) => ({
-      ...r,
-      requestedAt: r.requestedAt.toISOString(),
-      purgeAfter: r.purgeAfter.toISOString(),
-      stageUpdatedAt: r.stageUpdatedAt.toISOString(),
-    })),
-  });
+  res.json({ requests: rows });
 });
 
 // POST /admin/users/:id/deletion/cancel — keep the account on its owner's

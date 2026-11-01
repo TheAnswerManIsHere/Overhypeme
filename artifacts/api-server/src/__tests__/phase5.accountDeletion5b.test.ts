@@ -10,7 +10,7 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { accountDeletionRequestsTable, usersTable } from "@workspace/db/schema";
-import { eq, isNull, like } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { requireEligibleActor } from "../middlewares/requireEligibleActor.js";
@@ -99,7 +99,7 @@ describe("account deletion, increment 5b", () => {
 
   it("the selection is re-checked on the locked row: an account onboarded since it was read is left alone", async () => {
     const id = await createUser({ onboarded: true, ageDays: 60 });
-    const outcome = await acceptAccountDeletion(id, { requestedBy: "unonboarded", kick: false, userPremise: isNull(usersTable.onboardingCompletedAt) });
+    const outcome = await acceptAccountDeletion(id, { requestedBy: "unonboarded", kick: false });
     assert.equal(outcome.status, "not_found");
     assert.equal(await requestOf(id), null, "nothing written");
     const sessions = await sessionFor(id);
@@ -164,6 +164,6 @@ describe("account deletion, increment 5b", () => {
     const unfinished = buildUnfinishedAccountDeletionEmail(new Date(Date.now() + 14 * DAY), "https://example.test/account/deletion");
     assert.ok(unfinished.text.includes("never finished setting it up"));
     assert.ok(unfinished.text.includes("https://example.test/account/deletion"));
-    assert.ok(unfinished.html.includes("Keep My Account"));
+    assert.ok(unfinished.html?.includes("Keep My Account"));
   });
 });

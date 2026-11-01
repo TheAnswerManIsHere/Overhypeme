@@ -4,7 +4,8 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { DeleteAccountSection, deleteAccountNavigation } from "./DeleteAccountSection";
+import { DeleteAccountSection } from "./DeleteAccountSection";
+import { pageNavigation } from "@/lib/navigation";
 
 function respond(status: number, body: unknown) {
   return vi.fn(async () => ({ ok: status >= 200 && status < 300, status, json: async () => body }) as Response);
@@ -24,7 +25,7 @@ describe("DeleteAccountSection", () => {
   it("sends nothing until understood and the password is typed; then schedules and leaves for the confirmation", async () => {
     const fetchMock = respond(200, { scheduled: true, purgeAfter: "2026-11-15T23:00:00.000Z" });
     vi.stubGlobal("fetch", fetchMock);
-    const go = vi.spyOn(deleteAccountNavigation, "go").mockImplementation(() => {});
+    const go = vi.spyOn(pageNavigation, "go").mockImplementation(() => {});
     render(<DeleteAccountSection hasPassword linkedProviders={[]} />);
     open();
     const submit = screen.getByRole("button", { name: /^Delete my account$/ });
@@ -42,7 +43,7 @@ describe("DeleteAccountSection", () => {
 
   it("a wrong password is said plainly and nothing is left", async () => {
     vi.stubGlobal("fetch", respond(401, { error: "That password is not right.", code: "REAUTH_FAILED" }));
-    const go = vi.spyOn(deleteAccountNavigation, "go").mockImplementation(() => {});
+    const go = vi.spyOn(pageNavigation, "go").mockImplementation(() => {});
     render(<DeleteAccountSection hasPassword linkedProviders={[]} />);
     open();
     fireEvent.click(screen.getByRole("checkbox"));
@@ -54,7 +55,7 @@ describe("DeleteAccountSection", () => {
 
   it("a provider-only account is offered a fresh sign-in that comes back here", async () => {
     vi.stubGlobal("fetch", respond(401, { code: "REAUTH_REQUIRED", providers: ["google"] }));
-    const go = vi.spyOn(deleteAccountNavigation, "go").mockImplementation(() => {});
+    const go = vi.spyOn(pageNavigation, "go").mockImplementation(() => {});
     render(<DeleteAccountSection hasPassword={false} linkedProviders={["google"]} />);
     open();
     expect(screen.queryByLabelText("Your password")).toBeNull();

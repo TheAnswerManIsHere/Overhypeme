@@ -71,13 +71,14 @@ export type AcceptOutcome =
  * reads the request) and they can only cancel. A repeated request returns the
  * pending one unchanged; a request after a cancel starts a new window.
  * The non-destructive stages are kicked right after the commit; the hourly
- * worker finishes whatever that kick did not. `userPremise`, when given, must
- * hold on the user row once it is locked, or nothing is written and the answer
- * is `not_found` (the never-onboarded clean-up re-checks its selection here).
+ * worker finishes whatever that kick did not. A request by `unonboarded` is
+ * re-checked on the locked user row (`neverOnboarded`): an account that has
+ * finished onboarding since it was selected is left alone, answering
+ * `not_found`, whoever the caller is.
  */
 export async function acceptAccountDeletion(
   userId: string,
-  opts: { requestedBy: AccountDeletionRequester; purgeAfter?: Date; now?: Date; kick?: boolean; userPremise?: SQL },
+  opts: { requestedBy: AccountDeletionRequester; purgeAfter?: Date; now?: Date; kick?: boolean },
 ): Promise<AcceptOutcome> {
   const now = opts.now ?? new Date();
   const purgeAfter = opts.purgeAfter ?? new Date(now.getTime() + DELETION_COOLING_OFF_DAYS * 86_400_000);
@@ -89,7 +90,8 @@ export async function acceptAccountDeletion(
     // owner, then the user row — the account purge holds the owner lock while
     // it deletes the user row, so the reverse order here could deadlock.
     await lockOwnerContent(tx, userId);
-    const [user] = await tx.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.id, userId), opts.userPremise)).for("update");
+    const premise = opts.requestedBy === "unonboarded" ? neverOnboarded(now) : undefined;
+    const [user] = await tx.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.id, userId), premise)).for("update");
     if (!user) return { status: "not_found" };
     const [pending] = await tx.select({ purgeAfter: adr.purgeAfter }).from(adr).where(active(userId));
     if (pending) {
@@ -202,7 +204,7 @@ export async function listDeletionRequestsForAdmin(): Promise<AdminDeletionRow[]
       holdReason: adr.holdReason,
       lastError: adr.lastError,
       attempts: adr.attempts,
-      cancelledAt: adr.cancelledAt,
+      keptWithBillingUnsettled: sql<boolean>`${adr.cancelledAt} IS NOT NULL`,
     })
     .from(adr)
     .innerJoin(usersTable, eq(usersTable.id, adr.userId))
@@ -212,7 +214,7 @@ export async function listDeletionRequestsForAdmin(): Promise<AdminDeletionRow[]
     ))
     .orderBy(sql`${adr.lastError} IS NULL`, adr.purgeAfter)
     .limit(ADMIN_PANEL_LIMIT);
-  return rows.map(({ cancelledAt, ...row }) => ({ ...row, keptWithBillingUnsettled: cancelledAt != null }));
+  return rows;
 }
 
 // ── Advancing ─────────────────────────────────────────────────────────
@@ -578,6 +580,15 @@ async function purgeAccount(userId: string): Promise<void> {
 
 // ── The worker ────────────────────────────────────────────────────────
 
+/** A self-registration still not onboarded `NEVER_ONBOARDED_AFTER_DAYS` after it was created, as of `now`. */
+export function neverOnboarded(now: Date): SQL | undefined {
+  return and(
+    eq(usersTable.registeredUnderOnboarding, true),
+    isNull(usersTable.onboardingCompletedAt),
+    lte(usersTable.createdAt, new Date(now.getTime() - NEVER_ONBOARDED_AFTER_DAYS * 86_400_000)),
+  );
+}
+
 /**
  * Schedules the deletion of every self-registration that is still not
  * onboarded `NEVER_ONBOARDED_AFTER_DAYS` after it was created (David, answer
@@ -589,19 +600,11 @@ async function purgeAccount(userId: string): Promise<void> {
  */
 export async function openNeverOnboardedRequests(opts: { userIds?: string[]; now?: Date } = {}): Promise<{ opened: number; failed: number }> {
   const now = opts.now ?? new Date();
-  const cutoff = new Date(now.getTime() - NEVER_ONBOARDED_AFTER_DAYS * 86_400_000);
-  // Re-checked on the locked row at acceptance, so an account that finishes
-  // onboarding between this read and its acceptance is left alone.
-  const stillUnfinished = and(
-    eq(usersTable.registeredUnderOnboarding, true),
-    isNull(usersTable.onboardingCompletedAt),
-    lte(usersTable.createdAt, cutoff),
-  );
   const due = await db
     .select({ id: usersTable.id })
     .from(usersTable)
     .where(and(
-      stillUnfinished,
+      neverOnboarded(now),
       // Spelled by table name: in a single-table select Drizzle renders the
       // outer column bare, and inside this subquery it would bind to the inner table.
       sql`NOT EXISTS (SELECT 1 FROM "account_deletion_requests" r WHERE r."user_id" = "users"."id")`,
@@ -613,7 +616,8 @@ export async function openNeverOnboardedRequests(opts: { userIds?: string[]; now
   let failed = 0;
   for (const { id } of due) {
     try {
-      const outcome = await acceptAccountDeletion(id, { requestedBy: "unonboarded", now, kick: false, userPremise: stillUnfinished });
+      // Acceptance re-checks the selection on the locked row.
+      const outcome = await acceptAccountDeletion(id, { requestedBy: "unonboarded", now, kick: false });
       if (outcome.status === "accepted") opened++;
     } catch (err) {
       failed++;
