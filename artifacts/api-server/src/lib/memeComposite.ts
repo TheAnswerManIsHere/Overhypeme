@@ -190,7 +190,7 @@ async function downloadAsBackground(
   return { type: "image", imageData: buf };
 }
 
-async function resolveBackground(
+export async function resolveBackground(
   imageSource: ImageSource,
   opts: ComposeMemeOptions,
 ): Promise<BackgroundSource> {

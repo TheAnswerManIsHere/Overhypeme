@@ -131,7 +131,6 @@ export const SaveMemeBody = z.object({
   framingTransform: FramingTransformSchema,
   aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
   isPublic: z.boolean().optional(),
-  previewImageBase64: z.string().max(700_000).optional(),
 });
 export type SaveMemeRequest = z.infer<typeof SaveMemeBody>;
 

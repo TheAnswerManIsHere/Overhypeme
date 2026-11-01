@@ -507,11 +507,15 @@ describe("a negative control's verdict", () => {
     assert.equal(run([], stopped).behaved, false);
   });
 
-  it("corrupt-source behaves on journey 4's composed-image failure alone", () => {
-    const four = "journey 4 failed: [journey 4] anyone reads the public meme image: 502 from /api/memes/x/image";
-    const journeys = all().map((j) => (j.journey === "4" ? { ...j, status: "failed" as const, error: "[journey 4] anyone reads the public meme image: 502" } : j));
+  it("corrupt-source behaves on journey 4's save being refused for its photo, alone", () => {
+    const error = '[journey 4] POST /api/memes: 422 {"error":"render_failed","message":"That photo could not be used for a meme."}';
+    const four = `journey 4 failed: ${error}`;
+    const journeys = all().map((j) => (j.journey === "4" ? { ...j, status: "failed" as const, error } : j));
     assert.equal(controlVerdict("corrupt-source", { journeys, coverage: [], red: [four] }).behaved, true);
     assert.equal(controlVerdict("corrupt-source", { journeys, coverage: [], red: [four, "uncovered AI call: openai.chat x"] }).behaved, false);
+    // A failure anywhere else in journey 4 is not the control behaving.
+    const other = all().map((j) => (j.journey === "4" ? { ...j, status: "failed" as const, error: "[journey 4] anyone reads the public meme image: 502" } : j));
+    assert.equal(controlVerdict("corrupt-source", { journeys: other, coverage: [], red: ["journey 4 failed: [journey 4] anyone reads the public meme image: 502"] }).behaved, false);
   });
 });
 

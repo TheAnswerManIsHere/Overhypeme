@@ -113,28 +113,34 @@ resize/recompress (`storage.ts:96-100`); a row lands in
 `upload_image_metadata` (schema `lib/db/src/schema/memes.ts:81-119`,
 tracking width/height/size/Arachnid scan/`isProfile`/`transform`).
 
-**The meme row itself never stores meme image bytes for a photo meme** —
-`POST /memes` saves a *recipe* (`imageSource` pointer + text options), not
-an image (`memes.ts:261-266`). Rendering happens on demand: `GET
-/memes/:slug/image` (`memes.ts:601-731`) resolves the `imageSource`
-(`memes.ts:685-701`), calls `generateMemeBuffer()`
-(`artifacts/api-server/src/lib/memeGenerator.ts`), and serves the composited image. It's cached via
-an ETag over the render-pipeline version + `createdAt` + a hash of the
-rendered bytes (`memes.ts:705-715`), so a pipeline-version bump
-invalidates every previously-cached render even against a 304. Private
-memes get `setNoStore` instead of that public caching (`memes.ts:616-723`).
+**A meme is a file from the moment it is saved** (launch Phase 5, plan S16,
+David 2026-10-30: *"once the meme is generated it has its own life and should
+not be tied back to the source photo in any way"*). `POST /memes`
+(`createMemeRecord`) renders the recipe once with `generateMemeBuffer()`
+(`artifacts/api-server/src/lib/memeGenerator.ts`), through `renderMemeRecipe`
+in `artifacts/api-server/src/lib/memeBake.ts`, stores the JPEG at
+`memeKey(slug, "jpg")` and only then writes the row, with `baked_at` set. The
+caption is personalised with the identity the save used, the one
+`rendered_fact_text` records. The recipe (`imageSource` pointer, text options,
+framing, aspect) stays on the row as metadata for remix and provenance;
+nothing renders from it again.
 
-Pre-recipe-architecture memes (`imageSource === null`) are legacy and
-served straight from a pre-rendered object instead
-(`memeKey(slug, ext)`, branch at `memes.ts:619-655`).
+`GET /memes/:slug/image` serves the stored file for a baked meme and for a
+legacy meme stored before recipes existed (`imageSource === null`), with one
+ETag per slug (stored files are write-once). Deleting the source photo touches
+no meme. A recipe meme saved before baking (`baked_at` null) is baked by the
+boot backfill (`backfillMemeBakes`, run from `index.ts` a few minutes after
+boot; idempotent, counts logged); until then it is rendered live, as every
+recipe meme was before. Private memes get `setNoStore` instead of public
+caching.
 
 Two structural safeguards on every save, independent of meme type: a
 tier-differentiated daily save cap (`createMemeRecord.ts:221-247`) and a
 short-lived idempotency check keyed on the caller + a canonicalized body
 hash, so a double-click can't create duplicate rows
-(`createMemeRecord.ts:50-77,249-270`). If the client sends a rendered
-preview, it's classified for NSFW before persisting; a reject 422s and
-quarantines rather than saving (`createMemeRecord.ts:318-371`).
+(`createMemeRecord.ts:50-77,249-270`). The server never stores a
+browser-rendered image: the unused client-preview path, which NSFW-classified
+a canvas the browser sent, was removed when baking at save arrived (plan S16).
 
 ## AI image memes
 
@@ -205,7 +211,7 @@ storage backend today, not legacy.
 | Content | Stored (real bytes)? | Key builder |
 | --- | --- | --- |
 | Photo-meme background (upload) | Yes | `uploadKey()`, `storageKeys.ts:41-47` — `uploads/{hash2}/{uploadId}.{ext}` |
-| Rendered meme image (recipe meme) | No — rendered on demand, cache only at the HTTP layer | — |
+| Meme image (every meme, baked at save) | Yes | `memeKey()`, `storageKeys.ts:33-38` — `memes/{hash2}/{slug}.{ext}` |
 | Pre-recipe-architecture legacy meme | Yes | `memeKey()`, `storageKeys.ts:33-38` — `memes/{hash2}/{slug}.{ext}` |
 | AI-generated meme background (shared gallery) | Yes | `aiBackgroundKey()`, `storageKeys.ts:14-29` — `ai-backgrounds/{hash2}/{factId}-{gender}-{uniqueKey}.{ext}` |
 

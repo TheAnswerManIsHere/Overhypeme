@@ -475,6 +475,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // broken past 0063, so the delta is DEFERRED like 0103's; source of truth:
   // lib/db/src/schema/auth.ts.
   "0114_account_onboarding_columns",
+
+  // Hand-written expand (Launch Phase 5, increment 4): purge_after and baked_at
+  // on memes, deleted_at and purge_after on user_ai_images and
+  // upload_image_metadata, six partial indexes. DEFERRED like 0114's; source
+  // of truth: lib/db/src/schema/memes.ts and userAiImages.ts.
+  "0115_content_lifecycle_and_meme_bake",
 ]);
 
 interface JournalEntry {

@@ -597,7 +597,8 @@ the exit code says whether the control failed in exactly the expected way):
 `forbidden-request` (a caught vendor request after the self-test, named by
 both observers), `render-failure` (the recorded vendor error reaches the
 render job's failed state), `corrupt-source` (a stored photo replaced by
-non-image bytes makes journey 4's composed image fail), and `upload-failure
+non-image bytes makes journey 4's save refuse it with `render_failed`, since a
+meme is rendered from its photo at save), and `upload-failure
 --variant fixture` (the photo's upload fails, journey 7 completes on the
 fail-open classifier, and the evaluator marks the upload and classification
 missing).

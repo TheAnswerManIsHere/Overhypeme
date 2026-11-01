@@ -203,6 +203,22 @@ function scheduleRateLimitCounterPurger() {
   schedule(BACKLOG_FOLLOW_UP_MS);
 }
 
+// Once per boot, a couple of minutes in: bake every recipe meme saved before
+// memes were baked at save (launch Phase 5, plan S16; lib/memeBake.ts). A
+// no-op once every meme is a file, and safe on several instances at once: a
+// file already stored counts as baked, and baked_at is set only when null.
+function scheduleMemeBakeBackfill() {
+  setTimeout(async () => {
+    try {
+      const { backfillMemeBakes } = await import("./lib/memeBake");
+      const counts = await backfillMemeBakes();
+      if (counts.selected > 0) logger.info(counts, "[meme-bake] backfill");
+    } catch (err) {
+      logger.error({ err }, "[meme-bake] backfill failed");
+    }
+  }, 2 * 60 * 1000).unref();
+}
+
 // Daily cron: send Fact of the Day at 9:00 UTC
 // Hourly, in the published deployment only: one media-backup pair (the
 // database point and the media states it needs), and once a day the backup's
@@ -429,6 +445,7 @@ scheduleDailyFactJob();
 scheduleTransientRenderPurger();
 scheduleRateLimitCounterPurger();
 scheduleMediaBackup();
+scheduleMemeBakeBackfill();
 // Engines: reconcile the typed code catalogue into the DB before pricing
 // cache so the active engines drive the cache refresh.
 reconcileEngines()

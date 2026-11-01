@@ -1,5 +1,5 @@
 import { pgTable, text, serial, integer, varchar, timestamp, jsonb, boolean, index, numeric, check } from "drizzle-orm/pg-core";
-import { isNull, sql } from "drizzle-orm";
+import { isNotNull, isNull, sql } from "drizzle-orm";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
 
@@ -38,6 +38,18 @@ export const memesTable = pgTable("memes", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Soft-delete tombstone. NULL = live; non-NULL = deleted by creator. Row is kept for referential integrity. */
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  /**
+   * When a meme its owner deleted is destroyed: `deleted_at` + the restore
+   * window (launch Phase 5, 0115). NULL on a live row, and on a tombstone from
+   * before Phase 5, which is never restorable and never purged.
+   */
+  purgeAfter: timestamp("purge_after", { withTimezone: true }),
+  /**
+   * When the meme's JPEG was rendered from its recipe and stored at
+   * `memeKey(slug)` (0115, plan S16). NULL on a recipe meme not yet baked and
+   * on a legacy meme stored as a file before recipes existed.
+   */
+  bakedAt: timestamp("baked_at", { withTimezone: true }),
   /** Aspect ratio of the meme canvas: "landscape" (16:9), "square" (1:1), or "portrait" (9:16). */
   aspectRatio: varchar("aspect_ratio", { length: 20 }).notNull().default("landscape"),
   /** Fact text as rendered at creation time (frozen — preserves the creator's name/pronouns forever). */
@@ -70,6 +82,9 @@ export const memesTable = pgTable("memes", {
   index("IDX_memes_heart_count").on(table.heartCount),
   index("IDX_memes_status").on(table.status),
   index("IDX_memes_artifact_type").on(table.artifactType),
+  index("IDX_memes_purge_after").on(table.purgeAfter).where(isNotNull(table.purgeAfter)),
+  // The boot backfill's selection (lib/memeBake.ts): empty once every recipe meme is baked.
+  index("IDX_memes_unbaked").on(table.id).where(sql`${table.bakedAt} IS NULL AND ${table.imageSource} IS NOT NULL AND ${table.deletedAt} IS NULL`),
   check(
     "memes_image_transform_chk",
     sql`${table.imageTransform} IS NULL OR ${table.imageTransform} IN ('pulid','pulid_fallback_text')`,
@@ -87,6 +102,10 @@ export const uploadImageMetadataTable = pgTable("upload_image_metadata", {
   fileSizeBytes: integer("file_size_bytes").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   userId: varchar("user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  /** Soft-delete by the owner (launch Phase 5, 0115). NULL = live. */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  /** When a deleted upload is destroyed: `deleted_at` + the restore window. NULL while live. */
+  purgeAfter: timestamp("purge_after", { withTimezone: true }),
   /** Arachnid Shield classification (e.g. `csam`, `harmful-abusive-material`, `no-known-match`). */
   arachnidClassification: varchar("arachnid_classification", { length: 40 }),
   /** Match precision: `exact`, `near`, or null when no match. */
@@ -129,6 +148,8 @@ export const uploadImageMetadataTable = pgTable("upload_image_metadata", {
   sourceImageAnalysisVersion: varchar("source_image_analysis_version", { length: 16 }),
 }, (t) => [
   index("IDX_uim_user_id").on(t.userId),
+  index("IDX_uim_user_live").on(t.userId).where(isNull(t.deletedAt)),
+  index("IDX_uim_purge_after").on(t.purgeAfter).where(isNotNull(t.purgeAfter)),
   index("IDX_uim_arachnid_sha256").on(t.arachnidSha256Hex),
   index("IDX_uim_user_transform_fact").on(t.userId, t.transform, t.factId),
   index("IDX_uim_pulid_dedup")
