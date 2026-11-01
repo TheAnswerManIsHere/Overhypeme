@@ -11,7 +11,7 @@
  * its `SELECT` from these maps, addresses `public.<table>` only, and reads
  * nothing else.
  *
- * The schema index exports 57 tables; the two dead declarations in
+ * The schema index exports 58 tables; the two dead declarations in
  * `lib/db/src/schema/conversations.ts` / `messages.ts` are not exported, so no
  * code path — this one included — can read or write them.
  */
@@ -219,6 +219,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     id: "keep",
     text: "fact-text",
     submittedById: "map-user",
+    submitterDeletedAt: "keep",
     parentId: "ref:facts",
     useCase: "keep",
     upvotes: "keep",
@@ -514,6 +515,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.asyncJobsTable, "job-state", "job rows are executable work and their payloads carry recipients and results"),
   exclude(s.workerLaneHeartbeatsTable, "job-state", "per-process worker liveness"),
   exclude(s.membershipLeasesTable, "job-state", "fenced leases held by running workers"),
+  exclude(s.accountDeletionRequestsTable, "job-state", "a deletion request is scheduled destructive work: loaded elsewhere, it would purge an account"),
   exclude(s.quarantinedMemesTable, "child-safety", "the child-safety boundary"),
   exclude(s.ncmecReportsTable, "child-safety", "the child-safety boundary"),
   exclude(s.ncmecSafetyAuditLogTable, "child-safety", "the child-safety boundary"),

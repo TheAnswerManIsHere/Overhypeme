@@ -30,7 +30,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * from the current contents of `reactions`. Runs inside the caller's tx so
  * counts stay consistent with the reaction write that triggered them.
  */
-async function refreshTargetCounts(tx: Tx, targetType: ReactionTargetType, targetId: number): Promise<void> {
+export async function refreshTargetCounts(tx: Tx, targetType: ReactionTargetType, targetId: number): Promise<void> {
   if (targetType === "fact") {
     const [{ upvotes, downvotes }] = await tx
       .select({

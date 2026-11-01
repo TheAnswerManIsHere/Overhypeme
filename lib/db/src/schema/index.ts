@@ -30,3 +30,4 @@ export * from "./factTextEditHistory";
 export * from "./factEnrichmentVersions";
 export * from "./engineRevisionBumps";
 export * from "./evalRuns";
+export * from "./accountDeletion";

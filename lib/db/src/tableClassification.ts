@@ -150,6 +150,9 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   password_reset_tokens: { class: "excluded", excluded: "sessions" },
   oauth_pending_states: { class: "excluded", excluded: "sessions" },
   async_jobs: { class: "excluded", excluded: "jobs" },
+  // Scheduled destructive work (launch Phase 5, 0117): copied elsewhere, a
+  // request would purge an account there.
+  account_deletion_requests: { class: "excluded", excluded: "jobs" },
   ncmec_reports: { class: "excluded", excluded: "childSafety" },
   ncmec_safety_audit_log: { class: "excluded", excluded: "childSafety" },
   quarantined_memes: { class: "excluded", excluded: "childSafety" },

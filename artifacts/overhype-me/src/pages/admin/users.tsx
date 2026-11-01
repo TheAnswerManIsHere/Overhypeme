@@ -167,7 +167,7 @@ export default function AdminUsers() {
     sessionsRevoked?: number;
   } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleteErrorStage, setDeleteErrorStage] = useState<"collect" | "membership" | "nullify" | "delete" | "stripe" | "sessions" | "deactivate" | null>(null);
+  const [deleteErrorStage, setDeleteErrorStage] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [reactivating, setReactivating] = useState(false);
 
@@ -417,7 +417,9 @@ export default function AdminUsers() {
         success?: boolean;
         user?: User;
         error?: string;
-        stage?: "collect" | "membership" | "nullify" | "delete" | "stripe" | "sessions" | "deactivate";
+        deleted?: boolean;
+        message?: string;
+        stage?: string;
         summary?: {
           aiImagesDeleted?: number;
           memeImagesDeleted?: number;
@@ -428,6 +430,14 @@ export default function AdminUsers() {
       };
       if (!res.ok) {
         setDeleteError(data.error ?? "Deletion failed");
+        setDeleteErrorStage(data.stage ?? null);
+        setDeleteModal("error");
+        return;
+      }
+      // A hard delete the engine could not finish now (a billing dispute holds
+      // it) is shown where it stopped; the hourly worker finishes it.
+      if (hard && data.deleted === false) {
+        setDeleteError(data.message ?? "Not finished yet; the hourly job will complete it.");
         setDeleteErrorStage(data.stage ?? null);
         setDeleteModal("error");
         return;
@@ -610,42 +620,36 @@ export default function AdminUsers() {
                 )}
 
                 {/* Checklist
-                    Hard delete stage → failed index:
-                      collect:0  membership:4  nullify:5  delete:6
+                    Hard delete (the account deletion engine) stage → failed index:
+                      accepted:1  subscription_cancelled/notified/held:2  purging:3
                     Soft delete stage → failed index:
                       stripe:0  sessions:1  deactivate:2
                     Items before failedIndex → green; failedIndex → red X; after → neutral
                 */}
                 {(() => {
                   if (deleteIsHard) {
+                    // The account deletion engine's stages (launch Phase 5):
+                    // the stage a failure or a hold stopped at marks its row.
                     const stageToFailedIndex: Record<string, number> = {
-                      collect: 0,
-                      membership: 4,
-                      nullify: 5,
-                      delete: 6,
+                      accepted: 1,
+                      subscription_cancelled: 2,
+                      notified: 2,
+                      held: 2,
+                      purging: 3,
                     };
                     const failedIndex =
                       deleteModal === "error"
-                        ? stageToFailedIndex[deleteErrorStage ?? "collect"] ?? 0
+                        ? stageToFailedIndex[deleteErrorStage ?? "purging"] ?? 0
                         : -1;
                     const isDone = (i: number) => deleteModal === "done" || (deleteModal === "error" && i < failedIndex);
                     const isFailed = (i: number) => deleteModal === "error" && i === failedIndex;
                     const isNeutral = (i: number) => deleteModal === "error" && i > failedIndex;
 
                     const items = [
-                      "Collecting storage file list",
-                      isDone(1) && deleteSummary
-                        ? `Deleted ${deleteSummary.aiImagesDeleted ?? 0} AI-generated image${(deleteSummary.aiImagesDeleted ?? 0) !== 1 ? "s" : ""}`
-                        : "Deleting AI-generated images",
-                      isDone(2) && deleteSummary
-                        ? `Deleted ${deleteSummary.memeImagesDeleted ?? 0} meme image${(deleteSummary.memeImagesDeleted ?? 0) !== 1 ? "s" : ""}`
-                        : "Deleting meme images",
-                      isDone(3) && deleteSummary
-                        ? (deleteSummary.subscriptionCanceled ? "Subscription canceled" : "No active subscription")
-                        : "Canceling active subscription",
-                      "Removing membership & billing records",
-                      "Unlinking facts, comments & shared content",
-                      "Removing user account",
+                      "Signing the account out and hiding its content",
+                      "Canceling subscriptions",
+                      deleteErrorStage === "held" ? "Held by an open billing dispute" : "Checking for billing disputes",
+                      "Removing files, content and the account (facts stay, credited to a former member)",
                     ];
 
                     return (

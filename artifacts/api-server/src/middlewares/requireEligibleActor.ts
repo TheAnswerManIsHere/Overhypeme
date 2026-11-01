@@ -53,13 +53,16 @@ const RECOVERY: readonly RouteKey[] = [
 export const GATE_EXCEPTIONS: Readonly<Record<Exclude<Eligibility, "eligible">, readonly RouteKey[]>> = {
   // Increment 6 decides suspension; only logout works there (transition table).
   suspended: ["POST /auth/logout"],
-  // Increment 5 adds the cancel route, the one write that state allows.
-  deletion_pending: [...RECOVERY],
+  // Keeping the account is the one write a pending deletion allows (Increment 5).
+  deletion_pending: [...RECOVERY, "POST /users/me/deletion/cancel"],
   unverified: [...RECOVERY],
   unonboarded: [
     ...RECOVERY,
     "PUT /users/me/onboarding/draft",
     "POST /users/me/onboarding",
+    // A verified account that never finished set-up may still leave (plan: open
+    // to an eligible account and to a verified, un-onboarded one).
+    "POST /users/me/deletion",
   ],
 };
 

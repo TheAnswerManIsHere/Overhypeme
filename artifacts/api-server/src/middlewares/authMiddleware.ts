@@ -18,6 +18,7 @@ import {
 import { deriveUserRole } from "../lib/userRole";
 import { effectiveTierExpr } from "../lib/membershipState";
 import { identityFieldsOf } from "../lib/eligibility";
+import { userLeaving } from "../lib/contentVisibility";
 
 declare global {
   namespace Express {
@@ -121,6 +122,7 @@ export async function authMiddleware(
         emailVerifiedAt: usersTable.emailVerifiedAt,
         onboardingCompletedAt: usersTable.onboardingCompletedAt,
         dateOfBirth: usersTable.dateOfBirth,
+        deletionPending: userLeaving(),
       })
       .from(usersTable)
       .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))
