@@ -133,7 +133,10 @@ export function requireEligibleActor(req: Request, res: Response, next: NextFunc
   if (state === "eligible" && req.method !== "POST") return next();
   const path = apiPath(req);
   if (path === null) return next();
-  const method = req.method.toUpperCase();
+  // Express runs a GET handler for HEAD when no HEAD handler exists, so a
+  // HEAD is the GET it will become (PR #801 round 1).
+  const requested = req.method.toUpperCase();
+  const method = requested === "HEAD" ? "GET" : requested;
   if (!isStateChanging(method, path)) return next();
 
   if (state !== "eligible") {

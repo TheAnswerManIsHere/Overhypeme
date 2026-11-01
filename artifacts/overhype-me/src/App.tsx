@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useRef } from "react";
 import { lazyWithRetry as lazy } from "@/lib/lazy-retry";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation, useSearch } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sentry } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,7 +12,7 @@ import { ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
-import { setupRedirectFor } from "@/lib/setup-redirect";
+import { currentDestination, setupRedirectFor } from "@/lib/setup-redirect";
 import SentryFallback from "@/components/SentryFallback";
 
 // Pages — lazy-loaded so each route is its own JS chunk
@@ -166,11 +166,14 @@ function AuthProfileSync() {
 function SetupRedirect() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const [location, setLocation] = useLocation();
+  // Subscribed so a query-only navigation re-runs the effect; the value read
+  // is the raw query (see currentDestination).
+  const search = useSearch();
   useEffect(() => {
     if (isLoading || !isAuthenticated) return;
-    const target = setupRedirectFor(user?.eligibility, location);
+    const target = setupRedirectFor(user?.eligibility, currentDestination(location, window.location.search));
     if (target) setLocation(target);
-  }, [isAuthenticated, isLoading, user?.eligibility, location, setLocation]);
+  }, [isAuthenticated, isLoading, user?.eligibility, location, search, setLocation]);
   return null;
 }
 

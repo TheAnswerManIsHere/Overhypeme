@@ -146,6 +146,12 @@ for (const state of ["unverified", "unonboarded"] as const) {
       assert.equal(res.body.code, REFUSAL_CODE[state]);
     });
 
+    it("is refused the inventoried mutating GET sent as HEAD, which Express runs as the GET", async () => {
+      const own = await bearer(userId);
+      const res = await request(createApp()).head("/api/link/google").set("authorization", `Bearer ${own}`);
+      assert.equal(res.status, 403);
+    });
+
     it("is refused the inventoried mutating GET", async () => {
       const own = await bearer(userId);
       const res = await request(createApp()).get("/api/link/google").set("authorization", `Bearer ${own}`);

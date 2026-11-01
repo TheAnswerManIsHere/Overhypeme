@@ -120,6 +120,36 @@ describe("validators/personalName", () => {
       assert.equal(r.ok && r.value, "she/her they/them");
     });
 
+    // The pronoun editor's custom set, `subj|obj|poss|possPro|refl|s|p`
+    // (serializeCustom in the web's lib/pronouns.ts), is a structure, not text:
+    // the pipes are its delimiters (launch Phase 5, PR #801 round 1).
+    it("keeps a custom pronoun set intact, singular and plural", async () => {
+      for (const v of ["xe|xem|xyr|xyrs|xemself|s", "fae|faer|faer|faers|faerself|s", "they|them|their|theirs|themselves|p"]) {
+        const r = await sanitizeAndValidatePronouns(v);
+        assert.equal(r.ok, true, v);
+        assert.equal(r.ok && r.value, v);
+      }
+    });
+
+    it("allows the empty fields the editor allows, and cleans each field like a word", async () => {
+      const r = await sanitizeAndValidatePronouns("ze|hir||| hirself |s");
+      assert.equal(r.ok && r.value, "ze|hir|||hirself|s");
+      const stripped = await sanitizeAndValidatePronouns("ze<|hir|hir|hirs|hirself|s");
+      assert.equal(stripped.ok && stripped.value, "ze|hir|hir|hirs|hirself|s");
+    });
+
+    it("refuses a custom field over the per-word cap, a wrong part count, and a bad verb marker", async () => {
+      assert.equal((await sanitizeAndValidatePronouns(`xe|xem|xyr|xyrs|${"x".repeat(25)}|s`)).ok, false);
+      assert.equal((await sanitizeAndValidatePronouns("xe|xem|xyr|xyrs|s")).ok, false);
+      assert.equal((await sanitizeAndValidatePronouns("xe|xem|xyr|xyrs|xemself|s|p")).ok, false);
+      assert.equal((await sanitizeAndValidatePronouns("xe|xem|xyr|xyrs|xemself|x")).ok, false);
+      assert.equal((await sanitizeAndValidatePronouns("|||||s")).ok, false, "a set with no forms at all is empty");
+    });
+
+    it("refuses a field holding two words", async () => {
+      assert.equal((await sanitizeAndValidatePronouns("xe xe|xem|xyr|xyrs|xemself|s")).ok, false);
+    });
+
     it("rejects pronouns whose part exceeds the per-word cap", async () => {
       const r = await sanitizeAndValidatePronouns("a".repeat(25) + "/them");
       assert.equal(r.ok, false);

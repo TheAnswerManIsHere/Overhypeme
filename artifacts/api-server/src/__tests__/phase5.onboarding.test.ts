@@ -135,6 +135,33 @@ describe("POST /api/users/me/onboarding", () => {
     assert.equal(me.body.user.is18Plus, true);
   });
 
+  it("keeps a custom pronoun set exactly as chosen", async () => {
+    const id = await user();
+    const custom = "fae|faer|faer|faers|faerself|s";
+    const res = await request(createApp()).post("/api/users/me/onboarding").set("authorization", `Bearer ${await bearer(id)}`).send({ ...COMPLETE, pronouns: custom });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal((await row(id)).pronouns, custom);
+  });
+
+  it("a profile edit keeps a custom pronoun set exactly as chosen", async () => {
+    const id = await user({ onboarded: true });
+    const custom = "xe|xem|xyr|xyrs|xemself|p";
+    const res = await request(createApp()).patch("/api/users/me").set("authorization", `Bearer ${await bearer(id)}`).send({ pronouns: custom });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal((await row(id)).pronouns, custom);
+  });
+
+  it("sign-up keeps a custom pronoun set exactly as chosen", async () => {
+    const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+    const custom = "ze|hir|hir|hirs|hirself|s";
+    const res = await request(createApp()).post("/api/auth/register")
+      .send({ email, password: "long-enough-1", firstName: "Zed", lastName: "Doe", displayName: "Zed", pronouns: custom });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const [r] = await db.select({ pronouns: usersTable.pronouns, id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email));
+    assert.equal(r!.pronouns, custom);
+    await db.delete(usersTable).where(eq(usersTable.id, r!.id));
+  });
+
   it("records how consent was given: ticked by hand outside the US, declined anywhere", async () => {
     const ticked = await user();
     await request(createApp()).post("/api/users/me/onboarding").set("authorization", `Bearer ${await bearer(ticked)}`).set("cf-ipcountry", "GB").send(COMPLETE);
