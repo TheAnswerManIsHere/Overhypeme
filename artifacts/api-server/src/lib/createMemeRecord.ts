@@ -22,26 +22,15 @@ import {
   usersTable,
 } from "@workspace/db/schema";
 import { and, eq, gt, count, isNull } from "drizzle-orm";
-import {
-  ImageSourceSchema as StoredImageSourceSchema,
-  type ImageSource,
-  type AllowedPronouns,
-} from "./validators/memeBuilder";
-import { z } from "zod";
+import { type ImageSource, type AllowedPronouns } from "./validators/memeBuilder";
 import { renderPersonalized } from "./renderCanonical";
-import { ObjectStorageService } from "./objectStorage";
 import { getConfigInt } from "./adminConfig";
 import { userOwnsUpload } from "./uploadOwnership";
-import { classifyAndDecide } from "./moderation/nsfwClassifier";
-import { quarantineImage } from "./moderation/quarantine";
-import { GENERIC_REJECT_MESSAGE } from "./moderation/types";
-import { memeKey } from "./storageKeys";
 import { can, type Principal } from "./featureAccess";
 import { getUploadImageMetadata } from "./userImageUpload";
+import { renderMemeRecipe, storeMemeFile } from "./memeBake";
 import { logger } from "./logger";
 import { effectiveTierExpr } from "./membershipState";
-
-type StoredImageSource = z.infer<typeof StoredImageSourceSchema>;
 
 const FREE_TIER_DAILY_SAVE_CAP_DEFAULT = 30;
 const LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT = 200;
@@ -90,12 +79,6 @@ export interface CreateMemeRecordInput {
   isPublic?: boolean;
   name?: string;
   pronouns?: AllowedPronouns;
-  /**
-   * Base64-encoded JPEG of the client-rendered preview canvas. When present
-   * the bytes are NSFW-classified and (on accept) uploaded to GCS so the
-   * meme is served as a stored bitmap rather than rendered on demand.
-   */
-  previewImageBase64?: string;
   /**
    * The authorization decisions for the features this path gates, resolved by
    * the CALLER at submission time.
@@ -169,7 +152,7 @@ export class CreateMemeError extends Error {
 export async function createMemeRecord(
   input: CreateMemeRecordInput,
 ): Promise<CreateMemeRecordResult> {
-  const { userId, factId, textOptions, framingTransform, previewImageBase64 } = input;
+  const { userId, factId, textOptions, framingTransform } = input;
   let imageSource = input.imageSource;
   const aspectRatio = input.aspectRatio ?? "landscape";
 
@@ -283,7 +266,7 @@ export async function createMemeRecord(
 
   // ── Personalisation snapshot ────────────────────────────────────────
   const [profile] = await db
-    .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns, nsfwModeEnabled: usersTable.nsfwModeEnabled })
+    .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
@@ -313,77 +296,36 @@ export async function createMemeRecord(
   // ── Determine templateId for DB ─────────────────────────────────────
   const templateIdForDb = "photo_upload";
 
-  // ── Preview classifier (image-only path) ────────────────────────────
-  let storedImageSource: StoredImageSource | null = imageSource;
-  let classifierScoreForMeme: number | null = null;
-  let isNsfwForMeme = false;
-
-  const objectStorageService = new ObjectStorageService();
-
-  if (previewImageBase64) {
-    const imgBuffer = Buffer.from(previewImageBase64, "base64");
-    const { getFalApiKey, ensureFalConfigured, fal } = await import("./falClient");
-    if (!getFalApiKey()) {
-      logger.warn("[createMemeRecord] fal.ai key not configured — skipping NSFW classifier on preview");
-    } else {
-      let classifierUrl: string | null = null;
-      try {
-        ensureFalConfigured();
-        const blob = new Blob([new Uint8Array(imgBuffer)], { type: "image/jpeg" });
-        classifierUrl = await fal.storage.upload(blob);
-      } catch (uErr) {
-        logger.warn({ err: uErr }, "[createMemeRecord] failed to upload preview to fal storage for classification — failing closed");
-      }
-
-      if (classifierUrl) {
-        const decision = await classifyAndDecide(classifierUrl, {
-          nsfwModeEnabled: !!profile?.nsfwModeEnabled,
-        });
-        if (decision.outcome === "reject" || decision.outcome === "error") {
-          if (decision.outcome === "reject") {
-            try {
-              await quarantineImage({
-                source: "classifier",
-                bytes: imgBuffer,
-                mimeType: "image/jpeg",
-                userId,
-                evidence: {
-                  source: "classifier",
-                  classifierScore: decision.score,
-                  classifierModel: decision.model,
-                  raw: decision.raw,
-                },
-                reportToNcmec: false,
-              });
-            } catch (qErr) {
-              logger.error({ err: qErr }, "[createMemeRecord] quarantine failed for preview classifier reject");
-            }
-          }
-          throw new CreateMemeError(422, { error: GENERIC_REJECT_MESSAGE });
-        }
-        classifierScoreForMeme = decision.score;
-        isNsfwForMeme = decision.isNsfwTag;
-      } else {
-        throw new CreateMemeError(503, { error: "Moderation service unavailable. Please try again." });
-      }
-    }
-
-    try {
-      await objectStorageService.uploadObjectBuffer({
-        subPath: memeKey(slug, "jpg"),
-        buffer: imgBuffer,
-        contentType: "image/jpeg",
-      });
-      storedImageSource = null;
-    } catch (uploadErr) {
-      logger.warn({ uploadErr }, "[createMemeRecord] Preview image upload failed — falling back to server-side render");
-    }
-  }
-
   // ── Upload metadata (only for type=upload) ──────────────────────────
   const uploadMeta = imageSource.type === "upload"
     ? await getUploadImageMetadata(imageSource.uploadKey)
     : null;
+
+  // ── Bake (plan S16) ─────────────────────────────────────────────────
+  // The meme is rendered once, here, from the stored photo and stored as its
+  // own file before its row exists, so from its first view it no longer
+  // depends on the photo. The caption uses the identity this save used, the
+  // same one `renderedFactText` records.
+  let baked: Buffer;
+  try {
+    baked = await renderMemeRecipe({
+      fact,
+      creator: effectiveName ? { displayName: effectiveName, pronouns: effectivePronouns } : undefined,
+      textOptions: textOptions ?? null,
+      imageSource,
+      aspectRatio,
+      framingTransform: framingTransform ?? null,
+    });
+  } catch (err) {
+    logger.warn({ err, userId }, "[createMemeRecord] could not render the meme from its photo");
+    throw new CreateMemeError(422, { error: "render_failed", message: "That photo could not be used for a meme." });
+  }
+  try {
+    await storeMemeFile(slug, baked);
+  } catch (err) {
+    logger.error({ err, slug }, "[createMemeRecord] could not store the baked meme");
+    throw new CreateMemeError(503, { error: "storage_unavailable", message: "The meme could not be saved. Try again." });
+  }
 
   // ── Persist ─────────────────────────────────────────────────────────
   const insertValues: typeof memesTable.$inferInsert = {
@@ -392,7 +334,7 @@ export async function createMemeRecord(
     imageUrl: `/api/memes/${slug}/image`,
     permalinkSlug: slug,
     textOptions: (textOptions ?? null) as never,
-    imageSource: storedImageSource as never,
+    imageSource: imageSource as never,
     framingTransform: (framingTransform ?? null) as never,
     isPublic,
     isLowRes: uploadMeta?.isLowRes ?? false,
@@ -402,9 +344,8 @@ export async function createMemeRecord(
     createdById: userId,
     aspectRatio,
     renderedFactText: renderedFactText ?? null,
-    nsfwClassifierScore: classifierScoreForMeme != null ? classifierScoreForMeme.toFixed(4) : null,
-    isNsfw: isNsfwForMeme,
     artifactType: "image",
+    bakedAt: new Date(),
   };
 
   const [meme] = await db

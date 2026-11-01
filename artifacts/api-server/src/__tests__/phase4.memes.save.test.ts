@@ -10,6 +10,7 @@
  */
 
 import { ownUpload } from "./helpers/ownedUpload.js";
+import { photoBackgrounds } from "./helpers/photoBackground.js";
 import { identityFieldsOf } from "../lib/eligibility.js";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -141,275 +142,283 @@ async function cleanup() {
 before(cleanup);
 after(cleanup);
 
-describe("POST /api/memes — auth gate", () => {
-  it("returns 401 for an anonymous caller", async () => {
-    const factId = await insertFact("a fact");
-    const res = await request(makeAnonApp())
-      .post("/memes")
-      .send({
-        factId,
-        imageSource: photoFor("anonymous"),
-      });
-    assert.equal(res.status, 401);
-  });
-});
+// A meme is rendered from its photo's bytes at save (plan S16), so the photos
+// live in the local storage double for the length of this file's suites.
+describe("POST /api/memes (photos in the local storage double)", () => {
+  const photos = photoBackgrounds();
+  before(() => photos.setUp());
+  after(() => photos.tearDown());
 
-describe("POST /api/memes — slug shape", () => {
-  it("returns a 10-char nanoid slug", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact("a fact", { submittedById: userId });
-
-    const res = await request(makeAuthedApp(userId))
-      .post("/memes")
-      .send({
-        factId,
-        imageSource: photoFor(userId),
-      })
-      .expect(201);
-
-    assert.match(res.body.permalinkSlug, /^[A-Za-z0-9]{10}$/);
-    assert.equal(res.body.permalinkSlug, res.body.slug);
-    assert.equal(res.body.permalinkUrl, `/m/${res.body.permalinkSlug}`);
-  });
-});
-
-describe("POST /api/memes — idempotency", () => {
-  it("returns the same meme when called twice with identical inputs in <60s", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact("idempotent", { submittedById: userId });
-
-    const body = {
-      factId,
-      imageSource: photoFor(userId),
-    };
-
-    const a = await request(makeAuthedApp(userId)).post("/memes").send(body).expect(201);
-    const b = await request(makeAuthedApp(userId)).post("/memes").send(body).expect(200);
-
-    assert.equal(b.body.id, a.body.id, "second POST must return the first meme's id");
-    assert.equal(b.body.permalinkSlug, a.body.permalinkSlug);
-    assert.equal(b.body.idempotent, true);
-
-    // Only one row should be in memes for that user.
-    const rows = await db.select().from(memesTable).where(eq(memesTable.createdById, userId));
-    assert.equal(rows.length, 1);
+  describe("POST /api/memes — auth gate", () => {
+    it("returns 401 for an anonymous caller", async () => {
+      const factId = await insertFact("a fact");
+      const res = await request(makeAnonApp())
+        .post("/memes")
+        .send({
+          factId,
+          imageSource: photoFor("anonymous"),
+        });
+      assert.equal(res.status, 401);
+    });
   });
 
-  it("creates a distinct meme when framingTransform differs", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact("distinct framing", { submittedById: userId });
+  describe("POST /api/memes — slug shape", () => {
+    it("returns a 10-char nanoid slug", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact("a fact", { submittedById: userId });
 
-    const a = await request(makeAuthedApp(userId))
-      .post("/memes")
-      .send({
+      const res = await request(makeAuthedApp(userId))
+        .post("/memes")
+        .send({
+          factId,
+          imageSource: photoFor(userId),
+        })
+        .expect(201);
+
+      assert.match(res.body.permalinkSlug, /^[A-Za-z0-9]{10}$/);
+      assert.equal(res.body.permalinkSlug, res.body.slug);
+      assert.equal(res.body.permalinkUrl, `/m/${res.body.permalinkSlug}`);
+    });
+  });
+
+  describe("POST /api/memes — idempotency", () => {
+    it("returns the same meme when called twice with identical inputs in <60s", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact("idempotent", { submittedById: userId });
+
+      const body = {
         factId,
         imageSource: photoFor(userId),
-        framingTransform: { offsetX: 0, offsetY: 0 },
-      })
-      .expect(201);
+      };
 
-    const b = await request(makeAuthedApp(userId))
-      .post("/memes")
-      .send({
+      const a = await request(makeAuthedApp(userId)).post("/memes").send(body).expect(201);
+      const b = await request(makeAuthedApp(userId)).post("/memes").send(body).expect(200);
+
+      assert.equal(b.body.id, a.body.id, "second POST must return the first meme's id");
+      assert.equal(b.body.permalinkSlug, a.body.permalinkSlug);
+      assert.equal(b.body.idempotent, true);
+
+      // Only one row should be in memes for that user.
+      const rows = await db.select().from(memesTable).where(eq(memesTable.createdById, userId));
+      assert.equal(rows.length, 1);
+    });
+
+    it("creates a distinct meme when framingTransform differs", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact("distinct framing", { submittedById: userId });
+
+      const a = await request(makeAuthedApp(userId))
+        .post("/memes")
+        .send({
+          factId,
+          imageSource: photoFor(userId),
+          framingTransform: { offsetX: 0, offsetY: 0 },
+        })
+        .expect(201);
+
+      const b = await request(makeAuthedApp(userId))
+        .post("/memes")
+        .send({
+          factId,
+          imageSource: photoFor(userId),
+          framingTransform: { offsetX: 10, offsetY: 0 },
+        })
+        .expect(201);
+
+      assert.notEqual(a.body.id, b.body.id);
+    });
+  });
+
+  describe("POST /api/memes — daily save cap", () => {
+    it("blocks the 31st save in a 24h window for a free-tier user", async () => {
+      const userId = await createTestUser({ membershipTier: "registered" });
+      const factId = await insertFact("cap fact", { submittedById: userId });
+
+      // Insert 30 memes directly to simulate the user's recent history,
+      // since slamming 30 POSTs through the canvas is slow.
+      const now = new Date();
+      const memesToInsert = Array.from({ length: 30 }, (_, i) => ({
+        factId,
+        templateId: "photo_upload",
+        imageUrl: `/meme-${i}.jpg`,
+        permalinkSlug: `cap${i.toString().padStart(7, "0")}`,
+        createdById: userId,
+        createdAt: new Date(now.getTime() - i * 60_000),
+        aspectRatio: "landscape",
+      }));
+      await db.insert(memesTable).values(memesToInsert);
+
+      const res = await request(makeAuthedApp(userId))
+        .post("/memes")
+        .send({
+          factId,
+          imageSource: photoFor(userId),
+        });
+      assert.equal(res.status, 429);
+      assert.equal(res.body.error, "daily_cap_reached");
+    });
+
+    it("excludes soft-deleted memes from the cap count", async () => {
+      const userId = await createTestUser({ membershipTier: "registered" });
+      const factId = await insertFact("soft del cap", { submittedById: userId });
+
+      // 30 memes — but all soft-deleted, so the cap query sees zero.
+      const now = new Date();
+      const memesToInsert = Array.from({ length: 30 }, (_, i) => ({
+        factId,
+        templateId: "photo_upload",
+        imageUrl: `/meme-${i}.jpg`,
+        permalinkSlug: `del${i.toString().padStart(7, "0")}`,
+        createdById: userId,
+        createdAt: new Date(now.getTime() - i * 60_000),
+        deletedAt: new Date(),
+        aspectRatio: "landscape",
+      }));
+      await db.insert(memesTable).values(memesToInsert);
+
+      const res = await request(makeAuthedApp(userId))
+        .post("/memes")
+        .send({
+          factId,
+          imageSource: photoFor(userId),
+        });
+      assert.equal(res.status, 201);
+    });
+  });
+
+  /**
+   * Private visibility is a legendary-LEVEL entitlement, resolved from the
+   * caller's role — not from `membership_tier` alone. The regression: the gate
+   * read `hasFeature(membershipTier, "meme_private_visibility")`, and an admin's
+   * stored tier is `registered` unless they also hold a paid entitlement, so an
+   * admin's explicit `isPublic: false` was silently coerced to `true`. The save
+   * returned 201 and the meme was world-readable at its permalink.
+   *
+   * The general invariant under test, not just the reported instance: a save
+   * that asks for private either stores private or fails — it never returns
+   * success having published the meme.
+   */
+  describe("POST /api/memes — private visibility gate", () => {
+    async function saveWith(userId: string, isPublic: boolean | undefined) {
+      const factId = await insertFact("visibility", { submittedById: userId });
+      const body: Record<string, unknown> = {
         factId,
         imageSource: photoFor(userId),
-        framingTransform: { offsetX: 10, offsetY: 0 },
-      })
-      .expect(201);
+      };
+      if (isPublic !== undefined) body["isPublic"] = isPublic;
+      return request(makeAuthedApp(userId)).post("/memes").send(body);
+    }
 
-    assert.notEqual(a.body.id, b.body.id);
-  });
-});
+    async function storedIsPublic(memeId: number): Promise<boolean> {
+      const [row] = await db
+        .select({ isPublic: memesTable.isPublic })
+        .from(memesTable)
+        .where(eq(memesTable.id, memeId))
+        .limit(1);
+      return row.isPublic;
+    }
 
-describe("POST /api/memes — daily save cap", () => {
-  it("blocks the 31st save in a 24h window for a free-tier user", async () => {
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const factId = await insertFact("cap fact", { submittedById: userId });
+    it("stores isPublic=false for an admin whose membership tier is only registered", async () => {
+      const userId = await createTestUser({ membershipTier: "registered", isAdmin: true });
+      const res = await saveWith(userId, false);
+      assert.equal(res.status, 201);
+      assert.equal(await storedIsPublic(res.body.id), false);
+    });
 
-    // Insert 30 memes directly to simulate the user's recent history,
-    // since slamming 30 POSTs through the canvas is slow.
-    const now = new Date();
-    const memesToInsert = Array.from({ length: 30 }, (_, i) => ({
-      factId,
-      templateId: "photo_upload",
-      imageUrl: `/meme-${i}.jpg`,
-      permalinkSlug: `cap${i.toString().padStart(7, "0")}`,
-      createdById: userId,
-      createdAt: new Date(now.getTime() - i * 60_000),
-      aspectRatio: "landscape",
-    }));
-    await db.insert(memesTable).values(memesToInsert);
+    it("stores isPublic=false for a legendary user", async () => {
+      const userId = await createTestUser({ membershipTier: "legendary" });
+      const res = await saveWith(userId, false);
+      assert.equal(res.status, 201);
+      assert.equal(await storedIsPublic(res.body.id), false);
+    });
 
-    const res = await request(makeAuthedApp(userId))
-      .post("/memes")
-      .send({
-        factId,
-        imageSource: photoFor(userId),
-      });
-    assert.equal(res.status, 429);
-    assert.equal(res.body.error, "daily_cap_reached");
-  });
+    it("rejects an explicit private request from a registered non-admin instead of publishing it", async () => {
+      const userId = await createTestUser({ membershipTier: "registered" });
+      const res = await saveWith(userId, false);
+      assert.equal(res.status, 403);
+      // The failure must be visible to the caller, not a 201 hiding a public meme.
+      assert.equal(res.body.id, undefined);
+    });
 
-  it("excludes soft-deleted memes from the cap count", async () => {
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const factId = await insertFact("soft del cap", { submittedById: userId });
+    it("still defaults to public when isPublic is omitted, at every tier", async () => {
+      for (const opts of [
+        { membershipTier: "registered" as const },
+        { membershipTier: "legendary" as const },
+        { membershipTier: "registered" as const, isAdmin: true },
+      ]) {
+        const userId = await createTestUser(opts);
+        const res = await saveWith(userId, undefined);
+        assert.equal(res.status, 201);
+        assert.equal(await storedIsPublic(res.body.id), true);
+      }
+    });
 
-    // 30 memes — but all soft-deleted, so the cap query sees zero.
-    const now = new Date();
-    const memesToInsert = Array.from({ length: 30 }, (_, i) => ({
-      factId,
-      templateId: "photo_upload",
-      imageUrl: `/meme-${i}.jpg`,
-      permalinkSlug: `del${i.toString().padStart(7, "0")}`,
-      createdById: userId,
-      createdAt: new Date(now.getTime() - i * 60_000),
-      deletedAt: new Date(),
-      aspectRatio: "landscape",
-    }));
-    await db.insert(memesTable).values(memesToInsert);
-
-    const res = await request(makeAuthedApp(userId))
-      .post("/memes")
-      .send({
-        factId,
-        imageSource: photoFor(userId),
-      });
-    assert.equal(res.status, 201);
-  });
-});
-
-/**
- * Private visibility is a legendary-LEVEL entitlement, resolved from the
- * caller's role — not from `membership_tier` alone. The regression: the gate
- * read `hasFeature(membershipTier, "meme_private_visibility")`, and an admin's
- * stored tier is `registered` unless they also hold a paid entitlement, so an
- * admin's explicit `isPublic: false` was silently coerced to `true`. The save
- * returned 201 and the meme was world-readable at its permalink.
- *
- * The general invariant under test, not just the reported instance: a save
- * that asks for private either stores private or fails — it never returns
- * success having published the meme.
- */
-describe("POST /api/memes — private visibility gate", () => {
-  async function saveWith(userId: string, isPublic: boolean | undefined) {
-    const factId = await insertFact("visibility", { submittedById: userId });
-    const body: Record<string, unknown> = {
-      factId,
-      imageSource: photoFor(userId),
-    };
-    if (isPublic !== undefined) body["isPublic"] = isPublic;
-    return request(makeAuthedApp(userId)).post("/memes").send(body);
-  }
-
-  async function storedIsPublic(memeId: number): Promise<boolean> {
-    const [row] = await db
-      .select({ isPublic: memesTable.isPublic })
-      .from(memesTable)
-      .where(eq(memesTable.id, memeId))
-      .limit(1);
-    return row.isPublic;
-  }
-
-  it("stores isPublic=false for an admin whose membership tier is only registered", async () => {
-    const userId = await createTestUser({ membershipTier: "registered", isAdmin: true });
-    const res = await saveWith(userId, false);
-    assert.equal(res.status, 201);
-    assert.equal(await storedIsPublic(res.body.id), false);
-  });
-
-  it("stores isPublic=false for a legendary user", async () => {
-    const userId = await createTestUser({ membershipTier: "legendary" });
-    const res = await saveWith(userId, false);
-    assert.equal(res.status, 201);
-    assert.equal(await storedIsPublic(res.body.id), false);
-  });
-
-  it("rejects an explicit private request from a registered non-admin instead of publishing it", async () => {
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const res = await saveWith(userId, false);
-    assert.equal(res.status, 403);
-    // The failure must be visible to the caller, not a 201 hiding a public meme.
-    assert.equal(res.body.id, undefined);
-  });
-
-  it("still defaults to public when isPublic is omitted, at every tier", async () => {
-    for (const opts of [
-      { membershipTier: "registered" as const },
-      { membershipTier: "legendary" as const },
-      { membershipTier: "registered" as const, isAdmin: true },
-    ]) {
-      const userId = await createTestUser(opts);
-      const res = await saveWith(userId, undefined);
+    it("stores isPublic=true and answers 201 when a registered non-admin explicitly asks for public", async () => {
+      const userId = await createTestUser({ membershipTier: "registered" });
+      const res = await saveWith(userId, true);
       assert.equal(res.status, 201);
       assert.equal(await storedIsPublic(res.body.id), true);
-    }
+    });
+
+    it("a Public save right after a Private one with otherwise identical inputs is a new public meme, not the private one", async () => {
+      const userId = await createTestUser({ membershipTier: "legendary" });
+      const factId = await insertFact("private then public", { submittedById: userId });
+      const body = { factId, imageSource: photoFor(userId) };
+
+      const priv = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, isPublic: false });
+      assert.equal(priv.status, 201);
+      const pub = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, isPublic: true });
+
+      assert.equal(pub.status, 201, "not the 200 an idempotent replay of the private save would return");
+      assert.notEqual(pub.body.idempotent, true);
+      assert.notEqual(pub.body.id, priv.body.id);
+      assert.notEqual(pub.body.permalinkSlug, priv.body.permalinkSlug);
+      assert.equal(await storedIsPublic(pub.body.id), true);
+      assert.equal(await storedIsPublic(priv.body.id), false, "the private meme stays private");
+    });
+
+    it("stores isPublic=true when a legendary user explicitly asks for public", async () => {
+      const userId = await createTestUser({ membershipTier: "legendary" });
+      const res = await saveWith(userId, true);
+      assert.equal(res.status, 201);
+      assert.equal(await storedIsPublic(res.body.id), true);
+    });
   });
 
-  it("stores isPublic=true and answers 201 when a registered non-admin explicitly asks for public", async () => {
-    const userId = await createTestUser({ membershipTier: "registered" });
-    const res = await saveWith(userId, true);
-    assert.equal(res.status, 201);
-    assert.equal(await storedIsPublic(res.body.id), true);
-  });
+  describe("POST /api/memes — soft-deleted slugs are not reissued", () => {
+    it("a soft-deleted meme's slug remains unique (UNIQUE constraint blocks reuse)", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact("slug uniqueness", { submittedById: userId });
 
-  it("a Public save right after a Private one with otherwise identical inputs is a new public meme, not the private one", async () => {
-    const userId = await createTestUser({ membershipTier: "legendary" });
-    const factId = await insertFact("private then public", { submittedById: userId });
-    const body = { factId, imageSource: photoFor(userId) };
+      const a = await request(makeAuthedApp(userId))
+        .post("/memes")
+        .send({ factId, imageSource: photoFor(userId) })
+        .expect(201);
+      const slugA = a.body.permalinkSlug;
 
-    const priv = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, isPublic: false });
-    assert.equal(priv.status, 201);
-    const pub = await request(makeAuthedApp(userId)).post("/memes").send({ ...body, isPublic: true });
+      // Soft-delete it.
+      await db.update(memesTable).set({ deletedAt: new Date() }).where(eq(memesTable.id, a.body.id));
 
-    assert.equal(pub.status, 201, "not the 200 an idempotent replay of the private save would return");
-    assert.notEqual(pub.body.idempotent, true);
-    assert.notEqual(pub.body.id, priv.body.id);
-    assert.notEqual(pub.body.permalinkSlug, priv.body.permalinkSlug);
-    assert.equal(await storedIsPublic(pub.body.id), true);
-    assert.equal(await storedIsPublic(priv.body.id), false, "the private meme stays private");
-  });
+      // Force the second meme to attempt the same slug — verify the constraint
+      // holds. We can't directly cause nanoid to collide; instead we assert no
+      // existing live row owns the same slug after a fresh insert.
+      const b = await request(makeAuthedApp(userId))
+        .post("/memes")
+        .send({
+          factId,
+          imageSource: photoFor(userId),
+          framingTransform: { offsetX: 5, offsetY: 5 }, // different inputs to avoid idem hit
+        })
+        .expect(201);
+      assert.notEqual(b.body.permalinkSlug, slugA);
 
-  it("stores isPublic=true when a legendary user explicitly asks for public", async () => {
-    const userId = await createTestUser({ membershipTier: "legendary" });
-    const res = await saveWith(userId, true);
-    assert.equal(res.status, 201);
-    assert.equal(await storedIsPublic(res.body.id), true);
-  });
-});
-
-describe("POST /api/memes — soft-deleted slugs are not reissued", () => {
-  it("a soft-deleted meme's slug remains unique (UNIQUE constraint blocks reuse)", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact("slug uniqueness", { submittedById: userId });
-
-    const a = await request(makeAuthedApp(userId))
-      .post("/memes")
-      .send({ factId, imageSource: photoFor(userId) })
-      .expect(201);
-    const slugA = a.body.permalinkSlug;
-
-    // Soft-delete it.
-    await db.update(memesTable).set({ deletedAt: new Date() }).where(eq(memesTable.id, a.body.id));
-
-    // Force the second meme to attempt the same slug — verify the constraint
-    // holds. We can't directly cause nanoid to collide; instead we assert no
-    // existing live row owns the same slug after a fresh insert.
-    const b = await request(makeAuthedApp(userId))
-      .post("/memes")
-      .send({
-        factId,
-        imageSource: photoFor(userId),
-        framingTransform: { offsetX: 5, offsetY: 5 }, // different inputs to avoid idem hit
-      })
-      .expect(201);
-    assert.notEqual(b.body.permalinkSlug, slugA);
-
-    // Both rows present, both with distinct slugs.
-    const rows = await db
-      .select()
-      .from(memesTable)
-      .where(and(eq(memesTable.createdById, userId)));
-    assert.equal(rows.length, 2);
-    assert.notEqual(rows[0].permalinkSlug, rows[1].permalinkSlug);
+      // Both rows present, both with distinct slugs.
+      const rows = await db
+        .select()
+        .from(memesTable)
+        .where(and(eq(memesTable.createdById, userId)));
+      assert.equal(rows.length, 2);
+      assert.notEqual(rows[0].permalinkSlug, rows[1].permalinkSlug);
+    });
   });
 });

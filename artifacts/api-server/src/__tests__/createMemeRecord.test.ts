@@ -19,6 +19,7 @@ import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import { createMemeRecord, CreateMemeError, type MemeAuthorizationDecisions } from "../lib/createMemeRecord.js";
 import { ownUpload } from "./helpers/ownedUpload.js";
+import { photoBackgrounds } from "./helpers/photoBackground.js";
 
 const USER_PREFIX = "t-cmr-";
 
@@ -84,77 +85,84 @@ const ALLOW_ALL: MemeAuthorizationDecisions = {
 
 // #804: a meme is made from the saver's own upload only; the image route
 // renders those bytes, publicly when the meme is public.
-describe("createMemeRecord — the photo must be the saver's own (#804)", () => {
-  it("refuses another member's upload and saves nothing", async () => {
-    const owner = await createTestUser();
-    const stranger = await createTestUser();
-    const factId = await insertFact();
-    const key = await ownUpload(owner, `/objects/uploads/t_cmr_private_${owner}.jpg`);
-    await assert.rejects(
-      createMemeRecord({ userId: stranger, factId, imageSource: { type: "upload", uploadKey: key }, aspectRatio: "landscape", decisions: ALLOW_ALL }),
-      (err: unknown) => err instanceof CreateMemeError && err.status === 403,
-    );
-    const rows = await db.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.createdById, stranger));
-    assert.equal(rows.length, 0);
-  });
+// A meme is rendered from its photo's bytes at save (plan S16), so the photos
+// live in the local storage double for the length of this file's suites.
+describe("createMemeRecord (photos in the local storage double)", () => {
+  const photos = photoBackgrounds();
+  before(() => photos.setUp());
+  after(() => photos.tearDown());
 
-  it("refuses an upload no member owns", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact();
-    await assert.rejects(
-      createMemeRecord({ userId, factId, imageSource: { type: "upload", uploadKey: "/objects/uploads/t_cmr_nobody.jpg" }, aspectRatio: "landscape", decisions: ALLOW_ALL }),
-      (err: unknown) => err instanceof CreateMemeError && err.status === 403,
-    );
-  });
-});
-
-describe("createMemeRecord — image variant", () => {
-  it("persists an upload-photo meme with the expected shape", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact();
-    const result = await createMemeRecord({
-      userId,
-      factId,
-      imageSource: {
-        type: "upload",
-        uploadKey: await ownUpload(userId, `/objects/uploads/t_cmr_shape_${userId}.jpg`),
-      },
-      aspectRatio: "landscape",
-      decisions: ALLOW_ALL,
+  describe("createMemeRecord — the photo must be the saver's own (#804)", () => {
+    it("refuses another member's upload and saves nothing", async () => {
+      const owner = await createTestUser();
+      const stranger = await createTestUser();
+      const factId = await insertFact();
+      const key = await ownUpload(owner, `/objects/uploads/t_cmr_private_${owner}.jpg`);
+      await assert.rejects(
+        createMemeRecord({ userId: stranger, factId, imageSource: { type: "upload", uploadKey: key }, aspectRatio: "landscape", decisions: ALLOW_ALL }),
+        (err: unknown) => err instanceof CreateMemeError && err.status === 403,
+      );
+      const rows = await db.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.createdById, stranger));
+      assert.equal(rows.length, 0);
     });
-    assert.ok(result.memeId > 0);
-    assert.equal(typeof result.permalinkSlug, "string");
-    assert.equal(result.permalinkSlug.length, 10);
 
-    const [row] = await db
-      .select()
-      .from(memesTable)
-      .where(eq(memesTable.id, result.memeId))
-      .limit(1);
-    assert.ok(row, "meme row should exist");
-    assert.equal(row.templateId, "photo_upload");
-    assert.equal(row.factId, factId);
-    assert.equal(row.createdById, userId);
-    assert.equal(row.aspectRatio, "landscape");
+    it("refuses an upload no member owns", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact();
+      await assert.rejects(
+        createMemeRecord({ userId, factId, imageSource: { type: "upload", uploadKey: "/objects/uploads/t_cmr_nobody.jpg" }, aspectRatio: "landscape", decisions: ALLOW_ALL }),
+        (err: unknown) => err instanceof CreateMemeError && err.status === 403,
+      );
+    });
   });
 
-  it("idempotency: identical input within window returns the same memeId with idempotent=true", async () => {
-    const userId = await createTestUser();
-    const factId = await insertFact();
-    const input = {
-      userId,
-      factId,
-      imageSource: {
-        type: "upload" as const,
-        uploadKey: await ownUpload(userId, `/objects/uploads/t_cmr_idem_${userId}.jpg`),
-      },
-      aspectRatio: "square" as const,
-      decisions: ALLOW_ALL,
-    };
-    const first = await createMemeRecord(input);
-    const second = await createMemeRecord(input);
-    assert.equal(second.memeId, first.memeId);
-    assert.equal(second.idempotent, true);
+  describe("createMemeRecord — image variant", () => {
+    it("persists an upload-photo meme with the expected shape", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact();
+      const result = await createMemeRecord({
+        userId,
+        factId,
+        imageSource: {
+          type: "upload",
+          uploadKey: await ownUpload(userId, `/objects/uploads/t_cmr_shape_${userId}.jpg`),
+        },
+        aspectRatio: "landscape",
+        decisions: ALLOW_ALL,
+      });
+      assert.ok(result.memeId > 0);
+      assert.equal(typeof result.permalinkSlug, "string");
+      assert.equal(result.permalinkSlug.length, 10);
+
+      const [row] = await db
+        .select()
+        .from(memesTable)
+        .where(eq(memesTable.id, result.memeId))
+        .limit(1);
+      assert.ok(row, "meme row should exist");
+      assert.equal(row.templateId, "photo_upload");
+      assert.equal(row.factId, factId);
+      assert.equal(row.createdById, userId);
+      assert.equal(row.aspectRatio, "landscape");
+    });
+
+    it("idempotency: identical input within window returns the same memeId with idempotent=true", async () => {
+      const userId = await createTestUser();
+      const factId = await insertFact();
+      const input = {
+        userId,
+        factId,
+        imageSource: {
+          type: "upload" as const,
+          uploadKey: await ownUpload(userId, `/objects/uploads/t_cmr_idem_${userId}.jpg`),
+        },
+        aspectRatio: "square" as const,
+        decisions: ALLOW_ALL,
+      };
+      const first = await createMemeRecord(input);
+      const second = await createMemeRecord(input);
+      assert.equal(second.memeId, first.memeId);
+      assert.equal(second.idempotent, true);
+    });
   });
 });
-

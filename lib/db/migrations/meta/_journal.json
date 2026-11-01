@@ -806,6 +806,13 @@
       "when": 1784700000000,
       "tag": "0114_account_onboarding_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1784800000000,
+      "tag": "0115_content_lifecycle_and_meme_bake",
+      "breakpoints": true
     }
   ]
 }

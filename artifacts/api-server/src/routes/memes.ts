@@ -13,16 +13,12 @@ import {
 } from "../lib/validators/memeBuilder";
 import { createMemeRecord, CreateMemeError } from "../lib/createMemeRecord";
 import { z } from "zod";
-import {
-  generateMemeBuffer,
-  type BackgroundSource,
-} from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { userOwnsAiReferenceImage } from "../lib/objectAccess";
 import { getConfigInt } from "../lib/adminConfig";
 import { renderPersonalized } from "../lib/renderCanonical";
-import { resolveStoredMemeCaption } from "../lib/memeComposite";
 import { memeKey } from "../lib/storageKeys";
+import { renderStoredMeme } from "../lib/memeBake";
 import { BudgetExceededError, BudgetGateError } from "../lib/budgetGate";
 import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
 import { quarantineImage } from "../lib/moderation/quarantine";
@@ -34,7 +30,6 @@ import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 import { canViewMeme } from "../lib/memeVisibility";
-import type { MemeAspectRatio } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -70,27 +65,6 @@ function isNoFaceError(err: unknown): boolean {
 // a deploy.
 const FREE_TIER_DAILY_SAVE_CAP_DEFAULT = 30;
 const LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT = 200;
-
-/**
- * Bump this whenever the meme rendering pipeline (memeGenerator.ts,
- * font registration, photo source resolution, default text styling,
- * etc.) changes its output for the same inputs. The value is folded
- * into the served-image ETag so previously-cached browser/CDN entries
- * cannot be perpetuated via 304 after a render-pipeline change.
- *
- * v2 — 2026-05: switched stock photos to large2x source; default text
- * style (Anton/Impact, uppercase, outline, centered); reduced photo
- * overlay; high-quality canvas resampling.
- * v3 — 2026-05: fixed JPEG encode quality bug — `OUTPUT_JPEG_QUALITY`
- * was being passed as 0.9 to a 0-100 integer API, producing tiny ~22KB
- * files with chunky 8×8 block artifacts on every photo meme. Now 90.
- * v4 — 2026-08: the split caption halves stored in `text_options` are the RAW
- * fact template, and the renderer draws them in preference to the
- * personalised `factText` — so every split-caption meme baked a literal
- * `{NAME}` into the image. The halves are now personalised alongside the fact
- * text, which changes the output for every already-saved split-caption meme.
- */
-const MEME_RENDER_VERSION = 4;
 
 /**
  * Idempotency map for /api/memes POSTs. Protects against double-clicks and
@@ -133,11 +107,7 @@ function computeIdemKey(userId: string, parsed: Record<string, unknown>): string
 
 // ─── Validation ────────────────────────────────────────────────────────────────
 // The full request schemas live in lib/validators/memeBuilder.ts so the three
-// Phase-4 endpoints (preview/download/save) share one source of truth. The
-// stored-shape narrowing on the meme row's jsonb column reuses the same union.
-
-import { ImageSourceSchema as StoredImageSourceSchema } from "../lib/validators/memeBuilder";
-type StoredImageSource = z.infer<typeof StoredImageSourceSchema>;
+// Phase-4 endpoints (preview/download/save) share one source of truth.
 
 /**
  * Permalink slug generator. nanoid with the standard URL-safe alphabet
@@ -173,9 +143,9 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  // Validation, idempotency, daily-cap enforcement, NSFW classification, slug
-  // allocation and the row insert all live inside createMemeRecord, keeping
-  // this route a thin delegate.
+  // Validation, idempotency, daily-cap enforcement, slug allocation, the bake
+  // and the row insert all live inside createMemeRecord, keeping this route a
+  // thin delegate. (The photo was NSFW-classified when it was uploaded.)
 
   // Resolved here, at submission time, from the request's principal — which is
   // the only place "view as user" is visible. `createMemeRecord` applies these
@@ -193,7 +163,6 @@ router.post("/memes", async (req: Request, res: Response) => {
       isPublic: parsed.data.isPublic,
       name: parsed.data.name,
       pronouns: parsed.data.pronouns,
-      previewImageBase64: parsed.data.previewImageBase64,
       decisions,
     });
 
@@ -497,94 +466,52 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   // Private meme images must be no-store (never publicly/edge cacheable).
   const memeIsPrivate = !meme.isPublic;
 
-  // ── Legacy path: memes stored before recipe-based rendering ─────
-  if (!meme.imageSource) {
-    // Try hash-prefixed keys first (new format), then legacy flat paths (pre-migration)
-    const candidates = [
-      `/objects/${memeKey(slug, "jpg")}`,
-      `/objects/${memeKey(slug, "png")}`,
-      `/objects/memes/${slug}.jpg`,
-      `/objects/memes/${slug}.png`,
-    ];
-    let served = false;
+  // ── The meme's file (plan S16) ───────────────────────────────────
+  // A meme is baked to a file at save; a legacy meme was stored as one before
+  // recipes existed. Either way the file is the meme and is served as is,
+  // whatever has happened to its photo since. Stored files are write-once, so
+  // one ETag per slug is exact, and a revalidation needs no storage read.
+  if (!meme.imageSource || meme.bakedAt) {
+    const etag = `"meme-${slug}"`;
+    if (checkConditional(req, res, etag)) return;
+    // A baked meme has one key; a legacy one may sit under any of the older forms.
+    const candidates = meme.bakedAt
+      ? [`/objects/${memeKey(slug, "jpg")}`]
+      : [`/objects/${memeKey(slug, "jpg")}`, `/objects/${memeKey(slug, "png")}`, `/objects/memes/${slug}.jpg`, `/objects/memes/${slug}.png`];
     for (const objectPath of candidates) {
-      try {
-        const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-        const etag = `"legacy-${slug}"`;
-        if (checkConditional(req, res, etag)) return;
-        const response = await objectStorageService.downloadObject(objectFile, 86400);
-        res.status(response.status);
-        response.headers.forEach((value, key) => res.setHeader(key, value));
-        if (memeIsPrivate) {
-          setNoStore(res);
-        } else {
-          setPublicCache(res, CACHE.MEME_IMAGE, etag);
-          setPublicCors(res);
-        }
-        if (response.body) {
-          Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
-        } else {
-          res.end();
-        }
-        served = true;
-        break;
-      } catch {
-        // try next candidate
+      const objectFile = await objectStorageService.getObjectEntityFile(objectPath).catch(() => null);
+      if (!objectFile) continue;
+      const response = await objectStorageService.downloadObject(objectFile, 86400);
+      res.status(response.status);
+      response.headers.forEach((value, key) => res.setHeader(key, value));
+      if (memeIsPrivate) {
+        setNoStore(res);
+      } else {
+        setPublicCache(res, CACHE.MEME_IMAGE, etag);
+        setPublicCors(res);
       }
+      if (response.body) {
+        Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+      } else {
+        res.end();
+      }
+      return;
     }
-    if (!served) res.status(404).end();
-    return;
+    if (!meme.imageSource) {
+      res.status(404).end();
+      return;
+    }
+    req.log.warn({ slug }, "a baked meme's file is missing; serving the live render");
   }
 
-  // ── Recipe-based rendering ───────────────────────────────────────
-  const [fact, creator] = await Promise.all([
-    db
-      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
-      .from(factsTable)
-      .where(eq(factsTable.id, meme.factId))
-      .limit(1)
-      .then(rows => rows[0]),
-    meme.createdById
-      ? db
-          .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
-          .from(usersTable)
-          .where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true)))
-          .limit(1)
-          .then(rows => rows[0])
-      : Promise.resolve(undefined),
-  ]);
-
-  const { factText, textOptions } = resolveStoredMemeCaption(fact, creator, meme.textOptions);
-  const source = meme.imageSource as StoredImageSource;
-
-  let background: BackgroundSource;
-
+  // ── A recipe meme not baked yet, or whose file is missing ────────
+  // Rendered live, as every recipe meme was before baking (lib/memeBake.ts,
+  // backfillMemeBakes, bakes the unbaked ones at boot).
   try {
-    if (source.type === "upload") {
-      // Identity is always resolved → upload before storage, so by this point
-      // the only remaining variant is the persisted "upload" shape.
-      const objectFile = await objectStorageService.getObjectEntityFile(source.uploadKey);
-      const downloadResponse = await objectStorageService.downloadObject(objectFile);
-      const imageBuffer = Buffer.from(await downloadResponse.arrayBuffer());
-      background = { type: "image", imageData: imageBuffer };
-    } else {
-      throw new Error(`Unsupported stored image source type: ${(source as { type: string }).type}`);
-    }
-
-    const imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.framingTransform ?? undefined);
-
-    // Content-aware ETag: includes a render-pipeline version (bump
-    // MEME_RENDER_VERSION whenever the generator output changes for the
-    // same inputs), the meme's createdAt (memes are immutable post-save —
-    // no updatedAt column on the schema), and a SHA-256 of the rendered
-    // bytes. This guarantees previously-cached low-res or stale renders
-    // cannot be perpetuated via 304 — when any pipeline change ships,
-    // every client revalidation reads fresh bytes.
+    const imageBuffer = await renderStoredMeme(meme);
     const bytesHash = createHash("sha256").update(imageBuffer).digest("hex").slice(0, 16);
-    const createdAtMs = meme.createdAt instanceof Date ? meme.createdAt.getTime() : Date.now();
-    const etag = `"meme-v${MEME_RENDER_VERSION}-${slug}-${createdAtMs}-${bytesHash}"`;
+    const etag = `"meme-live-${slug}-${bytesHash}"`;
     if (checkConditional(req, res, etag)) return;
-
     res.setHeader("Content-Type", "image/jpeg");
     if (memeIsPrivate) {
       setNoStore(res);
@@ -594,7 +521,6 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     }
     res.setHeader("Content-Length", imageBuffer.length);
     res.status(200).send(imageBuffer);
-
   } catch (err) {
     req.log.error({ err, slug }, "Meme render failed");
     res.status(502).end();

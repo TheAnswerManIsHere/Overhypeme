@@ -371,6 +371,11 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
       createdById: "map-user",
       createdAt: "keep",
       deletedAt: "keep",
+      purgeAfter: "keep",
+      // Launch Phase 5 (0115, S16). The target has no baked files (its media
+      // are placeholders), so every recipe meme arrives unbaked and the
+      // target's boot backfill bakes it from the placeholder photo.
+      bakedAt: "null",
       aspectRatio: "keep",
       renderedFactText: "rendered:meme",
       heartCount: "keep",
@@ -396,6 +401,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
       fileSizeBytes: "keep",
       createdAt: "keep",
       userId: "map-user",
+      deletedAt: "keep",
+      purgeAfter: "keep",
       arachnidClassification: "drop",
       arachnidMatchType: "drop",
       arachnidSha1Base32: "drop",
@@ -417,7 +424,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   ),
   include(s.userAiImagesTable, {
     id: "keep", userId: "map-user", factId: "ref:facts", gender: "keep", storagePath: "media",
-    imageType: "keep", createdAt: "keep",
+    imageType: "keep", createdAt: "keep", deletedAt: "keep", purgeAfter: "keep",
   }),
   include(s.commentsTable, {
     id: "keep", factId: "ref:facts", authorId: "map-user", text: "prose", status: "keep", flagged: "keep",
