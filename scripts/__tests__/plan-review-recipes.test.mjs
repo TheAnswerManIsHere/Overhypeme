@@ -35,7 +35,7 @@
  * BOTH PAYLOAD LAYOUTS ARE RUN, and until #124 round 8 only one was. The sync
  * routes `core/X -> X`, so the payload sits at `core/scripts/...` here and at
  * `scripts/...` in every consumer -- and the consumer layout is the one every
- * repository except this one actually runs. The fixture built only the
+ * repository except this one actually runs. The fixture built only
  * KITT's, so two consumer-only mechanisms were documented and never
  * executed: the `P=` line's `[ -f "$P" ] || P=scripts/plan-review.mjs` fallback
  * (`SKILL.md:23`), and `readVerbatim`'s consumer-first candidate, which tries

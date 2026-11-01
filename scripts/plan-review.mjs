@@ -1259,7 +1259,7 @@ export function parseArgs(argv) {
 /**
  * How to invoke THIS copy, computed rather than written down.
  *
- * The sync routes `core/X -> X`, so the same file is `core/scripts/...` in the
+ * The sync routes `core/X -> X`, so the same file is `core/scripts/...` in
  * KITT and `scripts/...` in every consumer. A hardcoded usage line is
  * therefore wrong in one of them, and wrong in the place a reader is most
  * likely to trust it: `--help` and every argument-error response, which is

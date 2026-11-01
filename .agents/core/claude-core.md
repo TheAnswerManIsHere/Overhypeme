@@ -38,7 +38,7 @@ here.
 **Which file to edit when something changes** — the question this two-file
 split exists to answer:
 
-- A rule about **how I work**, true for every product → this file, in the
+- A rule about **how I work**, true for every product → this file, in
   KITT, where the sync carries it to every repo.
 - A rule about **this product** — its domain, its users, its subsystems, its
   environment → the repo's own `CLAUDE.md` overlay.
@@ -95,7 +95,7 @@ file, that's the same smell facing the other way.
 direction, roadmap, architecture map, glossary, subsystem docs and
 `decisions.md`. The repo's own `CLAUDE.md` overlay routes to them.
 
-When shared truth changes I edit the **KITT**, never a vendored copy in a
+When shared truth changes I edit **KITT**, never a vendored copy in a
 consumer repo.
 
 ## When David says "remember this," I persist it
@@ -378,7 +378,7 @@ step's carve-out
    item's, relayed to the build report like the rest of its text),
    updated at every hand-back that changes it, so the build report can
    state the build's total (David,
-   2026-10-21). That and the fleet's `paid-ai-ledger` issue, in the
+   2026-10-21). That and the fleet's `paid-ai-ledger` issue, in
    KITT's repository — one comment per paid AI run in any product, so
    the weekly paid-run budget, one total across every product, is read
    rather than remembered (`uat-doc-format.md`, *Lanes*) — are the two ledgers the
