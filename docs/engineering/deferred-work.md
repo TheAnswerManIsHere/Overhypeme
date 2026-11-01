@@ -437,8 +437,11 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** At each `/maintenance` pass, run a sweep, then
     `pnpm audit --prod`. A High or Critical row that the sweep did not clear
     gets individual triage. Rows for a package parked elsewhere in this doc are
-    excluded; today that is sharp. So does a grouped Dependabot PR that stays
-    unmergeable for two passes running. Not met as of the 2026-10-12 sweep.
+    excluded; today that is sharp and zod. The sweep must not bump `orval`
+    either, even though its manifest range `^8.5.2` admits newer releases: a
+    plain bump breaks the build, and its upgrade is #819. So does a grouped
+    Dependabot PR that stays unmergeable for two passes running. That fired
+    once, on 2026-11-01, when #648 was superseded by #817.
 
 - **recharts v2 → v3.**
   - **Launch plan placement (on my recommendation, David delegated 2026-10-13): not blocking.** Upgraded with Phase 13's dashboard rebuild, which rewrites the charts anyway, or sooner if a security advisory lands against v2.
@@ -451,22 +454,24 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** Next time we do meaningful charts work, or a security
     advisory on recharts v2, or the weekly maintenance sweep judges it overdue.
 
-- **zod 3 → 4, which also unblocks orval (found 2026-11-01 `/maintenance`).**
+- **zod 3 → 4 (found 2026-11-01 `/maintenance`).**
   - **What.** `zod` is pinned by the workspace catalog at `^3.25.76`.
     GHSA-mrhx-c7xc-m3w5 (High: *"Zod can exhaust memory while validating
     oversized constrained collections"*) is fixed only in `>=4.6.6`, so no
-    in-range sweep clears it. `orval` is held at 8.5.3 for the same reason:
-    every newer 8.x tried (8.46.0, the latest in range) generates zod-v4 code
-    (`z.int()`), which fails `pnpm run build` against zod 3
-    (`lib/api-zod/src/generated/api.ts: Property 'int' does not exist`).
+    in-range sweep clears it.
   - **orval carries Critical advisories too.** The full `pnpm audit`, dev
     dependencies included, reported 11 Critical on 2026-11-01, and every one is
     `orval <8.21.0` (`lib__api-spec>orval`). Their fix (orval 8.21) escapes
     spec-controlled strings in the generated code. The only spec orval reads
     here is `lib/api-spec/openapi.yaml`, which is ours, so exploiting it needs
-    write access to this repository. orval 8.21.0 and 8.22.0 were both tried
-    on 2026-11-01, and both fail `pnpm run build` against zod 3, the same as
-    8.46.0. The orval fix cannot land before the zod migration.
+    write access to this repository. Under the repo's current `orval.config.ts`,
+    orval 8.21.0, 8.22.0 and 8.46.0 all default to zod-v4 output (`z.int()`)
+    and fail `pnpm run build` against zod 3. **That does not tie orval to this
+    migration** (Astra, PR #818). orval 8.46.0 with `override.zod.version: 3`,
+    plus `"dom.iterable"` in `lib/api-client-react/tsconfig.json`, passed
+    `pnpm run build` locally on 2026-11-01. The test suites were not run on
+    it, because it regenerates 73 API-validation files. That upgrade is #819,
+    and it can land before or after this migration.
   - **Why deferred now.** It is a major migration across five workspace
     packages (`overhype-me`, `api-server`, `mockup-sandbox`, `api-zod`, `db`)
     and the generated client. The maintenance pass does not do migrations.
@@ -475,12 +480,12 @@ re-gather it when the work is scheduled.
     request can carry.
   - **Cost of waiting.** One High row in `pnpm audit --prod`. That breaks the
     launch bar Phase 15 sets in the entry above, "no High or Critical", so
-    the migration has to land before Phase 15 closes. orval stays frozen at
-    8.5.3 until then, and Dependabot will keep proposing orval bumps that
-    cannot build.
+    the migration has to land before Phase 15 closes. Until #819 lands, a
+    plain orval bump from Dependabot will not build.
   - **Revisit trigger.** Placing it in the launch plan (#628) before Phase 15,
     or a second zod advisory that reaches a request path, whichever comes
-    first. Bump zod and orval together and regenerate the client.
+    first. Drop orval's `override.zod.version: 3` in the same change and
+    regenerate the client.
 
 ## Code-level tech debt
 
@@ -979,8 +984,13 @@ re-gather it when the work is scheduled.
   - **Check run 2026-11-01.** The cohort is the open issues opened after 2026-09-25
     that carry a `stage:` label: #628, #719, #795 and #816. None is stale. #628
     and #795 are live launch workstreams with phases still to build. #719's
-    Phase 1 PR (#723) merged, but Phases 2 and 3 are unopened, so `stage:coding`
-    with `waiting:david` is accurate. #816 is this pass. No `stage:close-out`
+    Phase 1 PR (#723) merged and Phases 2 and 3 are unopened, so `stage:coding`
+    is right. Its `waiting:david` was not: with no phase active and phases
+    remaining, the parent-label rule in `workstream-tracking.md` says
+    `waiting:claude`, and #719 records no decision pending from David. It was
+    relabelled the same day (Astra, PR #818). That was a stale holder, not a
+    stale stage, so the stage check this entry asks for still passes. #816 is
+    this pass. No `stage:close-out`
     issue exists in the cohort. Per the trigger below, the entry closes as
     fixed. The cohort's other open issues carry no `stage:` label; they were
     triaged in the same pass's backlog step.
