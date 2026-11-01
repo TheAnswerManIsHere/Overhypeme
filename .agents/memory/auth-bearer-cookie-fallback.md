@@ -12,3 +12,4 @@ The auth middleware must try Bearer first but fall back to the cookie when the B
 - `authMiddleware.ts`: iterate candidates `[bearer, cookie]`; for stale Bearer → `deleteSession(sid)` only (no cookie clear); for stale cookie → `clearSession(res, sid)` (clears cookie + deletes row).
 - The key invariant: `res.clearCookie` must NEVER be called for a Bearer-sourced session ID.
 - `getSessionId()` in `lib/auth.ts` is still used by other routes (logout, rate-limiter, etc.) — it still prefers Bearer. Only `authMiddleware.ts` implements the fallback.
+- So an operation meaning "this signed-in session" reads `req.authSessionId`, which `authMiddleware.ts` sets beside `req.user` to the sid that authenticated — never `getSessionId(req)`. Set-password uses it (PR #798); the raw selector's remaining callers are classified and tracked in #799.

@@ -145,6 +145,25 @@ function setSessionCookie(res: Response, sid: string) {
 
 type OAuthProvider = "google" | "apple";
 
+/**
+ * A provider sign-in whose email the provider did not vouch for, matching an
+ * account that already exists (launch Phase 5, increment 2). Matching by email
+ * alone would hand that account to whoever controls the unverified claim, so
+ * the sign-in is refused and the person is pointed at another way in.
+ */
+export class UnverifiedProviderEmailError extends Error {
+  constructor() {
+    super("Provider email not verified for an existing account");
+    this.name = "UnverifiedProviderEmailError";
+  }
+}
+
+/** Google sends a boolean; Apple sends the string "true". Anything else is unverified. */
+export function providerEmailVerified(claims: Record<string, unknown>): boolean {
+  const v = claims.email_verified;
+  return v === true || v === "true";
+}
+
 async function upsertUser(
   claims: Record<string, unknown>,
   provider: OAuthProvider,
@@ -160,6 +179,8 @@ async function upsertUser(
     .limit(1);
 
   const isNewUser = existing.length === 0;
+  const emailVerified = providerEmailVerified(claims);
+  if (!isNewUser && !emailVerified) throw new UnverifiedProviderEmailError();
 
   // Sanitize OIDC name claims through the same validator as user-supplied
   // names. Provider claims are user-influenced (Apple in particular lets
@@ -197,6 +218,11 @@ async function upsertUser(
   }
   if (!existingFirstName && oidcFirstName) conflictSet.firstName = oidcFirstName;
   if (!existingLastName && oidcLastName) conflictSet.lastName = oidcLastName;
+  // A provider that vouches for the address verifies it, on a new account and
+  // on an existing one that was never verified (the bootstrap admin included).
+  // An earlier verification time is never overwritten.
+  const verifiedNow = emailVerified ? new Date() : null;
+  if (verifiedNow && !existing[0]?.emailVerifiedAt) conflictSet.emailVerifiedAt = verifiedNow;
 
   const [user] = await db
     .insert(usersTable)
@@ -208,6 +234,7 @@ async function upsertUser(
       googleLinked: provider === "google",
       appleLinked: provider === "apple",
       isActive: true,
+      emailVerifiedAt: verifiedNow,
     })
     .onConflictDoUpdate({
       target: usersTable.email,
@@ -356,6 +383,10 @@ async function handleOAuthCallback(
       appleNameOverride,
     ));
   } catch (err) {
+    if (err instanceof UnverifiedProviderEmailError) {
+      res.redirect(`${basePath}/login?error=unverified_provider_email`);
+      return;
+    }
     Sentry.captureException(err, {
       tags: { auth: "oauth-callback" },
       extra: { provider, stage: "upsertUser" },

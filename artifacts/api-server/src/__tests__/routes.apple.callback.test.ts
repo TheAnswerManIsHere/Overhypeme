@@ -97,7 +97,9 @@ function applyFakeAppleEnv(): () => void {
   return () => { Object.assign(process.env, prev); };
 }
 
-function makeFakeTokens(email: string): TokenEndpointResponse & TokenEndpointResponseHelpers {
+// Apple's ID token carries `email_verified` as the STRING "true"; a real
+// sign-in has it. `emailVerified` lets a test send another value or none.
+function makeFakeTokens(email: string, emailVerified: string | "absent" = "true"): TokenEndpointResponse & TokenEndpointResponseHelpers {
   return {
     access_token: "fake-access-token",
     token_type:   "bearer",
@@ -105,6 +107,7 @@ function makeFakeTokens(email: string): TokenEndpointResponse & TokenEndpointRes
       return {
         sub:  `apple|${randomUUID()}`,
         email,
+        ...(emailVerified === "absent" ? {} : { email_verified: emailVerified }),
         aud:  "com.test.app",
         iss:  "https://appleid.apple.com",
         iat:  Math.floor(Date.now() / 1000),
