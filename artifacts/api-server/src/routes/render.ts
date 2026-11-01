@@ -19,9 +19,10 @@
  * and template backgrounds, deleted in launch Phase 4 (removals 5 and 6).
  */
 
+import { userOwnsUpload } from "../lib/uploadOwnership";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { factsTable, uploadImageMetadataTable } from "@workspace/db/schema";
+import { factsTable } from "@workspace/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { setNoStore } from "../lib/cacheHeaders";
@@ -139,7 +140,7 @@ async function validateAndResolve(
   // and the upload is not soft-deleted. Cross-user / orphaned uploads are
   // rejected — never let the renderer pull bytes a user does not own.
   if (parsed.data.imageSource.type === "upload") {
-    const ownershipOk = await assertUploadOwnership(parsed.data.imageSource.uploadKey, userId);
+    const ownershipOk = await userOwnsUpload(parsed.data.imageSource.uploadKey, userId);
     if (!ownershipOk) {
       res.status(403).json({ error: "upload_not_owned" });
       void logTransientRender({
@@ -168,25 +169,6 @@ async function validateAndResolve(
     fact,
     mode,
   };
-}
-
-/**
- * Ownership check for `imageSource.type === "upload"`. The uploaded asset
- * row in `upload_image_metadata` must exist and be tagged with the
- * authenticated user's id. Rows with no `user_id` (system-generated) are
- * rejected on purpose — they should never be referenced from a user-mode
- * meme.
- */
-async function assertUploadOwnership(uploadKey: string, userId: string | null): Promise<boolean> {
-  if (!userId) return false;
-  // The uploadKey shape is `/objects/<subPath>` per the storageKeys helper;
-  // the metadata row is keyed by the same path.
-  const [row] = await db
-    .select({ userId: uploadImageMetadataTable.userId })
-    .from(uploadImageMetadataTable)
-    .where(eq(uploadImageMetadataTable.objectPath, uploadKey))
-    .limit(1);
-  return !!row && row.userId === userId;
 }
 
 router.post("/render-preview", async (req: Request, res: Response) => {

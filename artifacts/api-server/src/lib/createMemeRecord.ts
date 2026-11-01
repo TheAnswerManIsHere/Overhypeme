@@ -31,6 +31,7 @@ import { z } from "zod";
 import { renderPersonalized } from "./renderCanonical";
 import { ObjectStorageService } from "./objectStorage";
 import { getConfigInt } from "./adminConfig";
+import { userOwnsUpload } from "./uploadOwnership";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
 import { quarantineImage } from "./moderation/quarantine";
 import { GENERIC_REJECT_MESSAGE } from "./moderation/types";
@@ -196,6 +197,13 @@ export async function createMemeRecord(
     throw new CreateMemeError(403, { error: "Private memes are a Legendary feature." });
   }
   const isPublic = input.isPublic ?? true;
+
+  // A named upload must be the saver's own (#804): the meme's image is made
+  // from these bytes and may be public. An identity source is the account's
+  // own profile photo, so it is checked by construction, not here.
+  if (imageSource.type === "upload" && !(await userOwnsUpload(imageSource.uploadKey, userId))) {
+    throw new CreateMemeError(403, { error: "upload_not_owned" });
+  }
 
   // Identity → resolve into upload via the user's profile photo.
   if (imageSource.type === "identity") {
