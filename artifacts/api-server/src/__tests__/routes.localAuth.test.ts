@@ -12,7 +12,7 @@
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID, createHash, randomBytes } from "node:crypto";
 
 import express, { type Express } from "express";
 import request from "supertest";
@@ -354,6 +354,35 @@ describe("POST /auth/forgot-password", () => {
       .where(eq(passwordResetTokensTable.userId, id));
     assert.equal(tokens.length, 1);
     assert.ok(tokens[0].expiresAt > new Date());
+  });
+});
+
+// Issue #800: an account made by Google or Apple sign-in has no password. When
+// its provider does not vouch for the email, sign-in is refused and the person
+// is sent to password reset (PR #798); the link must reach them, and following
+// it sets their first password.
+describe("POST /auth/forgot-password — an account with no password yet (#800)", () => {
+  it("sends a reset link, and the link sets a first password that signs in", async () => {
+    const email = uniqueEmail();
+    const [user] = await db.insert(usersTable).values({ email, googleLinked: true }).returning({ id: usersTable.id });
+    const app = makeApp();
+    const res = await request(app).post("/auth/forgot-password").set("CF-Connecting-IP", "198.51.100.80").send({ email });
+    assert.equal(res.status, 200);
+    const tokens = await db.select().from(passwordResetTokensTable).where(eq(passwordResetTokensTable.userId, user!.id));
+    assert.equal(tokens.length, 1, "a passwordless account gets a reset link");
+    // Replay the emailed token: issue a known one for the same account and use it.
+    const raw = randomBytes(32).toString("hex");
+    await db.insert(passwordResetTokensTable).values({
+      userId: user!.id,
+      tokenHash: createHash("sha256").update(raw).digest("hex"),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
+    const reset = await request(app).post("/auth/reset-password").send({ token: raw, newPassword: "first-password-1" });
+    assert.equal(reset.status, 200, JSON.stringify(reset.body));
+    const login = await request(app).post("/auth/local-login").send({ email, password: "first-password-1" });
+    assert.equal(login.status, 200, JSON.stringify(login.body));
+    const [after] = await db.select({ googleLinked: usersTable.googleLinked }).from(usersTable).where(eq(usersTable.id, user!.id));
+    assert.equal(after!.googleLinked, true, "the provider link is kept");
   });
 });
 
