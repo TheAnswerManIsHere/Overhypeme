@@ -5,7 +5,6 @@ import { factsTable, commentsTable, pendingReviewsTable } from "@workspace/db/sc
 import { eq, sql, and } from "drizzle-orm";
 import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "../lib/utilityLLM";
 import { z } from "zod";
-import { getSessionId, getSession } from "../lib/auth";
 import { createRateLimiter, RATE_WINDOW_MS } from "../lib/rateLimit";
 import { SUGGEST_HASHTAGS_LIMIT, sanitizeHashtagsForPersistence } from "../lib/hashtags";
 import { verifyCaptcha } from "../lib/captcha";
@@ -108,11 +107,11 @@ export function __setSuggestHashtagsForTest(fn: typeof suggestHashtagsForText | 
   suggestHashtagsImpl = fn ?? suggestHashtagsForText;
 }
 
-async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const sid = getSessionId(req);
-  if (!sid) { res.status(401).json({ error: "Authentication required" }); return; }
-  const session = await getSession(sid);
-  if (!session) { res.status(401).json({ error: "Authentication required" }); return; }
+// The auth middleware has already decided who is signed in, trying the Bearer
+// and then the cookie. Deciding again from the raw selector would refuse a
+// signed-in visitor whose browser still holds a dead Bearer (#799).
+function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Authentication required" }); return; }
   next();
 }
 

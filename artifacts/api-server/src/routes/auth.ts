@@ -20,10 +20,11 @@ import {
   clearSession,
   getGoogleConfig,
   getAppleConfig,
-  getSessionId,
   getSession,
   createSession,
   updateSession,
+  deleteSession,
+  presentedSessionIds,
   isAdminById,
   SESSION_COOKIE,
   SESSION_TTL,
@@ -508,7 +509,9 @@ router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
-  const sid = getSessionId(req);
+  // The session that authenticated this request, never the raw selector: a
+  // dead Bearer beside a valid cookie would name the dead one (#799).
+  const sid = req.authSessionId;
   if (!sid) {
     res.status(401).json({ error: "No session" });
     return;
@@ -716,15 +719,21 @@ router.post("/callback/apple", async (req: Request, res: Response) => {
   await handleOAuthCallback(req, res, "apple", code, state, appleNameOverride);
 });
 
+// Logout ends every session credential the browser presented, the Bearer
+// token and the cookie alike. Ending only the first one named would let a
+// dead Bearer leave the cookie's live session behind (#799).
+async function endPresentedSessions(req: Request, res: Response): Promise<void> {
+  for (const sid of presentedSessionIds(req)) await deleteSession(sid);
+  await clearSession(res);
+}
+
 router.get("/logout", async (req: Request, res: Response) => {
-  const sid = getSessionId(req);
-  await clearSession(res, sid);
+  await endPresentedSessions(req, res);
   res.redirect(getSiteBaseUrl());
 });
 
 router.post("/auth/logout", async (req: Request, res: Response) => {
-  const sid = getSessionId(req);
-  await clearSession(res, sid);
+  await endPresentedSessions(req, res);
   res.json({ ok: true });
 });
 

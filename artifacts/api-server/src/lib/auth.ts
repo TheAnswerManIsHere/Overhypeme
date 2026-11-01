@@ -214,10 +214,36 @@ export async function clearSession(
   res.clearCookie(SESSION_COOKIE, { path: "/", sameSite: "none", secure: true });
 }
 
+/**
+ * The credential the raw headers name first: the Bearer header when one is
+ * present, whether or not it authenticated, else the session cookie. Fit only
+ * for keying (rate limits, share counters). A route that acts on "this
+ * session" reads `req.authSessionId`, the session the auth middleware actually
+ * authenticated: a dead Bearer beside a valid cookie names the dead one here
+ * (#799).
+ */
 export function getSessionId(req: Request): string | undefined {
   const authHeader = req.headers["authorization"];
   if (authHeader?.startsWith("Bearer ")) {
     return authHeader.slice(7);
   }
   return req.cookies?.[SESSION_COOKIE];
+}
+
+/**
+ * Every session credential this request presented — the Bearer token and the
+ * session cookie, deduplicated — valid or not. Logout ends all of them, so a
+ * dead Bearer beside a live cookie cannot leave the cookie's session alive
+ * past the logout (#799).
+ */
+export function presentedSessionIds(req: Request): string[] {
+  const ids = new Set<string>();
+  const authHeader = req.headers["authorization"];
+  if (authHeader?.startsWith("Bearer ")) {
+    const bearer = authHeader.slice(7);
+    if (bearer) ids.add(bearer);
+  }
+  const cookie = req.cookies?.[SESSION_COOKIE];
+  if (typeof cookie === "string" && cookie) ids.add(cookie);
+  return [...ids];
 }

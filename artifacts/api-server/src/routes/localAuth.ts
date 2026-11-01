@@ -555,8 +555,9 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
     };
 
     if (record.pendingEmail) {
-      // Email change: user is already logged in — just update their existing session
-      const existingSid = getSessionId(req);
+      // Email change: user is already logged in — just update their existing
+      // session, the one that authenticated, not the raw selector (#799).
+      const existingSid = req.authSessionId;
       if (existingSid) {
         await updateSession(existingSid, sessionData);
       } else {
