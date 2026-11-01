@@ -967,7 +967,15 @@ re-gather it when the work is scheduled.
     suite has failed on `main` again since 2026-08-15, this graduates to a
     `/bugfix` task and this entry closes.~~ **Fired 2026-10-12; now #642.**
 
-- **Workstream labels kept current by hand — contract-diet candidate, held (2026-10-12).**
+- **~~Workstream labels kept current by hand — contract-diet candidate, held (2026-10-12).~~ — CLOSED as fixed, 2026-11-01 `/maintenance`.**
+  - **Check run 2026-11-01.** The cohort is the open issues opened after 2026-09-25
+    that carry a `stage:` label: #628, #719, #795 and #816. None is stale. #628
+    and #795 are live launch workstreams with phases still to build. #719's
+    Phase 1 PR (#723) merged, but Phases 2 and 3 are unopened, so `stage:coding`
+    with `waiting:david` is accurate. #816 is this pass. No `stage:close-out`
+    issue exists in the cohort. Per the trigger below, the entry closes as
+    fixed. The cohort's other open issues carry no `stage:` label; they were
+    triaged in the same pass's backlog step.
   - **Reviewed (on my recommendation, David delegated 2026-10-13): not blocking, trigger unchanged.**
   - **What.** The 2026-10-12 pass found ~40 workstream issues left at
     `stage:code-review` or `stage:close-out` after their PRs merged, and closed
