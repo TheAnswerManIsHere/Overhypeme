@@ -427,8 +427,13 @@ re-gather it when the work is scheduled.
     High rows were sharp ×3 (parked above), `body-parser` 2.2.2 on the API
     request path (GHSA-27r3-jxmh-p828), and `zod` (GHSA-mrhx-c7xc-m3w5). The
     sweep was an in-range, lockfile-only update of `body-parser`, `qs`,
-    `ip-address`, `minimatch` and `@tootallnate/once`, plus the safe half of
-    Dependabot PR #648 (`js-yaml`, `yaml`, `linkify-it`, `markdown-it`).
+    `ip-address` and `@tootallnate/once`, plus three of the four safe packages
+    of Dependabot PR #648 (`yaml`, `linkify-it`, `markdown-it`). Two packages
+    did not move, though an earlier version of this line said they did.
+    `minimatch` 10.2.6 is still inside GHSA-g3hv-75wg-m249's range, so it
+    stayed at 10.2.5. `js-yaml` is pinned at exactly 4.1.1 by orval 8.5.3, so
+    it moved only with orval's upgrade, to 4.3.2 (#819, the build report on
+    #816).
     Afterwards: critical 0, moderate 11, and the only High rows are sharp ×3
     and `zod`. zod has its own entry below, because its fix needs a major.
     PR #648 itself was closed as superseded: its lockfile no longer installed
@@ -437,9 +442,11 @@ re-gather it when the work is scheduled.
   - **Revisit trigger.** At each `/maintenance` pass, run a sweep, then
     `pnpm audit --prod`. A High or Critical row that the sweep did not clear
     gets individual triage. Rows for a package parked elsewhere in this doc are
-    excluded; today that is sharp and zod. The sweep must not bump `orval`
-    either, even though its manifest range `^8.5.2` admits newer releases: a
-    plain bump breaks the build, and its upgrade is #819. So does a grouped
+    excluded; today that is sharp and zod. Since #819, `orval` generates
+    zod-3 output by explicit configuration (`override.zod.version: 3`), so
+    an in-range orval bump is an ordinary sweep candidate again: the
+    codegen-drift check in CI catches any change in what it generates. So
+    does a grouped
     Dependabot PR that stays unmergeable for two passes running. That fired
     once, on 2026-11-01, when #648 was superseded by #817.
 
@@ -464,14 +471,12 @@ re-gather it when the work is scheduled.
     `orval <8.21.0` (`lib__api-spec>orval`). Their fix (orval 8.21) escapes
     spec-controlled strings in the generated code. The only spec orval reads
     here is `lib/api-spec/openapi.yaml`, which is ours, so exploiting it needs
-    write access to this repository. Under the repo's current `orval.config.ts`,
-    orval 8.21.0, 8.22.0 and 8.46.0 all default to zod-v4 output (`z.int()`)
-    and fail `pnpm run build` against zod 3. **That does not tie orval to this
-    migration** (Astra, PR #818). orval 8.46.0 with `override.zod.version: 3`,
-    plus `"dom.iterable"` in `lib/api-client-react/tsconfig.json`, passed
-    `pnpm run build` locally on 2026-11-01. The test suites were not run on
-    it, because it regenerates 73 API-validation files. That upgrade is #819,
-    and it can land before or after this migration.
+    write access to this repository. **Resolved by #819, independently of
+    this migration.** orval 8.21 and later default to zod-v4 output, so
+    #819 upgraded to 8.46.0 with `override.zod.version: 3`, `formatter:
+    "prettier"` (which replaces the retired `prettier: true`), and
+    `"dom.iterable"` in `lib/api-client-react/tsconfig.json`. It also moved
+    js-yaml off 4.1.1, which cleared three of its High rows.
   - **Why deferred now.** It is a major migration across five workspace
     packages (`overhype-me`, `api-server`, `mockup-sandbox`, `api-zod`, `db`)
     and the generated client. The maintenance pass does not do migrations.
@@ -480,8 +485,7 @@ re-gather it when the work is scheduled.
     request can carry.
   - **Cost of waiting.** One High row in `pnpm audit --prod`. That breaks the
     launch bar Phase 15 sets in the entry above, "no High or Critical", so
-    the migration has to land before Phase 15 closes. Until #819 lands, a
-    plain orval bump from Dependabot will not build.
+    the migration has to land before Phase 15 closes.
   - **Revisit trigger.** Placing it in the launch plan (#628) before Phase 15,
     or a second zod advisory that reaches a request path, whichever comes
     first. Drop orval's `override.zod.version: 3` in the same change and
