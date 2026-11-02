@@ -1,5 +1,5 @@
 /**
- * @purpose Client AuthProvider and useAuth: loads /api/auth/user at mount, polls the entitlement version and refetches on a change, and exposes the user, role and realRole, the server-sent entitlements with can(), and login and logout; a failed first load leaves no user and no entitlements and reports status failed (not signed out) with a retry; every read is tied to the auth generation it started in, which sign-out and sign-in bump before their network wait, so a late response cannot republish a signed-out account (#725); refreshUser reports whether its read landed.
+ * @purpose Client AuthProvider and useAuth: loads /api/auth/user at mount, polls the entitlement version and refetches on a change, and exposes the user, role and realRole, the server-sent entitlements with can(), and login and logout; a failed first load leaves no user and no entitlements and reports status failed (not signed out) with a retry; once sign-out or sign-in starts no auth read publishes, set before their network wait, so a late response cannot republish a signed-out account (#725); refreshUser reports whether its read landed.
  * @subsystem accounts-auth
  */
 import { useState, useEffect, useCallback, useRef, createContext, useContext, createElement } from "react";
@@ -143,24 +143,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const isLoading = status === "loading";
   /**
-   * Which auth state a response belongs to (#725). Every read captures it when
-   * it starts and publishes only if it is unchanged when the answer arrives.
-   * Sign-out and sign-in bump it when they START, before any network wait, so
-   * a read still in flight — the initial load, an explicit refresh, the
-   * entitlement poll's refetch, a save's follow-up re-read — can never put the
-   * signed-out account back.
+   * Set when sign-out or sign-in STARTS, before any network wait, and never
+   * cleared: both end in a full page load (#725). While it is set no auth read
+   * publishes — not the initial load, an explicit refresh, the entitlement
+   * poll's refetch, nor a read started after it (a save's follow-up re-read
+   * whose save answered after sign-out began) — so a late answer can never put
+   * a signed-out account back.
    */
-  const generationRef = useRef(0);
-  /**
-   * Set when sign-out starts and never cleared: sign-out ends in a full page
-   * load. A read STARTED after it — a save's follow-up re-read whose save
-   * answered after sign-out began — would otherwise take the new generation
-   * and could still publish the old account while the server's sign-out is
-   * in flight.
-   */
-  const signingOutRef = useRef(false);
-  const publish = useCallback((generation: number, payload: AuthPayload): boolean => {
-    if (signingOutRef.current || generation !== generationRef.current) return false;
+  const leavingRef = useRef(false);
+  const publish = useCallback((payload: AuthPayload): boolean => {
+    if (leavingRef.current) return false;
     setUser(payload.user);
     setEntitlements(payload.entitlements);
     setVersion(payload.entitlementVersion);
@@ -178,13 +170,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * principal indefinitely. Comparing the payload's own fingerprint to a freshly
    * observed one is what forces the retry.
    */
-  /** Returns true when a payload was published under the generation it started in. */
+  /** Returns true when a payload was published. */
   const loadPayload = useCallback(async (observed?: EntitlementVersion): Promise<boolean> => {
-    const generation = generationRef.current;
     let published = false;
     for (let attempt = 0; attempt < MAX_REFETCH_ATTEMPTS; attempt++) {
       const payload = await fetchAuthPayload();
-      if (!publish(generation, payload)) return false;
+      if (!publish(payload)) return false;
       published = true;
 
       if (!observed || sameVersion(payload.entitlementVersion, observed)) return published;
@@ -199,11 +190,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [publish]);
 
   const initialLoad = useCallback(async (): Promise<boolean> => {
-    const generation = generationRef.current;
     try {
-      return publish(generation, await fetchAuthPayload());
+      return publish(await fetchAuthPayload());
     } catch {
-      if (signingOutRef.current || generation !== generationRef.current) return false;
+      if (leavingRef.current) return false;
       // Fail closed: no user, no entitlements. An empty map locks everything,
       // which is the same answer the server would give. But the read FAILED;
       // it did not say "signed out", so the status says so.
@@ -256,16 +246,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const login = useCallback(() => {
-    generationRef.current++;
+    leavingRef.current = true;
     window.location.href = `/api/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
   }, []);
 
   const logout = useCallback(async () => {
-    // Invalidate every read still in flight BEFORE the network wait (#725).
-    // The published user is left as it is: the redirect below replaces the
-    // page, and clearing it here would flash the signed-out welcome sheet.
-    generationRef.current++;
-    signingOutRef.current = true;
+    // Stop every read still in flight, and any started later, from
+    // publishing, BEFORE the network wait (#725). The published user is left
+    // as it is: the redirect below replaces the page, and clearing it here
+    // would flash the signed-out welcome sheet.
+    leavingRef.current = true;
     try {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } catch {

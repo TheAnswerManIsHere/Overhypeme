@@ -22,7 +22,7 @@ import {
   usersTable,
 } from "@workspace/db/schema";
 import { and, eq, gt, count } from "drizzle-orm";
-import { type ImageSource, type AllowedPronouns } from "./validators/memeBuilder";
+import { type ImageSource } from "./validators/memeBuilder";
 import { renderPersonalized } from "./renderCanonical";
 import { getConfigInt } from "./adminConfig";
 import { userOwnsUpload } from "./uploadOwnership";
@@ -79,7 +79,7 @@ export interface CreateMemeRecordInput {
   aspectRatio?: "landscape" | "square" | "portrait";
   isPublic?: boolean;
   name?: string;
-  pronouns?: AllowedPronouns;
+  pronouns?: string;
   /**
    * The authorization decisions for the features this path gates, resolved by
    * the CALLER at submission time.

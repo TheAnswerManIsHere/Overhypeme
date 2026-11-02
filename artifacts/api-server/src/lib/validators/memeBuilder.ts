@@ -30,7 +30,6 @@ import { PRONOUN_WORD_CAP_UPPER_BOUND, sanitizePronounsWithCap } from "./persona
  * six-part sets included, so an account's own choice is never refused here.
  */
 export const PRONOUN_ALLOWLIST = ["he/him", "she/her", "they/them", "xe/xem", "ze/zir"] as const;
-export type AllowedPronouns = string;
 
 /**
  * Pronoun schema: the account's own pronoun rule (`sanitizePronounsWithCap`,

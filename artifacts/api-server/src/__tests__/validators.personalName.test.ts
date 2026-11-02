@@ -54,9 +54,10 @@ describe("validators/personalName", () => {
       assert.equal((await sanitizeAndValidatePersonalName("x".repeat(51))).ok, false);
     });
 
-    it("accepts letters and marks in any script, with joiners", async () => {
-      for (const v of ["Café Ünder", "مهر\u200Cناز", "क्\u200Dष"]) {
-        assert.equal((await sanitizeAndValidatePersonalName(v)).ok, true, v);
+    it("accepts English-script names, accents included, and refuses other scripts (David, 2026-11-02)", async () => {
+      assert.equal((await sanitizeAndValidatePersonalName("Café Ünder")).ok, true);
+      for (const v of ["مهر\u200Cناز", "李小龙", "Ольга"]) {
+        assert.equal((await sanitizeAndValidatePersonalName(v)).ok, false, v);
       }
     });
   });

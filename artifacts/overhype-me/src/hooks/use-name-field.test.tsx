@@ -40,7 +40,7 @@ describe("a name field", () => {
     render(<Field />);
     fireEvent.change(input(), { target: { value: "Ada😀" } });
     expect(input().value).toBe("Ada");
-    expect(screen.getByTestId("name-field-hint").textContent).toMatch(/Letters, numbers/);
+    expect(screen.getByTestId("name-field-hint").textContent).toMatch(/letters, numbers/i);
   });
 
   it("drops brackets and quotes from a paste but keeps the rest", () => {
@@ -56,10 +56,12 @@ describe("a name field", () => {
     expect(screen.queryByTestId("name-field-hint")).toBeNull();
   });
 
-  it("keeps a joiner after a virama", () => {
+  it("keeps accented English-script letters, and refuses another script", () => {
     render(<Field />);
-    fireEvent.change(input(), { target: { value: "क्‍ष" } });
-    expect(input().value).toBe("क्‍ष");
+    fireEvent.change(input(), { target: { value: "Zoë Łukasz" } });
+    expect(input().value).toBe("Zoë Łukasz");
+    fireEvent.change(input(), { target: { value: "Zoë Ольга" } });
+    expect(input().value).toBe("Zoë ");
   });
 
   it("reports a name over 50 characters without cutting it", () => {
@@ -73,9 +75,11 @@ describe("a name field", () => {
   it("leaves an open IME composition alone, then applies the rule when it commits", () => {
     render(<Field />);
     fireEvent.compositionStart(input());
-    fireEvent.change(input(), { target: { value: "かな😀" } });
-    expect(input().value).toBe("かな😀");
-    fireEvent.compositionEnd(input(), { data: "かな" });
-    expect(input().value).toBe("かな");
+    // An IME composing an accented letter passes through intermediate text.
+    fireEvent.change(input(), { target: { value: "Zo\u00A8" } });
+    expect(input().value).toBe("Zo\u00A8");
+    fireEvent.change(input(), { target: { value: "Zoë" } });
+    fireEvent.compositionEnd(input(), { data: "ë" });
+    expect(input().value).toBe("Zoë");
   });
 });
