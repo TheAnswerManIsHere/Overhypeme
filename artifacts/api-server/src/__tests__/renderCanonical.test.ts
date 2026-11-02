@@ -280,21 +280,20 @@ describe("renderPersonalized — edge cases", () => {
     assert.equal(renderPersonalized("{SUBJ}", "Sam", undefined), "they");
   });
 
-  // A pipe-delimited custom pronoun set ("xe|xem|xyr|xyrs|xemself|s") is a
-  // format only the client's resolveMap understands today — this resolver
-  // does not parse it. Regression for PR #398 round 1: naive `"/"`-splitting
-  // on a string with no "/" previously yielded the ENTIRE raw pipe string as
-  // the literal SUBJ token value (e.g. "{SUBJ}" → "xe|xem|xyr|xyrs|xemself|s"),
-  // which is worse than an unresolved token — it looks like real (garbled)
-  // output. Must fall back to the they/them default instead.
-  it("pipe-delimited custom pronouns fall back to they/them, never leak raw text", () => {
-    const custom = "xe|xem|xyr|xyrs|xemself|s";
-    assert.equal(renderPersonalized("{SUBJ}", "Sam", custom), "they");
-    assert.equal(renderPersonalized("{OBJ}", "Sam", custom), "them");
-    assert.equal(renderPersonalized("{POSS}", "Sam", custom), "their");
-    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", custom), "theirs");
-    assert.equal(renderPersonalized("{REFL}", "Sam", custom), "themselves");
-    assert.equal(renderPersonalized("{keeps|keep}", "Sam", custom), "keep");
+  // A custom pronoun set (the pronoun editor's six-part format) renders as
+  // its own forms and verb number (identity-flow Phase 2). Until then it fell
+  // back to they/them here, so a stored custom choice rendered wrongly in
+  // every server-made output. The PR #398 regression still holds: the raw
+  // pipe string never leaks into a token.
+  it("a custom pronoun set renders its own forms and verb number", () => {
+    const singular = "xe|xem|xyr|xyrs|xemself|s";
+    assert.equal(renderPersonalized("{SUBJ}", "Sam", singular), "xe");
+    assert.equal(renderPersonalized("{OBJ}", "Sam", singular), "xem");
+    assert.equal(renderPersonalized("{POSS}", "Sam", singular), "xyr");
+    assert.equal(renderPersonalized("{POSS_PRO}", "Sam", singular), "xyrs");
+    assert.equal(renderPersonalized("{REFL}", "Sam", singular), "xemself");
+    assert.equal(renderPersonalized("{Subj} {keeps|keep}", "Sam", singular), "Xe keeps");
+    assert.equal(renderPersonalized("{Subj} {keeps|keep}", "Sam", "fae|faer|faer|faers|faerself|p"), "Fae keep");
   });
 
   it("a pipe with no slash at all still falls back cleanly (no crash, no leak)", () => {

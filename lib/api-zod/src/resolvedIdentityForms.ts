@@ -16,7 +16,7 @@
  * Pure, dependency-light (only `templateGrammar`), so it is safe for both
  * frontend and backend to import.
  *
- * @purpose Resolves a name and slash-form pronoun set into the form each template token takes, falling back to they/them for a pipe-delimited custom set, and defines the substitution function renderCanonical wraps, with the token-key set the prompt-identity budget is typed against.
+ * @purpose Resolves a name and a slash-form or six-part custom pronoun set into the form each template token takes (custom forms and verb number kept; malformed input falls back to they/them), and defines the substitution function renderCanonical wraps, with the token-key set the prompt-identity budget is typed against.
  * @subsystem token-rendering
  */
 
@@ -72,15 +72,21 @@ function capitalize(s: string): string {
  * Resolve a name + "subj/obj" pronoun string (e.g. "he/him", "she/her",
  * "they/them", "xe/xem", "ze/zir" — the full `PRONOUN_ALLOWLIST` set) into
  * the full token-form map used by both budget projection and template
- * rendering. Pure. Defaults to they/them when `pronouns` is absent,
- * malformed, or in a format this resolver doesn't understand (e.g. a
- * pipe-delimited custom set) — the historical `renderCanonical`/
- * `renderPersonalized` behavior, preserved exactly. A pipe-delimited custom
- * pronoun set (`xe|xem|xyr|xyrs|xemself|s`) is NOT parsed here — only the
- * client's `resolveMap` supports that format today — so it must fall back
- * rather than leak its raw literal text into a token.
+ * rendering. Pure. Defaults to they/them when `pronouns` is absent or
+ * malformed — the historical `renderCanonical`/`renderPersonalized` behavior.
+ *
+ * A custom pronoun set, `subj|obj|poss|possPro|refl|s|p` (the pronoun
+ * editor's `serializeCustom`), resolves to its own forms and its own verb
+ * number, the way the client's `resolveMap` (`render-fact.ts`) does: an empty
+ * form falls back to the they/them form in its slot, `p` picks the plural
+ * branch and `s` the singular. Until identity-flow Phase 2 every such set
+ * fell back to they/them here, so a stored custom choice rendered wrongly in
+ * every server-made output. A pipe string without exactly six parts is
+ * malformed and still falls back, never leaking its literal text.
  */
 export function resolveIdentityForms(name: string, pronouns: string | null | undefined): ResolvedIdentityForms {
+  const custom = parseCustomPronounSet(pronouns);
+  if (custom) return formsFrom(name, custom);
   const raw = (pronouns ?? "they/them").toLowerCase().trim();
   const lower = raw.includes("|") ? "they/them" : raw;
   const [subj = "they", obj = "them"] = lower.split("/");
@@ -116,6 +122,45 @@ export function resolveIdentityForms(name: string, pronouns: string | null | und
     // "everything but he/she is plural" — a neopronoun subject (e.g. "xe")
     // gets singular verbs, same as he/she, because it isn't literally "they".
     grammaticalNumber: subj === "they" ? "plural" : "singular",
+  };
+}
+
+/** A custom pronoun set's five forms and verb number. */
+interface CustomPronounForms {
+  subj: string; obj: string; poss: string; possPro: string; refl: string;
+  grammaticalNumber: "singular" | "plural";
+}
+
+/** Parse `subj|obj|poss|possPro|refl|s|p`; null for anything else. */
+export function parseCustomPronounSet(pronouns: string | null | undefined): CustomPronounForms | null {
+  if (!pronouns || !pronouns.includes("|")) return null;
+  const parts = pronouns.split("|").map((p) => p.trim());
+  if (parts.length !== 6) return null;
+  const [subj, obj, poss, possPro, refl, marker] = parts as [string, string, string, string, string, string];
+  if (marker !== "s" && marker !== "p") return null;
+  if (![subj, obj, poss, possPro, refl].some(Boolean)) return null;
+  return {
+    subj: subj || "they",
+    obj: obj || "them",
+    poss: poss || "their",
+    possPro: possPro || "theirs",
+    refl: refl || "themselves",
+    grammaticalNumber: marker === "p" ? "plural" : "singular",
+  };
+}
+
+function formsFrom(name: string, f: CustomPronounForms): ResolvedIdentityForms {
+  return {
+    tokens: {
+      NAME: name,
+      NAME_POSSESSIVE: possessive(name),
+      SUBJ: f.subj, Subj: capitalize(f.subj),
+      OBJ: f.obj, Obj: capitalize(f.obj),
+      POSS: f.poss, Poss: capitalize(f.poss),
+      POSS_PRO: f.possPro, Poss_Pro: capitalize(f.possPro),
+      REFL: f.refl, Refl: capitalize(f.refl),
+    },
+    grammaticalNumber: f.grammaticalNumber,
   };
 }
 

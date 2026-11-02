@@ -14,31 +14,40 @@
  * served a signed-out "cold permalink" flow on /api/render-preview; that flow
  * went in launch Phase 4, and the render endpoints are signed-in only.)
  *
- * The pronoun allowlist is intentionally narrower than what the existing
- * `sanitizeAndValidatePronouns` helper accepts. The render endpoints draw a
- * smaller abuse surface because they accept anonymous traffic; restricting
- * pronouns to a curated set keeps the prompt-injection / weird-output blast
- * radius small while still covering the cases we actually surface in the UI.
+ * Names and pronouns follow the same rules as an account (identity-flow
+ * Phase 2): until then this file kept a five-preset pronoun allowlist and its
+ * own name rule, so a meme refused an account's own custom pronouns. The
+ * render endpoints are signed-in only since launch Phase 4.
  */
 
 import { z } from "zod";
 import { checkPersonalName } from "@workspace/api-zod";
-
-/** Allowlist of pronoun strings accepted by Phase-4 endpoints (canonical "subj/obj" form). */
-export const PRONOUN_ALLOWLIST = ["he/him", "she/her", "they/them", "xe/xem", "ze/zir"] as const;
-export type AllowedPronouns = (typeof PRONOUN_ALLOWLIST)[number];
+import { PRONOUN_WORD_CAP_UPPER_BOUND, sanitizePronounsWithCap } from "./personalName";
 
 /**
- * Strict pronoun schema. Accepts only the canonical allowlist — case-insensitive
- * input is normalised to lower-case before the enum check so e.g. `"He/Him"`
- * still passes.
+ * The preset pronoun sets the builder offers. Not a gate: since identity-flow
+ * Phase 2 the meme endpoints accept any pronouns an account accepts, custom
+ * six-part sets included, so an account's own choice is never refused here.
  */
-export const PronounsSchema = z
-  .string()
-  .min(1)
-  .max(20)
-  .transform((v) => v.toLowerCase().trim())
-  .pipe(z.enum(PRONOUN_ALLOWLIST));
+export const PRONOUN_ALLOWLIST = ["he/him", "she/her", "they/them", "xe/xem", "ze/zir"] as const;
+export type AllowedPronouns = string;
+
+/**
+ * Pronoun schema: the account's own pronoun rule (`sanitizePronounsWithCap`,
+ * the pipeline `sanitizeAndValidatePronouns` runs), with the largest per-word
+ * cap admin_config allows, so every value an account write accepted passes.
+ * Slash forms are lower-cased as before; a custom set keeps its forms as typed.
+ */
+export const PronounsSchema = z.string().transform((v, ctx) => {
+  const trimmed = v.trim();
+  const input = trimmed.includes("|") ? trimmed : trimmed.toLowerCase();
+  const checked = sanitizePronounsWithCap(input, PRONOUN_WORD_CAP_UPPER_BOUND);
+  if (!checked.ok) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: checked.error });
+    return z.NEVER;
+  }
+  return checked.value;
+});
 
 /**
  * Name schema: the shared name rule (`checkPersonalName`, identity-flow

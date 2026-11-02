@@ -76,6 +76,20 @@ describe("reducePromptName", () => {
 });
 
 describe("clampPronouns", () => {
+  it("keeps a custom six-part set whole: it is longer than one form's limit, but no form is", () => {
+    const custom = "xe|xem|xyr|xyrs|xemself|s";
+    assert.ok(custom.length > RENDERED_IDENTITY_NAME_MAX);
+    assert.equal(clampPronouns(custom), custom);
+  });
+
+  it("clamps a custom set per form and keeps its six slots", () => {
+    const long = "x".repeat(RENDERED_IDENTITY_NAME_MAX + 5);
+    const out = clampPronouns(`${long}||xyr|xyrs|xemself|p`)!;
+    assert.equal(out.split("|").length, 6);
+    assert.equal(out.split("|")[0], "x".repeat(RENDERED_IDENTITY_NAME_MAX));
+    assert.equal(out.split("|")[1], "");
+  });
+
   it("returns null for null/undefined input", () => {
     assert.equal(clampPronouns(null), null);
     assert.equal(clampPronouns(undefined), null);

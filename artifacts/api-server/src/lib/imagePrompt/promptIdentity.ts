@@ -106,6 +106,16 @@ export function reducePromptName(identity: { firstName?: string | null; displayN
  */
 export function clampPronouns(pronouns: string | null | undefined): string | null {
   if (!pronouns) return null;
+  // A custom six-part set (`subj|obj|poss|possPro|refl|s|p`) is clamped per
+  // form and keeps its six slots, empty ones included, so it still parses as
+  // a custom set (identity-flow Phase 2); splitting it on "/" treated the
+  // whole set as one form and could cut it into a malformed string.
+  if (pronouns.includes("|")) {
+    const parts = pronouns.split("|");
+    const clamped = parts.map((p) => graphemeSafeTruncate(p.trim(), RENDERED_IDENTITY_NAME_MAX));
+    if (clamped.every((p, i) => p === parts[i]!.trim())) return pronouns;
+    return clamped.join("|");
+  }
   const parts = pronouns.split("/");
   const clamped = parts.map((p) => graphemeSafeTruncate(p.trim(), RENDERED_IDENTITY_NAME_MAX));
   if (clamped.every((p, i) => p === parts[i]!.trim())) return pronouns;

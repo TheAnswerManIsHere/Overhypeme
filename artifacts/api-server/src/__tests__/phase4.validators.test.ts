@@ -29,15 +29,29 @@ describe("Phase 4 — PronounsSchema", () => {
     });
   }
 
-  it("normalises mixed case before checking the allowlist", () => {
+  it("normalises a slash form's case", () => {
     const r = PronounsSchema.safeParse("She/Her");
     assert.equal(r.success, true);
     if (r.success) assert.equal(r.data, "she/her");
   });
 
-  it("rejects unknown pronouns", () => {
-    const r = PronounsSchema.safeParse("foo/bar");
-    assert.equal(r.success, false);
+  // The account's own pronoun rule (identity-flow Phase 2): any slash form
+  // and any six-part custom set an account can store.
+  it("accepts any slash form an account accepts", () => {
+    const r = PronounsSchema.safeParse("fae/faer");
+    assert.equal(r.success, true);
+    if (r.success) assert.equal(r.data, "fae/faer");
+  });
+
+  it("accepts a custom six-part set, keeping its forms", () => {
+    const r = PronounsSchema.safeParse("Xe|xem|xyr|xyrs|xemself|s");
+    assert.equal(r.success, true);
+    if (r.success) assert.equal(r.data, "Xe|xem|xyr|xyrs|xemself|s");
+  });
+
+  it("rejects a malformed custom set", () => {
+    assert.equal(PronounsSchema.safeParse("xe|xem|xyr").success, false);
+    assert.equal(PronounsSchema.safeParse("xe|xem|xyr|xyrs|xemself|q").success, false);
   });
 
   it("rejects empty input", () => {
@@ -137,7 +151,7 @@ describe("Phase 4 — RenderRequestBody", () => {
       factId: 1,
       imageSource: { type: "upload", uploadKey: "/objects/uploads/x.jpg" },
       name: "Alex",
-      pronouns: "they/he",
+      pronouns: "xe|xem",
     });
     assert.equal(r.success, false);
   });
@@ -176,7 +190,7 @@ describe("Phase 4 — SaveMemeBody", () => {
     const r = SaveMemeBody.safeParse({
       factId: 1,
       imageSource: { type: "upload", uploadKey: "/objects/uploads/x.jpg" },
-      pronouns: "garbage/value",
+      pronouns: "one two three four five",
     });
     assert.equal(r.success, false);
   });
