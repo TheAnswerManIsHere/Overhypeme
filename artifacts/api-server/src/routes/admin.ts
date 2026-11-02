@@ -123,7 +123,7 @@ import { exportUserData, runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import { logger } from "../lib/logger";
 import { stripeDriver } from "../lib/stripeDriver.js";
-import { acceptAccountDeletion, advanceAccountDeletion, pendingDeletion } from "../lib/accountDeletion";
+import { adminPurgeNow, pendingDeletion, purgeNowBody } from "../lib/accountDeletion";
 
 /**
  * The human-readable label an admin action is attributed by.
@@ -551,15 +551,11 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
   if (hard) {
     try {
       assertNotSelfDemotion(req.user?.id, id);
-      const accepted = await acceptAccountDeletion(id, { requestedBy: "admin", purgeAfter: new Date(), kick: false });
-      if (accepted.status === "not_found") { res.status(404).json({ error: "User not found" }); return; }
-      const stage = await advanceAccountDeletion(id);
-      res.json({
-        success: true,
-        deleted: stage === "done",
-        stage,
-        ...(stage === "held" ? { message: "Held: an open billing dispute on this account. The purge runs when it resolves." } : {}),
-      });
+      // An admin's removal: a request the member already made becomes the
+      // admin's, so their comments, submissions, votes and hearts go too.
+      const outcome = await adminPurgeNow(id, { takeOver: true });
+      if (outcome.status === "not_found") { res.status(404).json({ error: "User not found" }); return; }
+      res.json(purgeNowBody(outcome.stage));
     } catch (err) {
       if (respondToGuardError(err, res)) return;
       logger.error({ err, userId: id }, "[hard-delete] engine stage failed; the worker retries it");

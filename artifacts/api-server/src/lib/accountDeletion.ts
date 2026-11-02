@@ -74,11 +74,14 @@ export type AcceptOutcome =
  * worker finishes whatever that kick did not. A request by `unonboarded` is
  * re-checked on the locked user row (`neverOnboarded`): an account that has
  * finished onboarding since it was selected is left alone, answering
- * `not_found`, whoever the caller is.
+ * `not_found`, whoever the caller is. `takeOver` (an admin removing the
+ * account) makes a pending request the admin's, so the purge applies the
+ * admin rule (David, 2026-11-02, answer 1: deleted "when an admin removes the
+ * account"); without it a pending request keeps who asked.
  */
 export async function acceptAccountDeletion(
   userId: string,
-  opts: { requestedBy: AccountDeletionRequester; purgeAfter?: Date; now?: Date; kick?: boolean },
+  opts: { requestedBy: AccountDeletionRequester; purgeAfter?: Date; now?: Date; kick?: boolean; takeOver?: boolean },
 ): Promise<AcceptOutcome> {
   const now = opts.now ?? new Date();
   const purgeAfter = opts.purgeAfter ?? new Date(now.getTime() + DELETION_COOLING_OFF_DAYS * 86_400_000);
@@ -95,9 +98,12 @@ export async function acceptAccountDeletion(
     if (!user) return { status: "not_found" };
     const [pending] = await tx.select({ purgeAfter: adr.purgeAfter }).from(adr).where(active(userId));
     if (pending) {
-      // An admin's purge-now brings a pending request's date forward; nothing else changes it.
+      // An admin's purge-now brings a pending request's date forward, and an
+      // admin's removal takes the request over; nothing else changes it.
       const next = opts.purgeAfter && opts.purgeAfter < pending.purgeAfter ? opts.purgeAfter : pending.purgeAfter;
-      if (next !== pending.purgeAfter) await tx.update(adr).set({ purgeAfter: next }).where(active(userId));
+      if (next !== pending.purgeAfter || opts.takeOver) {
+        await tx.update(adr).set({ purgeAfter: next, ...(opts.takeOver ? { requestedBy: opts.requestedBy } : {}) }).where(active(userId));
+      }
       return { status: "already_pending", purgeAfter: next };
     }
     // Only an account that can reach the console can be the last one that can.
@@ -135,7 +141,7 @@ export async function cancelAccountDeletion(userId: string, opts: { notify?: boo
     .update(adr)
     .set({ cancelledAt: new Date(), holdReason: null, lastError: null })
     .where(and(active(userId), notInArray(adr.stage, ["purging", "done"])))
-    .returning({ userId: adr.userId, billingUnsettled: adr.billingUnsettled });
+    .returning({ userId: adr.userId, billingUnsettled: adr.billingUnsettled, requestedBy: adr.requestedBy });
   if (!row) {
     const [existing] = await db.select({ stage: adr.stage }).from(adr).where(active(userId));
     return existing ? "too_late" : "not_pending";
@@ -151,7 +157,7 @@ export async function cancelAccountDeletion(userId: string, opts: { notify?: boo
   if (opts.notify !== false) {
     const [user] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId));
     if (user?.email) {
-      await sendEmail({ to: user.email, kind: "account_deletion_cancelled", ...buildAccountDeletionCancelledEmail(getSiteBaseUrl()) })
+      await sendEmail({ to: user.email, kind: "account_deletion_cancelled", ...buildAccountDeletionCancelledEmail(getSiteBaseUrl(), { unfinished: row.requestedBy === "unonboarded" }) })
         .catch((err: unknown) => logger.warn({ err, userId }, "[account-deletion] cancel email not queued"));
     }
   }
@@ -162,6 +168,31 @@ export async function cancelAccountDeletion(userId: string, opts: { notify?: boo
 export async function pendingDeletion(userId: string) {
   const [row] = await db.select().from(adr).where(active(userId));
   return row ?? null;
+}
+
+export type AdminPurgeOutcome = { status: "not_found" } | { status: "advanced"; stage: AdvanceResult };
+
+/**
+ * An admin's purge-now: accepts (or brings forward) the request with a purge
+ * date of now and runs the engine at once. `takeOver` is the user editor's
+ * permanent delete, which makes a member's own pending request the admin's;
+ * the deletion panel's "Purge now" leaves who asked as it is. A failed stage
+ * throws after the engine has recorded it; the hourly worker resumes it.
+ */
+export async function adminPurgeNow(userId: string, opts: { takeOver: boolean }): Promise<AdminPurgeOutcome> {
+  const accepted = await acceptAccountDeletion(userId, { requestedBy: "admin", purgeAfter: new Date(), kick: false, takeOver: opts.takeOver });
+  if (accepted.status === "not_found") return { status: "not_found" };
+  return { status: "advanced", stage: await advanceAccountDeletion(userId) };
+}
+
+/** The admin purge routes' answer for the stage the engine reached. */
+export function purgeNowBody(stage: AdvanceResult) {
+  return {
+    success: true,
+    deleted: stage === "done",
+    stage,
+    ...(stage === "held" ? { message: "Held: an open billing dispute on this account. The purge runs when it resolves." } : {}),
+  };
 }
 
 /** One row of the admin deletion panel. */
@@ -415,6 +446,14 @@ export function __setBeforePurgeClaimForTests(fn: (userId: string) => Promise<vo
   return () => { beforePurgeClaim = null; };
 }
 
+let beforePurgeTransaction: ((userId: string) => Promise<void>) | null = null;
+
+/** Tests only: run `fn` after the purge deleted the files and before its locked transaction, where an admin's takeover can land. */
+export function __setBeforePurgeTransactionForTests(fn: (userId: string) => Promise<void>): () => void {
+  beforePurgeTransaction = fn;
+  return () => { beforePurgeTransaction = null; };
+}
+
 export type AdvanceResult = AccountDeletionStage | "cancelled" | "gone";
 
 /**
@@ -467,7 +506,7 @@ export async function advanceAccountDeletion(userId: string, now = new Date()): 
             and(lte(adr.purgeAfter, now), sql`NOT ${disputeOpen(userId)}`)))) continue;
           break;
         case "purging":
-          await purgeAccount(userId, row.requestedBy);
+          await purgeAccount(userId);
           return "done";
         case "done":
           return "done";
@@ -515,8 +554,7 @@ async function ownedObjects(userId: string): Promise<string[]> {
  * an admin removes the account, the likely-abuse case, those are deleted and
  * the totals recounted. Their memes, photos and images go either way.
  */
-async function purgeAccount(userId: string, requestedBy: AccountDeletionRequester): Promise<void> {
-  const removedByAdmin = requestedBy === "admin";
+async function purgeAccount(userId: string): Promise<void> {
   const storage = new ObjectStorageService();
   const paths = await ownedObjects(userId);
   // A few at a time: each delete is a preserve-then-delete round trip, most
@@ -524,11 +562,15 @@ async function purgeAccount(userId: string, requestedBy: AccountDeletionRequeste
   for (let i = 0; i < paths.length; i += 8) {
     await Promise.all(paths.slice(i, i + 8).map((path) => storage.deleteObject(path)));
   }
+  await beforePurgeTransaction?.(userId);
 
   await db.transaction(async (tx) => {
     await lockOwnerContent(tx, userId);
-    const [still] = await tx.select({ stage: adr.stage }).from(adr).where(and(active(userId), eq(adr.stage, "purging"))).for("update");
+    // Who asked is read here, under the owner lock an admin's takeover also
+    // takes: a takeover that lands while the files were being deleted applies.
+    const [still] = await tx.select({ stage: adr.stage, requestedBy: adr.requestedBy }).from(adr).where(and(active(userId), eq(adr.stage, "purging"))).for("update");
     if (!still) return;
+    const removedByAdmin = still.requestedBy === "admin";
 
     // The votes and hearts the person cast. Kept without their name, so no
     // total moves; or, on an admin's removal, deleted and each surviving
