@@ -36,15 +36,12 @@ modal) passes the admin's chosen Registered/Unregistered starting tier
 straight into the insert (never Legendary — that's granted afterward through
 `writeAdminGrant`, see the source-type table below). Both are one-time
 auth-state initialization, not a write competing with `recomputeMembership`.
-Past that point, nothing else may set `membership_tier` directly, with **one
-narrow, designed exception:** admin reinstatement (`PATCH /admin/users/:id`
-in `routes/admin.ts`) writes `membershipTier`/`membershipValidUntil`
-directly, bypassing `recomputeMembership`, when a source refresh comes back
-incomplete — it re-derives over only the sources it could verify and writes
-that fail-closed result itself, rather than trusting a recompute that might
-count a source it never actually re-checked. See the reader-inventory section
-below for the mechanics. Any *other* post-creation code writing the column
-directly is a regression.
+Past that point, nothing else may set `membership_tier` directly: any
+post-creation code writing the column outside `recomputeMembership` is a
+regression. (Admin reinstatement of a deactivated account used to be the one
+designed exception — it wrote a fail-closed tier itself when a source refresh
+came back incomplete. It was retired with deactivation in launch Phase 5, PR
+#837; [`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion).)
 
 ## The entitlement model
 
@@ -363,7 +360,7 @@ immediately before writing. A stale writer's fence check fails and its write
 never lands, even if its lease technically expired moments earlier.
 
 **Lock order matters.** Every apply path takes the **user row lock before**
-touching a source row, never after — a refund and a reinstatement racing for
+touching a source row, never after — a refund and a recompute racing for
 the same user either serialize cleanly or one waits behind the other's fully
 committed result, never partially interleaved.
 
@@ -507,21 +504,23 @@ a lapsed member matches neither branch and silently falls out of both counts.
 must never promote out of it — a brand-new account has no entitlements to
 derive from, and the no-source answer is `registered`, which would silently
 grant registration capabilities to someone who never signed up. Every writer
-that touches a user's tier (`recomputeMembership`, and the reinstatement
-fail-closed override) checks this explicitly before writing.
+that touches a user's tier (`recomputeMembership`) checks this explicitly
+before writing.
 
-**Deactivating an account is not the same as it having no entitlements.**
-Soft-deletion (`is_active = false`) makes a best-effort attempt to cancel the
-user's Stripe subscriptions at Stripe and locally — it queries only
-`active`/`trialing` rows, so a grace-bound `past_due` subscription is left
-untouched at both Stripe and locally, and a Stripe API failure on an
-`active`/`trialing` row is logged and swallowed rather than blocking
-deactivation. It does not touch `stripe_lifetime_payment` or `admin_grant`
-sources, and it doesn't set the stored tier to `unregistered`. So a lifetime
-purchase, an admin grant, or a subscription the cancellation attempt missed
-or failed on can all survive deactivation still qualifying, which is exactly
-why reinstatement re-verifies the retained sources rather than assuming
-there's nothing left to check.
+**Suspending or deleting an account is not the same as it having no
+entitlements** (launch Phase 5;
+[`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion)).
+A **suspension** touches no billing at all. An **account deletion** cancels
+every subscription that can still bill or resume billing (`active`,
+`trialing`, `past_due`, `unpaid`, `paused`, `incomplete`) the moment the
+request is accepted, and a cancel that did not apply is retried by the
+deletion worker rather than swallowed. It does not touch
+`stripe_lifetime_payment` or `admin_grant` sources: whatever entitlements
+remain survive the cancel, and survive "Keep my account" too. A kept
+account's billing is settled refresh-only, fenced by `billing_version`, and
+the deletion panel lists any kept account whose settlement is unfinished. The
+retired soft delete cancelled only `active`/`trialing` rows and swallowed a
+Stripe failure; its reinstatement path re-verified the retained sources.
 
 ## The admin surfaces are entitlements, not fake payments or a tier field
 
@@ -537,8 +536,9 @@ sets `lifecycleStatus: "revoked"` plus who/when/why on the same row) — it is
 never deleted, but it is not append-only either; the row transitions
 active → revoked rather than being superseded by a new row.
 `membership_history` is the append-only record of that transition — nothing
-ever removes a history row except through account deletion, where the user's
-whole trail goes with the user.
+ever removes a history row except the account deletion purge, where the
+user's whole trail goes with the user, in the same transaction that deletes
+the user row.
 
 **There is no membership-tier dropdown on editing an existing user in Admin →
 Users.** Setting a tier by hand is exactly what this model removes for that
@@ -549,15 +549,15 @@ Legendary there routes through `POST /admin/users`, which writes an
 `admin_grant` rather than setting the field directly (see the source-type
 table above).
 
-**Reinstating a deactivated user re-verifies every Stripe-backed source before
-restoring their tier**, and fails closed only over sources it genuinely
-couldn't verify — see `refreshSourcesForReinstatement` /
-`loadSourceStateVersions` in `membershipSources.ts` for the mechanics (a
-per-source committed-version comparison, not a sequence watermark; see the
-known-failure-patterns entry on why the watermark version was wrong). A
-qualifying `admin_grant` alongside an unverifiable Stripe source is never
-discarded by that fail-closed path — only sources the refresh actually
-couldn't stand behind are.
+**Reinstating a deactivated user is retired** (launch Phase 5, PR #837),
+and with it the only admin action that forced a re-verification of every
+Stripe-backed source — so a missed cancellation or refund now has no manual
+repair on the admin surface (*Known, accepted gaps*, below, and
+[`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt)).
+`loadSourceStateVersions` in `membershipSources.ts` — the per-source
+committed-version comparison it used, not a sequence watermark (see the
+known-failure-patterns entry on why the watermark version was wrong) — is
+still exported.
 
 ## Known, accepted gaps
 

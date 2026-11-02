@@ -248,13 +248,16 @@ because a floor is enforced, but because nothing deletes it. Describe the
 current state as "nothing deletes evidence yet," never as "the minimum is
 enforced."
 
-**Evidence deliberately survives a user hard-delete.** Three FKs are
+**Evidence deliberately survives an account deletion.** Three FKs are
 `ON DELETE SET NULL` on purpose — `ncmec_reports.user_id`,
 `quarantined_memes.user_id`/`meme_id`, and `ncmec_reports.quarantine_id`
-(`schema/moderation.ts:30-31,100,211-215`). An admin hard-delete of a
-user nulls the attribution while the report row, the quarantine row, and
-the bytes all survive; the hard-delete's storage-cleanup step never
-touches the restricted prefix, and `deleteObject`'s guard would refuse it
+(`schema/moderation.ts:30-31,100,211-215`). Every account deletion —
+a member's own, an admin's removal, an unfinished sign-up's — runs through
+the one deletion engine
+([`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion)), whose
+purge nulls the attribution while the report row, the quarantine row, and
+the bytes all survive; the purge's file deletion never touches the
+restricted prefix, and `deleteObject`'s guard would refuse it
 if it tried.
 
 **The audit ledger is designed to go the other way** —

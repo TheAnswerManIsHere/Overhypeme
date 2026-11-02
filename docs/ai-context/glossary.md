@@ -189,11 +189,13 @@ up skips straight to [Preview](#preview) with the saved template and does
 
 ### Onboarding
 
-The one-time challenge (including a captcha) a fresh account completes **once**
-before it can submit its first fact. Admins and existing Legendary members skip
-it. It is not a separate account type — it is a step layered on top of an
-ordinary account, and until it's done you can still sign in and browse.
-→ [accounts-and-auth](./accounts-and-auth.md)
+The one screen every account completes **once**, after verifying its email and
+before it can act: date of birth (under 13 is refused, nothing stored), pronouns
+and name confirmed, the marketing choice recorded, and one Turnstile challenge.
+Every sign-in method goes through it, accounts from before launch Phase 5
+included. It is not a separate account type — until it's done you can still
+sign in and browse, and every write is refused.
+→ [accounts-and-auth](./accounts-and-auth.md#account-creation)
 
 ### Bulk import
 
@@ -955,33 +957,58 @@ dropped. A small number of narrower endpoints check the toggle directly and so
 inconsistency in a corner, not how authorization works generally.
 → [accounts-and-auth](./accounts-and-auth.md)
 
+### Suspend
+
+An admin blocking a **person**, not the catalogue: the account is signed out
+everywhere, refused at every sign-in door and every write, and shown only
+*"This account is suspended."* Its content stays live and its billing is left
+alone. An admin lifts it with unsuspend. Never written through `is_active`.
+→ [accounts-and-auth](./accounts-and-auth.md#suspension)
+
+### Account deletion
+
+An account leaving, through the one deletion engine. A member's own request
+re-authenticates, signs them out, hides their memes and media and starts cancelling billing at
+once, then purges after **14 days** unless they press "Keep my account". An
+admin's [removal](#remove) purges at once. Their photos, memes and generations
+go; their facts persist, credited to a [former member](#former-member).
+→ [accounts-and-auth](./accounts-and-auth.md#account-deletion)
+
+### Former member
+
+How a contribution kept after its author's [account deletion](#account-deletion)
+is credited. A marker column (`submitter_deleted_at`, `author_deleted_at`) says
+so; a bare null author would mean "system import". Facts always keep their
+former-member credit; comments, pending submissions, links, votes and hearts
+keep it when the member left, and are deleted on an admin's removal.
+→ [accounts-and-auth](./accounts-and-auth.md#account-deletion)
+
 ### Deactivate
 
-Signing an account out everywhere, locking it out of signing back in, and
-making a best-effort attempt to cancel any paid membership. Everything the
-account created stays live; only the attribution stops showing. Reversible by
-an admin [reinstating](#reinstate) it.
-→ [accounts-and-auth](./accounts-and-auth.md)
+**Retired in launch Phase 5** (PR #837). It was the admin soft delete: one
+`is_active` switch that meant both "banned" and "leaving". It became two
+states: [suspend](#suspend) and [account deletion](#account-deletion).
+→ [accounts-and-auth](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion)
 
 ### Remove
 
-Going further than [deactivate](#deactivate): a best-effort deletion of the
-account's own uploaded images and personal data. **Content it created — facts,
-comments, memes — is kept**, just no longer tied to a real account. Not a
-"right to be forgotten" erasure. A [quarantine](#quarantine) record's evidence
-and row survive a hard delete too, by design — but not the attribution:
-who it's tied to is nulled out along with the account, the same as ordinary
-content. Preserved evidence and preserved *attribution* are different
-guarantees; only the first one holds.
-→ [accounts-and-auth](./accounts-and-auth.md)
+An admin's [account deletion](#account-deletion) from the user editor ("Delete
+User", confirmed by "Confirm Hard Delete"): purged at once, and, as the abuse case, the account's comments,
+pending submissions, links, votes and hearts are deleted rather than kept, and
+the totals they fed recounted. Facts still persist, credited to a
+[former member](#former-member). A [quarantine](#quarantine) record's evidence
+and row survive, by design — but not the attribution. Preserved evidence and
+preserved *attribution* are different guarantees; only the first one holds.
+→ [accounts-and-auth](./accounts-and-auth.md#account-deletion)
 
 ### Email verification
 
-The one-time link sent after registering with email and password. **Today it
-unlocks nothing** — it's a trust signal shown to moderators and admins, not a
-gate. The step that actually gates a first submission is
-[onboarding](#onboarding).
-→ [accounts-and-auth](./accounts-and-auth.md)
+The one-time link sent after registering with email and password (or changing
+the address); a provider's confirmed email counts too. **Since launch Phase 5 it
+gates every write**: an unverified account can sign in and browse, and the
+server refuses everything else until it verifies, then
+[onboards](#onboarding).
+→ [accounts-and-auth](./accounts-and-auth.md#email-verification)
 
 ---
 
@@ -993,9 +1020,9 @@ User entitlement level: `unregistered | registered | legendary`. **Derived,
 never assigned, post-creation** — `users.membership_tier` is a projection
 computed from a user's [entitlement sources](#entitlement-source), recomputed
 on every change to them. Account creation is a separate one-time
-initialization write, not a competing writer. One narrow designed exception:
-admin reinstatement writes it directly, fail-closed, when a source refresh
-comes back incomplete.
+initialization write, not a competing writer. (Admin [reinstatement](#reinstate),
+which wrote it directly when a source refresh came back incomplete, was the one
+exception; it was retired in launch Phase 5.)
 → [membership-entitlements](./membership-entitlements.md#the-one-thing-to-understand-before-anything-else)
 
 ### Entitlement source
@@ -1031,10 +1058,12 @@ against it.
 ### Reactivate
 
 Undoing a pending [cancellation](#cancel) before it takes effect. **One of
-three different "bring it back" actions, each on a different object** — this
-one restores a *subscription*, [reinstate](#reinstate) restores a deactivated
-*account*, and [Resubmit for Moderation](#resubmit-for-moderation) restores an
-inactive *fact*. They are not interchangeable.
+several different "bring it back" actions, each on a different object** —
+this one restores a *subscription*; "Keep my account" cancels an [account
+deletion](#account-deletion) and unsuspend lifts a [suspension](#suspend) (the
+old [reinstate](#reinstate) of a deactivated account is retired); and
+[Resubmit for Moderation](#resubmit-for-moderation) restores an inactive
+*fact*. They are not interchangeable.
 → [membership-entitlements](./membership-entitlements.md)
 
 ### Switch to Annual
@@ -1096,11 +1125,11 @@ revoked — a revoke only ends a grant, never deletes it.
 
 ### Reinstate
 
-Restoring a [deactivated](#deactivate) account, re-checking its actual Stripe
-state before restoring its tier rather than trusting what was last stored — so
-a subscription that lapsed during deactivation doesn't come back to life along
-with the account.
-→ [membership-entitlements](./membership-entitlements.md)
+**Retired in launch Phase 5** (PR #837), with [deactivate](#deactivate). It
+was restoring a deactivated account and re-deriving its tier from Stripe. A
+[suspension](#suspend) is lifted by unsuspend, which touches no billing, and a
+deletion is undone by "Keep my account".
+→ [accounts-and-auth](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion)
 
 ---
 

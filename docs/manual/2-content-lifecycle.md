@@ -70,10 +70,12 @@ keep, edit, or clear. (A submitter picking up an [autosaved draft](../ai-context
 straight to Preview with their saved template and doesn't trigger a fresh
 suggestion fetch.)
 
-Submitting requires being signed in. A onetime step also applies before a
-first fact can be submitted: anyone who isn't an admin or an existing
-[Legendary](../ai-context/glossary.md#legendary) member must complete [onboarding](../ai-context/glossary.md#onboarding) (which includes a captcha check)
-first; admins and Legendary members skip it. On submit, the server
+Submitting requires being signed in with an account that has verified its
+email and completed [onboarding](../ai-context/glossary.md#onboarding) — the one-time screen every account
+finishes before it can act at all (see
+[chapter 9](./9-accounts-and-auth.md#verify-then-onboard-then-act)). Onboarding
+includes a Turnstile challenge, so an onboarded account is not challenged
+again when it submits. On submit, the server
 re-normalizes the fact's grammar independently of what the client already
 checked — a submission that reached the server without going through the
 Write-to-Preview grammar pass (an API client, a stale front-end) still gets

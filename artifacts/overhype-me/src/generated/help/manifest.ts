@@ -579,13 +579,8 @@ export const HELP_DOCS: HelpDocMeta[] = [
         "depth": 3
       },
       {
-        "id": "creating-an-account",
-        "title": "Creating an account",
-        "depth": 3
-      },
-      {
-        "id": "verifying-your-email",
-        "title": "Verifying your email",
+        "id": "verify-then-onboard-then-act",
+        "title": "Verify, then onboard, then act",
         "depth": 3
       },
       {
@@ -594,8 +589,18 @@ export const HELP_DOCS: HelpDocMeta[] = [
         "depth": 3
       },
       {
-        "id": "when-an-account-is-deactivated-or-removed",
-        "title": "When an account is deactivated or removed",
+        "id": "when-an-account-is-suspended",
+        "title": "When an account is suspended",
+        "depth": 3
+      },
+      {
+        "id": "when-an-account-is-deleted",
+        "title": "When an account is deleted",
+        "depth": 3
+      },
+      {
+        "id": "deleting-things-from-my-content",
+        "title": "Deleting things from My content",
         "depth": 3
       },
       {

@@ -82,21 +82,40 @@ account moves through one order — **verify, then onboard, then act** — and
 the server enforces it:
 
 - **Eligibility** is derived from the row on every request
-  (`artifacts/api-server/src/lib/eligibility.ts`, `eligibilityOf`): `unverified` while
+  (`artifacts/api-server/src/lib/eligibility.ts`, `eligibilityOf`), first
+  reason wins: `suspended` while `suspended_at` is set (§ Suspension),
+  `deletion_pending` while the account has an active deletion request
+  (`userLeaving()`, § Account deletion), `unverified` while
   `email_verified_at` is null, `unonboarded` while
-  `onboarding_completed_at` is null, else `eligible` (`suspended` and
-  `deletion_pending` are reserved for increments 5 and 6).
+  `onboarding_completed_at` is null, else `eligible`.
   `authMiddleware` puts it on `req.user.eligibility`, with `is13Plus` and
   `is18Plus` derived from `date_of_birth` at read time, never stored.
+  `identityFieldsOf(row)` is the one derivation, spread by `authMiddleware`
+  and by the test app (`buildTestApp`), so a test double cannot drift from
+  production.
 - **The verified-actor gate** (`middlewares/requireEligibleActor.ts`,
   installed after `authMiddleware` in `app.ts`) refuses every unsafe-method
   request, and the inventoried GETs that write (`GET /link/:provider`), from
   a signed-in account that is not eligible: 403 with
-  `EMAIL_VERIFICATION_REQUIRED` or `ONBOARDING_REQUIRED`. Its exported
-  `GATE_EXCEPTIONS` table opens the recovery routes (register, local login,
-  forgot/reset password, resend verification, logout, the Apple callback,
-  the dev-admin login) to both states, and the two onboarding routes to an
-  un-onboarded one. Anonymous requests are untouched. Photo uploads
+  `ACCOUNT_SUSPENDED`, `DELETION_PENDING`, `EMAIL_VERIFICATION_REQUIRED` or
+  `ONBOARDING_REQUIRED`. Its exported `GATE_EXCEPTIONS` table (state →
+  routes) is the only statement of who may write in each state: the
+  recovery routes (register, local login, forgot/reset password, resend
+  verification, logout, the Apple callback, the dev-admin login) for an
+  unverified or un-onboarded account, the two onboarding routes and a
+  deletion request (a verified account that never finished set-up may still
+  leave) for an un-onboarded one, "Keep my account" (`POST /users/me/deletion/cancel`)
+  (beside the recovery routes) for a pending deletion, and only logout for
+  a suspended account.
+  `phase5.verifiedActorGate.test.ts` keeps a hand-written copy of that
+  table from the plan and diffs it. The gate matches paths and methods the
+  way Express does — case-insensitively, and HEAD as GET — because a gate
+  that matches more strictly than the router lets the router's looser match
+  through. Anonymous requests are untouched, so **an anonymous auth route
+  (one that acts on an email, a token or a provider claim) is outside the
+  gate and reads its target's state itself, before any write** — as
+  forgot-password, reset-password and the OAuth callback do for
+  suspension. Photo uploads
   (`POST /storage/upload-avatar`, `/storage/upload-meme`) also need
   `is18Plus` (`ADULT_REQUIRED`). `GET /facts/hero` answers an ineligible
   account as usual and skips its `user_fact_preferences` write. The test
@@ -121,15 +140,31 @@ the server enforces it:
   completing twice changes nothing). An adult is then offered the optional
   profile photo.
 - **The web shell** (`App.tsx`'s `SetupRedirect`, rule in
-  `artifacts/overhype-me/src/lib/setup-redirect.ts`) sends an unverified account to `/check-email`
-  and an un-onboarded one to `/onboard`, each with `returnTo`; the
-  verification link lands on `/onboard`. Convenience only: the gate is the
-  enforcement. Google/Apple sign-ups are still sent to `/onboard` on their
-  first login (`isNewUser`), which the shell would do anyway.
+  `artifacts/overhype-me/src/lib/setup-redirect.ts`) sends a suspended
+  account to `/account/suspended`, one scheduled for deletion to
+  `/account/deletion` ("Keep my account"), an unverified account to
+  `/check-email` and an un-onboarded one to `/onboard`, the last two with
+  `returnTo` (built from the raw `window.location.search`, because wouter's
+  `useSearch` decodes it); the verification link lands on `/onboard`.
+  Convenience only: the gate is the enforcement. Google/Apple sign-ups are
+  still sent to `/onboard` on their first login (`isNewUser`), which the
+  shell would do anyway.
+- **The challenge is Cloudflare Turnstile** (launch Phase 5, increment 1,
+  replacing hCaptcha): `artifacts/api-server/src/lib/captcha.ts` verifies the token server-side for
+  every challenge-gated route — onboarding, a comment, tokenizing a fact
+  for submission (an onboarded account skips that one, below), a share by
+  email —
+  with a 10-second siteverify timeout that fails closed. With no
+  secret configured it fails closed in production and skips with a warning
+  elsewhere. The comment challenge mounts only once someone starts writing.
+  The live site needs `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY`;
+  without them no account can finish onboarding.
 - **`captcha_verified` is no longer read or written** (plan S23): the
   submit-review and tokenize-fact bypass reads `onboardingCompleted`
   instead, since every onboarded account passed a challenge at onboarding.
-  The column is dropped by migration 0119 in increment 7.
+  The column is dropped by migration 0122 (Increment 7b), which runs only
+  once the release that stopped using it is the published one — the expand,
+  then contract rule. 0122 also drops `nsfw_mode_enabled` (§ Age, audience and the NSFW opt-in).
 
 ## Email verification
 
@@ -169,7 +204,9 @@ unverified claim; on a new account it is created unverified.
 
 - Always returns the same generic confirmation regardless of whether the
   email matches an account (`GENERIC_RESET_MESSAGE`, `localAuth.ts:313`) —
-  no account-existence disclosure.
+  no account-existence disclosure. A suspended account is sent nothing,
+  behind the same reply, and reset refuses a suspended owner's link before
+  claiming it (§ Suspension).
 - Rate-limited by IP (`localAuth.ts:34-35,319-327`).
 - **An account with no password yet (made by Google or Apple sign-in) gets
   the link too**, and following it sets its first password (#800): the
@@ -206,77 +243,219 @@ beside it is what signed the request in. The operator route
 `POST /admin/users/set-password` ends all of the user's sessions the same
 way.
 
-## Account lifecycle: deactivation and deletion
+## Account lifecycle: suspension and deletion
 
-**No self-service deactivation or deletion route exists.** All
-lifecycle-changing routes are admin-only, on `DELETE /admin/users/:id`
-(`routes/admin.ts:462-653`), branching on `?hard=true`:
+Two states for an account that stops being an ordinary one, kept apart since
+launch Phase 5 (#795): **suspension** blocks the person and touches nothing
+else; **deletion** is its own state machine, which ends with the account
+gone. *"One state machine for leaving, one flag for being removed"* (the
+Phase 5 plan's settled decisions).
 
-**Soft delete (default).** Cancels any active/trialing Stripe subscription
-(non-fatal on failure, `admin.ts:588-632`), deletes all of that user's
-`sessions` rows (force-logout everywhere, `admin.ts:635-637`), sets
-`usersTable.isActive = false` (`admin.ts:640-645`). **Content is untouched**
-— facts, comments, memes stay exactly as they are, still attributed to the
-now-inactive user id.
+**The admin soft delete and the set-inactive edit are retired** (Increment
+7a, PR #837). `DELETE /admin/users/:id` without `?hard=true` answers 400
+(*"Soft delete is retired: suspend the account, or delete it with
+?hard=true."*), `PATCH /admin/users/:id` ignores `isActive`, and the
+reinstatement path that flipped an account back to active went with them.
+Nothing writes `users.is_active = false` any more. The column is still
+read, though: `authMiddleware` and local sign-in resolve only
+`is_active = true` rows, and `isReachableAdminSql` counts only those. The
+legacy deactivated rows were moved to suspension by 0120 (there were none on
+dev).
 
-**Hard delete (`?hard=true`).** Staged, not wrapped in a single transaction
-(`currentStage` tracks progress for error reporting, so a mid-flight
-failure is diagnosable but not automatically rolled back):
+### Suspension
 
-1. Deletes the user's object-storage files (AI images, uploads) —
-   non-fatal per-file (`admin.ts:480-511`).
-2. Cancels active Stripe subscriptions (`admin.ts:513-547`).
-3. Explicitly deletes rows with non-cascading NOT-NULL FKs:
-   `stripeCheckoutRequestLedgerTable`, `membershipHistoryTable`,
-   `activityFeedTable` (`admin.ts:550-559`). (`affiliate_clicks` was on
-   this list until its table went in launch Phase 4, removal 11; ledger
-   [`docs/retired/README.md`](../retired/README.md).)
-   `membershipEntitlementsTable` is deliberately **not** deleted here — its
-   FK is `ON DELETE CASCADE`, so it goes with the user row in step 5;
-   deleting it early would also destroy anything cascaded off disputes tied
-   to it (`admin.ts:552-555`).
-4. **Nullifies, never deletes, content the user created** — memes, facts,
-   comments, external links, pending reviews (`submittedById` and
-   `reviewedById`). Content is orphaned
-   (FK set NULL), not cascaded away and not literally anonymized (no
-   author-name scrubbing).
-5. Deletes the user row (`admin.ts:574`); DB-level `ON DELETE CASCADE` FKs
-   then clean up `sessions`, `user_ai_images`, `user_fact_preferences`,
-   reactions (fact ratings and hearts), search history, and the
-   email/password token tables.
+`POST /admin/users/:id/suspend` (body `{ reason }`, required, under 500
+characters, seen only by admins) and `POST /admin/users/:id/unsuspend`
+(`routes/accountSuspension.ts`; engine `artifacts/api-server/src/lib/accountSuspension.ts`).
+Suspension has its own columns — `suspended_at`, `suspended_reason`,
+`suspended_by` (0120) — and never writes `is_active`. It runs under the
+admin population lock, then the user row `FOR UPDATE`. An admin can never
+suspend their own account or the last administrator who can reach the
+console: a suspended admin drops out of `isReachableAdminSql`. Every
+session of the person ends in the same transaction. **It blocks the person,
+never the catalogue**: their content stays live, and billing is not
+cancelled.
 
-`ncmec_reports.user_id` is `ON DELETE SET NULL`
-(`lib/moderation/ncmecXml.ts:10`) — legal/moderation evidence deliberately
-survives a hard delete.
+The block has two layers:
 
-**Reactivation** ("reinstating a deactivated user") happens via the general
-`PATCH /admin/users/:id` (`admin.ts:260-444`), not a dedicated endpoint,
-when `isActive: true` is set on a currently-inactive user (`reinstating`
-flag, `admin.ts:298-306`). `membershipTier` is explicitly excluded from
-this PATCH's accepted body (`admin.ts:273-277`) — accepting a
-client-supplied tier here would let a write get silently reverted by the
-next recompute; that's `grant-lifetime`'s job instead. Before touching the
-DB it refreshes every Stripe-backed entitlement source
-(`refreshSourcesForReinstatement()`, `admin.ts:173-191`, deliberately
-returning no tier — an earlier revision derived one outside the
-transaction and a race could stomp it). Inside one transaction
-(`admin.ts:320-436`): `isActive` flips, and `recomputeMembership(tx, id)`
-runs under a row lock — the normal, shared derivation path. **Only if the
-pre-transaction Stripe refresh came back incomplete** does it take a second
-pass: comparing per-source version numbers before/after the refresh to
-find sources that are genuinely stale (unverified *and* unchanged by any
-other writer meanwhile, `admin.ts:366-372`), and — only if such sources
-exist — re-derives the tier from the trusted subset
-(`deriveEffectiveMembership`, `admin.ts:393-396`) and writes it directly,
-bypassing `recomputeMembership` (`admin.ts:404-414`), explicitly refusing
-to promote an `unregistered` user out of that state even here
-(`admin.ts:398-409`). If every source turns out trustworthy after all, it
-writes nothing further — `recomputeMembership`'s result stands
-(`admin.ts:425-431`). **This is the mechanism
-[`10-payments-and-membership.md`](../manual/10-payments-and-membership.md)
-describes as "writes the tier directly" — precisely: it re-derives over
-only the sources it can trust and writes that, rather than copying a
-stale or arbitrary prior value.**
+- **Every sign-in door refuses a suspended account**: local sign-in (403
+  `ACCOUNT_SUSPENDED`), Google and Apple sign-in (decided before the upsert
+  writes anything; redirect `/login?error=account_suspended`), and provider
+  linking. Every door creates its session through `createSignInSession`
+  (`artifacts/api-server/src/lib/auth.ts`). That function reads `suspended_at` `FOR SHARE` and
+  inserts the session in one transaction, so it serializes with
+  `suspendAccount`'s `FOR UPDATE` and revoke-all. A sign-in and a suspension
+  that overlap therefore leave no session. It uses `FOR SHARE` rather than
+  `FOR KEY SHARE` because a plain `UPDATE` of the row conflicts only with
+  `FOR SHARE`. **Never copy that helper into a transaction that writes the
+  same users row**: that is a lock upgrade, and two concurrent resets of one
+  link would deadlock. A write lock taken before the token claim is the
+  shape there.
+- **The gate refuses every write by a session it still holds**, logout
+  aside. A held session may read: that is the approved design, and it
+  leads the person to `/account/suspended`, which says only *"This account
+  is suspended."* — never why.
+
+**Recovery is closed while suspended.** Forgot-password silently issues
+nothing and gives the same reply as for any address, so it tells nobody
+which accounts are suspended. Reset-password refuses a suspended owner's
+link before claiming it, so the link still works after an unsuspend.
+**Recorded gap:** a stored-field write that lands in the instant a
+suspension commits — a reset's new password, a verification, a provider
+link. Its end state is the one a moment-earlier action would have left,
+with no session and no capability (PR #835, round 3). Ruled out, so not
+re-proposed: a request-time suspension check in `authMiddleware` or
+`requireAdmin` (it would orphan the suspended screen and the held-session
+design), and a lock-free re-check before creating a session (it only
+narrows the race).
+
+A member who asked to delete their account and is then suspended cannot
+keep it: keeping it is a write the suspended state does not allow (by the
+plan; from PR #835's build report).
+
+### Account deletion
+
+**One engine owns every account deletion**: `artifacts/api-server/src/lib/accountDeletion.ts`, with
+one row per request in `account_deletion_requests` (0117). Its stages are
+`accepted → subscription_cancelled → notified → (held) → purging → done`.
+Each advances by compare-and-set, fenced to the request's generation
+(`requested_at`), so a crash or a concurrent run resumes or no-ops rather
+than repeating a destructive step. "Keep my account" and entering `purging`
+are a compare-and-set on the same stage, so exactly one wins. The routes
+only authenticate, rate-limit and answer. Who asked is recorded in
+`requested_by`: `self`, `admin`, or `unonboarded`.
+
+- **Accepting a request** writes the row and revokes every session in one
+  transaction, under the admin population lock: removing access can never
+  remove the last administrator. From that commit the person's own media —
+  memes, uploads and generated images — is no longer live
+  (`liveContent`/`ownerLeaving` in `artifacts/api-server/src/lib/contentVisibility.ts`,
+  the only spellings of "this account is being deleted"); their facts and
+  approved comments stay readable until the purge decides them, and a copy
+  already in a browser or at the edge can be seen for up to a day (the
+  residue David accepted, plan answer 5(b)). After the commit the engine
+  kicks the non-destructive stages without awaiting them. **Cancelling every
+  cancellable subscription starts at once** — a cancel Stripe does not
+  confirm is recorded and retried, so acceptance does not prove billing has
+  stopped (`active`, `trialing`, `past_due`, `unpaid`, `paused`,
+  `incomplete`), and the remaining entitlements survive a cancel. The
+  person is emailed. A billing dispute holds the purge (`held`). The hourly
+  worker (`runAccountDeletionWorker`) is recovery for anything that kick
+  did not finish, and — an admin's purge-now aside — the only path to the
+  destructive stage.
+- **Billing is fenced against crashes and races.** A refresh that did not
+  apply throws, so the stage stays and the worker retries. A kept account is
+  settled refresh-only. `billing_version` fences settlement against a cancel
+  that returned during its observations, and `billing_cancel_started_at`
+  stops settlement from trusting an observation within 10 minutes of a
+  cancel whose return was never recorded. No lock is held across a Stripe
+  call (`membershipLease.ts` forbids it).
+- **The purge** runs at `purge_after` under the owner content lock
+  (`lockOwnerContent`, shared with the content purger) and restates its
+  premises — the deadline has passed, no open dispute — in the claim
+  itself. Lock order: population lock → owner content lock → user row. Any
+  other order deadlocks, because the purge holds the owner lock while it
+  deletes the user row. It deletes the person's files through preserve (the
+  7-day backup, `decisions.md` 2026-10-29), their memes and baked files,
+  uploads (the profile photo included) and generations. A fact gallery's
+  background is never destroyed with the account it was filed under
+  (`aiImageIsOwnersOwn`). The user row goes last, and its cascades take
+  sessions, tokens, entitlements and preferences. `ncmec_reports` and
+  `quarantined_memes` keep their rows with the person set null. **Who
+  asked is read under the owner lock, inside the final transaction**,
+  never from the worker's earlier read, because an admin's takeover can
+  land mid-purge.
+- **What the purge keeps is split by who asked, not by data type** (David,
+  2026-11-02; `decisions.md`). When the member left (`self`), or an
+  unfinished sign-up was cleaned up (`unonboarded`), their votes and hearts
+  stay in the totals without their name (`reactions.user_id` null). Their
+  comments, submissions awaiting review and links stay too, credited to a
+  former member. **An admin's removal (`admin`) deletes those instead**: the
+  abuse case. The purge then recounts every surviving aggregate fed by the
+  rows it removed — reactions through `refreshTargetCounts`, and
+  `facts.comment_count` from the approved, unflagged comments. **Facts
+  persist forever, whoever asked**, credited to a former member. Every
+  kept contribution carries a former-member marker, never a bare null,
+  because a null author also means "system import": `facts.submitter_deleted_at`,
+  `comments.author_deleted_at`, and the pending review's
+  `submitter_deleted_at` (0119), which `ensureStagingFact` carries onto the
+  fact a later approval creates. A kept comment shows "Former member".
+
+The callers:
+
+- **Self-service** — `POST /users/me/deletion` (`routes/accountDeletion.ts`;
+  the "Delete my account…" section on Profile) schedules the purge **14
+  days out** (`DELETION_COOLING_OFF_DAYS`). It re-authenticates first,
+  because *"it should be HARD to do without really meaning to"* (David): the
+  password for an account that has one, or for a Google- or Apple-only
+  account a provider sign-in from the last ten minutes
+  (`FRESH_SIGN_IN_MS`). Deleting and keeping are rate-limited to 5 an hour
+  per account. The request signs the account out everywhere and forgets it
+  in this browser (`useForgetThisBrowser()`, the same hook Sign out uses).
+  Signing back in lands on `/account/deletion`, where **"Keep my account"**
+  (`POST /users/me/deletion/cancel`, the one write a pending deletion
+  allows) cancels it until the purge has started (409
+  `DELETION_IN_PROGRESS` after that). Keeping makes the content live
+  again; what had been deleted by hand stays deleted, and sessions are not
+  restored. `GET /users/me/deletion` reads the pending request.
+- **An admin's removal** — the user editor's "Delete User", confirmed by
+  "Confirm Hard Delete" (`DELETE /admin/users/:id?hard=true`) purges at once
+  (`adminPurgeNow(id, { takeOver: true })`). It takes over a member's own
+  pending request, so the admin rule applies to their contributions. A
+  failed stage is recorded and answered with a 500 naming the stage, and
+  the worker resumes it.
+- **The deletion panel** on `/admin/users` (`GET /admin/account-deletions`,
+  at most 200 rows) lists every request in progress — errored rows first,
+  then the soonest purge — and every kept account whose billing clean-up is
+  unfinished. Its **"Purge now"** (`POST /admin/users/:id/deletion/purge-now`)
+  brings a request's date forward and keeps who asked; on a stuck purge it
+  is also the retry. Its keep (`POST /admin/users/:id/deletion/cancel`)
+  keeps the account on its owner's behalf and emails them.
+- **Unfinished sign-ups** — a self-registration
+  (`users.registered_under_onboarding`, set only by the two sign-up paths,
+  0118, with **no column default**, so a publish that added the column
+  before our migration ran marks nobody) still not onboarded 30 days after
+  it was created is scheduled by the worker, at most 100 a run, with its
+  own email. An account that has ever had a request is never scheduled
+  again: it kept itself once. Admin-made accounts are never selected.
+
+### Content a member deletes from My content
+
+Separate from account deletion: deleting an upload, a generated image, a
+derivative or a meme from the Library moves it to **Recently deleted** for
+30 days, restorable in one click, after which an hourly purge removes it
+(`decisions.md`, 2026-10-30; Increment 4b). `liveContent(table)` in
+`artifacts/api-server/src/lib/contentVisibility.ts` is the only statement of "live", and
+`byteAccess(row, viewerId)` decides the byte paths: a live item is served,
+a not-live one goes only to its owner and is never cached (so Recently
+deleted can show thumbnails), and anything else is 404. A class-guard test
+fails if any file outside `contentVisibility.ts` spells `deleted_at IS
+NULL`. The current profile photo cannot be deleted. A deleted meme's page
+keeps its "removed" 410.
+
+## Age, audience and the NSFW opt-in
+
+- **Age is a date, derived at read** (`date_of_birth`, required at
+  onboarding, no fallback). Under 13 is refused and nothing is stored or
+  destroyed; 18+ (`is18Plus`) is required at every photo-upload route.
+- **The data model is ready for adult content without shipping it**
+  (Increment 6b, 0121). `facts`, `memes` and `user_ai_images` carry an
+  `audience` marker (`general|adult`, CHECK, default `general`), and
+  `users.adult_verified_at` is kept apart from the date-derived 18+. Nothing
+  reads either yet. The `beta_overlay` feature-grid row exists and is off
+  everywhere. It is a declared exception in the "every grid key is
+  consulted" test rather than a `FEATURE_KEYS` entry, because nothing reads
+  it; it stays editable at `/admin/features`.
+- **The NSFW opt-in is withdrawn** (plan S13). `nsfwModeEnabled` left the
+  profile PATCH, the admin editor, the API and the auth middleware; a body
+  that still sends it is ignored. Both NSFW-classifier callers (photo
+  upload and the AI meme pipeline) pass a literal `false`, so a photo over
+  the threshold is rejected and quarantined for everyone. The classifier
+  keeps the parameter for when adult content ships. The
+  `users.nsfw_mode_enabled` column is read by nothing and is dropped by
+  0122 (Increment 7b). Meme generation always passed "off", so the
+  withdrawal changed photo uploads only. Scoring a baked meme as a whole is
+  carried to Phase 9 (moderation).
 
 ## Session management
 
@@ -314,13 +493,15 @@ and only bumped by specific `updateSession()` callers (e.g. the admin-mode
 toggle, an email-verification-triggered refresh), not on ordinary
 authenticated requests. **Concurrent sessions are unlimited** — nothing
 caps how many `sessions` rows one `userId` can hold; logging in on a new
-device just inserts another row. The bulk-revocation paths are password
-reset and admin soft-delete (both explicit, immediate bulk deletes,
-`localAuth.ts:425-437` / `admin.ts:635-637`), plus admin hard-delete as a
-third, implicit one — deleting the user row (`admin.ts:574`) cascades to
-every session via `sessions.userId`'s `ON DELETE CASCADE`
-(`lib/db/src/schema/auth.ts:64`). All three revoke *all* of a user's
-sessions at once, never selectively.
+device just inserts another row. **Every sign-in creates its session
+through `createSignInSession`** (`artifacts/api-server/src/lib/auth.ts`; § Suspension), never by a
+bare `createSession` after an unlocked read. The bulk-revocation paths all
+go through `revokeUserSessions` in the transaction that makes the change:
+a password reset and an admin set-password (all sessions), a member's own
+set-password (all but the caller's), a suspension, and the acceptance of an
+account deletion. The purge's deletion of the user row then cascades to any
+that remain, via `sessions.userId`'s `ON DELETE CASCADE`. None of them
+revokes selectively, and there is no list of sessions to review.
 
 ## Role derivation
 
@@ -380,8 +561,19 @@ and the last-admin guard could approve zeroing the real population.
 - `artifacts/api-server/src/lib/userRole.ts` — role derivation.
 - `artifacts/api-server/src/middlewares/tierMiddleware.ts` —
   `requireRole`/`requireAdmin`.
-- `artifacts/api-server/src/routes/admin.ts` — user PATCH (incl.
-  reinstatement), soft/hard DELETE, verify-email override.
+- `artifacts/api-server/src/routes/admin.ts` — user PATCH, the hard
+  DELETE (the engine's admin removal), verify-email override.
+- `artifacts/api-server/src/lib/eligibility.ts` and
+  `middlewares/requireEligibleActor.ts` — the account states and the gate.
+- `artifacts/api-server/src/routes/onboarding.ts`, `artifacts/api-server/src/lib/captcha.ts` —
+  onboarding and the Turnstile check.
+- `artifacts/api-server/src/lib/accountSuspension.ts`,
+  `routes/accountSuspension.ts` — suspension.
+- `artifacts/api-server/src/lib/accountDeletion.ts`,
+  `routes/accountDeletion.ts`, `lib/db/src/schema/accountDeletion.ts` — the
+  deletion engine, its routes and its table.
+- `artifacts/api-server/src/lib/contentVisibility.ts` — the live rule, the
+  owner content lock, "the account is being deleted".
 - `artifacts/api-server/src/lib/dataLifecycle.ts` — admin data export,
   scheduled retention-window cleanup (stale invites, expired tokens, old
   search history).
@@ -392,6 +584,8 @@ and the last-admin guard could approve zeroing the real population.
   derivation, `AuthProvider`.
 - Frontend: `pages/Login.tsx`, `pages/Onboard.tsx`,
   `pages/ForgotPassword.tsx`, `pages/ResetPassword.tsx`,
-  `pages/VerifyEmail.tsx`.
+  `pages/VerifyEmail.tsx`, `pages/AccountDeletion.tsx`,
+  `pages/AccountSuspended.tsx`, `components/account/DeleteAccountSection.tsx`,
+  `components/admin/AccountDeletionsPanel.tsx`, `artifacts/overhype-me/src/lib/setup-redirect.ts`.
 - For everything about *what a session/role is trusted for* rather than
   *how it's produced*: [`security-model.md`](./security-model.md#authentication--sessions).

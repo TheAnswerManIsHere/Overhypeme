@@ -13,6 +13,77 @@
 
 ---
 
+### 2026-11-02 · What account deletion keeps is split by who asked, not by data type
+- **Decision:** when a member deletes their own account, or an unfinished
+  sign-up is cleaned up, the purge keeps what they gave the community —
+  comments, submissions awaiting review and fact links, credited to a former
+  member, and their votes and hearts in every total without their name
+  (`reactions.user_id` null). When an admin removes the account, those are
+  deleted and the surviving totals recounted. Facts persist forever either
+  way, credited to a former member; memes, photos and generated images go
+  either way. Every kept contribution carries a former-member marker column
+  rather than a bare null, because a null author also means "system import".
+  Members get their own comment-delete button in Phase 9, before launch.
+- **Why:** David's answers 1 and 2 of 2026-11-02, after Claude's research
+  into what deletion keeps elsewhere: Reddit and Stack Overflow keep
+  community content and anonymise it, while Facebook and YouTube delete it;
+  GDPR Recital 26 puts truly anonymous data outside the law. An admin's
+  removal is the likely-abuse case, where keeping the content would keep the
+  abuse.
+- **Reference:** #795; PR #833 — Launch Phase 5, Increment 5b: leaving and
+  staying from the screens, and what deletion keeps; PR #834 — Launch Phase
+  5, Increment 5b follow-up: an admin's removal overrides a member's own
+  deletion request; `docs/plans/PLAN_PHASE5_ACCOUNT_IDENTITY.md` (amended
+  2026-11-02).
+- **Revisit if:** Phase 14's privacy text or a regulator requires erasure of
+  a departing member's contributions, or the "Former member" credit is
+  abused.
+
+### 2026-10-30 · Joining and leaving: a known age, a recorded consent, and a deletion that is hard to do and slow to finish
+- **Decision:** every account verifies its email, then onboards once — date
+  of birth required with no attestation fallback (under 13 refused, nothing
+  stored and nothing destroyed), pronouns confirmed, and marketing consent
+  recorded as a record (when, how, which wording), pre-ticked for US
+  visitors only. Deleting your own account re-authenticates (the password, or
+  a fresh provider sign-in), starts cancelling the subscription at once, signs
+  you out and hides your memes, photos and generated images, and purges after a **14-day** cooling-off unless
+  "Keep my account" is pressed. Sign-ups that never finish onboarding are
+  cleaned up through the same engine after 30 days.
+- **Why:** David, 2026-10-30, picks and answers 2, 4, 6 and 7 on the Phase 5
+  plan: deletion *"should be HARD to do without really meaning to,
+  especially if there's anything that is irreversible."* Under 13 is
+  refused rather than deleted because a mistyped year on an established
+  account would otherwise destroy it (plan S4, from Astra's review).
+- **Reference:** #795; `docs/plans/PLAN_PHASE5_ACCOUNT_IDENTITY.md`, *David's
+  answers* and settled decisions S4, S5, S14.
+- **Revisit if:** Phase 14 (age law per territory) or Phase 21 (GDPR's 13–16
+  consent age by country) changes the thresholds.
+
+### 2026-10-30 · Suspension and the deletion engine replace admin deactivation; the NSFW opt-in is withdrawn
+- **Decision:** the admin "deactivate" (`is_active=false`, the soft
+  delete) and its reinstatement are retired. A banned account is
+  **suspended** (its own columns, every session ended, every sign-in and
+  every write refused, content and billing untouched); a departing account
+  goes through the **one deletion engine**. Nothing writes `is_active =
+  false`. In the same phase, the live NSFW opt-in (`nsfwModeEnabled`) is
+  made unavailable: every classifier caller passes `false`, the classifier
+  keeps the parameter, and the column is dropped by the contract migration
+  (0122) after the next publish.
+- **Why:** one switch meant both "banned" and "leaving", so nothing could
+  tell the two apart or treat them differently — *"one state machine for
+  leaving, one flag for being removed"* (the Phase 5 plan's settled
+  decisions). The opt-in withdrawal follows the settled decision that NSFW is
+  post-launch (`launch-definition.md`, the cut list), so it was named in the
+  plan rather than asked (S13).
+- **Reference:** #795; PR #835 — Launch Phase 5, Increment 6a: account
+  suspension; PR #836 — Launch Phase 5, Increment 6b: NSFW readiness, and the
+  NSFW opt-in withdrawn; PR #837 — Launch Phase 5, Increment 7a: retire the
+  admin soft delete and set-inactive edit.
+- **Revisit if:** adult content is planned (the `audience` columns and
+  `adult_verified_at` are the model it builds on).
+
+---
+
 ### 2026-11-02 · Names are English-script only until internationalization; no fallback fonts at launch
 - **Decision:** the shared name rule (identity-flow Phase 2,
   `lib/api-zod/src/personalNameRule.ts`) admits only names that can be

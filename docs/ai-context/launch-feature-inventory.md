@@ -77,21 +77,21 @@ routes, delete, git keeps it) · **your call**.
 | B7 | Logout | Ends the session | code | ship |
 | B8 | Session state + entitlement map | `GET /auth/user`, `/entitlements/version` | doc | ship (plumbing) |
 | B9 | Login redirect safety | Rejects off-site redirects | PR292 UAT (unrun) | ship; proof should be a CI test, not a UAT |
-| B10 | Onboarding: hCaptcha (+ photo step) | One-time captcha before first submission; **OAuth sign-ups are sent here, local sign-ups are not**, yet submit 403s without it | doc | **fix for launch**: one consistent onboarding path, or verify the local path actually works |
-| B11 | Email verification | Token link; verifying logs you in; **gates nothing**; OAuth users never get it set | doc | your call: keep display-only (recommended for launch friction) or make it gate submission/comments |
+| B10 | Onboarding: hCaptcha (+ photo step) | One-time captcha before first submission; **OAuth sign-ups are sent here, local sign-ups are not**, yet submit 403s without it | doc | **fix for launch**: one consistent onboarding path, or verify the local path actually works. *Done in launch Phase 5 (#795): one onboarding screen for every sign-in method, with a Turnstile challenge; `captcha_verified` read by nothing — [`accounts-and-auth.md`](./accounts-and-auth.md#account-creation).* |
+| B11 | Email verification | Token link; verifying logs you in; **gates nothing**; OAuth users never get it set | doc | your call: keep display-only (recommended for launch friction) or make it gate submission/comments. *Done in launch Phase 5 (#795): a verified email gates every write — [`accounts-and-auth.md`](./accounts-and-auth.md#email-verification).* |
 | B12 | Admin override verify | Admin marks verified | doc | ship |
-| B13 | Password reset | Generic-response email; resets all sessions; works (tonight) | acct; tested live | ship; single-use hardening `next` |
-| B14 | Set / change password | First password for OAuth users; change for others; does not log out other sessions | doc | ship; session logout on change `next` |
+| B13 | Password reset | Generic-response email; resets all sessions; works (tonight) | acct; tested live | ship; single-use hardening `next`. *Done in launch Phase 5 (#795): the reset link is claimed atomically and works once — [`accounts-and-auth.md`](./accounts-and-auth.md#password-reset).* |
+| B14 | Set / change password | First password for OAuth users; change for others; does not log out other sessions | doc | ship; session logout on change `next`. *Done in launch Phase 5 (#795): every password change ends the other sessions — [`accounts-and-auth.md`](./accounts-and-auth.md#session-management).* |
 | B15 | Profile page | Display name, pronouns, avatar style, email, sign-in methods, subscription panel; dead "Memes" tab code | doc | ship; delete the dead tab code. *Deleted 2026-10-23 with the rest of the dead tab state, the Images queries and the never-shown Memes count (Phase 4, removal 7; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | B16 | Email change with verification | Pending email until verified | code only | ship, verify |
-| B17 | Pronouns on the account | User-set pronouns personalise the site; **OAuth accounts silently default to he/him** | doc | **fix for launch**: default to they/them or ask, never assume he/him |
+| B17 | Pronouns on the account | User-set pronouns personalise the site; **OAuth accounts silently default to he/him** | doc | **fix for launch**: default to they/them or ask, never assume he/him. *Done in launch Phase 5 (#795): the column has no default and onboarding asks every sign-in method — [`accounts-and-auth.md`](./accounts-and-auth.md#account-creation).* |
 | B18 | Generated avatar styles | Pick a DiceBear style | code | ship |
 | B19 | Custom photo avatar | Upload a photo avatar; Legendary upsell per direction | PR425 UAT steps 1–3 (manual) | ship, verify (needs a Legendary test account) |
 | B20 | Notification preferences | Admin alert opt-ins | code | ship (admin-only) |
 | B21 | Search history | see A13 | | decided: keep + surface |
 | B22 | My uploads / AI images management | List and delete own images | code only | ship, verify |
 | B23 | Spend view | The user's own generation spend | code only | ship, verify it's meaningful to a user, else hide |
-| B24 | Self-service account deletion | **Does not exist**; admin-only | doc | your call: "email us to delete" in the privacy policy + admin flow for launch (recommended), self-service `next` |
+| B24 | Self-service account deletion | **Does not exist**; admin-only | doc | your call: "email us to delete" in the privacy policy + admin flow for launch (recommended), self-service `next`. *Done in launch Phase 5 (#795): self-service deletion with re-authentication and a cooling-off — [`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion).* |
 | B25 | Sessions | No sliding expiry, unlimited concurrent, no "my sessions" UI | doc | ship as-is for launch |
 | B26 | Admin "view as user"; dev admin login | Operator tools | PR425, PR221 UATs | ship (ops) for "view as user"; **dev admin login cut** (David, 2026-10-14), then kept through Phase 4 for a Phase 15 redesign as a safe easy admin entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-admin-login-backdoor-stays-through-phase-4-phase-15-redesigns-it)) |
 
@@ -143,7 +143,7 @@ routes, delete, git keeps it) · **your call**.
 - **Anti-bot:** proposed Cloudflare Turnstile replacing hCaptcha (existing vendor relationship via the OG worker; pending sign-off), applied at registration, submission, comments, share-by-email. Local registration currently has no captcha.
 - **Account suspension:** launch. **Public creator pages:** launch unless David says `next`. **Fact-page OG:** launch ("must have").
 - **Maintenance:** a **read-only mode switch** (browse/personalise stay up; writes show a short notice) instead of takedowns; migrations written backward-compatible so deploys need no window. No such switch exists today.
-- **Age gate:** none exists (registration asks nothing). Proposed for launch: 13+ attestation at sign-up, 18+ for photo upload, final word in the compliance phase (pending).
+- **Age gate:** none exists (registration asks nothing). Proposed for launch: 13+ attestation at sign-up, 18+ for photo upload, final word in the compliance phase (pending). *Done in launch Phase 5 (#795): a required date of birth at onboarding, under 13 refused, 18+ at every photo upload — [`accounts-and-auth.md`](./accounts-and-auth.md#age-audience-and-the-nsfw-opt-in).*
 
 ### Decisions — Journey C, round three (David, 2026-10-05)
 
@@ -281,7 +281,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 |---|---|
 | Dashboard | ship |
 | Facts (edit, delete, resubmit, variants, import, backfills, text-edit history, overrides) | ship; CSV import stays as an admin tool off the launch path |
-| Users (search, add, set password, verify, delete/reinstate, comp, membership, spend, export) | ship; **add suspension** (repeat-infringer policy) |
+| Users (search, add, set password, verify, delete/reinstate, comp, membership, spend, export) | ship; **add suspension** (repeat-infringer policy). *Done in launch Phase 5 (#795): suspension added; the soft delete and reinstate retired; deletion runs through one engine with a deletion panel — [`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion).* |
 | Moderation (fact wizard + comment panel) | ship (core); comment panel rebuilt per C6; speech bubbles finished (D14) |
 | Billing (Stripe summary, live-mode toggle, test event, sync, verification) | ship; money-rehearsal phase; live-mode toggle is a launch-day control |
 | Refunds & Disputes | ship |
@@ -327,7 +327,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 | J5 | Evidence retention (90-day default; statute now 1 year; no purge job) | compliance phase; retention set with counsel; purge job built to match |
 | J6 | Data-retention job (`POST /jobs/data-retention`) | verify what it purges; document |
 | J7 | Admin user data export | ship; add a **user-facing "download my data"** (data rights) — proposed launch |
-| J8 | Admin hard delete (NCMEC rows survive) | ship; self-service deletion (B24) reuses it |
+| J8 | Admin hard delete (NCMEC rows survive) | ship; self-service deletion (B24) reuses it. *Done in launch Phase 5 (#795): both are callers of one deletion engine, which keeps or deletes contributions by who asked — [`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion).* |
 | J9 | Private memes (`canViewMeme`) | privacy-model review (D9) |
 | J10 | Open-redirect protection | CI test (B9) |
 | J11 | Global rate limiter | ship |
