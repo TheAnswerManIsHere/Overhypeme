@@ -77,8 +77,8 @@ routes, delete, git keeps it) · **your call**.
 | B7 | Logout | Ends the session | code | ship |
 | B8 | Session state + entitlement map | `GET /auth/user`, `/entitlements/version` | doc | ship (plumbing) |
 | B9 | Login redirect safety | Rejects off-site redirects | PR292 UAT (unrun) | ship; proof should be a CI test, not a UAT |
-| B10 | Onboarding: hCaptcha (+ photo step) | One-time captcha before first submission; **OAuth sign-ups are sent here, local sign-ups are not**, yet submit 403s without it | doc | **fix for launch**: one consistent onboarding path, or verify the local path actually works |
-| B11 | Email verification | Token link; verifying logs you in; **gates nothing**; OAuth users never get it set | doc | your call: keep display-only (recommended for launch friction) or make it gate submission/comments |
+| B10 | Onboarding: hCaptcha (+ photo step) | One-time captcha before first submission; **OAuth sign-ups are sent here, local sign-ups are not**, yet submit 403s without it | doc | **fix for launch**: one consistent onboarding path, or verify the local path actually works. *Done in launch Phase 5 (#795): one onboarding screen for every sign-in method, with a Turnstile challenge; `captcha_verified` read by nothing — [`accounts-and-auth.md`](./accounts-and-auth.md#account-creation).* |
+| B11 | Email verification | Token link; verifying logs you in; **gates nothing**; OAuth users never get it set | doc | your call: keep display-only (recommended for launch friction) or make it gate submission/comments. *Done in launch Phase 5 (#795): a verified email gates every write — [`accounts-and-auth.md`](./accounts-and-auth.md#email-verification).* |
 | B12 | Admin override verify | Admin marks verified | doc | ship |
 | B13 | Password reset | Generic-response email; resets all sessions; works (tonight) | acct; tested live | ship; single-use hardening `next` |
 | B14 | Set / change password | First password for OAuth users; change for others; does not log out other sessions | doc | ship; session logout on change `next` |
@@ -91,7 +91,7 @@ routes, delete, git keeps it) · **your call**.
 | B21 | Search history | see A13 | | decided: keep + surface |
 | B22 | My uploads / AI images management | List and delete own images | code only | ship, verify |
 | B23 | Spend view | The user's own generation spend | code only | ship, verify it's meaningful to a user, else hide |
-| B24 | Self-service account deletion | **Does not exist**; admin-only | doc | your call: "email us to delete" in the privacy policy + admin flow for launch (recommended), self-service `next` |
+| B24 | Self-service account deletion | **Does not exist**; admin-only | doc | your call: "email us to delete" in the privacy policy + admin flow for launch (recommended), self-service `next`. *Done in launch Phase 5 (#795): self-service deletion with re-authentication and a cooling-off — [`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion).* |
 | B25 | Sessions | No sliding expiry, unlimited concurrent, no "my sessions" UI | doc | ship as-is for launch |
 | B26 | Admin "view as user"; dev admin login | Operator tools | PR425, PR221 UATs | ship (ops) for "view as user"; **dev admin login cut** (David, 2026-10-14), then kept through Phase 4 for a Phase 15 redesign as a safe easy admin entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-admin-login-backdoor-stays-through-phase-4-phase-15-redesigns-it)) |
 
@@ -327,7 +327,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 | J5 | Evidence retention (90-day default; statute now 1 year; no purge job) | compliance phase; retention set with counsel; purge job built to match |
 | J6 | Data-retention job (`POST /jobs/data-retention`) | verify what it purges; document |
 | J7 | Admin user data export | ship; add a **user-facing "download my data"** (data rights) — proposed launch |
-| J8 | Admin hard delete (NCMEC rows survive) | ship; self-service deletion (B24) reuses it |
+| J8 | Admin hard delete (NCMEC rows survive) | ship; self-service deletion (B24) reuses it. *Done in launch Phase 5 (#795): both are callers of one deletion engine, which keeps or deletes contributions by who asked — [`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion).* |
 | J9 | Private memes (`canViewMeme`) | privacy-model review (D9) |
 | J10 | Open-redirect protection | CI test (B9) |
 | J11 | Global rate limiter | ship |
