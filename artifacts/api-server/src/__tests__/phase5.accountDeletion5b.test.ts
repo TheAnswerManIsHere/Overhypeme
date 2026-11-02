@@ -9,16 +9,18 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { accountDeletionRequestsTable, usersTable } from "@workspace/db/schema";
+import { accountDeletionRequestsTable, commentsTable, factsTable, usersTable } from "@workspace/db/schema";
+import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import { eq, like } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { requireEligibleActor } from "../middlewares/requireEligibleActor.js";
 import accountDeletionRouter from "../routes/accountDeletion.js";
 import usersRouter from "../routes/users.js";
+import adminRouter from "../routes/admin.js";
 import { acceptAccountDeletion, NEVER_ONBOARDED_AFTER_DAYS, runAccountDeletionWorker } from "../lib/accountDeletion.js";
 import { createSession, type SessionData } from "../lib/auth.js";
-import { buildAccountDeletionScheduledEmail, buildUnfinishedAccountDeletionEmail } from "../lib/email.js";
+import { buildAccountDeletionCancelledEmail, buildAccountDeletionScheduledEmail, buildUnfinishedAccountDeletionEmail } from "../lib/email.js";
 
 const PREFIX = "t-p5del5b-";
 const DAY = 86_400_000;
@@ -28,7 +30,7 @@ function makeApp(): Express {
   app.use(express.json());
   app.use(authMiddleware);
   app.use(requireEligibleActor);
-  app.use("/api", accountDeletionRouter, usersRouter);
+  app.use("/api", accountDeletionRouter, usersRouter, adminRouter);
   return app;
 }
 
@@ -56,7 +58,22 @@ async function requestOf(userId: string) {
   return row ?? null;
 }
 
+const factIds: number[] = [];
+
+/** A member's own pending request, with one approved comment of theirs on a fact. */
+async function memberLeavingWithComment(): Promise<{ userId: string; commentId: number }> {
+  const userId = await createUser({ onboarded: true });
+  const [fact] = await db.insert(factsTable)
+    .values({ text: `${PREFIX}{NAME} commented`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}commented` })
+    .returning();
+  factIds.push(fact!.id);
+  const [comment] = await db.insert(commentsTable).values({ factId: fact!.id, authorId: userId, text: `${PREFIX}comment`, status: "approved" } as never).returning();
+  await acceptAccountDeletion(userId, { requestedBy: "self", kick: false });
+  return { userId, commentId: comment!.id };
+}
+
 async function cleanup(): Promise<void> {
+  if (factIds.length > 0) for (const id of factIds.splice(0)) await db.delete(factsTable).where(eq(factsTable.id, id));
   await db.delete(accountDeletionRequestsTable).where(like(accountDeletionRequestsTable.userId, `${PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
 }
@@ -157,6 +174,29 @@ describe("account deletion, increment 5b", () => {
     assert.equal(late.body.code, "DELETION_IN_PROGRESS");
   });
 
+  it("an admin's permanent delete takes over a member's own request; the panel's Purge now keeps it", async () => {
+    const admin = await createUser({ onboarded: true, admin: true });
+    const adminSid = await sessionFor(admin, { isAdmin: true });
+
+    const removed = await memberLeavingWithComment();
+    const res = await request(makeApp()).delete(`/api/admin/users/${removed.userId}?hard=true`).set("authorization", `Bearer ${adminSid}`);
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.body.deleted, true);
+    assert.equal((await db.select().from(commentsTable).where(eq(commentsTable.id, removed.commentId))).length, 0, "an admin's removal deletes the comment");
+
+    const expedited = await memberLeavingWithComment();
+    const panel = await request(makeApp()).post(`/api/admin/users/${expedited.userId}/deletion/purge-now`).set("authorization", `Bearer ${adminSid}`);
+    assert.equal(panel.status, 200, panel.text);
+    assert.equal(panel.body.deleted, true);
+    const [kept] = await db.select().from(commentsTable).where(eq(commentsTable.id, expedited.commentId));
+    assert.ok(kept, "the member's own request keeps the comment");
+    assert.equal(kept!.authorId, null);
+    assert.ok(kept!.authorDeletedAt, "credited to a former member");
+
+    const member = await sessionFor(await createUser({ onboarded: true }));
+    assert.equal((await request(makeApp()).post(`/api/admin/users/${expedited.userId}/deletion/purge-now`).set("authorization", `Bearer ${member}`)).status, 403);
+  });
+
   it("the emails say what is hidden, and an unfinished sign-up is told why it is going", () => {
     const scheduled = buildAccountDeletionScheduledEmail(new Date(Date.now() + 14 * DAY), "https://example.test/account/deletion");
     assert.ok(!scheduled.text.includes("your content is hidden"));
@@ -165,5 +205,10 @@ describe("account deletion, increment 5b", () => {
     assert.ok(unfinished.text.includes("never finished setting it up"));
     assert.match(unfinished.text, /^https:\/\/example\.test\/account\/deletion$/m, "the keep link stands on its own line");
     assert.ok(unfinished.html?.includes("Keep My Account"));
+    const keptUnfinished = buildAccountDeletionCancelledEmail("https://example.test", { unfinished: true });
+    assert.ok(keptUnfinished.text.includes("Finish setting up"), "a kept unfinished sign-up is sent to set-up");
+    assert.ok(!keptUnfinished.text.includes("memes, photos and images are back"));
+    assert.match(keptUnfinished.text, /^https:\/\/example\.test\/onboard$/m);
+    assert.ok(buildAccountDeletionCancelledEmail("https://example.test").text.includes("memes, photos and images are back"));
   });
 });

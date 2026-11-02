@@ -18,8 +18,8 @@ afterEach(() => vi.unstubAllGlobals());
 function stub() {
   const fn = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/admin/account-deletions") return { ok: true, status: 200, json: async () => ({ requests: ROWS }) } as Response;
-    if (init?.method === "POST") return { ok: true, status: 200, json: async () => ({ cancelled: true }) } as Response;
-    if (init?.method === "DELETE") return { ok: true, status: 200, json: async () => ({ success: true, deleted: true, stage: "done" }) } as Response;
+    if (url.endsWith("/deletion/cancel")) return { ok: true, status: 200, json: async () => ({ cancelled: true }) } as Response;
+    if (url.endsWith("/deletion/purge-now")) return { ok: true, status: 200, json: async () => ({ success: true, deleted: true, stage: "done" }) } as Response;
     throw new Error(`unexpected ${url}`);
   });
   vi.stubGlobal("fetch", fn);
@@ -42,15 +42,15 @@ describe("AccountDeletionsPanel", () => {
     expect(screen.getAllByRole("button", { name: "Keep account" })).toHaveLength(1);
   });
 
-  it("Keep account posts the admin cancel; Purge now asks first, then calls the hard delete", async () => {
+  it("Keep account posts the admin cancel; Purge now asks first, then purges keeping who asked", async () => {
     const fetchMock = stub();
     render(<AccountDeletionsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Keep account" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([u, i]) => u === "/api/admin/users/held/deletion/cancel" && (i as RequestInit)?.method === "POST")).toBe(true));
 
     fireEvent.click(await screen.findByRole("button", { name: /Purge now/ }));
-    expect(fetchMock.mock.calls.some(([, i]) => (i as RequestInit)?.method === "DELETE")).toBe(false);
+    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/deletion/purge-now"))).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Purge" }));
-    await waitFor(() => expect(fetchMock.mock.calls.some(([u, i]) => u === "/api/admin/users/held?hard=true" && (i as RequestInit)?.method === "DELETE")).toBe(true));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u, i]) => u === "/api/admin/users/held/deletion/purge-now" && (i as RequestInit)?.method === "POST")).toBe(true));
   });
 });

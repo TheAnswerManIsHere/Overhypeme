@@ -8,8 +8,9 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
-import { acceptAccountDeletion, cancelAccountDeletion, listDeletionRequestsForAdmin, pendingDeletion } from "../lib/accountDeletion";
-import { respondToGuardError } from "../lib/adminLockoutGuard";
+import { acceptAccountDeletion, adminPurgeNow, cancelAccountDeletion, listDeletionRequestsForAdmin, pendingDeletion, purgeNowBody } from "../lib/accountDeletion";
+import { assertNotSelfDemotion, respondToGuardError } from "../lib/adminLockoutGuard";
+import { logger } from "../lib/logger";
 import { getSession } from "../lib/auth";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { requireAdmin } from "./admin";
@@ -98,9 +99,11 @@ router.post("/users/me/deletion/cancel", async (req: Request, res: Response) => 
 });
 
 // ── The admin deletion panel (plan, Admin/User UX Impact) ─────────────
-// "Purge now" is the admin hard delete (`DELETE /admin/users/:id?hard=true`),
-// which brings a pending request's date forward and runs the engine; on a
-// purge that failed part-way it is also the retry.
+// "Purge now" brings a pending request's date forward and runs the engine,
+// keeping who asked (a member's own request keeps their contributions); on a
+// purge that failed part-way it is also the retry. The user editor's
+// permanent delete (`DELETE /admin/users/:id?hard=true`) is the admin's
+// removal instead, and takes a member's request over.
 
 // GET /admin/account-deletions — every request in progress, and every kept
 // account whose billing clean-up is unfinished.
@@ -108,6 +111,22 @@ router.get("/admin/account-deletions", requireAdmin, async (_req: Request, res: 
   const rows = await listDeletionRequestsForAdmin();
   res.setHeader("Cache-Control", "no-store");
   res.json({ requests: rows });
+});
+
+// POST /admin/users/:id/deletion/purge-now — the panel's Purge now.
+router.post("/admin/users/:id/deletion/purge-now", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  try {
+    assertNotSelfDemotion(req.user?.id, id);
+    const outcome = await adminPurgeNow(id, { takeOver: false });
+    if (outcome.status === "not_found") { res.status(404).json({ error: "User not found" }); return; }
+    res.json(purgeNowBody(outcome.stage));
+  } catch (err) {
+    if (respondToGuardError(err, res)) return;
+    logger.error({ err, userId: id }, "[purge-now] engine stage failed; the worker retries it");
+    const pending = await pendingDeletion(id).catch(() => null);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Deletion failed", stage: pending?.stage ?? "unknown" });
+  }
 });
 
 // POST /admin/users/:id/deletion/cancel — keep the account on its owner's

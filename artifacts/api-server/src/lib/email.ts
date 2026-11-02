@@ -599,20 +599,25 @@ ${divider()}
 }
 
 /** Sent when a scheduled account deletion is cancelled: the account and its content are back. */
-export function buildAccountDeletionCancelledEmail(siteUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
+export function buildAccountDeletionCancelledEmail(siteUrl: string, opts: { unfinished?: boolean } = {}): Pick<EmailPayload, "subject" | "text" | "html"> {
   const subject = "Your Overhype.me account is staying";
+  // An unfinished sign-up has nothing to bring back; it has set-up to finish.
+  const onboardUrl = `${siteUrl.replace(/\/$/, "")}/onboard`;
+  const line = opts.unfinished
+    ? "The deletion is cancelled. Finish setting up your account to start using it."
+    : "The deletion is cancelled. Your memes, photos and images are back where they were.";
   const text = [
     "YOUR ACCOUNT IS STAYING.",
     "",
-    "The deletion is cancelled. Your memes, photos and images are back where they were.",
-    siteUrl,
+    line,
+    opts.unfinished ? onboardUrl : siteUrl,
     "",
     "— The Overhype.me Team",
   ].join("\n");
   const body = `
 <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account<br/>Is Staying</h1>
-<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">The deletion is cancelled. Your memes, photos and images are back where they&nbsp;were.</p>
-${ctaButton(siteUrl, "Back To Overhype.me")}`;
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">${line.replace(/ (\S+)\.$/, "&nbsp;$1.")}</p>
+${opts.unfinished ? ctaButton(onboardUrl, "Finish Setting Up") : ctaButton(siteUrl, "Back To Overhype.me")}`;
   const html = buildEmailShell(body, "You&#39;re receiving this because a deletion of your Overhype.me account was cancelled.");
   return { subject, text, html };
 }

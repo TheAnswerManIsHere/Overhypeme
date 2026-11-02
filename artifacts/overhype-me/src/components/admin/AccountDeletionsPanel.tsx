@@ -91,7 +91,8 @@ export function AccountDeletionsPanel() {
     setBusy({ userId, action: "purge" });
     setNotice(null);
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}?hard=true`, { method: "DELETE", credentials: "include" });
+      // The panel's purge keeps who asked; the user editor's permanent delete is the admin's removal.
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/deletion/purge-now`, { method: "POST", credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as { deleted?: boolean; message?: string; error?: string; stage?: string };
       const stoppedAt = data.stage ? ` (stopped at: ${STAGE_LABEL[data.stage as AdminDeletionRequest["stage"]] ?? data.stage})` : "";
       const text = res.ok
