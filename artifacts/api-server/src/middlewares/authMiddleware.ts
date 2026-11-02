@@ -123,6 +123,7 @@ export async function authMiddleware(
         onboardingCompletedAt: usersTable.onboardingCompletedAt,
         dateOfBirth: usersTable.dateOfBirth,
         deletionPending: userLeaving(),
+        suspendedAt: usersTable.suspendedAt,
       })
       .from(usersTable)
       .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))

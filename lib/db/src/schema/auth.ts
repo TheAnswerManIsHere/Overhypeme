@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, date, index, jsonb, numeric, pgTable, pgEnum, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, boolean, check, date, index, jsonb, numeric, pgTable, pgEnum, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
 export const membershipTierEnum = pgEnum("membership_tier", ["unregistered", "registered", "legendary"]);
 
@@ -23,7 +23,14 @@ export const usersTable = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   adminNotifications: boolean("admin_notifications").notNull().default(true),
   disputeNotifications: boolean("dispute_notifications").notNull().default(true),
+  // The lockout guard's purge reservation, and nothing else (plan S19).
+  // Suspension never writes it.
   isActive: boolean("is_active").notNull().default(true),
+  // Suspension (0120): set by an admin; the account cannot sign in or act.
+  // The reason is shown to admins only. Catalogue content is untouched.
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+  suspendedReason: varchar("suspended_reason", { length: 500 }),
+  suspendedBy: varchar("suspended_by").references((): AnyPgColumn => usersTable.id, { onDelete: "set null" }),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   membershipTier: membershipTierEnum("membership_tier").notNull().default("registered"),
   /**

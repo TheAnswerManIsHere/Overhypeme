@@ -25,6 +25,7 @@ import {
   respondToGuardError,
 } from "../lib/adminLockoutGuard";
 import { isRealAdminRow } from "../lib/adminIdentity";
+import { SUSPENDED_MESSAGE } from "../lib/eligibility";
 
 const router: IRouter = Router();
 
@@ -296,6 +297,13 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     return;
   }
 
+  // Refused before a session exists (plan, transition table); said only to
+  // someone who knew the password.
+  if (user.suspendedAt) {
+    res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
+    return;
+  }
+
   const sessionData: SessionData = {
     user: {
       id: user.id,
@@ -478,6 +486,14 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
 
   if (record.expiresAt < new Date()) {
     res.status(400).json({ error: "This verification link has expired. Please request a new one." });
+    return;
+  }
+
+  // A suspended account's link verifies nothing and signs nobody in (plan,
+  // transition table); the token stays unused for after an unsuspend.
+  const [owner] = await db.select({ suspendedAt: usersTable.suspendedAt }).from(usersTable).where(eq(usersTable.id, record.userId)).limit(1);
+  if (owner?.suspendedAt) {
+    res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
     return;
   }
 

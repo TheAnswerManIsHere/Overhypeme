@@ -349,6 +349,12 @@ async function handleOAuthCallback(
       return;
     }
 
+    // A suspended account changes nothing, linking included (plan, transition table).
+    if (targetUser.suspendedAt) {
+      res.redirect(`${basePath}${returnTo}?link_error=account_suspended`);
+      return;
+    }
+
     if (oauthEmail && targetUser.email && oauthEmail !== targetUser.email.toLowerCase()) {
       res.redirect(`${basePath}${returnTo}?link_error=email_mismatch`);
       return;
@@ -401,6 +407,13 @@ async function handleOAuthCallback(
 
   if (!dbUser.isActive) {
     res.status(403).send("Account deactivated");
+    return;
+  }
+
+  // Refused before a session is minted (plan, transition table), the way
+  // every other sign-in refusal reaches the sign-in page.
+  if (dbUser.suspendedAt) {
+    res.redirect(`${basePath}/login?error=account_suspended`);
     return;
   }
 
