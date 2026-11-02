@@ -29,5 +29,11 @@ describe("a provider-supplied name", () => {
 describe("typed input", () => {
   it("drops a disallowed character and says so", () => assert.deepEqual(filterNameInput("Ada😀"), { value: "Ada", refused: true }));
   it("converts the curly apostrophe", () => assert.deepEqual(filterNameInput("O’B"), { value: "O'B", refused: false }));
+  it("keeps a pasted name's word breaks: other whitespace becomes a space, not a refusal", () => {
+    for (const sep of ["\u00A0", "\u202F", "\u2009", "\u3000", "\t"]) {
+      assert.deepEqual(filterNameInput(`Mary${sep}Jane`), { value: "Mary Jane", refused: false }, JSON.stringify(sep));
+    }
+    assert.deepEqual(filterNameInput("Mary "), { value: "Mary ", refused: false });
+  });
   it("does not cut a long paste", () => assert.equal(filterNameInput("c".repeat(70)).value.length, 70));
 });

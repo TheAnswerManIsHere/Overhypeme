@@ -18,6 +18,27 @@ export interface IdentityGate {
    * the identity is complete where Phase 1 requires it.
    */
   builderReady: boolean;
+  /**
+   * What a builder's draft starts from (identity-flow Phase 2): signed in, the
+   * ACCOUNT's own name and pronouns — never this browser's copy, which the
+   * account mirror updates only after the render that published the account,
+   * so a builder mounting in that render would copy the stale copy and keep
+   * it; signed out, the browser's.
+   */
+  builderSeed: { name: string; pronouns: string };
+}
+
+/** A builder's starting identity: the account's own fields when signed in, else the browser's. */
+export function builderSeedFor(
+  auth: IdentityAuthState,
+  account: { displayName?: string | null; pronouns?: string | null } | null,
+  browser: { name: string; pronouns: string },
+): { name: string; pronouns: string } {
+  if (auth !== "signedIn") return browser;
+  return {
+    name: account?.displayName?.trim() || browser.name,
+    pronouns: account?.pronouns?.trim() || browser.pronouns,
+  };
 }
 
 /**
@@ -30,7 +51,7 @@ let landingLapsed = false;
 
 export function useIdentityGate(): IdentityGate {
   const { user, isAuthenticated, isLoading, status } = useAuth();
-  const { name, pronounsSupplied, shareLinkResolved } = usePersonName();
+  const { name, pronouns, pronounsSupplied, shareLinkResolved } = usePersonName();
   const [location] = useLocation();
   if (location !== LANDING_LOCATION) landingLapsed = true;
   // A failed auth read is not "signed out": nobody knows who this is yet, so
@@ -52,6 +73,7 @@ export function useIdentityGate(): IdentityGate {
       landingLapsed,
     }),
     builderReady: shareLinkResolved && canStartBuilder(auth, completeness, accountComplete),
+    builderSeed: builderSeedFor(auth, account, { name, pronouns }),
   };
 }
 

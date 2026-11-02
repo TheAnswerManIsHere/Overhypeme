@@ -41,9 +41,21 @@ function FlameMark() {
 }
 
 export function WelcomeModal() {
-  const { name, pronouns, pronounsSupplied, setName, setPronouns } = usePersonName();
+  const person = usePersonName();
+  const { setName, setPronouns } = person;
   const { shouldAsk } = useIdentityGate();
-  const { isAuthenticated, refreshUser } = useAuth();
+  const { isAuthenticated, refreshUser, user } = useAuth();
+  // What the sheet starts from. Signed in, each half the ACCOUNT already holds
+  // wins over this browser's copy, so completing a missing name never offers
+  // (and then saves) this device's pronouns over the account's own choice;
+  // the browser copy only supplies a candidate for a half the account lacks
+  // (identity-flow Phase 2, "the account wins").
+  const account = isAuthenticated ? (user as { displayName?: string | null; pronouns?: string | null } | null) : null;
+  const accountName = account?.displayName?.trim() || "";
+  const accountPronouns = account?.pronouns?.trim() || "";
+  const name = accountName || person.name;
+  const pronouns = accountPronouns || person.pronouns;
+  const pronounsSupplied = !!accountPronouns || person.pronounsSupplied;
   const updateProfile = useUpdateMyProfile();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");

@@ -121,7 +121,12 @@ export function cleanProvidedPersonalName(raw: unknown): string | null {
  * when the composition commits.
  */
 export function filterNameInput(next: string): { value: string; refused: boolean } {
-  const converted = next.normalize("NFC").replace(/[‘’ʼ]/g, "'");
+  // Whitespace of any kind (a pasted non-breaking space, a tab) becomes a
+  // plain space — a conversion like the apostrophe's, not a refusal — so a
+  // pasted name keeps its word breaks. Runs are not collapsed and the ends are
+  // not trimmed here: the field holds a trailing space while the next word is
+  // typed, and the save-time normalization collapses them.
+  const converted = next.normalize("NFC").replace(/[‘’ʼ]/g, "'").replace(/\s/g, " ");
   if (ALLOWED_NAME.test(converted)) return { value: converted, refused: false };
   let value = "";
   for (const c of converted) if (ALLOWED_CHAR.test(c)) value += c;
