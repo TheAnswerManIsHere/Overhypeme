@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import { LANDING_LOCATION, usePersonName } from "@/hooks/use-person-name";
-import { canStartBuilder, shouldAskForIdentity, type IdentityAuthState } from "@/lib/identity";
+import { canStartBuilder, isAccountComplete, shouldAskForIdentity, type IdentityAuthState } from "@/lib/identity";
 
 export interface IdentityGate {
   /** The identity sheet should be open on this page now. */
@@ -38,16 +38,20 @@ export function useIdentityGate(): IdentityGate {
   const auth: IdentityAuthState =
     isLoading || status === "failed" ? "loading" : isAuthenticated ? "signedIn" : "signedOut";
   const completeness = { hasName: !!name.trim(), pronounsSupplied };
+  const account = user as { displayName?: string | null; pronouns?: string | null; eligibility?: string } | null;
+  const accountComplete = isAccountComplete(account?.displayName, account?.pronouns);
   return {
     shouldAsk: shouldAskForIdentity({
       auth,
       completeness,
-      accountDisplayName: (user as { displayName?: string | null } | null)?.displayName ?? null,
+      accountDisplayName: account?.displayName ?? null,
+      accountPronouns: account?.pronouns ?? null,
+      accountEligible: account?.eligibility === undefined ? undefined : account.eligibility === "eligible",
       location,
       landingLocation: LANDING_LOCATION,
       landingLapsed,
     }),
-    builderReady: shareLinkResolved && canStartBuilder(auth, completeness),
+    builderReady: shareLinkResolved && canStartBuilder(auth, completeness, accountComplete),
   };
 }
 

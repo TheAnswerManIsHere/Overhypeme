@@ -3,7 +3,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 vi.mock("@workspace/replit-auth-web", () => ({
-  useAuth: () => ({ user: { displayName: null }, isAuthenticated: true, isLoading: false }),
+  useAuth: () => ({ user: { displayName: "Ada", pronouns: "she/her", eligibility: "eligible" }, isAuthenticated: true, isLoading: false, status: "resolved" }),
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/facts/7/meme", () => {}] }));
 

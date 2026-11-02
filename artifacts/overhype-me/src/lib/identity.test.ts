@@ -95,11 +95,20 @@ describe("shouldAskForIdentity", () => {
     expect(ask({ location: "/facts/7/meme", landingLocation: "/facts/7/meme" })).toBe(true);
   });
 
-  it("asks a signed-in visitor only when neither the account nor the browser holds a name (Phase 1)", () => {
-    expect(ask({ auth: "signedIn", completeness: NONE, accountDisplayName: null })).toBe(true);
-    expect(ask({ auth: "signedIn", completeness: NONE, accountDisplayName: "  " })).toBe(true);
-    expect(ask({ auth: "signedIn", completeness: NONE, accountDisplayName: "Ada" })).toBe(false);
-    expect(ask({ auth: "signedIn", completeness: NAME_ONLY, accountDisplayName: null })).toBe(false);
+  // Phase 2: a set-up account is complete when the ACCOUNT has a name and
+  // pronouns, whatever the browser holds.
+  it("asks a set-up signed-in account missing a name or pronouns, whatever the browser holds", () => {
+    const signedIn = { auth: "signedIn" as const, accountEligible: true };
+    expect(ask({ ...signedIn, completeness: NONE, accountDisplayName: null, accountPronouns: "she/her" })).toBe(true);
+    expect(ask({ ...signedIn, completeness: COMPLETE, accountDisplayName: "  ", accountPronouns: "she/her" })).toBe(true);
+    expect(ask({ ...signedIn, completeness: COMPLETE, accountDisplayName: "Ada", accountPronouns: null })).toBe(true);
+    expect(ask({ ...signedIn, completeness: NONE, accountDisplayName: "Ada", accountPronouns: "she/her" })).toBe(false);
+  });
+
+  it("never asks an account that is not set up: onboarding is where it answers", () => {
+    expect(ask({ auth: "signedIn", accountEligible: false, completeness: NONE, accountDisplayName: null, accountPronouns: null })).toBe(false);
+    // /check-email included: the account is not set up there either.
+    expect(ask({ auth: "signedIn", accountEligible: false, completeness: NONE, location: "/check-email", landingLocation: "/" })).toBe(false);
   });
 });
 
@@ -113,7 +122,8 @@ describe("canStartBuilder", () => {
     expect(canStartBuilder("signedOut", PRONOUNS_ONLY)).toBe(false);
     expect(canStartBuilder("signedOut", COMPLETE)).toBe(true);
   });
-  it("leaves signed-in builders ungated in Phase 1", () => {
-    expect(canStartBuilder("signedIn", NONE)).toBe(true);
+  it("starts a signed-in builder only from a complete account (Phase 2)", () => {
+    expect(canStartBuilder("signedIn", NONE, true)).toBe(true);
+    expect(canStartBuilder("signedIn", COMPLETE, false)).toBe(false);
   });
 });

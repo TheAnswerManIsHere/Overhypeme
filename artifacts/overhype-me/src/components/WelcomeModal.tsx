@@ -3,6 +3,8 @@
  * @subsystem public-site
  */
 import { useState, useRef, useEffect } from "react";
+import { useAuth } from "@workspace/replit-auth-web";
+import { useUpdateMyProfile } from "@workspace/api-client-react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -41,6 +43,10 @@ function FlameMark() {
 export function WelcomeModal() {
   const { name, pronouns, pronounsSupplied, setName, setPronouns } = usePersonName();
   const { shouldAsk } = useIdentityGate();
+  const { isAuthenticated, refreshUser } = useAuth();
+  const updateProfile = useUpdateMyProfile();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const [open, setOpen] = useState(false);
   const [draftName, setDraftName] = useState(name || "");
@@ -151,17 +157,40 @@ export function WelcomeModal() {
     setDraftPronouns(val);
   }
 
-  function handleSave() {
-    if (!canSave(draftPronouns)) return;
+  async function handleSave() {
+    if (!canSave(draftPronouns) || saving) return;
     const finalName = draftName.trim();
     if (!finalName) return; // disabled state should prevent this, but be defensive
-    setName(finalName);
-    setPronouns(draftPronouns);
-    setOpen(false);
+    if (!isAuthenticated) {
+      setName(finalName);
+      setPronouns(draftPronouns);
+      setOpen(false);
+      return;
+    }
+    // A set-up account missing its name or pronouns (identity-flow Phase 2):
+    // the answer saves to the ACCOUNT through the validated profile write,
+    // then the account is re-read; the account mirror publishes the result to
+    // this browser. A write that fails or is refused, or a re-read that does
+    // not land, keeps what was typed, says so, and offers Save again.
+    setSaving(true);
+    setSaveError("");
+    try {
+      await updateProfile.mutateAsync({ data: { displayName: finalName, pronouns: draftPronouns } });
+      if (!(await refreshUser())) {
+        setSaveError("Saved, but we couldn't confirm it yet. Try again.");
+        return;
+      }
+      setOpen(false);
+    } catch (err: unknown) {
+      const e = err as { data?: { error?: string }; response?: { data?: { error?: string } }; message?: string };
+      setSaveError(e?.data?.error ?? e?.response?.data?.error ?? "That didn't save. Try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && canSave(draftPronouns) && draftName.trim() && !nameField.tooLong) handleSave();
+    if (e.key === "Enter" && canSave(draftPronouns) && draftName.trim() && !nameField.tooLong) void handleSave();
   }
 
   const prefersReducedMotion = useReducedMotion();
@@ -170,7 +199,7 @@ export function WelcomeModal() {
 
   if (!open) return null;
 
-  const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0 && !nameField.tooLong;
+  const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0 && !nameField.tooLong && !saving;
   const teaser = teaserFor(draftName);
   const displayName = teaser.name;
 
@@ -225,8 +254,13 @@ export function WelcomeModal() {
         )}
       </AnimatePresence>
 
+      {saveError && (
+        <p role="alert" data-testid="identity-save-error" className="mb-2 text-sm text-destructive">
+          {saveError}
+        </p>
+      )}
       <button
-        onClick={handleSave}
+        onClick={() => void handleSave()}
         disabled={!saveEnabled}
         data-testid="identity-save"
         className="w-full h-[52px] md:h-[56px] bg-primary text-white rounded-[14px] font-display font-bold text-[15px] uppercase tracking-[0.12em] flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
