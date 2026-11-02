@@ -6,6 +6,7 @@ import { verifyCaptcha } from "../lib/captcha";
 import { logger } from "../lib/logger";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { checkPersonalName } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -95,6 +96,13 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     res.status(400).json({ error: "recipientName is required" });
     return;
   }
+  // The recipient's name follows the shared name rule (identity-flow Phase 2):
+  // it goes into the invite email and the link's personalisation.
+  const recipientNameCheck = checkPersonalName(recipientName);
+  if (!recipientNameCheck.ok) {
+    res.status(400).json({ error: recipientNameCheck.error });
+    return;
+  }
   if (!shareUrl || typeof shareUrl !== "string") {
     res.status(400).json({ error: "shareUrl is required" });
     return;
@@ -178,7 +186,7 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     // best effort only
   }
 
-  const payload = buildShareInviteEmail(recipientName.trim(), shareUrl.trim(), senderName);
+  const payload = buildShareInviteEmail(recipientNameCheck.value, shareUrl.trim(), senderName);
 
   try {
     await sendEmail({

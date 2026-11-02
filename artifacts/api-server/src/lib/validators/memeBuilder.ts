@@ -22,6 +22,7 @@
  */
 
 import { z } from "zod";
+import { checkPersonalName } from "@workspace/api-zod";
 
 /** Allowlist of pronoun strings accepted by Phase-4 endpoints (canonical "subj/obj" form). */
 export const PRONOUN_ALLOWLIST = ["he/him", "she/her", "they/them", "xe/xem", "ze/zir"] as const;
@@ -40,22 +41,19 @@ export const PronounsSchema = z
   .pipe(z.enum(PRONOUN_ALLOWLIST));
 
 /**
- * Strict name schema. Length 1-50, no newlines or other control characters.
- * Allows letters (any Unicode script), marks, digits, spaces, apostrophes,
- * hyphens, periods. The Unicode property escapes mean we do not need a
- * separate strip-control-chars pass — anything in `Cc` / `Cf` is rejected by
- * the regex outright.
+ * Name schema: the shared name rule (`checkPersonalName`, identity-flow
+ * Phase 2) — letters and marks in any script, digits, space, `'`, `-`, `.`,
+ * ZWJ/ZWNJ, at most 50 visible characters; a disallowed character is refused.
+ * The value is the rule's normalized form.
  */
-export const NameSchema = z
-  .string()
-  .min(1)
-  .max(50)
-  .refine((v) => !/[\n\r\t\v\f]/.test(v), { message: "Name must not contain control characters" })
-  .refine((v) => /^[\p{L}\p{M}\p{N} '.\-]+$/u.test(v), {
-    message: "Name may only contain letters, numbers, spaces, apostrophes, periods, and hyphens",
-  })
-  .transform((v) => v.replace(/\s+/g, " ").trim())
-  .refine((v) => v.length > 0, { message: "Name cannot be empty after trimming" });
+export const NameSchema = z.string().transform((v, ctx) => {
+  const checked = checkPersonalName(v);
+  if (!checked.ok) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: checked.error });
+    return z.NEVER;
+  }
+  return checked.value;
+});
 
 export const TextOptionsSchema = z.object({
   fontSize: z.number().int().min(14).max(100).optional(),

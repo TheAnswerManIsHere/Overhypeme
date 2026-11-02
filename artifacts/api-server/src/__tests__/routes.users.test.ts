@@ -207,19 +207,20 @@ describe("PATCH /users/me — validation", () => {
     assert.equal(res.body.error, "Name cannot be empty");
   });
 
-  it("rejects a displayName whose words exceed the per-word cap", async () => {
-    const { res } = await authedPatch({ displayName: "x".repeat(21) });
+  // The shared name rule (identity-flow Phase 2): 50 visible characters.
+  it("rejects a displayName over 50 characters", async () => {
+    const { res } = await authedPatch({ displayName: "x".repeat(51) });
     assert.equal(res.status, 400);
-    assert.match(res.body.error, /20 characters or fewer/);
+    assert.match(res.body.error, /50 characters or fewer/);
   });
 
-  it("rejects firstName / lastName whose words exceed the per-word cap", async () => {
-    let r = await authedPatch({ firstName: "f".repeat(21) });
+  it("rejects firstName / lastName over 50 characters", async () => {
+    let r = await authedPatch({ firstName: "f".repeat(51) });
     assert.equal(r.res.status, 400);
-    assert.match(r.res.body.error, /20 characters or fewer/);
-    r = await authedPatch({ lastName: "l".repeat(21) });
+    assert.match(r.res.body.error, /50 characters or fewer/);
+    r = await authedPatch({ lastName: "l".repeat(51) });
     assert.equal(r.res.status, 400);
-    assert.match(r.res.body.error, /20 characters or fewer/);
+    assert.match(r.res.body.error, /50 characters or fewer/);
   });
 
   it("rejects an unknown avatarStyle", async () => {

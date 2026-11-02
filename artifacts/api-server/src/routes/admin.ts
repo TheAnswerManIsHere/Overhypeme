@@ -36,6 +36,7 @@ import {
   OVERRIDABLE_PATHS,
   OVERRIDABLE_PATH_KEYS,
   pathToField,
+  checkPersonalName,
   FACT_TEXT_EDIT_CODES,
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
   type FactEnrichment,
@@ -254,7 +255,19 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["adminNotifications"] === "boolean") updates.adminNotifications = body["adminNotifications"];
   if (typeof body["disputeNotifications"] === "boolean") updates.disputeNotifications = body["disputeNotifications"];
   if (typeof body["nsfwModeEnabled"] === "boolean") updates.nsfwModeEnabled = body["nsfwModeEnabled"];
-  if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
+  if (body["displayName"] !== undefined) {
+    // The shared name rule applies to admin edits too (identity-flow Phase 2).
+    if (body["displayName"]) {
+      const checked = checkPersonalName(body["displayName"]);
+      if (!checked.ok) {
+        res.status(400).json({ error: checked.error });
+        return;
+      }
+      updates.displayName = checked.value;
+    } else {
+      updates.displayName = null;
+    }
+  }
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
   // `membershipTier` is deliberately NOT accepted here. It is derived from
   // entitlement sources, and accepting it would let an admin write a value the
@@ -1000,7 +1013,15 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
 
   const email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
   const password = body["password"] ? String(body["password"]) : null;
-  const displayName = body["displayName"] ? String(body["displayName"]).trim() : null;
+  let displayName: string | null = null;
+  if (body["displayName"]) {
+    const checked = checkPersonalName(body["displayName"]);
+    if (!checked.ok) {
+      res.status(400).json({ error: checked.error });
+      return;
+    }
+    displayName = checked.value;
+  }
   const membershipTier = ["unregistered", "registered", "legendary"].includes(String(body["membershipTier"] ?? "unregistered"))
     ? (String(body["membershipTier"] ?? "unregistered") as "unregistered" | "registered" | "legendary")
     : "unregistered";

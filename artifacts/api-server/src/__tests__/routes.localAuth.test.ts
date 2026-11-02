@@ -175,22 +175,21 @@ describe("POST /auth/register — validation", () => {
     assert.equal(res.body.error, "Name cannot be empty");
   });
 
-  it("rejects displayName whose words exceed the per-word cap", async () => {
-    // 21-char single word — exceeds the 20-char-per-word limit enforced
-    // by sanitizeAndValidatePersonalName.
+  // The shared name rule (identity-flow Phase 2): 50 visible characters,
+  // no word cap, and a disallowed character refused rather than stripped.
+  it("rejects a displayName over 50 characters", async () => {
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email: uniqueEmail(), password: "longenough", displayName: "x".repeat(21) });
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "x".repeat(51) });
     assert.equal(res.status, 400);
-    assert.match(res.body.error, /20 characters or fewer/);
+    assert.match(res.body.error, /50 characters or fewer/);
   });
 
-  it("rejects displayName with more than 3 words", async () => {
+  it("rejects a displayName with an emoji instead of stripping it", async () => {
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email: uniqueEmail(), password: "longenough", displayName: "one two three four", firstName: "Pat", lastName: "Doe" });
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "Pat 🦊", firstName: "Pat", lastName: "Doe" });
     assert.equal(res.status, 400);
-    assert.match(res.body.error, /3 words or fewer/);
   });
 
   it("rejects an email that's already in use", async () => {
