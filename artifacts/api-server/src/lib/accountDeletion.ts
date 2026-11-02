@@ -446,6 +446,14 @@ export function __setBeforePurgeClaimForTests(fn: (userId: string) => Promise<vo
   return () => { beforePurgeClaim = null; };
 }
 
+let beforePurgeTransaction: ((userId: string) => Promise<void>) | null = null;
+
+/** Tests only: run `fn` after the purge deleted the files and before its locked transaction, where an admin's takeover can land. */
+export function __setBeforePurgeTransactionForTests(fn: (userId: string) => Promise<void>): () => void {
+  beforePurgeTransaction = fn;
+  return () => { beforePurgeTransaction = null; };
+}
+
 export type AdvanceResult = AccountDeletionStage | "cancelled" | "gone";
 
 /**
@@ -498,7 +506,7 @@ export async function advanceAccountDeletion(userId: string, now = new Date()): 
             and(lte(adr.purgeAfter, now), sql`NOT ${disputeOpen(userId)}`)))) continue;
           break;
         case "purging":
-          await purgeAccount(userId, row.requestedBy);
+          await purgeAccount(userId);
           return "done";
         case "done":
           return "done";
@@ -546,8 +554,7 @@ async function ownedObjects(userId: string): Promise<string[]> {
  * an admin removes the account, the likely-abuse case, those are deleted and
  * the totals recounted. Their memes, photos and images go either way.
  */
-async function purgeAccount(userId: string, requestedBy: AccountDeletionRequester): Promise<void> {
-  const removedByAdmin = requestedBy === "admin";
+async function purgeAccount(userId: string): Promise<void> {
   const storage = new ObjectStorageService();
   const paths = await ownedObjects(userId);
   // A few at a time: each delete is a preserve-then-delete round trip, most
@@ -555,11 +562,15 @@ async function purgeAccount(userId: string, requestedBy: AccountDeletionRequeste
   for (let i = 0; i < paths.length; i += 8) {
     await Promise.all(paths.slice(i, i + 8).map((path) => storage.deleteObject(path)));
   }
+  await beforePurgeTransaction?.(userId);
 
   await db.transaction(async (tx) => {
     await lockOwnerContent(tx, userId);
-    const [still] = await tx.select({ stage: adr.stage }).from(adr).where(and(active(userId), eq(adr.stage, "purging"))).for("update");
+    // Who asked is read here, under the owner lock an admin's takeover also
+    // takes: a takeover that lands while the files were being deleted applies.
+    const [still] = await tx.select({ stage: adr.stage, requestedBy: adr.requestedBy }).from(adr).where(and(active(userId), eq(adr.stage, "purging"))).for("update");
     if (!still) return;
+    const removedByAdmin = still.requestedBy === "admin";
 
     // The votes and hearts the person cast. Kept without their name, so no
     // total moves; or, on an admin's removal, deleted and each surviving
