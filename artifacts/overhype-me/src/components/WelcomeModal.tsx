@@ -12,6 +12,7 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { DEFAULT_PRONOUNS, isCustomPronouns, parseCustom } from "@/lib/pronouns";
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 import { teaserFor } from "@/components/welcomeTeaser";
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 
 /** Pronouns are saved only once the visitor can see them: a suggestion shown, or their own pick. Never the fallback. */
 function canSave(draftPronouns: string): boolean {
@@ -137,8 +138,7 @@ export function WelcomeModal() {
     };
   }, [open, knownName]);
 
-  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = e.target.value;
+  function handleNameValue(val: string) {
     nameTouchedRef.current = true;
     setDraftName(val);
     // Suggest pronouns from the name, locally, until the visitor picks; no
@@ -161,14 +161,16 @@ export function WelcomeModal() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && canSave(draftPronouns) && draftName.trim()) handleSave();
+    if (e.key === "Enter" && canSave(draftPronouns) && draftName.trim() && !nameField.tooLong) handleSave();
   }
 
   const prefersReducedMotion = useReducedMotion();
+  // The shared name rule, applied as the name is typed (identity-flow Phase 2).
+  const nameField = useNameField(draftName, handleNameValue);
 
   if (!open) return null;
 
-  const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0;
+  const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0 && !nameField.tooLong;
   const teaser = teaserFor(draftName);
   const displayName = teaser.name;
 
@@ -188,15 +190,14 @@ export function WelcomeModal() {
       <div className="relative mb-3">
         <input
           type="text"
-          value={draftName}
-          onChange={handleNameChange}
+          {...nameField.inputProps}
           onKeyDown={handleKeyDown}
           placeholder="Full name"
           data-testid="identity-name-input"
-          maxLength={100}
           autoComplete="name"
           className="w-full h-[52px] md:h-[56px] px-4 bg-secondary border border-border rounded-[14px] text-[17px] md:text-[18px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
         />
+        <NameFieldHint hint={nameField.hint} />
       </div>
 
       <button

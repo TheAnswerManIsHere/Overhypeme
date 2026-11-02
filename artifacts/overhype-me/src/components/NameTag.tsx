@@ -3,6 +3,7 @@
  * @subsystem public-site
  */
 
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useState, useRef, useEffect } from "react";
 import { Pencil } from "lucide-react";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -45,7 +46,9 @@ export function NameTag() {
 
   draftPronounsRef.current = draftPronouns;
 
-  const applyEnabled = canApply(draftPronouns);
+  // The shared name rule, applied as the name is typed (identity-flow Phase 2).
+  const nameField = useNameField(draftName, handleNameValue);
+  const applyEnabled = canApply(draftPronouns) && !nameField.tooLong;
 
   // ── Pronoun suggestion ──────────────────────────────────────────────────────
   // Local only: this editor is reachable signed out (signed in, the tag opens
@@ -126,8 +129,7 @@ export function NameTag() {
     setDraftPronouns(val);
   }
 
-  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = e.target.value;
+  function handleNameValue(val: string) {
     setDraftName(val);
     hasOverriddenRef.current = false; // name changed → lift override so it can suggest again
     suggestFor(val);
@@ -205,13 +207,13 @@ export function NameTag() {
           <div className="flex items-center gap-2 mb-3">
             <input
               ref={nameRef}
-              value={draftName}
-              onChange={handleNameChange}
+              {...nameField.inputProps}
               onKeyDown={onNameKeyDown}
               placeholder="Your name"
               className="flex-1 bg-secondary border border-border rounded-sm px-2 py-1 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
             />
           </div>
+          <NameFieldHint hint={nameField.hint} />
 
           {/* Pronouns */}
           <div className="mb-3">

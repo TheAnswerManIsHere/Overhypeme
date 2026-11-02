@@ -2,6 +2,7 @@
  * @purpose Sign-in page: email/password login or registration (registration requires pronouns client-side, suggested from the first name), Google and Apple sign-in, a resend-verification prompt, and the reset-success and OAuth error notices; a local sign-in returns to the safe from path.
  * @subsystem accounts-auth
  */
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
@@ -88,6 +89,16 @@ export default function Login() {
     if (suggested) setPronouns(suggested);
   }, [displayName, mode]);
   const [error, setError] = useState("");
+  // Every name field follows the shared name rule (identity-flow Phase 2).
+  const displayNameField = useNameField(displayName, setDisplayName);
+  const firstNameField = useNameField(firstName, (v) => {
+    firstNameTouched.current = true;
+    setFirstName(v);
+  });
+  const lastNameField = useNameField(lastName, (v) => {
+    lastNameTouched.current = true;
+    setLastName(v);
+  });
   const [loading, setLoading] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState("");
   const resetSuccess = getResetSuccess();
@@ -268,13 +279,12 @@ export default function Login() {
                   </label>
                   <Input
                     type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
+                    {...displayNameField.inputProps}
                     placeholder="How facts will address you (e.g. Alex Smith)"
                     required
-                    maxLength={100}
                     autoComplete="name"
                   />
+                  <NameFieldHint hint={displayNameField.hint} />
                   <p className="text-xs text-muted-foreground mt-1">This is the name inserted into personalized facts.</p>
                 </div>
 
@@ -285,16 +295,12 @@ export default function Login() {
                     </label>
                     <Input
                       type="text"
-                      value={firstName}
-                      onChange={(e) => {
-                        firstNameTouched.current = true;
-                        setFirstName(e.target.value);
-                      }}
+                      {...firstNameField.inputProps}
                       placeholder="First"
                       required
-                      maxLength={100}
                       autoComplete="given-name"
                     />
+                    <NameFieldHint hint={firstNameField.hint} />
                   </div>
                   <div>
                     <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
@@ -302,16 +308,12 @@ export default function Login() {
                     </label>
                     <Input
                       type="text"
-                      value={lastName}
-                      onChange={(e) => {
-                        lastNameTouched.current = true;
-                        setLastName(e.target.value);
-                      }}
+                      {...lastNameField.inputProps}
                       placeholder="Last"
                       required
-                      maxLength={100}
                       autoComplete="family-name"
                     />
+                    <NameFieldHint hint={lastNameField.hint} />
                   </div>
                 </div>
 

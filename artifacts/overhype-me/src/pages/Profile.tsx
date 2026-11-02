@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey, useUpdateMyProfile } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
@@ -144,6 +145,10 @@ export default function Profile() {
   const [draftDisplayName, setDraftDisplayName] = useState("");
   const [draftFirstName, setDraftFirstName] = useState("");
   const [draftLastName, setDraftLastName] = useState("");
+  // Every name field follows the shared name rule (identity-flow Phase 2).
+  const displayNameField = useNameField(draftDisplayName, setDraftDisplayName);
+  const firstNameField = useNameField(draftFirstName, setDraftFirstName);
+  const lastNameField = useNameField(draftLastName, setDraftLastName);
   const [draftAvatarStyle, setDraftAvatarStyle] = useState("bottts");
   const [draftPronouns, setDraftPronouns] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
@@ -1206,12 +1211,11 @@ export default function Profile() {
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Display Name</label>
                 <input
                   type="text"
-                  value={draftDisplayName}
-                  onChange={(e) => setDraftDisplayName(e.target.value)}
+                  {...displayNameField.inputProps}
                   placeholder="How you want to appear on the site"
-                  maxLength={80}
                   className="w-full max-w-md bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                 />
+                <NameFieldHint hint={displayNameField.hint} />
                 <p className="text-xs text-muted-foreground mt-1">This name appears on your facts and profile.</p>
               </div>
 
@@ -1224,23 +1228,21 @@ export default function Profile() {
                     <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">First Name</label>
                     <input
                       type="text"
-                      value={draftFirstName}
-                      onChange={(e) => setDraftFirstName(e.target.value)}
+                      {...firstNameField.inputProps}
                       placeholder="Legal first name"
-                      maxLength={80}
                       className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                     />
+                    <NameFieldHint hint={firstNameField.hint} />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Last Name</label>
                     <input
                       type="text"
-                      value={draftLastName}
-                      onChange={(e) => setDraftLastName(e.target.value)}
+                      {...lastNameField.inputProps}
                       placeholder="Legal last name"
-                      maxLength={80}
                       className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                     />
+                    <NameFieldHint hint={lastNameField.hint} />
                   </div>
                 </div>
               </div>
