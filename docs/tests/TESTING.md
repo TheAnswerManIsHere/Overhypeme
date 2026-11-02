@@ -352,8 +352,9 @@ dev stack did not have: ordinary accounts, and a server in production mode.
 **Ordinary accounts.** `artifacts/api-server/scripts/seed-e2e-test-accounts.ts`
 seeds one **free** and one **paid** account, defined in
 `scripts/e2e-test-accounts.json` (which the Playwright helper
-`e2e/helpers/testAccounts.ts` reads too). Both have a verified email and a
-password and sign in through the real `/api/auth/local-login`, never through the
+`e2e/helpers/testAccounts.ts` reads too). Both have a verified email, a
+completed onboarding (with an adult date of birth) and a password — the
+verified-actor gate refuses writes from an account missing either — and sign in through the real `/api/auth/local-login`, never through the
 dev-admin backdoor. The paid account is paid the way a real comp is — an admin
 grant written by `applyAdminGrant` (entitlement row, history, derived-tier
 recompute) — never by setting the tier. The password is published in this
