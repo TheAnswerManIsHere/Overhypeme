@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, emailVerificationTokensTable } from "@workspace/db";
 import { eq, and, or, sql, isNull, gt, getTableColumns } from "drizzle-orm";
-import { createSession, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
+import { createSession, createSignInSession, SuspendedAccountError, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
 import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { isAdminById } from "./auth";
@@ -297,13 +297,6 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     return;
   }
 
-  // Refused before a session exists (plan, transition table); said only to
-  // someone who knew the password.
-  if (user.suspendedAt) {
-    res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
-    return;
-  }
-
   const sessionData: SessionData = {
     user: {
       id: user.id,
@@ -315,7 +308,18 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     isAdmin: user.isAdmin || isAdminById(user.id),
   };
 
-  const sid = await createSession(sessionData, user.id);
+  // Refused before a session exists, decided under the row lock suspension
+  // takes (plan, transition table); said only to someone who knew the password.
+  let sid: string;
+  try {
+    sid = await createSignInSession(sessionData, user.id);
+  } catch (err) {
+    if (err instanceof SuspendedAccountError) {
+      res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
+      return;
+    }
+    throw err;
+  }
   setSessionCookie(res, sid);
 
   res.json({
@@ -468,6 +472,19 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
   res.status(200).json({ message: "Password reset successfully. You can now log in with your new password." });
 });
 
+/** The verification link's session, refused if a suspension landed while the link was being followed. */
+async function mintVerifiedSession(data: SessionData, userId: string, res: Response): Promise<string | null> {
+  try {
+    const sid = await createSignInSession(data, userId);
+    setSessionCookie(res, sid);
+    return sid;
+  } catch (err) {
+    if (!(err instanceof SuspendedAccountError)) throw err;
+    res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
+    return null;
+  }
+}
+
 router.get("/auth/verify-email", async (req: Request, res: Response) => {
   const { token } = req.query as { token?: string };
 
@@ -589,13 +606,13 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
       if (existingSid) {
         await updateSession(existingSid, sessionData);
       } else {
-        const sid = await createSession(sessionData, verifiedUser.id);
-        setSessionCookie(res, sid);
+        const sid = await mintVerifiedSession(sessionData, verifiedUser.id, res);
+        if (!sid) return;
       }
     } else {
       // New account: create a fresh session so the user is immediately logged in
-      const sid = await createSession(sessionData, verifiedUser.id);
-      setSessionCookie(res, sid);
+      const sid = await mintVerifiedSession(sessionData, verifiedUser.id, res);
+      if (!sid) return;
     }
   }
 

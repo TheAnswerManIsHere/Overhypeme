@@ -21,7 +21,8 @@ import {
   getGoogleConfig,
   getAppleConfig,
   getSession,
-  createSession,
+  createSignInSession,
+  SuspendedAccountError,
   updateSession,
   deleteSession,
   presentedSessionIds,
@@ -158,13 +159,6 @@ export class UnverifiedProviderEmailError extends Error {
   }
 }
 
-/** A suspended account changes nothing at sign-in, not even a provider link (plan, transition table). */
-export class SuspendedAccountError extends Error {
-  constructor() {
-    super("Account is suspended");
-    this.name = "SuspendedAccountError";
-  }
-}
 
 /** Google sends a boolean; Apple sends the string "true". Anything else is unverified. */
 export function providerEmailVerified(claims: Record<string, unknown>): boolean {
@@ -439,7 +433,17 @@ async function handleOAuthCallback(
     isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
   };
 
-  const sid = await createSession(sessionData, dbUser.id);
+  let sid: string;
+  try {
+    sid = await createSignInSession(sessionData, dbUser.id);
+  } catch (err) {
+    // Suspended after the check in upsertUser, while this sign-in was in flight.
+    if (err instanceof SuspendedAccountError) {
+      res.redirect(`${basePath}/login?error=account_suspended`);
+      return;
+    }
+    throw err;
+  }
   setSessionCookie(res, sid);
 
   if (isPopup) {

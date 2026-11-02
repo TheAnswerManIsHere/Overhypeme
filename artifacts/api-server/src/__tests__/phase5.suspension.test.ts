@@ -22,8 +22,10 @@ import localAuthRouter from "../routes/localAuth.js";
 import authRouter from "../routes/auth.js";
 import usersRouter from "../routes/users.js";
 import accountSuspensionRouter from "../routes/accountSuspension.js";
+import adminRouter from "../routes/admin.js";
 import { isReachableAdminSql } from "../lib/adminIdentity.js";
-import { createSession, type SessionData } from "../lib/auth.js";
+import { createSession, revokeUserSessions, type SessionData } from "../lib/auth.js";
+import { suspendAccount } from "../lib/accountSuspension.js";
 
 const PREFIX = "t-p5susp-";
 const PASSWORD = "correct horse battery staple";
@@ -33,7 +35,7 @@ function makeApp(): Express {
   app.use(express.json());
   app.use(authMiddleware);
   app.use(requireEligibleActor);
-  app.use("/api", localAuthRouter, authRouter, usersRouter, accountSuspensionRouter);
+  app.use("/api", localAuthRouter, authRouter, usersRouter, accountSuspensionRouter, adminRouter);
   return app;
 }
 
@@ -156,6 +158,46 @@ describe("account suspension (T10)", () => {
     assert.equal((await request(app).post(`/api/admin/users/${member.id}/unsuspend`).set("authorization", `Bearer ${adminSid}`)).status, 200);
     assert.equal((await request(app).post("/api/auth/reset-password").send({ token: rawToken, newPassword: "a brand new password" })).status, 200);
     assert.equal((await login(member.email, "a brand new password")).status, 200);
+  });
+
+  it("a sign-in and a suspension that overlap serialize: whichever commits first, no session survives the suspension", async () => {
+    const sessionsOf = async (id: string) => db.select().from(sessionsTable).where(eq(sessionsTable.userId, id));
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    // Suspension first: it holds the row and has revoked, but not committed,
+    // while a password sign-in (correct password) reaches the mint. The
+    // sign-in must wait for it and then refuse.
+    const member = await createUser();
+    let signIn!: Promise<request.Response>;
+    await db.transaction(async (tx) => {
+      await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, member.id)).for("update");
+      await tx.update(usersTable).set({ suspendedAt: new Date(), suspendedReason: "race" }).where(eq(usersTable.id, member.id));
+      await revokeUserSessions(tx, member.id);
+      signIn = login(member.email).then((r) => r);
+      await pause(500);
+    });
+    const refused = await signIn;
+    assert.equal(refused.status, 403, refused.text);
+    assert.equal(refused.body.code, "ACCOUNT_SUSPENDED");
+    assert.equal((await sessionsOf(member.id)).length, 0, "no session minted after the suspension");
+
+    // Sign-in first: a session is minted under the share lock and not yet
+    // committed when an admin suspends. The suspension waits for it and then
+    // revokes it, so the session (an admin's, here) reads nothing afterwards.
+    const admin = await createUser({ admin: true });
+    await createUser({ admin: true }); // so the target is never the last admin
+    let suspending!: Promise<unknown>;
+    let sid!: string;
+    await db.transaction(async (tx) => {
+      await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, admin.id)).for("share");
+      sid = await createSession({ user: { id: admin.id } as unknown as SessionData["user"], access_token: "t", isAdmin: true }, admin.id, tx);
+      suspending = suspendAccount(admin.id, { by: null, reason: "race" });
+      await pause(500);
+    });
+    assert.equal(await suspending, "suspended");
+    assert.equal((await sessionsOf(admin.id)).length, 0, "the suspension revoked the session minted before it");
+    const adminList = await request(makeApp()).get("/api/admin/users").set("authorization", `Bearer ${sid}`);
+    assert.equal(adminList.status, 401, "the revoked session reads nothing, the admin console included");
   });
 
   it("a suspended administrator no longer counts as one who can reach the console", async () => {
