@@ -6,8 +6,9 @@
 > [`2-content-lifecycle.md`](../manual/2-content-lifecycle.md); comment
 > moderation, ratings, and hearts are
 > [`community-and-engagement.md`](./community-and-engagement.md); admin
-> role grants, reinstatement, and soft/hard user delete are
-> [`accounts-and-auth.md`](./accounts-and-auth.md); the entitlement model
+> role grants, suspension, and account deletion (the engine, the admin
+> removal and the deletion panel) are
+> [`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion); the entitlement model
 > is [`membership-entitlements.md`](./membership-entitlements.md);
 > enrichment/taxonomy admin review is
 > [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md). This spec
@@ -171,9 +172,11 @@ keys are only reachable via the generic `/admin/config` list.
 
 ## User management (beyond accounts-and-auth.md)
 
-`accounts-and-auth.md` covers soft/hard delete, reinstatement, and role
-grants. `/admin/users` additionally provides: search + pagination + an
-inactive-users filter; a per-user membership panel (tier, source —
+[`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion)
+covers suspension, the admin removal and the deletion panel (the soft delete
+and reinstatement are retired), and role grants. `/admin/users` additionally
+provides: search + pagination + an inactive-users filter (it lists
+`is_active = false` rows, which nothing writes any more); a per-user membership panel (tier, source —
 Stripe vs. admin grant — and grant metadata); a manual **lifetime
 membership grant/revoke** action, independent of any Stripe event; manual
 email-verification; and an "Add User" form for direct account creation

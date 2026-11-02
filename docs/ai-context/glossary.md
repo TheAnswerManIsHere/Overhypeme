@@ -1020,9 +1020,9 @@ User entitlement level: `unregistered | registered | legendary`. **Derived,
 never assigned, post-creation** — `users.membership_tier` is a projection
 computed from a user's [entitlement sources](#entitlement-source), recomputed
 on every change to them. Account creation is a separate one-time
-initialization write, not a competing writer. One narrow designed exception:
-admin reinstatement writes it directly, fail-closed, when a source refresh
-comes back incomplete.
+initialization write, not a competing writer. (Admin [reinstatement](#reinstate),
+which wrote it directly when a source refresh came back incomplete, was the one
+exception; it was retired in launch Phase 5.)
 → [membership-entitlements](./membership-entitlements.md#the-one-thing-to-understand-before-anything-else)
 
 ### Entitlement source
@@ -1058,10 +1058,12 @@ against it.
 ### Reactivate
 
 Undoing a pending [cancellation](#cancel) before it takes effect. **One of
-three different "bring it back" actions, each on a different object** — this
-one restores a *subscription*, [reinstate](#reinstate) restores a deactivated
-*account*, and [Resubmit for Moderation](#resubmit-for-moderation) restores an
-inactive *fact*. They are not interchangeable.
+several different "bring it back" actions, each on a different object** —
+this one restores a *subscription*; "Keep my account" cancels an [account
+deletion](#account-deletion) and unsuspend lifts a [suspension](#suspend) (the
+old [reinstate](#reinstate) of a deactivated account is retired); and
+[Resubmit for Moderation](#resubmit-for-moderation) restores an inactive
+*fact*. They are not interchangeable.
 → [membership-entitlements](./membership-entitlements.md)
 
 ### Switch to Annual

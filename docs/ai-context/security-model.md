@@ -70,10 +70,13 @@ entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-ad
   the acceptance of an account deletion both run under the admin population
   lock (`adminLockoutGuard.ts`) and revoke sessions in the same transaction,
   and a suspended or departing admin is not counted as reachable
-  (`isReachableAdminSql`).
+  (`isReachableAdminSql`;
+  [`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion)).
 - **Deleting your own account re-authenticates**: the password, or for a
   Google- or Apple-only account a provider sign-in from the last ten minutes,
-  rate-limited per account. Recovery is closed while suspended: forgot-password
+  rate-limited per account
+  ([`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion)).
+  Recovery is closed while suspended: forgot-password
   issues nothing behind the same generic reply, so it discloses nothing, and
   reset refuses a suspended owner's link before claiming it.
 - **A provider's unverified email claim never attaches to an existing

@@ -77,9 +77,9 @@ create an account that starts genuinely
 normal default, which is a membership state, not something onboarding
 controls.)
 
-A sign-up that never finishes onboarding is cleaned up: 30 days after it
-was created, it is scheduled for deletion and its owner is emailed, with
-the usual 14 days to keep it (below). That never happens to an account an
+A sign-up that never finishes onboarding is cleaned up: after a month or
+so it is scheduled for deletion and its owner is emailed, with the usual
+cooling-off to keep it (below). That never happens to an account an
 admin made, or to one that has already kept itself once.
 
 ### Resetting or changing your password
@@ -120,22 +120,23 @@ the console.
 **You can delete your own account** from your profile ("Delete my
 account…"). Because it should be hard to do by accident, it asks for your
 password first — or, for an account that only signs in with Google or
-Apple, a fresh sign-in from the last ten minutes. Then:
+Apple, a sign-in made just now. Then:
 
 - **You're signed out everywhere at once, and your content is hidden at
   once.** Any paid subscription is cancelled at the same moment, so nothing
   bills again, and you're emailed.
-- **You have 14 days to change your mind.** Signing back in takes you to
+- **You have a cooling-off period to change your mind** (its length is in
+  the [spec](../ai-context/accounts-and-auth.md#account-deletion)). Signing back in takes you to
   one screen with a **"Keep my account"** button; pressing it brings your
   account and content back. Anything you deleted by hand before then stays
   deleted.
-- **After 14 days the account is deleted.** Your photos, memes and
-  generated images are removed from Overhype.me (kept for seven days in a
-  backup, as every deleted photo is). Your account goes too. What you gave
+- **When the cooling-off ends, the account is deleted.** Your photos, memes
+  and generated images are removed from Overhype.me (kept for a short while
+  in a backup, as every deleted photo is). Your account goes too. What you gave
   the community stays, without your name: **facts persist forever**,
   credited to a [former member](../ai-context/glossary.md#former-member). So do
-  your comments, your submissions waiting for review, and your votes and
-  hearts in the totals.
+  your comments, your submissions waiting for review, the links you added,
+  and your votes and hearts in the totals.
 
 **An admin can [remove](../ai-context/glossary.md#remove) an account at
 once**, from the user editor. That is the abuse case, so it goes further: the
@@ -157,7 +158,7 @@ though not who it was tied to.
 
 Separately from deleting your whole account: anything you delete from **My
 content** — an upload, a generated image, a meme — moves to **Recently
-deleted** for 30 days and comes back with one click. After that it is
+deleted** for a month or so and comes back with one click. After that it is
 removed. While it waits there, only you can see it.
 
 ### Staying signed in
@@ -205,9 +206,9 @@ in a small corner, not how authorization works generally.
   their name, as on Reddit and Stack Overflow. Their own things — photos,
   memes, generated images — go. An admin removing an abusive account is the
   exception, so it takes the contributions too (David, 2026-11-02).
-- **A deletion is hard to do by accident and easy to undo for two weeks.**
+- **A deletion is hard to do by accident and easy to undo for a while.**
   Asking for the password (or a fresh sign-in) stops a borrowed device or a
-  slip of the finger; the 14 days stop a moment of anger.
+  slip of the finger; the cooling-off stops a moment of anger.
 - **Signing out every device is reserved for real signals.** A password
   change, a suspension and a deletion request each mean whoever else is
   signed in as you shouldn't be. Ordinary actions affect only the session

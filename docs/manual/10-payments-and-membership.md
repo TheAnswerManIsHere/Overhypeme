@@ -25,10 +25,9 @@ them to it: a qualifying subscription (active, in trial, or in a bounded
 [grace window](../ai-context/glossary.md#grace-episode) after a failed payment), a [lifetime purchase](../ai-context/glossary.md#legendary-for-life), or an admin
 grant. [Cancel](../ai-context/glossary.md#cancel) the subscription, refund the purchase, or [revoke](../ai-context/glossary.md#revoke) the grant,
 and the computed answer changes on its own. There is no button, script, or
-admin field that sets "Legendary" directly — with one narrow, designed
-exception: [reinstating](../ai-context/glossary.md#reinstate) a [deactivated](../ai-context/glossary.md#deactivate) user whose sources can't all be
-re-verified writes the tier directly rather than derive it from an
-incomplete set (see below). (Account creation itself is a separate,
+admin field that sets "Legendary" directly. (The one designed exception,
+[reinstating](../ai-context/glossary.md#reinstate) a [deactivated](../ai-context/glossary.md#deactivate) account, was retired in launch
+Phase 5 with deactivation itself.) (Account creation itself is a separate,
 one-time case — a new account starts Registered or [Unregistered](../ai-context/glossary.md#unregistered) by direct
 choice, never Legendary; see the deep spec for the mechanics.)
 
@@ -106,15 +105,13 @@ by hand. There is deliberately **no tier dropdown** — an admin cannot type
   payment id) so nobody mistakes a comp for revenue.
 - **Revoke** ends that grant. It stays visible in the history, marked
   revoked — a revoke only ends it, never deletes it. History is retained for
-  the lifetime of the account; a hard account deletion (a separate, rarer
-  action from deactivation) removes the account's whole history along with
-  everything else, when it completes successfully — the history is deleted
-  as an early step, so a hard deletion that fails partway through can leave
-  the account behind with its history already gone.
-- **Reinstating** a deactivated user re-checks their actual Stripe state
-  before restoring their tier, rather than trusting whatever was last stored
-  — so a subscription that quietly lapsed while the account was deactivated
-  doesn't come back to life just because the account did.
+  the lifetime of the account. [Deleting the account](../ai-context/glossary.md#account-deletion) — by its owner, after
+  a cooling-off, or at once by an admin — cancels every subscription that could
+  still bill at the moment it is asked for, and removes the history at the
+  purge, in the same final step that removes the account itself; a purge
+  that fails part-way is recorded and retried. A billing
+  dispute holds the purge until it is settled. (See
+  [chapter 9](./9-accounts-and-auth.md#when-an-account-is-deleted).)
 
 **Admin → Billing** shows whether the server has confirmed which Stripe
 account it is talking to, separately for test and live mode. Switching between
@@ -147,9 +144,8 @@ one exception is a stored expiry: a request checks the stored tier against a
 stored deadline, so a grace window that has quietly passed still demotes the
 user immediately even before the next event recomputes anything. Essentially
 nothing writes the tier column directly — no request re-asks every source
-from scratch just to check who's logged in — with one narrow, designed
-exception: reinstating a deactivated user writes the tier directly when it
-can't fully verify their sources, described below.
+from scratch just to check who's logged in. (Reinstating a deactivated user
+used to be the one exception; it was retired in launch Phase 5.)
 
 Every write to a Stripe-backed entitlement source — a webhook telling us a
 subscription changed, a route handling a cancel/reactivate click — goes
@@ -269,12 +265,12 @@ down.
   retry window, say — nothing currently notices and fixes it afterward. In
   the direction that would cost the business money (a cancellation or refund
   that never arrived), grant/revoke only create and end admin grants — they
-  can't force a re-check of a Stripe source. The one indirect route is
-  deactivating the account and then reinstating it, which re-verifies every
-  Stripe-backed source before restoring the tier; it's disruptive (the user
-  is briefly deactivated) and not a substitute for automatic repair, but it
-  is a real way to force the correction by hand today. This is a known,
-  accepted gap — not an oversight — recorded in
+  can't force a re-check of a Stripe source. Until launch Phase 5 there was
+  one indirect route by hand — deactivating the account and reinstating it,
+  which re-verified every Stripe-backed source — and it went with
+  deactivation (PR #837). Suspension does not stand in for it: it touches no
+  billing. So today nothing on the admin surface forces that correction.
+  This is a known, accepted gap — not an oversight — recorded in
   [`deferred-work.md`](../engineering/deferred-work.md#code-level-tech-debt).
 - **The stored tier column itself can lag reality between [background sweeps](../ai-context/glossary.md#entitlement-sweep)
   — a failed or delayed sweep run stretches that lag further — and it can
