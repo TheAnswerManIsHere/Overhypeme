@@ -1,5 +1,5 @@
 /**
- * @purpose The one onboarding screen every sign-in method reaches once its email is verified (launch Phase 5, plan S8, S22): pronouns (draft, the account's stored choice, the device's choice for a new account, then the name suggestion, else blank and required), date of birth (under 13 refused, nothing stored), the marketing box with the server's default, and a Turnstile challenge; progress is saved as a draft so a reload resumes it; an adult then gets the optional profile-photo step, and everyone goes to the safe returnTo.
+ * @purpose The one onboarding screen every sign-in method reaches once its email is verified (launch Phase 5, plan S8, S22): the display name (draft, the account's own display name, the browser's name, else blank and required; a provider first name never counts — identity-flow Phase 2), pronouns (draft, the account's stored choice, the device's choice for a new account, then the name suggestion, else blank and required), date of birth (under 13 refused, nothing stored), the marketing box with the server's default, and a Turnstile challenge; progress is saved as a draft so a reload resumes it; an adult then gets the optional profile-photo step, and everyone goes to the safe returnTo.
  * @subsystem accounts-auth
  */
 import { useEffect, useRef, useState } from "react";
@@ -13,12 +13,14 @@ import { cropToSquareJpeg, uploadUserImage } from "@/lib/image-upload";
 import { returnToFromSearch } from "@/lib/safe-return-to";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { usePersonName } from "@/hooks/use-person-name";
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 type Step = "loading" | "details" | "photo";
 
 interface OnboardingDraft {
+  displayName?: string;
   pronouns?: string;
   dobYear?: string;
   dobMonth?: string;
@@ -32,8 +34,26 @@ interface OnboardingState {
   marketingDefault: boolean;
   marketingWordingVersion: string;
   accountPronouns: string | null;
-  name: string | null;
+  /** The account's own display name; a provider first name never counts as one. */
+  displayName: string | null;
+  providerFirstName: string | null;
   draft: OnboardingDraft | null;
+}
+
+/**
+ * The name the form starts with (identity-flow Phase 2): the saved draft (so a
+ * reload resumes an edit), then the account's own display name, then the name
+ * this browser already holds, else blank and required. A Google or Apple
+ * first name is never an existing display name, so it cannot displace the
+ * browser's name.
+ */
+export function initialDisplayName(
+  state: Pick<OnboardingState, "draft" | "displayName">,
+  device: { name: string },
+): string {
+  if (state.draft?.displayName) return state.draft.displayName;
+  if (state.displayName) return state.displayName;
+  return device.name.trim();
 }
 
 /**
@@ -43,7 +63,7 @@ interface OnboardingState {
  * else blank and required.
  */
 export function initialPronouns(
-  state: Pick<OnboardingState, "draft" | "accountPronouns" | "name">,
+  state: Pick<OnboardingState, "draft" | "accountPronouns"> & { name: string | null },
   device: { pronouns: string; supplied: boolean },
 ): string {
   if (state.draft?.pronouns) return state.draft.pronouns;
@@ -73,6 +93,8 @@ export default function Onboard() {
 
   const [step, setStep] = useState<Step>("loading");
   const [loadError, setLoadError] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const nameField = useNameField(displayName, setDisplayName);
   const [pronouns, setPronouns] = useState("");
   const [dobYear, setDobYear] = useState("");
   const [dobMonth, setDobMonth] = useState("");
@@ -123,7 +145,13 @@ export default function Onboard() {
           setLocation(`/check-email?returnTo=${encodeURIComponent(returnTo)}`);
           return;
         }
-        setPronouns(initialPronouns(state, { pronouns: device.pronouns, supplied: device.pronounsSupplied }));
+        const startName = initialDisplayName(state, { name: device.name });
+        const startPronouns = initialPronouns(
+          { ...state, name: startName || state.providerFirstName },
+          { pronouns: device.pronouns, supplied: device.pronounsSupplied },
+        );
+        setDisplayName(startName);
+        setPronouns(startPronouns);
         setDobYear(state.draft?.dobYear ?? "");
         setDobMonth(state.draft?.dobMonth ?? "");
         setDobDay(state.draft?.dobDay ?? "");
@@ -132,7 +160,8 @@ export default function Onboard() {
         // What the form opens with is already saved, or is the default: no
         // save until the visitor changes something.
         lastSavedDraft.current = JSON.stringify({
-          pronouns: initialPronouns(state, { pronouns: device.pronouns, supplied: device.pronounsSupplied }),
+          displayName: startName,
+          pronouns: startPronouns,
           dobYear: state.draft?.dobYear ?? "",
           dobMonth: state.draft?.dobMonth ?? "",
           dobDay: state.draft?.dobDay ?? "",
@@ -149,7 +178,7 @@ export default function Onboard() {
   // Save progress a moment after each change, so a reload resumes the form.
   useEffect(() => {
     if (step !== "details") return;
-    const body = JSON.stringify({ pronouns, dobYear, dobMonth, dobDay, marketingOptIn });
+    const body = JSON.stringify({ displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn });
     if (body === lastSavedDraft.current) return;
     if (draftTimer.current) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(async () => {
@@ -169,11 +198,11 @@ export default function Onboard() {
     return () => {
       if (draftTimer.current) clearTimeout(draftTimer.current);
     };
-  }, [step, pronouns, dobYear, dobMonth, dobDay, marketingOptIn]);
+  }, [step, displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn]);
 
   const age = ageFromParts(dobYear, dobMonth, dobDay);
   const tooYoung = underAge || (age != null && age < 13);
-  const canSubmit = !!pronouns && age != null && !tooYoung && !!captchaToken && !submitting;
+  const canSubmit = !!displayName.trim() && !nameField.tooLong && !!pronouns && age != null && !tooYoung && !!captchaToken && !submitting;
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -186,7 +215,7 @@ export default function Onboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ pronouns, dobYear, dobMonth, dobDay, marketingOptIn, captchaToken }),
+        body: JSON.stringify({ displayName, pronouns, dobYear, dobMonth, dobDay, marketingOptIn, captchaToken }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
@@ -196,8 +225,10 @@ export default function Onboard() {
         setCaptchaToken("");
         return;
       }
-      device.syncFromProfile(device.name, pronouns);
-      await refreshUser();
+      // The browser copy takes the account's identity only once the account
+      // has been re-read (identity-flow Phase 2): a re-read that failed, or
+      // that sign-out discarded, publishes nothing as confirmed.
+      if (await refreshUser()) device.syncFromProfile(displayName.trim(), pronouns);
       // Photo uploads are for members 18 and over (plan S12).
       if (age != null && age >= 18) setStep("photo");
       else finish();
@@ -431,6 +462,18 @@ export default function Onboard() {
             You only do this once. Then every fact is about you.
           </p>
         </div>
+
+        <section className="space-y-2" aria-labelledby="onboard-name">
+          <h2 id="onboard-name" className="text-sm font-semibold text-foreground">Your name</h2>
+          <p className="text-xs text-muted-foreground">Every fact uses this name. You can change it any time.</p>
+          <input
+            aria-labelledby="onboard-name"
+            {...nameField.inputProps}
+            autoComplete="name"
+            className="h-10 w-full rounded-sm border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:border-primary"
+          />
+          <NameFieldHint hint={nameField.hint} />
+        </section>
 
         <section className="space-y-2" aria-labelledby="onboard-pronouns">
           <h2 id="onboard-pronouns" className="text-sm font-semibold text-foreground">Your pronouns</h2>
