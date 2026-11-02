@@ -30,6 +30,4 @@ export interface AuthUser {
   is13Plus?: boolean | null;
   /** Derived from the stored date of birth at read time; never stored. Photo uploads require it. */
   is18Plus?: boolean | null;
-  /** When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset. */
-  nsfwModeEnabled?: boolean | null;
 }

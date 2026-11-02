@@ -190,6 +190,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     suspendedAt: "null",
     suspendedReason: "null",
     suspendedBy: "map-user",
+    adultVerifiedAt: "null",
     stripeCustomerId: "synthetic:stripe-customer",
     membershipTier: "keep",
     membershipValidUntil: "keep",
@@ -236,6 +237,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     shareCount: "keep",
     hasPronouns: "fact-derived",
     isActive: "keep",
+    audience: "keep",
     canonicalText: "fact-text",
     splitTokenIndex: "fact-derived",
     visualConceptCandidates: "shape:visualConceptCandidatesBlob",
@@ -391,6 +393,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
       quarantineReason: "drop",
       nsfwClassifierScore: "keep",
       isNsfw: "keep",
+      audience: "keep",
       imageTransform: "keep",
       artifactType: "keep",
     },
@@ -432,7 +435,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   ),
   include(s.userAiImagesTable, {
     id: "keep", userId: "map-user", factId: "ref:facts", gender: "keep", storagePath: "media",
-    imageType: "keep", createdAt: "keep", deletedAt: "keep", purgeAfter: "keep",
+    imageType: "keep", createdAt: "keep", deletedAt: "keep", purgeAfter: "keep", audience: "keep",
   }),
   include(s.commentsTable, {
     id: "keep", factId: "ref:facts", authorId: "map-user", text: "prose", status: "keep", flagged: "keep",

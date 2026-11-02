@@ -53,6 +53,11 @@ import { logger } from "./logger";
  * gated by a hardcoded admin-only predicate. Plan 3 replaces it wholesale, and
  * partially migrating it here is explicitly out of scope.
  *
+ * `beta_overlay` is deliberately absent too: launch Phase 5 (0121) puts its
+ * grid rows in place, off for every tier and editable at /admin/features,
+ * with nothing reading them until a beta ships. Whoever ships that beta adds
+ * it here and gates on `can(principal, "beta_overlay")`.
+ *
  * `meme_upload_photo` is deliberately absent — a dead row no code ever read,
  * retired by this plan's migration. Its values encoded only the
  * registered-vs-unregistered distinction that authentication already enforces,

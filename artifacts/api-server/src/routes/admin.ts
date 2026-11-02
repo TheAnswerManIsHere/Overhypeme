@@ -254,7 +254,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["isAdmin"] === "boolean") updates.isAdmin = body["isAdmin"];
   if (typeof body["adminNotifications"] === "boolean") updates.adminNotifications = body["adminNotifications"];
   if (typeof body["disputeNotifications"] === "boolean") updates.disputeNotifications = body["disputeNotifications"];
-  if (typeof body["nsfwModeEnabled"] === "boolean") updates.nsfwModeEnabled = body["nsfwModeEnabled"];
+  // nsfwModeEnabled is withdrawn (launch Phase 5, S13): ignored if sent.
   if (body["displayName"] !== undefined) {
     // The shared name rule applies to admin edits too (identity-flow Phase 2).
     if (body["displayName"]) {

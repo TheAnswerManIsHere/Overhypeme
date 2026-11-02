@@ -508,6 +508,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // suspension columns, and legacy deactivated rows moved to suspension.
   // DEFERRED like 0115's; source of truth: lib/db/src/schema/auth.ts.
   "0120_account_suspension",
+
+  // Hand-written expand (Launch Phase 5, increment 6b): the audience columns,
+  // users.adult_verified_at and the beta_overlay grid rows. DEFERRED like
+  // 0115's; source of truth: lib/db/src/schema/{facts,memes,userAiImages,auth}.ts.
+  "0121_nsfw_readiness",
 ]);
 
 interface JournalEntry {

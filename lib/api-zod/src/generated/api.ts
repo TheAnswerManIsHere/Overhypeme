@@ -90,12 +90,6 @@ export const GetCurrentAuthUserResponse = zod.object({
         .describe(
           "Derived from the stored date of birth at read time; never stored. Photo uploads require it.",
         ),
-      nsfwModeEnabled: zod
-        .boolean()
-        .nullish()
-        .describe(
-          "When true, NSFW-classified uploads are accepted and tagged on the resulting asset.",
-        ),
     }),
     zod.null(),
   ]),
@@ -689,12 +683,6 @@ export const UpdateMyProfileBody = zod.object({
   avatarStyle: zod.string().optional(),
   avatarSource: zod.string().optional(),
   profileImageUrl: zod.string().optional(),
-  nsfwModeEnabled: zod
-    .boolean()
-    .optional()
-    .describe(
-      "When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset instead of rejected.",
-    ),
 });
 
 export const UpdateMyProfileResponse = zod.object({

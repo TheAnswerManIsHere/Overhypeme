@@ -848,6 +848,13 @@
       "when": 1785300000000,
       "tag": "0120_account_suspension",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1785400000000,
+      "tag": "0121_nsfw_readiness",
+      "breakpoints": true
     }
   ]
 }

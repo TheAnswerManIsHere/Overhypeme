@@ -41,6 +41,8 @@ export const factsTable = pgTable("facts", {
   // even against raw SQL. Every insert that wants a live fact must say so explicitly
   // AND carry a valid concept.
   isActive: boolean("is_active").notNull().default(false),
+  /** Who may see this once adult content exists (launch Phase 5, 0121): 'general' | 'adult'. Read by nothing yet. */
+  audience: varchar("audience", { length: 10 }).notNull().default("general"),
   canonicalText: text("canonical_text"),
   /**
    * Token-boundary index where the rendered fact splits into top/bottom captions.
@@ -151,6 +153,7 @@ export const factsTable = pgTable("facts", {
   // Keep the lifecycle backstop in the schema model as well as the
   // hand-authored migration. Otherwise drizzle-kit push can remove it after
   // the migration runner has recorded 0092 as applied.
+  check("facts_audience_check", sql`${table.audience} IN ('general','adult')`),
   check(
     "facts_active_requires_concept",
     sql`${table.isActive} = false OR COALESCE(

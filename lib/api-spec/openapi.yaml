@@ -1025,10 +1025,6 @@ components:
           type: boolean
           description: Derived from the stored date of birth at read time; never stored. Photo uploads require it.
           nullable: true
-        nsfwModeEnabled:
-          type: boolean
-          description: When true, NSFW-classified uploads are accepted and tagged on the resulting asset.
-          nullable: true
 
     Entitlement:
       type: object
@@ -1478,9 +1474,6 @@ components:
           type: string
         profileImageUrl:
           type: string
-        nsfwModeEnabled:
-          type: boolean
-          description: When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset instead of rejected.
 
     UpdateProfileResponse:
       type: object

@@ -109,11 +109,6 @@ export interface AuthUser {
    * @nullable
    */
   is18Plus?: boolean | null;
-  /**
-   * When true, NSFW-classified uploads are accepted and tagged on the resulting asset.
-   * @nullable
-   */
-  nsfwModeEnabled?: boolean | null;
 }
 
 export interface Entitlement {
@@ -388,8 +383,6 @@ export interface UpdateProfileRequest {
   avatarStyle?: string;
   avatarSource?: string;
   profileImageUrl?: string;
-  /** When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset instead of rejected. */
-  nsfwModeEnabled?: boolean;
 }
 
 export interface UpdateProfileResponse {

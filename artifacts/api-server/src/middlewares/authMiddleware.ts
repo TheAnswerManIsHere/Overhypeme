@@ -118,7 +118,6 @@ export async function authMiddleware(
         // This is the chokepoint every `req.user.membershipTier` reader inherits.
         membershipTier: effectiveTierExpr(),
         isAdmin: usersTable.isAdmin,
-        nsfwModeEnabled: usersTable.nsfwModeEnabled,
         emailVerifiedAt: usersTable.emailVerifiedAt,
         onboardingCompletedAt: usersTable.onboardingCompletedAt,
         dateOfBirth: usersTable.dateOfBirth,
@@ -152,7 +151,6 @@ export async function authMiddleware(
       membershipTier: dbUser.membershipTier,
       isAdmin,
       isRealAdmin,
-      nsfwModeEnabled: !!dbUser.nsfwModeEnabled,
       // Eligibility and age, derived from the row on every request, never
       // stored (launch Phase 5, plan S4, S19).
       ...identityFieldsOf(dbUser),
