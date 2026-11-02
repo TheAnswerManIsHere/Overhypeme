@@ -85,18 +85,10 @@ export function NameTag() {
     setEditing(false);
   }
 
-  // ── Sync logged-in user's display name into the persona context ─────────────
-  // Authenticated users always see their own profile name, even on share links.
-
-  useEffect(() => {
-    if (!isAuthenticated || !user) return;
-    const userDisplayName = (user as { displayName?: string }).displayName;
-    const userPronouns    = (user as { pronouns?: string }).pronouns;
-    if (userDisplayName) setName(userDisplayName);
-    if (userPronouns)    setPronouns(userPronouns);
-  // We only want to run this when the auth user object changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, user]);
+  // A signed-in account's name and pronouns reach the persona context through
+  // AccountIdentityMirror alone (identity-flow Phase 2). This tag used to copy
+  // them here too, including the column's he/him default over the visitor's
+  // own choice.
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 

@@ -225,10 +225,10 @@ export default function Onboard() {
         setCaptchaToken("");
         return;
       }
-      // The browser copy takes the account's identity only once the account
-      // has been re-read (identity-flow Phase 2): a re-read that failed, or
-      // that sign-out discarded, publishes nothing as confirmed.
-      if (await refreshUser()) device.syncFromProfile(displayName.trim(), pronouns);
+      // The browser copy takes the account's identity from the re-read,
+      // through AccountIdentityMirror (identity-flow Phase 2): a re-read that
+      // failed, or that sign-out discarded, publishes nothing as confirmed.
+      await refreshUser();
       // Photo uploads are for members 18 and over (plan S12).
       if (age != null && age >= 18) setStep("photo");
       else finish();

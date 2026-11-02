@@ -11,7 +11,6 @@ import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
-import { usePersonName } from "@/hooks/use-person-name";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
@@ -115,7 +114,6 @@ export default function Profile() {
   });
 
   const updateProfile = useUpdateMyProfile();
-  const { setName: setPersonName, setPronouns: setPersonPronouns } = usePersonName();
 
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   /**
@@ -623,9 +621,15 @@ export default function Profile() {
     try {
       const result = await updateProfile.mutateAsync({ data: body });
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-      // Sync the PersonNameContext so fact cards re-render immediately without a page refresh
-      if (body.displayName !== undefined) setPersonName(body.displayName);
-      if (body.pronouns   !== undefined) setPersonPronouns(body.pronouns);
+      // The browser copy takes the saved identity from the account's
+      // re-read, through AccountIdentityMirror (identity-flow Phase 2), never
+      // from what was submitted: a re-read that did not land confirms nothing.
+      const confirmed = await refreshUser();
+      if (!confirmed && (body.displayName !== undefined || body.pronouns !== undefined)) {
+        setEditSuccess("Profile saved. We couldn't refresh it here yet; reload the page to see the change everywhere.");
+        setEditing(false);
+        return;
+      }
       if (result.emailVerificationPending) {
         setEditSuccess(`Profile saved. A verification email has been sent to ${draftEmail}. Check your inbox to confirm the change.`);
       } else {

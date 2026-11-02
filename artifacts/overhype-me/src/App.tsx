@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useRef } from "react";
 import { AuthFailedBanner } from "@/components/auth/AuthFailedBanner";
+import { AccountIdentityMirror } from "@/components/auth/AccountIdentityMirror";
 import { lazyWithRetry as lazy } from "@/lib/lazy-retry";
 import { Switch, Route, Router as WouterRouter, useLocation, useSearch } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,7 +8,7 @@ import { Sentry } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes } from "@/lib/analytics";
-import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
+import { PersonNameProvider } from "@/hooks/use-person-name";
 import { WelcomeModal } from "@/components/WelcomeModal";
 import { ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
@@ -78,12 +79,11 @@ function AdminModerationRedirect() {
 
 /**
  * Keeps PersonNameProvider in sync with the authenticated user's server profile.
- * - On login  (unauthenticated → authenticated): loads name + pronouns from API.
+ * - On login  (unauthenticated → authenticated): clears meme-builder drafts; the account's name and pronouns reach the browser through AccountIdentityMirror.
  * - On logout (authenticated → unauthenticated): clears meme-builder drafts; the identity is kept, since this transition also follows a mere session expiry.
  */
 function AuthProfileSync() {
   const { isAuthenticated, isLoading, user } = useAuth();
-  const { syncFromProfile, pronouns: devicePronouns, pronounsSupplied } = usePersonName();
   const prevAuthRef = useRef<boolean | null>(null);
 
   // Keep Sentry's user scope in sync with the auth state.
@@ -92,7 +92,10 @@ function AuthProfileSync() {
   useEffect(() => {
     if (isLoading) return;
     if (isAuthenticated && user?.id) {
-      const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || undefined;
+      // "First Last (DisplayName)", so the feedback widget pre-fills the name.
+      const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
+      const displayName = (user as { displayName?: string | null }).displayName ?? "";
+      const name = (fullName && displayName ? `${fullName} (${displayName})` : fullName || displayName) || undefined;
       Sentry.setUser({
         id: user.id,
         email: user.email ?? undefined,
@@ -101,7 +104,7 @@ function AuthProfileSync() {
     } else {
       Sentry.setUser(null);
     }
-  }, [isAuthenticated, isLoading, user?.id, user?.email, user?.firstName, user?.lastName]);
+  }, [isAuthenticated, isLoading, user?.id, user?.email, user?.firstName, user?.lastName, (user as { displayName?: string | null } | null)?.displayName]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -125,33 +128,11 @@ function AuthProfileSync() {
       // other-user) session so the freshly-authenticated viewer always starts
       // the wizard with their own identity from `usePersonName`.
       clearAllWizardStates();
-      let cancelled = false;
-      fetch("/api/users/me", { credentials: "include" })
-        .then((r) => r.ok ? r.json() : null)
-        .then((data) => {
-          if (cancelled) return;
-          if (data?.displayName) {
-            // An account with no pronouns yet keeps the device's own choice,
-            // so the onboarding screen can offer it (launch Phase 5, plan S22).
-            syncFromProfile(data.displayName, data.pronouns ?? (pronounsSupplied ? devicePronouns : ""));
-            // Update Sentry user scope with the resolved display name so the
-            // feedback widget pre-populates the name field. Format:
-            // "First Last (DisplayName)" e.g. "David Franklin (Hyperion)"
-            if (user?.id) {
-              const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
-              const sentryName = fullName
-                ? `${fullName} (${data.displayName})`
-                : data.displayName;
-              Sentry.setUser({
-                id: user.id,
-                email: user.email ?? undefined,
-                name: sentryName,
-              });
-            }
-          }
-        })
-        .catch(() => {});
-      return () => { cancelled = true; };
+      // The account's name and pronouns reach the browser through
+      // AccountIdentityMirror alone (identity-flow Phase 2), from the account
+      // the auth provider published — never from a separate fetch here, which
+      // could land after sign-out (#725).
+      return undefined;
     }
     return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -278,6 +259,7 @@ function Router() {
       <GAPageTracker />
       <PrefetchCriticalRoutes />
       <AuthProfileSync />
+      <AccountIdentityMirror />
       <SetupRedirect />
       <ShareLinkResolver />
       <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
