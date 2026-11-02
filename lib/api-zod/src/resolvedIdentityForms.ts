@@ -131,13 +131,36 @@ interface CustomPronounForms {
   grammaticalNumber: "singular" | "plural";
 }
 
-/** Parse `subj|obj|poss|possPro|refl|s|p`; null for anything else. */
-export function parseCustomPronounSet(pronouns: string | null | undefined): CustomPronounForms | null {
+/** A custom pronoun set's five forms exactly as stored (any may be empty), and its verb number. */
+export interface CustomPronounSetParts {
+  subj: string; obj: string; poss: string; possPro: string; refl: string;
+  plural: boolean;
+}
+
+/**
+ * THE parser of the custom pronoun format, `subj|obj|poss|possPro|refl|s|p`
+ * (the pronoun editor's `serializeCustom`), shared by the browser and the
+ * server so the two can never read one stored set differently: exactly six
+ * parts, the sixth `s` or `p`, each form trimmed and kept as stored, empty
+ * ones included (the editor needs them). Null for anything else.
+ */
+export function splitCustomPronounSet(pronouns: string | null | undefined): CustomPronounSetParts | null {
   if (!pronouns || !pronouns.includes("|")) return null;
   const parts = pronouns.split("|").map((p) => p.trim());
   if (parts.length !== 6) return null;
   const [subj, obj, poss, possPro, refl, marker] = parts as [string, string, string, string, string, string];
   if (marker !== "s" && marker !== "p") return null;
+  return { subj, obj, poss, possPro, refl, plural: marker === "p" };
+}
+
+/**
+ * A custom set ready to render: `splitCustomPronounSet`, refusing a set with
+ * no form at all, each empty form filled from they/them in its slot.
+ */
+export function parseCustomPronounSet(pronouns: string | null | undefined): CustomPronounForms | null {
+  const split = splitCustomPronounSet(pronouns);
+  if (!split) return null;
+  const { subj, obj, poss, possPro, refl } = split;
   if (![subj, obj, poss, possPro, refl].some(Boolean)) return null;
   return {
     subj: subj || "they",
@@ -145,7 +168,7 @@ export function parseCustomPronounSet(pronouns: string | null | undefined): Cust
     poss: poss || "their",
     possPro: possPro || "theirs",
     refl: refl || "themselves",
-    grammaticalNumber: marker === "p" ? "plural" : "singular",
+    grammaticalNumber: split.plural ? "plural" : "singular",
   };
 }
 
