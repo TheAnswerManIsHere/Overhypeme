@@ -13,6 +13,14 @@
 
 ---
 
+### 2026-11-02 · One custom-pronoun parser for the browser and the server (David reversed my recommendation)
+- **Decision:** `splitCustomPronounSet` (`lib/api-zod/src/resolvedIdentityForms.ts`) is the only parser of the six-part custom pronoun format. The browser's `parseCustom`, its renderer, the server's resolver and the server's validator all use it.
+- **Why:** PR #832 kept the browser's own, more lenient parser on my recommendation, since the server only ever stores the strict shape. David, 2026-11-02: *"I'm not sure why you're allowing the browser's signed-out custom pronoun parser to have different logic from the server. Shouldn't they match?"* Two parsers of one format is the drift the identity flow's one-module rule exists to prevent, and nothing was gained by keeping two.
+- **Reference:** #719; PR #838.
+- **Revisit if:** never, short of a second pronoun format.
+
+---
+
 ### 2026-11-02 · Names are English-script only until internationalization; no fallback fonts at launch
 - **Decision:** the shared name rule (identity-flow Phase 2,
   `lib/api-zod/src/personalNameRule.ts`) admits only names that can be
