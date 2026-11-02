@@ -32,6 +32,13 @@
   accounts) or production (1). Measured the same day, the renderer drew every
   non-Latin script as missing-glyph boxes, so "any script" would have needed
   roughly 20–40 MB of fonts to keep its promise.
+- **The length limit is enforced by the field, not at save** (David,
+  2026-11-02, the same day): *"It simply shouldn't allow them to type more
+  than 50 characters. Make it clear that there's a length limit … Don't throw
+  errors, simply don't allow the bad behavior."* Every name input stops at 50
+  visible characters, typed or pasted, shows a running count from 40 and
+  says when the rest of a paste wasn't added. This replaces the plan's "a
+  paste is never cut silently; the field reports it".
 - **Reference:** #719; `docs/plans/PLAN_IDENTITY_FLOW.md`, *Amendment — Phase 2*.
 - **Revisit if:** internationalization begins, or the site launches outside
   the US.

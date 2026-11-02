@@ -64,12 +64,30 @@ describe("a name field", () => {
     expect(input().value).toBe("Zoë ");
   });
 
-  it("reports a name over 50 characters without cutting it", () => {
+  // David, 2026-11-02: the field stops at the limit and says so; there is
+  // no too-long state to refuse at save.
+  it("stops a paste at 50 characters and says why", () => {
     render(<Field />);
     fireEvent.change(input(), { target: { value: "a".repeat(60) } });
-    expect(input().value).toHaveLength(60);
-    expect(input().getAttribute("aria-invalid")).toBe("true");
-    expect(screen.getByTestId("name-field-hint").textContent).toMatch(/up to 50/);
+    expect(input().value).toHaveLength(50);
+    expect(input().getAttribute("aria-invalid")).toBe("false");
+    expect(screen.getByTestId("name-field-hint").textContent).toMatch(/up to 50 characters, so the rest wasn't added/);
+  });
+
+  it("takes no 51st character as it is typed, and says it is the limit", () => {
+    render(<Field />);
+    fireEvent.change(input(), { target: { value: "b".repeat(50) } });
+    expect(screen.getByTestId("name-field-hint").textContent).toMatch(/50-character limit/);
+    fireEvent.change(input(), { target: { value: "b".repeat(51) } });
+    expect(input().value).toHaveLength(50);
+  });
+
+  it("shows a running count as the name nears the limit, and nothing well before it", () => {
+    render(<Field />);
+    fireEvent.change(input(), { target: { value: "c".repeat(20) } });
+    expect(screen.queryByTestId("name-field-hint")).toBeNull();
+    fireEvent.change(input(), { target: { value: "c".repeat(42) } });
+    expect(screen.getByTestId("name-field-hint").textContent).toBe("42 of 50 characters");
   });
 
   it("leaves an open IME composition alone, then applies the rule when it commits", () => {
