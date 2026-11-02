@@ -80,11 +80,11 @@ routes, delete, git keeps it) · **your call**.
 | B10 | Onboarding: hCaptcha (+ photo step) | One-time captcha before first submission; **OAuth sign-ups are sent here, local sign-ups are not**, yet submit 403s without it | doc | **fix for launch**: one consistent onboarding path, or verify the local path actually works. *Done in launch Phase 5 (#795): one onboarding screen for every sign-in method, with a Turnstile challenge; `captcha_verified` read by nothing — [`accounts-and-auth.md`](./accounts-and-auth.md#account-creation).* |
 | B11 | Email verification | Token link; verifying logs you in; **gates nothing**; OAuth users never get it set | doc | your call: keep display-only (recommended for launch friction) or make it gate submission/comments. *Done in launch Phase 5 (#795): a verified email gates every write — [`accounts-and-auth.md`](./accounts-and-auth.md#email-verification).* |
 | B12 | Admin override verify | Admin marks verified | doc | ship |
-| B13 | Password reset | Generic-response email; resets all sessions; works (tonight) | acct; tested live | ship; single-use hardening `next` |
-| B14 | Set / change password | First password for OAuth users; change for others; does not log out other sessions | doc | ship; session logout on change `next` |
+| B13 | Password reset | Generic-response email; resets all sessions; works (tonight) | acct; tested live | ship; single-use hardening `next`. *Done in launch Phase 5 (#795): the reset link is claimed atomically and works once — [`accounts-and-auth.md`](./accounts-and-auth.md#password-reset).* |
+| B14 | Set / change password | First password for OAuth users; change for others; does not log out other sessions | doc | ship; session logout on change `next`. *Done in launch Phase 5 (#795): every password change ends the other sessions — [`accounts-and-auth.md`](./accounts-and-auth.md#session-management).* |
 | B15 | Profile page | Display name, pronouns, avatar style, email, sign-in methods, subscription panel; dead "Memes" tab code | doc | ship; delete the dead tab code. *Deleted 2026-10-23 with the rest of the dead tab state, the Images queries and the never-shown Memes count (Phase 4, removal 7; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | B16 | Email change with verification | Pending email until verified | code only | ship, verify |
-| B17 | Pronouns on the account | User-set pronouns personalise the site; **OAuth accounts silently default to he/him** | doc | **fix for launch**: default to they/them or ask, never assume he/him |
+| B17 | Pronouns on the account | User-set pronouns personalise the site; **OAuth accounts silently default to he/him** | doc | **fix for launch**: default to they/them or ask, never assume he/him. *Done in launch Phase 5 (#795): the column has no default and onboarding asks every sign-in method — [`accounts-and-auth.md`](./accounts-and-auth.md#account-creation).* |
 | B18 | Generated avatar styles | Pick a DiceBear style | code | ship |
 | B19 | Custom photo avatar | Upload a photo avatar; Legendary upsell per direction | PR425 UAT steps 1–3 (manual) | ship, verify (needs a Legendary test account) |
 | B20 | Notification preferences | Admin alert opt-ins | code | ship (admin-only) |
@@ -143,7 +143,7 @@ routes, delete, git keeps it) · **your call**.
 - **Anti-bot:** proposed Cloudflare Turnstile replacing hCaptcha (existing vendor relationship via the OG worker; pending sign-off), applied at registration, submission, comments, share-by-email. Local registration currently has no captcha.
 - **Account suspension:** launch. **Public creator pages:** launch unless David says `next`. **Fact-page OG:** launch ("must have").
 - **Maintenance:** a **read-only mode switch** (browse/personalise stay up; writes show a short notice) instead of takedowns; migrations written backward-compatible so deploys need no window. No such switch exists today.
-- **Age gate:** none exists (registration asks nothing). Proposed for launch: 13+ attestation at sign-up, 18+ for photo upload, final word in the compliance phase (pending).
+- **Age gate:** none exists (registration asks nothing). Proposed for launch: 13+ attestation at sign-up, 18+ for photo upload, final word in the compliance phase (pending). *Done in launch Phase 5 (#795): a required date of birth at onboarding, under 13 refused, 18+ at every photo upload — [`accounts-and-auth.md`](./accounts-and-auth.md#age-audience-and-the-nsfw-opt-in).*
 
 ### Decisions — Journey C, round three (David, 2026-10-05)
 

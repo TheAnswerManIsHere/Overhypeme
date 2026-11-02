@@ -968,7 +968,7 @@ alone. An admin lifts it with unsuspend. Never written through `is_active`.
 ### Account deletion
 
 An account leaving, through the one deletion engine. A member's own request
-re-authenticates, signs them out, hides their content and cancels billing at
+re-authenticates, signs them out, hides their memes and media and starts cancelling billing at
 once, then purges after **14 days** unless they press "Keep my account". An
 admin's [removal](#remove) purges at once. Their photos, memes and generations
 go; their facts persist, credited to a [former member](#former-member).
@@ -993,7 +993,7 @@ states: [suspend](#suspend) and [account deletion](#account-deletion).
 ### Remove
 
 An admin's [account deletion](#account-deletion) from the user editor ("Delete
-permanently"): purged at once, and, as the abuse case, the account's comments,
+User", confirmed by "Confirm Hard Delete"): purged at once, and, as the abuse case, the account's comments,
 pending submissions, links, votes and hearts are deleted rather than kept, and
 the totals they fed recounted. Facts still persist, credited to a
 [former member](#former-member). A [quarantine](#quarantine) record's evidence

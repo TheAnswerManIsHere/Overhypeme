@@ -106,8 +106,9 @@ by hand. There is deliberately **no tier dropdown** — an admin cannot type
 - **Revoke** ends that grant. It stays visible in the history, marked
   revoked — a revoke only ends it, never deletes it. History is retained for
   the lifetime of the account. [Deleting the account](../ai-context/glossary.md#account-deletion) — by its owner, after
-  a cooling-off, or at once by an admin — cancels every subscription that could
-  still bill at the moment it is asked for, and removes the history at the
+  a cooling-off, or at once by an admin — starts cancelling every subscription
+  that could still bill the moment it is asked for (retried until Stripe
+  confirms), and removes the history at the
   purge, in the same final step that removes the account itself; a purge
   that fails part-way is recorded and retried. A billing
   dispute holds the purge until it is settled. (See

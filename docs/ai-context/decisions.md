@@ -45,8 +45,8 @@
   stored and nothing destroyed), pronouns confirmed, and marketing consent
   recorded as a record (when, how, which wording), pre-ticked for US
   visitors only. Deleting your own account re-authenticates (the password, or
-  a fresh provider sign-in), cancels the subscription at once, signs you out
-  and hides your content, and purges after a **14-day** cooling-off unless
+  a fresh provider sign-in), starts cancelling the subscription at once, signs
+  you out and hides your memes, photos and generated images, and purges after a **14-day** cooling-off unless
   "Keep my account" is pressed. Sign-ups that never finish onboarding are
   cleaned up through the same engine after 30 days.
 - **Why:** David, 2026-10-30, picks and answers 2, 4, 6 and 7 on the Phase 5

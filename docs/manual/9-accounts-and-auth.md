@@ -122,9 +122,12 @@ account…"). Because it should be hard to do by accident, it asks for your
 password first — or, for an account that only signs in with Google or
 Apple, a sign-in made just now. Then:
 
-- **You're signed out everywhere at once, and your content is hidden at
-  once.** Any paid subscription is cancelled at the same moment, so nothing
-  bills again, and you're emailed.
+- **You're signed out everywhere at once, and your memes, photos and
+  generated images are hidden at once** — though someone who already loaded
+  one may still see it for a short while. Your facts and comments stay
+  readable meanwhile (what happens to them at the end is below). Cancelling
+  any paid subscription starts at the same moment, and if Stripe doesn't
+  confirm it, it is retried until it does. You're emailed.
 - **You have a cooling-off period to change your mind** (its length is in
   the [spec](../ai-context/accounts-and-auth.md#account-deletion)). Signing back in takes you to
   one screen with a **"Keep my account"** button; pressing it brings your
@@ -159,7 +162,8 @@ though not who it was tied to.
 Separately from deleting your whole account: anything you delete from **My
 content** — an upload, a generated image, a meme — moves to **Recently
 deleted** for a month or so and comes back with one click. After that it is
-removed. While it waits there, only you can see it.
+removed. While it waits there, only you can see it on the site, though
+someone who already loaded it may still see their copy for a short while.
 
 ### Staying signed in
 

@@ -327,11 +327,17 @@ only authenticate, rate-limit and answer. Who asked is recorded in
 
 - **Accepting a request** writes the row and revokes every session in one
   transaction, under the admin population lock: removing access can never
-  remove the last administrator. From that commit the person's content is no
-  longer live (`liveContent`/`ownerLeaving` in `artifacts/api-server/src/lib/contentVisibility.ts`,
-  the only spellings of "this account is being deleted"). The engine then
-  runs the non-destructive stages. **Every cancellable subscription is
-  cancelled at once** (`active`, `trialing`, `past_due`, `unpaid`, `paused`,
+  remove the last administrator. From that commit the person's own media —
+  memes, uploads and generated images — is no longer live
+  (`liveContent`/`ownerLeaving` in `artifacts/api-server/src/lib/contentVisibility.ts`,
+  the only spellings of "this account is being deleted"); their facts and
+  approved comments stay readable until the purge decides them, and a copy
+  already in a browser or at the edge can be seen for up to a day (the
+  residue David accepted, plan answer 5(b)). After the commit the engine
+  kicks the non-destructive stages without awaiting them. **Cancelling every
+  cancellable subscription starts at once** — a cancel Stripe does not
+  confirm is recorded and retried, so acceptance does not prove billing has
+  stopped (`active`, `trialing`, `past_due`, `unpaid`, `paused`,
   `incomplete`), and the remaining entitlements survive a cancel. The
   person is emailed. A billing dispute holds the purge (`held`). The hourly
   worker (`runAccountDeletionWorker`) is recovery for anything that kick
@@ -392,8 +398,8 @@ The callers:
   `DELETION_IN_PROGRESS` after that). Keeping makes the content live
   again; what had been deleted by hand stays deleted, and sessions are not
   restored. `GET /users/me/deletion` reads the pending request.
-- **An admin's removal** — the user editor's "Delete permanently"
-  (`DELETE /admin/users/:id?hard=true`) purges at once
+- **An admin's removal** — the user editor's "Delete User", confirmed by
+  "Confirm Hard Delete" (`DELETE /admin/users/:id?hard=true`) purges at once
   (`adminPurgeNow(id, { takeOver: true })`). It takes over a member's own
   pending request, so the admin rule applies to their contributions. A
   failed stage is recorded and answered with a 500 naming the stage, and
