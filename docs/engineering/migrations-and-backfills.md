@@ -244,6 +244,30 @@ new one changes no database's shape. Existing databases never read it.
 - Run `migrate` against the local public schema, then re-clone the test schema
   (`run-test.sh --setup`) so tests see the updated shape (see the api-context
   memory + `docs/tests/TESTING.md`).
+- **Write a CHECK in the form PostgreSQL prints after a dump and restore.**
+  `phase3.productionAdopt.test.ts` compares a restored copy of the schema
+  against a fresh build, so a constraint that deparses differently on the two
+  paths reads as two constraints. A varchar `IN (...)` CHECK is not a fixed
+  point: written as `IN ('a','b')` it is stored as
+  `ANY ((ARRAY['a'::varchar, ...])::text[])`, and after a restore as
+  `ANY (ARRAY[('a'::character varying)::text, ...])`. Write it in the
+  restored form, as `0121_nsfw_readiness.sql` does. Every older CHECK already
+  is, because the baseline was itself dumped (launch Phase 5, 0114 and 0121).
+- **A new `NOT NULL DEFAULT` column is classified `"drop"` in the legacy
+  fixture's allowlist** (`src/testing/legacyFixture/allowlist.ts`). The
+  committed fixture predates the column, so its loader would insert NULL;
+  `"drop"` leaves the column out of the insert and the default applies,
+  until the fixture is re-extracted (0121's `audience` columns).
+- **A column a publish may add before the migration runs gets no default
+  that would mark existing rows.** Replit's publish can apply the TypeScript
+  schema's DDL ahead of our migration (*How a database receives a change*,
+  above), so a default of `true` on a new marker column would set it on
+  every existing account. 0118's `registered_under_onboarding` has no
+  default: null fails safe.
+- **A query of `information_schema.columns` names `table_schema = 'public'`.**
+  The dev database has more than one schema with a `reactions` table, so an
+  unscoped scalar subquery errors (a PR #833 post-merge check made this
+  mistake).
 
 ### Adding a value to a Postgres enum
 

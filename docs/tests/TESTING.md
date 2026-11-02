@@ -64,6 +64,17 @@ pnpm run typecheck:libs
 pnpm typecheck          # repo-level; prefer this for general typechecking
 ```
 
+**The local orval can be older than CI's.** When it is, `pnpm run codegen`
+rewrites every generated file under `lib/api-zod/src/generated` and
+`lib/api-client-react/src/generated` in a different format, and a full local
+`pnpm test` can do the same. To change the API in that state, edit the spec,
+then hand-edit only the affected generated lines (and
+`lib/api-spec/patch-generated.mjs` for `AuthUser`); CI's `check:codegen-drift`
+proves the result. Stray reformatted generated files are not part of a change:
+restore them (`git checkout -- lib/api-zod/src/generated
+lib/api-client-react/src/generated`) before committing (launch Phase 5, PRs
+#834–#836).
+
 ---
 
 ## Topology & roles — who trusts what?
@@ -386,6 +397,16 @@ The launcher's environment is constructed: it refuses any variable outside
 `PRODUCTION_MODE_ENV_ALLOWLIST` (`src/testing/launchEnvironment.ts`), so a
 vendor key cannot reach it. That is why the recipe uses `env -i` and `node`
 rather than `pnpm exec`, which adds variables of its own.
+
+**In a Claude cloud container**, the same constructed environment drops what
+the sandbox's proxy needs. Node cannot trust the proxy's certificate, so the
+launcher runs as `node --use-system-ca`. Cloudflare's Turnstile siteverify is
+unreachable without the proxy, so a local browser run passes `HTTPS_PROXY`,
+`NODE_USE_ENV_PROXY=1` and `NODE_EXTRA_CA_CERTS` through a temporary edit of
+the launcher's allowlist, which is never committed. CI needs neither. The
+launcher accepts only Cloudflare's published Turnstile **test** secrets.
+`pkill -f productionModeLauncher` kills the calling shell (the pattern is in
+its own command line); kill by PID.
 
 The journey fails, rather than skipping, when `E2E_MAIL_SINK_DIR` is unset — so
 a plain `playwright test` against the dev stack reports it red. Run the named
@@ -782,6 +803,10 @@ step respectively) and are described in the CI section above.
 | Guard refuses; `DATABASE_URL` is `heliumdb` | Expected — that's the prod/dev DB | Point `DATABASE_URL` at `heliumdb_test` (Replit) or `overhype_test` (CI/sandbox) |
 | `node --test` can't read a `.ts` file | Invalid command — plain Node has no `tsx/esm` loader | Use `run-test.sh` (targeted) or `pnpm … test` (full suite); not a test failure |
 | Sandbox has no Postgres | Expected in Codex (DB-less by default); in Claude it means the SessionStart hook failed | Defer DB verification to GitHub CI; report as environment, not product, failure. For a Codex task that genuinely needs the suite, set `CODEX_SETUP_DB=1` on the environment and re-run — it cannot be fixed mid-task, since Codex has no network then |
+| `phase3.productionAdopt` fails at `npx tsx` under a direct `run-test.sh` | `node_modules/.bin` is not on `PATH` | Add it to `PATH`, or run through `pnpm` |
+| A concurrency test is intermittently red in a shared-process shard | It asserts one exact interleaving of async work | Assert the invariant the interleavings share instead |
+| A gate-test "allowed route" probe changes state the next probe relied on | Each probe acts for real | Give each exception its own account |
+| A test photo intermittently 500s | It has no ACL, so the read takes `userCanReadObject`'s legacy fallback, whose background ACL heal races the read | Give fixture uploads the owner ACL a real upload has |
 | CI `Test` job is red | A real gate failure until proven otherwise | Read the failing test; treat as a genuine regression unless shown to be a parity/env issue |
 
 ## A note on older docs
