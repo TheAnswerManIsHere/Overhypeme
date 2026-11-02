@@ -5,22 +5,31 @@
 
 /**
  * Why a signed-in account may not act yet, or `eligible`. Launch Phase 5
- * (plan S8, S19): verify, then onboard, then act. An account whose deletion
- * is pending can only cancel it (Increment 5). `suspended` is named here so
- * the contract does not change when Increment 6 adds the column that decides
- * it; nothing returns it yet.
+ * (plan S8, S19): verify, then onboard, then act. A suspended account can do
+ * nothing but sign out (Increment 6); an account whose deletion is pending can
+ * only cancel it (Increment 5).
  */
 export type Eligibility = "eligible" | "suspended" | "deletion_pending" | "unverified" | "unonboarded";
+
+/** What a suspended account is told at every door: that it is suspended, never why (the reason is admins' only). */
+export const SUSPENDED_MESSAGE = "This account is suspended.";
 
 export interface EligibilityRow {
   emailVerifiedAt: Date | string | null;
   onboardingCompletedAt: Date | string | null;
   /** True while the account has an active deletion request (`ownerLeaving`, lib/contentVisibility.ts). */
   deletionPending?: boolean;
+  /** Set while an admin has the account suspended (0120). */
+  suspendedAt?: Date | string | null;
 }
 
-/** In precedence order: a pending deletion first, then an unverified account is never asked to onboard first. */
+/**
+ * In precedence order: a suspension first (it blocks even keeping a pending
+ * deletion), then a pending deletion, then an unverified account is never
+ * asked to onboard first.
+ */
 export function eligibilityOf(row: EligibilityRow): Eligibility {
+  if (row.suspendedAt != null) return "suspended";
   if (row.deletionPending) return "deletion_pending";
   if (row.emailVerifiedAt == null) return "unverified";
   if (row.onboardingCompletedAt == null) return "unonboarded";

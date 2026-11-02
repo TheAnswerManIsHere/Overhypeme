@@ -26,6 +26,9 @@ function getAuthError(): string | null {
   if (err === "auth_failed") {
     return "Sign in failed. Please try again, or use email and password instead.";
   }
+  if (err === "account_suspended") {
+    return "This account is suspended.";
+  }
   if (err === "unverified_provider_email") {
     return "That sign-in didn't confirm your email address, and an account already uses it. Sign in with your password, or reset it from \"Forgot password\".";
   }

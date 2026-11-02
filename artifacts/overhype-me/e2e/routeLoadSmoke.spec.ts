@@ -709,6 +709,22 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
         lifetime.getByText(new RegExp(`^Revoked \\S+ by ${adminName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)),
         "PR287 step 8: the revoked grant should name who revoked it",
       ).toBeVisible();
+
+      // Launch Phase 5, Increment 6a — suspend with a reason, shown to the admin with a badge; unsuspend clears it.
+      await page.getByRole("button", { name: "Suspend User" }).click();
+      const suspend = page.getByRole("button", { name: "Suspend", exact: true });
+      await expect(suspend, "6a: suspending needs a reason").toBeDisabled();
+      await page.locator("#suspend-reason").fill("e2e suspension check");
+      await suspend.click();
+      await expect(row(email).getByText("SUSPENDED"), "6a: the row is marked suspended").toBeVisible();
+      await expect(page.getByText("Reason (admins only): e2e suspension check"), "6a: the admin sees the reason").toBeVisible();
+      await page.getByRole("button", { name: "Unsuspend User" }).click();
+      await expect(row(email).getByText("SUSPENDED"), "6a: unsuspending clears the mark").toHaveCount(0);
+      await page.getByRole("button", { name: "Delete User" }).click();
+      const confirm = page.locator("div.max-w-sm").filter({ hasText: "Confirm Hard Delete" });
+      await expect(confirm.getByText(/this overrides that request/), "6a: the delete confirmation says it overrides a member's own request").toBeVisible();
+      await confirm.getByRole("button", { name: "Cancel" }).click();
+      await expect(confirm).toHaveCount(0);
     } finally {
       if (createdId) {
         const del = await context.request.delete(`/api/admin/users/${createdId}?hard=true`, {

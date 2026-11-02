@@ -2,6 +2,7 @@
  * @purpose The "Keep my account" screen (launch Phase 5, plan S14; David's answer 7): an account scheduled for deletion is sent here after it signs in, sees the date its account goes and keeps it with one button; signed out, it is told to sign in first (the email's link lands here); straight after a request it confirms the date and that the person was signed out everywhere.
  * @subsystem accounts-auth
  */
+import { AccountStateShell } from "@/components/account/AccountStateShell";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -27,17 +28,6 @@ type View =
 /** "14 November 2026": the purge date, in the visitor's own calendar. */
 function deletionDateLabel(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
-}
-
-function Shell({ title, children }: { title?: string; children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-card border border-border rounded-xl p-6 sm:p-8 shadow-lg space-y-5 text-center">
-        {title && <h1 className="text-3xl font-display uppercase tracking-tight text-foreground">{title}</h1>}
-        {children}
-      </div>
-    </div>
-  );
 }
 
 function HomeButton({ label = "Back to Overhype.me" }: { label?: string }) {
@@ -92,12 +82,12 @@ export default function AccountDeletion() {
   }
 
   if (isLoading) {
-    return <Shell><Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" aria-label="Loading" /></Shell>;
+    return <AccountStateShell><Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" aria-label="Loading" /></AccountStateShell>;
   }
 
   if (!isAuthenticated) {
     return (
-      <Shell title={scheduledFor ? "Your account is scheduled for deletion" : "Keep your account"}>
+      <AccountStateShell title={scheduledFor ? "Your account is scheduled for deletion" : "Keep your account"}>
         {scheduledFor ? (
           <p className="text-muted-foreground text-sm">
             On <span className="text-foreground font-semibold">{deletionDateLabel(scheduledFor)}</span> your account, your memes,
@@ -113,41 +103,41 @@ export default function AccountDeletion() {
           <Button variant={scheduledFor ? "outline" : undefined} className="w-full">Sign in</Button>
         </Link>
         <Link href="/" className="block text-xs text-muted-foreground hover:text-foreground underline">Back to Overhype.me</Link>
-      </Shell>
+      </AccountStateShell>
     );
   }
 
   if (view.kind === "loading") {
-    return <Shell><Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" aria-label="Checking your account" /></Shell>;
+    return <AccountStateShell><Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" aria-label="Checking your account" /></AccountStateShell>;
   }
 
   if (view.kind === "load-error") {
     return (
-      <Shell>
+      <AccountStateShell>
         <p className="text-destructive text-sm font-medium" role="alert">{view.message}</p>
         <Button onClick={() => void load()} className="w-full">Try again</Button>
-      </Shell>
+      </AccountStateShell>
     );
   }
 
   if (view.kind === "kept") {
     const mustFinish = user?.eligibility === "unonboarded" || user?.eligibility === "unverified";
     return (
-      <Shell title="Your account is staying">
+      <AccountStateShell title="Your account is staying">
         <p className="text-muted-foreground text-sm">
           The deletion is cancelled. Your memes, photos and images are back where they were. We've emailed you to confirm.
         </p>
         {mustFinish ? <Link href="/onboard"><Button className="w-full">Finish setting up</Button></Link> : <HomeButton />}
-      </Shell>
+      </AccountStateShell>
     );
   }
 
   if (view.kind === "not-pending") {
     return (
-      <Shell title="Nothing to keep">
+      <AccountStateShell title="Nothing to keep">
         <p className="text-muted-foreground text-sm">Your account isn't scheduled for deletion.</p>
         <HomeButton />
-      </Shell>
+      </AccountStateShell>
     );
   }
 
@@ -159,15 +149,15 @@ export default function AccountDeletion() {
 
   if (view.kind === "started") {
     return (
-      <Shell title="Your account is being deleted">
+      <AccountStateShell title="Your account is being deleted">
         <p className="text-muted-foreground text-sm">The deletion has started and can't be stopped now.</p>
         {signOutLink}
-      </Shell>
+      </AccountStateShell>
     );
   }
 
   return (
-    <Shell title="Your account is scheduled for deletion">
+    <AccountStateShell title="Your account is scheduled for deletion">
       <p className="text-muted-foreground text-sm">
         On <span className="text-foreground font-semibold">{deletionDateLabel(view.purgeAfter)}</span> your account, your memes,
         photos and images are removed from Overhype.me for good. Facts, comments and suggestions you submitted stay, credited to a former
@@ -179,6 +169,6 @@ export default function AccountDeletion() {
       </Button>
       {keepError && <p className="text-destructive text-sm font-medium" role="alert">{keepError}</p>}
       {signOutLink}
-    </Shell>
+    </AccountStateShell>
   );
 }

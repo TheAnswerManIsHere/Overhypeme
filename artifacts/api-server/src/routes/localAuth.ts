@@ -6,8 +6,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, emailVerificationTokensTable } from "@workspace/db";
-import { eq, and, or, sql, isNull, gt } from "drizzle-orm";
-import { createSession, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
+import { eq, and, or, sql, isNull, gt, getTableColumns } from "drizzle-orm";
+import { createSession, createSignInSession, SuspendedAccountError, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
 import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { isAdminById } from "./auth";
@@ -25,6 +25,7 @@ import {
   respondToGuardError,
 } from "../lib/adminLockoutGuard";
 import { isRealAdminRow } from "../lib/adminIdentity";
+import { SUSPENDED_MESSAGE } from "../lib/eligibility";
 
 const router: IRouter = Router();
 
@@ -307,7 +308,18 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     isAdmin: user.isAdmin || isAdminById(user.id),
   };
 
-  const sid = await createSession(sessionData, user.id);
+  // Refused before a session exists, decided under the row lock suspension
+  // takes (plan, transition table); said only to someone who knew the password.
+  let sid: string;
+  try {
+    sid = await createSignInSession(sessionData, user.id);
+  } catch (err) {
+    if (err instanceof SuspendedAccountError) {
+      res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
+      return;
+    }
+    throw err;
+  }
   setSessionCookie(res, sid);
 
   res.json({
@@ -347,12 +359,14 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
     .where(eq(usersTable.email, email.toLowerCase().trim()))
     .limit(1);
 
-  // Silently skip an unknown address (the reply is the same either way). An
+  // Silently skip an unknown address, and a suspended one (the reply is the
+  // same either way, so it tells nobody which accounts are suspended; plan,
+  // transition table: recovery is closed while suspended). An
   // account with no password yet (made by Google or Apple sign-in) gets the
   // link too: following it proves the person controls the address, and sets
   // their first password. This is the way in the sign-in refusal for an
   // unconfirmed provider email points at (#800).
-  if (!user) {
+  if (!user || user.suspendedAt) {
     res.status(200).json({ message: GENERIC_RESET_MESSAGE });
     return;
   }
@@ -405,8 +419,9 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
 
   // A cheap read first, so a bogus or spent token never costs a bcrypt hash.
   const [resetToken] = await db
-    .select({ usedAt: passwordResetTokensTable.usedAt, expiresAt: passwordResetTokensTable.expiresAt })
+    .select({ usedAt: passwordResetTokensTable.usedAt, expiresAt: passwordResetTokensTable.expiresAt, ownerSuspendedAt: usersTable.suspendedAt })
     .from(passwordResetTokensTable)
+    .leftJoin(usersTable, eq(usersTable.id, passwordResetTokensTable.userId))
     .where(eq(passwordResetTokensTable.tokenHash, tokenHash))
     .limit(1);
   const refuse = (state: "invalid" | "used" | "expired") => {
@@ -420,6 +435,13 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
   if (!resetToken) { refuse("invalid"); return; }
   if (resetToken.usedAt !== null) { refuse("used"); return; }
   if (resetToken.expiresAt < new Date()) { refuse("expired"); return; }
+  // Recovery is closed while suspended; the link stays unused for after an
+  // unsuspend, like the verification link. Said here, to the holder of a
+  // link sent to the address, never at forgot-password.
+  if (resetToken.ownerSuspendedAt) {
+    res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
+    return;
+  }
 
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
@@ -450,6 +472,19 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
   res.status(200).json({ message: "Password reset successfully. You can now log in with your new password." });
 });
 
+/** The verification link's session, refused if a suspension landed while the link was being followed. */
+async function mintVerifiedSession(data: SessionData, userId: string, res: Response): Promise<string | null> {
+  try {
+    const sid = await createSignInSession(data, userId);
+    setSessionCookie(res, sid);
+    return sid;
+  } catch (err) {
+    if (!(err instanceof SuspendedAccountError)) throw err;
+    res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
+    return null;
+  }
+}
+
 router.get("/auth/verify-email", async (req: Request, res: Response) => {
   const { token } = req.query as { token?: string };
 
@@ -461,8 +496,9 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
   const [record] = await db
-    .select()
+    .select({ ...getTableColumns(emailVerificationTokensTable), ownerSuspendedAt: usersTable.suspendedAt })
     .from(emailVerificationTokensTable)
+    .leftJoin(usersTable, eq(usersTable.id, emailVerificationTokensTable.userId))
     .where(eq(emailVerificationTokensTable.tokenHash, tokenHash))
     .limit(1);
 
@@ -478,6 +514,13 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
 
   if (record.expiresAt < new Date()) {
     res.status(400).json({ error: "This verification link has expired. Please request a new one." });
+    return;
+  }
+
+  // A suspended account's link verifies nothing and signs nobody in (plan,
+  // transition table); the token stays unused for after an unsuspend.
+  if (record.ownerSuspendedAt) {
+    res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
     return;
   }
 
@@ -563,13 +606,13 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
       if (existingSid) {
         await updateSession(existingSid, sessionData);
       } else {
-        const sid = await createSession(sessionData, verifiedUser.id);
-        setSessionCookie(res, sid);
+        const sid = await mintVerifiedSession(sessionData, verifiedUser.id, res);
+        if (!sid) return;
       }
     } else {
       // New account: create a fresh session so the user is immediately logged in
-      const sid = await createSession(sessionData, verifiedUser.id);
-      setSessionCookie(res, sid);
+      const sid = await mintVerifiedSession(sessionData, verifiedUser.id, res);
+      if (!sid) return;
     }
   }
 

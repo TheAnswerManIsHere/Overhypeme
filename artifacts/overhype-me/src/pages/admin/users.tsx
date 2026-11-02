@@ -5,7 +5,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, CreditCard, Infinity, Loader2, XCircle, Bell, BellOff, AlertTriangle } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, CreditCard, Infinity, Loader2, XCircle, Bell, BellOff, AlertTriangle, Ban } from "lucide-react";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 import { StripeLink } from "@/components/StripeLink";
 import { makeAbortController } from "@/lib/makeAbortController";
@@ -18,6 +18,8 @@ interface User {
   profileImageUrl: string | null;
   isAdmin: boolean;
   isActive: boolean;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
   nsfwModeEnabled: boolean;
   membershipTier: "unregistered" | "registered" | "legendary";
   pronouns: string | null;
@@ -161,20 +163,20 @@ export default function AdminUsers() {
   const [addError, setAddError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
 
-  const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard" | "deleting" | "done" | "error">(null);
+  const [deleteModal, setDeleteModal] = useState<null | "confirm-hard" | "deleting" | "done" | "error">(null);
   const [deleting, setDeleting] = useState(false);
-  const [deleteIsHard, setDeleteIsHard] = useState(true);
   const [deleteSummary, setDeleteSummary] = useState<{
     aiImagesDeleted?: number;
     memeImagesDeleted?: number;
     storageErrors?: number;
-    subscriptionCanceled?: boolean;
-    sessionsRevoked?: number;
   } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteErrorStage, setDeleteErrorStage] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [reactivating, setReactivating] = useState(false);
+  /** The suspend form's reason; null while the form is closed. */
+  const [suspendReason, setSuspendReason] = useState<string | null>(null);
+  const [suspending, setSuspending] = useState(false);
 
   const [administrators, setAdministrators] = useState<Administrator[]>([]);
   const administratorsById = useMemo(
@@ -257,6 +259,7 @@ export default function AdminUsers() {
 
   function selectUser(user: User) {
     setSelectedUser(user);
+    setSuspendReason(null);
     setDraft({
       displayName: user.displayName ?? "",
       email: user.email ?? "",
@@ -407,20 +410,16 @@ export default function AdminUsers() {
     }
   }
 
-  async function deleteUser(hard: boolean) {
+  async function deleteUser() {
     if (!selectedUser) return;
     setDeleting(true);
-    setDeleteIsHard(hard);
     setDeleteSummary(null);
     setDeleteError(null);
     setDeleteErrorStage(null);
     setDeleteModal("deleting");
     try {
-      const url = `/api/admin/users/${selectedUser.id}${hard ? "?hard=true" : ""}`;
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(`/api/admin/users/${selectedUser.id}?hard=true`, { method: "DELETE", credentials: "include" });
       const data = (await res.json()) as {
-        success?: boolean;
-        user?: User;
         error?: string;
         deleted?: boolean;
         message?: string;
@@ -429,8 +428,6 @@ export default function AdminUsers() {
           aiImagesDeleted?: number;
           memeImagesDeleted?: number;
           storageErrors?: number;
-          subscriptionCanceled?: boolean;
-          sessionsRevoked?: number;
         };
       };
       if (!res.ok) {
@@ -441,7 +438,7 @@ export default function AdminUsers() {
       }
       // A hard delete the engine could not finish now (a billing dispute holds
       // it) is shown where it stopped; the hourly worker finishes it.
-      if (hard && data.deleted === false) {
+      if (data.deleted === false) {
         setDeleteError(data.message ?? "Not finished yet; the hourly job will complete it.");
         setDeleteErrorStage(data.stage ?? null);
         setDeleteModal("error");
@@ -470,22 +467,36 @@ export default function AdminUsers() {
     setDeleteErrorStage(null);
   }
 
-  function handleSoftDeleteDone() {
-    if (selectedUser) {
-      const updatedUser = { ...selectedUser, isActive: false };
-      if (showInactive) {
-        setUsers((prev) => prev.map((u) => u.id === selectedUser.id ? updatedUser : u));
-        setSelectedUser(updatedUser);
-      } else {
-        setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
-        setTotal((t) => t - 1);
-        clearSelection();
-      }
+  /** Suspension (launch Phase 5, plan *Suspension*): the reason is admins' only; the person sees only that the account is suspended. */
+  async function setSuspension(suspend: boolean) {
+    if (!selectedUser) return;
+    const reason = (suspendReason ?? "").trim();
+    setSuspending(true);
+    setSaveResult(null);
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUser.id}/${suspend ? "suspend" : "unsuspend"}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(suspend ? { reason } : {}),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? (suspend ? "Suspension failed" : "Unsuspending failed"));
+      const updated: User = suspend
+        ? { ...selectedUser, suspendedAt: new Date().toISOString(), suspendedReason: reason }
+        : { ...selectedUser, suspendedAt: null, suspendedReason: null };
+      setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
+      setSelectedUser(updated);
+      setSuspendReason(null);
+      setSaveResult({
+        type: "success",
+        message: suspend ? "Suspended. They were signed out everywhere and can't sign in until you unsuspend them." : "Unsuspended. They can sign in again.",
+      });
+    } catch (err) {
+      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Request failed" });
+    } finally {
+      setSuspending(false);
     }
-    setDeleteModal(null);
-    setDeleteSummary(null);
-    setDeleteError(null);
-    setDeleteErrorStage(null);
   }
 
   async function reactivateUser() {
@@ -520,49 +531,7 @@ export default function AdminUsers() {
       {deleteModal && selectedUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-card border border-border rounded-lg w-full max-w-sm p-6 flex flex-col gap-5 shadow-xl">
-            {deleteModal === "choose" ? (
-              <>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
-                    <Trash2 className="w-5 h-5 text-destructive" />
-                  </div>
-                  <div>
-                    <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Delete User</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">
-                      {selectedUser.displayName ?? selectedUser.email ?? selectedUser.id}
-                    </p>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground">Choose how to delete this user:</p>
-                <div className="flex flex-col gap-2">
-                  <button
-                    onClick={() => deleteUser(false)}
-                    disabled={deleting}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-sm border border-border hover:border-yellow-500/50 hover:bg-yellow-500/5 text-left transition-colors disabled:opacity-50"
-                  >
-                    <UserX className="w-5 h-5 text-yellow-500 shrink-0" />
-                    <div>
-                      <div className="text-sm font-medium text-foreground">Soft Delete</div>
-                      <div className="text-xs text-muted-foreground">Marks the user as inactive. Data is preserved.</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setDeleteModal("confirm-hard")}
-                    disabled={deleting}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-sm border border-border hover:border-destructive/50 hover:bg-destructive/5 text-left transition-colors disabled:opacity-50"
-                  >
-                    <Trash2 className="w-5 h-5 text-destructive shrink-0" />
-                    <div>
-                      <div className="text-sm font-medium text-foreground">Hard Delete</div>
-                      <div className="text-xs text-muted-foreground">Permanently removes the user row from the database.</div>
-                    </div>
-                  </button>
-                </div>
-                <Button variant="outline" onClick={() => setDeleteModal(null)} className="w-full">
-                  Cancel
-                </Button>
-              </>
-            ) : deleteModal === "confirm-hard" ? (
+            {deleteModal === "confirm-hard" ? (
               <>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
@@ -580,16 +549,19 @@ export default function AdminUsers() {
                   </span>
                   . This cannot be reversed.
                 </p>
+                <p className="text-sm text-muted-foreground">
+                  If they asked to delete their account themselves, this overrides that request: their comments, pending submissions, votes and hearts are deleted too, rather than kept as a former member's.
+                </p>
                 <div className="flex gap-3">
                   <Button
-                    onClick={() => deleteUser(true)}
+                    onClick={deleteUser}
                     isLoading={deleting}
                     className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground border-destructive"
                   >
                     <Trash2 className="w-4 h-4" /> Delete Forever
                   </Button>
-                  <Button variant="outline" onClick={() => setDeleteModal(selectedUser.isActive ? "choose" : null)} className="flex-1" disabled={deleting}>
-                    {selectedUser.isActive ? "Back" : "Cancel"}
+                  <Button variant="outline" onClick={() => setDeleteModal(null)} className="flex-1" disabled={deleting}>
+                    Cancel
                   </Button>
                 </div>
               </>
@@ -607,9 +579,7 @@ export default function AdminUsers() {
                   </div>
                   <div>
                     <h2 className="font-display font-bold text-foreground uppercase tracking-wide">
-                      {deleteIsHard
-                        ? (deleteModal === "done" ? "Deletion Complete" : deleteModal === "error" ? "Deletion Failed" : "Deleting User…")
-                        : (deleteModal === "done" ? "User Deactivated" : deleteModal === "error" ? "Deactivation Failed" : "Deactivating User…")}
+                      {deleteModal === "done" ? "Deletion Complete" : deleteModal === "error" ? "Deletion Failed" : "Deleting User…"}
                     </h2>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">
                       {selectedUser.displayName ?? selectedUser.email ?? selectedUser.id}
@@ -625,113 +595,61 @@ export default function AdminUsers() {
                 )}
 
                 {/* Checklist
-                    Hard delete (the account deletion engine) stage → failed index:
+                    The account deletion engine's stage → failed index:
                       accepted:1  subscription_cancelled/notified/held:2  purging:3
-                    Soft delete stage → failed index:
-                      stripe:0  sessions:1  deactivate:2
                     Items before failedIndex → green; failedIndex → red X; after → neutral
                 */}
                 {(() => {
-                  if (deleteIsHard) {
-                    // The account deletion engine's stages (launch Phase 5):
-                    // the stage a failure or a hold stopped at marks its row.
-                    const stageToFailedIndex: Record<string, number> = {
-                      accepted: 1,
-                      subscription_cancelled: 2,
-                      notified: 2,
-                      held: 2,
-                      purging: 3,
-                    };
-                    const failedIndex =
-                      deleteModal === "error"
-                        ? stageToFailedIndex[deleteErrorStage ?? "purging"] ?? 0
-                        : -1;
-                    const isDone = (i: number) => deleteModal === "done" || (deleteModal === "error" && i < failedIndex);
-                    const isFailed = (i: number) => deleteModal === "error" && i === failedIndex;
-                    const isNeutral = (i: number) => deleteModal === "error" && i > failedIndex;
+                  // The account deletion engine's stages (launch Phase 5):
+                  // the stage a failure or a hold stopped at marks its row.
+                  const stageToFailedIndex: Record<string, number> = {
+                    accepted: 1,
+                    subscription_cancelled: 2,
+                    notified: 2,
+                    held: 2,
+                    purging: 3,
+                  };
+                  const failedIndex =
+                    deleteModal === "error"
+                      ? stageToFailedIndex[deleteErrorStage ?? "purging"] ?? 0
+                      : -1;
+                  const isDone = (i: number) => deleteModal === "done" || (deleteModal === "error" && i < failedIndex);
+                  const isFailed = (i: number) => deleteModal === "error" && i === failedIndex;
+                  const isNeutral = (i: number) => deleteModal === "error" && i > failedIndex;
 
-                    const items = [
-                      "Signing the account out and hiding its content",
-                      "Canceling subscriptions",
-                      deleteErrorStage === "held" ? "Held by an open billing dispute" : "Checking for billing disputes",
-                      "Removing files, content and the account (facts stay, credited to a former member)",
-                    ];
+                  const items = [
+                    "Signing the account out and hiding its content",
+                    "Canceling subscriptions",
+                    deleteErrorStage === "held" ? "Held by an open billing dispute" : "Checking for billing disputes",
+                    "Removing files, content and the account (facts stay, credited to a former member)",
+                  ];
 
-                    return (
-                      <ul className="flex flex-col gap-2">
-                        {items.map((label, i) => (
-                          <li key={i} className="flex items-center gap-3 text-sm">
-                            <span className="shrink-0 w-5 h-5 flex items-center justify-center">
-                              {isDone(i) ? (
-                                <CheckCircle className="w-4 h-4 text-green-500" />
-                              ) : isFailed(i) ? (
-                                <XCircle className="w-4 h-4 text-destructive" />
-                              ) : isNeutral(i) ? (
-                                <span className="w-4 h-4 rounded-full border border-border/50" />
-                              ) : (
-                                <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-                              )}
-                            </span>
-                            <span className={isDone(i) ? "text-foreground" : isFailed(i) ? "text-destructive" : "text-muted-foreground"}>
-                              {label}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    );
-                  } else {
-                    const stageToFailedIndex: Record<string, number> = {
-                      stripe: 0,
-                      sessions: 1,
-                      deactivate: 2,
-                    };
-                    const failedIndex =
-                      deleteModal === "error"
-                        ? stageToFailedIndex[deleteErrorStage ?? "deactivate"] ?? 2
-                        : -1;
-                    const isDone = (i: number) => deleteModal === "done" || (deleteModal === "error" && i < failedIndex);
-                    const isFailed = (i: number) => deleteModal === "error" && i === failedIndex;
-                    const isNeutral = (i: number) => deleteModal === "error" && i > failedIndex;
-
-                    const items = [
-                      isDone(0) && deleteSummary
-                        ? (deleteSummary.subscriptionCanceled ? "Subscription canceled" : "No active subscription")
-                        : "Canceling active subscription",
-                      isDone(1) && deleteSummary
-                        ? ((deleteSummary.sessionsRevoked ?? 0) > 0
-                            ? `Revoked ${deleteSummary.sessionsRevoked} active session${(deleteSummary.sessionsRevoked ?? 0) !== 1 ? "s" : ""}`
-                            : "No active sessions")
-                        : "Revoking active sessions",
-                      "Deactivating account",
-                    ];
-
-                    return (
-                      <ul className="flex flex-col gap-2">
-                        {items.map((label, i) => (
-                          <li key={i} className="flex items-center gap-3 text-sm">
-                            <span className="shrink-0 w-5 h-5 flex items-center justify-center">
-                              {isDone(i) ? (
-                                <CheckCircle className="w-4 h-4 text-green-500" />
-                              ) : isFailed(i) ? (
-                                <XCircle className="w-4 h-4 text-destructive" />
-                              ) : isNeutral(i) ? (
-                                <span className="w-4 h-4 rounded-full border border-border/50" />
-                              ) : (
-                                <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-                              )}
-                            </span>
-                            <span className={isDone(i) ? "text-foreground" : isFailed(i) ? "text-destructive" : "text-muted-foreground"}>
-                              {label}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    );
-                  }
+                  return (
+                    <ul className="flex flex-col gap-2">
+                      {items.map((label, i) => (
+                        <li key={i} className="flex items-center gap-3 text-sm">
+                          <span className="shrink-0 w-5 h-5 flex items-center justify-center">
+                            {isDone(i) ? (
+                              <CheckCircle className="w-4 h-4 text-green-500" />
+                            ) : isFailed(i) ? (
+                              <XCircle className="w-4 h-4 text-destructive" />
+                            ) : isNeutral(i) ? (
+                              <span className="w-4 h-4 rounded-full border border-border/50" />
+                            ) : (
+                              <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                            )}
+                          </span>
+                          <span className={isDone(i) ? "text-foreground" : isFailed(i) ? "text-destructive" : "text-muted-foreground"}>
+                            {label}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  );
                 })()}
 
-                {/* Storage errors note — hard delete only */}
-                {deleteIsHard && deleteModal === "done" && deleteSummary && (deleteSummary.storageErrors ?? 0) > 0 && (
+                {/* Storage errors note */}
+                {deleteModal === "done" && deleteSummary && (deleteSummary.storageErrors ?? 0) > 0 && (
                   <p className="text-xs text-yellow-600 flex items-start gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     {deleteSummary.storageErrors} storage file{(deleteSummary.storageErrors ?? 0) !== 1 ? "s" : ""} could not be deleted and may need manual cleanup.
@@ -749,7 +667,7 @@ export default function AdminUsers() {
                 {deleteModal !== "deleting" && (
                   <Button
                     onClick={deleteModal === "done"
-                      ? (deleteIsHard ? handleHardDeleteDone : handleSoftDeleteDone)
+                      ? handleHardDeleteDone
                       : () => { setDeleteModal(null); setDeleteError(null); setDeleteErrorStage(null); }}
                     variant={deleteModal === "done" ? "primary" : "outline"}
                   >
@@ -991,6 +909,7 @@ export default function AdminUsers() {
                         })()}
                         {user.membershipTier === "legendary" && <Gem className="w-3 h-3 text-yellow-500 shrink-0" aria-label="Legendary" />}
                         {user.membershipTier === "registered" && <Crown className="w-3 h-3 text-yellow-500 shrink-0" aria-label="Registered" />}
+                        {user.suspendedAt && <span className="text-[10px] font-bold text-destructive bg-destructive/15 px-1 py-0.5 rounded shrink-0">SUSPENDED</span>}
                         {isInactive && <span className="text-[10px] font-bold text-yellow-600 bg-yellow-500/15 px-1 py-0.5 rounded shrink-0">INACTIVE</span>}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
@@ -1405,15 +1324,51 @@ export default function AdminUsers() {
             </div>
 
             <div className="border-t border-border pt-3 flex flex-col gap-2">
-              {selectedUser.isActive ? (
-                <Button
-                  variant="outline"
-                  onClick={() => setDeleteModal("choose")}
-                  className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
-                >
-                  <Trash2 className="w-4 h-4" /> Delete User
-                </Button>
+              {selectedUser.suspendedAt ? (
+                <>
+                  <div className="flex items-start gap-2 px-1 py-1 text-xs text-destructive">
+                    <Ban className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      <span className="font-medium">Suspended {new Date(selectedUser.suspendedAt).toLocaleDateString()}.</span>{" "}
+                      <span className="text-muted-foreground">Reason (admins only): {selectedUser.suspendedReason ?? "none recorded"}</span>
+                    </span>
+                  </div>
+                  <Button variant="outline" onClick={() => setSuspension(false)} isLoading={suspending} className="w-full">
+                    <Ban className="w-4 h-4" /> Unsuspend User
+                  </Button>
+                </>
+              ) : suspendReason !== null ? (
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="suspend-reason" className="text-xs text-muted-foreground">
+                    Why? Only admins see this. They are signed out everywhere and see only that the account is suspended.
+                  </label>
+                  <Input
+                    id="suspend-reason"
+                    value={suspendReason}
+                    maxLength={500 /* SUSPENSION_REASON_MAX in the API's lib/accountSuspension.ts */}
+                    onChange={(e) => setSuspendReason(e.target.value)}
+                    placeholder="e.g. spam comments"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setSuspension(true)}
+                      isLoading={suspending}
+                      disabled={!suspendReason.trim()}
+                      className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground border-destructive"
+                    >
+                      <Ban className="w-4 h-4" /> Suspend
+                    </Button>
+                    <Button variant="outline" onClick={() => setSuspendReason(null)} className="flex-1" disabled={suspending}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               ) : (
+                <Button variant="outline" onClick={() => setSuspendReason("")} className="w-full">
+                  <Ban className="w-4 h-4" /> Suspend User
+                </Button>
+              )}
+              {!selectedUser.isActive && (
                 <>
                   <div className="flex items-center gap-2 px-1 py-1">
                     <UserX className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
@@ -1426,15 +1381,15 @@ export default function AdminUsers() {
                   >
                     <UserX className="w-4 h-4" /> Reactivate User
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setDeleteModal("confirm-hard")}
-                    className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
-                  >
-                    <Trash2 className="w-4 h-4" /> Hard Delete Forever
-                  </Button>
                 </>
               )}
+              <Button
+                variant="outline"
+                onClick={() => setDeleteModal("confirm-hard")}
+                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
+              >
+                <Trash2 className="w-4 h-4" /> Delete User
+              </Button>
             </div>
           </div>
         ) : (

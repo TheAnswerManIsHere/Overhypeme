@@ -21,7 +21,8 @@ import {
   getGoogleConfig,
   getAppleConfig,
   getSession,
-  createSession,
+  createSignInSession,
+  SuspendedAccountError,
   updateSession,
   deleteSession,
   presentedSessionIds,
@@ -158,6 +159,7 @@ export class UnverifiedProviderEmailError extends Error {
   }
 }
 
+
 /** Google sends a boolean; Apple sends the string "true". Anything else is unverified. */
 export function providerEmailVerified(claims: Record<string, unknown>): boolean {
   const v = claims.email_verified;
@@ -179,6 +181,9 @@ async function upsertUser(
     .limit(1);
 
   const isNewUser = existing.length === 0;
+  // Decided before the upsert below writes anything: the select and the
+  // upsert's conflict target are the same row (the email).
+  if (existing[0]?.suspendedAt) throw new SuspendedAccountError();
   const emailVerified = providerEmailVerified(claims);
   if (!isNewUser && !emailVerified) throw new UnverifiedProviderEmailError();
 
@@ -349,6 +354,12 @@ async function handleOAuthCallback(
       return;
     }
 
+    // A suspended account changes nothing, linking included (plan, transition table).
+    if (targetUser.suspendedAt) {
+      res.redirect(`${basePath}${returnTo}?link_error=account_suspended`);
+      return;
+    }
+
     if (oauthEmail && targetUser.email && oauthEmail !== targetUser.email.toLowerCase()) {
       res.redirect(`${basePath}${returnTo}?link_error=email_mismatch`);
       return;
@@ -387,6 +398,12 @@ async function handleOAuthCallback(
       res.redirect(`${basePath}/login?error=unverified_provider_email`);
       return;
     }
+    // Refused before anything is written or a session minted, the way every
+    // other sign-in refusal reaches the sign-in page.
+    if (err instanceof SuspendedAccountError) {
+      res.redirect(`${basePath}/login?error=account_suspended`);
+      return;
+    }
     Sentry.captureException(err, {
       tags: { auth: "oauth-callback" },
       extra: { provider, stage: "upsertUser" },
@@ -416,7 +433,17 @@ async function handleOAuthCallback(
     isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
   };
 
-  const sid = await createSession(sessionData, dbUser.id);
+  let sid: string;
+  try {
+    sid = await createSignInSession(sessionData, dbUser.id);
+  } catch (err) {
+    // Suspended after the check in upsertUser, while this sign-in was in flight.
+    if (err instanceof SuspendedAccountError) {
+      res.redirect(`${basePath}/login?error=account_suspended`);
+      return;
+    }
+    throw err;
+  }
   setSessionCookie(res, sid);
 
   if (isPopup) {

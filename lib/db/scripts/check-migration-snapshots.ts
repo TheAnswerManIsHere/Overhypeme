@@ -503,6 +503,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // are added. DEFERRED like 0115's; source of truth:
   // lib/db/src/schema/reactions.ts, comments.ts and reviews.ts.
   "0119_keep_contributions_after_deletion",
+
+  // Hand-written expand + backfill (Launch Phase 5, increment 6a): the users
+  // suspension columns, and legacy deactivated rows moved to suspension.
+  // DEFERRED like 0115's; source of truth: lib/db/src/schema/auth.ts.
+  "0120_account_suspension",
 ]);
 
 interface JournalEntry {

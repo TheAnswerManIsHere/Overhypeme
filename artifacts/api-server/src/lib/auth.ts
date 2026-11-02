@@ -5,7 +5,7 @@
 import * as client from "openid-client";
 import crypto from "crypto";
 import { type Request, type Response } from "express";
-import { db, sessionsTable } from "@workspace/db";
+import { db, sessionsTable, usersTable } from "@workspace/db";
 import { and, eq, ne, or, sql } from "drizzle-orm";
 import type { AuthUser } from "@workspace/api-zod";
 
@@ -144,15 +144,45 @@ export async function getAppleConfig(): Promise<client.Configuration> {
 
 // ── Session helpers ───────────────────────────────────────────────────────────
 
-export async function createSession(data: SessionData, userId?: string): Promise<string> {
+export async function createSession(
+  data: SessionData,
+  userId?: string,
+  executor: Pick<typeof db, "insert"> = db,
+): Promise<string> {
   const sid = crypto.randomBytes(32).toString("hex");
-  await db.insert(sessionsTable).values({
+  await executor.insert(sessionsTable).values({
     sid,
     sess: { ...data, signedInAt: data.signedInAt ?? Date.now() } as unknown as Record<string, unknown>,
     expire: new Date(Date.now() + SESSION_TTL),
     userId: userId ?? null,
   });
   return sid;
+}
+
+/** A suspended account changes nothing at sign-in and gets no session (launch Phase 5, plan transition table). */
+export class SuspendedAccountError extends Error {
+  constructor() {
+    super("Account is suspended");
+    this.name = "SuspendedAccountError";
+  }
+}
+
+/**
+ * The session every sign-in door mints (password, Google/Apple, the
+ * verification link): the account's suspension is read under a share lock on
+ * its row and the session inserted in the same transaction. Suspension takes
+ * that row FOR UPDATE and revokes every session before it commits, so the two
+ * serialize: a suspension that commits first refuses this sign-in, and one
+ * that commits after it revokes the session minted here. Throws
+ * `SuspendedAccountError` when the account is suspended.
+ */
+export async function createSignInSession(data: SessionData, userId: string): Promise<string> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select({ suspendedAt: usersTable.suspendedAt })
+      .from(usersTable).where(eq(usersTable.id, userId)).for("share");
+    if (row?.suspendedAt) throw new SuspendedAccountError();
+    return createSession(data, userId, tx);
+  });
 }
 
 export async function getSession(sid: string): Promise<SessionData | null> {
