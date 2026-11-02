@@ -13,7 +13,7 @@ import request from "supertest";
 import bcrypt from "bcryptjs";
 
 import { db } from "@workspace/db";
-import { emailVerificationTokensTable, sessionsTable, usersTable } from "@workspace/db/schema";
+import { emailVerificationTokensTable, passwordResetTokensTable, sessionsTable, usersTable } from "@workspace/db/schema";
 import { and, eq, like, sql } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -115,6 +115,47 @@ describe("account suspension (T10)", () => {
     assert.equal((await login(member.email)).status, 200, "sign-in works again");
     const again = await sessionFor(member.id);
     assert.notEqual((await request(makeApp()).post("/api/users/me/search-history").set("authorization", `Bearer ${again}`).send({ query: "y" })).status, 403);
+  });
+
+  it("password recovery is closed while suspended: no reset link is issued, an earlier one is refused unused, and it works again after unsuspend", async () => {
+    const admin = await createUser({ admin: true });
+    const adminSid = await sessionFor(admin.id, { isAdmin: true });
+    const member = await createUser();
+    const providerOnly = await createUser();
+    await db.update(usersTable).set({ passwordHash: null, googleLinked: true }).where(eq(usersTable.id, providerOnly.id));
+    const app = makeApp();
+    const tokensOf = async (id: string) => db.select().from(passwordResetTokensTable).where(eq(passwordResetTokensTable.userId, id));
+    const hashOf = async (id: string) => (await db.select({ h: usersTable.passwordHash }).from(usersTable).where(eq(usersTable.id, id)))[0]!.h;
+
+    // A link issued before the suspension.
+    const rawToken = randomUUID().replace(/-/g, "");
+    await db.insert(passwordResetTokensTable).values({ userId: member.id, tokenHash: createHash("sha256").update(rawToken).digest("hex"), expiresAt: new Date(Date.now() + 3_600_000) });
+    for (const u of [member, providerOnly]) {
+      assert.equal((await request(app).post(`/api/admin/users/${u.id}/suspend`).set("authorization", `Bearer ${adminSid}`).send({ reason: "x" })).status, 200);
+    }
+
+    // Asking for a link: the same reply as for any address, and nothing issued.
+    const unknown = await request(app).post("/api/auth/forgot-password").send({ email: `${PREFIX}nobody@test.local` });
+    for (const u of [member, providerOnly]) {
+      const asked = await request(app).post("/api/auth/forgot-password").send({ email: u.email });
+      assert.equal(asked.status, 200);
+      assert.deepEqual(asked.body, unknown.body, "the reply tells nobody the account is suspended");
+    }
+    assert.equal((await tokensOf(member.id)).length, 1, "no new link for the suspended member");
+    assert.equal((await tokensOf(providerOnly.id)).length, 0, "no first-password link either");
+
+    // Using the earlier link: refused, the link unused, the password unchanged.
+    const before = await hashOf(member.id);
+    const reset = await request(app).post("/api/auth/reset-password").send({ token: rawToken, newPassword: "a brand new password" });
+    assert.equal(reset.status, 403);
+    assert.equal(reset.body.code, "ACCOUNT_SUSPENDED");
+    assert.equal((await tokensOf(member.id))[0]!.usedAt, null, "the link stays unused");
+    assert.equal(await hashOf(member.id), before, "the password is unchanged");
+
+    // After unsuspend the same link works.
+    assert.equal((await request(app).post(`/api/admin/users/${member.id}/unsuspend`).set("authorization", `Bearer ${adminSid}`)).status, 200);
+    assert.equal((await request(app).post("/api/auth/reset-password").send({ token: rawToken, newPassword: "a brand new password" })).status, 200);
+    assert.equal((await login(member.email, "a brand new password")).status, 200);
   });
 
   it("a suspended administrator no longer counts as one who can reach the console", async () => {

@@ -158,6 +158,14 @@ export class UnverifiedProviderEmailError extends Error {
   }
 }
 
+/** A suspended account changes nothing at sign-in, not even a provider link (plan, transition table). */
+export class SuspendedAccountError extends Error {
+  constructor() {
+    super("Account is suspended");
+    this.name = "SuspendedAccountError";
+  }
+}
+
 /** Google sends a boolean; Apple sends the string "true". Anything else is unverified. */
 export function providerEmailVerified(claims: Record<string, unknown>): boolean {
   const v = claims.email_verified;
@@ -179,6 +187,9 @@ async function upsertUser(
     .limit(1);
 
   const isNewUser = existing.length === 0;
+  // Decided before the upsert below writes anything: the select and the
+  // upsert's conflict target are the same row (the email).
+  if (existing[0]?.suspendedAt) throw new SuspendedAccountError();
   const emailVerified = providerEmailVerified(claims);
   if (!isNewUser && !emailVerified) throw new UnverifiedProviderEmailError();
 
@@ -393,6 +404,12 @@ async function handleOAuthCallback(
       res.redirect(`${basePath}/login?error=unverified_provider_email`);
       return;
     }
+    // Refused before anything is written or a session minted, the way every
+    // other sign-in refusal reaches the sign-in page.
+    if (err instanceof SuspendedAccountError) {
+      res.redirect(`${basePath}/login?error=account_suspended`);
+      return;
+    }
     Sentry.captureException(err, {
       tags: { auth: "oauth-callback" },
       extra: { provider, stage: "upsertUser" },
@@ -407,13 +424,6 @@ async function handleOAuthCallback(
 
   if (!dbUser.isActive) {
     res.status(403).send("Account deactivated");
-    return;
-  }
-
-  // Refused before a session is minted (plan, transition table), the way
-  // every other sign-in refusal reaches the sign-in page.
-  if (dbUser.suspendedAt) {
-    res.redirect(`${basePath}/login?error=account_suspended`);
     return;
   }
 

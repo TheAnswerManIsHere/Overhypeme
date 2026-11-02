@@ -263,11 +263,11 @@ describe("GET /api/callback/google", () => {
     }
   });
 
-  it("a suspended account is refused before a session is minted (launch Phase 5, T10)", async () => {
+  it("a suspended account is refused before anything is written or a session minted (launch Phase 5, T10)", async () => {
     const restoreEnv = applyFakeGoogleEnv();
     _setClientDiscoveryForTest(makeFakeDiscovery());
     const testEmail = `${USER_PREFIX}${randomUUID()}@test.local`;
-    const [suspended] = await db.insert(usersTable).values({ email: testEmail, isActive: true, emailVerifiedAt: new Date(), suspendedAt: new Date(), suspendedReason: "test" }).returning();
+    const [suspended] = await db.insert(usersTable).values({ email: testEmail, isActive: true, emailVerifiedAt: null, googleLinked: false, suspendedAt: new Date(), suspendedReason: "test" }).returning();
     _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
     const state = randomUUID();
     await _storePendingStateForTest(state, { codeVerifier: "v-susp", nonce: "n-susp", returnTo: "/", isPopup: false });
@@ -276,6 +276,14 @@ describe("GET /api/callback/google", () => {
       assert.equal(res.status, 302);
       assert.match(String(res.headers.location), /\/login\?error=account_suspended$/);
       assert.equal((await db.select().from(sessionsTable).where(eq(sessionsTable.userId, suspended!.id))).length, 0, "no session minted");
+      const [after] = await db.select().from(usersTable).where(eq(usersTable.id, suspended!.id));
+      assert.equal(after!.googleLinked, false, "the provider is not linked");
+      assert.equal(after!.emailVerifiedAt, null, "the email is not marked verified");
+      assert.deepEqual(
+        [after!.firstName, after!.lastName, after!.profileImageUrl, after!.updatedAt?.getTime()],
+        [suspended!.firstName, suspended!.lastName, suspended!.profileImageUrl, suspended!.updatedAt?.getTime()],
+        "no profile field is filled in",
+      );
     } finally {
       restoreEnv();
     }

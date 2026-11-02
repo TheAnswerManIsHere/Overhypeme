@@ -355,12 +355,14 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
     .where(eq(usersTable.email, email.toLowerCase().trim()))
     .limit(1);
 
-  // Silently skip an unknown address (the reply is the same either way). An
+  // Silently skip an unknown address, and a suspended one (the reply is the
+  // same either way, so it tells nobody which accounts are suspended; plan,
+  // transition table: recovery is closed while suspended). An
   // account with no password yet (made by Google or Apple sign-in) gets the
   // link too: following it proves the person controls the address, and sets
   // their first password. This is the way in the sign-in refusal for an
   // unconfirmed provider email points at (#800).
-  if (!user) {
+  if (!user || user.suspendedAt) {
     res.status(200).json({ message: GENERIC_RESET_MESSAGE });
     return;
   }
@@ -413,8 +415,9 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
 
   // A cheap read first, so a bogus or spent token never costs a bcrypt hash.
   const [resetToken] = await db
-    .select({ usedAt: passwordResetTokensTable.usedAt, expiresAt: passwordResetTokensTable.expiresAt })
+    .select({ usedAt: passwordResetTokensTable.usedAt, expiresAt: passwordResetTokensTable.expiresAt, ownerSuspendedAt: usersTable.suspendedAt })
     .from(passwordResetTokensTable)
+    .leftJoin(usersTable, eq(usersTable.id, passwordResetTokensTable.userId))
     .where(eq(passwordResetTokensTable.tokenHash, tokenHash))
     .limit(1);
   const refuse = (state: "invalid" | "used" | "expired") => {
@@ -428,6 +431,13 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
   if (!resetToken) { refuse("invalid"); return; }
   if (resetToken.usedAt !== null) { refuse("used"); return; }
   if (resetToken.expiresAt < new Date()) { refuse("expired"); return; }
+  // Recovery is closed while suspended; the link stays unused for after an
+  // unsuspend, like the verification link. Said here, to the holder of a
+  // link sent to the address, never at forgot-password.
+  if (resetToken.ownerSuspendedAt) {
+    res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
+    return;
+  }
 
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
