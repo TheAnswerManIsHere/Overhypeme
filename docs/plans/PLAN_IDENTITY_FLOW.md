@@ -342,7 +342,7 @@ Runners: `pnpm --filter overhype-me test`, `pnpm --filter overhype-me e2e:screen
    - route-based signed-out builder initialization waiting for a complete identity.
 
    The inventory oracle is re-run in the PR body. #713 is closed as replaced when this merges.
-2. **Increment 2:**
+2. **Increment 2** *(superseded by the Phase 2 amendment below)*:
    - the auth context's resolved-versus-failed distinction, with retry;
    - the callback's new-account signal through the session;
    - reconciliation;
@@ -359,6 +359,118 @@ Runners: `pnpm --filter overhype-me test`, `pnpm --filter overhype-me e2e:screen
    - in-place builder gating on landing pages;
    - app-controlled departures through the operation;
    - **Continue sharing** (Q5).
+
+## Amendment — Phase 2, the account (2026-11-01)
+
+**Status:** approved by David, 2026-11-01 ("Plan is approved"). David answered Questions P2-1 and P2-2 on 2026-11-02 (below): English-script names only, no fallback fonts, no older-name path. Where this section and *Increment 2* elsewhere in this plan disagree, this section wins. Increment 1 shipped. Launch Phase 5's onboarding (#795, PR #801) has landed since the plan was written. That onboarding is settled and is built on, not re-decided. The Phase 2 oracle is `.agents/reviews/identity-flow-phase2/oracle-identity-flow-phase2.md`, quoted from #719. It adds two things to oracle items 5–7: the shared name rule (David, 2026-10-21) and #725 (David, 2026-10-18).
+
+### What changed since the plan was written (premises re-read at `origin/main`, 2026-11-01)
+
+- **An account cannot write its identity before onboarding.** `requireEligibleActor.ts:59-66` lets an un-onboarded account reach only recovery, the onboarding draft and completion, and deletion, so `PATCH /users/me` is refused until onboarding completes.
+- **Onboarding owns the pronoun question, and has no name.** `GET /auth/onboarding` (`onboarding.ts:115-132`) returns `name: displayName ?? firstName`, but the draft and the completion (`:139`, `:160`) carry pronouns, date of birth and consent. They carry no name.
+- **The validator already keeps custom pronoun sets.** The plan's "pipes are stripped" premise is gone: `personalName.ts` keeps six-part sets, capped at 80 (#801). Two readers still fail them:
+  - `resolvedIdentityForms.ts:85` maps any `|` set to they/them.
+  - `memeBuilder.ts:27` `PRONOUN_ALLOWLIST` accepts five slash presets only.
+- **Sign-out already clears the browser copy before the network wait** (`use-sign-out.ts:10`). Late responses from the auth provider can still re-publish the account (`use-auth.ts:138`): its initial load, explicit refresh and entitlement-triggered refresh. That is #725.
+- **Name rules in force today** (inventory, `git grep` 2026-11-01):
+  - Server: `sanitizeAndValidatePersonalName` (`users.ts:278-300`, `localAuth.ts:134-177`, `auth.ts:202` for provider names, with the denylist skipped); `NameSchema` (`memeBuilder.ts:49`, 50 chars); `share.ts:94` (recipient name, a type check only); `admin.ts:257,1003` (display name as any string).
+  - Client: WelcomeModal 100 chars, Login 100, Profile 80, builder fields 40, ShareModal's recipient name unbounded.
+- **Fonts (measured 2026-11-01).**
+  - *Source-level, this container:* a meme rendered through `generateMemeBuffer` with Anton registered draws Arabic, Persian with ZWNJ, Devanagari, CJK and Hangul as missing-glyph boxes: ink per glyph equals that of U+10FFFD. Astra measured Telugu, Georgian and Armenian the same way, with the same result. Latin and accented Latin render. Fontconfig here has Noto, FreeSerif and WenQuanYi, and `@napi-rs/canvas` uses them only when they are named in the font stack: Astra's `"Impact", "FreeSerif"` drew Arabic, Devanagari and Georgian.
+  - *The built server ships no Anton at all.* The font is tracked at `src/lib/assets/fonts/`. The build (`build.mjs:151`) copies `src/assets`. The renderer's built-layout candidates (`memeGenerator.ts:24-27`) look in `dist/assets/fonts` and `assets/fonts`. The Repl's build, asked read-only: `ls: cannot access 'artifacts/api-server/dist/assets/fonts': No such file or directory`, and the same for `artifacts/api-server/assets/fonts`. So built memes today render in whatever face canvas falls back to, not Anton. Unable to verify on the published deployment itself, which builds the same way. This is a live defect independent of Phase 2, and it is fixed separately as a bugfix (see *Related*).
+
+### Product intent (Phase 2)
+
+1. Creating an account by email, Google or Apple puts the stored browser name and pronouns into the account without retyping. Onboarding shows them pre-filled, and confirming onboarding saves them.
+2. Once signed in, the account's name and pronouns win everywhere a name or pronouns is shown or used. An onboarded account missing a name or pronouns is asked once, through the same welcome sheet, and the answer saves to the account.
+3. Signing out clears the browser copy, and nothing that was in flight at sign-out puts the account's identity back (#725).
+4. One name rule decides what a name may be, everywhere a name is typed, saved or rendered. It admits names that can be written in English (David, 2026-11-02), and every admitted name renders in the meme font.
+5. A custom pronoun set the server stores renders as that set, not as they/them, in every server path that produces visitor-facing output.
+
+### Must not change (adds to the plan's list)
+
+- Onboarding stays the single place an un-onboarded account answers questions. Phase 2 adds no second pronoun ask and no second onboarding screen. The server's eligibility gate is not loosened.
+- A meme's subject, and a share recipient's name, stay independent of the visitor's own identity. They follow the same name rule, but editing them never edits the visitor (the plan's settled builder decision).
+- Already-baked memes are fixed artifacts (Launch Phase 5's settled decision); nothing re-renders them.
+- Existing browser values and links in circulation are still read, unaltered on read (see Question P2-1 for what happens when such a value is written to an account).
+- The memes' existing typography: the selected face (Anton by default) stays the face for every glyph it covers.
+
+### Settled decisions (Phase 2)
+
+- **Account completion rides onboarding, not a separate handover.** Every new account, by any method, reaches onboarding once verified. Two changes there:
+  - Onboarding's draft and completion gain the display name, under the shared name rule, and it is required.
+  - The name field initializes from, in order: its saved display-name draft (so a reload resumes an edit); the account's explicit `displayName`; the preserved browser name; blank. A provider's first or last name is never an existing display name. `GET /auth/onboarding`'s `displayName ?? firstName` is split so the client can tell them apart (Astra, round 1).
+  - The browser candidate is kept until onboarding has initialized. The account identity is published to the browser only after completion succeeds and the canonical re-read succeeds.
+  - Pronouns keep #801's order unchanged.
+  - **Email registration drops its own pronoun question.** Login's `PronounEditor`, its suggestion state and its required-choice gate (`Login.tsx:116`) go. Registration still sends a browser pronoun choice that was actually supplied, and onboarding confirms or asks, so there is one pronoun question (#801's settled decision).
+  - Verification, onboarding and identity readiness compose into one decision. An account not yet eligible never sees the profile-completion sheet, on `/check-email` included. The server's gate is unchanged.
+
+  Confirming onboarding is the one explicit action that writes both fields. That is "without retyping", and it needs no silent write. It replaces the plan's OAuth new-account signal through the session (`isNewUser` carried to the client), which is dropped: there is now no path where a new account needs a silent write. Onboarding pre-fills from what email registration stored.
+- **An account that has already been onboarded and is missing a name or pronouns** (accounts from before #801, or before this change) is asked through the welcome sheet. Its answer goes through the existing validated `PATCH /api/users/me`, followed by the canonical re-read. Both are kept from the plan, including the visible outcome of `refreshUser()`.
+- **The account wins thereafter.** An account with both fields is mirrored to the browser and never overwritten from it; this covers provider linking. One module does the mirroring. These duplicate writers are deleted:
+  - `AuthProfileSync`'s name handling;
+  - the name tag's account-sync effect;
+  - Profile's own publication of what it submitted;
+  - Onboard's own `syncFromProfile` call.
+
+  Each now goes through the module, and the module publishes only the canonical re-read.
+- **Stale auth responses are discarded.** Every response from the auth provider (initial load, explicit refresh, entitlement refresh, the module's re-read) is tied to the auth state that issued it. Sign-out invalidates that state when it *starts*, before its network wait, and so does a change of account. A response belonging to an invalidated state publishes nothing. The mechanism (a generation counter, abort signals) is chosen at build.
+- **Failed is not signed out.** The plan's resolved-versus-failed distinction in the auth context is kept: a failed read offers a retry and grants nothing, and fail-closed entitlements are unchanged.
+- **One shared name rule, one module, used by browser and server.** It lives in a workspace library both import, so the two sides cannot drift.
+  - **Admits (David, 2026-11-02, superseding "letters in any script"):** names that can be written in English: Latin letters (A–Z and the accented Latin-1 and Latin Extended-A letters), digits, space, `'`, `-` and `.`. Other scripts are refused until internationalization, after launch. Anton's charset covers U+0020–U+007E and U+00A0–U+0181, so every admitted name renders.
+  - **Converts:** ’ (U+2019) and ‘ (U+2018) to `'`; runs of whitespace to one space; trims the ends.
+  - **Limit:** 50 grapheme clusters, counted with `Intl.Segmenter`.
+  - **No word-count limit**, and no denylist change: the account save keeps its denylist and provider names keep skipping it, as today.
+  - **Normalization:** NFC before counting and storing.
+  - **Where it applies:** at every write boundary in the inventory above, server side (account `PATCH`, registration, the provider callback, onboarding, admin create and edit, share recipient, meme render, download and save) and client side (the welcome sheet, the signed-out name tag's editor, Login, Profile, Onboard, the builder fields, ShareModal's recipient, the admin user create and edit inputs).
+  - **How it behaves while typing:** inputs refuse a disallowed character as it is typed, pasted or committed from an IME, and show a short hint. During composition nothing is refused until the composition commits.
+  - **Provider names:** a provider-supplied first or last name that fails the rule is cleaned to what the rule admits, or dropped if nothing is left. Never refusing the sign-in, because the visitor did not type it.
+  - **Values already stored on accounts** are read as they are and are not migrated. They meet the rule only when next edited.
+- **No fallback fonts (David, 2026-11-02).** The name rule admits only characters Anton draws, so nothing is bundled; the font-coverage tests become one assertion that every character the rule admits has a glyph in Anton.
+- **Custom pronoun sets reach every server consumer intact.** `resolvedIdentityForms` parses a six-part set into its forms and its singular or plural marker; the client's `lib/pronouns.ts` is the reference. `memeBuilder.ts`'s `PronounsSchema` accepts any value `sanitizeAndValidatePronouns` accepts: the same rule as the account, not a second allowlist. Before anything changes, an inventory is taken of every server reader of `users.pronouns` and of the resolver (`git grep`, with shared helpers traced): meme render, bake and save, the legacy meme path, OG/share copy, the fact-of-the-day email, and image prompts. Each reader is either routed through the resolver or shown unreachable from a stored custom set. Image-prompt readers are checked for reachability first, because Phase 5 retired AI images of the visitor.
+
+### Testing (Phase 2)
+
+- **Journeys, callback to browser, against the test database:**
+  - new email, Google and Apple accounts each reach onboarding with the browser name and pronouns pre-filled, and completing it stores both;
+  - an existing onboarded nameless account is asked once by the sheet and saved;
+  - a named account and a linked provider are never overwritten;
+  - a provider first name that differs from the browser name: the browser name is what onboarding shows;
+  - a name edited in onboarding survives a reload, from its draft;
+  - an email sign-up with no prior pronoun choice is asked once, in onboarding;
+  - an account not yet verified never sees the completion sheet, `/check-email` included;
+  - a sign-out issued while each of the three auth reads is in flight leaves the browser copy empty (#725, one test per read);
+  - a sign-out landing between a save's response and its follow-up re-read publishes nothing, and neither does a change of account while a read is pending.
+- **The name rule:** a shared table of accepted and refused values, run by both the browser and the server suites, including accented Latin letters, a combining accent composed by NFC, a 50- versus 51-character pair, the curly apostrophe, an emoji and names in other scripts (refused). IME composition and paste are covered in a component test.
+- **Rendering:**
+  - a saved meme and a download, each with a custom pronoun set, show its forms;
+  - all five custom forms and both plurality markers through saved and downloaded output;
+  - every character the name rule admits draws a real glyph in Anton, not the missing-glyph box (the measurement above, turned into an assertion);
+  - a pixel comparison shows Latin output unchanged, for the default face and for one explicit non-default selection.
+- **Reader inventory:** the table goes in the PR body, each reader with its test or its unreachability evidence.
+
+### Related
+
+- **The built server ships no meme font** (found during this amendment, measured above). Fixed as its own bugfix, off `main`, before Phase 2: Issue #830 and PR #831. Phase 2's font work starts from a server that loads Anton.
+- **Next, not Phase 2:** the server registers only Anton, under the names "Anton" and "Impact" (`memeGenerator.ts`). A meme saved with DM Sans or JetBrains Mono selected is drawn on the server in a generic fallback, so it does not match its preview. Bebas Neue's stack falls to Impact, which is Anton. Recorded here so Phase 2's derived stack does not hide it. Bundling those faces is its own change.
+
+### Implementation steps (replaces *Implementation Steps* item 2)
+
+Phase 2 is one increment, on a fresh branch off `main`. Its build order matches its dependencies:
+1. The shared name rule and its table, then every write boundary and input.
+2. *(Dropped, David 2026-11-02: no fallback fonts.)*
+3. The pronoun resolver and validator, with the reader inventory.
+4. The auth context's failed state and stale-response invalidation.
+5. Onboarding gains the name.
+6. The module's account mirroring, and the duplicate writers deleted.
+7. The sheet's backstop for onboarded accounts missing identity.
+
+A specialist accounts-auth review goes on the PR, and the inventory oracle is re-run in the PR body.
+
+### Questions for David (Phase 2), answered 2026-11-02
+
+- **P2-1 — Older names that fail the new rule.** *"We're starting from scratch. There will be no older names."* No compatibility path is built. A read-only count found no failing account name in development (26 accounts) or production (1), so nothing was fixed.
+- **P2-2 — Font coverage versus size.** *"keep the site in English only and meant to support names that can be written in English. Internationalization will be a whole effort that we can take on after launch."* The rule admits English-script names only, and no fonts are bundled (`decisions.md`, 2026-11-02).
 
 ## Risks and Mitigations
 

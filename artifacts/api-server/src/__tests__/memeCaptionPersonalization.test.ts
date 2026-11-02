@@ -259,6 +259,23 @@ describe("resolveStoredMemeCaption — what a saved meme re-renders with", () =>
     }
   });
 
+  // A stored custom set (identity-flow Phase 2): a saved meme's caption shows
+  // the set's own five forms and its verb number, not they/them.
+  it("draws a custom pronoun set's own forms and verb number on a saved meme's caption", () => {
+    const template = "{Subj} {keeps|keep} {POSS} cool; {OBJ}, {POSS_PRO}, {REFL}.";
+    for (const [pronouns, expected] of [
+      ["fae|faer|faers|faers|faerself|s", "Fae keeps faers cool; faer, faers, faerself."],
+      ["fae|faer|faers|faers|faerself|p", "Fae keep faers cool; faer, faers, faerself."],
+    ] as const) {
+      const out = resolveStoredMemeCaption(
+        { text: template, canonicalText: "They keep their cool." },
+        { displayName: "Sam", pronouns },
+        { topText: template, bottomText: "" },
+      );
+      assert.equal(out.textOptions?.topText, expected, pronouns);
+    }
+  });
+
   it("resolves ze/zir and xe/xem to their OWN forms on the split halves, not they/them's", () => {
     // Round 1 regression: before this fix, resolveIdentityForms only
     // special-cased he/she and silently fell through to their/theirs for

@@ -230,7 +230,7 @@ describe("Turnstile at every challenged route (a secret configured)", () => {
     await db.update(usersTable).set({ emailVerifiedAt: new Date() }).where(eq(usersTable.id, userId));
     const sid = await bearerFor(userId);
     const app = makeApp();
-    const body = { pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: false };
+    const body = { displayName: "Pat", pronouns: "they/them", dobYear: "1990", dobMonth: "6", dobDay: "15", marketingOptIn: false };
     answer = "spent";
     const bad = await request(app).post("/users/me/onboarding").set("authorization", `Bearer ${sid}`).send({ ...body, captchaToken: "used" });
     assert.equal(bad.status, 400);

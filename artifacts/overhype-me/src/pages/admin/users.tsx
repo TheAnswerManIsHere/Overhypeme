@@ -1,3 +1,4 @@
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -153,6 +154,9 @@ export default function AdminUsers() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState<AddUserForm>(EMPTY_ADD_FORM);
+  // Admin name fields follow the shared name rule too (identity-flow Phase 2).
+  const addNameField = useNameField(addForm.displayName, (v) => setAddForm((f) => ({ ...f, displayName: v })));
+  const editNameField = useNameField(draft?.displayName ?? "", (v) => setDraft((d) => (d ? { ...d, displayName: v } : d)));
   const [addError, setAddError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
 
@@ -778,10 +782,10 @@ export default function AdminUsers() {
             <div>
               <FieldLabel>Display Name <span className="text-destructive">*</span></FieldLabel>
               <Input
-                value={addForm.displayName}
-                onChange={(e) => setAddForm((f) => ({ ...f, displayName: e.target.value }))}
+                {...addNameField.inputProps}
                 placeholder="Name inserted into personalized facts (e.g. Alex Smith)"
               />
+              <NameFieldHint hint={addNameField.hint} />
             </div>
 
             <div>
@@ -1072,10 +1076,10 @@ export default function AdminUsers() {
             <div>
               <FieldLabel>Display Name</FieldLabel>
               <Input
-                value={draft.displayName ?? ""}
-                onChange={(e) => setDraft((d) => d ? { ...d, displayName: e.target.value } : d)}
+                {...editNameField.inputProps}
                 placeholder="Name inserted into personalized facts"
               />
+              <NameFieldHint hint={editNameField.hint} />
             </div>
 
             {/* Email + Username */}

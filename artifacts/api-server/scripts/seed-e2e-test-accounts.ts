@@ -53,7 +53,7 @@ const definitions = JSON.parse(
 // Only after the refusals: these imports reach the database.
 const bcrypt = (await import("bcryptjs")).default;
 const { db, usersTable } = await import("@workspace/db");
-const { eq, inArray } = await import("drizzle-orm");
+const { and, eq, inArray, isNull } = await import("drizzle-orm");
 const { ensureBootstrapAdmin } = await import("./lib/bootstrapAdmin");
 const { authorizeAdminGrant } = await import("../src/lib/entitlementVerification");
 const { applyAdminGrant } = await import("../src/lib/membershipSources");
@@ -90,6 +90,15 @@ async function upsertAccount(def: AccountDefinition): Promise<string> {
 const freeId = await upsertAccount(definitions.free);
 const paidId = await upsertAccount(definitions.paid);
 const admin = await ensureBootstrapAdmin();
+// A test fixture, not a product default: the dev seed leaves the bootstrap
+// admin's pronouns unset (bootstrapAdmin.ts), and since identity-flow Phase 2
+// a set-up account missing pronouns is asked for them once, by a sheet that
+// covers the page. The browser journeys sign in as this admin to test other
+// things, so the E2E seed completes its identity the way that sheet would.
+await db
+  .update(usersTable)
+  .set({ pronouns: "they/them" })
+  .where(and(eq(usersTable.id, admin.id), isNull(usersTable.pronouns)));
 
 const { created } = await applyAdminGrant(
   authorizeAdminGrant({

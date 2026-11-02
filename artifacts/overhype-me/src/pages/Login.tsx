@@ -1,15 +1,14 @@
 /**
- * @purpose Sign-in page: email/password login or registration (registration requires pronouns client-side, suggested from the first name), Google and Apple sign-in, a resend-verification prompt, and the reset-success and OAuth error notices; a local sign-in returns to the safe from path.
+ * @purpose Sign-in page: email/password login or registration (no pronoun question of its own: a choice the browser already holds is sent, and onboarding asks — identity-flow Phase 2), Google and Apple sign-in, a resend-verification prompt, and the reset-success and OAuth error notices; a local sign-in returns to the safe from path.
  * @subsystem accounts-auth
  */
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { LogIn, UserPlus, ArrowLeft, Mail, Eye, EyeOff } from "lucide-react";
-import { PronounEditor } from "@/components/ui/PronounEditor";
-import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { isMobileDevice } from "@/lib/utils";
 import { getSafeReturnTo } from "@/lib/safe-return-to";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -58,8 +57,10 @@ export default function Login() {
   // Registration pre-fills from the visitor's stored identity, so nothing is retyped.
   const identity = usePersonName();
   const [displayName, setDisplayName] = useState(identity.name);
-  const [pronouns, setPronouns] = useState(identity.pronounsSupplied ? identity.pronouns : "");
-  const pronounsExplicit = useRef(identity.pronounsSupplied);
+  // Sign-up asks no pronoun question of its own (identity-flow Phase 2,
+  // following #801's single onboarding question): a choice this browser
+  // already holds is sent along, and onboarding confirms it or asks.
+  const suppliedPronouns = identity.pronounsSupplied ? identity.pronouns : "";
   const [showPassword, setShowPassword] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -80,14 +81,17 @@ export default function Login() {
     if (!lastNameTouched.current)  setLastName(parts.slice(1).join(" "));
   }, [displayName, mode]);
 
-  // Auto-suggest pronouns from the first name while the user hasn't made an explicit choice
-  useEffect(() => {
-    if (mode !== "register") return;
-    if (pronounsExplicit.current) return;
-    const suggested = inferPronounsFromName(displayName);
-    if (suggested) setPronouns(suggested);
-  }, [displayName, mode]);
   const [error, setError] = useState("");
+  // Every name field follows the shared name rule (identity-flow Phase 2).
+  const displayNameField = useNameField(displayName, setDisplayName);
+  const firstNameField = useNameField(firstName, (v) => {
+    firstNameTouched.current = true;
+    setFirstName(v);
+  });
+  const lastNameField = useNameField(lastName, (v) => {
+    lastNameTouched.current = true;
+    setLastName(v);
+  });
   const [loading, setLoading] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState("");
   const resetSuccess = getResetSuccess();
@@ -113,13 +117,8 @@ export default function Login() {
           setLoading(false);
           return;
         }
-        if (!pronouns) {
-          setError("Please select your pronouns.");
-          setLoading(false);
-          return;
-        }
         body.displayName = displayName;
-        body.pronouns = pronouns;
+        if (suppliedPronouns) body.pronouns = suppliedPronouns;
         body.firstName = firstName.trim();
         body.lastName  = lastName.trim();
       }
@@ -268,13 +267,12 @@ export default function Login() {
                   </label>
                   <Input
                     type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
+                    {...displayNameField.inputProps}
                     placeholder="How facts will address you (e.g. Alex Smith)"
                     required
-                    maxLength={100}
                     autoComplete="name"
                   />
+                  <NameFieldHint hint={displayNameField.hint} />
                   <p className="text-xs text-muted-foreground mt-1">This is the name inserted into personalized facts.</p>
                 </div>
 
@@ -285,16 +283,12 @@ export default function Login() {
                     </label>
                     <Input
                       type="text"
-                      value={firstName}
-                      onChange={(e) => {
-                        firstNameTouched.current = true;
-                        setFirstName(e.target.value);
-                      }}
+                      {...firstNameField.inputProps}
                       placeholder="First"
                       required
-                      maxLength={100}
                       autoComplete="given-name"
                     />
+                    <NameFieldHint hint={firstNameField.hint} />
                   </div>
                   <div>
                     <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
@@ -302,31 +296,15 @@ export default function Login() {
                     </label>
                     <Input
                       type="text"
-                      value={lastName}
-                      onChange={(e) => {
-                        lastNameTouched.current = true;
-                        setLastName(e.target.value);
-                      }}
+                      {...lastNameField.inputProps}
                       placeholder="Last"
                       required
-                      maxLength={100}
                       autoComplete="family-name"
                     />
+                    <NameFieldHint hint={lastNameField.hint} />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                    Pronouns <span className="text-destructive">*</span>
-                  </label>
-                  <PronounEditor
-                    value={pronouns}
-                    onChange={(v) => {
-                      pronounsExplicit.current = true;
-                      setPronouns(v);
-                    }}
-                  />
-                </div>
               </>
             )}
 
@@ -405,8 +383,6 @@ export default function Login() {
                     setError("");
                     firstNameTouched.current = false;
                     lastNameTouched.current  = false;
-                    // Allow auto-inference to run when switching to register if no explicit choice yet
-                    if (!pronouns) pronounsExplicit.current = false;
                   }}
                   className="text-primary font-bold hover:underline"
                 >

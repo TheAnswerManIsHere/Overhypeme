@@ -1,3 +1,4 @@
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,6 +23,9 @@ const PRONOUN_OPTIONS = [
 ];
 
 export function NameAndPronounFields({ name, pronouns, onNameChange, onPronounsChange }: Props) {
+  // A meme's subject is its own value, not the visitor's identity, but it
+  // follows the same name rule (identity-flow Phase 2).
+  const nameField = useNameField(name, onNameChange);
   return (
     <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
       <div className="grid gap-1.5">
@@ -30,11 +34,10 @@ export function NameAndPronounFields({ name, pronouns, onNameChange, onPronounsC
         </Label>
         <Input
           id="meme-builder-name"
-          value={name}
-          maxLength={40}
+          {...nameField.inputProps}
           placeholder="Type a name"
-          onChange={(e) => onNameChange(e.target.value)}
         />
+        <NameFieldHint hint={nameField.hint} />
       </div>
       <div className="grid gap-1.5">
         <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Pronouns</Label>

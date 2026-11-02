@@ -13,6 +13,31 @@
 
 ---
 
+### 2026-11-02 · Names are English-script only until internationalization; no fallback fonts at launch
+- **Decision:** the shared name rule (identity-flow Phase 2,
+  `lib/api-zod/src/personalNameRule.ts`) admits only names that can be
+  written in English: Latin letters (A–Z and the accented Latin-1 and Latin
+  Extended-A letters), digits, space, `'`, `-` and `.`, at most 50 visible
+  characters. Other scripts are refused. No fallback fonts are bundled: the
+  meme font, Anton, draws every admitted character. This supersedes the
+  "letters in any script" clause of the 2026-10-21 name rule. No
+  older-name compatibility path is built.
+- **Why:** David, 2026-11-02: *"Since we're starting US only, I don't think we
+  need to go crazy with fonts for every script. In fact, I think we want to
+  explicitly keep the site in English only and meant to support names that can
+  be written in English. Internationalization will be a whole effort that we can
+  take on after launch."* And on older names: *"We're starting from scratch.
+  There will be no older names."* A read-only count on 2026-11-02 found no
+  account name that fails the rule, in either the development database (26
+  accounts) or production (1). Measured the same day, the renderer drew every
+  non-Latin script as missing-glyph boxes, so "any script" would have needed
+  roughly 20–40 MB of fonts to keep its promise.
+- **Reference:** #719; `docs/plans/PLAN_IDENTITY_FLOW.md`, *Amendment — Phase 2*.
+- **Revisit if:** internationalization begins, or the site launches outside
+  the US.
+
+---
+
 ### 2026-10-31 · A saved meme is a stored file, baked once at save; the recipe stays as metadata
 - **Decision:** from launch Phase 5, increment 4, the server renders a meme once
   when it is saved and stores the image; `GET /memes/:slug/image` serves that

@@ -25,3 +25,4 @@ export * from "./moderationWorkflow";
 export * from "./renderScenarios";
 export * from "./factTextEdit";
 export * from "./stripeVerification";
+export * from "./personalNameRule";

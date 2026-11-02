@@ -14,48 +14,54 @@
  * served a signed-out "cold permalink" flow on /api/render-preview; that flow
  * went in launch Phase 4, and the render endpoints are signed-in only.)
  *
- * The pronoun allowlist is intentionally narrower than what the existing
- * `sanitizeAndValidatePronouns` helper accepts. The render endpoints draw a
- * smaller abuse surface because they accept anonymous traffic; restricting
- * pronouns to a curated set keeps the prompt-injection / weird-output blast
- * radius small while still covering the cases we actually surface in the UI.
+ * Names and pronouns follow the same rules as an account (identity-flow
+ * Phase 2): until then this file kept a five-preset pronoun allowlist and its
+ * own name rule, so a meme refused an account's own custom pronouns. The
+ * render endpoints are signed-in only since launch Phase 4.
  */
 
 import { z } from "zod";
+import { checkPersonalName } from "@workspace/api-zod";
+import { PRONOUN_WORD_CAP_UPPER_BOUND, sanitizePronounsWithCap } from "./personalName";
 
-/** Allowlist of pronoun strings accepted by Phase-4 endpoints (canonical "subj/obj" form). */
+/**
+ * The preset pronoun sets the builder offers. Not a gate: since identity-flow
+ * Phase 2 the meme endpoints accept any pronouns an account accepts, custom
+ * six-part sets included, so an account's own choice is never refused here.
+ */
 export const PRONOUN_ALLOWLIST = ["he/him", "she/her", "they/them", "xe/xem", "ze/zir"] as const;
-export type AllowedPronouns = (typeof PRONOUN_ALLOWLIST)[number];
 
 /**
- * Strict pronoun schema. Accepts only the canonical allowlist — case-insensitive
- * input is normalised to lower-case before the enum check so e.g. `"He/Him"`
- * still passes.
+ * Pronoun schema: the account's own pronoun rule (`sanitizePronounsWithCap`,
+ * the pipeline `sanitizeAndValidatePronouns` runs), with the largest per-word
+ * cap admin_config allows, so every value an account write accepted passes.
+ * Slash forms are lower-cased as before; a custom set keeps its forms as typed.
  */
-export const PronounsSchema = z
-  .string()
-  .min(1)
-  .max(20)
-  .transform((v) => v.toLowerCase().trim())
-  .pipe(z.enum(PRONOUN_ALLOWLIST));
+export const PronounsSchema = z.string().transform((v, ctx) => {
+  const trimmed = v.trim();
+  const input = trimmed.includes("|") ? trimmed : trimmed.toLowerCase();
+  const checked = sanitizePronounsWithCap(input, PRONOUN_WORD_CAP_UPPER_BOUND);
+  if (!checked.ok) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: checked.error });
+    return z.NEVER;
+  }
+  return checked.value;
+});
 
 /**
- * Strict name schema. Length 1-50, no newlines or other control characters.
- * Allows letters (any Unicode script), marks, digits, spaces, apostrophes,
- * hyphens, periods. The Unicode property escapes mean we do not need a
- * separate strip-control-chars pass — anything in `Cc` / `Cf` is rejected by
- * the regex outright.
+ * Name schema: the shared name rule (`checkPersonalName`, identity-flow
+ * Phase 2) — letters and marks in any script, digits, space, `'`, `-`, `.`,
+ * ZWJ/ZWNJ, at most 50 visible characters; a disallowed character is refused.
+ * The value is the rule's normalized form.
  */
-export const NameSchema = z
-  .string()
-  .min(1)
-  .max(50)
-  .refine((v) => !/[\n\r\t\v\f]/.test(v), { message: "Name must not contain control characters" })
-  .refine((v) => /^[\p{L}\p{M}\p{N} '.\-]+$/u.test(v), {
-    message: "Name may only contain letters, numbers, spaces, apostrophes, periods, and hyphens",
-  })
-  .transform((v) => v.replace(/\s+/g, " ").trim())
-  .refine((v) => v.length > 0, { message: "Name cannot be empty after trimming" });
+export const NameSchema = z.string().transform((v, ctx) => {
+  const checked = checkPersonalName(v);
+  if (!checked.ok) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: checked.error });
+    return z.NEVER;
+  }
+  return checked.value;
+});
 
 export const TextOptionsSchema = z.object({
   fontSize: z.number().int().min(14).max(100).optional(),

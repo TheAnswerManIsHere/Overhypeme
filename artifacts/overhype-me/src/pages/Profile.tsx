@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey, useUpdateMyProfile } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
@@ -10,7 +11,6 @@ import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
-import { usePersonName } from "@/hooks/use-person-name";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
@@ -114,7 +114,6 @@ export default function Profile() {
   });
 
   const updateProfile = useUpdateMyProfile();
-  const { setName: setPersonName, setPronouns: setPersonPronouns } = usePersonName();
 
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   /**
@@ -144,6 +143,10 @@ export default function Profile() {
   const [draftDisplayName, setDraftDisplayName] = useState("");
   const [draftFirstName, setDraftFirstName] = useState("");
   const [draftLastName, setDraftLastName] = useState("");
+  // Every name field follows the shared name rule (identity-flow Phase 2).
+  const displayNameField = useNameField(draftDisplayName, setDraftDisplayName);
+  const firstNameField = useNameField(draftFirstName, setDraftFirstName);
+  const lastNameField = useNameField(draftLastName, setDraftLastName);
   const [draftAvatarStyle, setDraftAvatarStyle] = useState("bottts");
   const [draftPronouns, setDraftPronouns] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
@@ -618,9 +621,15 @@ export default function Profile() {
     try {
       const result = await updateProfile.mutateAsync({ data: body });
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-      // Sync the PersonNameContext so fact cards re-render immediately without a page refresh
-      if (body.displayName !== undefined) setPersonName(body.displayName);
-      if (body.pronouns   !== undefined) setPersonPronouns(body.pronouns);
+      // The browser copy takes the saved identity from the account's
+      // re-read, through AccountIdentityMirror (identity-flow Phase 2), never
+      // from what was submitted: a re-read that did not land confirms nothing.
+      const confirmed = await refreshUser();
+      if (!confirmed && (body.displayName !== undefined || body.pronouns !== undefined)) {
+        setEditSuccess("Profile saved. We couldn't refresh it here yet; reload the page to see the change everywhere.");
+        setEditing(false);
+        return;
+      }
       if (result.emailVerificationPending) {
         setEditSuccess(`Profile saved. A verification email has been sent to ${draftEmail}. Check your inbox to confirm the change.`);
       } else {
@@ -1206,12 +1215,11 @@ export default function Profile() {
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Display Name</label>
                 <input
                   type="text"
-                  value={draftDisplayName}
-                  onChange={(e) => setDraftDisplayName(e.target.value)}
+                  {...displayNameField.inputProps}
                   placeholder="How you want to appear on the site"
-                  maxLength={80}
                   className="w-full max-w-md bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                 />
+                <NameFieldHint hint={displayNameField.hint} />
                 <p className="text-xs text-muted-foreground mt-1">This name appears on your facts and profile.</p>
               </div>
 
@@ -1224,23 +1232,21 @@ export default function Profile() {
                     <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">First Name</label>
                     <input
                       type="text"
-                      value={draftFirstName}
-                      onChange={(e) => setDraftFirstName(e.target.value)}
+                      {...firstNameField.inputProps}
                       placeholder="Legal first name"
-                      maxLength={80}
                       className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                     />
+                    <NameFieldHint hint={firstNameField.hint} />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Last Name</label>
                     <input
                       type="text"
-                      value={draftLastName}
-                      onChange={(e) => setDraftLastName(e.target.value)}
+                      {...lastNameField.inputProps}
                       placeholder="Legal last name"
-                      maxLength={80}
                       className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                     />
+                    <NameFieldHint hint={lastNameField.hint} />
                   </div>
                 </div>
               </div>

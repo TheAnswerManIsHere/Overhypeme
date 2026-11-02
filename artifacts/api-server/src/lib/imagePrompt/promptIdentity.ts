@@ -31,7 +31,7 @@
 
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
-import { RENDERED_IDENTITY_NAME_MAX } from "@workspace/api-zod";
+import { RENDERED_IDENTITY_NAME_MAX, truncateGraphemes } from "@workspace/api-zod";
 import { CANONICAL_NAME } from "../renderCanonical";
 
 export const PROMPT_IDENTITY_SNAPSHOT_VERSION = 1 as const;
@@ -63,15 +63,10 @@ export interface PromptIdentitySnapshot {
  * throw.
  */
 export function graphemeSafeTruncate(s: string, max: number): string {
-  if (!s || max <= 0) return "";
-  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
-    const clusters = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s)].map(
-      (x) => x.segment,
-    );
-    return clusters.length <= max ? s : clusters.slice(0, max).join("");
-  }
-  const codePoints = [...s];
-  return codePoints.length <= max ? s : codePoints.slice(0, max).join("");
+  if (!s) return "";
+  // The shared grapheme cut (personalNameRule), so the name rule's count and
+  // this cut can never disagree.
+  return truncateGraphemes(s, max);
 }
 
 /**
@@ -106,10 +101,16 @@ export function reducePromptName(identity: { firstName?: string | null; displayN
  */
 export function clampPronouns(pronouns: string | null | undefined): string | null {
   if (!pronouns) return null;
-  const parts = pronouns.split("/");
+  // A custom six-part set (`subj|obj|poss|possPro|refl|s|p`) is clamped per
+  // form and keeps its six slots, empty ones included, so it still parses as
+  // a custom set (identity-flow Phase 2); splitting it on "/" treated the
+  // whole set as one form and could cut it into a malformed string.
+  const custom = pronouns.includes("|");
+  const sep = custom ? "|" : "/";
+  const parts = pronouns.split(sep);
   const clamped = parts.map((p) => graphemeSafeTruncate(p.trim(), RENDERED_IDENTITY_NAME_MAX));
   if (clamped.every((p, i) => p === parts[i]!.trim())) return pronouns;
-  return clamped.filter(Boolean).join("/");
+  return (custom ? clamped : clamped.filter(Boolean)).join(sep);
 }
 
 // ─── Snapshot builders ──────────────────────────────────────────────────────

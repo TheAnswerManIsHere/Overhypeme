@@ -62,7 +62,6 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   await page.getByPlaceholder(/How facts will address you/).fill("Journey Tester");
   await page.getByPlaceholder("First").fill("Journey");
   await page.getByPlaceholder("Last").fill("Tester");
-  await page.getByRole("button", { name: "they/them" }).click();
   await page.getByPlaceholder("Min 8 characters").fill(FIRST_PASSWORD);
   await page.getByRole("button", { name: /create account/i }).click();
   await expect(page.getByRole("heading", { name: "CHECK YOUR EMAIL" })).toBeVisible();
@@ -91,10 +90,13 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   const verifyLink = await waitForEmailLink({ to: email, linkPath: "/verify-email", since: registeredAt });
   await page.goto(verifyLink);
 
-  // The link lands on the one onboarding screen (launch Phase 5). The pronouns
-  // chosen at sign-up come back for confirmation; a reload part-way through
-  // brings the saved draft back.
+  // The link lands on the one onboarding screen (launch Phase 5). The name
+  // given at sign-up is pre-filled (identity-flow Phase 2); sign-up asks no
+  // pronoun question of its own, so onboarding asks it; a reload part-way
+  // through brings the saved draft back.
   await expect(page.getByRole("heading", { name: /one quick set-up/i })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("textbox", { name: "Your name" }), "the sign-up name is pre-filled").toHaveValue("Journey Tester");
+  await page.getByRole("button", { name: "they/them" }).click();
   await page.getByLabel("Month").fill("6");
   await page.getByLabel("Day").fill("15");
   await page.getByLabel("Year").fill("1990");
@@ -111,7 +113,7 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   // The profile carries the verification confirmation; the server must have
   // accepted the token, which the next assertion checks directly.
   await expect(page.getByText(/verified successfully/i)).toBeVisible();
-  expect((await currentUser(page))?.["pronouns"], "the sign-up choice was kept through onboarding").toBe("they/them");
+  expect((await currentUser(page))?.["pronouns"], "the onboarding choice was saved").toBe("they/them");
   expect((await currentUser(page))?.["eligibility"]).toBe("eligible");
   const profile = await page.request.get("/api/users/me");
   expect(profile.status()).toBe(200);

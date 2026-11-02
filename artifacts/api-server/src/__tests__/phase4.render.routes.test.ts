@@ -150,7 +150,7 @@ describe("POST /api/render-preview", () => {
         factId,
         imageSource: photo,
         name: "Alex",
-        pronouns: "garbage/value",
+        pronouns: "xe|xem",
       });
     assert.equal(res.status, 400);
     assert.equal(res.body.error, "invalid_input");
@@ -170,7 +170,7 @@ describe("POST /api/render-preview", () => {
     assert.equal(res.status, 400);
   });
 
-  it("rejects names with a newline", async () => {
+  it("rejects names with an emoji", async () => {
     const factId = await insertFact("a fact");
     const res = await request(makeApp())
       .post("/render-preview")
@@ -178,7 +178,7 @@ describe("POST /api/render-preview", () => {
       .send({
         factId,
         imageSource: photo,
-        name: "Alex\nSmith",
+        name: "Alex 😀",
         pronouns: "they/them",
       });
     assert.equal(res.status, 400);
@@ -237,7 +237,7 @@ describe("POST /api/render-preview", () => {
         factId,
         imageSource: photo,
         name: "Alex",
-        pronouns: "totally/wrong",
+        pronouns: "xe|xem",
       })
       .expect(400);
 

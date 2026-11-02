@@ -1,5 +1,5 @@
 /**
- * @purpose The one onboarding screen's server side (launch Phase 5, plan S5, S8, S22): reads what the form starts from, saves a half-finished form as a draft, and completes onboarding in one write — date of birth (under 13 refused with nothing stored), pronouns, the marketing-consent record and a fresh Turnstile challenge — for a verified account.
+ * @purpose The one onboarding screen's server side (launch Phase 5, plan S5, S8, S22): reads what the form starts from (the account's display name and a provider's first name kept apart), saves a half-finished form as a draft, and completes onboarding in one write — the display name (the shared name rule), date of birth (under 13 refused with nothing stored), pronouns, the marketing-consent record and a fresh Turnstile challenge — for a verified account.
  * @subsystem accounts-auth
  */
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -10,7 +10,7 @@ import { verifyCaptcha } from "../lib/captcha";
 import { MINIMUM_AGE, ageInYears } from "../lib/eligibility";
 import { ipFromRequest } from "../lib/transientRenderLog";
 import { REFUSAL_CODE } from "../middlewares/requireEligibleActor";
-import { sanitizeAndValidatePronouns } from "../lib/validators/personalName";
+import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 
 const router: IRouter = Router();
 
@@ -39,6 +39,7 @@ export function consentMethod(optIn: boolean, defaultChecked: boolean): "default
 }
 
 interface DraftBody {
+  displayName?: unknown;
   pronouns?: unknown;
   dobYear?: unknown;
   dobMonth?: unknown;
@@ -48,6 +49,7 @@ interface DraftBody {
 
 /** The draft as stored: only the fields the form has, each as the visitor typed it. */
 interface OnboardingDraft {
+  displayName?: string;
   pronouns?: string;
   dobYear?: string;
   dobMonth?: string;
@@ -63,6 +65,10 @@ function shortString(v: unknown, max: number): string | undefined {
 
 function toDraft(body: DraftBody): OnboardingDraft {
   const draft: OnboardingDraft = {};
+  // Kept as typed, so a reload resumes an edit; judged by the shared name
+  // rule at completion (identity-flow Phase 2).
+  const displayName = shortString(body.displayName, 200);
+  if (displayName) draft.displayName = displayName;
   const pronouns = shortString(body.pronouns, 80);
   if (pronouns) draft.pronouns = pronouns;
   const y = shortString(body.dobYear, 4);
@@ -129,7 +135,12 @@ router.get("/auth/onboarding", async (req: Request, res: Response) => {
     marketingDefault: marketingDefaultFor(req),
     marketingWordingVersion: MARKETING_WORDING_VERSION,
     accountPronouns: req.user.pronouns ?? null,
-    name: req.user.displayName ?? req.user.firstName ?? null,
+    // The account's own display name and a provider's first name, kept apart
+    // (identity-flow Phase 2): a Google or Apple first name is never an
+    // existing display name, so it must not displace the visitor's browser
+    // name in the form.
+    displayName: req.user.displayName ?? null,
+    providerFirstName: req.user.firstName ?? null,
     draft: (row?.onboardingDraft as OnboardingDraft | null) ?? null,
   });
 });
@@ -176,6 +187,15 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
     refuseUnderAge(res);
     return;
   }
+  if (!draft.displayName) {
+    res.status(400).json({ error: "Enter your name.", field: "displayName" });
+    return;
+  }
+  const displayName = await sanitizeAndValidatePersonalName(draft.displayName);
+  if (!displayName.ok) {
+    res.status(400).json({ error: displayName.error, field: "displayName" });
+    return;
+  }
   if (!draft.pronouns) {
     res.status(400).json({ error: "Choose your pronouns.", field: "pronouns" });
     return;
@@ -201,6 +221,7 @@ router.post("/users/me/onboarding", async (req: Request, res: Response) => {
     .update(usersTable)
     .set({
       dateOfBirth: dob,
+      displayName: displayName.value,
       pronouns: pronouns.value,
       marketingConsentAt: now,
       marketingConsentMethod: consentMethod(draft.marketingOptIn, marketingDefaultFor(req)),

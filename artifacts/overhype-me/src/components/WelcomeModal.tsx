@@ -3,6 +3,8 @@
  * @subsystem public-site
  */
 import { useState, useRef, useEffect } from "react";
+import { useAuth } from "@workspace/replit-auth-web";
+import { useUpdateMyProfile } from "@workspace/api-client-react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -12,6 +14,7 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { DEFAULT_PRONOUNS, isCustomPronouns, parseCustom } from "@/lib/pronouns";
 import { HighlightedFactText } from "@/components/facts/HighlightedFactText";
 import { teaserFor } from "@/components/welcomeTeaser";
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 
 /** Pronouns are saved only once the visitor can see them: a suggestion shown, or their own pick. Never the fallback. */
 function canSave(draftPronouns: string): boolean {
@@ -38,8 +41,24 @@ function FlameMark() {
 }
 
 export function WelcomeModal() {
-  const { name, pronouns, pronounsSupplied, setName, setPronouns } = usePersonName();
+  const person = usePersonName();
+  const { setName, setPronouns } = person;
   const { shouldAsk } = useIdentityGate();
+  const { isAuthenticated, refreshUser, user } = useAuth();
+  // What the sheet starts from. Signed in, each half the ACCOUNT already holds
+  // wins over this browser's copy, so completing a missing name never offers
+  // (and then saves) this device's pronouns over the account's own choice;
+  // the browser copy only supplies a candidate for a half the account lacks
+  // (identity-flow Phase 2, "the account wins").
+  const account = isAuthenticated ? (user as { displayName?: string | null; pronouns?: string | null } | null) : null;
+  const accountName = account?.displayName?.trim() || "";
+  const accountPronouns = account?.pronouns?.trim() || "";
+  const name = accountName || person.name;
+  const pronouns = accountPronouns || person.pronouns;
+  const pronounsSupplied = !!accountPronouns || person.pronounsSupplied;
+  const updateProfile = useUpdateMyProfile();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const [open, setOpen] = useState(false);
   const [draftName, setDraftName] = useState(name || "");
@@ -137,8 +156,7 @@ export function WelcomeModal() {
     };
   }, [open, knownName]);
 
-  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = e.target.value;
+  function handleNameValue(val: string) {
     nameTouchedRef.current = true;
     setDraftName(val);
     // Suggest pronouns from the name, locally, until the visitor picks; no
@@ -151,24 +169,49 @@ export function WelcomeModal() {
     setDraftPronouns(val);
   }
 
-  function handleSave() {
-    if (!canSave(draftPronouns)) return;
+  async function handleSave() {
+    if (!canSave(draftPronouns) || saving) return;
     const finalName = draftName.trim();
     if (!finalName) return; // disabled state should prevent this, but be defensive
-    setName(finalName);
-    setPronouns(draftPronouns);
-    setOpen(false);
+    if (!isAuthenticated) {
+      setName(finalName);
+      setPronouns(draftPronouns);
+      setOpen(false);
+      return;
+    }
+    // A set-up account missing its name or pronouns (identity-flow Phase 2):
+    // the answer saves to the ACCOUNT through the validated profile write,
+    // then the account is re-read; the account mirror publishes the result to
+    // this browser. A write that fails or is refused, or a re-read that does
+    // not land, keeps what was typed, says so, and offers Save again.
+    setSaving(true);
+    setSaveError("");
+    try {
+      await updateProfile.mutateAsync({ data: { displayName: finalName, pronouns: draftPronouns } });
+      if (!(await refreshUser())) {
+        setSaveError("Saved, but we couldn't confirm it yet. Try again.");
+        return;
+      }
+      setOpen(false);
+    } catch (err: unknown) {
+      const e = err as { data?: { error?: string }; response?: { data?: { error?: string } }; message?: string };
+      setSaveError(e?.data?.error ?? e?.response?.data?.error ?? "That didn't save. Try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && canSave(draftPronouns) && draftName.trim()) handleSave();
+    if (e.key === "Enter" && canSave(draftPronouns) && draftName.trim() && !nameField.tooLong) void handleSave();
   }
 
   const prefersReducedMotion = useReducedMotion();
+  // The shared name rule, applied as the name is typed (identity-flow Phase 2).
+  const nameField = useNameField(draftName, handleNameValue);
 
   if (!open) return null;
 
-  const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0;
+  const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0 && !nameField.tooLong && !saving;
   const teaser = teaserFor(draftName);
   const displayName = teaser.name;
 
@@ -188,15 +231,14 @@ export function WelcomeModal() {
       <div className="relative mb-3">
         <input
           type="text"
-          value={draftName}
-          onChange={handleNameChange}
+          {...nameField.inputProps}
           onKeyDown={handleKeyDown}
           placeholder="Full name"
           data-testid="identity-name-input"
-          maxLength={100}
           autoComplete="name"
           className="w-full h-[52px] md:h-[56px] px-4 bg-secondary border border-border rounded-[14px] text-[17px] md:text-[18px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
         />
+        <NameFieldHint hint={nameField.hint} />
       </div>
 
       <button
@@ -224,8 +266,13 @@ export function WelcomeModal() {
         )}
       </AnimatePresence>
 
+      {saveError && (
+        <p role="alert" data-testid="identity-save-error" className="mb-2 text-sm text-destructive">
+          {saveError}
+        </p>
+      )}
       <button
-        onClick={handleSave}
+        onClick={() => void handleSave()}
         disabled={!saveEnabled}
         data-testid="identity-save"
         className="w-full h-[52px] md:h-[56px] bg-primary text-white rounded-[14px] font-display font-bold text-[15px] uppercase tracking-[0.12em] flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

@@ -2,14 +2,9 @@
  * Unit tests for the personal-name validator.
  *
  * The validator is the gate for everything that ends up rendered into LLM
- * prompts via {NAME} / {SUBJ} / {OBJ} substitutions. Tests focus on the
- * three correctness pillars:
- *
- *   1. Strip control / zero-width characters before counting words/chars.
- *   2. Drop everything outside `[\p{L}\p{M}\p{N}'-]` plus whitespace.
- *   3. Enforce 3-word / 20-char-per-word caps from admin_config.
- *
- * Pronouns share the same pipeline plus a `/` separator and a 4-token cap.
+ * prompts via {NAME} / {SUBJ} / {OBJ} substitutions. Names follow the shared
+ * name rule (identity-flow Phase 2); pronouns keep their own pipeline: a `/`
+ * separator, a 4-token cap and the per-word cap.
  */
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
@@ -19,7 +14,6 @@ import {
   sanitizeAndValidatePronouns,
   sanitizePersonalNameSync,
   _resetPersonalNameValidatorCache,
-  NAME_VALIDATION_DEFAULT_MAX_WORDS,
   NAME_VALIDATION_DEFAULT_MAX_CHARS_PER_WORD,
 } from "../lib/validators/personalName.js";
 
@@ -28,74 +22,52 @@ describe("validators/personalName", () => {
     _resetPersonalNameValidatorCache();
   });
 
+  // Names follow the shared rule; its full table is personalNameRule.test.ts.
+  // These pin the server wrapper: refusal rather than stripping, no word cap,
+  // the 50-grapheme limit, and the sync variant.
   describe("sanitizeAndValidatePersonalName", () => {
-    it("accepts a clean 3-word ASCII name", async () => {
-      const r = await sanitizeAndValidatePersonalName("Pat O'Brien Jr");
-      assert.equal(r.ok, true);
-      assert.equal(r.ok && r.value, "Pat O'Brien Jr");
+    it("accepts a clean name and normalizes whitespace", async () => {
+      const r = await sanitizeAndValidatePersonalName("   Pat  O'Brien Jr   ");
+      assert.deepEqual(r, { ok: true, value: "Pat O'Brien Jr" });
     });
 
-    it("strips zero-width and control characters", async () => {
-      const raw = "Pa​t‮s";
-      const r = await sanitizeAndValidatePersonalName(raw);
-      assert.equal(r.ok, true);
-      assert.equal(r.ok && r.value, "Pats");
-    });
-
-    it("drops emoji, punctuation, and other disallowed chars", async () => {
-      const r = await sanitizeAndValidatePersonalName("Pat🦊!@# Doe");
-      assert.equal(r.ok, true);
-      assert.equal(r.ok && r.value, "Pat Doe");
-    });
-
-    it("collapses whitespace runs and trims", async () => {
-      const r = await sanitizeAndValidatePersonalName("   Pat\t\t  Doe   ");
-      assert.equal(r.ok, true);
-      assert.equal(r.ok && r.value, "Pat Doe");
-    });
-
-    it("rejects empty input", async () => {
-      for (const v of ["", "   ", "🦊!"]) {
+    it("refuses an emoji or punctuation instead of stripping it", async () => {
+      for (const v of ["Pat🦊 Doe", "Pat!@# Doe", "Pa\u200Bt"]) {
         const r = await sanitizeAndValidatePersonalName(v);
-        assert.equal(r.ok, false, `expected reject for ${JSON.stringify(v)}`);
+        assert.equal(r.ok, false, `expected refusal for ${JSON.stringify(v)}`);
       }
     });
 
-    it("rejects non-string input", async () => {
-      const r = await sanitizeAndValidatePersonalName(42 as unknown as string);
-      assert.equal(r.ok, false);
+    it("rejects empty and non-string input", async () => {
+      for (const v of ["", "   ", 42 as unknown as string]) {
+        assert.equal((await sanitizeAndValidatePersonalName(v)).ok, false);
+      }
     });
 
-    it("rejects more than 3 words", async () => {
-      const r = await sanitizeAndValidatePersonalName("one two three four");
-      assert.equal(r.ok, false);
-      assert.equal(r.ok === false && /3 words or fewer/.test(r.error), true);
+    it("has no word-count or per-word cap", async () => {
+      assert.equal((await sanitizeAndValidatePersonalName("one two three four five")).ok, true);
+      assert.equal((await sanitizeAndValidatePersonalName("x".repeat(40))).ok, true);
     });
 
-    it("rejects a single word over 20 characters", async () => {
-      const r = await sanitizeAndValidatePersonalName("x".repeat(21));
-      assert.equal(r.ok, false);
-      assert.equal(r.ok === false && /20 characters or fewer/.test(r.error), true);
+    it("caps at 50 visible characters", async () => {
+      assert.equal((await sanitizeAndValidatePersonalName("x".repeat(50))).ok, true);
+      assert.equal((await sanitizeAndValidatePersonalName("x".repeat(51))).ok, false);
     });
 
-    it("accepts unicode letters and marks (Café, Ünder)", async () => {
-      const r = await sanitizeAndValidatePersonalName("Café Ünder");
-      assert.equal(r.ok, true);
+    it("accepts English-script names, accents included, and refuses other scripts (David, 2026-11-02)", async () => {
+      assert.equal((await sanitizeAndValidatePersonalName("Café Ünder")).ok, true);
+      for (const v of ["مهر\u200Cناز", "李小龙", "Ольга"]) {
+        assert.equal((await sanitizeAndValidatePersonalName(v)).ok, false, v);
+      }
     });
   });
 
   describe("sanitizePersonalNameSync", () => {
-    it("uses the in-process defaults without hitting the DB", () => {
-      const r = sanitizePersonalNameSync("Pat Doe");
-      assert.equal(r.ok, true);
-      assert.equal(r.ok && r.value, "Pat Doe");
+    it("applies the same rule without the denylist", () => {
+      assert.deepEqual(sanitizePersonalNameSync("Pat Doe"), { ok: true, value: "Pat Doe" });
+      assert.equal(sanitizePersonalNameSync("Pat 🦊").ok, false);
     });
-    it("respects custom caps", () => {
-      const r = sanitizePersonalNameSync("Patrick Doe", { maxCharsPerWord: 5 });
-      assert.equal(r.ok, false);
-    });
-    it("default caps match exported constants", () => {
-      assert.equal(NAME_VALIDATION_DEFAULT_MAX_WORDS, 3);
+    it("keeps the pronoun per-word default", () => {
       assert.equal(NAME_VALIDATION_DEFAULT_MAX_CHARS_PER_WORD, 20);
     });
   });

@@ -13,7 +13,7 @@ import {
 import * as oidc from "openid-client";
 import * as Sentry from "@sentry/node";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { GetCurrentAuthUserResponse } from "@workspace/api-zod";
+import { GetCurrentAuthUserResponse, cleanProvidedPersonalName } from "@workspace/api-zod";
 import { db, usersTable, oauthPendingStatesTable } from "@workspace/db";
 import { eq, and, lt } from "drizzle-orm";
 import {
@@ -33,7 +33,6 @@ import {
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
 import { logger } from "../lib/logger";
-import { sanitizeAndValidatePersonalName } from "../lib/validators/personalName";
 import { effectiveTierForRow } from "../lib/membershipState";
 
 // Re-exported for back-compat with other route modules that import from "./auth".
@@ -197,13 +196,11 @@ async function upsertUser(
       ? (appleNameOverride?.lastName ?? null)
       : ((claims.family_name as string) || null);
 
-  async function safeName(input: string | null): Promise<string | null> {
-    if (!input) return null;
-    const result = await sanitizeAndValidatePersonalName(input, { skipDenylist: true });
-    return result.ok ? result.value : null;
-  }
-  const oidcFirstName = await safeName(rawFirstName);
-  const oidcLastName = await safeName(rawLastName);
+  // The visitor did not type these, so a name that fails the shared rule is
+  // cleaned to what it admits (or dropped), never a reason to refuse the
+  // sign-in, and the denylist is not applied (#709).
+  const oidcFirstName = cleanProvidedPersonalName(rawFirstName);
+  const oidcLastName = cleanProvidedPersonalName(rawLastName);
 
   const existingFirstName = existing[0]?.firstName ?? null;
   const existingLastName = existing[0]?.lastName ?? null;

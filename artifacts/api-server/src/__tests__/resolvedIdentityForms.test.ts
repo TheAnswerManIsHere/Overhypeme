@@ -12,7 +12,7 @@
  * PR #398 round 1 added ze/zir and xe/xem's own possessive/reflexive forms
  * (previously they silently fell through to they-style "their"/"theirs" —
  * two of `PRONOUN_ALLOWLIST`'s five options, not an edge case) and a guard
- * against a pipe-delimited custom pronoun string leaking its raw text into a
+ * against a malformed pipe-delimited pronoun string leaking its raw text into a
  * token. Grammatical number itself (the near-miss above) is unchanged by
  * that fix — it's a fully independent axis from which possessive set gets
  * used, which is exactly why both get their own tests below.
@@ -88,14 +88,28 @@ describe("resolveIdentityForms — token forms", () => {
     assert.equal(f.POSS, "their"); assert.equal(f.POSS_PRO, "theirs"); assert.equal(f.REFL, "themselves");
   });
 
-  it("never leaks a pipe-delimited custom pronoun string into a token", () => {
-    // This resolver doesn't parse the client's pipe-delimited custom format —
-    // naive "/"-splitting on a string with no "/" would otherwise yield the
-    // WHOLE raw string as SUBJ, which is worse than an unresolved token (it
-    // looks like real, garbled output rather than an obviously-broken one).
-    const f = resolveIdentityForms("Robin", "xe|xem|xyr|xyrs|xemself|s").tokens;
-    assert.equal(f.SUBJ, "they"); assert.equal(f.OBJ, "them");
-    assert.equal(f.POSS, "their"); assert.equal(f.POSS_PRO, "theirs"); assert.equal(f.REFL, "themselves");
+  it("resolves a custom pronoun set to its five forms, with either verb marker", () => {
+    for (const [marker, number] of [["s", "singular"], ["p", "plural"]] as const) {
+      const r = resolveIdentityForms("Robin", `xe|xem|xyr|xyrs|xemself|${marker}`);
+      const f = r.tokens;
+      assert.equal(f.SUBJ, "xe"); assert.equal(f.OBJ, "xem");
+      assert.equal(f.POSS, "xyr"); assert.equal(f.POSS_PRO, "xyrs"); assert.equal(f.REFL, "xemself");
+      assert.equal(f.Subj, "Xe"); assert.equal(f.Refl, "Xemself");
+      assert.equal(r.grammaticalNumber, number);
+    }
+  });
+
+  it("fills an empty custom form from they/them in its slot", () => {
+    const f = resolveIdentityForms("Robin", "fae||||faerself|s").tokens;
+    assert.equal(f.SUBJ, "fae"); assert.equal(f.OBJ, "them"); assert.equal(f.POSS, "their");
+    assert.equal(f.POSS_PRO, "theirs"); assert.equal(f.REFL, "faerself");
+  });
+
+  it("never leaks a malformed pipe string into a token", () => {
+    for (const bad of ["xe|xem|xyr", "xe|xem|xyr|xyrs|xemself|q", "|||||s"]) {
+      const f = resolveIdentityForms("Robin", bad).tokens;
+      assert.equal(f.SUBJ, "they", bad); assert.equal(f.OBJ, "them", bad);
+    }
   });
 
   it("NAME and NAME_POSSESSIVE reflect the given name", () => {

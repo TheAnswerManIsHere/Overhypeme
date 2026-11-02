@@ -61,7 +61,8 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   const { isAuthenticated, user, role, entitlements } = useAuth();
   const [, setLocation] = useLocation();
   const { rateFact } = useAppMutations();
-  const { name, pronouns } = usePersonName();
+  const { pronouns } = usePersonName();
+  const { builderSeed } = useIdentityGate();
   const [showStudio, setShowStudio] = useState(false);
 
   const { data: fact, isLoading } = useGetFact(id, {
@@ -99,8 +100,8 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
                 hasLibraryImages: role !== "anonymous" && role !== "unregistered",
               }}
               entryFlow="fact-detail"
-              initialName={name ?? undefined}
-              initialPronouns={pronouns ?? undefined}
+              initialName={builderSeed.name || undefined}
+              initialPronouns={builderSeed.pronouns || undefined}
               onComplete={() => setShowStudio(false)}
               onCancel={() => setShowStudio(false)}
             />
@@ -258,7 +259,7 @@ export default function FactDetail() {
 
   // A builder copies the identity once at mount, so a builder reached by its
   // route waits until the identity sheet has a complete identity (#719).
-  const { builderReady } = useIdentityGate();
+  const { builderReady, builderSeed } = useIdentityGate();
   const showMemeStudio = isMemeRoute && builderReady;
   const openMemeStudio = () => {
     setLocation(`/facts/${factId}/meme`);
@@ -296,8 +297,8 @@ export default function FactDetail() {
                 hasLibraryImages: role !== "anonymous" && role !== "unregistered",
               }}
               entryFlow="fact-detail"
-              initialName={name ?? undefined}
-              initialPronouns={pronouns ?? undefined}
+              initialName={builderSeed.name || undefined}
+              initialPronouns={builderSeed.pronouns || undefined}
               onComplete={(result) => {
                 if (result.kind === "saved" && result.permalinkUrl) {
                                 void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });

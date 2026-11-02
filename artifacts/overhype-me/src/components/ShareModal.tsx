@@ -1,3 +1,4 @@
+import { NameFieldHint, useNameField } from "@/hooks/use-name-field";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/Button";
@@ -166,7 +167,9 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
   const abortControllerRef = useRef<AbortController | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  const applyEnabled = canApply(recipientPronouns) && recipientName.trim().length > 0;
+  // The recipient's name follows the shared name rule too (identity-flow Phase 2).
+  const nameField = useNameField(recipientName, handleNameValue);
+  const applyEnabled = canApply(recipientPronouns) && recipientName.trim().length > 0 && !nameField.tooLong;
   const shareUrl = buildShareUrl(recipientName.trim(), recipientPronouns, path);
   const displayPron = displayPronouns(recipientPronouns);
   const computedShareText = shareText ?? DEFAULT_SHARE_TEXT(recipientName);
@@ -226,8 +229,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
     }, 450);
   }, []);
 
-  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = e.target.value;
+  function handleNameValue(val: string) {
     setRecipientName(val);
     hasOverriddenRef.current = false;
     triggerSuggestion(val);
@@ -345,8 +347,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
                 <div className="flex items-center gap-2">
                   <input
                     ref={nameInputRef}
-                    value={recipientName}
-                    onChange={handleNameChange}
+                    {...nameField.inputProps}
                     onKeyDown={(e) => e.key === "Enter" && applyEnabled && handleNext()}
                     placeholder="e.g. Alex, Sam, Jordan…"
                     className="flex-1 bg-secondary border border-border rounded-[14px] px-3 py-2 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground placeholder:font-normal"
@@ -355,6 +356,7 @@ export function ShareModal({ open, onClose, path = "/", factId, shareText }: Sha
                     <Loader2 className="w-4 h-4 text-muted-foreground animate-spin shrink-0" />
                   )}
                 </div>
+                <NameFieldHint hint={nameField.hint} />
               </div>
 
               {/* Pronouns */}

@@ -43,16 +43,24 @@ export function isIdentityComplete(c: IdentityCompleteness): boolean {
   return c.hasName && c.pronounsSupplied;
 }
 
+/** A signed-in account's identity is complete: a name and pronouns, both on the account. */
+export function isAccountComplete(displayName: string | null | undefined, pronouns: string | null | undefined): boolean {
+  return !!displayName?.trim() && !!pronouns?.trim();
+}
+
 export interface IdentityDecisionInput {
   auth: IdentityAuthState;
   completeness: IdentityCompleteness;
-  /**
-   * Phase 1 only: a signed-in account's display name. Signed-in completeness
-   * (name and pronouns on the account) arrives with account reconciliation in
-   * Phase 2; until then a signed-in visitor is asked only when neither the
-   * account nor the browser holds a name.
-   */
+  /** A signed-in account's display name. */
   accountDisplayName?: string | null;
+  /** A signed-in account's pronouns. */
+  accountPronouns?: string | null;
+  /**
+   * Whether the signed-in account is set up (verified and onboarded). An
+   * account that is not is never asked here: onboarding is where it answers,
+   * and the server refuses its identity writes until then.
+   */
+  accountEligible?: boolean;
   /** The current location (path). */
   location: string;
   /** The path this visit landed on (the first page of the page load). */
@@ -72,7 +80,12 @@ export function shouldAskForIdentity(input: IdentityDecisionInput): boolean {
   if (isSuppressedPath(location)) return false;
   if (!landingLapsed && location === landingLocation && isLandingExceptionPath(landingLocation)) return false;
   if (auth === "signedIn") {
-    return !completeness.hasName && !accountDisplayName?.trim();
+    // Identity-flow Phase 2: a set-up account is complete when the ACCOUNT
+    // has both a name and pronouns, whatever the browser holds; one missing
+    // either is asked once, through the same sheet, and the answer saves to
+    // the account. (Phase 1 asked only when neither held a name.)
+    if (input.accountEligible === false) return false;
+    return !isAccountComplete(accountDisplayName, input.accountPronouns);
   }
   return !isIdentityComplete(completeness);
 }
@@ -80,11 +93,16 @@ export function shouldAskForIdentity(input: IdentityDecisionInput): boolean {
 /**
  * Whether a builder may initialize its draft from the identity now. A builder
  * copies the identity once, at mount, so it starts only from a complete one.
- * Phase 1 gates signed-out arrivals; signed-in gating arrives with account
- * completion in Phase 2.
+ * A signed-out arrival needs a complete browser identity; a signed-in one, a
+ * complete account (Phase 2).
  */
-export function canStartBuilder(auth: IdentityAuthState, completeness: IdentityCompleteness): boolean {
+export function canStartBuilder(
+  auth: IdentityAuthState,
+  completeness: IdentityCompleteness,
+  accountComplete = true,
+): boolean {
   if (auth === "loading") return false;
-  if (auth === "signedIn") return true;
+  // A signed-in builder starts only from a complete account (Phase 2).
+  if (auth === "signedIn") return accountComplete;
   return isIdentityComplete(completeness);
 }

@@ -50,6 +50,10 @@ async function signInWith(page: Page, provider: "Google" | "Apple", email: strin
 
 async function finishSetUp(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { name: /one quick set-up/i })).toBeVisible({ timeout: 30_000 });
+  // A Google or Apple account starts with no display name (identity-flow
+  // Phase 2): the name field is required, and this browser holds none.
+  const name = page.getByRole("textbox", { name: "Your name" });
+  if (!(await name.inputValue())) await name.fill("Oauth Tester");
   await page.getByRole("button", { name: "they/them" }).click();
   await page.getByLabel("Month").fill("3");
   await page.getByLabel("Day").fill("9");

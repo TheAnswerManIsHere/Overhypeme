@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import { LANDING_LOCATION, usePersonName } from "@/hooks/use-person-name";
-import { canStartBuilder, shouldAskForIdentity, type IdentityAuthState } from "@/lib/identity";
+import { canStartBuilder, isAccountComplete, shouldAskForIdentity, type IdentityAuthState } from "@/lib/identity";
 
 export interface IdentityGate {
   /** The identity sheet should be open on this page now. */
@@ -18,6 +18,27 @@ export interface IdentityGate {
    * the identity is complete where Phase 1 requires it.
    */
   builderReady: boolean;
+  /**
+   * What a builder's draft starts from (identity-flow Phase 2): signed in, the
+   * ACCOUNT's own name and pronouns — never this browser's copy, which the
+   * account mirror updates only after the render that published the account,
+   * so a builder mounting in that render would copy the stale copy and keep
+   * it; signed out, the browser's.
+   */
+  builderSeed: { name: string; pronouns: string };
+}
+
+/** A builder's starting identity: the account's own fields when signed in, else the browser's. */
+export function builderSeedFor(
+  auth: IdentityAuthState,
+  account: { displayName?: string | null; pronouns?: string | null } | null,
+  browser: { name: string; pronouns: string },
+): { name: string; pronouns: string } {
+  if (auth !== "signedIn") return browser;
+  return {
+    name: account?.displayName?.trim() || browser.name,
+    pronouns: account?.pronouns?.trim() || browser.pronouns,
+  };
 }
 
 /**
@@ -29,22 +50,30 @@ export interface IdentityGate {
 let landingLapsed = false;
 
 export function useIdentityGate(): IdentityGate {
-  const { user, isAuthenticated, isLoading } = useAuth();
-  const { name, pronounsSupplied, shareLinkResolved } = usePersonName();
+  const { user, isAuthenticated, isLoading, status } = useAuth();
+  const { name, pronouns, pronounsSupplied, shareLinkResolved } = usePersonName();
   const [location] = useLocation();
   if (location !== LANDING_LOCATION) landingLapsed = true;
-  const auth: IdentityAuthState = isLoading ? "loading" : isAuthenticated ? "signedIn" : "signedOut";
+  // A failed auth read is not "signed out": nobody knows who this is yet, so
+  // the decision is "not yet" (identity-flow Phase 2, "unknown is not missing").
+  const auth: IdentityAuthState =
+    isLoading || status === "failed" ? "loading" : isAuthenticated ? "signedIn" : "signedOut";
   const completeness = { hasName: !!name.trim(), pronounsSupplied };
+  const account = user as { displayName?: string | null; pronouns?: string | null; eligibility?: string } | null;
+  const accountComplete = isAccountComplete(account?.displayName, account?.pronouns);
   return {
     shouldAsk: shouldAskForIdentity({
       auth,
       completeness,
-      accountDisplayName: (user as { displayName?: string | null } | null)?.displayName ?? null,
+      accountDisplayName: account?.displayName ?? null,
+      accountPronouns: account?.pronouns ?? null,
+      accountEligible: account?.eligibility === undefined ? undefined : account.eligibility === "eligible",
       location,
       landingLocation: LANDING_LOCATION,
       landingLapsed,
     }),
-    builderReady: shareLinkResolved && canStartBuilder(auth, completeness),
+    builderReady: shareLinkResolved && canStartBuilder(auth, completeness, accountComplete),
+    builderSeed: builderSeedFor(auth, account, { name, pronouns }),
   };
 }
 
