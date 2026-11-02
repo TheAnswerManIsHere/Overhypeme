@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Eye, EyeOff, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { useForgetThisBrowser } from "@/hooks/use-sign-out";
 import { pageNavigation } from "@/lib/navigation";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -73,6 +74,7 @@ function DeleteForm({ hasPassword, providers, returned, onCancel }: { hasPasswor
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [reauthProviders, setReauthProviders] = useState<Provider[] | null>(null);
+  const forgetThisBrowser = useForgetThisBrowser();
 
   async function submit() {
     setSubmitting(true);
@@ -86,8 +88,10 @@ function DeleteForm({ hasPassword, providers, returned, onCancel }: { hasPasswor
       });
       const data = (await res.json().catch(() => ({}))) as { purgeAfter?: string; error?: string; code?: string; providers?: Provider[] };
       if (res.ok && data.purgeAfter) {
-        // Every session is gone now, this one included: a full load starts the
+        // Every session is gone now, this one included. Forget the person in
+        // this browser as Sign out does, then a full load starts the
         // signed-out page fresh.
+        forgetThisBrowser();
         pageNavigation.go(`${BASE_URL}account/deletion?scheduled=${encodeURIComponent(data.purgeAfter)}`);
         return;
       }

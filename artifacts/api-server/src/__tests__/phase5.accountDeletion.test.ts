@@ -14,7 +14,7 @@ import {
   accountDeletionRequestsTable, commentsTable, entitlementSourceDisputesTable, pendingReviewsTable, factsTable, membershipEntitlementsTable,
   memesTable, ncmecReportsTable, reactionsTable, sessionsTable, uploadImageMetadataTable, userAiImagesTable, usersTable,
 } from "@workspace/db/schema";
-import { and, eq, inArray, like } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -24,6 +24,7 @@ import memesRouter from "../routes/memes.js";
 import usersRouter from "../routes/users.js";
 import storageRouter from "../routes/storage.js";
 import factsRouter from "../routes/facts.js";
+import reviewsRouter from "../routes/reviews.js";
 import adminRouter from "../routes/admin.js";
 import {
   acceptAccountDeletion, advanceAccountDeletion, cancelAccountDeletion, runAccountDeletionWorker,
@@ -48,7 +49,7 @@ function makeApp(): Express {
   app.use(express.json());
   app.use(authMiddleware);
   app.use(requireEligibleActor);
-  app.use("/api", accountDeletionRouter, usersRouter, memesRouter, storageRouter, adminRouter, factsRouter);
+  app.use("/api", accountDeletionRouter, usersRouter, memesRouter, storageRouter, adminRouter, factsRouter, reviewsRouter);
   return app;
 }
 
@@ -471,6 +472,7 @@ describe("the account deletion state machine (T3)", () => {
     assert.equal(after.commentCount, 2, "no comment count moves");
     assert.ok(after.submission, "the submission awaiting review stays");
     assert.equal(after.submission!.submittedById, null);
+    assert.ok(after.submission!.submitterDeletedAt, "marked as a former member's, unlike an import");
     assert.equal(after.heartCount, 1, "another member's meme keeps the heart in its total");
     assert.equal(after.heartRows.length, 1);
     assert.equal(after.heartRows[0]!.userId, null, "without the person's name");
@@ -478,6 +480,27 @@ describe("the account deletion state machine (T3)", () => {
     const listed = await request(makeApp()).get(`/api/facts/${after.comment!.factId}/comments`);
     const shown = (listed.body.comments as { id: number; authorName: string | null }[]).find((c) => c.id === after.comment!.id);
     assert.equal(shown?.authorName, "Former member", "the public list names a former member");
+  });
+
+  it("a submission kept after its author left becomes a fact credited to a former member when a moderator approves it", async () => {
+    restoreBilling = __setAccountDeletionBillingForTests(fakeBilling().fake);
+    const userId = await createUser();
+    const admin = await createUser({ admin: true });
+    const [review] = await db.insert(pendingReviewsTable)
+      .values({ submittedText: `${PREFIX}{NAME} outlived the account`, submittedById: userId, status: "pending", workflowStage: "triage_pending" } as never)
+      .returning();
+    await acceptAccountDeletion(userId, { requestedBy: "self", purgeAfter: past(), kick: false });
+    assert.equal(await advanceAccountDeletion(userId), "done");
+
+    const res = await request(makeApp()).post(`/api/admin/reviews/${review!.id}/provisional-approve`)
+      .set("authorization", `Bearer ${await sessionFor(admin, { isAdmin: true })}`).send({});
+    assert.equal(res.status, 200, res.text);
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, res.body.stagingFactId));
+    factIds.push(fact!.id);
+    assert.equal(fact!.submittedById, null);
+    assert.ok(fact!.submitterDeletedAt, "the fact keeps the former-member credit");
+    await db.execute(sql`DELETE FROM async_jobs WHERE payload->>'factId' = ${String(fact!.id)}`);
+    await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, review!.id));
   });
 
   it("an account an admin removes: its comments, submissions, votes and hearts go too, and what survives is recounted", async () => {

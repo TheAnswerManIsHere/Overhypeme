@@ -4,14 +4,32 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+vi.mock("@workspace/replit-auth-web", () => ({ useAuth: () => ({ logout: vi.fn() }) }));
+
 import { DeleteAccountSection } from "./DeleteAccountSection";
 import { pageNavigation } from "@/lib/navigation";
+import { PersonNameProvider } from "@/hooks/use-person-name";
+
+const WIZARD_KEY = "pending_meme_wizard_v2::42";
+
+/** The member's identity and a meme draft in this browser, as a signed-in member leaves them. */
+function seedBrowser() {
+  window.localStorage.setItem("fact_db_name", "Leaver");
+  window.localStorage.setItem("fact_db_pronouns", "they/them");
+  window.sessionStorage.setItem(WIZARD_KEY, JSON.stringify({ factId: 42 }));
+}
+
+function renderSection(props: { hasPassword: boolean; linkedProviders: string[] }) {
+  return render(<PersonNameProvider><DeleteAccountSection {...props} /></PersonNameProvider>);
+}
 
 function respond(status: number, body: unknown) {
   return vi.fn(async () => ({ ok: status >= 200 && status < 300, status, json: async () => body }) as Response);
 }
 
 afterEach(() => {
+  window.localStorage.clear();
+  window.sessionStorage.clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   window.history.replaceState(null, "", "/profile");
@@ -22,11 +40,15 @@ function open() {
 }
 
 describe("DeleteAccountSection", () => {
-  it("sends nothing until understood and the password is typed; then schedules and leaves for the confirmation", async () => {
+  it("sends nothing until understood and the password is typed; then schedules, forgets the member in this browser, and leaves for the confirmation", async () => {
     const fetchMock = respond(200, { scheduled: true, purgeAfter: "2026-11-15T23:00:00.000Z" });
     vi.stubGlobal("fetch", fetchMock);
-    const go = vi.spyOn(pageNavigation, "go").mockImplementation(() => {});
-    render(<DeleteAccountSection hasPassword linkedProviders={[]} />);
+    seedBrowser();
+    let browserAtLeaving: (string | null)[] = [];
+    const go = vi.spyOn(pageNavigation, "go").mockImplementation(() => {
+      browserAtLeaving = [window.localStorage.getItem("fact_db_name"), window.localStorage.getItem("fact_db_pronouns"), window.sessionStorage.getItem(WIZARD_KEY)];
+    });
+    renderSection({ hasPassword: true, linkedProviders: [] });
     open();
     const submit = screen.getByRole("button", { name: /^Delete my account$/ });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
@@ -36,6 +58,7 @@ describe("DeleteAccountSection", () => {
     expect((submit as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(submit);
     await waitFor(() => expect(go).toHaveBeenCalledWith("/account/deletion?scheduled=2026-11-15T23%3A00%3A00.000Z"));
+    expect(browserAtLeaving, "name, pronouns and the meme draft are gone before the page is left").toEqual([null, null, null]);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/users/me/deletion");
     expect(JSON.parse(String(init.body))).toEqual({ password: "hunter22" });
@@ -43,20 +66,23 @@ describe("DeleteAccountSection", () => {
 
   it("a wrong password is said plainly and nothing is left", async () => {
     vi.stubGlobal("fetch", respond(401, { error: "That password is not right.", code: "REAUTH_FAILED" }));
+    seedBrowser();
     const go = vi.spyOn(pageNavigation, "go").mockImplementation(() => {});
-    render(<DeleteAccountSection hasPassword linkedProviders={[]} />);
+    renderSection({ hasPassword: true, linkedProviders: [] });
     open();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.change(screen.getByLabelText("Your password"), { target: { value: "nope" } });
     fireEvent.click(screen.getByRole("button", { name: /^Delete my account$/ }));
     expect((await screen.findByRole("alert")).textContent).toBe("That password is not right.");
     expect(go).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(WIZARD_KEY), "a failed attempt forgets nothing").not.toBeNull();
+    expect(window.localStorage.getItem("fact_db_name")).toBe("Leaver");
   });
 
   it("a provider-only account is offered a fresh sign-in that comes back here", async () => {
     vi.stubGlobal("fetch", respond(401, { code: "REAUTH_REQUIRED", providers: ["google"] }));
     const go = vi.spyOn(pageNavigation, "go").mockImplementation(() => {});
-    render(<DeleteAccountSection hasPassword={false} linkedProviders={["google"]} />);
+    renderSection({ hasPassword: false, linkedProviders: ["google"] });
     open();
     expect(screen.queryByLabelText("Your password")).toBeNull();
     fireEvent.click(screen.getByRole("checkbox"));
@@ -67,7 +93,7 @@ describe("DeleteAccountSection", () => {
 
   it("back from that sign-in, the section is open and the address is clean", () => {
     window.history.replaceState(null, "", "/profile?delete=confirm");
-    render(<DeleteAccountSection hasPassword={false} linkedProviders={["apple"]} />);
+    renderSection({ hasPassword: false, linkedProviders: ["apple"] });
     expect(screen.getByText("You signed in again. You can delete your account now.")).toBeTruthy();
     expect(window.location.search).toBe("");
   });

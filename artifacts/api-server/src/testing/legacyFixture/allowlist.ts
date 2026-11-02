@@ -261,6 +261,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     id: "keep",
     submittedText: "fact-text",
     submittedById: "map-user",
+    submitterDeletedAt: "keep",
     matchingFactId: "ref:facts",
     matchingSimilarity: "keep",
     parentFactId: "ref:facts",

@@ -499,8 +499,9 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   "0118_registered_under_onboarding",
 
   // Hand-written (Launch Phase 5, increment 5b): reactions.user_id loses its
-  // NOT NULL, comments.author_deleted_at is added. DEFERRED like 0115's;
-  // source of truth: lib/db/src/schema/reactions.ts and comments.ts.
+  // NOT NULL; comments.author_deleted_at and pending_reviews.submitter_deleted_at
+  // are added. DEFERRED like 0115's; source of truth:
+  // lib/db/src/schema/reactions.ts, comments.ts and reviews.ts.
   "0119_keep_contributions_after_deletion",
 ]);
 

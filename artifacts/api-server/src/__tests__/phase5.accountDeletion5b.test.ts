@@ -163,7 +163,7 @@ describe("account deletion, increment 5b", () => {
     assert.ok(scheduled.text.includes("memes, photos and images are hidden"));
     const unfinished = buildUnfinishedAccountDeletionEmail(new Date(Date.now() + 14 * DAY), "https://example.test/account/deletion");
     assert.ok(unfinished.text.includes("never finished setting it up"));
-    assert.ok(unfinished.text.split("\n").includes("https://example.test/account/deletion"), "the keep link stands on its own line");
+    assert.match(unfinished.text, /^https:\/\/example\.test\/account\/deletion$/m, "the keep link stands on its own line");
     assert.ok(unfinished.html?.includes("Keep My Account"));
   });
 });

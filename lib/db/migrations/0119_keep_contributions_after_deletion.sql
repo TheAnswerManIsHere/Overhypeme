@@ -11,11 +11,17 @@
 -- 2. comments.author_deleted_at: set when the author left, so a comment with
 --    no author reads "a former member" rather than "anonymous" (the facts
 --    table has had submitter_deleted_at since 0117).
+-- 3. pending_reviews.submitter_deleted_at: set when the submitter left, and
+--    carried onto the fact a later approval creates, so a kept submission
+--    stays credited to a former member instead of reading like an import
+--    (an import's submission has no submitter either).
 --
 -- Row states: every existing row keeps its values (no row is rewritten); a
 -- reaction's user_id is null only after a purge; author_deleted_at is null on
--- every existing comment. Idempotent: DROP NOT NULL on a nullable column is a
+-- every existing comment, and submitter_deleted_at on every existing
+-- submission. Idempotent: DROP NOT NULL on a nullable column is a
 -- no-op, and ADD COLUMN IF NOT EXISTS.
 
 ALTER TABLE "reactions" ALTER COLUMN "user_id" DROP NOT NULL;
 ALTER TABLE "comments" ADD COLUMN IF NOT EXISTS "author_deleted_at" timestamp with time zone;
+ALTER TABLE "pending_reviews" ADD COLUMN IF NOT EXISTS "submitter_deleted_at" timestamp with time zone;

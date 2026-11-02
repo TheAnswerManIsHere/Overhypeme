@@ -90,6 +90,8 @@ export interface StagingReviewRow {
   id: number;
   submittedText: string;
   submittedById: string | null;
+  /** Set when the submitter deleted their account: the fact is credited to a former member. */
+  submitterDeletedAt?: Date | null;
   stagingFactId: number | null;
 }
 
@@ -113,6 +115,7 @@ export async function ensureStagingFact(
     .values({
       text: review.submittedText,
       submittedById: review.submittedById ?? undefined,
+      submitterDeletedAt: review.submitterDeletedAt ?? undefined,
       hasPronouns: PRONOUN_TOKEN_RE.test(review.submittedText),
       canonicalText: renderCanonical(review.submittedText),
       isActive: false,

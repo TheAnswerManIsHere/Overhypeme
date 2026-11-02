@@ -938,7 +938,7 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   let stagingFactId = 0;
   await db.transaction(async (tx) => {
     const { factId } = await prepareFirstTimeStagingPrep(tx, {
-      review: { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, stagingFactId: review.stagingFactId },
+      review: { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: review.stagingFactId },
       parentFactId: parentFactId ?? null,
       reviewedById: req.user.id,
       adminNote,

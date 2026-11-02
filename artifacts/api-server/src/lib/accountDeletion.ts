@@ -555,7 +555,7 @@ async function purgeAccount(userId: string, requestedBy: AccountDeletionRequeste
     if (!removedByAdmin) {
       await tx.update(commentsTable).set({ authorId: null, authorDeletedAt: new Date() }).where(eq(commentsTable.authorId, userId));
       await tx.execute(sql`UPDATE external_links SET added_by_id = NULL WHERE added_by_id = ${userId}`);
-      await tx.execute(sql`UPDATE pending_reviews SET submitted_by_id = NULL WHERE submitted_by_id = ${userId}`);
+      await tx.execute(sql`UPDATE pending_reviews SET submitted_by_id = NULL, submitter_deleted_at = now() WHERE submitted_by_id = ${userId}`);
     } else {
       await tx.execute(sql`DELETE FROM external_links WHERE added_by_id = ${userId}`);
       await tx.execute(sql`DELETE FROM pending_reviews WHERE submitted_by_id = ${userId}`);
