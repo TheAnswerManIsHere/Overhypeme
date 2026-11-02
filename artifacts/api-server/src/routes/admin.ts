@@ -87,13 +87,11 @@ function parseMembershipConfigValue(raw: string, dataType: string): number | nul
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
 }
-import { deriveEffectiveMembership, effectiveTierExpr } from "../lib/membershipState";
+import { effectiveTierExpr } from "../lib/membershipState";
 import { driftedMembershipUsers } from "../lib/membershipGraceSweep";
 import { graceSweepHealth } from "../lib/membershipSchedules";
-import { refreshAllSourcesForUser, refreshSubscriptionSource } from "../lib/membershipRefresh";
+import { refreshSubscriptionSource } from "../lib/membershipRefresh";
 import {
-  loadSourceSnapshots,
-  loadSourceStateVersions,
   hasQualifyingLifetimeSource,
   recomputeMembership,
   writeAdminGrant,
@@ -106,9 +104,7 @@ import {
   assertAdminPopulationSurvives,
   assertNotSelfDemotion,
   crossesBootstrapBoundary,
-  reserveAccountForDeletion,
   respondToGuardError,
-  type ReservationOutcome,
 } from "../lib/adminLockoutGuard";
 import { isReachableAdminSql, isRealAdminRow, isRealAdminSql } from "../lib/adminIdentity";
 import {
@@ -137,63 +133,6 @@ import { adminPurgeNow, pendingDeletion, purgeNowBody } from "../lib/accountDele
  */
 function adminLabel(actor: { displayName?: string | null; email?: string | null }): string {
   return [actor.displayName, actor.email].find((v) => (v ?? "").trim() !== "")?.trim() ?? "";
-}
-
-/**
- * Reinstatement recomputes from AUTHORITATIVE state, not from local rows.
- *
- * The old version asked "does a lifetime row exist" and "is there a subscription
- * whose period has not ended" — two bare-existence reads that both say yes for a
- * user whose purchase was refunded, or whose subscription Stripe has already
- * cancelled while the webhook was dropped. And reinstatement is a manual action
- * that can easily precede a reconciliation pass.
- *
- * So it refreshes every Stripe-backed source first. This is a rare,
- * high-consequence operation, so the extra retrieval is free.
- *
- * And an INCOMPLETE refresh may not return `legendary`. An earlier revision
- * recomputed from local state whenever the refresh failed and called that
- * "failing closed" — it is the opposite. The precise case reinstatement exists
- * to catch is a source whose cancellation webhook was dropped: locally it still
- * says `active`, and recomputing from that restores paid access on exactly the
- * evidence we could not confirm. Failing closed means declining to assert
- * Legendary without an authoritative read, which is what this does; the admin
- * can reinstate again once Stripe is reachable, and the scheduled reconciliation
- * repairs the source regardless.
- */
-/**
- * Refresh every Stripe-backed source before a reinstatement decides anything.
- *
- * Returns whether the refresh was COMPLETE. `failed` counts per-source failures
- * `refreshAllSourcesForUser` swallows internally, so the absence of a throw is
- * not evidence that every source was seen — and reinstating on a stale local row
- * is exactly how a cancelled subscription hands Legendary back.
- *
- * Deliberately returns no tier. An earlier revision derived one here, in its own
- * transaction, and the caller copied it into a later `UPDATE` — so a refund or
- * cancellation webhook recomputing in the gap was overwritten, restoring
- * Legendary with a null horizon and granting access indefinitely. The derivation
- * has to happen under the same lock as the write that lands it, which is the
- * caller's transaction, not this function's.
- */
-async function refreshSourcesForReinstatement(
-  userId: string,
-): Promise<{ complete: boolean; verifiedSourceIds: Set<number> }> {
-  try {
-    const { getUncachableStripeClient } = await import("../lib/stripeClient");
-    const stripe = await getUncachableStripeClient();
-    const { failed, verifiedSourceIds } = await refreshAllSourcesForUser(stripe, userId);
-    if (failed > 0) {
-      logger.warn({ userId, failed }, "reinstatement could not refresh every source — declining to restore Legendary");
-      return { complete: false, verifiedSourceIds };
-    }
-    return { complete: true, verifiedSourceIds };
-  } catch (err) {
-    logger.warn({ err, userId }, "reinstatement could not reach Stripe — declining to restore Legendary");
-    // A total failure verified nothing — never an empty set standing in for
-    // "everything was fine".
-    return { complete: false, verifiedSourceIds: new Set() };
-  }
 }
 
 const router: IRouter = Router();
@@ -250,7 +189,8 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   const body = req.body as Record<string, unknown>;
 
   const updates: Record<string, unknown> = {};
-  if (typeof body["isActive"] === "boolean") updates.isActive = body["isActive"];
+  // isActive is no longer an admin edit (launch Phase 5, Increment 7a):
+  // removal is suspension or deletion. Ignored if sent.
   if (typeof body["isAdmin"] === "boolean") updates.isAdmin = body["isAdmin"];
   if (typeof body["adminNotifications"] === "boolean") updates.adminNotifications = body["adminNotifications"];
   if (typeof body["disputeNotifications"] === "boolean") updates.disputeNotifications = body["disputeNotifications"];
@@ -290,13 +230,12 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   }
 
   // ── Lockout guards ──────────────────────────────────────────────────────
-  // Four mutation kinds can remove an admin's console access. Three are
-  // obvious; the fourth is an email change, because authMiddleware derives
-  // real-admin status partly FROM the email — so changing the last
-  // bootstrap-email-only admin's address removes their access without touching
-  // isAdmin or isActive, invisible to a guard scoped to the other three.
+  // Two edits here can remove an admin's console access: clearing isAdmin,
+  // and an email change, because authMiddleware derives real-admin status
+  // partly FROM the email — so changing the last bootstrap-email-only admin's
+  // address removes their access without touching isAdmin. (Suspension and
+  // deletion, the other two, have their own routes under the same guard.)
   const demoting = updates.isAdmin === false;
-  const deactivating = updates.isActive === false;
 
   // Self-demotion doesn't need the population lock or a DB read — `demoting`
   // comes straight from the request body, so it can't be stale.
@@ -316,27 +255,6 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     return;
   }
 
-  let reinstating = false;
-  if (updates.isActive === true && body["membershipTier"] === undefined) {
-    const [currentUser] = await db
-      .select({ isActive: usersTable.isActive })
-      .from(usersTable)
-      .where(eq(usersTable.id, id))
-      .limit(1);
-    reinstating = currentUser?.isActive === false;
-  }
-
-  // The Stripe retrieval runs OUTSIDE the transaction (invariant 1), and returns
-  // only whether it was complete — never a tier.
-  //
-  // The per-source versions are read BEFORE the refresh so "applied since we
-  // began" is answerable against COMMITTED state, whoever did the applying.
-  const versionsBeforeRefresh = reinstating
-    ? await loadSourceStateVersions(db, id)
-    : new Map<number, number>();
-  const refresh = reinstating
-    ? await refreshSourcesForReinstatement(id)
-    : { complete: true, verifiedSourceIds: new Set<number>() };
 
   let updated;
   try {
@@ -377,7 +295,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
       }
     }
 
-    const removesAdminAccess = demoting || deactivating || emailCrossesBootstrap;
+    const removesAdminAccess = demoting || emailCrossesBootstrap;
 
     // The lock, the count, and the write are ONE transaction. Splitting them
     // leaves the race the guard exists to close: at READ COMMITTED two
@@ -393,115 +311,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
       .where(eq(usersTable.id, id))
       .returning();
 
-    if (!row || !reinstating) return [row];
-
-    // Derived and written under the SAME lock, in the same transaction as the
-    // activation. `recomputeMembership` takes the user row `FOR UPDATE`, so a
-    // refund or cancellation webhook either lands before this and is counted, or
-    // waits behind it — where copying a previously-derived tier into this update
-    // would simply overwrite whatever it had just decided.
-    await recomputeMembership(tx, id);
-
-    if (!refresh.complete) {
-      // Fail closed — but only over sources that are ACTUALLY unverified, and
-      // only to the extent that the tier actually rests on them.
-      //
-      // "My refresh failed" is not the same as "this data is unverified". The
-      // common failure is `source_busy`, which means another writer held the
-      // lease — and that writer's own authoritative apply may well have landed
-      // while we waited. Overwriting the derived tier on that basis strands a
-      // paying user at `registered` with nothing scheduled to revisit them,
-      // since the event that would have fixed it has already been consumed.
-      //
-      // A source is TRUSTED if either is true:
-      //
-      //   1. We verified it ourselves. A successful verification can write
-      //      nothing at all — confirming a lifetime purchase was not refunded
-      //      is a no-op — so verification has to be tracked separately rather
-      //      than inferred from the version. Inferring it labelled a
-      //      verified-clean source stale whenever some OTHER source's version
-      //      moved.
-      //   2. Its version moved, meaning somebody else applied it since we
-      //      began. Per-source, not a single sequence watermark: sequences
-      //      advance outside commit, so a writer can allocate its token before a
-      //      `last_value` read and commit after it. Comparing committed row
-      //      values to committed row values is the only comparison that
-      //      respects commit order. A source absent from the "before" map is
-      //      new, therefore fresh; one that has since disappeared cannot be
-      //      stale.
-      //
-      // `admin_grant` never appears here at all — it has no provider state to
-      // verify against, so it is authoritative by construction.
-      const versionsNow = await loadSourceStateVersions(tx, id);
-      const staleSourceIds = new Set<number>();
-      for (const [sourceId, version] of versionsNow) {
-        if (refresh.verifiedSourceIds.has(sourceId)) continue;
-        const before = versionsBeforeRefresh.get(sourceId);
-        if (before !== undefined && before === version) staleSourceIds.add(sourceId);
-      }
-
-      if (staleSourceIds.size > 0) {
-        // Re-derive over the TRUSTED sources and persist that whole result —
-        // tier and horizon together.
-        //
-        // Two things go wrong if this is a boolean check that merely preserves
-        // what `recomputeMembership` wrote. An aggregate downgrade throws away
-        // independently authoritative entitlements: a comped member with a
-        // qualifying `admin_grant` would be dropped to `registered` by a
-        // transient Stripe outage on an unrelated subscription, with no provider
-        // event guaranteed to ever restore them. And preserving the all-sources
-        // result keeps the all-sources HORIZON — so a verified `past_due` source
-        // whose grace ends soon, sitting beside an unverified source that still
-        // looks indefinitely active locally, yields a null horizon and grants
-        // Legendary from the stale source forever, with the sweep recomputing
-        // the same wrong answer every hour.
-        //
-        // Deriving from `trusted` answers both: the tier reflects only sources
-        // we can stand behind, and the horizon is the one those sources
-        // actually support.
-        const trusted = (await loadSourceSnapshots(tx, id)).filter(
-          (snapshot) => !staleSourceIds.has(snapshot.id),
-        );
-        const derived = deriveEffectiveMembership(trusted, new Date());
-
-        // `unregistered` is an AUTH state, not an entitlement one, and the
-        // derivation must never promote out of it — `recomputeMembership`
-        // enforces exactly that, and writing `derived.tier` here bypassed it.
-        // Its no-source answer is `registered`, so an unregistered account being
-        // reinstated with any stale source would have been silently granted
-        // registration capabilities by the fail-closed path.
-        const [locked] = await tx
-          .select({ tier: usersTable.membershipTier })
-          .from(usersTable)
-          .where(eq(usersTable.id, id))
-          .limit(1);
-        const nextTier = locked?.tier === "unregistered" ? "unregistered" : derived.tier;
-
-        await tx
-          .update(usersTable)
-          .set({ membershipTier: nextTier, membershipValidUntil: derived.validUntil })
-          .where(eq(usersTable.id, id));
-
-        logger.info(
-          {
-            userId: id,
-            staleSources: staleSourceIds.size,
-            trustedTier: derived.tier,
-            trustedValidUntil: derived.validUntil,
-          },
-          "reinstatement refresh was incomplete — membership re-derived over the sources it could trust",
-        );
-      } else {
-        logger.info(
-          { userId: id },
-          "reinstatement refresh reported incomplete, but every source was either verified or applied " +
-            "by another writer since it began — the derived tier stands",
-        );
-      }
-    }
-
-    const [fresh] = await tx.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
-    return [fresh];
+    return [row];
     });
   } catch (err) {
     if (respondToGuardError(err, res)) return;
@@ -565,104 +375,9 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
     return;
   }
 
-  // ── Reserve BEFORE any irreversible work ────────────────────────────────
-  // The soft path (the hard one returned above, through the engine) runs
-  // Stripe cancellation and session revocation before the DB mutation that
-  // removes admin access. A
-  // guard on the final write would reject the last-admin case correctly but
-  // only after the damage it exists to prevent — so the reservation
-  // (is_active = false, under the population lock) runs first, and an
-  // already-reserved target resumes rather than 404ing.
-  let reservation: ReservationOutcome;
-  try {
-    assertNotSelfDemotion(req.user?.id, id);
-    reservation = await reserveAccountForDeletion(id);
-  } catch (err) {
-    if (respondToGuardError(err, res)) return;
-    throw err;
-  }
-  if (reservation.status === "not_found") {
-    res.status(404).json({ error: "User not found" });
-    return;
-  }
-  const resuming = reservation.status === "resuming";
-
-  // Soft delete: cancel subscription (non-fatal), revoke sessions, mark inactive
-  type SoftDeleteStage = "stripe" | "sessions" | "deactivate";
-  let currentStage: SoftDeleteStage = "stripe";
-
-  try {
-    // Step 1: Cancel active Stripe subscription (non-fatal)
-    let subscriptionCanceled = false;
-    const activeSubs = await db
-      .select({ stripeSubscriptionId: membershipEntitlementsTable.providerRef })
-      .from(membershipEntitlementsTable)
-      .where(and(
-        eq(membershipEntitlementsTable.userId, id),
-        eq(membershipEntitlementsTable.sourceType, "stripe_subscription"),
-        or(
-          eq(membershipEntitlementsTable.lifecycleStatus, "active"),
-          eq(membershipEntitlementsTable.lifecycleStatus, "trialing"),
-        ),
-      ));
-    if (activeSubs.length > 0) {
-      try {
-        const { getUncachableStripeClient } = await import("../lib/stripeClient");
-        const stripe = await getUncachableStripeClient();
-        let canceledCount = 0;
-        for (const sub of activeSubs) {
-          const subscriptionId = sub.stripeSubscriptionId;
-          if (!subscriptionId) continue;
-          try {
-            // Update cancel_at_period_end to false first to ensure cancel() is immediate
-            await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
-            await stripe.subscriptions.cancel(subscriptionId);
-            // Apply the cancellation LOCALLY rather than waiting for the
-            // webhook. Under a derived model, leaving the row `active` means a
-            // later reinstatement recomputes Legendary for a user whose
-            // subscription Stripe has already cancelled — and "the webhook
-            // usually closes the gap" is exactly what this model refuses.
-            // subscription_cancelled is recorded unconditionally by
-            // applySubscription itself on the status transition — passing it
-            // as a transitionEvent too would double-write it whenever this
-            // cancellation also happens to change the user's aggregate tier.
-            await refreshSubscriptionSource(stripe, subscriptionId);
-            canceledCount++;
-          } catch (e) {
-            logger.error({ err: e, subscriptionId }, "[soft-delete] Failed to cancel subscription");
-          }
-        }
-        subscriptionCanceled = canceledCount > 0;
-      } catch (e) {
-        logger.error({ err: e }, "[soft-delete] Stripe client initialization failed");
-      }
-    }
-
-    // Step 2: Invalidate all active sessions immediately
-    currentStage = "sessions";
-    const deletedSessions = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id)).returning({ sid: sessionsTable.sid });
-    const sessionsRevoked = deletedSessions.length;
-
-    // Step 3: Confirm the deactivation the reservation already performed.
-    //
-    // The reservation above IS this write — it was moved ahead of the Stripe
-    // and session stages so the last-admin case is rejected before any
-    // irreversible work. What remains here is reading back the row, which
-    // deliberately no longer filters on `isActive = true`: that filter is
-    // what turned a resumed half-done deletion into a bogus 404.
-    currentStage = "deactivate";
-    const [updated] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, id))
-      .limit(1);
-    if (!updated) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
-
-    res.json({ success: true, deleted: false, resumed: resuming, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
-  } catch (e) {
-    logger.error({ err: e, stage: currentStage }, "[soft-delete] Failed");
-    res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });
-  }
+  // The soft delete is retired (launch Phase 5, Increment 7a): an account is
+  // removed by suspension, or deleted through the engine above.
+  res.status(400).json({ error: "Soft delete is retired: suspend the account, or delete it with ?hard=true." });
 });
 
 // GET /admin/users/:id/membership — full membership status for a user

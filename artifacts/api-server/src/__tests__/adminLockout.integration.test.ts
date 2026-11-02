@@ -32,7 +32,6 @@ import {
   assertAdminPopulationSurvives,
   assertNotSelfDemotion,
   crossesBootstrapBoundary,
-  reserveAccountForDeletion,
 } from "../lib/adminLockoutGuard.js";
 
 const PREFIX = "tlockout-";
@@ -112,10 +111,11 @@ async function assertLockoutAllowed(targetId: string): Promise<void> {
 /**
  * Admins reachable right now that this file did NOT create.
  *
- * Three tests below cannot be isolated with the rollback trick: two exercise
- * `reserveAccountForDeletion`, which opens its own transaction, and one needs
- * two genuinely concurrent committed transactions. All three assert a property
- * that is only meaningful when the target really is the last reachable admin —
+ * A test below cannot be isolated with the rollback trick: it needs two
+ * genuinely concurrent committed transactions. (Two more exercised the soft
+ * delete's reservation until launch Phase 5's Increment 7a retired it.) It
+ * asserts a property that is only meaningful when the target really is the
+ * last reachable admin —
  * and committing a deactivation of foreign admins to arrange that is what broke
  * other suites the first time.
  *
@@ -291,88 +291,6 @@ describe("concurrent removals of DIFFERENT admins cannot both succeed", () => {
       1,
       "the population must never reach zero, whatever the interleaving",
     );
-  });
-});
-
-// ── Test 15 — reservation ordering and resumability ──────────────────────────
-
-describe("deletion reserves before any irreversible cleanup", () => {
-  it("refuses to reserve the last admin, leaving the row untouched", async (t) => {
-    if ((await foreignReachableAdminCount()) > 0) {
-      t.skip("needs an exclusive admin population; another suite has an active admin");
-      return;
-    }
-
-    const id = await createUser({ isAdmin: true });
-    await assert.rejects(() => reserveAccountForDeletion(id), AdminLockoutError);
-
-    const [row] = await db
-      .select({ isActive: usersTable.isActive })
-      .from(usersTable)
-      .where(eq(usersTable.id, id))
-      .limit(1);
-    assert.equal(row!.isActive, true, "a rejected reservation must not deactivate anything");
-  });
-
-  it("reserves by deactivating, so a concurrent request sees the reduced count", async (t) => {
-    if ((await foreignReachableAdminCount()) > 0) {
-      t.skip("needs an exclusive admin population; another suite has an active admin");
-      return;
-    }
-
-    const doomed = await createUser({ isAdmin: true });
-    await createUser({ isAdmin: true });
-
-    assert.equal(await ourReachableAdminCount(), 2);
-    const outcome = await reserveAccountForDeletion(doomed);
-    assert.equal(outcome.status, "reserved");
-    assert.equal(
-      await ourReachableAdminCount(),
-      1,
-      "the reservation must be visible to the same count the guard reads",
-    );
-  });
-
-  it("an already-reserved target resumes rather than reporting not-found", async () => {
-    const doomed = await createUser({ isAdmin: false });
-    await createUser({ isAdmin: true });
-
-    assert.equal((await reserveAccountForDeletion(doomed)).status, "reserved");
-    // Simulates a retry after a post-reservation stage failed.
-    assert.equal(
-      (await reserveAccountForDeletion(doomed)).status,
-      "resuming",
-      "a half-done deletion must be resumable, not a 404",
-    );
-  });
-
-  it("a retry cannot double-decrement the admin population", async (t) => {
-    if ((await foreignReachableAdminCount()) > 0) {
-      t.skip("needs an exclusive admin population; another suite has an active admin");
-      return;
-    }
-
-    const doomed = await createUser({ isAdmin: true });
-    await createUser({ isAdmin: true });
-
-    await reserveAccountForDeletion(doomed);
-    const afterFirst = await ourReachableAdminCount();
-    await reserveAccountForDeletion(doomed);
-    assert.equal(
-      await ourReachableAdminCount(),
-      afterFirst,
-      "re-running the guard on retry is safe: the target is already excluded",
-    );
-  });
-
-  it("reports not-found for an account that does not exist", async () => {
-    assert.equal((await reserveAccountForDeletion(`${PREFIX}nope`)).status, "not_found");
-  });
-
-  it("still reserves a non-admin freely when admins exist", async () => {
-    await createUser({ isAdmin: true });
-    const ordinary = await createUser({ isAdmin: false });
-    assert.equal((await reserveAccountForDeletion(ordinary)).status, "reserved");
   });
 });
 

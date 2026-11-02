@@ -172,7 +172,6 @@ export default function AdminUsers() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteErrorStage, setDeleteErrorStage] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
-  const [reactivating, setReactivating] = useState(false);
   /** The suspend form's reason; null while the form is closed. */
   const [suspendReason, setSuspendReason] = useState<string | null>(null);
   const [suspending, setSuspending] = useState(false);
@@ -493,30 +492,6 @@ export default function AdminUsers() {
       setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Request failed" });
     } finally {
       setSuspending(false);
-    }
-  }
-
-  async function reactivateUser() {
-    if (!selectedUser) return;
-    setReactivating(true);
-    setSaveResult(null);
-    try {
-      const res = await fetch(`/api/admin/users/${selectedUser.id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isActive: true }),
-      });
-      const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Reactivation failed");
-      const updated = data.user!;
-      setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
-      setSelectedUser(updated);
-      setSaveResult({ type: "success", message: "User reactivated. They can sign in again." });
-    } catch (err) {
-      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Reactivation failed" });
-    } finally {
-      setReactivating(false);
     }
   }
 
@@ -1350,21 +1325,6 @@ export default function AdminUsers() {
                 <Button variant="outline" onClick={() => setSuspendReason("")} className="w-full">
                   <Ban className="w-4 h-4" /> Suspend User
                 </Button>
-              )}
-              {!selectedUser.isActive && (
-                <>
-                  <div className="flex items-center gap-2 px-1 py-1">
-                    <UserX className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
-                    <span className="text-xs text-yellow-600 font-medium">This user is inactive (soft-deleted)</span>
-                  </div>
-                  <Button
-                    onClick={reactivateUser}
-                    isLoading={reactivating}
-                    className="w-full bg-green-600 hover:bg-green-600/90 text-white border-green-600"
-                  >
-                    <UserX className="w-4 h-4" /> Reactivate User
-                  </Button>
-                </>
               )}
               <Button
                 variant="outline"
