@@ -342,7 +342,11 @@ not an in-memory assumption.
 
 - Avoid destructive operations (drops, irreversible rewrites) unless the plan
   **explicitly** includes recovery/rollback.
-- Data deletion is two-phase (soft → hard) with anonymization holds where legally
+- Deleting a person's data goes through its owner's lifecycle, never a raw
+  delete: an account through the one deletion engine (a pending request, then a
+  purge that keeps or deletes by who asked;
+  [`accounts-and-auth.md`](../ai-context/accounts-and-auth.md#account-deletion)),
+  My content through its restore window, with anonymization holds where legally
   required — see `docs/data-lifecycle-retention-matrix.md`. Don't hard-delete where
   the product keeps history (e.g. rejected enrichment candidates are retained, not
   deleted).
