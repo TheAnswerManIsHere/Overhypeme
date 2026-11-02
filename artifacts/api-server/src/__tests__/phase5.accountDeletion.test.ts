@@ -11,7 +11,7 @@ import bcrypt from "bcryptjs";
 
 import { db } from "@workspace/db";
 import {
-  accountDeletionRequestsTable, commentsTable, entitlementSourceDisputesTable, factsTable, membershipEntitlementsTable,
+  accountDeletionRequestsTable, commentsTable, entitlementSourceDisputesTable, pendingReviewsTable, factsTable, membershipEntitlementsTable,
   memesTable, ncmecReportsTable, reactionsTable, sessionsTable, uploadImageMetadataTable, userAiImagesTable, usersTable,
 } from "@workspace/db/schema";
 import { and, eq, inArray, like } from "drizzle-orm";
@@ -23,6 +23,7 @@ import accountDeletionRouter from "../routes/accountDeletion.js";
 import memesRouter from "../routes/memes.js";
 import usersRouter from "../routes/users.js";
 import storageRouter from "../routes/storage.js";
+import factsRouter from "../routes/facts.js";
 import adminRouter from "../routes/admin.js";
 import {
   acceptAccountDeletion, advanceAccountDeletion, cancelAccountDeletion, runAccountDeletionWorker,
@@ -47,7 +48,7 @@ function makeApp(): Express {
   app.use(express.json());
   app.use(authMiddleware);
   app.use(requireEligibleActor);
-  app.use("/api", accountDeletionRouter, usersRouter, memesRouter, storageRouter, adminRouter);
+  app.use("/api", accountDeletionRouter, usersRouter, memesRouter, storageRouter, adminRouter, factsRouter);
   return app;
 }
 
@@ -401,7 +402,8 @@ describe("the account deletion state machine (T3)", () => {
     assert.equal(await objectExists(trash), true);
   });
 
-  it("the purge removes the person's files and rows, keeps facts and safety records, recounts what survives, and keeps a fact gallery's background", async () => {
+  /** One person with a bit of everything, purged as `requestedBy` asked. */
+  async function purgeScenario(requestedBy: "self" | "admin") {
     restoreBilling = __setAccountDeletionBillingForTests(fakeBilling().fake);
     const userId = await createUser();
     const other = await createUser();
@@ -421,37 +423,70 @@ describe("the account deletion state machine (T3)", () => {
       .values({ text: `${PREFIX}{NAME} is discussed`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}discussed`, commentCount: 2 })
       .returning();
     factIds.push(countedFact!.id);
-    await db.insert(commentsTable).values([
+    const [ownComment] = await db.insert(commentsTable).values([
       { factId: countedFact!.id, authorId: userId, text: `${PREFIX}comment`, status: "approved" },
       { factId: countedFact!.id, authorId: other, text: `${PREFIX}survivor`, status: "approved" },
-    ] as never);
+    ] as never).returning();
+    const [submission] = await db.insert(pendingReviewsTable).values({ submittedText: `${PREFIX}{NAME} waits for review`, submittedById: userId } as never).returning();
     const shared = await new ObjectStorageService().uploadObjectBuffer({ subPath: `ai-images/t_p5del_${randomUUID()}.jpg`, buffer: solidJpeg(32, 32), contentType: "image/jpeg" });
     await db.update(factsTable).set({ aiMemeImages: { neutral: [shared] } }).where(eq(factsTable.id, factId));
     await db.insert(userAiImagesTable).values({ userId, factId, gender: "neutral", storagePath: shared, imageType: "reference" });
     const [report] = await db.insert(ncmecReportsTable).values({ userId, matchSource: "arachnid", evidenceUri: `/objects/restricted/t_p5del_${randomUUID()}` }).returning();
 
-    await acceptAccountDeletion(userId, { requestedBy: "self", purgeAfter: past(), kick: false });
+    await acceptAccountDeletion(userId, { requestedBy, purgeAfter: past(), kick: false });
     assert.equal(await advanceAccountDeletion(userId), "done");
 
+    // Whoever asked: the account, its files, memes and uploads go; facts,
+    // safety records and a fact gallery's background stay.
     assert.equal((await db.select().from(usersTable).where(eq(usersTable.id, userId))).length, 0, "the account is gone");
     assert.equal(await objectExists(standalone), false, "a standalone upload is collected");
     assert.equal(await objectExists(memeSource), false);
     assert.equal(await objectExists(`/objects/${memeKey(saved.permalinkSlug, "jpg")}`), false, "the meme's own file is gone");
     assert.equal((await db.select().from(memesTable).where(eq(memesTable.permalinkSlug, saved.permalinkSlug))).length, 0);
     assert.equal((await db.select().from(uploadImageMetadataTable).where(eq(uploadImageMetadataTable.objectPath, standalone))).length, 0);
-    assert.equal((await db.select().from(commentsTable).where(eq(commentsTable.authorId, userId))).length, 0);
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, ownFact!.id));
     assert.equal(fact!.submittedById, null, "the fact stays");
     assert.ok(fact!.submitterDeletedAt, "credited to a former member");
-    const [recounted] = await db.select({ commentCount: factsTable.commentCount }).from(factsTable).where(eq(factsTable.id, countedFact!.id));
-    assert.equal(recounted!.commentCount, 1, "the fact's comment count drops the person's comment and keeps the survivor's");
-    const [survivor] = await db.select({ heartCount: memesTable.heartCount }).from(memesTable).where(eq(memesTable.id, othersMemeId));
-    assert.equal(survivor!.heartCount, 0, "another member's meme is recounted without the person's heart");
     assert.equal(await objectExists(shared), true, "a fact gallery's background is everyone's and stays");
     const [kept] = await db.select().from(ncmecReportsTable).where(eq(ncmecReportsTable.id, report!.id));
     assert.ok(kept, "the safety record survives");
     assert.equal(kept!.userId, null, "with the person set null");
     await db.delete(ncmecReportsTable).where(eq(ncmecReportsTable.id, report!.id));
+
+    const [comment] = await db.select().from(commentsTable).where(eq(commentsTable.id, ownComment!.id));
+    const [counted] = await db.select({ commentCount: factsTable.commentCount }).from(factsTable).where(eq(factsTable.id, countedFact!.id));
+    const [othersMemeNow] = await db.select({ heartCount: memesTable.heartCount }).from(memesTable).where(eq(memesTable.id, othersMemeId));
+    const heartRows = await db.select().from(reactionsTable).where(and(eq(reactionsTable.targetType, "meme"), eq(reactionsTable.targetId, othersMemeId)));
+    const [submissionNow] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, submission!.id));
+    if (submissionNow) await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, submission!.id));
+    await db.delete(reactionsTable).where(and(eq(reactionsTable.targetType, "meme"), eq(reactionsTable.targetId, othersMemeId)));
+    return { comment, commentCount: counted!.commentCount, heartCount: othersMemeNow!.heartCount, heartRows, submission: submissionNow };
+  }
+
+  it("a member who leaves: files, memes and uploads go; facts, comments and submissions stay credited to a former member; their hearts stay in the totals without their name", async () => {
+    const after = await purgeScenario("self");
+    assert.ok(after.comment, "the comment stays");
+    assert.equal(after.comment!.authorId, null);
+    assert.ok(after.comment!.authorDeletedAt, "credited to a former member");
+    assert.equal(after.commentCount, 2, "no comment count moves");
+    assert.ok(after.submission, "the submission awaiting review stays");
+    assert.equal(after.submission!.submittedById, null);
+    assert.equal(after.heartCount, 1, "another member's meme keeps the heart in its total");
+    assert.equal(after.heartRows.length, 1);
+    assert.equal(after.heartRows[0]!.userId, null, "without the person's name");
+
+    const listed = await request(makeApp()).get(`/api/facts/${after.comment!.factId}/comments`);
+    const shown = (listed.body.comments as { id: number; authorName: string | null }[]).find((c) => c.id === after.comment!.id);
+    assert.equal(shown?.authorName, "Former member", "the public list names a former member");
+  });
+
+  it("an account an admin removes: its comments, submissions, votes and hearts go too, and what survives is recounted", async () => {
+    const after = await purgeScenario("admin");
+    assert.equal(after.comment, undefined, "the comment is deleted");
+    assert.equal(after.commentCount, 1, "the fact's comment count drops the person's comment and keeps the survivor's");
+    assert.equal(after.submission, undefined, "the submission is deleted");
+    assert.equal(after.heartCount, 0, "another member's meme is recounted without the person's heart");
+    assert.equal(after.heartRows.length, 0);
   });
 
   it("the admin's hard delete purges now through the engine, and a departing administrator no longer counts as reachable", async () => {

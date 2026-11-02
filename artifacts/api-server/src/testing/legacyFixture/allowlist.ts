@@ -431,7 +431,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   }),
   include(s.commentsTable, {
     id: "keep", factId: "ref:facts", authorId: "map-user", text: "prose", status: "keep", flagged: "keep",
-    flagReason: "prose", heartCount: "keep", createdAt: "keep",
+    flagReason: "prose", heartCount: "keep", authorDeletedAt: "keep", createdAt: "keep",
   }),
   include(
     s.reactionsTable,

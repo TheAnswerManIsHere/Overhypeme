@@ -621,6 +621,18 @@ created under this onboarding flow that has not completed it 30 days after
 creation and has no active request (David, answer 6); accounts created
 before Increment 3 are never selected.
 
+*Amended 2026-11-02 (David's answers to "what should account deletion keep",
+after the deletion-scope research on Issue #795):* when the person leaves on
+their own, or an unfinished sign-up is cleaned up, the purge **keeps** what
+they gave the community — their comments, their submissions awaiting review
+and any fact links, credited to a former member like their facts
+(`comments.author_deleted_at`, 0119) — and the votes and hearts they cast stay
+in every total without their name (`reactions.user_id` set null, 0119), so no
+ranking moves when someone leaves. When an admin removes the account, the
+likely-abuse case, those are deleted and the surviving targets recounted, as
+above. Their memes, photos and images go either way. Members get their own
+comment-delete button in Phase 9, before launch (David, answer 2).
+
 **Suspension.** `users.suspended_at`, `suspended_reason`, `suspended_by`.
 `PATCH /admin/users/:id` gains `suspend`/`unsuspend`; suspending runs under
 the admin population lock and revokes every session. Sign-in paths refuse `ACCOUNT_SUSPENDED` before minting a

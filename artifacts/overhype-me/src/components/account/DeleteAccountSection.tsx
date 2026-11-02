@@ -117,8 +117,9 @@ function DeleteForm({ hasPassword, providers, returned, onCancel }: { hasPasswor
           <li>Your memes, photos and images are hidden at once.</li>
           <li>A paid membership is cancelled at once.</li>
           <li>For 14 days you can sign in and choose Keep my account to bring everything back.</li>
-          <li>After that your account, memes, photos, images, comments and reactions are removed for good.</li>
-          <li>Facts you submitted stay on the site, credited to a former member.</li>
+          <li>After that your account, memes, photos and images are removed for good.</li>
+          <li>Facts, comments and suggestions you submitted stay on the site, credited to a former member.</li>
+          <li>Your votes and hearts stay in the totals, without your name.</li>
           <li>Someone who already loaded one of your memes may still see it for up to a day.</li>
         </ul>
       </div>

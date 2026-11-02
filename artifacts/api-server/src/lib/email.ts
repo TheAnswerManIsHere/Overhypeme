@@ -547,7 +547,7 @@ export function buildAccountDeletionScheduledEmail(purgeAfter: Date, keepUrl: st
     "YOUR ACCOUNT IS SCHEDULED FOR DELETION.",
     "",
     `On ${date} your account, your memes, photos and images are removed from Overhype.me for good.`,
-    "Facts you submitted stay on the site, credited to a former member.",
+    "Facts, comments and suggestions you submitted stay on the site, credited to a former member. Your votes and hearts stay in the totals without your name.",
     "Until then you are signed out everywhere and your memes, photos and images are hidden.",
     "",
     "Changed your mind? Sign in before that date and choose Keep my account:",
@@ -559,7 +559,7 @@ export function buildAccountDeletionScheduledEmail(purgeAfter: Date, keepUrl: st
   ].join("\n");
   const body = `
 <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account Is<br/>Scheduled For Deletion</h1>
-<p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">On <strong style="color:#ffffff;">${date}</strong> your account, your memes, photos and images are removed from Overhype.me for&nbsp;good. Facts you submitted stay on the site, credited to a former&nbsp;member.</p>
+<p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">On <strong style="color:#ffffff;">${date}</strong> your account, your memes, photos and images are removed from Overhype.me for&nbsp;good. Facts, comments and suggestions you submitted stay on the site, credited to a former&nbsp;member. Your votes and hearts stay in the totals without your&nbsp;name.</p>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Until then you are signed out everywhere and your memes, photos and images are hidden. Changed your mind? Sign in before that date and keep your&nbsp;account.</p>
 ${ctaButton(keepUrl, "Keep My Account")}
 ${linkFallback(keepUrl)}

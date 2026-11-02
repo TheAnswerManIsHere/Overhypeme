@@ -1,5 +1,5 @@
 /**
- * @purpose The one account deletion engine (launch Phase 5, plan S14): accepts a request under the admin population lock (sessions revoked, content hidden by the live rule in the same commit), advances it stage by stage by compare-and-set — subscriptions cancelled, the person told, a billing dispute holding the purge — and at its date purges the account under the owner's content lock: their files through preserve, their memes, comments, links, reviews, uploads and generations, their reactions with the surviving targets recounted, facts kept and credited to a former member, the user row last. Cancel wins any race it can win; every stage is idempotent and resumes where a crash left it.
+ * @purpose The one account deletion engine (launch Phase 5, plan S14): accepts a request under the admin population lock (sessions revoked, content hidden by the live rule in the same commit), advances it stage by stage by compare-and-set — subscriptions cancelled, the person told, a billing dispute holding the purge — and at its date purges the account under the owner's content lock: their files through preserve, their memes, uploads and generations; their facts, comments, submissions and links kept and credited to a former member, and their votes and hearts kept in the totals without their name — or, when an admin removed the account, those deleted and the surviving targets recounted; the user row last. Cancel wins any race it can win; every stage is idempotent and resumes where a crash left it.
  * @subsystem security
  */
 import { db } from "@workspace/db";
@@ -467,7 +467,7 @@ export async function advanceAccountDeletion(userId: string, now = new Date()): 
             and(lte(adr.purgeAfter, now), sql`NOT ${disputeOpen(userId)}`)))) continue;
           break;
         case "purging":
-          await purgeAccount(userId);
+          await purgeAccount(userId, row.requestedBy);
           return "done";
         case "done":
           return "done";
@@ -507,7 +507,16 @@ async function ownedObjects(userId: string): Promise<string[]> {
  * `quarantined_memes` and `ncmec_reports` keep their rows with the person set
  * null by their foreign keys.
  */
-async function purgeAccount(userId: string): Promise<void> {
+/**
+ * What the purge keeps (David, 2026-11-02): when the person leaves on their own
+ * (or an unfinished sign-up is cleaned up), the votes and hearts they cast stay
+ * in every total without their name, and their comments, submissions awaiting
+ * review and links stay, credited to a former member — like their facts. When
+ * an admin removes the account, the likely-abuse case, those are deleted and
+ * the totals recounted. Their memes, photos and images go either way.
+ */
+async function purgeAccount(userId: string, requestedBy: AccountDeletionRequester): Promise<void> {
+  const removedByAdmin = requestedBy === "admin";
   const storage = new ObjectStorageService();
   const paths = await ownedObjects(userId);
   // A few at a time: each delete is a preserve-then-delete round trip, most
@@ -521,21 +530,35 @@ async function purgeAccount(userId: string): Promise<void> {
     const [still] = await tx.select({ stage: adr.stage }).from(adr).where(and(active(userId), eq(adr.stage, "purging"))).for("update");
     if (!still) return;
 
-    // Reactions the person left on what survives them: collect the targets,
-    // delete, then recount each one that still exists.
-    const targets = await tx
-      .selectDistinct({ type: reactionsTable.targetType, id: reactionsTable.targetId })
-      .from(reactionsTable)
-      .where(eq(reactionsTable.userId, userId));
-    await tx.delete(reactionsTable).where(eq(reactionsTable.userId, userId));
+    // The votes and hearts the person cast. Kept without their name, so no
+    // total moves; or, on an admin's removal, deleted and each surviving
+    // target recounted below.
+    const targets = removedByAdmin
+      ? await tx.selectDistinct({ type: reactionsTable.targetType, id: reactionsTable.targetId }).from(reactionsTable).where(eq(reactionsTable.userId, userId))
+      : [];
+    if (removedByAdmin) await tx.delete(reactionsTable).where(eq(reactionsTable.userId, userId));
+    else await tx.update(reactionsTable).set({ userId: null }).where(eq(reactionsTable.userId, userId));
 
     const memeIds = (await tx.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.createdById, userId))).map((m) => m.id);
-    const comments = await tx.select({ id: commentsTable.id, factId: commentsTable.factId }).from(commentsTable).where(eq(commentsTable.authorId, userId));
-    const commentIds = comments.map((c) => c.id);
-    const commentedFacts = [...new Set(comments.map((c) => c.factId))];
     if (memeIds.length > 0) {
       await tx.delete(reactionsTable).where(and(eq(reactionsTable.targetType, "meme"), inArray(reactionsTable.targetId, memeIds)));
       await tx.delete(memesTable).where(inArray(memesTable.id, memeIds));
+    }
+
+    // Comments, submissions awaiting review and links: credited to a former
+    // member, or deleted on an admin's removal.
+    const comments = removedByAdmin
+      ? await tx.select({ id: commentsTable.id, factId: commentsTable.factId }).from(commentsTable).where(eq(commentsTable.authorId, userId))
+      : [];
+    const commentIds = comments.map((c) => c.id);
+    const commentedFacts = [...new Set(comments.map((c) => c.factId))];
+    if (!removedByAdmin) {
+      await tx.update(commentsTable).set({ authorId: null, authorDeletedAt: new Date() }).where(eq(commentsTable.authorId, userId));
+      await tx.execute(sql`UPDATE external_links SET added_by_id = NULL WHERE added_by_id = ${userId}`);
+      await tx.execute(sql`UPDATE pending_reviews SET submitted_by_id = NULL WHERE submitted_by_id = ${userId}`);
+    } else {
+      await tx.execute(sql`DELETE FROM external_links WHERE added_by_id = ${userId}`);
+      await tx.execute(sql`DELETE FROM pending_reviews WHERE submitted_by_id = ${userId}`);
     }
     if (commentIds.length > 0) {
       await tx.delete(reactionsTable).where(and(eq(reactionsTable.targetType, "comment"), inArray(reactionsTable.targetId, commentIds)));
@@ -550,8 +573,6 @@ async function purgeAccount(userId: string): Promise<void> {
         WHERE f.id IN (${sql.join(commentedFacts.map((id) => sql`${id}`), sql`, `)})
       `);
     }
-    await tx.execute(sql`DELETE FROM external_links WHERE added_by_id = ${userId}`);
-    await tx.execute(sql`DELETE FROM pending_reviews WHERE submitted_by_id = ${userId}`);
     await tx.execute(sql`UPDATE pending_reviews SET reviewed_by_id = NULL WHERE reviewed_by_id = ${userId}`);
     await tx.execute(sql`UPDATE pending_reviews SET production_rejected_by_id = NULL WHERE production_rejected_by_id = ${userId}`);
     await tx.delete(uploadImageMetadataTable).where(eq(uploadImageMetadataTable.userId, userId));

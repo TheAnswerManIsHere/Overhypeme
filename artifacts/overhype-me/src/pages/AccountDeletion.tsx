@@ -170,7 +170,8 @@ export default function AccountDeletion() {
     <Shell title="Your account is scheduled for deletion">
       <p className="text-muted-foreground text-sm">
         On <span className="text-foreground font-semibold">{deletionDateLabel(view.purgeAfter)}</span> your account, your memes,
-        photos and images are removed from Overhype.me for good. Facts you submitted stay, credited to a former member.
+        photos and images are removed from Overhype.me for good. Facts, comments and suggestions you submitted stay, credited to a former
+        member.
       </p>
       <p className="text-muted-foreground text-sm">Until then your memes, photos and images are hidden and you can't post. Keep your account to bring them back.</p>
       <Button onClick={() => void keep()} disabled={keeping} className="w-full">

@@ -172,7 +172,9 @@ export function AccountDeletionsPanel() {
                 </div>
                 {confirmPurge === r.userId && (
                   <div className="flex items-center gap-2 flex-wrap border border-destructive/40 rounded-sm px-3 py-2">
-                    <p className="text-xs text-foreground flex-1 min-w-[12rem]">Purge this account now? Its memes, photos, images, comments and reactions are removed for good.</p>
+                    <p className="text-xs text-foreground flex-1 min-w-[12rem]">{r.requestedBy === "admin"
+                      ? "Purge this account now? Its memes, photos, images, comments, submissions, votes and hearts are removed for good. Facts stay, credited to a former member."
+                      : "Purge this account now? Its memes, photos and images are removed for good. Its facts, comments and submissions stay, credited to a former member; its votes and hearts stay without a name."}</p>
                     <Button variant="danger" size="sm" onClick={() => void purge(r.userId)}>Purge</Button>
                     <Button variant="outline" size="sm" onClick={() => setConfirmPurge(null)}>Cancel</Button>
                   </div>

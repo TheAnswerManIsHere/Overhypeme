@@ -497,6 +497,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // users.registered_under_onboarding, with no default on purpose. DEFERRED
   // like 0115's; source of truth: lib/db/src/schema/auth.ts.
   "0118_registered_under_onboarding",
+
+  // Hand-written (Launch Phase 5, increment 5b): reactions.user_id loses its
+  // NOT NULL, comments.author_deleted_at is added. DEFERRED like 0115's;
+  // source of truth: lib/db/src/schema/reactions.ts and comments.ts.
+  "0119_keep_contributions_after_deletion",
 ]);
 
 interface JournalEntry {

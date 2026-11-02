@@ -834,6 +834,13 @@
       "when": 1785100000000,
       "tag": "0118_registered_under_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1785200000000,
+      "tag": "0119_keep_contributions_after_deletion",
+      "breakpoints": true
     }
   ]
 }
