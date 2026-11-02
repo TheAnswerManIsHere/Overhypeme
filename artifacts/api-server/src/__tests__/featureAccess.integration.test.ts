@@ -191,8 +191,9 @@ describe("grid completeness", () => {
     // fails if a future migration reintroduces an unread row.
     const { features } = await getAllTierFeatureMatrix();
     const consulted = new Set<string>(FEATURE_KEYS);
-    // `engine_experiments` is the one declared, Plan-3-owned exception.
-    const declaredExceptions = new Set(["engine_experiments"]);
+    // `engine_experiments` is the Plan-3-owned exception; `beta_overlay` is
+    // launch Phase 5's dormant row, read by nothing until a beta ships (0121).
+    const declaredExceptions = new Set(["engine_experiments", "beta_overlay"]);
 
     for (const feature of features) {
       if (declaredExceptions.has(feature.key)) continue;

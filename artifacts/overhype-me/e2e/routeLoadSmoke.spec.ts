@@ -710,6 +710,9 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
         "PR287 step 8: the revoked grant should name who revoked it",
       ).toBeVisible();
 
+      // Launch Phase 5, Increment 6b — the withdrawn NSFW opt-in has no toggle in the editor.
+      await expect(page.getByText("NSFW Mode"), "6b: the editor offers no NSFW opt-in").toHaveCount(0);
+
       // Launch Phase 5, Increment 6a — suspend with a reason, shown to the admin with a badge; unsuspend clears it.
       await page.getByRole("button", { name: "Suspend User" }).click();
       const suspend = page.getByRole("button", { name: "Suspend", exact: true });

@@ -190,6 +190,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     suspendedAt: "null",
     suspendedReason: "null",
     suspendedBy: "map-user",
+    adultVerifiedAt: "null",
     stripeCustomerId: "synthetic:stripe-customer",
     membershipTier: "keep",
     membershipValidUntil: "keep",
@@ -236,6 +237,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     shareCount: "keep",
     hasPronouns: "fact-derived",
     isActive: "keep",
+    // Launch Phase 5 (0121): left to its default, 'general', since the
+    // committed fixture predates the column and nothing reads it yet.
+    audience: "drop",
     canonicalText: "fact-text",
     splitTokenIndex: "fact-derived",
     visualConceptCandidates: "shape:visualConceptCandidatesBlob",
@@ -391,6 +395,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
       quarantineReason: "drop",
       nsfwClassifierScore: "keep",
       isNsfw: "keep",
+      audience: "drop", // 0121: its default, 'general' (see facts)
       imageTransform: "keep",
       artifactType: "keep",
     },
@@ -433,6 +438,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   include(s.userAiImagesTable, {
     id: "keep", userId: "map-user", factId: "ref:facts", gender: "keep", storagePath: "media",
     imageType: "keep", createdAt: "keep", deletedAt: "keep", purgeAfter: "keep",
+    audience: "drop", // 0121: its default, 'general' (see facts)
   }),
   include(s.commentsTable, {
     id: "keep", factId: "ref:facts", authorId: "map-user", text: "prose", status: "keep", flagged: "keep",

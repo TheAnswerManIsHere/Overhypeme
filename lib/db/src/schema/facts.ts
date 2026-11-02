@@ -41,6 +41,8 @@ export const factsTable = pgTable("facts", {
   // even against raw SQL. Every insert that wants a live fact must say so explicitly
   // AND carry a valid concept.
   isActive: boolean("is_active").notNull().default(false),
+  /** Who may see this once adult content exists (launch Phase 5, 0121): 'general' | 'adult'. Read by nothing yet. */
+  audience: varchar("audience", { length: 10 }).notNull().default("general"),
   canonicalText: text("canonical_text"),
   /**
    * Token-boundary index where the rendered fact splits into top/bottom captions.
@@ -146,6 +148,7 @@ export const factsTable = pgTable("facts", {
   index("facts_parent_id_idx").on(table.parentId),
   index("facts_primary_archetype_idx").on(table.primaryArchetype),
   index("facts_adult_suitability_idx").on(table.adultSuitability),
+  check("facts_audience_check", sql`${table.audience} IN ('general','adult')`),
   // The partial `IDX_facts_eval_golden` (WHERE eval_golden) is migration-only —
   // drizzle-kit's partial-index detection is brittle (see imagePromptAttempts.ts).
   // Keep the lifecycle backstop in the schema model as well as the

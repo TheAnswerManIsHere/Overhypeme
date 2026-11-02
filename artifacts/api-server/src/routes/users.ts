@@ -258,7 +258,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const { displayName, firstName, lastName, pronouns, email, profileImageUrl, avatarStyle, avatarSource, nsfwModeEnabled } = req.body as {
+  const { displayName, firstName, lastName, pronouns, email, profileImageUrl, avatarStyle, avatarSource } = req.body as {
     displayName?: string;
     firstName?: string;
     lastName?: string;
@@ -267,7 +267,6 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     profileImageUrl?: string;
     avatarStyle?: string;
     avatarSource?: string;
-    nsfwModeEnabled?: boolean;
   };
 
   const ALLOWED_AVATAR_STYLES = ["bottts", "pixel-art", "adventurer", "identicon", "shapes", "thumbs"];
@@ -374,9 +373,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     updates.pronouns = result.value;
   }
 
-  if (nsfwModeEnabled !== undefined) {
-    updates.nsfwModeEnabled = !!nsfwModeEnabled;
-  }
+  // nsfwModeEnabled is withdrawn (launch Phase 5, S13): ignored if sent.
 
   let emailVerificationPending = false;
 

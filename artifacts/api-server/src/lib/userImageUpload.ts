@@ -234,9 +234,9 @@ async function runNsfwClassifier(
     ensureFalConfigured();
     const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
     const classifierUrl = await fal.storage.upload(blob);
-    const decision = await classifyAndDecide(classifierUrl, {
-      nsfwModeEnabled: !!req.user?.nsfwModeEnabled,
-    });
+    // The NSFW opt-in is withdrawn until adult content ships (launch Phase 5,
+    // S13): a flagged upload is rejected whatever the account's old column says.
+    const decision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: false });
     if (decision.outcome === "reject") {
       try {
         await quarantineImage({

@@ -7,8 +7,12 @@
  *
  * Decision matrix is owned by the caller:
  *   - score < threshold                                 → accept
- *   - score >= threshold && !user.nsfwModeEnabled       → reject + quarantine
- *   - score >= threshold &&  user.nsfwModeEnabled       → accept and tag is_nsfw
+ *   - score >= threshold && !nsfwModeEnabled            → reject + quarantine
+ *   - score >= threshold &&  nsfwModeEnabled            → accept and tag is_nsfw
+ *
+ * Every caller passes nsfwModeEnabled: false while the NSFW opt-in is withdrawn
+ * (launch Phase 5, S13); the accept-and-tag branch is kept for when adult
+ * content ships behind adult verification.
  *
  * On classifier error the call site checks `isNsfwClassifierFailOpen()`:
  *   - false (default) → 503 fail-closed
@@ -117,8 +121,8 @@ export type NsfwDecision =
   | { outcome: "error"; message: string };
 
 /**
- * Run classifier and apply the decision matrix. Caller passes the user's
- * `nsfwModeEnabled` flag.
+ * Run classifier and apply the decision matrix. Callers pass
+ * `nsfwModeEnabled: false` until adult content ships (S13).
  */
 export async function classifyAndDecide(
   imageUrl: string,

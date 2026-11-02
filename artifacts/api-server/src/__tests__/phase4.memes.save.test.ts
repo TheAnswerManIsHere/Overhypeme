@@ -77,7 +77,6 @@ function makeAuthedApp(userId: string): Express {
         isAdmin: !!u.isAdmin,
         isRealAdmin: !!u.isAdmin,
         ...identityFieldsOf(u),
-        nsfwModeEnabled: !!u.nsfwModeEnabled,
         // Derived exactly as authMiddleware derives it, rather than pinned to
         // "registered". A hardcoded role made the admin-vs-tier distinction
         // invisible to these tests — which is the distinction the private-

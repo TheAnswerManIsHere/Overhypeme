@@ -62,8 +62,10 @@ export const memesTable = pgTable("memes", {
   quarantineReason: text("quarantine_reason"),
   /** Probability (0..1) returned by the NSFW classifier on the rendered output. */
   nsfwClassifierScore: numeric("nsfw_classifier_score", { precision: 6, scale: 4 }),
-  /** Set when classifier score >= threshold AND user has nsfw_mode_enabled=true (accept-and-tag path). */
+  /** The classifier's accept-and-tag flag; always false while the NSFW opt-in is withdrawn (launch Phase 5, S13). */
   isNsfw: boolean("is_nsfw").notNull().default(false),
+  /** Who may see this once adult content exists (launch Phase 5, 0121): 'general' | 'adult'. Read by nothing yet. */
+  audience: varchar("audience", { length: 10 }).notNull().default("general"),
   /**
    * Phase-3 analytics discriminant. Null = raw photo or stock or template.
    * 'pulid' = built from a PuLID-stylized image (face matched).
@@ -85,6 +87,7 @@ export const memesTable = pgTable("memes", {
   index("IDX_memes_purge_after").on(table.purgeAfter).where(isNotNull(table.purgeAfter)),
   // The boot backfill's selection (lib/memeBake.ts): empty once every recipe meme is baked.
   index("IDX_memes_unbaked").on(table.id).where(sql`${table.bakedAt} IS NULL AND ${table.imageSource} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+  check("memes_audience_check", sql`${table.audience} IN ('general','adult')`),
   check(
     "memes_image_transform_chk",
     sql`${table.imageTransform} IS NULL OR ${table.imageTransform} IN ('pulid','pulid_fallback_text')`,
