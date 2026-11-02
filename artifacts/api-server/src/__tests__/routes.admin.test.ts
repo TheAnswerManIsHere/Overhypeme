@@ -1539,32 +1539,19 @@ describe("admin lifetime grants", () => {
     assert.equal(await storedTier(userId), "registered", "one revoke must be enough to drop the user");
   });
 
-  it("deactivate then reinstate returns a user with an active admin grant to legendary and a user with none to registered", async () => {
-    const granted = await createTestUser({ tier: "registered" });
-    assert.equal((await grant(granted)).status, 200);
-    const plain = await createTestUser({ tier: "registered" });
-
-    for (const userId of [granted, plain]) {
-      const off = await request(makeApp())
-        .patch(`/admin/users/${userId}`)
-        .set("authorization", `Bearer ${adminSid}`)
-        .send({ isActive: false });
-      assert.equal(off.status, 200);
-    }
-    // Stored tiers drift while deactivated (a webhook that landed in the meantime,
-    // say): reinstatement must re-derive from sources, not trust what is stored.
-    await db.update(usersTable).set({ membershipTier: "registered" }).where(eq(usersTable.id, granted));
-    await db.update(usersTable).set({ membershipTier: "legendary" }).where(eq(usersTable.id, plain));
-
-    for (const userId of [granted, plain]) {
-      const on = await request(makeApp())
-        .patch(`/admin/users/${userId}`)
-        .set("authorization", `Bearer ${adminSid}`)
-        .send({ isActive: true });
-      assert.equal(on.status, 200);
-    }
-    assert.equal(await storedTier(granted), "legendary", "an active admin grant survives the round trip");
-    assert.equal(await storedTier(plain), "registered", "no source, no Legendary");
+  it("the retired soft delete and set-inactive edit change nothing (launch Phase 5, Increment 7a)", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    const patch = await request(makeApp())
+      .patch(`/admin/users/${userId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ isActive: false });
+    assert.equal(patch.status, 400, "isActive alone is no longer an edit");
+    const del = await request(makeApp())
+      .delete(`/admin/users/${userId}`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.equal(del.status, 400, "a soft delete is refused");
+    const [row] = await db.select({ isActive: usersTable.isActive }).from(usersTable).where(eq(usersTable.id, userId));
+    assert.equal(row!.isActive, true, "the account is untouched");
   });
 });
 
