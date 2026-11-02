@@ -252,8 +252,8 @@ storage — see [`docs/retired/video.md`](../retired/video.md).)
   object ACL.
 - `artifacts/api-server/src/middlewares/tierMiddleware.ts` — `requireRole`
   / `requireLegendary`.
-- `artifacts/api-server/src/routes/admin.ts` — hard-delete storage
-  cleanup.
+- `artifacts/api-server/src/lib/accountDeletion.ts` — the account purge,
+  which deletes a departing person's memes and baked files.
 - Frontend: `components/meme-builder/wizard/` (the fact page's wizard),
   `components/meme-builder/MemeBuilder.tsx` + `pages/memePage/BuilderOverlay.tsx`
   (the meme page's remix builder).

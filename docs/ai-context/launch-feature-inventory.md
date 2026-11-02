@@ -281,7 +281,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 |---|---|
 | Dashboard | ship |
 | Facts (edit, delete, resubmit, variants, import, backfills, text-edit history, overrides) | ship; CSV import stays as an admin tool off the launch path |
-| Users (search, add, set password, verify, delete/reinstate, comp, membership, spend, export) | ship; **add suspension** (repeat-infringer policy) |
+| Users (search, add, set password, verify, delete/reinstate, comp, membership, spend, export) | ship; **add suspension** (repeat-infringer policy). *Done in launch Phase 5 (#795): suspension added; the soft delete and reinstate retired; deletion runs through one engine with a deletion panel — [`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion).* |
 | Moderation (fact wizard + comment panel) | ship (core); comment panel rebuilt per C6; speech bubbles finished (D14) |
 | Billing (Stripe summary, live-mode toggle, test event, sync, verification) | ship; money-rehearsal phase; live-mode toggle is a launch-day control |
 | Refunds & Disputes | ship |
