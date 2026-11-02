@@ -148,12 +148,12 @@ export const factsTable = pgTable("facts", {
   index("facts_parent_id_idx").on(table.parentId),
   index("facts_primary_archetype_idx").on(table.primaryArchetype),
   index("facts_adult_suitability_idx").on(table.adultSuitability),
+  check("facts_audience_check", sql`${table.audience} IN ('general','adult')`),
   // The partial `IDX_facts_eval_golden` (WHERE eval_golden) is migration-only —
   // drizzle-kit's partial-index detection is brittle (see imagePromptAttempts.ts).
   // Keep the lifecycle backstop in the schema model as well as the
   // hand-authored migration. Otherwise drizzle-kit push can remove it after
   // the migration runner has recorded 0092 as applied.
-  check("facts_audience_check", sql`${table.audience} IN ('general','adult')`),
   check(
     "facts_active_requires_concept",
     sql`${table.isActive} = false OR COALESCE(

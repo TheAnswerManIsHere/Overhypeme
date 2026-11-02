@@ -62,7 +62,7 @@ export const memesTable = pgTable("memes", {
   quarantineReason: text("quarantine_reason"),
   /** Probability (0..1) returned by the NSFW classifier on the rendered output. */
   nsfwClassifierScore: numeric("nsfw_classifier_score", { precision: 6, scale: 4 }),
-  /** Set when classifier score >= threshold AND user has nsfw_mode_enabled=true (accept-and-tag path). */
+  /** The classifier's accept-and-tag flag; always false while the NSFW opt-in is withdrawn (launch Phase 5, S13). */
   isNsfw: boolean("is_nsfw").notNull().default(false),
   /** Who may see this once adult content exists (launch Phase 5, 0121): 'general' | 'adult'. Read by nothing yet. */
   audience: varchar("audience", { length: 10 }).notNull().default("general"),

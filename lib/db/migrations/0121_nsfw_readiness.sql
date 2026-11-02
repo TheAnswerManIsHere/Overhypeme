@@ -13,6 +13,9 @@
 --
 -- Row states: every existing content row gains audience = 'general'; users
 -- gain a null adult_verified_at; the grid gains one feature, off everywhere.
+-- The CHECKs are written in the form Postgres prints after a dump and
+-- restore (the form every older varchar IN-check in this database already
+-- has), so production's adoption check finds the restored copy identical.
 -- Idempotent: ADD COLUMN IF NOT EXISTS, constraints added only when absent,
 -- inserts ON CONFLICT DO NOTHING; a second run changes nothing.
 
@@ -24,13 +27,13 @@ ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "adult_verified_at" timestamp with 
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'facts_audience_check' AND conrelid = 'facts'::regclass) THEN
-    ALTER TABLE "facts" ADD CONSTRAINT "facts_audience_check" CHECK ("audience" IN ('general','adult'));
+    ALTER TABLE "facts" ADD CONSTRAINT "facts_audience_check" CHECK (("audience")::text = ANY (ARRAY[('general'::character varying)::text, ('adult'::character varying)::text]));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memes_audience_check' AND conrelid = 'memes'::regclass) THEN
-    ALTER TABLE "memes" ADD CONSTRAINT "memes_audience_check" CHECK ("audience" IN ('general','adult'));
+    ALTER TABLE "memes" ADD CONSTRAINT "memes_audience_check" CHECK (("audience")::text = ANY (ARRAY[('general'::character varying)::text, ('adult'::character varying)::text]));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_ai_images_audience_check' AND conrelid = 'user_ai_images'::regclass) THEN
-    ALTER TABLE "user_ai_images" ADD CONSTRAINT "user_ai_images_audience_check" CHECK ("audience" IN ('general','adult'));
+    ALTER TABLE "user_ai_images" ADD CONSTRAINT "user_ai_images_audience_check" CHECK (("audience")::text = ANY (ARRAY[('general'::character varying)::text, ('adult'::character varying)::text]));
   END IF;
 END $$;
 --> statement-breakpoint

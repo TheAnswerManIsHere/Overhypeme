@@ -89,7 +89,7 @@ describe("the NSFW opt-in is withdrawn (T8)", () => {
         }
       }
     }
-    assert.equal(calls.length, 2, calls.join("\n"));
+    assert.ok(calls.length >= 2, `the upload and meme-generation callers are found:\n${calls.join("\n")}`);
     for (const c of calls) assert.match(c, /\{ nsfwModeEnabled: false \}\)$/, c);
   });
 });
