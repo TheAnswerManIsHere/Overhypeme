@@ -480,7 +480,8 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
   const comments = rows.map((c) => ({
     id: c.id, factId: c.factId, text: c.text,
     authorId: c.authorId ?? null,
-    authorName: c.authorId ? (aMap.get(c.authorId)?.displayName ?? null) : null,
+    // A comment whose author deleted their account stays, credited to a former member.
+    authorName: c.authorId ? (aMap.get(c.authorId)?.displayName ?? null) : c.authorDeletedAt ? "Former member" : null,
     authorImage: c.authorId ? (aMap.get(c.authorId)?.avatarUrl ?? null) : null,
     createdAt: c.createdAt.toISOString(),
     heartCount: c.heartCount ?? 0,

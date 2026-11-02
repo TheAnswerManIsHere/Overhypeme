@@ -198,6 +198,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // synthetic one: a real date is personal data). No consent is invented.
     onboardingCompletedAt: "synthetic:onboarded-at-created",
     onboardingDraft: "null",
+    // 0118: the fixture's people are established accounts, never abandoned registrations.
+    registeredUnderOnboarding: "null",
     dateOfBirth: "synthetic:adult-birth-date",
     marketingConsentAt: "null",
     marketingConsentMethod: "null",
@@ -259,6 +261,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     id: "keep",
     submittedText: "fact-text",
     submittedById: "map-user",
+    submitterDeletedAt: "keep",
     matchingFactId: "ref:facts",
     matchingSimilarity: "keep",
     parentFactId: "ref:facts",
@@ -429,7 +432,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   }),
   include(s.commentsTable, {
     id: "keep", factId: "ref:facts", authorId: "map-user", text: "prose", status: "keep", flagged: "keep",
-    flagReason: "prose", heartCount: "keep", createdAt: "keep",
+    flagReason: "prose", heartCount: "keep", authorDeletedAt: "keep", createdAt: "keep",
   }),
   include(
     s.reactionsTable,

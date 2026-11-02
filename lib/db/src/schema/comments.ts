@@ -14,9 +14,11 @@ export const commentsTable = pgTable("comments", {
   flagReason: text("flag_reason"),
   /** Precomputed count of heart reactions on this comment. Maintained by the reactions write path. */
   heartCount: integer("heart_count").notNull().default(0),
+  /** When the author deleted their account (0119): the comment stays, credited to a former member. */
+  authorDeletedAt: timestamp("author_deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertCommentSchema = createInsertSchema(commentsTable).omit({ id: true, status: true, flagged: true, flagReason: true, heartCount: true, createdAt: true });
+export const insertCommentSchema = createInsertSchema(commentsTable).omit({ id: true, status: true, flagged: true, flagReason: true, heartCount: true, authorDeletedAt: true, createdAt: true });
 export type InsertComment = z.infer<typeof insertCommentSchema>;
 export type Comment = typeof commentsTable.$inferSelect;

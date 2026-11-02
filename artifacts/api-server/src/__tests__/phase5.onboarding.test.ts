@@ -173,8 +173,9 @@ describe("POST /api/users/me/onboarding", () => {
     const res = await request(createApp()).post("/api/auth/register")
       .send({ email, password: "long-enough-1", firstName: "Zed", lastName: "Doe", displayName: "Zed", pronouns: custom });
     assert.equal(res.status, 201, JSON.stringify(res.body));
-    const [r] = await db.select({ pronouns: usersTable.pronouns, id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email));
+    const [r] = await db.select({ pronouns: usersTable.pronouns, id: usersTable.id, registered: usersTable.registeredUnderOnboarding }).from(usersTable).where(eq(usersTable.email, email));
     assert.equal(r!.pronouns, custom);
+    assert.equal(r!.registered, true, "a sign-up is a registration the never-onboarded clean-up may select (0118)");
     await db.delete(usersTable).where(eq(usersTable.id, r!.id));
   });
 

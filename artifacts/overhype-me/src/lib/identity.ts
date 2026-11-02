@@ -10,7 +10,7 @@ export type IdentityAuthState = "loading" | "signedOut" | "signedIn";
  * Pages that never show the identity sheet, matched as whole path segments:
  * `/login` and `/login/x` are suppressed, `/loginx` is not.
  */
-const SUPPRESSED_ROOTS = ["login", "onboard", "forgot-password", "reset-password", "verify-email", "admin"];
+const SUPPRESSED_ROOTS = ["login", "onboard", "forgot-password", "reset-password", "verify-email", "admin", "account"];
 
 function segments(path: string): string[] {
   const clean = path.split(/[?#]/)[0] ?? "";

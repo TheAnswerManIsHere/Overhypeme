@@ -23,6 +23,8 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   id: serial("id").primaryKey(),
   submittedText: text("submitted_text").notNull(),
   submittedById: varchar("submitted_by_id").references(() => usersTable.id),
+  /** When the submitter deleted their account (0119): carried onto the fact an approval creates, so it stays credited to a former member. */
+  submitterDeletedAt: timestamp("submitter_deleted_at", { withTimezone: true }),
   matchingFactId: integer("matching_fact_id").references(() => factsTable.id, { onDelete: "set null" }),
   matchingSimilarity: integer("matching_similarity").notNull().default(0),
   /**

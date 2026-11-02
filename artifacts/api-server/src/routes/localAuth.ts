@@ -191,6 +191,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       lastName:  lastNameTrimmed,
       pronouns: sanitizedPronouns,
       isActive: true,
+      // A self-registration: cleaned up if never onboarded (0118).
+      registeredUnderOnboarding: true,
     })
     .returning();
 

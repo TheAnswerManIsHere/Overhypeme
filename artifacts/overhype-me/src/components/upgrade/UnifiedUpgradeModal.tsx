@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/Button";
+import { pageNavigation } from "@/lib/navigation";
 
 export type UpgradeModalContext =
   | "private-meme"
@@ -35,15 +36,10 @@ interface Props {
 }
 
 /**
- * Module-level navigation seam — tests stub this instead of fighting jsdom's
- * non-configurable `window.location.assign`. MBFO-5 will replace the impl
- * with Stripe Embedded Checkout.
+ * The shared full-page navigation seam (`lib/navigation.ts`) — tests stub it.
+ * MBFO-5 will replace the destination with Stripe Embedded Checkout.
  */
-export const upgradeNavigation = {
-  go(path: string) {
-    window.location.assign(path);
-  },
-};
+export const upgradeNavigation = pageNavigation;
 
 function navigateToUpgrade() {
   upgradeNavigation.go("/pricing");

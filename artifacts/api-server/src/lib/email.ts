@@ -547,8 +547,8 @@ export function buildAccountDeletionScheduledEmail(purgeAfter: Date, keepUrl: st
     "YOUR ACCOUNT IS SCHEDULED FOR DELETION.",
     "",
     `On ${date} your account, your memes, photos and images are removed from Overhype.me for good.`,
-    "Facts you submitted stay on the site, credited to a former member.",
-    "Until then you are signed out everywhere and your content is hidden.",
+    "Facts, comments and suggestions you submitted stay on the site, credited to a former member. Your votes and hearts stay in the totals without your name.",
+    "Until then you are signed out everywhere and your memes, photos and images are hidden.",
     "",
     "Changed your mind? Sign in before that date and choose Keep my account:",
     keepUrl,
@@ -559,13 +559,42 @@ export function buildAccountDeletionScheduledEmail(purgeAfter: Date, keepUrl: st
   ].join("\n");
   const body = `
 <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account Is<br/>Scheduled For Deletion</h1>
-<p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">On <strong style="color:#ffffff;">${date}</strong> your account, your memes, photos and images are removed from Overhype.me for&nbsp;good. Facts you submitted stay on the site, credited to a former&nbsp;member.</p>
-<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Until then you are signed out everywhere and your content is hidden. Changed your mind? Sign in before that date and keep your&nbsp;account.</p>
+<p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">On <strong style="color:#ffffff;">${date}</strong> your account, your memes, photos and images are removed from Overhype.me for&nbsp;good. Facts, comments and suggestions you submitted stay on the site, credited to a former&nbsp;member. Your votes and hearts stay in the totals without your&nbsp;name.</p>
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Until then you are signed out everywhere and your memes, photos and images are hidden. Changed your mind? Sign in before that date and keep your&nbsp;account.</p>
 ${ctaButton(keepUrl, "Keep My Account")}
 ${linkFallback(keepUrl)}
 ${divider()}
 <p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't ask for this? Sign in, keep your account, then change your&nbsp;password.</p>`;
   const html = buildEmailShell(body, "You&#39;re receiving this because deletion was requested for your Overhype.me account.");
+  return { subject, text, html };
+}
+
+/** Sent when a sign-up that was never finished is scheduled for deletion (David, answer 6): why, when, and how to keep it. */
+export function buildUnfinishedAccountDeletionEmail(purgeAfter: Date, keepUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const date = deletionDate(purgeAfter);
+  const subject = "Your unfinished Overhype.me account will be deleted";
+  const text = [
+    "YOU NEVER FINISHED SETTING UP YOUR ACCOUNT.",
+    "",
+    "You started an Overhype.me account more than 30 days ago and never finished setting it up.",
+    `On ${date} we delete it.`,
+    "",
+    "Want to keep it? Sign in before that date, choose Keep my account, then finish setting up:",
+    keepUrl,
+    "",
+    "Didn't sign up? Ignore this email and the account goes on its own.",
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">You Never Finished<br/>Setting Up</h1>
+<p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">You started an Overhype.me account more than 30 days ago and never finished setting it up. On <strong style="color:#ffffff;">${date}</strong> we delete&nbsp;it.</p>
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Want to keep it? Sign in before that date, keep your account, then finish setting&nbsp;up.</p>
+${ctaButton(keepUrl, "Keep My Account")}
+${linkFallback(keepUrl)}
+${divider()}
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't sign up? Ignore this email and the account goes on its&nbsp;own.</p>`;
+  const html = buildEmailShell(body, "You&#39;re receiving this because an Overhype.me account was started with this address and never finished.");
   return { subject, text, html };
 }
 

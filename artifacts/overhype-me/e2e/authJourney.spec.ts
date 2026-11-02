@@ -41,7 +41,7 @@ async function pageFetch(page: Page, method: string, url: string, body?: unknown
   );
 }
 
-test("a production-mode account: register, verify, act, sign out, recover the password", async ({ page, context }) => {
+test("a production-mode account: register, verify, act, sign out, recover the password, schedule its deletion and keep it", async ({ page, context }) => {
   mailSinkDir(); // fail fast, with the reason, when not given the production-mode stack
   const email = `journey+${Date.now()}@example.test`;
 
@@ -154,4 +154,27 @@ test("a production-mode account: register, verify, act, sign out, recover the pa
   await submitLoginForm(page, email, SECOND_PASSWORD);
   await page.waitForURL((url) => url.pathname !== "/login");
   expect((await currentUser(page))?.["email"]).toBe(email);
+
+  // Delete the account from the profile (launch Phase 5, increment 5b): the
+  // password is asked for, every session ends, and the confirmation names the date.
+  const deletionRequestedAt = new Date();
+  await page.goto("/profile");
+  await page.getByRole("button", { name: /Delete my account…/ }).click();
+  await page.getByRole("checkbox", { name: /can't be undone/ }).check();
+  await page.getByLabel("Your password").fill(SECOND_PASSWORD);
+  await page.getByRole("button", { name: /^Delete my account$/ }).click();
+  await page.waitForURL((url) => url.pathname === "/account/deletion" && url.searchParams.has("scheduled"));
+  await expect(page.getByRole("heading", { name: /scheduled for deletion/i })).toBeVisible();
+  await expect.poll(() => currentUser(page), { message: "signed out everywhere" }).toBeNull();
+  const keepLink = await waitForEmailLink({ to: email, linkPath: "/account/deletion", since: deletionRequestedAt, tokenless: true });
+  expect(new URL(keepLink).pathname).toBe("/account/deletion");
+
+  // Signing in during the window lands on Keep my account, and keeping it
+  // gives the account back.
+  await submitLoginForm(page, email, SECOND_PASSWORD);
+  await page.waitForURL((url) => url.pathname === "/account/deletion");
+  await page.getByRole("button", { name: "Keep my account" }).click();
+  await expect(page.getByRole("heading", { name: /staying/i })).toBeVisible();
+  await expect.poll(async () => (await currentUser(page))?.["eligibility"]).toBe("eligible");
+  expect(await pageFetch(page, "PATCH", "/api/users/me", { pronouns: "they/them" }), "the account can act again").toBe(200);
 });

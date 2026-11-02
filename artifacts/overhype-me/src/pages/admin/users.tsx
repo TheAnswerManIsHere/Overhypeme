@@ -9,6 +9,7 @@ import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, C
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 import { StripeLink } from "@/components/StripeLink";
 import { makeAbortController } from "@/lib/makeAbortController";
+import { AccountDeletionsPanel } from "@/components/admin/AccountDeletionsPanel";
 
 interface User {
   id: string;
@@ -1444,6 +1445,9 @@ export default function AdminUsers() {
           </div>
         )}
       </div>
+
+      {/* Account deletions in progress (launch Phase 5) */}
+      <AccountDeletionsPanel />
 
       {/* Administrators — email notification settings */}
       {administrators.length > 0 && (

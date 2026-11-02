@@ -6,6 +6,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
+import { DeleteAccountSection } from "@/components/account/DeleteAccountSection";
 import { ShieldAlert, ShieldCheck, ShieldOff, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
@@ -1756,6 +1757,10 @@ export default function Profile() {
         {/* Subscription Panel */}
         <SubscriptionPanel refetchTrigger={checkoutConfirmed || undefined} />
 
+        {/* Delete your account — last, and deliberately hard to reach by accident */}
+        {profile && (
+          <DeleteAccountSection hasPassword={profile.hasPassword ?? false} linkedProviders={profile.linkedProviders ?? []} />
+        )}
 
       </div>
     </Layout>

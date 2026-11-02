@@ -49,6 +49,12 @@ export const usersTable = pgTable("users", {
   onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
   // The half-finished form, so a reload resumes it. Cleared at completion.
   onboardingDraft: jsonb("onboarding_draft"),
+  // True on an account that registered itself under the onboarding flow
+  // (0118): the two sign-up paths set it, nothing else does. The never-
+  // onboarded clean-up selects only these, 30 days after creation. No
+  // default, so an account created before the flow, or by an admin, stays
+  // null and is never selected.
+  registeredUnderOnboarding: boolean("registered_under_onboarding"),
   // Age is derived from this at read time (13+, 18+), never stored as a flag.
   // A date under 13 is refused before it is written.
   dateOfBirth: date("date_of_birth", { mode: "string" }),

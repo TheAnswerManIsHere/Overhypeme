@@ -13,7 +13,9 @@ export const reactionsTable = pgTable(
   "reactions",
   {
     id: serial("id").primaryKey(),
-    userId: varchar("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    // Null once the member has left (0119): their vote or heart stays in the
+    // totals without their name. An admin's removal deletes the row instead.
+    userId: varchar("user_id").references(() => usersTable.id, { onDelete: "cascade" }),
     targetType: varchar("target_type", { length: 16 }).notNull(),
     targetId: integer("target_id").notNull(),
     reactionType: varchar("reaction_type", { length: 16 }).notNull(),
