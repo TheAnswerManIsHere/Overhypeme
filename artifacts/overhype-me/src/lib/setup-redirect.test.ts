@@ -15,6 +15,10 @@ describe("setupRedirectFor", () => {
     expect(setupRedirectFor("deletion_pending", "/onboarding-tips")).toBe("/account/deletion");
     for (const p of ["/account/deletion", "/account/deletion?scheduled=1", "/login"]) expect(setupRedirectFor("deletion_pending", p)).toBeNull();
   });
+  it("a suspended account is sent to the suspended screen from anywhere else", () => {
+    expect(setupRedirectFor("suspended", "/submit")).toBe("/account/suspended");
+    for (const p of ["/account/suspended", "/login"]) expect(setupRedirectFor("suspended", p)).toBeNull();
+  });
   it("an eligible account, or one not signed in, is left where it is", () => {
     expect(setupRedirectFor("eligible", "/submit")).toBeNull();
     expect(setupRedirectFor(undefined, "/submit")).toBeNull();

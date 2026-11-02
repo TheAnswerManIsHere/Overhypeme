@@ -381,6 +381,7 @@ export default function Profile() {
         already_linked: "This account already has a linked sign-in method.",
         email_mismatch: "The OAuth account email does not match your account email.",
         user_not_found: "Account not found. Please try again.",
+        account_suspended: "This account is suspended.",
       };
       setLinkError(messages[linkErr] ?? "Failed to link sign-in method. Please try again.");
       setLocation(currentPath, { replace: true });
