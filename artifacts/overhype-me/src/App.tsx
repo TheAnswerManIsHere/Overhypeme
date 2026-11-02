@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useRef } from "react";
+import { AuthFailedBanner } from "@/components/auth/AuthFailedBanner";
 import { lazyWithRetry as lazy } from "@/lib/lazy-retry";
 import { Switch, Route, Router as WouterRouter, useLocation, useSearch } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -336,6 +337,7 @@ function App() {
                   <Router />
                 </WouterRouter>
                 <Toaster />
+                <AuthFailedBanner />
               </FactExpansionProvider>
             </PersonNameProvider>
           </TooltipProvider>

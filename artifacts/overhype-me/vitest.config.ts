@@ -26,6 +26,9 @@ export default defineConfig({
     },
   },
   resolve: {
+    // lib/replit-auth-web imports react but has no node_modules of its own;
+    // resolve it from this app, as the app's bundler already does.
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@workspace/redact": path.resolve(import.meta.dirname, "../../lib/redact/src/index.ts"),

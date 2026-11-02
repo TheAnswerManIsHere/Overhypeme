@@ -29,11 +29,14 @@ export interface IdentityGate {
 let landingLapsed = false;
 
 export function useIdentityGate(): IdentityGate {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, status } = useAuth();
   const { name, pronounsSupplied, shareLinkResolved } = usePersonName();
   const [location] = useLocation();
   if (location !== LANDING_LOCATION) landingLapsed = true;
-  const auth: IdentityAuthState = isLoading ? "loading" : isAuthenticated ? "signedIn" : "signedOut";
+  // A failed auth read is not "signed out": nobody knows who this is yet, so
+  // the decision is "not yet" (identity-flow Phase 2, "unknown is not missing").
+  const auth: IdentityAuthState =
+    isLoading || status === "failed" ? "loading" : isAuthenticated ? "signedIn" : "signedOut";
   const completeness = { hasName: !!name.trim(), pronounsSupplied };
   return {
     shouldAsk: shouldAskForIdentity({
