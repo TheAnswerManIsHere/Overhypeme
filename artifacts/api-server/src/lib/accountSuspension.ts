@@ -4,7 +4,7 @@
  */
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 import { acquireAdminPopulationLock, assertAdminPopulationSurvives } from "./adminLockoutGuard";
 import { isReachableAdminSql } from "./adminIdentity";
@@ -23,13 +23,13 @@ export type SuspendOutcome = "suspended" | "already_suspended" | "not_found";
 export async function suspendAccount(userId: string, opts: { by: string | null; reason: string }): Promise<SuspendOutcome> {
   return db.transaction(async (tx): Promise<SuspendOutcome> => {
     await acquireAdminPopulationLock(tx);
-    const [user] = await tx.select({ id: usersTable.id, suspendedAt: usersTable.suspendedAt })
+    const [user] = await tx
+      .select({ suspendedAt: usersTable.suspendedAt, reachableAdmin: sql<boolean>`${isReachableAdminSql()}` })
       .from(usersTable).where(eq(usersTable.id, userId)).for("update");
     if (!user) return "not_found";
     if (user.suspendedAt) return "already_suspended";
     // Only an account that can reach the console can be the last one that can.
-    const [isAdmin] = await tx.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.id, userId), isReachableAdminSql()));
-    if (isAdmin) await assertAdminPopulationSurvives(tx, userId);
+    if (user.reachableAdmin) await assertAdminPopulationSurvives(tx, userId);
     await tx.update(usersTable)
       .set({ suspendedAt: new Date(), suspendedReason: opts.reason, suspendedBy: opts.by })
       .where(eq(usersTable.id, userId));
@@ -42,9 +42,11 @@ export type UnsuspendOutcome = "unsuspended" | "not_suspended" | "not_found";
 
 /** Lifts a suspension. The person signs in again; nothing else was changed, so nothing else is restored. */
 export async function unsuspendAccount(userId: string): Promise<UnsuspendOutcome> {
-  const [row] = await db.select({ suspendedAt: usersTable.suspendedAt }).from(usersTable).where(eq(usersTable.id, userId));
-  if (!row) return "not_found";
-  if (!row.suspendedAt) return "not_suspended";
-  await db.update(usersTable).set({ suspendedAt: null, suspendedReason: null, suspendedBy: null }).where(eq(usersTable.id, userId));
-  return "unsuspended";
+  const [lifted] = await db.update(usersTable)
+    .set({ suspendedAt: null, suspendedReason: null, suspendedBy: null })
+    .where(and(eq(usersTable.id, userId), isNotNull(usersTable.suspendedAt)))
+    .returning({ id: usersTable.id });
+  if (lifted) return "unsuspended";
+  const [exists] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, userId));
+  return exists ? "not_suspended" : "not_found";
 }

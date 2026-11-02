@@ -6,6 +6,9 @@
 /** Where an account that cannot act yet may be without being sent on. */
 const SETUP_EXEMPT_ROOTS = ["/onboard", "/check-email", "/verify-email", "/login", "/forgot-password", "/reset-password", "/account/deletion", "/account/suspended"];
 
+/** The account states that cannot act yet, each sent to its own screen. */
+const REDIRECTED_STATES = new Set<string | null | undefined>(["suspended", "deletion_pending", "unverified", "unonboarded"]);
+
 /** Where an account scheduled for deletion is sent: the one thing it can do is keep itself. */
 export const KEEP_ACCOUNT_PATH = "/account/deletion";
 
@@ -24,7 +27,7 @@ export function currentDestination(pathname: string, rawSearch: string): string 
 }
 
 export function setupRedirectFor(eligibility: string | null | undefined, location: string): string | null {
-  if (eligibility !== "unverified" && eligibility !== "unonboarded" && eligibility !== "deletion_pending" && eligibility !== "suspended") return null;
+  if (!REDIRECTED_STATES.has(eligibility)) return null;
   const path = location.split("?")[0] ?? location;
   if (SETUP_EXEMPT_ROOTS.some((root) => path === root || path.startsWith(`${root}/`))) return null;
   // Nothing else is open to either, so there is nowhere to come back to.

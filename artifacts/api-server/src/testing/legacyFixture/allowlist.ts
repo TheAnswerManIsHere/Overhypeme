@@ -189,7 +189,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // 0120: a suspension is an admin's judgement about a real person, not catalogue data.
     suspendedAt: "null",
     suspendedReason: "null",
-    suspendedBy: "null",
+    suspendedBy: "map-user",
     stripeCustomerId: "synthetic:stripe-customer",
     membershipTier: "keep",
     membershipValidUntil: "keep",

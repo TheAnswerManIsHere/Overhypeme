@@ -169,15 +169,13 @@ export default function AdminUsers() {
     aiImagesDeleted?: number;
     memeImagesDeleted?: number;
     storageErrors?: number;
-    subscriptionCanceled?: boolean;
-    sessionsRevoked?: number;
   } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteErrorStage, setDeleteErrorStage] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [reactivating, setReactivating] = useState(false);
-  const [suspendOpen, setSuspendOpen] = useState(false);
-  const [suspendReason, setSuspendReason] = useState("");
+  /** The suspend form's reason; null while the form is closed. */
+  const [suspendReason, setSuspendReason] = useState<string | null>(null);
   const [suspending, setSuspending] = useState(false);
 
   const [administrators, setAdministrators] = useState<Administrator[]>([]);
@@ -261,8 +259,7 @@ export default function AdminUsers() {
 
   function selectUser(user: User) {
     setSelectedUser(user);
-    setSuspendOpen(false);
-    setSuspendReason("");
+    setSuspendReason(null);
     setDraft({
       displayName: user.displayName ?? "",
       email: user.email ?? "",
@@ -423,8 +420,6 @@ export default function AdminUsers() {
     try {
       const res = await fetch(`/api/admin/users/${selectedUser.id}?hard=true`, { method: "DELETE", credentials: "include" });
       const data = (await res.json()) as {
-        success?: boolean;
-        user?: User;
         error?: string;
         deleted?: boolean;
         message?: string;
@@ -433,8 +428,6 @@ export default function AdminUsers() {
           aiImagesDeleted?: number;
           memeImagesDeleted?: number;
           storageErrors?: number;
-          subscriptionCanceled?: boolean;
-          sessionsRevoked?: number;
         };
       };
       if (!res.ok) {
@@ -477,7 +470,7 @@ export default function AdminUsers() {
   /** Suspension (launch Phase 5, plan *Suspension*): the reason is admins' only; the person sees only that the account is suspended. */
   async function setSuspension(suspend: boolean) {
     if (!selectedUser) return;
-    const reason = suspendReason.trim();
+    const reason = (suspendReason ?? "").trim();
     setSuspending(true);
     setSaveResult(null);
     try {
@@ -494,8 +487,7 @@ export default function AdminUsers() {
         : { ...selectedUser, suspendedAt: null, suspendedReason: null };
       setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
       setSelectedUser(updated);
-      setSuspendOpen(false);
-      setSuspendReason("");
+      setSuspendReason(null);
       setSaveResult({
         type: "success",
         message: suspend ? "Suspended. They were signed out everywhere and can't sign in until you unsuspend them." : "Unsuspended. They can sign in again.",
@@ -656,7 +648,7 @@ export default function AdminUsers() {
                   );
                 })()}
 
-                {/* Storage errors note — hard delete only */}
+                {/* Storage errors note */}
                 {deleteModal === "done" && deleteSummary && (deleteSummary.storageErrors ?? 0) > 0 && (
                   <p className="text-xs text-yellow-600 flex items-start gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -1345,7 +1337,7 @@ export default function AdminUsers() {
                     <Ban className="w-4 h-4" /> Unsuspend User
                   </Button>
                 </>
-              ) : suspendOpen ? (
+              ) : suspendReason !== null ? (
                 <div className="flex flex-col gap-2">
                   <label htmlFor="suspend-reason" className="text-xs text-muted-foreground">
                     Why? Only admins see this. They are signed out everywhere and see only that the account is suspended.
@@ -1353,7 +1345,7 @@ export default function AdminUsers() {
                   <Input
                     id="suspend-reason"
                     value={suspendReason}
-                    maxLength={500}
+                    maxLength={500 /* SUSPENSION_REASON_MAX in the API's lib/accountSuspension.ts */}
                     onChange={(e) => setSuspendReason(e.target.value)}
                     placeholder="e.g. spam comments"
                   />
@@ -1366,25 +1358,17 @@ export default function AdminUsers() {
                     >
                       <Ban className="w-4 h-4" /> Suspend
                     </Button>
-                    <Button variant="outline" onClick={() => { setSuspendOpen(false); setSuspendReason(""); }} className="flex-1" disabled={suspending}>
+                    <Button variant="outline" onClick={() => setSuspendReason(null)} className="flex-1" disabled={suspending}>
                       Cancel
                     </Button>
                   </div>
                 </div>
               ) : (
-                <Button variant="outline" onClick={() => setSuspendOpen(true)} className="w-full">
+                <Button variant="outline" onClick={() => setSuspendReason("")} className="w-full">
                   <Ban className="w-4 h-4" /> Suspend User
                 </Button>
               )}
-              {selectedUser.isActive ? (
-                <Button
-                  variant="outline"
-                  onClick={() => setDeleteModal("confirm-hard")}
-                  className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
-                >
-                  <Trash2 className="w-4 h-4" /> Delete User
-                </Button>
-              ) : (
+              {!selectedUser.isActive && (
                 <>
                   <div className="flex items-center gap-2 px-1 py-1">
                     <UserX className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
@@ -1397,15 +1381,15 @@ export default function AdminUsers() {
                   >
                     <UserX className="w-4 h-4" /> Reactivate User
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setDeleteModal("confirm-hard")}
-                    className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
-                  >
-                    <Trash2 className="w-4 h-4" /> Hard Delete Forever
-                  </Button>
                 </>
               )}
+              <Button
+                variant="outline"
+                onClick={() => setDeleteModal("confirm-hard")}
+                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
+              >
+                <Trash2 className="w-4 h-4" /> Delete User
+              </Button>
             </div>
           </div>
         ) : (

@@ -6,7 +6,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, emailVerificationTokensTable } from "@workspace/db";
-import { eq, and, or, sql, isNull, gt } from "drizzle-orm";
+import { eq, and, or, sql, isNull, gt, getTableColumns } from "drizzle-orm";
 import { createSession, updateSession, deleteSession, getSessionId, revokeUserSessions, type SessionData } from "../lib/auth";
 import { isDevAdminLoginEnabled } from "../lib/devAdminLogin";
 import { getSafeReturnTo } from "../lib/safeReturnTo";
@@ -469,8 +469,9 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
   const [record] = await db
-    .select()
+    .select({ ...getTableColumns(emailVerificationTokensTable), ownerSuspendedAt: usersTable.suspendedAt })
     .from(emailVerificationTokensTable)
+    .leftJoin(usersTable, eq(usersTable.id, emailVerificationTokensTable.userId))
     .where(eq(emailVerificationTokensTable.tokenHash, tokenHash))
     .limit(1);
 
@@ -491,8 +492,7 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
 
   // A suspended account's link verifies nothing and signs nobody in (plan,
   // transition table); the token stays unused for after an unsuspend.
-  const [owner] = await db.select({ suspendedAt: usersTable.suspendedAt }).from(usersTable).where(eq(usersTable.id, record.userId)).limit(1);
-  if (owner?.suspendedAt) {
+  if (record.ownerSuspendedAt) {
     res.status(403).json({ error: SUSPENDED_MESSAGE, code: "ACCOUNT_SUSPENDED" });
     return;
   }

@@ -3,7 +3,7 @@
  * @subsystem accounts-auth
  */
 import type { Request, Response, NextFunction } from "express";
-import type { Eligibility } from "../lib/eligibility";
+import { SUSPENDED_MESSAGE, type Eligibility } from "../lib/eligibility";
 
 /**
  * The code a refusal carries for each state that cannot act. Order of
@@ -18,7 +18,7 @@ export const REFUSAL_CODE: Readonly<Record<Exclude<Eligibility, "eligible">, str
 };
 
 const REFUSAL_MESSAGE: Readonly<Record<Exclude<Eligibility, "eligible">, string>> = {
-  suspended: "This account is suspended.",
+  suspended: SUSPENDED_MESSAGE,
   deletion_pending: "This account is scheduled for deletion. Keep it to continue.",
   unverified: "Verify your email address to continue.",
   unonboarded: "Finish setting up your account to continue.",
