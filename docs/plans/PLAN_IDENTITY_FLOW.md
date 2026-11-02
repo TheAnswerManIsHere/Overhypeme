@@ -362,7 +362,7 @@ Runners: `pnpm --filter overhype-me test`, `pnpm --filter overhype-me e2e:screen
 
 ## Amendment — Phase 2, the account (2026-11-01)
 
-**Status:** approved by David, 2026-11-01 ("Plan is approved"). Questions P2-1 and P2-2 are still open; the work that depends on them waits for his answers. Where this section and *Increment 2* elsewhere in this plan disagree, this section wins. Increment 1 shipped. Launch Phase 5's onboarding (#795, PR #801) has landed since the plan was written. That onboarding is settled and is built on, not re-decided. The Phase 2 oracle is `.agents/reviews/identity-flow-phase2/oracle-identity-flow-phase2.md`, quoted from #719. It adds two things to oracle items 5–7: the shared name rule (David, 2026-10-21) and #725 (David, 2026-10-18).
+**Status:** approved by David, 2026-11-01 ("Plan is approved"). David answered Questions P2-1 and P2-2 on 2026-11-02 (below): English-script names only, no fallback fonts, no older-name path. Where this section and *Increment 2* elsewhere in this plan disagree, this section wins. Increment 1 shipped. Launch Phase 5's onboarding (#795, PR #801) has landed since the plan was written. That onboarding is settled and is built on, not re-decided. The Phase 2 oracle is `.agents/reviews/identity-flow-phase2/oracle-identity-flow-phase2.md`, quoted from #719. It adds two things to oracle items 5–7: the shared name rule (David, 2026-10-21) and #725 (David, 2026-10-18).
 
 ### What changed since the plan was written (premises re-read at `origin/main`, 2026-11-01)
 
@@ -384,7 +384,7 @@ Runners: `pnpm --filter overhype-me test`, `pnpm --filter overhype-me e2e:screen
 1. Creating an account by email, Google or Apple puts the stored browser name and pronouns into the account without retyping. Onboarding shows them pre-filled, and confirming onboarding saves them.
 2. Once signed in, the account's name and pronouns win everywhere a name or pronouns is shown or used. An onboarded account missing a name or pronouns is asked once, through the same welcome sheet, and the answer saves to the account.
 3. Signing out clears the browser copy, and nothing that was in flight at sign-out puts the account's identity back (#725).
-4. One name rule decides what a name may be, everywhere a name is typed, saved or rendered. Font coverage for the scripts it admits is checked, and what renders is reported (the oracle). Whether every admitted script must render, and at what size cost, is Question P2-2: the guarantee is proposed here, not agreed.
+4. One name rule decides what a name may be, everywhere a name is typed, saved or rendered. It admits names that can be written in English (David, 2026-11-02), and every admitted name renders in the meme font.
 5. A custom pronoun set the server stores renders as that set, not as they/them, in every server path that produces visitor-facing output.
 
 ### Must not change (adds to the plan's list)
@@ -417,7 +417,7 @@ Runners: `pnpm --filter overhype-me test`, `pnpm --filter overhype-me e2e:screen
 - **Stale auth responses are discarded.** Every response from the auth provider (initial load, explicit refresh, entitlement refresh, the module's re-read) is tied to the auth state that issued it. Sign-out invalidates that state when it *starts*, before its network wait, and so does a change of account. A response belonging to an invalidated state publishes nothing. The mechanism (a generation counter, abort signals) is chosen at build.
 - **Failed is not signed out.** The plan's resolved-versus-failed distinction in the auth context is kept: a failed read offers a retry and grants nothing, and fail-closed entitlements are unchanged.
 - **One shared name rule, one module, used by browser and server.** It lives in a workspace library both import, so the two sides cannot drift.
-  - **Admits:** Unicode letters and marks; digits; space; `'`, `-` and `.`; ZWJ (U+200D) and ZWNJ (U+200C). No adjacency rule on the joiners: an Indic joiner legitimately follows a virama, which is a mark, not a letter (Astra, round 1; e.g. `क्‍ष`).
+  - **Admits (David, 2026-11-02, superseding "letters in any script"):** names that can be written in English: Latin letters (A–Z and the accented Latin-1 and Latin Extended-A letters), digits, space, `'`, `-` and `.`. Other scripts are refused until internationalization, after launch. Anton's charset covers U+0020–U+007E and U+00A0–U+0181, so every admitted name renders.
   - **Converts:** ’ (U+2019) and ‘ (U+2018) to `'`; runs of whitespace to one space; trims the ends.
   - **Limit:** 50 grapheme clusters, counted with `Intl.Segmenter`.
   - **No word-count limit**, and no denylist change: the account save keeps its denylist and provider names keep skipping it, as today.
@@ -426,13 +426,7 @@ Runners: `pnpm --filter overhype-me test`, `pnpm --filter overhype-me e2e:screen
   - **How it behaves while typing:** inputs refuse a disallowed character as it is typed, pasted or committed from an IME, and show a short hint. During composition nothing is refused until the composition commits.
   - **Provider names:** a provider-supplied first or last name that fails the rule is cleaned to what the rule admits, or dropped if nothing is left. Never refusing the sign-in, because the visitor did not type it.
   - **Values already stored on accounts** are read as they are and are not migrated. They meet the rule only when next edited.
-- **A verified fallback font set, packaged with the server and selected by name.**
-  - A set of fallback fonts is chosen and bundled. Its script coverage and its actual size on disk are recorded in the PR, and the gaps are listed against Unicode's scripts.
-  - The visitor's selected font is preserved. The builder offers Bebas Neue, Anton, DM Sans, JetBrains Mono and Impact (`AdvancedOptionsSheet.tsx:11`), and the choice travels in `textOptions.fontFamily` through preview, save and bake. The rendering stack is derived from that selection, and from the existing default, Anton, when there is none: the selected face first, then the verified coverage fonts, then generic fallbacks. So the coverage fonts draw only where the selected face has no glyph. Registering a font is not enough: canvas uses only what the stack names (measured above). Browser and server derive the stack by one shared rule (Astra, round 2).
-  - The derived stack is never stored. `fontFamily` keeps carrying only the selection, within its 50-character limit (`memeBuilder.ts:71`).
-  - The fonts live where the build copies them, and a test of the *built* server, not the source tree, shows the renderer loads them.
-  - The browser canvas preview names the same stack, with web fonts loaded through `@font-face` and `unicode-range`. The preview draws only after `document.fonts` has loaded the face a name needs, so the preview matches the download.
-  - The set is the one David picks in Question P2-2.
+- **No fallback fonts (David, 2026-11-02).** The name rule admits only characters Anton draws, so nothing is bundled; the font-coverage tests become one assertion that every character the rule admits has a glyph in Anton.
 - **Custom pronoun sets reach every server consumer intact.** `resolvedIdentityForms` parses a six-part set into its forms and its singular or plural marker; the client's `lib/pronouns.ts` is the reference. `memeBuilder.ts`'s `PronounsSchema` accepts any value `sanitizeAndValidatePronouns` accepts: the same rule as the account, not a second allowlist. Before anything changes, an inventory is taken of every server reader of `users.pronouns` and of the resolver (`git grep`, with shared helpers traced): meme render, bake and save, the legacy meme path, OG/share copy, the fact-of-the-day email, and image prompts. Each reader is either routed through the resolver or shown unreachable from a stored custom set. Image-prompt readers are checked for reachability first, because Phase 5 retired AI images of the visitor.
 
 ### Testing (Phase 2)
@@ -447,11 +441,11 @@ Runners: `pnpm --filter overhype-me test`, `pnpm --filter overhype-me e2e:screen
   - an account not yet verified never sees the completion sheet, `/check-email` included;
   - a sign-out issued while each of the three auth reads is in flight leaves the browser copy empty (#725, one test per read);
   - a sign-out landing between a save's response and its follow-up re-read publishes nothing, and neither does a change of account while a read is pending.
-- **The name rule:** a shared table of accepted and refused values, run by both the browser and the server suites, including ZWNJ Persian, a combining-mark Devanagari name, a 50- versus 51-grapheme pair, the curly apostrophe and an emoji. IME composition and paste are covered in a component test.
+- **The name rule:** a shared table of accepted and refused values, run by both the browser and the server suites, including accented Latin letters, a combining accent composed by NFC, a 50- versus 51-character pair, the curly apostrophe, an emoji and names in other scripts (refused). IME composition and paste are covered in a component test.
 - **Rendering:**
   - a saved meme and a download, each with a custom pronoun set, show its forms;
   - all five custom forms and both plurality markers through saved and downloaded output;
-  - from the *built* server, a saved meme with one name per covered script draws ink unlike the missing-glyph box (the measurement above, turned into an assertion), plus rendered-word captures for the joining scripts and combining marks, attached to the PR for a person to read, because ink alone does not show correct shaping;
+  - every character the name rule admits draws a real glyph in Anton, not the missing-glyph box (the measurement above, turned into an assertion);
   - a pixel comparison shows Latin output unchanged, for the default face and for one explicit non-default selection.
 - **Reader inventory:** the table goes in the PR body, each reader with its test or its unreachability evidence.
 
@@ -464,7 +458,7 @@ Runners: `pnpm --filter overhype-me test`, `pnpm --filter overhype-me e2e:screen
 
 Phase 2 is one increment, on a fresh branch off `main`. Its build order matches its dependencies:
 1. The shared name rule and its table, then every write boundary and input.
-2. Fallback fonts in the renderer and the preview.
+2. *(Dropped, David 2026-11-02: no fallback fonts.)*
 3. The pronoun resolver and validator, with the reader inventory.
 4. The auth context's failed state and stale-response invalidation.
 5. Onboarding gains the name.
@@ -473,15 +467,10 @@ Phase 2 is one increment, on a fresh branch off `main`. Its build order matches 
 
 A specialist accounts-auth review goes on the PR, and the inventory oracle is re-run in the PR body.
 
-### Questions for David (Phase 2)
+### Questions for David (Phase 2), answered 2026-11-02
 
-- **P2-1 — Older names that fail the new rule** (Astra's D1). Today's sheet, browser storage and accounts hold names the new rule refuses, such as an emoji, or more than 50 characters. Reads and existing artifacts stay unchanged either way. The question is what happens when such a name is *submitted*: into an account (onboarding, the sheet), or as the subject of a new meme (`createMemeRecord.ts:244` takes the stored account name directly).
-  1. *(Recommended, Astra and I agree)* The form that would submit it shows it pre-filled and marked, with a one-line explanation, and the visitor fixes it before saving. That covers onboarding and the sheet; a builder starting from an older account name opens the same correction, never a silent strip, and never an unexplained validation error. That is a bounded exception to "without retyping", for names the rule exists to keep out of memes and AI prompts.
-  2. Grandfather it: an older value is accepted as-is on every submission. That is an exception to the shared rule, and those names can render as boxes in memes.
-- **P2-2 — Font coverage versus size.** What you agreed (2026-10-21) is letters in any script, with font coverage *checked*. Whether every admitted script must also *render* is open. The size figures are estimates until the set is chosen; the build records the real ones.
-  1. *(Recommended)* Bundle broad Noto coverage: every script with a living-language Noto Sans family, CJK included. That is an estimated 20–40 MB of fonts on the server, with the browser loading only the range a name uses. Any gap against the option you approve is fixed, or brought back to you as a shortfall. Listing it in the PR does not settle it.
-  2. Bundle the scripts most visitors write (Latin-extended, Cyrillic, Greek, Arabic, Hebrew, Devanagari, CJK, Hangul, Thai), an estimated 15–25 MB, and accept boxes for the rest. The name rule stays "any script".
-  3. Bundle that smaller set and narrow the name rule to the scripts it covers. Nothing renders as boxes, but some real names get refused. That changes your 2026-10-21 rule.
+- **P2-1 — Older names that fail the new rule.** *"We're starting from scratch. There will be no older names."* No compatibility path is built. A read-only count found no failing account name in development (26 accounts) or production (1), so nothing was fixed.
+- **P2-2 — Font coverage versus size.** *"keep the site in English only and meant to support names that can be written in English. Internationalization will be a whole effort that we can take on after launch."* The rule admits English-script names only, and no fonts are bundled (`decisions.md`, 2026-11-02).
 
 ## Risks and Mitigations
 
