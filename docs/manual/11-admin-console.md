@@ -51,8 +51,10 @@ re-running classification on facts that predate it.
 ### Managing people
 
 The users screen covers everything from finding an account to changing
-its role, [deactivating](../ai-context/glossary.md#deactivate) or removing it (see
-[`9-accounts-and-auth.md`](./9-accounts-and-auth.md)) — plus a few things
+its role, [suspending](../ai-context/glossary.md#suspend) it or [removing](../ai-context/glossary.md#remove) it, and it carries the
+deletion panel — every account deletion in progress, with "Purge now" and
+keep-on-the-owner's-behalf (see
+[`9-accounts-and-auth.md`](./9-accounts-and-auth.md#when-an-account-is-suspended)) — plus a few things
 that live only here: manually granting or revoking a lifetime membership
 independent of any payment, manually marking an email verified, and
 creating an account directly rather than through normal sign-up.

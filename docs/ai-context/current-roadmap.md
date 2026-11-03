@@ -199,7 +199,9 @@ KITT work a launch phase needs and a second app would need identically;
   deriving them from `role`; and an admin cannot be locked out by any
   sequence of demotion, deletion, deactivation, or an email change,
   including concurrent ones — enforced by an advisory-lock population
-  guard (`adminLockoutGuard.ts`). The "view as user" toggle is a separate,
+  guard (`adminLockoutGuard.ts`). (Deactivation was retired in launch
+  Phase 5; suspension and the acceptance of an account deletion take the
+  same guard.) The "view as user" toggle is a separate,
   simpler case: it writes only session state, never touches the database,
   and `requireRole` checks the toggle-independent `realUserRole`, so
   console access is never actually at risk — a recovery control (in

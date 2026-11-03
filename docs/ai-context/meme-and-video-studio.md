@@ -227,10 +227,13 @@ images). Uploads instead authorize via
 `userCanReadObject()` — ACL first, then a legacy upload-owner-table
 fallback that also heals a missing ACL when it fires.
 
-**Admin hard-delete cleanup gap:** `DELETE /admin/users/:id?hard=true`
-(`admin.ts:462-581`) collects and deletes every AI-image storage path and
-every `"upload"`-typed meme's storage object before nulling
-`createdById`. (Video artifacts were the one meme type it skipped; video was
+**Account deletion and memes:** since launch Phase 5 every account
+deletion — a member's own after 14 days, or an admin's removal
+(`DELETE /admin/users/:id?hard=true`) at once — goes through the deletion
+engine, whose purge deletes the person's memes and each meme's own baked
+file, their uploads and their generations, through preserve
+([`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion)). A
+meme is no longer kept with its creator nulled. (Video artifacts were the one meme type the old hard delete skipped; video was
 deleted in launch Phase 4 and its MP4s and stills were left unreferenced in
 storage — see [`docs/retired/video.md`](../retired/video.md).)
 
@@ -249,8 +252,8 @@ storage — see [`docs/retired/video.md`](../retired/video.md).)
   object ACL.
 - `artifacts/api-server/src/middlewares/tierMiddleware.ts` — `requireRole`
   / `requireLegendary`.
-- `artifacts/api-server/src/routes/admin.ts` — hard-delete storage
-  cleanup.
+- `artifacts/api-server/src/lib/accountDeletion.ts` — the account purge,
+  which deletes a departing person's memes and baked files.
 - Frontend: `components/meme-builder/wizard/` (the fact page's wizard),
   `components/meme-builder/MemeBuilder.tsx` + `pages/memePage/BuilderOverlay.tsx`
   (the meme page's remix builder).

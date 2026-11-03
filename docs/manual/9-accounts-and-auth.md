@@ -1,7 +1,9 @@
 # Chapter 9 · Accounts and Authentication
 
-> How you get an account on Overhype.me, what "signed in" actually means day
-> to day, and what happens to an account when it's [deactivated](../ai-context/glossary.md#deactivate) or removed.
+> How you get an account on Overhype.me, the order a new account goes
+> through before it can act, what "signed in" means day to day, and what
+> happens when an account is [suspended](../ai-context/glossary.md#suspend) or
+> [deleted](../ai-context/glossary.md#account-deletion).
 >
 > Deep spec: [`accounts-and-auth.md`](../ai-context/accounts-and-auth.md).
 > Security posture (trust boundaries, session security): [`security-model.md`](../ai-context/security-model.md).
@@ -14,6 +16,11 @@ or commenting, and paying for a membership all require being signed in.
 Nothing else does: browsing, personalizing what you see, and sharing a
 meme all work without an account.
 
+Since launch Phase 5, an account is a **verified, consenting, age-known
+identity that can leave cleanly**: it has confirmed its email, told us its
+date of birth and pronouns, recorded its marketing choice, and can be
+deleted — by its owner or by an admin — without leaving a mess behind.
+
 ## How it works
 
 ### Signing in
@@ -21,46 +28,59 @@ meme all work without an account.
 You can create an account with Google, with Apple, or with an email and
 password — all three end up in the same place: a signed-in session that
 looks identical to the rest of the product no matter which door you came
-through. There's no "sign in via a link we email you" option; the only
-emails Overhype.me sends that touch sign-in are a one-time verification
-message after you register with email and password (or after you change
-your account's email address), and a separate reset link if you've
-forgotten your password — none of these are a standing way to log in.
+through. There's no "sign in via a link we email you" option. The emails
+that touch sign-in are a one-time verification message, sent after you
+register with email and password or change your email address, and a reset
+link if you've forgotten your password. Neither is a standing way to log
+in.
+
+Google and Apple tell us whether they have confirmed your email. If they
+have, your account counts as verified. If they haven't, and the email
+already belongs to an account here, the sign-in is refused and you're
+pointed at password sign-in or a password reset instead. Matching on an
+unconfirmed email would hand that account to whoever controls the
+unconfirmed address.
 
 If you signed up with Google or Apple and later want to also be able to log
 in with a password, you can set one from your account settings without being
-asked to prove you know a password you never had.
+asked to prove you know a password you never had — or follow a reset link,
+which works for an account that has no password yet.
 
-### Creating an account
+### Verify, then onboard, then act
 
-Registering with email and password asks for your name, an email, a
-password, and pronouns — the sign-up screen won't let you submit without
-picking pronouns. If you sign up with Google or Apple you're never asked
-for pronouns at all; your account quietly starts on a default [pronoun set](../ai-context/glossary.md#pronoun-set)
-until you visit your profile and pick your own, the same place anyone can
-change them.
+Every new account goes through the same order, whichever way it signed up,
+and the server enforces it on every write. The browser only steers you to
+the right screen.
+
+1. **[Verify your email](../ai-context/glossary.md#email-verification).** Until
+   you do, you can sign in and look around, but nothing you try to do —
+   submit, comment, rate, upload — goes through. (A Google or Apple sign-up
+   whose provider confirmed the email skips this step.)
+2. **[Onboard](../ai-context/glossary.md#onboarding).** One screen for every
+   sign-in method asks for your date of birth, confirms your pronouns and
+   name, and records your marketing choice. The box is pre-ticked for
+   visitors in the US and unticked everywhere else. It also asks you to
+   pass one Cloudflare Turnstile challenge (proving you're a person). If
+   you leave half-way, your answers are kept for next time. **Under 13 is
+   refused**: nothing is stored and nothing is destroyed. Accounts that
+   existed before Phase 5 are asked once too.
+3. **Act.** From then on the account can do everything its membership
+   allows. Adults (18 and over, worked out from the date of birth each time
+   it is needed, never stored as a flag) are also offered a profile photo,
+   and only adults can upload photos at all.
 
 There's no separate "guest" or "anonymous" tier of account — every account
-you can sign in as is a full `usersTable` row, not a lighter stand-in.
-What *can* feel like a lighter, more limited account right after signing
-up is really a second, one-time step layered on top: a short [onboarding](../ai-context/glossary.md#onboarding)
-challenge (proving you're a person, not a bot) that a fresh account
-completes once before it can submit its first fact. Until that step is
-done, you can still sign in and look around; you're only stopped at the
-point of trying to submit something. (Admin-created accounts are a
-separate case — an [admin](../ai-context/glossary.md#admin) can create an account that starts genuinely
-[unregistered](../ai-context/glossary.md#unregistered) rather than at the normal default, which is its own distinct,
-persisted state rather than something onboarding controls.)
+you can sign in as is a full account, not a lighter stand-in. (Admin-created
+accounts are a separate case — an [admin](../ai-context/glossary.md#admin) can
+create an account that starts genuinely
+[unregistered](../ai-context/glossary.md#unregistered) rather than at the
+normal default, which is a membership state, not something onboarding
+controls.)
 
-### Verifying your email
-
-Registering with email and password sends a verification link, and clicking
-it — even from a browser where you're not currently signed in — signs you
-in. **Right now, [verifying your email](../ai-context/glossary.md#email-verification) doesn't unlock anything you couldn't
-already do** — it's a trust signal shown to moderators and admins, not a
-requirement checked anywhere before you submit a fact, comment, or anything
-else. The gate that actually matters for a first submission is the
-onboarding challenge above, not email verification.
+A sign-up that never finishes onboarding is cleaned up: after a month or
+so it is scheduled for deletion and its owner is emailed, with the usual
+cooling-off to keep it (below). That never happens to an account an
+admin made, or to one that has already kept itself once.
 
 ### Resetting or changing your password
 
@@ -68,44 +88,82 @@ Forgetting your password works the way you'd expect: request a reset, get an
 email, follow the link, set a new password. Overhype.me always shows the
 same confirmation after you request a reset, whether or not that email
 actually belongs to an account — so a reset request can't be used to check
-who has an account here. Resetting your password signs you out everywhere
-else your account was signed in, on every device — a deliberate safety
-measure, since a password reset is often a response to your account being
-compromised somewhere. If you originally signed up with Google or Apple and
-never set a password, requesting a reset doesn't do anything — there's
-nothing to reset — you'd use the "set a password" option from your account
-settings instead, which (unlike a reset) doesn't sign your other sessions
-out.
+who has an account here. A reset link works once: if two tabs use it at the
+same moment, one changes the password and the other is told the link was
+used.
 
-### When an account is deactivated or removed
+**Every password change signs your other sessions out.** A reset signs out
+every device; setting or changing your password from your account settings
+signs out every device but the one you're using. A password change is often a
+response to an account being compromised somewhere, so whoever else is
+signed in as you shouldn't stay signed in.
 
-You can't deactivate or delete your own account from the product today —
-that's an admin-only action, done on request. There are two versions:
+### When an account is suspended
 
-- **Deactivating** an account signs it out everywhere, locks it out of
-  signing back in, and makes a best-effort attempt to cancel any active
-  paid membership — that cancellation isn't guaranteed to succeed in every
-  case, so a rare failure there is a known gap rather than something the
-  product silently papers over. Everything that account created is left
-  exactly as it was — facts, comments, and memes it authored stay live —
-  but the product stops showing who made them once the account itself is
-  deactivated, since attribution is only ever shown for an active account.
-- **[Removing](../ai-context/glossary.md#remove)** an account goes further: it's a best-effort attempt to
-  delete the account's own uploaded images and other personal data (not
-  every category of upload is guaranteed to be caught), but content it
-  created and other people might be relying on — facts, comments, memes —
-  is **kept**, just no longer tied to a real account. It isn't deleted
-  along with the account, and it isn't secretly left attributed to a name
-  that no longer resolves to anyone. Anything tied to a legal or safety
-  report is deliberately kept, for as long as that kind of record needs to
-  exist — the report row and its evidence survive a hard delete, though not
-  the attribution: who it's tied to is nulled out the same as ordinary
-  content.
+An admin can **suspend** an account, giving a reason only admins ever see.
+Suspension signs the account out everywhere and stops it signing back in by
+any door — password, Google, Apple, or a reset link. A device that was
+signed in can still look around, but everything it tries to do is refused
+and it's shown one screen: *"This account is suspended."* It never says
+why.
 
-A deactivated account can be [reinstated](../ai-context/glossary.md#reinstate) by an admin, which signs it back in
-to normal life and re-checks what membership it should actually have — see
-[`10-payments-and-membership.md`](./10-payments-and-membership.md) for how that
-tier gets figured out.
+Suspension blocks the **person**, not the catalogue: the account's facts,
+memes and comments stay live, and its membership billing is left alone. An
+admin can lift it at any time, and the account carries on as before; a
+reset link requested before the suspension still works afterwards, if it
+hasn't expired. An admin
+can't suspend their own account, or the last administrator who can reach
+the console.
+
+### When an account is deleted
+
+**You can delete your own account** from your profile ("Delete my
+account…"). Because it should be hard to do by accident, it asks for your
+password first — or, for an account that only signs in with Google or
+Apple, a sign-in made just now. Then:
+
+- **You're signed out everywhere at once, and your memes, photos and
+  generated images are hidden at once** — though someone who already loaded
+  one may still see it for a short while. Your facts and comments stay
+  readable meanwhile (what happens to them at the end is below). Cancelling
+  any paid subscription starts at the same moment, and if Stripe doesn't
+  confirm it, it is retried until it does. You're emailed.
+- **You have a cooling-off period to change your mind** (its length is in
+  the [spec](../ai-context/accounts-and-auth.md#account-deletion)). Signing back in takes you to
+  one screen with a **"Keep my account"** button; pressing it brings your
+  account and content back. Anything you deleted by hand before then stays
+  deleted.
+- **When the cooling-off ends, the account is deleted.** Your photos, memes
+  and generated images are removed from Overhype.me (kept for a short while
+  in a backup, as every deleted photo is). Your account goes too. What you gave
+  the community stays, without your name: **facts persist forever**,
+  credited to a [former member](../ai-context/glossary.md#former-member). So do
+  your comments, your submissions waiting for review, the links you added,
+  and your votes and hearts in the totals.
+
+**An admin can [remove](../ai-context/glossary.md#remove) an account at
+once**, from the user editor. That is the abuse case, so it goes further: the
+account's comments, submissions waiting for review, links, votes and hearts
+are deleted, and the totals they fed are recounted. Facts still persist,
+credited to a former member. If the member had already asked to delete their
+own account, the admin's removal takes it over.
+
+Admins see every deletion in progress on one panel, with when it will
+happen and anything that went wrong. "Purge now" brings a member's own
+deletion forward, keeping what it keeps; on a deletion that failed
+part-way, it is also the retry. Admins can also keep an account on its
+owner's behalf, and the owner is emailed. A billing dispute pauses the
+deletion until it's settled. Anything tied to a legal or safety report
+keeps its record — the report row and its evidence survive the deletion —
+though not who it was tied to.
+
+### Deleting things from My content
+
+Separately from deleting your whole account: anything you delete from **My
+content** — an upload, a generated image, a meme — moves to **Recently
+deleted** for a month or so and comes back with one click. After that it is
+removed. While it waits there, only you can see it on the site, though
+someone who already loaded it may still see their copy for a short while.
 
 ### Staying signed in
 
@@ -113,9 +171,9 @@ Once you're signed in, Overhype.me keeps you that way across visits without
 asking you to log in again every time — there's no separate "remember me"
 choice to make, that's just how a normal session behaves. You can be signed
 in on more than one device at once — a phone and a laptop, say — and signing
-in on a new one doesn't sign the others out. The only things that sign out
-*every* device at once are a password reset and an admin deactivating the
-account; everything else only ever affects the one session it happens on.
+in on a new one doesn't sign the others out. Some events sign out every
+device at once: a password change (all but the device making it, when you
+change it yourself), a suspension, and a request to delete the account.
 
 ### Who counts as what
 
@@ -123,7 +181,8 @@ Overhype.me distinguishes a handful of standing [roles](../ai-context/glossary.m
 [Unregistered](../ai-context/glossary.md#unregistered) (an admin-created starting state, not the normal default),
 [registered](../ai-context/glossary.md#registered) user, [Legendary](../ai-context/glossary.md#legendary) member, admin — and which one applies to you is
 always figured out fresh from your actual account state, never something
-stored on your session that could go stale or be tampered with. For the
+stored on your session that could go stale or be tampered with. The same is
+true of whether you're verified, onboarded, suspended or leaving. For the
 standard admin gate the product relies on almost everywhere, an admin who
 temporarily views the site "[as a regular user](../ai-context/glossary.md#view-as-regular-user)" (to check what a member
 actually sees) never actually loses their admin permissions on the backend
@@ -136,40 +195,50 @@ in a small corner, not how authorization works generally.
 
 ## Why it works this way
 
-- **Every account is a real account, on purpose.** A separate lightweight
-  "guest" account type would mean two different identity systems to keep in
-  sync, and two different sets of rules for what a fact or comment is
-  attributed to. A single onboarding step layered on top of a normal account
-  gets the same practical effect — new accounts can't immediately spam
-  submissions — without a second account type to maintain.
-- **Signing out every device is reserved for genuine compromise signals.**
-  A password reset forcing every session closed is a deliberate,
-  security-first choice — if someone is resetting your password, the safest
-  assumption is that whoever else is signed in as you shouldn't be. Ordinary
-  actions, like setting a first password on an OAuth account, don't carry
-  that same signal, so they don't force a sign-out.
-- **Deactivation preserves content because content usually isn't only about
-  the account that made it.** A fact or a meme is something other people
-  read, share, and build on — deleting it the moment its author's account is
-  removed would punish everyone who's since relied on it for a decision
-  that was about the account, not the content.
-- **Roles are computed, never trusted from what's already on the session.**
-  Storing "this session belongs to an admin" as a flag on the session itself
-  would mean a stale or tampered session could keep claiming admin
-  permissions after they'd been revoked. Recomputing role from the account's
-  actual current state on every request closes that gap entirely.
+- **One order, enforced in one place.** Verify, then onboard, then act is
+  checked by a single gate on every write, with one table saying what each
+  kind of not-yet-ready account may still do. A rule spread across every
+  screen would have a screen that forgot it.
+- **Suspension and deletion are different things.** Suspension stops a
+  person and is undone by an admin; deletion is a person leaving, on a clock
+  they control. They used to share one "inactive" switch, which meant the
+  product couldn't tell a banned account from a departing one. That switch
+  is retired (the admin "deactivate" and "reinstate" actions went with it),
+  and each state has its own record.
+- **Leaving cleanly respects the community and the person.** What someone
+  gave others — a fact, a comment, a vote — stays when they leave, without
+  their name, as on Reddit and Stack Overflow. Their own things — photos,
+  memes, generated images — go. An admin removing an abusive account is the
+  exception, so it takes the contributions too (David, 2026-11-02).
+- **A deletion is hard to do by accident and easy to undo for a while.**
+  Asking for the password (or a fresh sign-in) stops a borrowed device or a
+  slip of the finger; the cooling-off stops a moment of anger.
+- **Signing out every device is reserved for real signals.** A password
+  change, a suspension and a deletion request each mean whoever else is
+  signed in as you shouldn't be. Ordinary actions affect only the session
+  they happen on.
+- **Roles and account states are computed, never trusted from the
+  session.** Storing "this session belongs to an admin" or "this account is
+  allowed to act" on the session would let a stale or tampered session keep
+  a permission after it was taken away.
 
 ## Boundaries & known limitations
 
-- **Email verification is a trust signal only, today** — it isn't checked
-  before letting a signed-in account submit, comment, or do anything else on
-  the product. That may change, but as of today it doesn't gate anything.
-- **There's no self-service way to deactivate or delete your own account.**
-  It's an admin action taken on request, not a settings-page button.
-- **Removing an account doesn't remove what it created.** If you're
-  expecting a full "right to be forgotten" erasure of your facts and
-  comments along with your account, that's not currently how it works —
-  your content stays, just no longer tied to your account.
+- **No Terms acknowledgement yet.** Onboarding records marketing consent
+  only; Phase 14 adds the Terms and Privacy pages and asks every account
+  once (David overrode the recommendation to add minimal text now).
+- **Adult content isn't on.** The data model can mark facts, memes and
+  images as adult, and record an adult verification, but nothing uses
+  either yet. The old opt-in for NSFW images is withdrawn, so a photo the
+  classifier flags is refused for everyone.
+- **A member can't yet delete one of their own comments.** That comes in
+  Phase 9, before launch.
+- **A suspended member who had asked to delete their account can't keep
+  it**, since keeping is an action a suspended account can't take.
+- **A change that lands in the very instant a suspension does** — a reset's
+  new password, a verification — can still be stored. It leaves no session
+  and no new capability, so it ends where a moment-earlier action would
+  have.
 - **Concurrent sign-ins are unlimited.** Overhype.me doesn't cap how many
   devices or sessions one account can be signed into at once, and doesn't
   show you a list of them to review or revoke individually.
@@ -177,15 +246,15 @@ in a small corner, not how authorization works generally.
 ## Going deeper
 
 - Spec: [`accounts-and-auth.md`](../ai-context/accounts-and-auth.md) — the
-  exact routes, session mechanics, token handling, and the full deactivation
-  and removal sequence.
+  exact routes, the account states and the gate, session mechanics, token
+  handling, suspension, and the deletion engine's stages.
 - Security posture: [`security-model.md`](../ai-context/security-model.md) —
   trust boundaries, session security properties, rate limits.
 - Related: [`10-payments-and-membership.md`](./10-payments-and-membership.md) (how
   a role and [membership tier](../ai-context/glossary.md#membership-tier) translate into what you can do and pay for).
-- Rationale: the auth entries in [`decisions.md`](../ai-context/decisions.md).
+- Rationale: the auth and account entries in [`decisions.md`](../ai-context/decisions.md).
 
 **Next:** chapter 10 — [`10-payments-and-membership.md`](./10-payments-and-membership.md),
 free vs. Legendary, plan shapes, and what a membership unlocks.
 
-*Verified against `2fc40dd` (2026-08-09) · claim inventory in PR #370.*
+*Verified against `54f5b2f` (2026-11-02) · rewritten for launch Phase 5 (#795).*

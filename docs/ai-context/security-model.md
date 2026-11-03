@@ -41,10 +41,48 @@ entry (David, 2026-10-21; [`decisions.md`](./decisions.md#2026-10-21--the-dev-ad
   fallback) maps to a `sessions` row; there is no client-trusted JWT. The
   Bearer-vs-cookie precedence gotcha is its own note —
   [`auth-bearer-cookie-fallback.md`](../../.agents/memory/auth-bearer-cookie-fallback.md).
-- **`authMiddleware` rebuilds `req.user` from the DB every request** — admin /
-  membership / captcha state is never trusted from the session blob alone.
+- **`authMiddleware` rebuilds `req.user` from the DB every request** — admin,
+  membership and account state are never trusted from the session blob (the
+  captcha flag that was OR-ed in from it went in launch Phase 5).
   `req.user.isRealAdmin` / `realUserRole` are the canonical role signals;
   `requireRole` / `requireAdmin` gate on them.
+- **One gate decides whether a signed-in account may write** (launch Phase 5,
+  #795): `requireEligibleActor` refuses every unsafe request from an account
+  that is suspended, pending deletion, unverified or un-onboarded, outside the
+  routes its `GATE_EXCEPTIONS` table opens to that state. It matches paths and
+  methods the way Express does — case-insensitively, HEAD as GET — because a
+  stricter match than the router's is a bypass. The states, the table and the
+  test that diffs it are
+  [`accounts-and-auth.md`](./accounts-and-auth.md#account-creation).
+- **An anonymous auth route reads its target's state itself, before any
+  write.** A route that acts on an email, a token or a provider claim
+  (forgot/reset password, verification, the OAuth callbacks) runs outside the
+  gate, which only sees signed-in accounts.
+- **A session is created under a share lock on the account row**
+  (`createSignInSession`, `artifacts/api-server/src/lib/auth.ts`), in the same transaction as the
+  `suspended_at` check, so it serializes with a suspension's `FOR UPDATE` and
+  revoke-all. A session created after a decision read on an unlocked row races
+  any revoke-all. Suspension's two layers — every sign-in door refuses, and
+  the gate refuses a held session's writes while letting it read — and its
+  one recorded gap are in
+  [`accounts-and-auth.md`](./accounts-and-auth.md#suspension).
+- **Removing access never removes the last administrator.** Suspension and
+  the acceptance of an account deletion both run under the admin population
+  lock (`adminLockoutGuard.ts`) and revoke sessions in the same transaction,
+  and a suspended or departing admin is not counted as reachable
+  (`isReachableAdminSql`;
+  [`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion)).
+- **Deleting your own account re-authenticates**: the password, or for a
+  Google- or Apple-only account a provider sign-in from the last ten minutes,
+  rate-limited per account
+  ([`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion)).
+  Recovery is closed while suspended: forgot-password
+  issues nothing behind the same generic reply, so it discloses nothing, and
+  reset refuses a suspended owner's link before claiming it.
+- **A provider's unverified email claim never attaches to an existing
+  account** — matching by email alone would hand the account to whoever
+  controls the claim (`UnverifiedProviderEmailError`); a verified claim is
+  `email_verified: true` (Google) or `"true"` (Apple) and nothing else.
 - **Rate limits** (C4) on `POST /auth/local-login` and `/auth/register`, scoped
   by both **`ipFromRequest()`** (CF-Connecting-IP — the raw `X-Forwarded-For` is
   spoofable, so it is NOT used) and normalized email, via the DB-backed

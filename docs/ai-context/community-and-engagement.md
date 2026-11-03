@@ -75,10 +75,15 @@ notification-opted-in admin (`facts.ts:483-497`). Response includes
 `pending: true` so the client can show an awaiting-moderation state
 immediately.
 
-**Authorship is always a real account.** `authorId` is hard-set from
-`req.user.id` on the one and only comment-insert route; the column is
-nullable and the admin UI defensively renders "Anonymous" for a null
-value, but no live code path produces one.
+**Authorship is a real account, or a former member.** `authorId` is
+hard-set from `req.user.id` on the one and only comment-insert route. Since
+launch Phase 5 one path nulls it: when a member deletes their own account,
+the purge keeps their comments with `author_id` null and
+`author_deleted_at` set, and the comment shows "Former member" (an admin's
+removal deletes the comments instead;
+[`accounts-and-auth.md`](./accounts-and-auth.md#account-deletion)). A null
+author with no marker comes from no live path; the admin UI still renders
+"Anonymous" for one defensively.
 
 **List:** `GET /facts/:factId/comments` (`facts.ts:408-451`) returns only
 `status:"approved" && flagged:false` — pending/rejected/flagged comments
