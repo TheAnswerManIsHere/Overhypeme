@@ -2,14 +2,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { decide, send, pushoverBody, sessionUrl, plain, footer, nextForm, needsSomething, WAITING, withoutFences } from "../needs-you-alert.mjs";
+import { decide, alertFor, send, pushoverBody, sessionUrl, plain, footer, nextForm, needsSomething, WAITING, withoutFences } from "../needs-you-alert.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "needs-you-alert.mjs");
 const env = { CLAUDE_PROJECT_DIR: "/home/user/Overhype.me" };
-const stop = (last_assistant_message) => decide({ hook_event_name: "Stop", last_assistant_message }, env);
+// What a single Stop owes on a fresh session: the deduplicated alert, never the internal `clear` marker.
+const stop = (last_assistant_message) =>
+  alertFor({ hook_event_name: "Stop", session_id: "t", last_assistant_message }, { ...env, NEEDS_YOU_ALERT_STATE_DIR: mkdtempSync(join(tmpdir(), "nya-")) });
 
 const FOOTER_RUNNING = "**Done:** wrote the hook. · **Next:** running — the PR's CI, woken by its webhook. · **Needs you:** nothing. · **Spend:** 2 min, 10,000 tokens, $0.15.";
 const FOOTER_STOPPED = "**Done:** the plan. · **Next:** stopped — the UAT is yours; a message from David brings me back. · **Needs you:** nothing. · **Spend:** $1.";
@@ -40,12 +44,56 @@ test("a turn ending on the blocking-ask banner alerts, carrying the ask", () => 
   assert.equal(alert.message, "pick the alert channel");
 });
 
-test("an unchanged ask's open-ask line alerts", () => {
-  assert.equal(stop("Still waiting on you: the Astra code, above.").message, "the Astra code, above.");
+test("an open-ask line rings nothing: it marks an ask already rung and unchanged, whatever the footer says", () => {
+  assert.equal(stop("Still waiting on you: the Astra code, above."), null);
+  assert.equal(stop(`${FOOTER_RUNNING}\n\nStill waiting on you: the code, above.`), null);
+  assert.equal(stop("**Done:** x · **Next:** after Fable — fix · **Needs you:** pick the fonts · **Spend:** $1\n\nStill waiting on you: approve the fonts, above."), null);
 });
 
-test("the ask wins over the footer: a turn ending on an ask rings as an ask", () => {
-  assert.equal(stop(`${FOOTER_RUNNING}\n\nStill waiting on you: the code, above.`).title, "🛑 Overhype.me: Claude needs you");
+test("the banner wins over the footer: a turn ending on a new ask rings as an ask", () => {
+  assert.equal(stop(`${FOOTER_RUNNING}\n\n🛑 **NEED YOU** — the code`).title, "🛑 Overhype.me: Claude needs you");
+});
+
+test("one ask, one ring: an unchanged Needs-you on later hand-backs rings nothing, a changed one rings, and a hand-back waiting on nothing resets it (David, 2026-11-03)", () => {
+  const e = { ...env, NEEDS_YOU_ALERT_STATE_DIR: mkdtempSync(join(tmpdir(), "nya-")) };
+  const at = (text, session_id = "s1") => alertFor({ hook_event_name: "Stop", session_id, last_assistant_message: text }, e);
+  const fonts = (done) => `**Done:** ${done} · **Next:** after Fable's assessment — the fix · **Needs you:** pick the caption fonts · **Spend:** $1`;
+  assert.ok(at(fonts("round 1")), "the first hand-back naming the ask rings");
+  assert.equal(at(fonts("round 2")), null, "the same ask on the next hand-back does not");
+  assert.equal(at(fonts("round 3")), null, "nor on the one after");
+  assert.ok(at(fonts("round 1"), "s2"), "another session keeps its own memory");
+  assert.ok(at("**Done:** x · **Next:** running — CI · **Needs you:** the sign-in code · **Spend:** $1"), "a different ask rings");
+  assert.equal(at(FOOTER_RUNNING), null, "a hand-back waiting on nothing rings nothing");
+  assert.ok(at(fonts("round 4")), "and after it, the old ask rings again as a new one");
+  assert.ok(at(FOOTER_STOPPED));
+  assert.equal(at(FOOTER_STOPPED), null, "an identical stopped footer does not ring twice");
+  assert.ok(at("🛑 **NEED YOU** — sign in"));
+  assert.equal(at("🛑 **NEED YOU** — sign in"), null, "nor an identical banner");
+  assert.ok(alertFor({ hook_event_name: "Notification", session_id: "s1", notification_type: "permission_prompt" }, e));
+  assert.ok(alertFor({ hook_event_name: "Notification", session_id: "s1", notification_type: "permission_prompt" }, e), "prompts are not deduplicated");
+});
+
+test("two finished tasks in a row each ring, though both end on the same Next; long asks differing only at the end stay distinct (Codex, PR #279 round 1)", () => {
+  const e = { ...env, NEEDS_YOU_ALERT_STATE_DIR: mkdtempSync(join(tmpdir(), "nya-")) };
+  const at = (text) => alertFor({ hook_event_name: "Stop", session_id: "s", last_assistant_message: text }, e);
+  const done = (what) => `**Done:** ${what} · **Next:** nothing — the plan is done · **Needs you:** nothing · **Spend:** $1`;
+  assert.ok(at(done("task one shipped")));
+  assert.ok(at(done("task two shipped")), "a second completion with its own Done rings");
+  const long = "review the release notes carefully, ".repeat(10);
+  assert.ok(at("🛑 **NEED YOU** — approve the production deployment\n\nRelease 1.4.0.\n\n1. Ship\n2. Hold"));
+  assert.ok(at("🛑 **NEED YOU** — approve the production deployment\n\nRelease 1.5.0.\n\n1. Ship\n2. Hold"), "a changed decision under the same banner heading rings");
+  assert.ok(at(`**Done:** x · **Next:** running — y · **Needs you:** ${long}for release A · **Spend:** $1`));
+  assert.ok(at(`**Done:** x · **Next:** running — y · **Needs you:** ${long}for release B · **Spend:** $1`), "a change past 240 characters rings");
+});
+
+test("a state file that cannot be written still rings: a duplicate is cheaper than a missed ask", () => {
+  // A directory path running through a regular file: every read and write fails at once (ENOTDIR).
+  const file = join(mkdtempSync(join(tmpdir(), "nya-")), "not-a-dir");
+  writeFileSync(file, "");
+  const e = { ...env, NEEDS_YOU_ALERT_STATE_DIR: join(file, "state") };
+  const at = () => alertFor({ hook_event_name: "Stop", session_id: "x", last_assistant_message: FOOTER_STOPPED }, e);
+  assert.ok(at());
+  assert.ok(at());
 });
 
 test("a message that only quotes the ask shapes is not an ask", () => {
@@ -74,8 +122,6 @@ test("an ask dressed in a heading, bullet or emphasis still rings", () => {
   for (const text of [
     "## 🛑 **NEED YOU** — pick a channel",
     "- 🛑 **NEED YOU** — pick a channel",
-    "1. Still waiting on you: pick a channel",
-    "**Still waiting on you:** pick a channel",
   ]) {
     assert.match(stop(text)?.message ?? "", /pick a channel/, text);
   }
@@ -158,7 +204,7 @@ test("a turn that died on an error alerts, since nothing resumes it until David 
 });
 
 test("an event inside a subagent owes nothing", () => {
-  assert.equal(decide({ hook_event_name: "Stop", agent_id: "sub-1", last_assistant_message: "Still waiting on you: b" }, env), null);
+  assert.equal(decide({ hook_event_name: "Stop", agent_id: "sub-1", last_assistant_message: "🛑 **NEED YOU** — b" }, env), null);
 });
 
 test("the alert links to the session's own page", () => {
@@ -188,7 +234,7 @@ test("a refusal from Pushover is reported with its reason", async () => {
 test("as a hook: owed but unsendable prints one systemMessage, and still exits 0", () => {
   const r = spawnSync("node", [SCRIPT], {
     input: JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "👀 **FYI** — a\n\n🛑 **NEED YOU** — x" }),
-    env: { PATH: process.env.PATH },
+    env: { PATH: process.env.PATH, NEEDS_YOU_ALERT_STATE_DIR: mkdtempSync(join(tmpdir(), "nya-")) },
     encoding: "utf8",
   });
   assert.equal(r.status, 0);
@@ -205,7 +251,7 @@ test("as a hook: nothing owed prints nothing, and bad input never blocks a stop 
     JSON.stringify({ hook_event_name: "Notification", notification_type: "idle_prompt" }),
     "not json",
   ]) {
-    const r = spawnSync("node", [SCRIPT], { input, env: { PATH: process.env.PATH }, encoding: "utf8" });
+    const r = spawnSync("node", [SCRIPT], { input, env: { PATH: process.env.PATH, NEEDS_YOU_ALERT_STATE_DIR: mkdtempSync(join(tmpdir(), "nya-")) }, encoding: "utf8" });
     assert.equal(r.status, 0, input);
     assert.equal(r.stdout, "", input);
   }
