@@ -19,7 +19,6 @@ export const usersTable = pgTable("users", {
   passwordHash: varchar("password_hash"),
   googleLinked: boolean("google_linked").notNull().default(false),
   appleLinked: boolean("apple_linked").notNull().default(false),
-  captchaVerified: boolean("captcha_verified").notNull().default(false),
   isAdmin: boolean("is_admin").notNull().default(false),
   adminNotifications: boolean("admin_notifications").notNull().default(true),
   disputeNotifications: boolean("dispute_notifications").notNull().default(true),
@@ -71,9 +70,6 @@ export const usersTable = pgTable("users", {
   marketingConsentMethod: varchar("marketing_consent_method", { length: 20 }),
   marketingConsentWordingVersion: varchar("marketing_consent_wording_version", { length: 40 }),
   monthlyGenerationLimitOverrideUsd: numeric("monthly_generation_limit_override_usd", { precision: 10, scale: 4 }),
-  // Withdrawn by launch Phase 5 (S13): nothing reads or writes it; the
-  // classifier is always told false. The column stays until a contract step.
-  nsfwModeEnabled: boolean("nsfw_mode_enabled").notNull().default(false),
   /** When the account was verified as an adult by a provider (launch Phase 5, 0121). Read by nothing yet; separate from the date-derived 18+. */
   adultVerifiedAt: timestamp("adult_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

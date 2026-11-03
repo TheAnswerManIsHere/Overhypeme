@@ -162,9 +162,13 @@ the server enforces it:
 - **`captcha_verified` is no longer read or written** (plan S23): the
   submit-review and tokenize-fact bypass reads `onboardingCompleted`
   instead, since every onboarded account passed a challenge at onboarding.
-  The column is dropped by migration 0122 (Increment 7b), which runs only
-  once the release that stopped using it is the published one — the expand,
-  then contract rule. 0122 also drops `nsfw_mode_enabled` (§ Age, audience and the NSFW opt-in).
+  Increment 7b removed it from the Drizzle model; migration 0122 drops the
+  column in a later release, only once a release without the declaration is
+  the published one — the expand, then contract rule. The declaration counts
+  as a use: Drizzle names every declared column in a full-row `select()`, an
+  `insert` and a `returning()`, so a release that still declares a column
+  breaks the moment it is dropped. 0122 also drops `nsfw_mode_enabled`
+  (§ Age, audience and the NSFW opt-in).
 
 ## Email verification
 
@@ -452,8 +456,9 @@ keeps its "removed" 410.
   upload and the AI meme pipeline) pass a literal `false`, so a photo over
   the threshold is rejected and quarantined for everyone. The classifier
   keeps the parameter for when adult content ships. The
-  `users.nsfw_mode_enabled` column is read by nothing and is dropped by
-  0122 (Increment 7b). Meme generation always passed "off", so the
+  `users.nsfw_mode_enabled` column is read by nothing, left the Drizzle
+  model in Increment 7b, and is dropped by 0122 after that release is
+  published. Meme generation always passed "off", so the
   withdrawal changed photo uploads only. Scoring a baked meme as a whole is
   carried to Phase 9 (moderation).
 
