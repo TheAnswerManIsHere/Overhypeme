@@ -21,7 +21,7 @@
  */
 
 import { z } from "zod";
-import { checkPersonalName } from "@workspace/api-zod";
+import { CAPTION_FONT_IDS, checkPersonalName } from "@workspace/api-zod";
 import { PRONOUN_WORD_CAP_UPPER_BOUND, sanitizePronounsWithCap } from "./personalName";
 
 /**
@@ -63,7 +63,7 @@ export const NameSchema = z.string().transform((v, ctx) => {
   return checked.value;
 });
 
-export const TextOptionsSchema = z.object({
+const TextOptionsFields = z.object({
   fontSize: z.number().int().min(14).max(100).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
   align: z.enum(["left", "center", "right"]).optional(),
@@ -74,6 +74,8 @@ export const TextOptionsSchema = z.object({
   // percentage of the image height (#707). Stripped as unknown keys before.
   topY: z.number().min(0).max(100).optional(),
   bottomY: z.number().min(0).max(100).optional(),
+  // A stored recipe from before the caption-font catalogue holds a CSS font
+  // string here; a new request names a catalogue face (below).
   fontFamily: z.string().max(50).optional(),
   outlineColor: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
   textEffect: z.enum(["shadow", "outline", "none"]).optional(),
@@ -82,7 +84,19 @@ export const TextOptionsSchema = z.object({
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
   opacity: z.number().min(0).max(1).optional(),
+});
+
+/**
+ * Text options on a render or save request. The caption font is a catalogue id
+ * (names-and-fonts plan): the face the preview drew is the face the server
+ * draws, and no new meme can name a font the server does not ship.
+ */
+export const TextOptionsSchema = TextOptionsFields.extend({
+  fontFamily: z.enum(CAPTION_FONT_IDS).optional(),
 }).optional();
+
+/** Text options as a stored recipe holds them, old font strings included. */
+export const StoredTextOptionsSchema = TextOptionsFields.optional();
 
 // A meme's background is the user's own photo: an upload, or the profile photo
 // (`identity`). Stock photos went in launch Phase 4, removal 6, and the

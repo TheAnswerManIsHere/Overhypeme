@@ -7,6 +7,11 @@ import {
   MEME_ASPECT_RATIOS,
   DEFAULT_MEME_ASPECT_RATIO,
   type MemeAspectRatio,
+  CAPTION_FONTS,
+  captionFontById,
+  captionFontStack,
+  isCaptionFontId,
+  type CaptionFontId,
 } from "@workspace/api-zod";
 import { hasUnresolvedFactTokens } from "./renderCanonical";
 import { logger } from "./logger";
@@ -14,57 +19,95 @@ import { logger } from "./logger";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Where the renderer looks for Anton, given the directory this module runs
- * from. The font lives in `src/assets/fonts/`, which the build copies to
- * `dist/assets/` (`build.mjs`), so one candidate serves the bundle (whose
- * `__dirname` is `dist/`) and the other the source tree (`src/lib/`). Until
- * 2026-11-01 the file sat in `src/lib/assets/`, which the build never copies,
- * so built servers drew captions in a fallback face.
+ * Where the renderer looks for a bundled font file, given the directory this
+ * module runs from. The fonts live in `src/assets/fonts/`, which the build
+ * copies to `dist/assets/` (`build.mjs`), so one candidate serves the bundle
+ * (whose `__dirname` is `dist/`) and the other the source tree (`src/lib/`).
+ * Until 2026-11-01 Anton sat in `src/lib/assets/`, which the build never
+ * copies, so built servers drew captions in a fallback face.
  */
-export function antonFontCandidates(dir: string): string[] {
+export function fontFileCandidates(dir: string, file: string): string[] {
   return [
-    path.resolve(dir, "assets/fonts/Anton-Regular.ttf"),       // built layout: dist/ → dist/assets
-    path.resolve(dir, "..", "assets/fonts/Anton-Regular.ttf"), // src/lib → src/assets
+    path.resolve(dir, "assets/fonts", file),       // built layout: dist/ → dist/assets
+    path.resolve(dir, "..", "assets/fonts", file), // src/lib → src/assets
   ];
 }
 
-/**
- * Resolve and lazily register the bundled Anton font as both "Anton" and
- * "Impact" so that meme captions render with a chunky condensed display
- * face matching the client-side LivePreview (which asks for Impact).
- * Linux containers do not ship with Impact; without this the previous
- * default fell back to a generic sans-serif and produced a render that
- * did not match the studio preview at all.
- */
-const ANTON_FONT_PATH = (() => {
-  const candidates = antonFontCandidates(__dirname);
+export function antonFontCandidates(dir: string): string[] {
+  return fontFileCandidates(dir, "Anton-Regular.ttf");
+}
+
+function resolveFontFile(file: string): string {
+  const candidates = fontFileCandidates(__dirname, file);
   for (const candidate of candidates) {
     try { if (fs.statSync(candidate).isFile()) return candidate; } catch { /* try next */ }
   }
   return candidates[0]!;
-})();
+}
+
+/** Caption faces that registered, by catalogue id. */
+const registeredCaptionFonts = new Set<CaptionFontId>();
+
+/**
+ * Test seam: run `fn` as if `id` had failed to register. The registry is
+ * process-wide and the test runner shares one process, so a test cannot
+ * observe a real registration failure without one.
+ */
+export async function withCaptionFontUnregisteredForTest<T>(id: CaptionFontId, fn: () => Promise<T>): Promise<T> {
+  ensureFontsRegistered();
+  const had = registeredCaptionFonts.delete(id);
+  try {
+    return await fn();
+  } finally {
+    if (had) registeredCaptionFonts.add(id);
+  }
+}
 
 let fontsRegistered = false;
 function ensureFontsRegistered() {
   if (fontsRegistered) return;
   // registerFromPath reports a missing or unreadable file by returning null,
-  // not by throwing, so the result is checked rather than caught.
-  let registered = false;
-  try {
-    registered = GlobalFonts.registerFromPath(ANTON_FONT_PATH, "Anton") != null;
-    // Alias Anton as Impact so callers that ask for "Impact" (matching the
-    // client-side LivePreview's font stack) get a visually equivalent face.
-    registered = GlobalFonts.registerFromPath(ANTON_FONT_PATH, "Impact") != null && registered;
-  } catch {
-    registered = false;
+  // not by throwing, so each result is checked rather than caught.
+  const register = (file: string, family: string): boolean => {
+    try {
+      return GlobalFonts.registerFromPath(resolveFontFile(file), family) != null;
+    } catch {
+      return false;
+    }
+  };
+  // Stored recipes from before the caption-font catalogue name "Impact" (or
+  // nothing, which means Impact), and Anton has always stood in for it. They
+  // keep exactly that.
+  const anton = register("Anton-Regular.ttf", "Anton") && register("Anton-Regular.ttf", "Impact");
+  if (!anton) {
+    logger.warn({ file: "Anton-Regular.ttf" }, "meme font Anton could not be registered; legacy captions use a fallback face");
   }
-  if (!registered) {
-    // Non-fatal: the canvas falls back to a system sans-serif. Logged, because
-    // that fallback went unnoticed on every built server until the font was
-    // moved where the build copies it.
-    logger.warn({ path: ANTON_FONT_PATH }, "meme font Anton could not be registered; captions use a fallback face");
+  for (const font of CAPTION_FONTS) {
+    if (register(font.file, font.family)) registeredCaptionFonts.add(font.id);
+    else logger.error({ font: font.id, file: font.file }, "caption font could not be registered; memes in it will not render");
   }
   fontsRegistered = true;
+}
+
+/**
+ * The canvas font for a caption. A catalogue id draws its own face at its one
+ * weight, and refuses when that face did not register, rather than storing a
+ * meme in a fallback face that does not match its preview (the PR #831
+ * failure). Anything else is a stored recipe from before the catalogue and
+ * resolves exactly as it always has.
+ */
+export function captionCanvasFont(options: Pick<TextOptions, "fontFamily" | "bold" | "italic"> | undefined, fontSize: number): string {
+  const italic = options?.italic ? "italic " : "";
+  const fontFamily = options?.fontFamily;
+  if (isCaptionFontId(fontFamily)) {
+    if (!registeredCaptionFonts.has(fontFamily)) {
+      throw new Error(`caption font "${fontFamily}" is not available on this server`);
+    }
+    const font = captionFontById(fontFamily);
+    return `${italic}${font.weight} ${fontSize}px ${captionFontStack(font)}`;
+  }
+  const bold = (options?.bold ?? true) ? "bold " : "";
+  return `${italic}${bold}${fontSize}px "${fontFamily ?? "Impact"}", sans-serif`;
 }
 
 /**
@@ -304,19 +347,15 @@ export async function generateMemeBuffer(
   const fontSize = Math.min(Math.max(options?.fontSize ?? defaultSize, 14), 100);
   const textColor = options?.color ?? "#ffffff";
   const textAlign = options?.align ?? "center";
-  const fontFamily = options?.fontFamily ?? "Impact";
   const textEffect = options?.textEffect ?? "outline";
   const outlineColor = options?.outlineColor ?? "#000000";
   const outlineWidthVal = options?.outlineWidth ?? 5;
   const allCaps = options?.allCaps ?? true;
-  const isBold = options?.bold ?? true;
-  const isItalic = options?.italic ?? false;
   const textOpacity = options?.opacity ?? 1;
 
   const padding = 40;
   const maxW = logicalW - padding * 2 - sidebarW;
-  const fontStyle = `${isItalic ? "italic " : ""}${isBold ? "bold " : ""}`;
-  const fontStr = `${fontStyle}${fontSize}px "${fontFamily}", sans-serif`;
+  const fontStr = captionCanvasFont(options, fontSize);
 
   const textAreaLeft = padding + sidebarW;
   const textAreaRight = logicalW - padding;
