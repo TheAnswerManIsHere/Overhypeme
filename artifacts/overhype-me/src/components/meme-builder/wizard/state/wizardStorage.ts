@@ -10,7 +10,6 @@
  * — it is reconstructed from the server on remount.
  */
 
-import { captionFontIdFromStored } from "@workspace/api-zod";
 import type {
   AspectRatio,
   EntryFlow,
@@ -106,12 +105,6 @@ export function restoreWizardState(factId: string): PendingWizardState | null {
   }
 
   let draft: PendingWizardState = parsed;
-
-  // Names-and-fonts plan: a draft from the old font picker holds a CSS font
-  // stack; it is moved to the nearest catalogue face so it previews and saves.
-  if (draft.textOptions?.fontFamily !== undefined) {
-    draft = { ...draft, textOptions: { ...draft.textOptions, fontFamily: captionFontIdFromStored(draft.textOptions.fontFamily) } };
-  }
 
   // Launch Phase 4, removal 6: stock photos went with Pexels. A draft that had
   // the stock source selected loses that pick (the user lands back on the

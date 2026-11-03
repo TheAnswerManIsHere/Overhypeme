@@ -33,10 +33,6 @@ export function fontFileCandidates(dir: string, file: string): string[] {
   ];
 }
 
-export function antonFontCandidates(dir: string): string[] {
-  return fontFileCandidates(dir, "Anton-Regular.ttf");
-}
-
 function resolveFontFile(file: string): string {
   const candidates = fontFileCandidates(__dirname, file);
   for (const candidate of candidates) {

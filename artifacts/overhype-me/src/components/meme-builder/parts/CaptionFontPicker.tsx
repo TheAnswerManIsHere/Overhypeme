@@ -7,16 +7,15 @@
  * @subsystem meme-studio
  */
 import { CAPTION_FONTS, type CaptionFontId } from "@workspace/api-zod";
-import type { CaptionFontStatus } from "@/lib/captionFontLoader";
+import { useCaptionFont } from "@/lib/captionFontLoader";
 
 interface Props {
   value: CaptionFontId;
   onChange: (id: CaptionFontId) => void;
-  status: CaptionFontStatus;
-  onRetry: () => void;
 }
 
-export function CaptionFontPicker({ value, onChange, status, onRetry }: Props) {
+export function CaptionFontPicker({ value, onChange }: Props) {
+  const { status, retry: onRetry } = useCaptionFont(value);
   return (
     <div className="space-y-2" data-testid="caption-font-picker">
       <span id="caption-font-label" className="text-xs uppercase tracking-wider text-muted-foreground">

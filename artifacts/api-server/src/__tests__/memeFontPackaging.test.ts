@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GlobalFonts, createCanvas } from "@napi-rs/canvas";
 
-import { antonFontCandidates, generateMemeBuffer } from "../lib/memeGenerator.js";
+import { fontFileCandidates, generateMemeBuffer } from "../lib/memeGenerator.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const artifactDir = path.resolve(here, "..", "..");
@@ -25,7 +25,7 @@ const distDir = path.join(artifactDir, "dist");
 
 describe("meme font packaging", () => {
   it("the built layout's font path is a file the build copies from src/assets", () => {
-    const [built] = antonFontCandidates(distDir);
+    const [built] = fontFileCandidates(distDir, "Anton-Regular.ttf");
     const underDistAssets = path.relative(path.join(distDir, "assets"), built!);
     assert.ok(!underDistAssets.startsWith(".."), `built candidate ${built} is inside dist/assets`);
     const source = path.join(srcAssets, underDistAssets);
@@ -33,7 +33,7 @@ describe("meme font packaging", () => {
   });
 
   it("the source-tree path finds the same file", () => {
-    const candidates = antonFontCandidates(path.join(artifactDir, "src", "lib"));
+    const candidates = fontFileCandidates(path.join(artifactDir, "src", "lib"), "Anton-Regular.ttf");
     assert.ok(candidates.some((c) => fs.existsSync(c)), `one of ${candidates.join(", ")} exists`);
   });
 

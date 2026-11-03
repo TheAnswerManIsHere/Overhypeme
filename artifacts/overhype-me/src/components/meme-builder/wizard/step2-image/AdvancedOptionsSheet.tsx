@@ -4,7 +4,6 @@ import { Switch } from "@/components/ui/switch";
 import type { MemeTextOptions } from "../../types";
 import { CaptionFontPicker } from "../../parts/CaptionFontPicker";
 import { captionFontOf } from "../../captionFont";
-import { useCaptionFont } from "@/lib/captionFontLoader";
 
 interface Props {
   value: MemeTextOptions;
@@ -35,8 +34,6 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
     onChange({ ...value, [key]: v });
 
   const effect = value.textEffect ?? "outline";
-  const fontId = captionFontOf(value);
-  const font = useCaptionFont(fontId);
 
   return (
     <div className="rounded-md border border-border">
@@ -58,12 +55,7 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
 
       {isOpen && (
         <div className="space-y-5 border-t border-border px-4 pb-6 pt-4">
-          <CaptionFontPicker
-            value={fontId}
-            onChange={(id) => set("fontFamily", id)}
-            status={font.status}
-            onRetry={font.retry}
-          />
+          <CaptionFontPicker value={captionFontOf(value)} onChange={(id) => set("fontFamily", id)} />
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">

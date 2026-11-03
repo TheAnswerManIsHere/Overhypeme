@@ -59,8 +59,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
   // Save and download wait until the chosen caption face has loaded, so the
   // meme comes out in the face the preview shows (names-and-fonts plan).
   const fontId = captionFontOf(state.textOptions);
-  const font = useCaptionFont(fontId);
-  const fontReady = font.status === "ready";
+  const fontReady = useCaptionFont(fontId).status === "ready";
 
   if (cell.invalid) {
     return (
@@ -184,8 +183,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
       <CaptionFontPicker
         value={fontId}
         onChange={(id) => dispatch({ type: "set-text-options", textOptions: { ...state.textOptions, fontFamily: id } })}
-        status={font.status}
-        onRetry={font.retry}
       />
 
       <ActionBar

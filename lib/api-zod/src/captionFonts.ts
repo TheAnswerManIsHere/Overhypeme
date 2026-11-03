@@ -12,7 +12,7 @@
  * can name one, so stored recipes keep drawing exactly as before.
  *
  * Every face draws every letter the name rule admits, in both cases; the rule's
- * letters are derived from these files (`scripts/derive-name-letters.mjs`).
+ * letters are derived from these files (`artifacts/api-server/scripts/derive-name-letters.ts`).
  *
  * @purpose The shared list of caption fonts — id, label, internal family, file and fixed weight — read by the meme builder's pickers and preview, the render request schema and the server renderer.
  * @subsystem meme-studio
@@ -23,7 +23,7 @@ export interface CaptionFont {
   readonly id: string;
   /** What the picker shows. */
   readonly label: string;
-  /** The typeface it is cut from, for credits and the picker's sample. */
+  /** The typeface it is cut from: the internal family names don't say. */
   readonly typeface: string;
   /** The family both the canvas and `@font-face` register it under. */
   readonly family: string;

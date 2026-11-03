@@ -3,8 +3,8 @@
  * loads from the same file and family the server draws with; the preview
  * draws only once it has loaded, in that family at its fixed weight; a failed
  * load offers a retry; the picker appears in the wizard; every save names the
- * face explicitly; and a restored draft from the old picker is moved to a
- * catalogue face.
+ * face explicitly; and a restored draft from the old picker previews and
+ * saves in the nearest catalogue face.
  *
  * @purpose Proves the browser loads each caption face from the shared file and family, the preview waits for it and draws at the catalogue weight, a failed load can be retried, the wizard shows the picker, saves always send a catalogue id, and old drafts are mapped to one.
  * @subsystem meme-studio
@@ -14,7 +14,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { CAPTION_FONTS } from "@workspace/api-zod";
 import { LivePreview } from "../parts/LivePreview";
 import { CaptionFontPicker } from "../parts/CaptionFontPicker";
-import { useCaptionFont, resetCaptionFontsForTest } from "@/lib/captionFontLoader";
+import { resetCaptionFontsForTest } from "@/lib/captionFontLoader";
 import { buildSaveMemePayload } from "../wizard/util/saveMemePayload";
 import { captureWizardState, restoreWizardState } from "../wizard/state/wizardStorage";
 import { withCaptionFont } from "../captionFont";
@@ -70,11 +70,7 @@ describe("caption fonts in the browser", () => {
   });
 
   it("a failed load says so and can be retried, or another style picked", async () => {
-    function Harness() {
-      const f = useCaptionFont("comic");
-      return <CaptionFontPicker value="comic" onChange={() => {}} status={f.status} onRetry={f.retry} />;
-    }
-    render(<Harness />);
+    render(<CaptionFontPicker value="comic" onChange={() => {}} />);
     expect(screen.getByTestId("caption-font-loading")).toBeTruthy();
     await act(async () => faces[0]!.reject());
     expect(screen.getByTestId("caption-font-failed")).toBeTruthy();
@@ -95,11 +91,17 @@ describe("caption fonts in the browser", () => {
     expect(withCaptionFont(undefined).fontFamily).toBe("block");
   });
 
-  it("a restored draft from the old picker is moved to the nearest face", () => {
+  it("a restored draft from the old picker previews and saves in the nearest face", () => {
     window.sessionStorage.clear();
-    for (const [old, id] of [["'JetBrains Mono', monospace", "terminal"], ["'DM Sans', system-ui, sans-serif", "sans"], ["'Bebas Neue', Impact, sans-serif", "block"]] as const) {
+    const base = { source: { kind: "self-upload", image: { kind: "library", objectPath: "/objects/x" } }, name: "Zoë", pronouns: "she/her", aspectRatio: "square" };
+    for (const [old, id, family] of [["'JetBrains Mono', monospace", "terminal", "OH Terminal"], ["'DM Sans', system-ui, sans-serif", "sans", "OH Sans"], ["'Bebas Neue', Impact, sans-serif", "block", "OH Block"]] as const) {
       captureWizardState({ schemaVersion: 3, capturedAt: Date.now(), factId: "f1", entryFlow: "fact-detail", textOptions: { fontFamily: old } });
-      expect(restoreWizardState("f1")?.textOptions?.fontFamily).toBe(id);
+      const restored = restoreWizardState("f1")!;
+      const { unmount } = render(preview(restored.textOptions!.fontFamily));
+      expect(canvas().getAttribute("data-caption-font")).toBe(family);
+      unmount();
+      const payload = buildSaveMemePayload({ state: { ...base, textOptions: restored.textOptions } as unknown as WizardRuntimeState, factId: 1 });
+      expect(payload?.textOptions?.fontFamily).toBe(id);
     }
   });
 });
