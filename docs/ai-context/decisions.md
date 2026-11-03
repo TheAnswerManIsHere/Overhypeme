@@ -73,8 +73,8 @@
   goes through the **one deletion engine**. Nothing writes `is_active =
   false`. In the same phase, the live NSFW opt-in (`nsfwModeEnabled`) is
   made unavailable: every classifier caller passes `false`, the classifier
-  keeps the parameter, and the column is dropped by the contract migration
-  (0122) after the next publish.
+  keeps the parameter, and the column was dropped by the contract migration
+  (0122) once the release that stopped declaring it was published.
 - **Why:** one switch meant both "banned" and "leaving", so nothing could
   tell the two apart or treat them differently — *"one state machine for
   leaving, one flag for being removed"* (the Phase 5 plan's settled
