@@ -3,7 +3,7 @@
  * @subsystem token-rendering
  */
 
-import { parseCustom } from "@/lib/pronouns";
+import { parseCustomPronounSet } from "@workspace/api-zod";
 
 /** Whether verb conjugation should use singular (he/she/ze/xe/…) or plural (they) forms. */
 type Plurality = "singular" | "plural";
@@ -135,16 +135,21 @@ const ARTICLE_BEFORE_NAME_RE = /\b([Aa]n?)(\s+)\{NAME\}/g;
  *   "xe|xem|xyr|xyrs|xemself|s" → pipe-delimited custom → use all 5 fields directly
  */
 function resolveMap(pronounsValue: string): PronounMap {
-  // Pipe-delimited custom format takes precedence
-  const custom = parseCustom(pronounsValue);
-  if (custom) {
+  // Pipe-delimited custom format takes precedence, read by the server's own
+  // resolver parser (`parseCustomPronounSet`), so a custom set renders the same
+  // words and verb number in the browser as in every server output. A pipe
+  // string that is not a valid set renders as they/them, as on the server,
+  // and never leaks its raw text.
+  if (pronounsValue.includes("|")) {
+    const custom = parseCustomPronounSet(pronounsValue);
+    if (!custom) return KNOWN_MAPS["they"]!;
     return {
-      subj:     custom.subj     || "they",
-      obj:      custom.obj      || "them",
-      poss:     custom.poss     || "their",
-      possPro:  custom.possPro  || "theirs",
-      refl:     custom.refl     || "themselves",
-      plurality: custom.plural ? "plural" : "singular",
+      subj: custom.subj,
+      obj: custom.obj,
+      poss: custom.poss,
+      possPro: custom.possPro,
+      refl: custom.refl,
+      plurality: custom.grammaticalNumber,
     };
   }
 

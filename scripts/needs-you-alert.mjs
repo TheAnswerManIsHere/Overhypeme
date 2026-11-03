@@ -212,6 +212,22 @@ export function repoName(input, env = {}) {
 }
 
 /**
+ * The banner's own block: from its heading line to its closing rule (`---`,
+ * `***` or `___` on a line of its own — the ask's shape in `claude-core.md`
+ * interaction rule 6), or to the end of the message when it has none. The
+ * whole block keys the ask, so a changed decision under the same heading rings
+ * (Codex, PR #279 round 2); text after the closing rule does not, so `/status`
+ * reproducing an unchanged ask inside a longer briefing rings nothing
+ * (Codex, DojoOS PR #74).
+ */
+export function bannerBlock(text, start) {
+  const rest = text.slice(start);
+  const close = rest.slice(rest.indexOf("\n") + 1).search(/^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/m);
+  if (rest.indexOf("\n") === -1 || close === -1) return rest;
+  return rest.slice(0, rest.indexOf("\n") + 1 + close);
+}
+
+/**
  * Pure: from a hook's input, the alert the event owes — one only when the
  * session is waiting on David — or null; on `Stop`, also the `key` naming
  * what it waits on, which `alertFor` deduplicates against. `clear: true`
@@ -228,7 +244,7 @@ export function decide(input, env = {}) {
     if (text.trim() === "") return null;
 
     const banner = text.match(ASK_BANNER);
-    if (banner) return { ...WAITING, title: `🛑 ${repo}: Claude needs you`, message: plain(banner[1]), key: `ask:${plain(text.slice(banner.index), Infinity)}` }; // the whole banner — heading, options, recommendation — so a changed decision under the same heading rings (Codex, PR #279 round 2)
+    if (banner) return { ...WAITING, title: `🛑 ${repo}: Claude needs you`, message: plain(banner[1]), key: `ask:${plain(bannerBlock(text, banner.index), Infinity)}` };
     if (OPEN_ASK.test(text)) return null; // an ask already rung, unchanged
 
     const f = footer(text);

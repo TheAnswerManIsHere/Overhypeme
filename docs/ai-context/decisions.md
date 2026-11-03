@@ -13,6 +13,12 @@
 
 ---
 
+### 2026-11-02 · One custom-pronoun parser for the browser and the server (David reversed my recommendation)
+- **Decision:** `splitCustomPronounSet` (`lib/api-zod/src/resolvedIdentityForms.ts`) is the only parser of the six-part custom pronoun format. The browser's `parseCustom`, its renderer, the server's resolver and the server's validator all use it.
+- **Why:** PR #832 kept the browser's own, more lenient parser on my recommendation, since the server only ever stores the strict shape. David, 2026-11-02: *"I'm not sure why you're allowing the browser's signed-out custom pronoun parser to have different logic from the server. Shouldn't they match?"* Two parsers of one format is the drift the identity flow's one-module rule exists to prevent, and nothing was gained by keeping two.
+- **Reference:** #719; PR #838.
+- **Revisit if:** never, short of a second pronoun format.
+
 ### 2026-11-02 · What account deletion keeps is split by who asked, not by data type
 - **Decision:** when a member deletes their own account, or an unfinished
   sign-up is cleaned up, the purge keeps what they gave the community —
@@ -103,6 +109,13 @@
   accounts) or production (1). Measured the same day, the renderer drew every
   non-Latin script as missing-glyph boxes, so "any script" would have needed
   roughly 20–40 MB of fonts to keep its promise.
+- **The length limit is enforced by the field, not at save** (David,
+  2026-11-02, the same day): *"It simply shouldn't allow them to type more
+  than 50 characters. Make it clear that there's a length limit … Don't throw
+  errors, simply don't allow the bad behavior."* Every name input stops at 50
+  visible characters, typed or pasted, shows a running count from 40 and
+  says when the rest of a paste wasn't added. This replaces the plan's "a
+  paste is never cut silently; the field reports it".
 - **Reference:** #719; `docs/plans/PLAN_IDENTITY_FLOW.md`, *Amendment — Phase 2*.
 - **Revisit if:** internationalization begins, or the site launches outside
   the US.

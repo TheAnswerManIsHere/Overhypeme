@@ -116,9 +116,9 @@ export function cleanProvidedPersonalName(raw: unknown): string | null {
  * What a name input shows after an edit: the new text with any disallowed
  * character removed, and whether one was (so the input can show the hint).
  * The curly apostrophe is converted as it is typed. The length limit is not
- * applied here: the field's own check reports it, so a paste is never cut
- * silently. Callers skip this while an IME composition is open and apply it
- * when the composition commits.
+ * applied here: the name field (`useNameField`) stops at it and says so
+ * (David, 2026-11-02). Callers skip this while an IME composition is open and
+ * apply it when the composition commits.
  */
 export function filterNameInput(next: string): { value: string; refused: boolean } {
   // Whitespace of any kind (a pasted non-breaking space, a tab) becomes a
