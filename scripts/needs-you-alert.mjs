@@ -41,6 +41,20 @@
  *   - StopFailure: the turn ended on an error, so nothing resumes the session
  *     until he does.
  *
+ * ONE ASK, ONE RING (David, 2026-11-03: a session that kept working past an
+ * unanswered ask re-rang it on every hand-back, because each footer still
+ * named it). So on `Stop`:
+ *   - a `Still waiting on you:` line rings nothing — by definition it marks
+ *     an ask already rung and unchanged;
+ *   - a footer that waits on him rings only when what it waits on differs
+ *     from the last thing that rang in this session. The hook keeps that one
+ *     key in a small file under the OS temp directory, keyed by session id,
+ *     and clears it on a hand-back that waits on nothing, so the next ask —
+ *     even a word-for-word repeat of an answered one — rings.
+ * A file that cannot be read or written rings, never drops: a duplicate is
+ * cheaper than a missed ask. `Notification` and `StopFailure` are not
+ * deduplicated; each is a new event.
+ *
  * Nothing else rings: not a 👀 FYI, not a build report, not a hand-back whose
  * work continues (`running —`, `after <event> —`), not a footer in none of
  * the forms, not text with no footer. Each alert goes once, at Pushover's high
@@ -70,7 +84,9 @@
  * anyone using it — is an acceptable home for them.
  */
 
-import { basename } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const PUSHOVER_URL = "https://api.pushover.net/1/messages.json";
@@ -197,7 +213,9 @@ export function repoName(input, env = {}) {
 
 /**
  * Pure: from a hook's input, the alert the event owes — one only when the
- * session is waiting on David — or null. Kept free of I/O so the tests
+ * session is waiting on David — or null; on `Stop`, also the `key` naming
+ * what it waits on, which `alertFor` deduplicates against. `clear: true`
+ * marks a hand-back that waits on nothing. Kept free of I/O so the tests
  * exercise the rule rather than the network.
  */
 export function decide(input, env = {}) {
@@ -209,20 +227,25 @@ export function decide(input, env = {}) {
     const text = withoutFences(input.last_assistant_message ?? "");
     if (text.trim() === "") return null;
 
-    const ask = text.match(ASK_BANNER) ?? text.match(OPEN_ASK);
-    if (ask) return { ...WAITING, title: `🛑 ${repo}: Claude needs you`, message: plain(ask[1]) };
+    const banner = text.match(ASK_BANNER);
+    if (banner) return { ...WAITING, title: `🛑 ${repo}: Claude needs you`, message: plain(banner[1]), key: `ask:${plain(text.slice(banner.index), Infinity)}` }; // the whole banner — heading, options, recommendation — so a changed decision under the same heading rings (Codex, PR #279 round 2)
+    if (OPEN_ASK.test(text)) return null; // an ask already rung, unchanged
 
     const f = footer(text);
     if (!f) return null;
     const form = nextForm(f.next);
     const needs = needsSomething(f.needsYou);
-    if (!needs && form !== "stopped" && form !== "nothing") return null;
+    if (!needs && form !== "stopped" && form !== "nothing") return { clear: true };
     const parts = [];
     if (needs) parts.push(`Needs you: ${f.needsYou}`);
     if (f.done) parts.push(`Done: ${f.done}`);
     if (f.next && !needs) parts.push(`Next: ${f.next}`);
     const title = form === "nothing" && !needs ? `✅ ${repo}: done — over to you` : `🛑 ${repo}: waiting on you`;
-    return { ...WAITING, title, message: plain(parts.join(" · ")) };
+    // Keys use the whole text, never the lock-screen truncation, so asks that differ only past 240 characters stay distinct.
+    // A stopped or nothing hand-back keys on what was done as well: a second finished task is a new hand-back even when its
+    // Next: is worded the same (Codex, PR #279 round 1).
+    const key = needs ? `needs:${plain(f.needsYou, Infinity)}` : `next:${plain(f.next, Infinity)}|done:${plain(f.done ?? "", Infinity)}`;
+    return { ...WAITING, title, message: plain(parts.join(" · ")), key };
   }
   if (event === "Notification") {
     if (!BLOCKING_NOTIFICATIONS.has(input.notification_type)) return null;
@@ -236,6 +259,48 @@ export function decide(input, env = {}) {
     };
   }
   return null;
+}
+
+/** Where one session's last-rung key lives. */
+export function statePath(input, env = {}) {
+  const dir = env.NEEDS_YOU_ALERT_STATE_DIR || join(tmpdir(), "needs-you-alert");
+  const id = String(input?.session_id || basename(String(input?.transcript_path || ""), ".jsonl") || "session").replace(/[^A-Za-z0-9._-]/g, "_");
+  return join(dir, `${id}.last`);
+}
+
+function readKey(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function writeKey(path, key) {
+  try {
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, key);
+  } catch {}
+}
+
+/**
+ * The alert the event owes after deduplication, or null. A `Stop` whose key
+ * matches the last one rung in this session owes nothing; a hand-back that
+ * waits on nothing forgets the last key.
+ */
+export function alertFor(input, env = {}) {
+  const d = decide(input, env);
+  if (!d) return null;
+  const path = statePath(input, env);
+  if (d.clear) {
+    writeKey(path, "");
+    return null;
+  }
+  if (!d.key) return d;
+  if (readKey(path) === d.key) return null;
+  writeKey(path, d.key);
+  const { key, ...alert } = d;
+  return alert;
 }
 
 /** The Pushover form for one alert. */
@@ -287,7 +352,7 @@ async function main() {
   } catch {
     return;
   }
-  const alert = decide(input, process.env);
+  const alert = alertFor(input, process.env);
   if (!alert) return;
   const failure = await send(alert, process.env);
   if (failure) {

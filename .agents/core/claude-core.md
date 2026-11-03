@@ -139,15 +139,17 @@ where I put it and treat it as binding.
    fires `PushNotification` first, then writes the message once, as the
    turn's last text** — no threshold, no "he probably saw it", and "he's
    clearly active" is not a reason to skip: the tool dedupes, my judgement
-   doesn't. **The banner and the open-ask line are also a trigger for the
-   alert that does not depend on me** (David, 2026-10-30): a `Stop` hook reads
-   the turn's last message and sends David a Pushover alert, once
+   doesn't. **The banner is also a trigger for the alert that does not
+   depend on me** (David, 2026-10-30): a `Stop` hook reads the turn's last
+   message and sends David a Pushover alert, once
    (`scripts/needs-you-alert.mjs`), because 4 of 12
    sampled asks had no `PushNotification` call and the tool reports only
-   *"Mobile push requested."*, never delivery. So both shapes are written
-   exactly as above, `🛑 **NEED YOU** —` and `Still waiting on you:`, each
-   at the start of its own line (a heading mark or bullet before it is fine); a paraphrase of either alerts nobody, and a
-   mid-line quotation of either is not an ask. Text between
+   *"Mobile push requested."*, never delivery; the open-ask line is read by
+   the same hook as the mark of an ask already rung, and so rings nothing
+   (below). So both shapes are written exactly as above, `🛑 **NEED YOU** —`
+   and `Still waiting on you:`, each at the start of its own line (a
+   heading mark or bullet before it is fine); a paraphrased banner alerts
+   nobody, and a mid-line quotation of either is not an ask. Text between
    tool calls reaches him paraphrased
    ([`chat-text-between-tool-calls-is-summarised.md`](../../.agents/memory/chat-text-between-tool-calls-is-summarised.md)).
    **His phone rings only when I am waiting on him, and each alert rings
@@ -168,7 +170,13 @@ where I put it and treat it as binding.
    a `running —` or `after <event> —` hand-back, not a build report, not a
    👀 FYI, not a footer in none of the four forms, not text with no footer.
    Every alert goes at Pushover's high priority, through his quiet hours,
-   and never repeats; Pushover's history is where he catches up. So the
+   and never repeats; Pushover's history is where he catches up. **One ask
+   rings once** (David, 2026-11-03, after a session working past an
+   unanswered ask re-rang it on every hand-back): the `Still waiting on
+   you:` line rings nothing, and a footer rings only when what it waits on
+   differs from the last thing that rang in that session — the hook keeps
+   that one key per session and forgets it at a hand-back that waits on
+   nothing. So the
    footer's fields and the `Next:` forms are written exactly as *Waiting,
    and scheduled check-ins* item 0 fixes them — the hook, not only he,
    reads them — and a hand-back that waits on him dressed as `running` or
@@ -181,7 +189,8 @@ where I put it and treat it as binding.
    too, and repeated an idle one for up to three hours until he
    acknowledged it). **An ask is shown once:** the banner alone
    carries the options and recommendation; a later turn leaving it unchanged
-   re-notifies and, if it has other text, ends with `Still waiting on you:
+   fires `PushNotification` again (the tool dedupes; the hook rings nothing
+   for it) and, if it has other text, ends with `Still waiting on you:
    <one-line ask>, above.`, else writes nothing; a changed ask replaces the
    banner. **`/status` is the one exception to "shown once"**: it
    reproduces every open ask in full — banner, context, options and

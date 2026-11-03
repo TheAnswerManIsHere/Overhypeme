@@ -322,7 +322,7 @@ requires it.
       decision (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*) — and
       stay open until he answers — a later clean round never clears them, and
       **neither does a default of mine.** A question of his that goes unanswered
-      stays **open** — re-notified and pointed back to, reprinted only when
+      stays **open** — `PushNotification` re-fired (the alert hook rings it only once) and pointed back to, reprinted only when
       the ask itself changes (`claude-core.md` interaction preference 6) — not
       resolved by whatever I pre-registered as the fallback:
       on #120 round 5 a question about his own ruling was closed by my default
