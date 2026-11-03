@@ -18,22 +18,25 @@
 > path), `artifacts/api-server/src/lib/storageKeys.ts` +
 > `artifacts/api-server/src/lib/objectStorage.ts` (media storage).
 
-## Frontend entry points (two live builders)
+## Frontend entry points (one builder)
 
 - **The fact page's wizard:** `components/meme-builder/wizard/MemeBuilderWizard.tsx`,
   mounted by `pages/FactDetail.tsx` on `/facts/:id/meme`. It opens directly on
   its image builder, `wizard/step2-image/Step2Image.tsx`; the image-or-video
   first step went with video.
-- **The meme page's remix builder:** the universal builder
-  `components/meme-builder/MemeBuilder.tsx`, mounted by
-  `pages/memePage/BuilderOverlay.tsx` when a signed-in viewer taps the meme
-  page's "make this about me" action (`pages/MemePage.tsx`). It opens in
-  `self-upload` mode, the only mode since the stock source went with Pexels.
+- **The meme page's "make this about me":** a signed-in viewer's tap on
+  someone else's meme (`pages/MemePage.tsx`) goes to the same wizard on the
+  meme's fact route, `/facts/:id/meme`, so the fact is already chosen (#851,
+  David, 2026-11-03: *"it should simply take you to the existing builder as
+  if you had clicked on the 'Make a meme' button … The only difference being
+  that you don't have to select the meme"*). The meme page's own remix
+  builder (`components/meme-builder/MemeBuilder.tsx`, mounted by
+  `pages/memePage/BuilderOverlay.tsx`) was deleted with that change.
   A signed-out viewer gets a "Make this meme about you" sign-up card
   (`CTABarAnonOther`) that returns to the meme, since an upload needs an
   account. The "See it with your name" form it replaced (name and pronouns
   into the builder) is at the tag `pre-cut/stock-pexels`, for Phase 7's free
-  preview. Its
+  preview. The deleted remix builder's
   Legendary stylise toggle and "Try AI mode" upsell went with PuLID (see *AI
   image memes*).
 
@@ -47,8 +50,7 @@ doc's description of it are at the `pre-cut/legacy-meme-studio` tag.
 **Where the visibility (Public/Private) choice lives.** `VisibilityToggle`
 (`meme-builder/parts/VisibilityToggle.tsx`), rendered next to the save action
 in the wizard's image builder via `WizardPrimaryAction`'s `aboveAction` slot
-(`step2-image/Step2Image.tsx`). It is not wired into the meme page's remix
-builder (`components/meme-builder/MemeBuilder.tsx`).
+(`step2-image/Step2Image.tsx`).
 It is set **at creation time only** — no route or UI changes a meme's
 visibility afterwards. The client's lock is tier-only —
 `tier !== "legendary"` — and does not consult the
@@ -254,9 +256,8 @@ storage — see [`docs/retired/video.md`](../retired/video.md).)
   / `requireLegendary`.
 - `artifacts/api-server/src/lib/accountDeletion.ts` — the account purge,
   which deletes a departing person's memes and baked files.
-- Frontend: `components/meme-builder/wizard/` (the fact page's wizard),
-  `components/meme-builder/MemeBuilder.tsx` + `pages/memePage/BuilderOverlay.tsx`
-  (the meme page's remix builder).
+- Frontend: `components/meme-builder/wizard/` (the one builder, reached from
+  the fact page and from the meme page's "make this about me").
 - Tests: `__tests__/createMemeRecord.test.ts`, `__tests__/tierMiddleware.test.ts`.
 - For *what a tier is derived from*, not *what it unlocks here*:
   [`membership-entitlements.md`](./membership-entitlements.md). For the
