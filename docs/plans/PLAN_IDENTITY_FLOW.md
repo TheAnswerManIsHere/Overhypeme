@@ -505,7 +505,7 @@ The class is: **every action a visitor can take on either landing page, through 
 | fact | comment form submit, its sign-in link | signed out: to `/login` | see Question P3-1 |
 | fact | alternate card's "Make meme" | opens the wizard in place, ungated | navigates to `/facts/<alternate>/meme`, like every other "make a meme" |
 | fact | "Make a meme of this" (×3), meme thumbnails, related facts, parent link | in-app navigation | none: the destination asks |
-| fact | gallery card copy link, open full size, own delete (`ImageCard` actions and menu, `FactDetail.tsx:462`, `ImageCard.tsx:394`) | clipboard, `window.open`, delete | through the operation, at the menu opener or the action |
+| fact | gallery card copy link, open full size, own delete: the menu and the desktop Copy link shortcut (`FactDetail.tsx:462`, `ImageCard.tsx:394, 578`) | clipboard, `window.open`, delete | through the operation, at the menu opener and at the shortcut; both are tested |
 | fact | gallery meme hearts | signed out: to `/login` | P3-1 |
 | fact | comment sort (`FactComments.tsx:466`) | changes the comment order | through the operation |
 | fact | comment hearts (`CommentHeartButton.tsx:29`) | signed out: to `/login` | P3-1 |
