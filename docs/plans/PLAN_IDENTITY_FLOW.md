@@ -481,17 +481,20 @@ A specialist accounts-auth review goes on the PR, and the inventory oracle is re
 - **Two landing pages, not three.** Video was cut for launch, so `isLandingExceptionPath` (`lib/identity.ts:30`) already matches only `/m/:slug` and `/facts/:id`.
 - **The meme page's name form is gone (Q2 is delivered).** Launch Phase 4 replaced "See it with your name" with a sign-up card (`CTABarAnonOther`), and PR #852 sent "Make this fact about me" to the standard builder on `/facts/:id/meme`. Neither landing page holds a builder of its own except one: the fact page's alternate-phrasing cards open the wizard in place (`FactDetail.tsx:90-108`, `setShowStudio(true)` at `:144`), with no identity gate.
 - **"Make it your own" already asks first.** Every remaining "make a meme" control navigates to `/facts/:id/meme` (`FactDetail.tsx:264-266`, `FactActionCluster.tsx:109-112`, `FactComments.tsx:437`, `MemePage.tsx` `openMakeAboutMe`). That route is not a landing page, so the decision asks there, and the builder waits on `builderReady` (`FactDetail.tsx:261-262`). Navigation within the app is covered the same way: the next page asks.
-- **No share action opens the native share sheet directly.** Share opens a modal (`FactActionCluster.tsx:92-95`, `MemePage.tsx` `handleCustomShare`); the native share runs from a button inside it (`MemeShareModal.tsx:94`), on its own tap. So a share that waits for an account save never loses the browser's user activation, and **Continue sharing** (Q5, #721) has nothing to fix.
-- **#724 looks unreachable now.** A signed-out visitor sees `GuestPhotoSignupPanel` in place of a photo source (`Step2Image.tsx:253-254`), "Make my meme" is disabled until a source is selected (`:292`), and `buildSaveMemePayload` returns null without one (`:179-182`), so no create request carrying identity can be sent. Video creation was cut. Unable to verify by running it; the regression test below settles it.
+- **No share action opens the native share sheet directly.** Share opens a modal (`FactActionCluster.tsx:92-95`, `MemePage.tsx` `handleCustomShare`); the native share runs from a button inside it (`MemeShareModal.tsx:94`), on its own tap. So asking for identity before opening the modal adds no extra tap, which is what **Continue sharing** (Q5, #721) existed to pay for. That is the whole claim. It is not that sharing is activation-safe: the modal's own share button awaits `fetchShareCopy` before calling `navigator.share` (`MemeShareModal.tsx:88-94`), and its Twitter and clipboard buttons have the same shape, so a slow response can still exhaust the tap's activation ([Web Share](https://www.w3.org/TR/web-share/#share-method); Astra, round 1). That is an existing modal defect, unrelated to identity, and is recorded separately (*Related*).
+- **#724 is reachable through a restored draft.** A fresh signed-out builder cannot save: it shows `GuestPhotoSignupPanel` in place of a photo source (`Step2Image.tsx:253-254`), and "Make my meme" is disabled until a source is selected (`:292`). But a draft restores before the image step mounts (`useWizardState.ts:123-129`) and can carry a selected photo, and drafts are cleared only on an observed signed-in-to-signed-out transition or a signed-in start (`App.tsx:119-130`), not on a load that starts signed out. So a creator whose session ended elsewhere, reloading within the draft's life, holds a selected photo while signed out, and save sends the identity before the 401 (`Step2Image.tsx:163-195`). Source availability does not establish sign-in (Astra, round 1).
 - **#735's paths are gone.** The builder it names was deleted in PR #852; Phase 2 made the meme schema accept any pronoun value the account accepts, and the wizard reports a failed save in place (`Step2Image.tsx:205-211`).
 
 ### What remains: the in-page action inventory
 
-The class is: **every handler on a landing page that a visitor can trigger and that is not an in-app navigation to a page that itself asks.** Navigations to such pages need no wiring, because the destination asks. The mechanical oracle, run at `bb8cce30` over the two pages and every component they render:
+The class is: **every action a visitor can take on either landing page, through every component the page renders, including the shared page chrome** (`Layout`, `Navbar`, the name tag), the gallery's cards and menus, and the comment section. Hover and passive scrolling are outside it. The inventory is taken through the rendered tree, not a directory list: starting from `MemePage.tsx` and `FactDetail.tsx`, follow each rendered component's imports and search each file for handlers and links (`git grep -nE "onClick=|onTouchEnd=|onChange=|onSubmit=|onSelect=|onKeyDown=|href=|window\.location|window\.open|navigator\.(share|clipboard)|setLocation\("`), then trace each hit's destination and effect. Each reachable action ends in exactly one disposition:
+- **through the operation** (`askBefore`);
+- **destination asks:** an in-app navigation to a page the decision asks on;
+- **parent already asks:** it sits inside a menu or modal whose opener goes through the operation;
+- **capture surface:** it is itself where identity is entered (the signed-out name tag's editor);
+- **exception:** named in this plan, with David's answer (P3-1).
 
-`git grep -nE "onClick=|onChange=|onSubmit=|onSelect=|window\.location|window\.open|setLocation\(" -- artifacts/overhype-me/src/pages/MemePage.tsx artifacts/overhype-me/src/pages/FactDetail.tsx artifacts/overhype-me/src/pages/memePage artifacts/overhype-me/src/components/facts artifacts/overhype-me/src/components/memes artifacts/overhype-me/src/components/share artifacts/overhype-me/src/components/ShareModal.tsx`
-
-The hit list is the scope; it is re-run at the increment's head and reconciled in the PR body. At `bb8cce30` it classifies as:
+"Signed in only" describes who can reach an action, not its disposition: a set-up signed-in account missing identity is still asked (Phase 2), so those actions go through the operation too. The inventory is re-run at the increment's head and reconciled in the PR body. At `bb8cce30` it classifies as (round 1 of Astra's review supplied the gallery-card, comment, chrome and heart rows):
 
 | Page | Action | Today | Phase 3 |
 |---|---|---|---|
@@ -502,8 +505,16 @@ The hit list is the scope; it is re-run at the increment's head and reconciled i
 | fact | comment form submit, its sign-in link | signed out: to `/login` | see Question P3-1 |
 | fact | alternate card's "Make meme" | opens the wizard in place, ungated | navigates to `/facts/<alternate>/meme`, like every other "make a meme" |
 | fact | "Make a meme of this" (×3), meme thumbnails, related facts, parent link | in-app navigation | none: the destination asks |
-| fact | own meme delete (Mine tab) | signed in only | through the operation |
-| meme | heart | signed out: to `/login` | see Question P3-1 |
+| fact | gallery card copy link, open full size, own delete (`ImageCard` actions and menu, `FactDetail.tsx:462`, `ImageCard.tsx:394`) | clipboard, `window.open`, delete | through the operation, at the menu opener or the action |
+| fact | gallery meme hearts | signed out: to `/login` | P3-1 |
+| fact | comment sort (`FactComments.tsx:466`) | changes the comment order | through the operation |
+| fact | comment hearts (`CommentHeartButton.tsx:29`) | signed out: to `/login` | P3-1 |
+| both | mobile search opener (`Navbar.tsx:144`) | opens the search field in place | through the operation |
+| both | navbar sign-in (`Navbar.tsx:153, 229`) | to `/login` | P3-1 |
+| both | logo, navbar links, a submitted search | in-app navigation | none: the destination asks |
+| both | signed-out name tag | opens its own name editor | capture surface: none |
+| both | account avatar (signed in) | to `/profile` | none: the destination asks |
+| meme | heart | signed out: to `/login` | P3-1 |
 | meme | signed-out "Sign up free", tier-ladder sign-in link | full-page or in-app to sign-up | see Question P3-1 |
 | meme | own download, own custom share | signed in only | through the operation |
 | meme | "Make this fact about me", "Browse more facts", "View full fact", back links | in-app navigation | none: the destination asks |
@@ -530,21 +541,22 @@ A signed-in visitor on a landing page is asked only when the account is set up a
 - **The decision gains one input:** an action is pending. `shouldAskForIdentity` lifts the landing exception while it holds, and nothing else changes in it.
 - **Each wired site is explicit** (the plan's settled decision, kept): the handler wraps its own effect in `askBefore`. No generic click listener.
 - **The alternate card's in-place builder is replaced by navigation** to `/facts/<alternate id>/meme`, so the landing page holds no builder and the in-place gating item has nothing left to gate. This follows the one-builder decision (#851).
-- **Continue sharing is not built, and #721 closes when this merges.** The requirement it served, that a share asked-for during a slow save still happens, holds without it, because the operation opens the share modal and the modal's own buttons start the native share on a fresh tap.
-- **#724 is pinned by a test, not new code:** a signed-out visitor on `/facts/:id/meme` cannot cause a request to `/api/memes`. If the test shows it can, the fix is the issue's own: check sign-in before the request. #724 closes when this merges. #735 closes as resolved, with the evidence above quoted in the PR.
-- **App-controlled departures:** the only one on a landing page is the signed-out "Sign up free" (`MemePage.tsx` `handleAnonMake`, a full-page navigation); it is a P3-1 row. The share modal's own outbound links run inside the modal, after the share action has already asked.
+- **Continue sharing is not built, and #721 closes when this merges,** on the narrow ground it was opened for: asking for identity adds no extra tap before sharing, because the deferred action opens the share modal and the visitor's next tap is inside it. The modal's own slow-network activation defect is separate (*Related*).
+- **The builder checks sign-in before any create request that carries identity (#724, the issue's own fix).** Signed out, or auth not resolved, "Make my meme" sends nothing and goes to sign-in. Source availability is never taken as sign-in. #724 closes when this merges. #735 closes as resolved, with the evidence above quoted in the PR.
+- **A deferred action that needs a browser gesture** (clipboard write, opening a window) is not assumed to keep the original tap's activation after an asynchronous save. Where it is deferred, the operation opens the menu or modal that holds it, so the gesture is the visitor's next tap; it never calls the gesture-gated API from a delayed callback.
+- **App-controlled departures** on a landing page are the signed-out "Sign up free" (`MemePage.tsx` `handleAnonMake`, a full-page navigation), a P3-1 row, and the gallery card's "open full size" (`window.open`), which goes through the operation.
 
 ### Testing (Phase 3)
 
 - **Unit, the operation:** a complete identity runs the action at once; an incomplete one holds it, and it runs exactly once on save; a newer action replaces it; a location change discards it; a failed account save keeps it until the retry succeeds; signed in, it runs after the canonical re-read, not before.
 - **Unit, the decision:** the landing page asks while an action is pending and not otherwise (added rows in the existing table).
-- **Component, per wired family:** share, comment scroll, gallery tab, sort, delete, own download and own share each call `askBefore` and run once after a save; the alternate card's "Make meme" navigates to its builder route.
+- **Component, per wired family:** share, comment scroll, gallery tab and sort, comment sort, gallery card menu (copy link, open full size, delete), mobile search opener, own download and own share each call `askBefore` and run once after a save; a gesture-gated action is reached through its menu or modal on the visitor's next tap, never from the delayed callback; the alternate card's "Make meme" navigates to its builder route.
 - **Browser (described-screens suite), signed out with no identity:**
   - `/facts/:id` shows the fact with no sheet; tapping share shows the sheet; saving opens the share modal.
   - Changing the sort shows the sheet; saving applies the new sort.
   - An alternate card's "Make meme" lands on `/facts/<alternate>/meme`, which asks, and the builder then holds the saved name and pronouns.
   - `/m/:slug` shows the meme with no sheet; the P3-1 rows behave as David answers.
-  - No request to `/api/memes` from a signed-out builder (#724).
+  - No request to `/api/memes` from a signed-out builder (#724): a fresh guest builder; a selected-photo draft restored on a load that starts signed out; and a mounted builder whose auth changes to signed out before save.
 - **Inventory:** the oracle's hit list goes in the PR body, each hit classified as wired, navigation, or signed-in only.
 
 ### Implementation steps (replaces *Implementation Steps* item 3)
@@ -553,14 +565,20 @@ Phase 3 is one increment, on a fresh branch off `main`:
 1. The operation and the decision's new input, with their unit tests.
 2. The wiring, site by site from the inventory, with component tests.
 3. The alternate card's navigation.
-4. The #724 test.
+4. The builder's sign-in check before save, and its three tests (#724).
 5. The browser tests, and the inventory re-run in the PR body.
+
+### Related (Phase 3)
+
+- **The share modal can lose the browser's tap on a slow network** (Astra, round 1): its share, Twitter and clipboard buttons await the share-copy request before calling the browser API (`MemeShareModal.tsx:88-94`). It predates and is independent of identity, so it is *next*, not Phase 3: Issue #854. The proportionate fix is to fetch the copy when the modal opens.
 
 ### Questions for David (Phase 3)
 
-- **P3-1 — Actions that go to sign-in.** On a shared page, vote, heart, posting a comment, and "Sign up free" send a signed-out visitor to sign-in or sign-up. Should they ask for name and pronouns first, then go?
-  1. **Go straight to sign-in, without asking** (recommended). Sign-in and sign-up are already pages the sheet never opens on, and onboarding then asks a new account for its name and pronouns once. A returning visitor on a new device signing in would otherwise be asked a name the account already has, which the account then overrides. Cost: the moment of capture moves to onboarding for these taps, so a visitor who abandons sign-in leaves without a name in the browser.
-  2. **Ask first, then go.** Matches "pretty much any action" literally, and onboarding then shows the name pre-filled. Cost: a returning account holder is asked for a name before signing in, and that answer is discarded when the account wins.
+- **P3-1 — An exception to "pretty much any action": actions that lead to sign-in.** Your agreed behaviour is that a visitor's first real action on a shared page asks first. Some actions on those pages send a signed-out visitor to sign-in or sign-up: vote (on the fact and its alternate phrasings), the meme's heart, gallery meme hearts, comment hearts, posting a comment and its sign-in link, the navbar's sign-in, and "Sign up free". Should these be an exception, going straight to sign-in without asking? Until you say yes, the plan asks first for these too.
+  1. **Make them an exception: go straight to sign-in** (recommended; Astra agrees). A returning visitor on a new device would otherwise be asked a name their account already has, and the account then overrides it. A new account is asked its name and pronouns once in onboarding anyway. Cost: for these taps the moment of capture moves to onboarding, so a visitor who abandons sign-in leaves without a name in the browser.
+  2. **No exception: ask first, then go.** Matches your words literally, and onboarding then shows the name pre-filled. Cost: a returning account holder is asked for a name before signing in, and the answer is discarded when the account wins.
+
+  Either way, a signed-in account's own actions still ask when the account is missing a name or pronouns.
 
 ## Risks and Mitigations
 
