@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useRoute } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -21,10 +21,8 @@ import {
   CTABarOwn,
   CTABarRegisteredOther,
 } from "@/pages/memePage/cta/CTABar";
-import { BuilderOverlay } from "@/pages/memePage/BuilderOverlay";
 import { upgradeDestination } from "@/pages/memePage/upgradeDestination";
 import { MemeShareModal } from "@/components/share/MemeShareModal";
-import type { EntryFlow, Mode } from "@/components/meme-builder/types";
 
 interface StoredImageSource {
   type?: "upload" | "identity";
@@ -57,13 +55,6 @@ type MemeResult =
   | { meme: MemeData; deleted: false }
   | { meme: null; deleted: true };
 
-interface BuilderInvocation {
-  mode: Mode;
-  entryFlow: EntryFlow;
-  initialName?: string;
-  initialPronouns?: string;
-}
-
 function DimsFromUrl({ url }: { url: string }) {
   const dims = useImageDimensions(url);
   if (!dims) return <>…</>;
@@ -95,7 +86,7 @@ export default function MemePage() {
     query: { queryKey: getGetFactQueryKey(factId ?? 0), enabled: !!factId },
   });
 
-  const [builder, setBuilder] = useState<BuilderInvocation | null>(null);
+  const [, setLocation] = useLocation();
   const [shareOpen, setShareOpen] = useState(false);
 
   if (isLoading) {
@@ -148,13 +139,10 @@ export default function MemePage() {
     meme: { createdById: meme.createdById },
   });
 
-  // The fact's tokenized template (e.g. `"{NAME} fought a bear"`) is what
-  // the builder needs in order to substitute the new viewer's name. The
-  // /api/memes/:slug payload only carries the rendered factText (creator's
-  // name baked in), so we wait for the dedicated fact fetch to complete
-  // before allowing any remix CTA to open the builder.
-  const factTemplate = fact?.text ?? "";
-  const factTemplateReady = !!fact?.text;
+  // "Make this fact about me" opens the standard meme builder on the fact's
+  // own builder route, with this fact already chosen (#851). The button waits
+  // for the fact to load, so a fact that is gone never opens an empty builder.
+  const factReady = !!fact;
 
   const handleDownload = () => {
     const url = meme.imageUrl;
@@ -179,11 +167,8 @@ export default function MemePage() {
   };
 
   const openMakeAboutMe = () => {
-    if (!factTemplateReady) return;
-    setBuilder({
-      mode: "self-upload",
-      entryFlow: "remix",
-    });
+    if (!factReady) return;
+    setLocation(`/facts/${meme.factId}/meme`);
   };
 
   // A signed-out visitor's "make this about me" is a sign-up: there is no
@@ -211,7 +196,7 @@ export default function MemePage() {
       ctaBar = (
         <CTABarRegisteredOther
           onMakeAboutMe={openMakeAboutMe}
-          factTemplateReady={factTemplateReady}
+          factTemplateReady={factReady}
         />
       );
       break;
@@ -219,7 +204,7 @@ export default function MemePage() {
       ctaBar = (
         <CTABarLegendaryOther
           onMakeAboutMe={openMakeAboutMe}
-          factTemplateReady={factTemplateReady}
+          factTemplateReady={factReady}
         />
       );
       break;
@@ -347,17 +332,6 @@ export default function MemePage() {
           )}
         </div>
       </div>
-
-      <BuilderOverlay
-        open={!!builder}
-        onClose={() => setBuilder(null)}
-        factId={meme.factId}
-        factText={factTemplate}
-        mode={builder?.mode ?? "self-upload"}
-        entryFlow={builder?.entryFlow ?? "remix"}
-        initialName={builder?.initialName}
-        initialPronouns={builder?.initialPronouns}
-      />
 
       <MemeShareModal
         open={shareOpen}

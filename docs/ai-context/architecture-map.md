@@ -50,12 +50,13 @@ docs/                this documentation
   [`public-site-and-sharing.md`](./public-site-and-sharing.md#profiles-and-library--the-self-view-split)),
   `ActivityFeed.tsx`, fact detail + comments. (Merch, `WearIt.tsx`, went in
   launch Phase 4; ledger [`docs/retired/README.md`](../retired/README.md).) The
-  meme builders live under
+  meme builder lives under
   `artifacts/overhype-me/src/components/meme-builder/` (not `pages/`): the
-  fact page's wizard in `meme-builder/wizard/`, and the meme page's remix
-  builder `meme-builder/MemeBuilder.tsx` (mounted by
-  `pages/memePage/BuilderOverlay.tsx`). The legacy studio that sat beside them
-  was deleted in launch Phase 4
+  wizard in `meme-builder/wizard/`, the only builder. The meme page's "make
+  this about me" opens it on the fact's `/facts/:id/meme` route; the meme
+  page's own remix builder (`MemeBuilder.tsx` in `BuilderOverlay.tsx`) was
+  deleted for #851. The legacy studio that sat beside them was deleted in
+  launch Phase 4
   ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
   Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
