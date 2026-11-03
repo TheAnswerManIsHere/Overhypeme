@@ -82,6 +82,9 @@ test("two finished tasks in a row each ring, though both end on the same Next; l
   const long = "review the release notes carefully, ".repeat(10);
   assert.ok(at("🛑 **NEED YOU** — approve the production deployment\n\nRelease 1.4.0.\n\n1. Ship\n2. Hold"));
   assert.ok(at("🛑 **NEED YOU** — approve the production deployment\n\nRelease 1.5.0.\n\n1. Ship\n2. Hold"), "a changed decision under the same banner heading rings");
+  const ask = "🛑 **NEED YOU** — pick the caption fonts\n\n1. Ten fonts\n2. Strict six\n\nRecommendation: 2.\n\n---";
+  assert.ok(at(`Context.\n\n---\n${ask}\n\n**Done:** x`));
+  assert.equal(at(`📍 Overhype.me — briefing\n\n🛑 Waiting on you:\n\n---\n${ask}\n\nNext: Phase 5.\nYour next stop: UAT.`), null, "/status reproducing the unchanged ask, with other sections after it, rings nothing (Codex, DojoOS PR #74)");
   assert.ok(at(`**Done:** x · **Next:** running — y · **Needs you:** ${long}for release A · **Spend:** $1`));
   assert.ok(at(`**Done:** x · **Next:** running — y · **Needs you:** ${long}for release B · **Spend:** $1`), "a change past 240 characters rings");
 });
