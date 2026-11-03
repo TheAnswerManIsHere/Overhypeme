@@ -855,13 +855,6 @@
       "when": 1785400000000,
       "tag": "0121_nsfw_readiness",
       "breakpoints": true
-    },
-    {
-      "idx": 122,
-      "version": "7",
-      "when": 1785500000000,
-      "tag": "0122_drop_captcha_and_nsfw_opt_in",
-      "breakpoints": true
     }
   ]
 }

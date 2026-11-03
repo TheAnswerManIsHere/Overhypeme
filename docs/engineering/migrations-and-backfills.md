@@ -104,6 +104,13 @@ is right on both paths a database takes, and nothing is built any other way
   the release currently published neither reads nor writes what is removed.
   A rename is therefore three steps over at least two releases: add the new
   name and write both, switch reads to the new one, then drop the old one.
+  **The ORM declaration is a use.** Drizzle names every declared column in a
+  full-row `select()`, an `insert` and a `returning()` (measured with
+  `.toSQL()` on drizzle-orm 0.45.2), so a release whose table definition
+  still carries a column reads it on every such query, even when no code
+  mentions it. A column drop therefore needs a published release whose
+  definition no longer declares it: remove the field in one release, drop the
+  column in the next (launch Phase 5, PR #845).
 - **A backfill tolerates the previous release.** Rows the old code writes
   after the migration ran are one more row state in the matrix (*Migration
   principles*): the new code reads them correctly, or a later idempotent pass

@@ -48,10 +48,18 @@ async function createUser(opts: { admin?: boolean } = {}): Promise<string> {
 const sessionFor = (userId: string, isAdmin = false) =>
   createSession({ user: { id: userId } as unknown as SessionData["user"], access_token: "t", isAdmin } as SessionData, userId);
 
-/** 0122 dropped the column (Increment 7b): a sent value has nowhere to land. */
-const nsfwColumnExists = async () =>
-  (await db.execute(sql`SELECT 1 FROM information_schema.columns
+/**
+ * The column has left the Drizzle model (Increment 7b) and is dropped by 0122
+ * in a later release, so it is read by raw SQL while it exists: a sent value
+ * never reaches it, and once the column is gone there is nothing to reach.
+ */
+const nsfwOf = async (id: string): Promise<boolean | null> => {
+  const exists = (await db.execute(sql`SELECT 1 FROM information_schema.columns
     WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'nsfw_mode_enabled'`)).rows.length > 0;
+  if (!exists) return null;
+  const { rows } = await db.execute(sql`SELECT nsfw_mode_enabled AS v FROM users WHERE id = ${id}`);
+  return (rows[0] as { v: boolean }).v;
+};
 
 describe("the NSFW opt-in is withdrawn (T8)", () => {
   const cleanup = () => db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
@@ -63,7 +71,7 @@ describe("the NSFW opt-in is withdrawn (T8)", () => {
     const sid = await sessionFor(id);
     const res = await request(makeApp()).patch("/api/users/me").set("authorization", `Bearer ${sid}`).send({ nsfwModeEnabled: true });
     assert.ok(res.status < 500, res.text);
-    assert.equal(await nsfwColumnExists(), false);
+    assert.notEqual(await nsfwOf(id), true);
   });
 
   it("the admin edit ignores nsfwModeEnabled", async () => {
@@ -72,7 +80,7 @@ describe("the NSFW opt-in is withdrawn (T8)", () => {
     const sid = await sessionFor(admin, true);
     const res = await request(makeApp()).patch(`/api/admin/users/${member}`).set("authorization", `Bearer ${sid}`).send({ nsfwModeEnabled: true });
     assert.ok(res.status < 500, res.text);
-    assert.equal(await nsfwColumnExists(), false);
+    assert.notEqual(await nsfwOf(member), true);
   });
 
   it("every classifier call is told false, whatever an account's old column holds", () => {
