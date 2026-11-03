@@ -1,7 +1,8 @@
 /**
  * The caption style picker, the same in both builders (names-and-fonts plan,
  * question N1): one chip per catalogue face, and a line saying when the
- * chosen face is still loading or failed to load, with a retry.
+ * chosen face is still loading or failed to load, with a retry (shared with
+ * the wizard's save area through `CaptionFontStatus`).
  *
  * @purpose Lets the visitor pick one of the catalogue's caption fonts in either meme builder, and shows the chosen face's loading or failed state with a retry.
  * @subsystem meme-studio
@@ -9,13 +10,43 @@
 import { CAPTION_FONTS, type CaptionFontId } from "@workspace/api-zod";
 import { useCaptionFont } from "@/lib/captionFontLoader";
 
+/**
+ * Whether the chosen face is still loading or failed to load, with a retry.
+ * One statement of the wording, used by the picker and by the wizard, which
+ * keeps its picker inside a collapsed panel and so shows this beside its
+ * save button instead (Codex, PR #844).
+ */
+export function CaptionFontStatus({ id, otherStylesHint }: { id: CaptionFontId; otherStylesHint?: string }) {
+  const { status, retry } = useCaptionFont(id);
+  if (status === "loading") {
+    return (
+      <p className="text-xs text-muted-foreground" role="status" data-testid="caption-font-loading">
+        Loading this caption style…
+      </p>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <p className="text-xs text-destructive" role="alert" data-testid="caption-font-failed">
+        This caption style didn't load.{" "}
+        <button type="button" className="underline" onClick={retry} data-testid="caption-font-retry">
+          Try again
+        </button>{" "}
+        or pick another{otherStylesHint ? ` ${otherStylesHint}` : ""}.
+      </p>
+    );
+  }
+  return null;
+}
+
 interface Props {
   value: CaptionFontId;
   onChange: (id: CaptionFontId) => void;
+  /** False where the same status is shown elsewhere on screen. */
+  showStatus?: boolean;
 }
 
-export function CaptionFontPicker({ value, onChange }: Props) {
-  const { status, retry: onRetry } = useCaptionFont(value);
+export function CaptionFontPicker({ value, onChange, showStatus = true }: Props) {
   return (
     <div className="space-y-2" data-testid="caption-font-picker">
       <span id="caption-font-label" className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -38,20 +69,7 @@ export function CaptionFontPicker({ value, onChange }: Props) {
           </button>
         ))}
       </div>
-      {status === "loading" && (
-        <p className="text-xs text-muted-foreground" role="status" data-testid="caption-font-loading">
-          Loading this style…
-        </p>
-      )}
-      {status === "failed" && (
-        <p className="text-xs text-destructive" role="alert" data-testid="caption-font-failed">
-          This style didn't load.{" "}
-          <button type="button" className="underline" onClick={onRetry} data-testid="caption-font-retry">
-            Try again
-          </button>{" "}
-          or pick another.
-        </p>
-      )}
+      {showStatus && <CaptionFontStatus id={value} />}
     </div>
   );
 }

@@ -18,6 +18,7 @@ import { AdvancedOptionsSheet } from "./AdvancedOptionsSheet";
 import { intelligentSplit } from "./sliders/splitLogic";
 import { buildSaveMemePayload } from "../util/saveMemePayload";
 import { captionFontOf } from "../../captionFont";
+import { CaptionFontStatus } from "../../parts/CaptionFontPicker";
 import { useCaptionFont } from "@/lib/captionFontLoader";
 
 interface Props {
@@ -152,7 +153,8 @@ export function Step2Image({
   const sourceSelected = !!selfUploadImage;
   // The meme is saved in the face the preview shows, so saving waits until
   // that face has loaded (names-and-fonts plan).
-  const captionFontReady = useCaptionFont(captionFontOf(textOptions)).status === "ready";
+  const captionFontId = captionFontOf(textOptions);
+  const captionFontReady = useCaptionFont(captionFontId).status === "ready";
 
   const handleSelfUploadImageSelect = (next: MyImageSource) => {
     setSelfUploadImage(next);
@@ -267,6 +269,10 @@ export function Step2Image({
           />
 
           <AdvancedOptionsSheet value={textOptions} onChange={setTextOptions} />
+
+          {/* Saving waits for the caption face; when it is slow or fails, say
+              so here, outside the collapsed Advanced options (Codex, PR #844). */}
+          <CaptionFontStatus id={captionFontId} otherStylesHint="under Advanced options" />
 
           {saveError && (
             <p

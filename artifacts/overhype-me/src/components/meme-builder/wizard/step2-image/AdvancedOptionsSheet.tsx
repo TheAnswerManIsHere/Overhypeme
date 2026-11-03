@@ -55,7 +55,8 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
 
       {isOpen && (
         <div className="space-y-5 border-t border-border px-4 pb-6 pt-4">
-          <CaptionFontPicker value={captionFontOf(value)} onChange={(id) => set("fontFamily", id)} />
+          {/* Its status shows beside the save button, outside this collapsed panel. */}
+          <CaptionFontPicker value={captionFontOf(value)} onChange={(id) => set("fontFamily", id)} showStatus={false} />
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">

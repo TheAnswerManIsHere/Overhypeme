@@ -18,6 +18,7 @@ import { resetCaptionFontsForTest } from "@/lib/captionFontLoader";
 import { buildSaveMemePayload } from "../wizard/util/saveMemePayload";
 import { captureWizardState, restoreWizardState } from "../wizard/state/wizardStorage";
 import { withCaptionFont } from "../captionFont";
+import { MemeBuilderWizard } from "../wizard/MemeBuilderWizard";
 import type { WizardRuntimeState } from "../wizard/state/useWizardState";
 
 type Pending = { family: string; source: string; weight: string; resolve: () => void; reject: () => void };
@@ -103,5 +104,25 @@ describe("caption fonts in the browser", () => {
       const payload = buildSaveMemePayload({ state: { ...base, textOptions: restored.textOptions } as unknown as WizardRuntimeState, factId: 1 });
       expect(payload?.textOptions?.fontFamily).toBe(id);
     }
+  });
+
+  // Codex, PR #844: the wizard keeps its picker in a collapsed panel, so a
+  // failed face must be explained, with its retry, outside it.
+  it("in the wizard, a failed face is explained with a retry without opening Advanced options", async () => {
+    render(
+      <MemeBuilderWizard factId="fact-fonts" factText="{NAME} counted to infinity." entryFlow="fact-detail"
+        viewerContext={{ tier: "registered", userId: "u1", name: "Zoë", pronouns: "she/her" }}
+        onComplete={() => {}} onCancel={() => {}} />,
+    );
+    await screen.findByTestId("advanced-options-trigger", {}, { timeout: 5000 });
+    expect(screen.queryByTestId("caption-font-picker")).toBeNull();
+    const block = faces.find((f) => f.family === "OH Block")!;
+    await act(async () => block.reject());
+    expect((await screen.findByTestId("caption-font-failed")).textContent).toMatch(/didn't load.*Advanced options/);
+    fireEvent.click(screen.getByTestId("caption-font-retry"));
+    const retried = faces.filter((f) => f.family === "OH Block").at(-1)!;
+    await act(async () => retried.resolve());
+    expect(screen.queryByTestId("caption-font-failed")).toBeNull();
+    expect(canvas().getAttribute("data-caption-font-status")).toBe("ready");
   });
 });

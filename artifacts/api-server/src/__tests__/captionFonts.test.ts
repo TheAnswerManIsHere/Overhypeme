@@ -15,7 +15,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createCanvas } from "@napi-rs/canvas";
+import { GlobalFonts, createCanvas } from "@napi-rs/canvas";
 import { CAPTION_FONTS, CAPTION_FONT_IDS } from "@workspace/api-zod";
 
 import { captionCanvasFont, fontFileCandidates, generateMemeBuffer, withCaptionFontUnregisteredForTest, type TextOptions } from "../lib/memeGenerator.js";
@@ -77,15 +77,31 @@ describe("caption fonts", () => {
     }
   });
 
-  // Hashes recorded from the renderer before the catalogue existed (the same
-  // recipes rendered at main 61a2d8b3). A stored recipe keeps its face.
-  it("a stored recipe with an old font string, or none, renders byte for byte as before", async () => {
-    assert.equal(sha(await render({ topText: "ZOË NGUYEN COUNTED", bottomText: "TO INFINITY TWICE" })),
-      "fefb895da141aa8d4af764a8b5957a236c05f70f3744b68e0b7dea62e846b8b1");
-    assert.equal(sha(await render({ topText: "ZOË NGUYEN COUNTED", bottomText: "TO INFINITY TWICE", fontFamily: "Impact" })),
-      "fefb895da141aa8d4af764a8b5957a236c05f70f3744b68e0b7dea62e846b8b1");
-    assert.equal(sha(await render({ topText: "Zoë counted", bottomText: "to infinity", fontFamily: "'Bebas Neue', Impact, sans-serif", bold: false, italic: true })),
-      "038bd5fb718aa326d0a0edc2398998decdfb7ae3a60462ea235105c2d91bed96");
+  // A stored recipe keeps its face: the renderer gives it the exact canvas
+  // font string the code before the catalogue built (memeGenerator.ts at main
+  // 61a2d8b3: `${italic}${bold}${size}px "${fontFamily ?? "Impact"}", sans-serif`,
+  // bold by default), Impact is still Anton, and the old picker's stacks still
+  // draw in Anton, so no new caption face can capture them. Machine-independent
+  // by design: hard-coded image hashes from one machine failed on CI's.
+  it("a stored recipe with an old font string, or none, renders as it always has", async () => {
+    for (const fontFamily of [undefined, "Impact", "'Bebas Neue', Impact, sans-serif", "Anton"]) {
+      for (const bold of [true, false, undefined]) {
+        for (const italic of [true, false]) {
+          const before = `${italic ? "italic " : ""}${(bold ?? true) ? "bold " : ""}40px "${fontFamily ?? "Impact"}", sans-serif`;
+          assert.equal(captionCanvasFont({ fontFamily, bold, italic }, 40), before, JSON.stringify({ fontFamily, bold, italic }));
+        }
+      }
+    }
+    const text = { topText: "Zoë counted", bottomText: "to infinity twice" };
+    assert.equal(sha(await render(text)), sha(await render({ ...text, fontFamily: "Impact" })), "no font is Impact, as before");
+    assert.ok(GlobalFonts.has("Impact") && GlobalFonts.has("Anton"), "Anton is still registered as Impact");
+    // The canvas reads "Impact" inside the old picker's stack, so those
+    // recipes have always drawn in Anton; they still do.
+    assert.equal(
+      sha(await render({ ...text, fontFamily: "'Bebas Neue', Impact, sans-serif" })),
+      sha(await render({ ...text, fontFamily: "Impact" })),
+      "an old picker stack still draws in Anton, not a caption face",
+    );
   });
 
   it("a face that did not register refuses to render instead of saving a fallback face", async () => {
