@@ -16,6 +16,13 @@ export const PERSONAL_NAME_ACCEPTED: { input: string; value: string; why: string
   { input: "Louis 14", value: "Louis 14", why: "digits" },
   { input: "a".repeat(50), value: "a".repeat(50), why: "exactly 50 characters" },
   { input: "One Two Three Four Five", value: "One Two Three Four Five", why: "no word-count limit" },
+  // Every Latin letter all caption fonts draw (names-and-fonts plan, David 2026-11-03).
+  { input: "Nguyễn Thị Minh Khai", value: "Nguyễn Thị Minh Khai", why: "Vietnamese" },
+  { input: "Nguye\u0302\u0303n", value: "Nguyễn", why: "Vietnamese typed with combining marks, composed by NFC" },
+  { input: "Ștefan Țepeș", value: "Ștefan Țepeș", why: "Romanian comma-below letters" },
+  { input: "Ayşe Türkoğlu İlhan", value: "Ayşe Türkoğlu İlhan", why: "Turkish" },
+  { input: "Dvořák Čapek", value: "Dvořák Čapek", why: "Czech" },
+  { input: "Ĳsbrand", value: "Ĳsbrand", why: "the Dutch Ĳ, kept from the earlier rule" },
 ];
 
 // English-script names only (David, 2026-11-02): other scripts are refused
@@ -33,7 +40,11 @@ export const PERSONAL_NAME_REFUSED: { input: unknown; reason: "empty" | "charact
   { input: "देवनागरी", reason: "characters", why: "Devanagari" },
   { input: "李小龙", reason: "characters", why: "CJK" },
   { input: "Ольга", reason: "characters", why: "Cyrillic" },
-  { input: "Nguyễn", reason: "characters", why: "a Latin Extended Additional letter outside the rule" },
+  { input: "Ελένη", reason: "characters", why: "Greek" },
+  { input: "Pfeiffer ƒ", reason: "characters", why: "ƒ, whose capital not every caption font draws" },
+  { input: "ſamuel", reason: "characters", why: "the long s, which not every caption font draws" },
+  { input: "\u0149on", reason: "characters", why: "ŉ, which not every caption font draws" },
+  { input: "Hǎo", reason: "characters", why: "a pinyin tone letter not every caption font draws" },
   { input: "a".repeat(51), reason: "length", why: "51 characters" },
   { input: 42, reason: "type", why: "not text" },
 ];

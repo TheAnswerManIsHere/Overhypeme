@@ -1,10 +1,10 @@
 /**
- * @purpose Runs the shared name table against the rule, and proves a provider name is cleaned rather than refused and that typed input is filtered without cutting a paste.
+ * @purpose Runs the shared name table against the rule, and proves a provider name is kept only whole (never stripped, spaced out or cut) and that typed input is filtered without cutting a paste.
  * @subsystem accounts-auth
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { checkPersonalName, cleanProvidedPersonalName, filterNameInput } from "@workspace/api-zod";
+import { acceptProvidedPersonalName, checkPersonalName, filterNameInput } from "@workspace/api-zod";
 import { PERSONAL_NAME_ACCEPTED, PERSONAL_NAME_REFUSED } from "../../../../lib/api-zod/src/personalNameRule.fixtures";
 
 describe("the shared name rule", () => {
@@ -20,10 +20,19 @@ describe("the shared name rule", () => {
   }
 });
 
+// Names-and-fonts plan: a Google or Apple name is kept whole or not at all,
+// so nothing garbled is ever stored ("Nguyễn" was once stored "Nguy n").
 describe("a provider-supplied name", () => {
-  it("is cleaned, not refused", () => assert.equal(cleanProvidedPersonalName("Ada 😀 (Countess)"), "Ada Countess"));
-  it("is cut at 50 graphemes", () => assert.equal(cleanProvidedPersonalName("b".repeat(60)), "b".repeat(50)));
-  it("is dropped when nothing is left", () => assert.equal(cleanProvidedPersonalName("😀😀"), null));
+  it("is kept whole when the rule admits it", () => assert.equal(acceptProvidedPersonalName("Nguyễn"), "Nguyễn"));
+  it("is normalized like a typed one", () => assert.equal(acceptProvidedPersonalName("  O\u2019Brien "), "O'Brien"));
+  it("is not stored at all when any character is outside the rule", () => {
+    for (const raw of ["Иван", "John 王", "Ada 😀 (Countess)"]) assert.equal(acceptProvidedPersonalName(raw), null, raw);
+  });
+  it("is not stored, rather than cut, when it is over 50 characters", () => assert.equal(acceptProvidedPersonalName("b".repeat(60)), null));
+  it("stays absent when the provider sent none", () => {
+    assert.equal(acceptProvidedPersonalName(null), null);
+    assert.equal(acceptProvidedPersonalName(""), null);
+  });
 });
 
 describe("typed input", () => {

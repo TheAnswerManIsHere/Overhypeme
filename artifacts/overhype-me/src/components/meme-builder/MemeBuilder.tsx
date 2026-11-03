@@ -9,6 +9,9 @@ import { MyImagePicker } from "./parts/MyImagePicker";
 import { LivePreview } from "./parts/LivePreview";
 import { ActionBar } from "./parts/ActionBar";
 import { TierLockedState } from "./parts/TierLockedState";
+import { CaptionFontPicker } from "./parts/CaptionFontPicker";
+import { captionFontOf, withCaptionFont } from "./captionFont";
+import { useCaptionFont } from "@/lib/captionFontLoader";
 import {
   currentSource,
   resolveBackgroundUrl,
@@ -53,6 +56,11 @@ export function MemeBuilder(props: MemeBuilderProps) {
   const backgroundUrl = useMemo(() => resolveBackgroundUrl(source, viewerCtx), [source, viewerCtx]);
   const debouncedBg = useDebouncedValue(backgroundUrl, 150);
 
+  // Save and download wait until the chosen caption face has loaded, so the
+  // meme comes out in the face the preview shows (names-and-fonts plan).
+  const fontId = captionFontOf(state.textOptions);
+  const fontReady = useCaptionFont(fontId).status === "ready";
+
   if (cell.invalid) {
     return (
       <TierLockedState
@@ -81,7 +89,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
       body: JSON.stringify({
         factId: parseInt(factId, 10),
         imageSource,
-        textOptions: state.textOptions,
+        textOptions: withCaptionFont(state.textOptions),
         aspectRatio: state.aspectRatio,
       }),
     });
@@ -114,7 +122,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
           imageSource,
           name: state.name,
           pronouns: state.pronouns,
-          textOptions: state.textOptions,
+          textOptions: withCaptionFont(state.textOptions),
           aspectRatio: state.aspectRatio,
         }),
       });
@@ -172,10 +180,15 @@ export function MemeBuilder(props: MemeBuilderProps) {
         aspectRatio={state.aspectRatio}
       />
 
+      <CaptionFontPicker
+        value={fontId}
+        onChange={(id) => dispatch({ type: "set-text-options", textOptions: { ...state.textOptions, fontFamily: id } })}
+      />
+
       <ActionBar
         visibleActions={cell.visibleActions}
-        saveDisabled={!source}
-        downloadDisabled={!source}
+        saveDisabled={!source || !fontReady}
+        downloadDisabled={!source || !fontReady}
         onDownload={handleDownload}
         onSave={handleSave}
         onShare={handleShare}

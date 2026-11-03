@@ -17,6 +17,9 @@ import { AdjustTextSheet } from "./AdjustTextSheet";
 import { AdvancedOptionsSheet } from "./AdvancedOptionsSheet";
 import { intelligentSplit } from "./sliders/splitLogic";
 import { buildSaveMemePayload } from "../util/saveMemePayload";
+import { captionFontOf } from "../../captionFont";
+import { CaptionFontStatus } from "../../parts/CaptionFontPicker";
+import { useCaptionFont } from "@/lib/captionFontLoader";
 
 interface Props {
   factId: string;
@@ -148,6 +151,10 @@ export function Step2Image({
   }, [textOptions, factText, splitIndex]);
 
   const sourceSelected = !!selfUploadImage;
+  // The meme is saved in the face the preview shows, so saving waits until
+  // that face has loaded (names-and-fonts plan).
+  const captionFontId = captionFontOf(textOptions);
+  const captionFontReady = useCaptionFont(captionFontId).status === "ready";
 
   const handleSelfUploadImageSelect = (next: MyImageSource) => {
     setSelfUploadImage(next);
@@ -207,7 +214,7 @@ export function Step2Image({
   };
 
   const handleMakeMyMeme = async () => {
-    if (!sourceSelected || saving) return;
+    if (!sourceSelected || saving || !captionFontReady) return;
     await save();
   };
 
@@ -263,6 +270,10 @@ export function Step2Image({
 
           <AdvancedOptionsSheet value={textOptions} onChange={setTextOptions} />
 
+          {/* Saving waits for the caption face; when it is slow or fails, say
+              so here, outside the collapsed Advanced options (Codex, PR #844). */}
+          <CaptionFontStatus id={captionFontId} otherStylesHint="under Advanced options" />
+
           {saveError && (
             <p
               role="alert"
@@ -278,7 +289,7 @@ export function Step2Image({
         <WizardPrimaryAction
           label="Make my meme"
           onClick={handleMakeMyMeme}
-          disabled={!sourceSelected}
+          disabled={!sourceSelected || !captionFontReady}
           loading={saving}
           aboveAction={
             // Unregistered viewers can't save at all (the CTA routes them to

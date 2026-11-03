@@ -13,6 +13,7 @@
  */
 import { DEFAULT_BOTTOM_Y, DEFAULT_TOP_Y, type AspectRatio, type MemeTextOptions } from "../../types";
 import type { WizardRuntimeState } from "../state/useWizardState";
+import { withCaptionFont } from "../../captionFont";
 
 export interface SaveMemePayload {
   factId: number;
@@ -64,7 +65,7 @@ export function buildSaveMemePayload(args: BuildPayloadArgs): SaveMemePayload | 
     factId,
     name: state.name,
     pronouns: state.pronouns,
-    textOptions: withCaptionPositions(state.textOptions),
+    textOptions: withCaptionFont(withCaptionPositions(state.textOptions)),
     framingTransform: state.framingOffset
       ? { offsetX: state.framingOffset.x, offsetY: state.framingOffset.y }
       : null,

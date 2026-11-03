@@ -2,19 +2,13 @@ import { useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import type { MemeTextOptions } from "../../types";
+import { CaptionFontPicker } from "../../parts/CaptionFontPicker";
+import { captionFontOf } from "../../captionFont";
 
 interface Props {
   value: MemeTextOptions;
   onChange: (next: MemeTextOptions) => void;
 }
-
-const FONT_OPTIONS: { id: string; label: string; family: string }[] = [
-  { id: "bebas", label: "Bebas Neue", family: "'Bebas Neue', Impact, sans-serif" },
-  { id: "anton", label: "Anton",      family: "'Anton', Impact, sans-serif" },
-  { id: "dm",    label: "DM Sans",    family: "'DM Sans', system-ui, sans-serif" },
-  { id: "mono",  label: "JetBrains Mono", family: "'JetBrains Mono', monospace" },
-  { id: "impact", label: "Impact",    family: "Impact, sans-serif" },
-];
 
 const TEXT_COLORS = [
   // Neutrals
@@ -61,18 +55,8 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
 
       {isOpen && (
         <div className="space-y-5 border-t border-border px-4 pb-6 pt-4">
-          <label className="block space-y-2">
-            <span className="text-xs uppercase tracking-wider text-muted-foreground">Font</span>
-            <select
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              value={value.fontFamily ?? FONT_OPTIONS[0]!.family}
-              onChange={(e) => set("fontFamily", e.target.value)}
-            >
-              {FONT_OPTIONS.map((f) => (
-                <option key={f.id} value={f.family}>{f.label}</option>
-              ))}
-            </select>
-          </label>
+          {/* Its status shows beside the save button, outside this collapsed panel. */}
+          <CaptionFontPicker value={captionFontOf(value)} onChange={(id) => set("fontFamily", id)} showStatus={false} />
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">

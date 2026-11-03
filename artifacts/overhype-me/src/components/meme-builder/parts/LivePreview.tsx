@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { captionFontById, captionFontStack } from "@workspace/api-zod";
 import { renderFactSegments } from "@/lib/render-fact";
+import { useCaptionFont } from "@/lib/captionFontLoader";
+import { captionFontOf } from "../captionFont";
 import { DEFAULT_BOTTOM_Y, DEFAULT_TOP_Y, type AspectRatio, type MemeTextOptions } from "../types";
 
 const NAME_COLOR = "#ff6b35";
@@ -67,6 +70,12 @@ export function LivePreview({
   const internalCanvasRef = useRef<HTMLCanvasElement>(null);
   const canvasRef = externalCanvasRef ?? internalCanvasRef;
   const dims = ASPECT_DIMS[aspectRatio];
+  // The caption is drawn only once its face has loaded, in that face at its
+  // fixed weight, so the preview never shows a fallback font the saved meme
+  // would not have (names-and-fonts plan).
+  const fontId = captionFontOf(textOptions);
+  const captionFont = captionFontById(fontId);
+  const { status: fontStatus } = useCaptionFont(fontId);
 
   // Cache the background image by URL so we don't recreate an `Image` on
   // every redraw (which would also re-fire `onload` and flicker).
@@ -120,11 +129,13 @@ export function LivePreview({
 
       ctx.save();
 
-      const fontFamily = textOptions.fontFamily ?? "Impact, system-ui, sans-serif";
+      if (fontStatus !== "ready") {
+        ctx.restore();
+        return;
+      }
       const fontSize = textOptions.fontSize ?? Math.floor(dims.h * 0.07);
-      const weight = textOptions.bold ? "bold" : "normal";
       const fontStyle = textOptions.italic ? "italic" : "normal";
-      ctx.font = `${fontStyle} ${weight} ${fontSize}px ${fontFamily}`;
+      ctx.font = `${fontStyle} ${captionFont.weight} ${fontSize}px ${captionFontStack(captionFont)}`;
       ctx.strokeStyle = textOptions.outlineColor ?? "#000000";
       ctx.lineWidth = 6;
 
@@ -244,6 +255,8 @@ export function LivePreview({
     name,
     pronouns,
     textOptions,
+    captionFont,
+    fontStatus,
     dims.w,
     dims.h,
     framingOffset?.x,
@@ -257,6 +270,8 @@ export function LivePreview({
         className="block h-auto w-full"
         style={canvasStyle}
         aria-label="Meme preview"
+        data-caption-font={captionFont.family}
+        data-caption-font-status={fontStatus}
       />
     </div>
   );

@@ -22,7 +22,7 @@ import {
   visualRenderApprovalWaiverSchema,
 } from "@workspace/api-zod";
 
-import { ImageSourceSchema, TextOptionsSchema } from "../../lib/validators/memeBuilder";
+import { ImageSourceSchema, StoredTextOptionsSchema } from "../../lib/validators/memeBuilder";
 
 /**
  * A stored meme recipe: the live sources plus the two older code wrote and the
@@ -409,7 +409,7 @@ export const SHAPES: Record<ShapeName, ShapeDef> = {
     photoUrl: "stock-data-url",
     photographerName: "prose",
   }),
-  textOptions: plain(TextOptionsSchema, {
+  textOptions: plain(StoredTextOptionsSchema, {
     color: "keep",
     outlineColor: "keep",
     fontFamily: "keep",
