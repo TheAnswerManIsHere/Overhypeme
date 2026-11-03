@@ -7,11 +7,13 @@
  *
  * A name is one that can be written in English (David, 2026-11-02: the site
  * launches US-only and English-only; other scripts are an internationalization
- * effort after launch). After NFC it may hold Latin letters — A–Z and the
- * accented Latin letters of Latin-1 and Latin Extended-A (José, Zoë, Siobhán,
- * Łukasz) — digits 0–9, space, `'`, `-` and `.`. Every one of those has a
- * glyph in the bundled meme font, Anton (its charset covers U+0020–U+007E and
- * U+00A0–U+0181), so every admitted name renders. Curly apostrophes become
+ * effort after launch). After NFC it may hold Latin letters, digits 0–9,
+ * space, `'`, `-` and `.`. The letters are exactly those every caption font
+ * draws in both cases (names-and-fonts plan, David 2026-11-03): A–Z, the
+ * Western and Central European accents (José, Zoë, Siobhán, Łukasz), and the
+ * Vietnamese, Romanian and Turkish letters (Nguyễn, Ștefan, Türkoğlu). They
+ * are derived from the font files into `personalNameLetters.generated.ts`, so
+ * every admitted name renders in every caption face. Curly apostrophes become
  * `'`, whitespace runs become one space, the ends are trimmed. It is at most
  * 50 visible characters. There is no word-count limit.
  *
@@ -20,20 +22,24 @@
  * 2026-10-21 rule admitted letters in any script; David narrowed it on
  * 2026-11-02.)
  *
- * @purpose The shared personal-name rule for browser and server, English-script names only (David, 2026-11-02): normalizes a name (NFC, curly apostrophes, whitespace), refuses one with a character outside Latin letters, digits, space, apostrophe, hyphen and period or over 50 graphemes, cleans a provider-supplied name to what the rule admits, filters typed input without breaking IME composition, and owns the shared grapheme count and cut.
+ * @purpose The shared personal-name rule for browser and server, English-script names only (David, 2026-11-02): normalizes a name (NFC, curly apostrophes, whitespace), refuses one with a character outside the Latin letters every caption font draws, digits, space, apostrophe, hyphen and period or over 50 graphemes, accepts a provider-supplied name only whole, filters typed input without breaking IME composition, and owns the shared grapheme count and cut.
  * @subsystem accounts-auth
  */
+
+import { PERSONAL_NAME_LETTER_RANGES } from "./personalNameLetters.generated";
 
 /** The limit, in visible characters (grapheme clusters). */
 export const PERSONAL_NAME_MAX_GRAPHEMES = 50;
 
 /**
- * The characters the rule admits: Basic Latin letters and digits, the
- * Latin-1 and Latin Extended-A letters (U+00C0–U+017F without × and ÷),
- * space, apostrophe, hyphen and period. One character, and a whole string.
+ * The characters the rule admits: the derived letters, digits, space,
+ * apostrophe, hyphen and period. One character, and a whole string.
  */
-const ALLOWED_CHAR = /^[A-Za-z0-9À-ÖØ-öø-ſ '.-]$/;
-const ALLOWED_NAME = /^[A-Za-z0-9À-ÖØ-öø-ſ '.-]*$/;
+const LETTER_CLASS = PERSONAL_NAME_LETTER_RANGES.map(([a, b]) =>
+  a === b ? `\\u{${a.toString(16)}}` : `\\u{${a.toString(16)}}-\\u{${b.toString(16)}}`,
+).join("");
+const ALLOWED_CHAR = new RegExp(`^[${LETTER_CLASS}0-9 '.\\-]$`, "u");
+const ALLOWED_NAME = new RegExp(`^[${LETTER_CLASS}0-9 '.\\-]*$`, "u");
 
 /** The short hint an input shows when it refuses a character. */
 export const PERSONAL_NAME_HINT = "English letters, numbers, spaces, apostrophes, hyphens and periods only.";
@@ -99,17 +105,15 @@ export function checkPersonalName(raw: unknown): PersonalNameCheck {
 }
 
 /**
- * Clean a name the visitor did not type — a Google or Apple first or last
- * name — to what the rule admits: disallowed characters become spaces and the
- * result is cut at the limit. Returns null when nothing is left, so the
- * sign-in proceeds without that name rather than failing.
+ * Accept a name the visitor did not type — a Google or Apple first or last
+ * name — only whole: the normalized value if it passes the rule, else null.
+ * Nothing is stripped, spaced out or cut, so a name is never stored garbled
+ * ("Nguyễn" once came out "Nguy n"); sign-in proceeds without it, and
+ * onboarding asks for the name in English letters (names-and-fonts plan).
  */
-export function cleanProvidedPersonalName(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  let kept = "";
-  for (const c of normalizePersonalName(raw)) kept += ALLOWED_CHAR.test(c) ? c : " ";
-  const value = truncateGraphemes(normalizePersonalName(kept), PERSONAL_NAME_MAX_GRAPHEMES).trim();
-  return checkPersonalName(value).ok ? value : null;
+export function acceptProvidedPersonalName(raw: unknown): string | null {
+  const checked = checkPersonalName(raw);
+  return checked.ok ? checked.value : null;
 }
 
 /**

@@ -13,7 +13,7 @@ import {
 import * as oidc from "openid-client";
 import * as Sentry from "@sentry/node";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { GetCurrentAuthUserResponse, cleanProvidedPersonalName } from "@workspace/api-zod";
+import { GetCurrentAuthUserResponse, acceptProvidedPersonalName } from "@workspace/api-zod";
 import { db, usersTable, oauthPendingStatesTable } from "@workspace/db";
 import { eq, and, lt } from "drizzle-orm";
 import {
@@ -202,10 +202,12 @@ async function upsertUser(
       : ((claims.family_name as string) || null);
 
   // The visitor did not type these, so a name that fails the shared rule is
-  // cleaned to what it admits (or dropped), never a reason to refuse the
-  // sign-in, and the denylist is not applied (#709).
-  const oidcFirstName = cleanProvidedPersonalName(rawFirstName);
-  const oidcLastName = cleanProvidedPersonalName(rawLastName);
+  // never a reason to refuse the sign-in, and the denylist is not applied
+  // (#709). It is kept only whole: one the rule can't hold is not stored,
+  // never stored garbled, and onboarding asks for the name in English letters
+  // (names-and-fonts plan).
+  const oidcFirstName = acceptProvidedPersonalName(rawFirstName);
+  const oidcLastName = acceptProvidedPersonalName(rawLastName);
 
   const existingFirstName = existing[0]?.firstName ?? null;
   const existingLastName = existing[0]?.lastName ?? null;
