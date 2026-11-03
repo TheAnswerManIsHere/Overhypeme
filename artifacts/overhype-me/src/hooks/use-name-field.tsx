@@ -18,8 +18,41 @@ import {
   PERSONAL_NAME_MAX_GRAPHEMES,
   countGraphemes,
   filterNameInput,
+  graphemeClusters,
   truncateGraphemes,
 } from "@workspace/api-zod";
+
+/**
+ * Apply the length limit to one edit: the text before and after the span the
+ * edit touched is kept as it was, and of the text the edit added only as much
+ * as fits is taken. Cutting the whole new value instead would drop the end of
+ * the name when someone types or pastes before it (Codex, PR #838). Measured
+ * in grapheme clusters, the rule's unit. A value already over the limit (a
+ * stored name from before the rule) leaves no room: additions are refused and
+ * deletions still go through. `tail`, when known, is the text after the caret
+ * once the edit is made — the input's own word for where the edit ended — and
+ * bounds the untouched end, so a replacement that happens to share letters
+ * with what it replaced is not mistaken for a shorter edit.
+ */
+export function limitNameEdit(previous: string, next: string, max: number, tail?: string): string {
+  const before = graphemeClusters(previous);
+  const after = graphemeClusters(next);
+  if (after.length <= max) return next;
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  const tailMax = tail !== undefined && next.endsWith(tail) ? graphemeClusters(tail).length : Infinity;
+  let end = 0;
+  while (
+    end < tailMax &&
+    end < before.length - start &&
+    end < after.length - start &&
+    before[before.length - 1 - end] === after[after.length - 1 - end]
+  ) end++;
+  const kept = start + end;
+  const added = after.slice(start, after.length - end).join("");
+  const room = Math.max(0, max - kept);
+  return after.slice(0, start).join("") + truncateGraphemes(added, room) + after.slice(after.length - end).join("");
+}
 
 export interface NameFieldState {
   /** Spread onto the <input>. */
@@ -42,17 +75,19 @@ export function useNameField(value: string, onValue: (next: string) => void): Na
   const [cut, setCut] = useState(false);
 
   const apply = useCallback(
-    (raw: string) => {
+    (raw: string, caret: number | null) => {
       const { value: filtered, refused: didRefuse } = filterNameInput(raw);
+      const tail = caret === null ? undefined : filterNameInput(raw.slice(caret)).value;
       // The field stops at the limit (David, 2026-11-02): characters past it
       // are not taken, typed or pasted, so a name can never be too long to
-      // save, and the hint says why the typing stopped.
-      const next = truncateGraphemes(filtered, PERSONAL_NAME_MAX_GRAPHEMES);
+      // save, and the hint says why the typing stopped. Only the edit's own
+      // addition is cut; the rest of the name is never touched.
+      const next = limitNameEdit(value, filtered, PERSONAL_NAME_MAX_GRAPHEMES, tail);
       setRefused(didRefuse);
       setCut(next !== filtered);
       onValue(next);
     },
-    [onValue],
+    [onValue, value],
   );
 
   const onChange = useCallback(
@@ -61,7 +96,7 @@ export function useNameField(value: string, onValue: (next: string) => void): Na
         onValue(e.target.value);
         return;
       }
-      apply(e.target.value);
+      apply(e.target.value, e.target.selectionEnd);
     },
     [apply, onValue],
   );
@@ -73,7 +108,7 @@ export function useNameField(value: string, onValue: (next: string) => void): Na
   const onCompositionEnd = useCallback(
     (e: CompositionEvent<HTMLInputElement>) => {
       composing.current = false;
-      apply(e.currentTarget.value);
+      apply(e.currentTarget.value, e.currentTarget.selectionEnd);
     },
     [apply],
   );

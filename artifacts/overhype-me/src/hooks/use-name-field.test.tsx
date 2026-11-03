@@ -1,5 +1,5 @@
 /**
- * @purpose Proves name inputs apply the shared name rule on the browser side: the shared table accepts and refuses the same names as the server, a disallowed character is refused as typed or pasted with a hint, the curly apostrophe is converted, a long paste is reported rather than cut, and an open IME composition is left alone until it commits.
+ * @purpose Proves name inputs apply the shared name rule on the browser side: the shared table accepts and refuses the same names as the server, a disallowed character is refused as typed or pasted with a hint, the curly apostrophe is converted, the field stops at 50 characters and an edit anywhere in the name takes only what fits without touching the rest, and an open IME composition is left alone until it commits.
  * @subsystem accounts-auth
  */
 import { describe, expect, it } from "vitest";
@@ -88,6 +88,50 @@ describe("a name field", () => {
     expect(screen.queryByTestId("name-field-hint")).toBeNull();
     fireEvent.change(input(), { target: { value: "c".repeat(42) } });
     expect(screen.getByTestId("name-field-hint").textContent).toBe("42 of 50 characters");
+  });
+
+  // Codex, PR #838: only the edit's own addition is cut; the text around it
+  // is never touched, wherever the caret was.
+  // Codex, PR #838: only the edit's own addition is cut; the text around it
+  // is never touched, wherever the caret was. Each change event carries the
+  // caret where a browser leaves it: just after the inserted text.
+  const edit = (value: string, caret: number) =>
+    fireEvent.change(input(), { target: { value, selectionStart: caret, selectionEnd: caret } });
+
+  it("at the limit, refuses a letter typed at the start or in the middle and keeps the name", () => {
+    const full = "A" + "b".repeat(48) + "Z";
+    render(<Field initial={full} />);
+    edit("X" + full, 1);
+    expect(input().value).toBe(full);
+    edit(full.slice(0, 25) + "X" + full.slice(25), 26);
+    expect(input().value).toBe(full);
+    expect(screen.getByTestId("name-field-hint").textContent).toMatch(/up to 50 characters/);
+  });
+
+  it("takes only what fits from a paste into the middle, and keeps the end of the name", () => {
+    // 45 characters, with a composed accent beside the insertion point.
+    const name = "a".repeat(9) + "é" + "c".repeat(34) + "Z";
+    expect(name).toHaveLength(45);
+    render(<Field initial={name} />);
+    edit(name.slice(0, 10) + "ÅØßøåXYZ" + name.slice(10), 18);
+    expect(input().value).toBe(name.slice(0, 10) + "ÅØßøå" + name.slice(10));
+  });
+
+  it("frees the room of a replaced selection without touching the rest", () => {
+    const full = "Ada " + "x".repeat(42) + " Zoë";
+    render(<Field initial={full} />);
+    // "Ada" selected and replaced by "Augusta": three letters freed, so "Aug" fits.
+    edit("Augusta" + full.slice(3), 7);
+    expect(input().value).toBe("Aug" + full.slice(3));
+  });
+
+  it("lets a stored name over the limit be shortened but not lengthened", () => {
+    const long = "n".repeat(55);
+    render(<Field initial={long} />);
+    edit(long + "o", 56);
+    expect(input().value).toBe(long);
+    edit("n".repeat(54), 54);
+    expect(input().value).toBe("n".repeat(54));
   });
 
   it("leaves an open IME composition alone, then applies the rule when it commits", () => {
