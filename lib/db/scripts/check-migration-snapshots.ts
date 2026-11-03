@@ -513,6 +513,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // users.adult_verified_at and the beta_overlay grid rows. DEFERRED like
   // 0115's; source of truth: lib/db/src/schema/{facts,memes,userAiImages,auth}.ts.
   "0121_nsfw_readiness",
+
+  // Hand-written contract (Launch Phase 5, increment 7c): drops
+  // users.captcha_verified and users.nsfw_mode_enabled, read by nothing since
+  // increments 3 and 6b and declared by nothing since 7b (1231526, the
+  // published release). Source of truth: lib/db/src/schema/auth.ts.
+  "0122_drop_captcha_and_nsfw_opt_in",
 ]);
 
 interface JournalEntry {
