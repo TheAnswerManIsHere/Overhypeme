@@ -134,6 +134,40 @@ describe("a name field", () => {
     expect(input().value).toBe("n".repeat(54));
   });
 
+  // Codex, PR #838 round 2: the provisional text is published while
+  // composing, so the commit is measured against the name before it began.
+  const compose = (steps: string[], caretFor: (v: string) => number = (v) => v.length) => {
+    fireEvent.compositionStart(input());
+    for (const v of steps) edit(v, caretFor(v));
+    const last = steps[steps.length - 1]!;
+    fireEvent.compositionEnd(input(), { data: last });
+  };
+
+  it("refuses an accent composed onto the end of a name at the limit", () => {
+    const full = "a".repeat(50);
+    render(<Field initial={full} />);
+    compose([full + "e", full + "é"]);
+    expect(input().value).toBe(full);
+    expect(input().getAttribute("aria-invalid")).toBe("false");
+    expect(screen.getByTestId("name-field-hint").textContent).toMatch(/up to 50 characters/);
+  });
+
+  it("refuses an accent composed in the middle of a name at the limit, keeping the end", () => {
+    const full = "A" + "b".repeat(48) + "Z";
+    render(<Field initial={full} />);
+    compose([full.slice(0, 25) + "é" + full.slice(25)], () => 26);
+    expect(input().value).toBe(full);
+  });
+
+  it("takes only what fits from a word composed near the limit", () => {
+    const base = "c".repeat(46);
+    render(<Field initial={base} />);
+    compose([base + "h", base + "hell", base + "helloooo"]);
+    expect(input().value).toBe(base + "hell");
+    edit(base + "hel", base.length + 3);
+    expect(input().value).toBe(base + "hel");
+  });
+
   it("leaves an open IME composition alone, then applies the rule when it commits", () => {
     render(<Field />);
     fireEvent.compositionStart(input());

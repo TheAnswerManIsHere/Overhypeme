@@ -71,18 +71,23 @@ export interface NameFieldState {
 
 export function useNameField(value: string, onValue: (next: string) => void): NameFieldState {
   const composing = useRef(false);
+  // The name as it stood when an IME composition began. While composing, the
+  // provisional text is published as the value, so at commit the edit is
+  // measured against this, not against text that was never accepted (Codex,
+  // PR #838 round 2).
+  const beforeComposition = useRef<string | null>(null);
   const [refused, setRefused] = useState(false);
   const [cut, setCut] = useState(false);
 
   const apply = useCallback(
-    (raw: string, caret: number | null) => {
+    (raw: string, caret: number | null, previous: string = value) => {
       const { value: filtered, refused: didRefuse } = filterNameInput(raw);
       const tail = caret === null ? undefined : filterNameInput(raw.slice(caret)).value;
       // The field stops at the limit (David, 2026-11-02): characters past it
       // are not taken, typed or pasted, so a name can never be too long to
       // save, and the hint says why the typing stopped. Only the edit's own
       // addition is cut; the rest of the name is never touched.
-      const next = limitNameEdit(value, filtered, PERSONAL_NAME_MAX_GRAPHEMES, tail);
+      const next = limitNameEdit(previous, filtered, PERSONAL_NAME_MAX_GRAPHEMES, tail);
       setRefused(didRefuse);
       setCut(next !== filtered);
       onValue(next);
@@ -102,15 +107,18 @@ export function useNameField(value: string, onValue: (next: string) => void): Na
   );
 
   const onCompositionStart = useCallback(() => {
+    if (!composing.current) beforeComposition.current = value;
     composing.current = true;
-  }, []);
+  }, [value]);
 
   const onCompositionEnd = useCallback(
     (e: CompositionEvent<HTMLInputElement>) => {
       composing.current = false;
-      apply(e.currentTarget.value, e.currentTarget.selectionEnd);
+      const previous = beforeComposition.current ?? value;
+      beforeComposition.current = null;
+      apply(e.currentTarget.value, e.currentTarget.selectionEnd, previous);
     },
-    [apply],
+    [apply, value],
   );
 
   // Only a value the field never filtered (a pre-filled one) can be over.
