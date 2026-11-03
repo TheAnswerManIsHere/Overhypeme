@@ -472,6 +472,96 @@ A specialist accounts-auth review goes on the PR, and the inventory oracle is re
 - **P2-1 — Older names that fail the new rule.** *"We're starting from scratch. There will be no older names."* No compatibility path is built. A read-only count found no failing account name in development (26 accounts) or production (1), so nothing was fixed.
 - **P2-2 — Font coverage versus size.** *"keep the site in English only and meant to support names that can be written in English. Internationalization will be a whole effort that we can take on after launch."* The rule admits English-script names only, and no fonts are bundled (`decisions.md`, 2026-11-02).
 
+## Amendment — Phase 3, in-page actions on shared pages (2026-11-03)
+
+**Status:** draft, for David's approval. Where this section and *Increment 3* elsewhere in this plan disagree, this section wins. The Phase 3 oracle is `.agents/reviews/identity-flow-phase3/oracle-identity-flow-phase3.md`, quoted from #719 and this plan's oracle block: item 4, the plan's Increment 3 items, and #724 (David, 2026-10-18).
+
+### What changed since the plan was written (premises re-read at `origin/main` `bb8cce30`, 2026-11-03)
+
+- **Two landing pages, not three.** Video was cut for launch, so `isLandingExceptionPath` (`lib/identity.ts:30`) already matches only `/m/:slug` and `/facts/:id`.
+- **The meme page's name form is gone (Q2 is delivered).** Launch Phase 4 replaced "See it with your name" with a sign-up card (`CTABarAnonOther`), and PR #852 sent "Make this fact about me" to the standard builder on `/facts/:id/meme`. Neither landing page holds a builder of its own except one: the fact page's alternate-phrasing cards open the wizard in place (`FactDetail.tsx:90-108`, `setShowStudio(true)` at `:144`), with no identity gate.
+- **"Make it your own" already asks first.** Every remaining "make a meme" control navigates to `/facts/:id/meme` (`FactDetail.tsx:264-266`, `FactActionCluster.tsx:109-112`, `FactComments.tsx:437`, `MemePage.tsx` `openMakeAboutMe`). That route is not a landing page, so the decision asks there, and the builder waits on `builderReady` (`FactDetail.tsx:261-262`). Navigation within the app is covered the same way: the next page asks.
+- **No share action opens the native share sheet directly.** Share opens a modal (`FactActionCluster.tsx:92-95`, `MemePage.tsx` `handleCustomShare`); the native share runs from a button inside it (`MemeShareModal.tsx:94`), on its own tap. So a share that waits for an account save never loses the browser's user activation, and **Continue sharing** (Q5, #721) has nothing to fix.
+- **#724 looks unreachable now.** A signed-out visitor sees `GuestPhotoSignupPanel` in place of a photo source (`Step2Image.tsx:253-254`), "Make my meme" is disabled until a source is selected (`:292`), and `buildSaveMemePayload` returns null without one (`:179-182`), so no create request carrying identity can be sent. Video creation was cut. Unable to verify by running it; the regression test below settles it.
+- **#735's paths are gone.** The builder it names was deleted in PR #852; Phase 2 made the meme schema accept any pronoun value the account accepts, and the wizard reports a failed save in place (`Step2Image.tsx:205-211`).
+
+### What remains: the in-page action inventory
+
+The class is: **every handler on a landing page that a visitor can trigger and that is not an in-app navigation to a page that itself asks.** Navigations to such pages need no wiring, because the destination asks. The mechanical oracle, run at `bb8cce30` over the two pages and every component they render:
+
+`git grep -nE "onClick=|onChange=|onSubmit=|onSelect=|window\.location|window\.open|setLocation\(" -- artifacts/overhype-me/src/pages/MemePage.tsx artifacts/overhype-me/src/pages/FactDetail.tsx artifacts/overhype-me/src/pages/memePage artifacts/overhype-me/src/components/facts artifacts/overhype-me/src/components/memes artifacts/overhype-me/src/components/share artifacts/overhype-me/src/components/ShareModal.tsx`
+
+The hit list is the scope; it is re-run at the increment's head and reconciled in the PR body. At `bb8cce30` it classifies as:
+
+| Page | Action | Today | Phase 3 |
+|---|---|---|---|
+| fact | share (the fact card's cluster) | opens the share modal | through the operation |
+| fact | comment button (scroll to comments) | scrolls | through the operation |
+| fact | gallery tabs, sort select | change the gallery | through the operation |
+| fact | vote, on the main and the alternate cards | signed out: to `/login` | see Question P3-1 |
+| fact | comment form submit, its sign-in link | signed out: to `/login` | see Question P3-1 |
+| fact | alternate card's "Make meme" | opens the wizard in place, ungated | navigates to `/facts/<alternate>/meme`, like every other "make a meme" |
+| fact | "Make a meme of this" (×3), meme thumbnails, related facts, parent link | in-app navigation | none: the destination asks |
+| fact | own meme delete (Mine tab) | signed in only | through the operation |
+| meme | heart | signed out: to `/login` | see Question P3-1 |
+| meme | signed-out "Sign up free", tier-ladder sign-in link | full-page or in-app to sign-up | see Question P3-1 |
+| meme | own download, own custom share | signed in only | through the operation |
+| meme | "Make this fact about me", "Browse more facts", "View full fact", back links | in-app navigation | none: the destination asks |
+
+A signed-in visitor on a landing page is asked only when the account is set up and incomplete (Phase 2's decision), so for most rows the signed-out visitor is the case that matters; the operation treats both the same.
+
+### Product intent (Phase 3)
+
+1. On `/m/:slug` and `/facts/:id`, the content shows on arrival with no prompt (unchanged).
+2. A visitor without a complete identity who takes an in-page action there is asked first, through the same welcome sheet, and once they save, the action runs exactly once, as if they had just tapped it.
+3. Every "make a meme" control on a landing page goes to the one builder's route, which asks first and then opens the builder with the saved identity.
+4. No create request carrying a signed-out visitor's identity can leave the browser (#724).
+
+### Must not change (adds to the plan's list)
+
+- The landing exception itself: arrival never asks, and leaving within the app asks on the next page, as Phase 1 built.
+- The welcome sheet stays the one capture surface and cannot be dismissed without saving.
+- Signed in, the account wins; an account not yet set up is never asked by the sheet (Phase 2).
+- One meme builder, reached by its route (David, 2026-11-03, #851).
+
+### Settled decisions (Phase 3)
+
+- **One operation in the identity module: `askBefore(action)`.** If the identity is complete, the action runs now. Otherwise the module holds it as the one pending action, the decision asks even on the landing page while it is pending, and when the identity becomes complete (signed out: the browser save; signed in: the canonical re-read Phase 2 built) the action runs exactly once. A newer action replaces a pending one. A location change discards it, since the visitor is no longer where the action made sense. A failed account save keeps it, with the sheet's retry (Phase 2). Pages call the operation; none of them decides whether to ask.
+- **The decision gains one input:** an action is pending. `shouldAskForIdentity` lifts the landing exception while it holds, and nothing else changes in it.
+- **Each wired site is explicit** (the plan's settled decision, kept): the handler wraps its own effect in `askBefore`. No generic click listener.
+- **The alternate card's in-place builder is replaced by navigation** to `/facts/<alternate id>/meme`, so the landing page holds no builder and the in-place gating item has nothing left to gate. This follows the one-builder decision (#851).
+- **Continue sharing is not built, and #721 closes when this merges.** The requirement it served, that a share asked-for during a slow save still happens, holds without it, because the operation opens the share modal and the modal's own buttons start the native share on a fresh tap.
+- **#724 is pinned by a test, not new code:** a signed-out visitor on `/facts/:id/meme` cannot cause a request to `/api/memes`. If the test shows it can, the fix is the issue's own: check sign-in before the request. #724 closes when this merges. #735 closes as resolved, with the evidence above quoted in the PR.
+- **App-controlled departures:** the only one on a landing page is the signed-out "Sign up free" (`MemePage.tsx` `handleAnonMake`, a full-page navigation); it is a P3-1 row. The share modal's own outbound links run inside the modal, after the share action has already asked.
+
+### Testing (Phase 3)
+
+- **Unit, the operation:** a complete identity runs the action at once; an incomplete one holds it, and it runs exactly once on save; a newer action replaces it; a location change discards it; a failed account save keeps it until the retry succeeds; signed in, it runs after the canonical re-read, not before.
+- **Unit, the decision:** the landing page asks while an action is pending and not otherwise (added rows in the existing table).
+- **Component, per wired family:** share, comment scroll, gallery tab, sort, delete, own download and own share each call `askBefore` and run once after a save; the alternate card's "Make meme" navigates to its builder route.
+- **Browser (described-screens suite), signed out with no identity:**
+  - `/facts/:id` shows the fact with no sheet; tapping share shows the sheet; saving opens the share modal.
+  - Changing the sort shows the sheet; saving applies the new sort.
+  - An alternate card's "Make meme" lands on `/facts/<alternate>/meme`, which asks, and the builder then holds the saved name and pronouns.
+  - `/m/:slug` shows the meme with no sheet; the P3-1 rows behave as David answers.
+  - No request to `/api/memes` from a signed-out builder (#724).
+- **Inventory:** the oracle's hit list goes in the PR body, each hit classified as wired, navigation, or signed-in only.
+
+### Implementation steps (replaces *Implementation Steps* item 3)
+
+Phase 3 is one increment, on a fresh branch off `main`:
+1. The operation and the decision's new input, with their unit tests.
+2. The wiring, site by site from the inventory, with component tests.
+3. The alternate card's navigation.
+4. The #724 test.
+5. The browser tests, and the inventory re-run in the PR body.
+
+### Questions for David (Phase 3)
+
+- **P3-1 — Actions that go to sign-in.** On a shared page, vote, heart, posting a comment, and "Sign up free" send a signed-out visitor to sign-in or sign-up. Should they ask for name and pronouns first, then go?
+  1. **Go straight to sign-in, without asking** (recommended). Sign-in and sign-up are already pages the sheet never opens on, and onboarding then asks a new account for its name and pronouns once. A returning visitor on a new device signing in would otherwise be asked a name the account already has, which the account then overrides. Cost: the moment of capture moves to onboarding for these taps, so a visitor who abandons sign-in leaves without a name in the browser.
+  2. **Ask first, then go.** Matches "pretty much any action" literally, and onboarding then shows the name pre-filled. Cost: a returning account holder is asked for a name before signing in, and that answer is discarded when the account wins.
+
 ## Risks and Mitigations
 
 - **The sheet blocks a visitor who arrived to do one thing.** Intended. Bounded by the suppressed pages and the landing exception.
