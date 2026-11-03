@@ -63,16 +63,17 @@ describe("parseCustom", () => {
     });
   });
 
-  it("recognises 'p' as plural and any other tail as singular", () => {
+  // One parser for the browser and the server (splitCustomPronounSet): exactly
+  // six parts, the sixth `s` or `p`. Until 2026-11-02 the browser accepted any
+  // tail and extra parts, and could read a set the server refused.
+  it("recognises 'p' as plural and 's' as singular, and refuses any other marker", () => {
     expect(parseCustom("they|them|their|theirs|themself|p")?.plural).toBe(true);
     expect(parseCustom("they|them|their|theirs|themself|s")?.plural).toBe(false);
-    expect(parseCustom("they|them|their|theirs|themself|x")?.plural).toBe(false);
+    expect(parseCustom("they|them|their|theirs|themself|x")).toBeNull();
   });
 
-  it("tolerates trailing extra segments by ignoring them", () => {
-    expect(parseCustom("xe|xem|xyr|xyrs|xemself|s|extra|stuff")).toEqual({
-      subj: "xe", obj: "xem", poss: "xyr", possPro: "xyrs", refl: "xemself", plural: false,
-    });
+  it("refuses a set with extra segments, as the server does", () => {
+    expect(parseCustom("xe|xem|xyr|xyrs|xemself|s|extra|stuff")).toBeNull();
   });
 
   it("round-trips with serializeCustom", () => {
