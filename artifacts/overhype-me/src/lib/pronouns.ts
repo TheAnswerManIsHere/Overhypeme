@@ -4,6 +4,7 @@
  * @purpose The browser's pronoun-set model: the presets, the default, and serialization of custom five-form sets with their verb plurality.
  * @subsystem token-rendering
  */
+import { splitCustomPronounSet } from "@workspace/api-zod";
 export const PRONOUN_PRESETS = ["he/him", "she/her", "they/them"] as const;
 
 /** Default pronouns used when no preference has been set. */
@@ -33,19 +34,14 @@ export function serializeCustom(p: CustomPronounSet): string {
   return `${p.subj}|${p.obj}|${p.poss}|${p.possPro}|${p.refl}|${p.plural ? "p" : "s"}`;
 }
 
-/** Parse a pipe-delimited custom pronoun string. Returns null if not valid custom format. */
+/**
+ * Parse a pipe-delimited custom pronoun string; null if it is not that format.
+ * The one shared parser (`splitCustomPronounSet`, `@workspace/api-zod`), so
+ * the browser and the server read a stored set the same way: exactly six
+ * parts, the sixth `s` or `p`, forms kept as stored, empty ones included.
+ */
 export function parseCustom(value: string): CustomPronounSet | null {
-  if (!value || !value.includes("|")) return null;
-  const parts = value.split("|");
-  if (parts.length < 6) return null;
-  return {
-    subj:    parts[0] ?? "",
-    obj:     parts[1] ?? "",
-    poss:    parts[2] ?? "",
-    possPro: parts[3] ?? "",
-    refl:    parts[4] ?? "",
-    plural:  parts[5] === "p",
-  };
+  return splitCustomPronounSet(value);
 }
 
 /** True when the stored value is the pipe-delimited custom format. */
