@@ -88,7 +88,11 @@ function applyFakeGoogleEnv(): () => void {
 
 // Google's ID token carries `email_verified` as a boolean; a real sign-in has
 // it true. `emailVerified` lets a test send an unverified or absent claim.
-function makeFakeTokens(email: string, emailVerified: boolean | "absent" = true): TokenEndpointResponse & TokenEndpointResponseHelpers {
+function makeFakeTokens(
+  email: string,
+  emailVerified: boolean | "absent" = true,
+  names: { given: string; family: string } = { given: "Test", family: "User" },
+): TokenEndpointResponse & TokenEndpointResponseHelpers {
   return {
     access_token: "fake-access-token",
     token_type:   "bearer",
@@ -97,8 +101,8 @@ function makeFakeTokens(email: string, emailVerified: boolean | "absent" = true)
         sub:         `google|${randomUUID()}`,
         email,
         ...(emailVerified === "absent" ? {} : { email_verified: emailVerified }),
-        given_name:  "Test",
-        family_name: "User",
+        given_name:  names.given,
+        family_name: names.family,
         picture:     null,
         aud:         "fake-google-client-id",
         iss:         "https://accounts.google.com",
@@ -473,5 +477,32 @@ describe("GET /api/callback/google — the provider's verified-email claim", () 
     await db.insert(usersTable).values({ email: verified, emailVerifiedAt: earlier });
     await signIn(verified, true);
     assert.equal((await row(verified))?.emailVerifiedAt?.toISOString(), earlier.toISOString());
+  });
+
+  // Names-and-fonts plan: a provider name is stored whole or not at all, and a
+  // later sign-in never replaces a stored name.
+  it("stores a provider name only whole, and never overwrites a stored one", async () => {
+    const restoreEnv = applyFakeGoogleEnv();
+    _setClientDiscoveryForTest(makeFakeDiscovery());
+    const email = `${USER_PREFIX}${randomUUID()}@test.local`;
+    const signIn = async (given: string, family: string) => {
+      _setAuthCodeGrantForTest(async () => makeFakeTokens(email, true, { given, family }));
+      const state = randomUUID();
+      await _storePendingStateForTest(state, { codeVerifier: "v", nonce: "n", returnTo: "/", isPopup: false });
+      const res = await request(makeApp()).get("/api/callback/google").query({ code: "c", state });
+      assert.equal(res.status, 302, `sign-in proceeds (${res.status})`);
+      const [row] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+      return row!;
+    };
+    try {
+      const first = await signIn("Иван", "Nguyễn");
+      assert.equal(first.firstName, null, "a name outside the rule is not stored, not garbled");
+      assert.equal(first.lastName, "Nguyễn", "a name the rule admits is kept whole");
+      const again = await signIn("Ada", "Lovelace");
+      assert.equal(again.firstName, "Ada", "a missing name can be filled by a later sign-in");
+      assert.equal(again.lastName, "Nguyễn", "a stored name is never overwritten");
+    } finally {
+      restoreEnv();
+    }
   });
 });

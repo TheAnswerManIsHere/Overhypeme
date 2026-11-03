@@ -465,7 +465,9 @@ export default function Onboard() {
 
         <section className="space-y-2" aria-labelledby="onboard-name">
           <h2 id="onboard-name" className="text-sm font-semibold text-foreground">Your name</h2>
-          <p className="text-xs text-muted-foreground">Every fact uses this name. You can change it any time.</p>
+          <p className="text-xs text-muted-foreground" data-testid="onboard-name-guidance">
+            Write your name in English letters — the way you'd like it on your memes. Every fact uses this name, and you can change it any time.
+          </p>
           <input
             aria-labelledby="onboard-name"
             {...nameField.inputProps}

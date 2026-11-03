@@ -104,6 +104,13 @@ describe("Onboard screen", () => {
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
   });
 
+  // Names-and-fonts plan: a Google or Apple name the rule can't hold is not
+  // stored, so the name field asks for it in English letters.
+  it("asks for the name in English letters", async () => {
+    render(<Onboard />);
+    expect((await screen.findByTestId("onboard-name-guidance")).textContent).toMatch(/Write your name in English letters/);
+  });
+
   it("a date under 13 shows the refusal and Finish stays disabled", async () => {
     render(<Onboard />);
     const year = await screen.findByLabelText("Year");
