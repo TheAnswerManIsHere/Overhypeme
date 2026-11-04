@@ -53,7 +53,9 @@ do not stop at the first hit, since David wants the whole list once.
 5. **Close-out this session owes and has not paid** (`claude-core.md`,
    *Close-out is mine, end to end*): a merge without its Repl sync, an unrun
    Post-merge verification, the harvest-notes comment, the merge report or
-   build report not delivered, or a workstream issue whose State of Play,
+   build report not delivered, in KITT finished work that changed `core/`
+   and has not been delivered by `sync-fleet` (KITT's `CLAUDE.md`,
+   *Delivering the payload*), or a workstream issue whose State of Play,
    or labels no longer match what happened. Enumerated
    from this session's own record; the issue is read only if the session
    touched one.
