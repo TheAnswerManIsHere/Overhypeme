@@ -103,23 +103,25 @@ export function LivePreview({
     const rafId = requestAnimationFrame(() => {
       canvas.width = dims.w;
       canvas.height = dims.h;
-      // The caption and the watermark are drawn only once both faces have
-      // loaded, so the preview never shows a fallback face the saved meme
-      // would not have; until then, the photo alone.
-      const fontsReady = fontStatus === "ready" && watermarkStatus === "ready";
+      // The caption is drawn only once its face has loaded, and the watermark
+      // only once its own has, each independently, so the preview never shows a
+      // fallback face the saved meme would not have, and a slow or failed
+      // watermark face never hides the caption (#872).
+      const captionReady = fontStatus === "ready";
+      const watermarkReady = watermarkStatus === "ready";
       const fontStyle = textOptions.italic ? "italic" : "normal";
       drawMeme(ctx, {
         image: bgImage,
         drawImage: (image, x, y, w, h) => ctx.drawImage(image, x, y, w, h),
         aspectRatio,
         framingOffset: framingOffset ? { x: framingOffset.x, y: framingOffset.y } : null,
-        caption: fontsReady
+        caption: captionReady
           ? memeCaption(factText, textOptions, name || "___", pronouns || "they/them")
           : { mode: "single", text: [] },
         style: textOptions,
         captionFont: (size) => `${fontStyle} ${captionFont.weight} ${size}px ${captionFontStack(captionFont)}`,
         watermarkFont: (size) => `${watermarkFont.weight} ${size}px ${captionFontStack(watermarkFont)}`,
-        watermark: fontsReady,
+        watermark: watermarkReady,
       });
     });
     return () => cancelAnimationFrame(rafId);

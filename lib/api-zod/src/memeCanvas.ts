@@ -174,7 +174,50 @@ export function captionText(segments: CaptionSegment[]): string {
   return segments.map((s) => s.text).join("");
 }
 
-type Token = { word: string; isName: boolean };
+/**
+ * Where a caption line's alphabetic baseline sits below the line's vertical
+ * centre, as a fraction of the font size. Text is placed on the alphabetic
+ * baseline because browsers and the server's canvas disagree about where
+ * `textBaseline = "middle"` is (measured 2026-11-04: Chromium drew it 7–8 px
+ * higher at 50 px than @napi-rs/canvas, while alphabetic text agreed), and font
+ * metrics are no help: Chromium rounds them to whole pixels. A fixed fraction
+ * is the same arithmetic on both. 0.42 centres Anton's capitals on the line.
+ */
+export const CAPTION_BASELINE_EM = 0.42;
+
+/** One piece of a word, in one colour. */
+export type CaptionPiece = { text: string; isName: boolean };
+/** A word: what wrapping and spacing work on. Its pieces join with no space between them. */
+export type CaptionWord = { text: string; pieces: CaptionPiece[] };
+
+/**
+ * The caption's words, split at whitespace only. A run boundary inside a word
+ * (the name followed by a full stop, a comma, a possessive) keeps the pieces
+ * together, so "David." is one word with the name piece coloured (#872).
+ */
+export function captionWords(segments: CaptionSegment[], allCaps: boolean): CaptionWord[] {
+  const words: CaptionWord[] = [];
+  let current: CaptionWord | null = null;
+  for (const seg of segments) {
+    const text = allCaps ? seg.text.toUpperCase() : seg.text;
+    for (const part of text.split(/(\s+)/)) {
+      if (!part) continue;
+      if (/^\s+$/.test(part)) {
+        current = null;
+        continue;
+      }
+      if (!current) {
+        current = { text: "", pieces: [] };
+        words.push(current);
+      }
+      current.text += part;
+      const last = current.pieces[current.pieces.length - 1];
+      if (last && last.isName === seg.isName) last.text += part;
+      else current.pieces.push({ text: part, isName: seg.isName });
+    }
+  }
+  return words;
+}
 
 /** Draws a meme into `ctx`, in the logical canvas of `input.aspectRatio`. */
 export function drawMeme<Img extends { width: number; height: number }>(
@@ -215,23 +258,14 @@ export function drawMeme<Img extends { width: number; height: number }>(
     ctx.shadowOffsetY = 0;
   }
 
-  const tokensOf = (segments: CaptionSegment[]): Token[] => {
-    const tokens: Token[] = [];
-    for (const seg of segments) {
-      const raw = allCaps ? seg.text.toUpperCase() : seg.text;
-      for (const w of raw.split(/\s+/).filter(Boolean)) tokens.push({ word: w, isName: seg.isName });
-    }
-    return tokens;
-  };
-
-  const wrap = (tokens: Token[], maxWidth: number): Token[][] => {
-    const lines: Token[][] = [];
-    let current: Token[] = [];
-    for (const token of tokens) {
-      const candidate = [...current, token];
-      if (ctx.measureText(candidate.map((t) => t.word).join(" ")).width > maxWidth && current.length > 0) {
+  const wrap = (words: CaptionWord[], maxWidth: number): CaptionWord[][] => {
+    const lines: CaptionWord[][] = [];
+    let current: CaptionWord[] = [];
+    for (const word of words) {
+      const candidate = [...current, word];
+      if (ctx.measureText(candidate.map((w) => w.text).join(" ")).width > maxWidth && current.length > 0) {
         lines.push(current);
-        current = [token];
+        current = [word];
       } else {
         current = candidate;
       }
@@ -242,21 +276,24 @@ export function drawMeme<Img extends { width: number; height: number }>(
 
   // Each block is centred horizontally, its vertical midpoint at yPct% of the height.
   const drawBlock = (segments: CaptionSegment[], yPct: number) => {
-    const lines = wrap(tokensOf(segments), dims.w * 0.92);
+    const lines = wrap(captionWords(segments, allCaps), dims.w * 0.92);
     if (lines.length === 0) return;
     const lineH = fontSize * 1.1;
-    const startY = (yPct / 100) * dims.h - (lines.length * lineH) / 2 + fontSize / 2;
-    ctx.textBaseline = "middle";
+    const firstCentre = (yPct / 100) * dims.h - (lines.length * lineH) / 2 + fontSize / 2;
+    ctx.textBaseline = "alphabetic";
     ctx.textAlign = "left";
     lines.forEach((line, li) => {
-      const y = startY + li * lineH;
-      let x = (dims.w - ctx.measureText(line.map((t) => t.word).join(" ")).width) / 2;
-      line.forEach(({ word, isName }, ti) => {
-        const text = ti < line.length - 1 ? word + " " : word;
-        ctx.fillStyle = isName ? MEME_NAME_COLOR : textColor;
-        if (effect === "outline") ctx.strokeText(text, x, y);
-        ctx.fillText(text, x, y);
-        x += ctx.measureText(text).width;
+      const y = firstCentre + li * lineH + fontSize * CAPTION_BASELINE_EM;
+      let x = (dims.w - ctx.measureText(line.map((w) => w.text).join(" ")).width) / 2;
+      line.forEach((word, wi) => {
+        word.pieces.forEach((piece, pi) => {
+          const lastOfWord = pi === word.pieces.length - 1;
+          const text = lastOfWord && wi < line.length - 1 ? piece.text + " " : piece.text;
+          ctx.fillStyle = piece.isName ? MEME_NAME_COLOR : textColor;
+          if (effect === "outline") ctx.strokeText(text, x, y);
+          ctx.fillText(text, x, y);
+          x += ctx.measureText(text).width;
+        });
       });
     });
   };

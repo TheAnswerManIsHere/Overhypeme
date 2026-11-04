@@ -16,6 +16,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import sharp from "sharp";
 import {
   MEME_CANVAS_DIMS,
+  MEME_NAME_COLOR,
   WATERMARK_FONT_ID,
   captionFontById,
   captionFontStack,
@@ -173,4 +174,60 @@ describe("#870: caption runs are the renderer's words", () => {
       });
     }
   }
+});
+
+/** A canvas that records what is drawn, with a fixed-width "font" so layout is predictable. */
+function recordingContext() {
+  const drawn: { text: string; fill: unknown; baseline: string; y: number }[] = [];
+  const ctx = {
+    fillStyle: "" as unknown, strokeStyle: "" as unknown, lineWidth: 0, font: "", textAlign: "", textBaseline: "",
+    shadowColor: "", shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 0,
+    fillRect() {}, strokeText() {}, save() {}, restore() {},
+    fillText(text: string, _x: number, y: number) { drawn.push({ text, fill: ctx.fillStyle, baseline: ctx.textBaseline, y }); },
+    measureText(text: string) { return { width: text.length * 10 }; },
+  };
+  return { ctx, drawn };
+}
+
+describe("#872: punctuation stays attached to the name", () => {
+  const cases: [string, string][] = [
+    ["Nobody beats {NAME}.", "NOBODY BEATS DAVID."],
+    ["{NAME}, legend.", "DAVID, LEGEND."],
+    ["{NAME_POSSESSIVE} dog bit {OBJ}.", "DAVID'S DOG BIT HIM."],
+    ["{NAME}-sized.", "DAVID-SIZED."],
+    ["(\"{NAME}\") wins.", "(\"DAVID\") WINS."],
+  ];
+  for (const [template, expected] of cases) {
+    it(`draws "${expected}" with the name in its colour and nothing else`, () => {
+      const { ctx, drawn } = recordingContext();
+      drawMeme(ctx as unknown as MemeCanvasContext, {
+        image: null, drawImage: () => {}, aspectRatio: "landscape",
+        caption: memeCaption(template, undefined, "David", "he/him"), style: {},
+        captionFont: () => "x", watermarkFont: () => "x", watermark: false,
+      });
+      assert.equal(drawn.map((d) => d.text).join(""), expected);
+      for (const d of drawn) {
+        assert.equal(d.baseline, "alphabetic");
+        const isNamePiece = ["DAVID", "DAVID'S"].includes(d.text.trim());
+        assert.equal(d.fill === MEME_NAME_COLOR, isNamePiece, `${d.text} coloured ${String(d.fill)}`);
+      }
+    });
+  }
+
+  it("wraps the name and its full stop together", () => {
+    const { ctx, drawn } = recordingContext();
+    // At 10 px a character a line holds 117 characters (1177.6 px): the line
+    // fits "<111 a's> David" but not "<111 a's> David.", so the word must move whole.
+    const template = `${"a".repeat(111)} {NAME}.`;
+    drawMeme(ctx as unknown as MemeCanvasContext, {
+      image: null, drawImage: () => {}, aspectRatio: "landscape",
+      caption: memeCaption(template, undefined, "David", "he/him"), style: { allCaps: false },
+      captionFont: () => "x", watermarkFont: () => "x", watermark: false,
+    });
+    const name = drawn.find((d) => d.text === "David")!;
+    const stop = drawn.find((d) => d.text === ".")!;
+    const first = drawn[0]!;
+    assert.equal(stop.y, name.y, "the full stop is on the name's line");
+    assert.notEqual(name.y, first.y, "the name's word wrapped to the next line");
+  });
 });

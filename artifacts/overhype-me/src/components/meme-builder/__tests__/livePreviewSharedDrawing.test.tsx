@@ -4,7 +4,7 @@
  * pixel-for-pixel in the api-server's `memePreviewParity.test.ts`, given the
  * inputs this component passes; this test pins those inputs.
  *
- * @purpose Proves LivePreview draws through the shared drawMeme with the recipe's caption runs, aspect ratio, pan, style and catalogue font strings, and draws the caption and watermark only once both faces have loaded.
+ * @purpose Proves LivePreview draws through the shared drawMeme with the recipe's caption runs, aspect ratio, pan, style and catalogue font strings, and draws the caption once its face has loaded and the watermark once its own has, independently.
  * @subsystem meme-studio
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,7 +39,7 @@ afterEach(() => vi.unstubAllGlobals());
 const textOptions = { topText: "{NAME} doesn't wear a watch.", bottomText: "{Subj} decides.", topY: 20, fontFamily: "block" };
 
 describe("#870: LivePreview draws through the shared drawing", () => {
-  it("passes the recipe, and holds the caption and watermark until both faces load", async () => {
+  it("passes the recipe, and draws the caption once its face loads and the watermark once its own does", async () => {
     render(
       <LivePreview factText="{NAME} doesn't wear a watch. {Subj} decides." name="David Franklin" pronouns="he/him"
         backgroundUrl={null} textOptions={textOptions} aspectRatio="portrait" framingOffset={{ x: 12, y: -30 }} />,
@@ -48,7 +48,13 @@ describe("#870: LivePreview draws through the shared drawing", () => {
     expect(before.watermark).toBe(false);
     expect(before.caption).toEqual({ mode: "single", text: [] });
 
-    await act(async () => { for (const f of faces) f.resolve(); });
+    // The caption face alone: the caption draws, the watermark waits (#872).
+    await act(async () => faces.find((f) => f.family === "OH Block")!.resolve());
+    const captionOnly = drawMeme.mock.calls.at(-1)![1];
+    expect(captionOnly.watermark).toBe(false);
+    expect(captionOnly.caption.mode).toBe("split");
+
+    await act(async () => faces.find((f) => f.family === "OH Sans")!.resolve());
     expect(faces.map((f) => f.family).sort()).toEqual(["OH Block", "OH Sans"]);
 
     const input = drawMeme.mock.calls.at(-1)![1];
