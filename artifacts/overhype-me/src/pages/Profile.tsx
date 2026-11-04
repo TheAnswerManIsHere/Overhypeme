@@ -17,6 +17,7 @@ import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { uploadUserImage } from "@/lib/image-upload";
+import { shouldAskForRealPhoto } from "@/lib/profile-photo";
 import { STRIPE_UNVERIFIED_CODE, STRIPE_UNVERIFIED_CONFIRM_MESSAGE } from "@workspace/api-zod";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -163,9 +164,9 @@ export default function Profile() {
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
   const [forgetMeLoading, setForgetMeLoading] = useState(false);
 
-  // Photo nudge: dismissible per session for users who haven't confirmed a real
-  // photo (avatarSource !== "photo"). OAuth users with a provider photo URL
-  // still see the nudge — onboarding is what marks the photo as user-confirmed.
+  // Photo nudge: dismissible per session for users who haven't uploaded a real
+  // photo (shouldAskForRealPhoto, #848). A provider picture from Google or
+  // Apple alone still asks.
   const [photoNudgeDismissed, setPhotoNudgeDismissed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -756,18 +757,18 @@ export default function Profile() {
   const hasCustomPhoto = Boolean(profile.profileImageUrl);
   const hasDisplayName = Boolean(profile.displayName && profile.displayName.trim().length > 0);
   const identityIncomplete = !hasCustomPhoto || !hasDisplayName;
-  const photoConfirmed = (profile.avatarSource ?? "avatar") === "photo";
-  const showPhotoNudge = !photoConfirmed && !photoNudgeDismissed;
+  const showPhotoNudge = shouldAskForRealPhoto(profile) && !photoNudgeDismissed;
 
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-12 md:py-20">
 
         {/* ── Real-photo nudge ────────────────────────────────────────
-            Persistent banner for users who haven't confirmed a real photo
-            (avatarSource !== "photo"). Dismissible per session. OAuth users
-            with a provider photo URL still see it — onboarding marks the
-            photo as user-confirmed, not the OAuth provider. */}
+            Persistent banner for users who haven't uploaded a real photo
+            (shouldAskForRealPhoto, #848: an upload counts even when the
+            membership keeps the generated avatar as the picture).
+            Dismissible per session. A Google or Apple picture alone still
+            asks. */}
         {showPhotoNudge && (
           <div className="flex items-start justify-between gap-3 bg-primary/10 border-2 border-primary/40 rounded-sm p-4 mb-6">
             <div className="flex items-start gap-3 min-w-0">
