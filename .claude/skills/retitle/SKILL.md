@@ -95,6 +95,6 @@ keep working on. Never list both with "and".
 
 `Renamed: <old title> → <new title>`, or `Kept: <title>` when it already
 fit. Nothing else about the skill. When David invoked it, this is his
-answer, inside the turn's usual footer. When I ran it unprompted, the line
+answer, as the turn's plain-English summary (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2). When I ran it unprompted, the line
 sits in the hand-back of the turn it happened in, with no 👀 FYI: a title
 is trivially reversible and holds nothing up.

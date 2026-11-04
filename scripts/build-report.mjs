@@ -10,7 +10,7 @@
  * issue, every pull request and its review rounds, the commits) and writes an
  * answer in fixed sections, in a fixed order, so David can scan it: what was
  * built, the decisions taken on the builder's recommendation with their undo,
- * the ramifications, what ships unfixed, the spend, and where the plan stands.
+ * the ramifications, what ships unfixed, and where the plan stands.
  *
  * WHAT SURVIVES FROM THE TRANSLATION, AND WHY IT IS MACHINERY. One property:
  * the role's account reaches David unedited. `chatReport` composes the message
@@ -38,7 +38,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { claudeAlias, modelTier, validate, assertSchemaSupported, repoSlug, PAID_RUN_LEDGER_REPO } from "./machinery.mjs";
+import { claudeAlias, modelTier, validate, assertSchemaSupported, repoSlug } from "./machinery.mjs";
 
 export const REVIEWS_DIR = ".agents/reviews";
 export const ROLE = "fable-build-report";
@@ -141,8 +141,8 @@ export function dispatchModel(io = undefined) {
  * read and what to write; this carries where to look and the schema.
  *
  * A UNIT IS AN ISSUE PLUS ITS EVIDENCE. The workstream issue is required: it
- * holds the plan or agreed scope, the State of Play, the decisions line and
- * the spend line, and a report without it cannot say where the plan stands.
+ * holds the plan or agreed scope, the State of Play and the decisions line,
+ * and a report without it cannot say where the plan stands.
  * The evidence is one or more pull requests, or a prototype branch with the
  * head the evidence stops at -- the branch regime opens no pull request, and
  * the translation this replaced could not report on one for exactly that
@@ -167,7 +167,7 @@ export function buildBrief({
   if (privateSource !== null && (typeof privateSource !== "string" || privateSource.trim() === "")) {
     throw new Error(
       "build-report: the private source is empty. It is the text David relayed from the workstream's draft " +
-        "Project item -- the plan, the decisions and the spend line -- and an empty one would leave the report " +
+        "Project item -- the plan and the decisions -- and an empty one would leave the report " +
         "with nothing to hold the work against.",
     );
   }
@@ -186,14 +186,14 @@ export function buildBrief({
   }
   if (privatePath === true && privateSource === null) {
     // THE PRIVATE FLAG ALONE IS NOT A ROUTE. On the private path the issue,
-    // if there is one, is sanitized: the plan, the decisions and the spend
-    // line are on the draft Project item, so a brief built from the flag
+    // if there is one, is sanitized: the plan and the decisions are on the
+    // draft Project item, so a brief built from the flag
     // would tell the role to read them from an issue that does not hold
     // them, and the report would claim a check it never made (#231's build
     // report). The relay is the only source of that side.
     throw new Error(
-      "build-report: --private yes was given without a private source. On the private path the plan, the " +
-        "decisions and the spend line live on the draft Project item, not the issue: ask David to paste its " +
+      "build-report: --private yes was given without a private source. On the private path the plan and the " +
+        "decisions live on the draft Project item, not the issue: ask David to paste its " +
         "text, write it to your scratchpad, and pass --private-source <file> (which marks the unit private by itself).",
     );
   }
@@ -281,8 +281,8 @@ export function buildBrief({
   if (!noIssue) {
     lines.push(
       privateSource === null
-        ? `- **Workstream issue:** ${issueRef(issue, issueTitle)} — the plan or agreed scope, the State of Play, the decisions taken on recommendation and the \`Spend so far\` line live here.`
-        : `- **Workstream issue:** ${issueRef(issue, issueTitle)} — public, and sanitized: it carries labels and tracking only. The plan, the decisions and the spend line are in the private source below.`,
+        ? `- **Workstream issue:** ${issueRef(issue, issueTitle)} — the plan or agreed scope, the State of Play, and the decisions taken on recommendation live here.`
+        : `- **Workstream issue:** ${issueRef(issue, issueTitle)} — public, and sanitized: it carries labels and tracking only. The plan and the decisions are in the private source below.`,
     );
   }
   if (prs.length) {
@@ -295,12 +295,11 @@ export function buildBrief({
   }
   if (privateSource !== null) {
     lines.push(
-      `- **Private workstream${privateRef ? ` (${privateRef})` : ""}:** its plan, its decisions taken on recommendation and its \`Spend so far\` line live on a draft Project item no tool can read. David relayed its text and the builder quotes it below, verbatim. Read the plan, the decisions and the spend from it, and fetch no issue for them. It is David's own record relayed through the builder: weigh it as his, and say in \`took_on_trust\` that you could not check the relay against the item. Your answer is delivered in chat only, so it may refer to what the source says.`,
+      `- **Private workstream${privateRef ? ` (${privateRef})` : ""}:** its plan and its decisions taken on recommendation live on a draft Project item no tool can read. David relayed its text and the builder quotes it below, verbatim. Read the plan and the decisions from it, and fetch no issue for them. It is David's own record relayed through the builder: weigh it as his, and say in \`took_on_trust\` that you could not check the relay against the item. Your answer is delivered in chat only, so it may refer to what the source says.`,
     );
   }
   lines.push(
     `- **Until:** ${until} — activity after this moment belongs to a later report.`,
-    `- **Paid-run ledger:** the open issue labelled \`paid-ai-ledger\` in \`${PAID_RUN_LEDGER_REPO}\` — the fleet's one ledger, one comment per paid AI run in any product, since the weekly budget is one total across every product. Total every comment from the seven days before **Until**, whichever product it names. If there is no such issue, \`paid_runs_this_week\` is null.`,
     "",
     "## Your answer",
     "",
@@ -396,7 +395,7 @@ export function evidenceLine(coords) {
   const parts = [
     coords.issue ? `workstream ${issueRef(coords.issue, coords.issueTitle)}` : `private workstream${coords.privateRef ? ` (${coords.privateRef})` : ""}`,
   ];
-  if (coords.privateSource) parts.push("plan, decisions and spend from the private source David relayed");
+  if (coords.privateSource) parts.push("plan and decisions from the private source David relayed");
   if (Array.isArray(coords.prs) && coords.prs.length) {
     parts.push(coords.prs.map((n, i) => prRef(n, Array.isArray(coords.prTitles) ? coords.prTitles[i] : undefined)).join(" · "));
   }
@@ -514,14 +513,6 @@ export function chatReport(report, { askedModel = null, session = null, coords =
     out.push("", "**Overbuilt**", "");
     for (const o of a.overbuilt) out.push(`- ${o}`);
   }
-
-  out.push(
-    "",
-    "**Spend**",
-    "",
-    `- This build: ${a.spend.build_total ?? "*no Spend so far line on the issue*"}`,
-    `- Paid AI runs, last seven days: ${a.spend.paid_runs_this_week ?? "*no paid-run ledger in KITT yet*"}`,
-  );
 
   out.push(
     "",

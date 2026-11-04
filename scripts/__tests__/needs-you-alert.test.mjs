@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { decide, alertFor, send, pushoverBody, sessionUrl, plain, footer, nextForm, needsSomething, WAITING, withoutFences } from "../needs-you-alert.mjs";
+import { decide, alertFor, send, pushoverBody, sessionUrl, plain, WAITING, withoutFences } from "../needs-you-alert.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "needs-you-alert.mjs");
 const env = { CLAUDE_PROJECT_DIR: "/home/user/Overhype.me" };
@@ -15,9 +15,8 @@ const env = { CLAUDE_PROJECT_DIR: "/home/user/Overhype.me" };
 const stop = (last_assistant_message) =>
   alertFor({ hook_event_name: "Stop", session_id: "t", last_assistant_message }, { ...env, NEEDS_YOU_ALERT_STATE_DIR: mkdtempSync(join(tmpdir(), "nya-")) });
 
-const FOOTER_RUNNING = "**Done:** wrote the hook. · **Next:** running — the PR's CI, woken by its webhook. · **Needs you:** nothing. · **Spend:** 2 min, 10,000 tokens, $0.15.";
-const FOOTER_STOPPED = "**Done:** the plan. · **Next:** stopped — the UAT is yours; a message from David brings me back. · **Needs you:** nothing. · **Spend:** $1.";
-const FOOTER_NOTHING = "**Done:** all of it. · **Next:** nothing — the plan is done. · **Needs you:** nothing. · **Spend:** $3.";
+const SUMMARY = "Wrote the hook and opened the PR; its CI is running and wakes me when it finishes.";
+const PLAN_DONE = "Merged the last increment and synced the Repl.\n\n✅ **PLAN DONE** — the caption editor is built and live";
 
 test("every alert rings once: high priority, no retry, no expire (David, 2026-11-02)", () => {
   assert.deepEqual(WAITING, { priority: 1, sound: "siren" });
@@ -27,8 +26,7 @@ test("every alert rings once: high priority, no retry, no expire (David, 2026-11
   assert.equal(body.has("expire"), false);
   for (const alert of [
     stop("🛑 **NEED YOU** — x"),
-    stop(FOOTER_STOPPED),
-    stop(FOOTER_NOTHING),
+    stop(PLAN_DONE),
     decide({ hook_event_name: "Notification", notification_type: "permission_prompt" }, env),
     decide({ hook_event_name: "StopFailure", error: "e" }, env),
   ]) {
@@ -44,49 +42,52 @@ test("a turn ending on the blocking-ask banner alerts, carrying the ask", () => 
   assert.equal(alert.message, "pick the alert channel");
 });
 
-test("an open-ask line rings nothing: it marks an ask already rung and unchanged, whatever the footer says", () => {
+test("an open-ask line rings nothing: it marks an ask already rung and unchanged", () => {
   assert.equal(stop("Still waiting on you: the Astra code, above."), null);
-  assert.equal(stop(`${FOOTER_RUNNING}\n\nStill waiting on you: the code, above.`), null);
-  assert.equal(stop("**Done:** x · **Next:** after Fable — fix · **Needs you:** pick the fonts · **Spend:** $1\n\nStill waiting on you: approve the fonts, above."), null);
+  assert.equal(stop(`${SUMMARY}\n\nStill waiting on you: the code, above.`), null);
 });
 
-test("the banner wins over the footer: a turn ending on a new ask rings as an ask", () => {
-  assert.equal(stop(`${FOOTER_RUNNING}\n\n🛑 **NEED YOU** — the code`).title, "🛑 Overhype.me: Claude needs you");
+test("a summary before a new ask does not hide it", () => {
+  assert.equal(stop(`${SUMMARY}\n\n🛑 **NEED YOU** — the code`).title, "🛑 Overhype.me: Claude needs you");
 });
 
-test("one ask, one ring: an unchanged Needs-you on later hand-backs rings nothing, a changed one rings, and a hand-back waiting on nothing resets it (David, 2026-11-03)", () => {
+test("a finished plan alerts, carrying its line (David, 2026-11-04)", () => {
+  const alert = stop(PLAN_DONE);
+  assert.equal(alert.title, "✅ Overhype.me: plan done — over to you");
+  assert.equal(alert.message, "the caption editor is built and live");
+  assert.ok(stop("## ✅ **PLAN DONE** — x"), "dressed in a heading");
+  assert.equal(stop("It rings on a `✅ **PLAN DONE** —` line."), null, "quoted mid-line, it is not one");
+  assert.equal(stop("```\n✅ **PLAN DONE** — example\n```"), null, "nor inside a fence");
+});
+
+test("one ask, one ring: an unchanged ask rings once, a changed one rings, and any other hand-back resets it (David, 2026-11-03)", () => {
   const e = { ...env, NEEDS_YOU_ALERT_STATE_DIR: mkdtempSync(join(tmpdir(), "nya-")) };
   const at = (text, session_id = "s1") => alertFor({ hook_event_name: "Stop", session_id, last_assistant_message: text }, e);
-  const fonts = (done) => `**Done:** ${done} · **Next:** after Fable's assessment — the fix · **Needs you:** pick the caption fonts · **Spend:** $1`;
-  assert.ok(at(fonts("round 1")), "the first hand-back naming the ask rings");
-  assert.equal(at(fonts("round 2")), null, "the same ask on the next hand-back does not");
-  assert.equal(at(fonts("round 3")), null, "nor on the one after");
-  assert.ok(at(fonts("round 1"), "s2"), "another session keeps its own memory");
-  assert.ok(at("**Done:** x · **Next:** running — CI · **Needs you:** the sign-in code · **Spend:** $1"), "a different ask rings");
-  assert.equal(at(FOOTER_RUNNING), null, "a hand-back waiting on nothing rings nothing");
-  assert.ok(at(fonts("round 4")), "and after it, the old ask rings again as a new one");
-  assert.ok(at(FOOTER_STOPPED));
-  assert.equal(at(FOOTER_STOPPED), null, "an identical stopped footer does not ring twice");
   assert.ok(at("🛑 **NEED YOU** — sign in"));
-  assert.equal(at("🛑 **NEED YOU** — sign in"), null, "nor an identical banner");
+  assert.equal(at("🛑 **NEED YOU** — sign in"), null, "an identical banner does not ring twice");
+  assert.equal(at(`${SUMMARY}\n\nStill waiting on you: sign in, above.`), null, "nor its open-ask line");
+  assert.ok(at("🛑 **NEED YOU** — sign in", "s2"), "another session keeps its own memory");
+  assert.ok(at("🛑 **NEED YOU** — pick the fonts"), "a different ask rings");
+  assert.equal(at(SUMMARY), null, "a hand-back waiting on nothing rings nothing");
+  assert.ok(at("🛑 **NEED YOU** — pick the fonts"), "and after it, the old ask rings again as a new one");
+  assert.ok(at(PLAN_DONE));
+  assert.equal(at(PLAN_DONE), null, "an identical plan-done line does not ring twice");
+  assert.ok(at("Merged.\n\n✅ **PLAN DONE** — the logging viewer is built"), "a different finished plan rings");
   assert.ok(alertFor({ hook_event_name: "Notification", session_id: "s1", notification_type: "permission_prompt" }, e));
   assert.ok(alertFor({ hook_event_name: "Notification", session_id: "s1", notification_type: "permission_prompt" }, e), "prompts are not deduplicated");
 });
 
-test("two finished tasks in a row each ring, though both end on the same Next; long asks differing only at the end stay distinct (Codex, PR #279 round 1)", () => {
+test("a changed decision under the same banner heading rings; /status reproducing an unchanged ask does not; long lines differing only at the end stay distinct (Codex, PR #279)", () => {
   const e = { ...env, NEEDS_YOU_ALERT_STATE_DIR: mkdtempSync(join(tmpdir(), "nya-")) };
   const at = (text) => alertFor({ hook_event_name: "Stop", session_id: "s", last_assistant_message: text }, e);
-  const done = (what) => `**Done:** ${what} · **Next:** nothing — the plan is done · **Needs you:** nothing · **Spend:** $1`;
-  assert.ok(at(done("task one shipped")));
-  assert.ok(at(done("task two shipped")), "a second completion with its own Done rings");
-  const long = "review the release notes carefully, ".repeat(10);
   assert.ok(at("🛑 **NEED YOU** — approve the production deployment\n\nRelease 1.4.0.\n\n1. Ship\n2. Hold"));
   assert.ok(at("🛑 **NEED YOU** — approve the production deployment\n\nRelease 1.5.0.\n\n1. Ship\n2. Hold"), "a changed decision under the same banner heading rings");
   const ask = "🛑 **NEED YOU** — pick the caption fonts\n\n1. Ten fonts\n2. Strict six\n\nRecommendation: 2.\n\n---";
-  assert.ok(at(`Context.\n\n---\n${ask}\n\n**Done:** x`));
+  assert.ok(at(`Context.\n\n---\n${ask}\n\nMore.`));
   assert.equal(at(`📍 Overhype.me — briefing\n\n🛑 Waiting on you:\n\n---\n${ask}\n\nNext: Phase 5.\nYour next stop: UAT.`), null, "/status reproducing the unchanged ask, with other sections after it, rings nothing (Codex, DojoOS PR #74)");
-  assert.ok(at(`**Done:** x · **Next:** running — y · **Needs you:** ${long}for release A · **Spend:** $1`));
-  assert.ok(at(`**Done:** x · **Next:** running — y · **Needs you:** ${long}for release B · **Spend:** $1`), "a change past 240 characters rings");
+  const long = "review the release notes carefully, ".repeat(10);
+  assert.ok(at(`✅ **PLAN DONE** — ${long}for release A`));
+  assert.ok(at(`✅ **PLAN DONE** — ${long}for release B`), "a change past 240 characters rings");
 });
 
 test("a state file that cannot be written still rings: a duplicate is cheaper than a missed ask", () => {
@@ -94,9 +95,27 @@ test("a state file that cannot be written still rings: a duplicate is cheaper th
   const file = join(mkdtempSync(join(tmpdir(), "nya-")), "not-a-dir");
   writeFileSync(file, "");
   const e = { ...env, NEEDS_YOU_ALERT_STATE_DIR: join(file, "state") };
-  const at = () => alertFor({ hook_event_name: "Stop", session_id: "x", last_assistant_message: FOOTER_STOPPED }, e);
+  const at = () => alertFor({ hook_event_name: "Stop", session_id: "x", last_assistant_message: PLAN_DONE }, e);
   assert.ok(at());
   assert.ok(at());
+});
+
+test("nothing that is not waiting on David alerts: a summary of work that continues, a finished increment with more to come, a build report, an FYI, a retired footer, plain text, silence", () => {
+  for (const text of [
+    SUMMARY,
+    "Increment 2 of 4 is merged and synced; increment 3 is starting.",
+    "**Build report — PR #263 — Sync · merged**\n\n*About the unit.*\n\n**Needs you:** walk the UAT\n\n**What was built**\n\nA thing.",
+    "---\n👀 **FYI** — **Pushover chosen** as the channel\nspecifics\n---",
+    "**Done:** all of it · **Next:** nothing — the plan is done · **Needs you:** the code · **Spend:** $3",
+    "Merged **both**, nothing else to say.",
+    "",
+    "   \n",
+    "```\nonly code\n```",
+  ]) {
+    assert.equal(stop(text), null, text);
+  }
+  assert.equal(decide({ hook_event_name: "Stop" }, env), null);
+  assert.equal(decide({ hook_event_name: "PostToolUse", tool_name: "Bash" }, env), null);
 });
 
 test("a message that only quotes the ask shapes is not an ask", () => {
@@ -130,68 +149,6 @@ test("an ask dressed in a heading, bullet or emphasis still rings", () => {
   }
 });
 
-test("the footer's four fields are read in either layout", () => {
-  const one = footer(FOOTER_RUNNING);
-  assert.equal(one.done, "wrote the hook.");
-  assert.equal(one.next, "running — the PR's CI, woken by its webhook.");
-  assert.equal(one.needsYou, "nothing.");
-  assert.equal(one.spend, "2 min, 10,000 tokens, $0.15.");
-  const lines = footer("Report.\n\n**Done:** a thing\n**Next:** after the merge — close-out\n**Needs you:** the sign-in code\n**Spend:** $2\n\nTrailing prose.");
-  assert.equal(lines.next, "after the merge — close-out");
-  assert.equal(lines.needsYou, "the sign-in code");
-  assert.equal(footer("no footer here"), null);
-});
-
-test("the Next form and the Needs-you reading are what the decision rests on", () => {
-  assert.equal(nextForm("running — CI, woken by webhook"), "running");
-  assert.equal(nextForm("**after** the merge — close-out"), "after");
-  assert.equal(nextForm("stopped — waiting on UAT"), "stopped");
-  assert.equal(nextForm("nothing — the plan is done"), "nothing");
-  assert.equal(nextForm("open the PR"), null);
-  for (const v of ["nothing", "nothing.", "none", "", "**nothing** for now"]) assert.equal(needsSomething(v), false, v);
-  assert.equal(needsSomething("the sign-in code"), true);
-});
-
-test("a section done and waiting on David's word alerts", () => {
-  const alert = stop(FOOTER_STOPPED);
-  assert.equal(alert.title, "🛑 Overhype.me: waiting on you");
-  assert.match(alert.message, /^Done: the plan\. · Next: stopped — the UAT is yours/);
-  const needs = stop("**Done:** x. · **Next:** running — CI. · **Needs you:** the Astra sign-in code. · **Spend:** $1.");
-  assert.equal(needs.title, "🛑 Overhype.me: waiting on you");
-  assert.equal(needs.message, "Needs you: the Astra sign-in code. · Done: x.");
-});
-
-test("everything I know to do is done alerts", () => {
-  const alert = stop(FOOTER_NOTHING);
-  assert.equal(alert.title, "✅ Overhype.me: done — over to you");
-  assert.match(alert.message, /Next: nothing — the plan is done/);
-});
-
-test("nothing that is not waiting on David alerts: work that continues, a build report, an FYI, a stray footer, plain text, silence", () => {
-  for (const text of [
-    `Merged.\n\n${FOOTER_RUNNING}`,
-    "**Done:** x · **Next:** after the webhook — close-out · **Needs you:** nothing · **Spend:** $1",
-    "**Done:** x · **Next:** open the PR · **Needs you:** nothing · **Spend:** $1",
-    "**Build report — PR #263 — Sync · merged**\n\n*About the unit.*\n\n**Needs you:** nothing\n\n**What was built**\n\nA thing.",
-    "---\n👀 **FYI** — **Pushover chosen** as the channel\nspecifics\n---",
-    "Merged **both**, nothing else to say.",
-    "",
-    "   \n",
-    "```\nonly code\n```",
-  ]) {
-    assert.equal(stop(text), null, text);
-  }
-  assert.equal(decide({ hook_event_name: "Stop" }, env), null);
-  assert.equal(decide({ hook_event_name: "PostToolUse", tool_name: "Bash" }, env), null);
-});
-
-test("the footer governs whatever precedes it: a build report's own Needs-you line never shadows the footer's, in either direction", () => {
-  const report = (needsYou) => `**Build report — PR #9 — x · merged**\n\n*About.*\n\n**Needs you:** ${needsYou}\n\n**What was built**\n\nA thing.\n\n`;
-  const a = stop(`${report("nothing")}**Done:** merged. · **Next:** after CI — the next increment. · **Needs you:** approve the purchase. · **Spend:** $1.`);
-  assert.match(a.message, /Needs you: approve the purchase\./);
-  assert.equal(stop(`${report("walk the UAT")}**Done:** merged. · **Next:** running — increment 3, woken by its CI. · **Needs you:** nothing. · **Spend:** $1.`), null);
-  assert.equal(footer(`${report("nothing")}**Done:** d · **Next:** n · **Needs you:** y · **Spend:** s`).needsYou, "y");
-});
 
 test("prompts that park the session alert; the idle reminder does not", () => {
   assert.equal(decide({ hook_event_name: "Notification", notification_type: "permission_prompt", message: "Allow Bash?" }, env).message, "Allow Bash?");
@@ -249,7 +206,7 @@ test("as a hook: owed but unsendable prints one systemMessage, and still exits 0
 test("as a hook: nothing owed prints nothing, and bad input never blocks a stop or a tool call", () => {
   for (const input of [
     JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "" }),
-    JSON.stringify({ hook_event_name: "Stop", last_assistant_message: `Done.\n\n${FOOTER_RUNNING}` }),
+    JSON.stringify({ hook_event_name: "Stop", last_assistant_message: SUMMARY }),
     JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "Bash" }),
     JSON.stringify({ hook_event_name: "Notification", notification_type: "idle_prompt" }),
     "not json",

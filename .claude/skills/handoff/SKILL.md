@@ -247,12 +247,11 @@ in one line what this session is still on the hook for — normally nothing.
 An abandoned subscription is worse than none, because it looks like coverage.
 
 Then report: the issue written, the prompt, and the one-line verdict from
-Step 1. This hands the turn back to David and ends with the hand-back
-footer — Done / Next / Needs you / Spend (`claude-core.md`, *A reversible
-choice proceeds, and every turn reports its spend*); its `Next:` takes the
-`stopped —` form, since the new session is his to open, and that form is
-what rings his phone by the alert hook (`claude-core.md`, interaction
-rule 6). Step 1's verdict also runs unasked at
+Step 1. This hands the turn back to David with its plain-English summary
+(`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2). The new session is his to open, so
+the hand-off waits on him and is written as a 🛑 banner — opening the new
+session with the prompt above — which is what rings his phone by the alert
+hook (`claude-core.md`, interaction rule 6). Step 1's verdict also runs unasked at
 every unit of work's close, inside the build report's *Session* section
 (`claude-core.md`, *Watching the PRs I open*), as the *hand off* branch of
 the `archive` skill's three-valued verdict.
