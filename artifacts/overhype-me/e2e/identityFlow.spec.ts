@@ -1,5 +1,5 @@
 /**
- * @purpose Real-browser checks of the identity flow's Phase 1 (#719, #722) and Phase 3: the identity sheet opens for a cold visitor on every ordinary page including not-found and closes on save or another tab's save, never opens on sign-in pages, share links fill only what is missing, the first landing on a shared meme or fact shows its content and leaving asks, route builders wait for a complete identity, sign-out clears the browser copy, and signed-out capture sends no name to the server; on a shared page an in-page action asks first and then runs (share opens its modal, a sort applies), an alternate phrasing's "Make meme" goes to the one builder's route, which asks, and a signed-out heart goes straight to sign-in without asking.
+ * @purpose Real-browser checks of the identity flow's Phases 1, 3 and 4 (#719, #722, #856): the identity sheet opens for a cold visitor on every ordinary page including not-found and closes on save or another tab's save, never opens on sign-in pages, share links fill only what is missing, the first landing on a shared meme shows its content and leaving asks, route builders wait for a complete identity, sign-out clears the browser copy, and signed-out capture sends no name to the server; on a shared meme an in-page action asks first and then runs, and a signed-out heart goes straight to sign-in without asking; a cold fact page asks on arrival and never shows its fact before a name is saved, then renders whole, and the name tag never shows pronouns nobody chose.
  * @subsystem public-site
  */
 import { expect, test, type Page } from "@playwright/test";
@@ -119,13 +119,14 @@ test.describe("Identity flow, Phase 1", () => {
     await expect(page.locator('img[alt="Meme"]').filter({ visible: true })).toBeVisible();
     await expectNoSheet(page);
 
-    // A new tab is a fresh visit to a landing page, and the original tab is unchanged.
+    // A new tab is a fresh visit; on a fact page that asks (Phase 4, David
+    // 2026-11-04), and the original tab is unchanged.
     const link = page.getByRole("link", { name: /view full fact/i }).filter({ visible: true }).first();
     const [popup] = await Promise.all([page.context().waitForEvent("page"), link.click({ modifiers: ["Control"] })]);
     await popup.setViewportSize(DESKTOP);
     await stubPublicFacts(popup, { facts: [factDetail({ id: 551, text: "{NAME} makes onions cry." })] });
     await popup.waitForLoadState();
-    await expectNoSheet(popup);
+    await expect(sheet(popup)).toBeVisible();
     await expectNoSheet(page);
     await popup.close();
 
@@ -298,32 +299,51 @@ test.describe("Identity flow, Phase 3: in-page actions on shared pages", () => {
     await page.setViewportSize(DESKTOP);
   });
 
-  test("on a shared fact, share asks first and then opens the share modal", async ({ page }) => {
+  test("on a phone, a shared meme's search opener asks first, then opens the search field", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const phone = await context.newPage();
+    await stubPublicFacts(phone, {
+      facts: [factDetail({ id: 571, text: "{NAME} out-paced the rain." })],
+      memeDetails: [memeDetail({ id: 5711, factId: 571, permalinkSlug: "e2e-search-opener", factText: "Kai out-paced the rain." })],
+      images: ["/api/memes/e2e-search-opener/image"],
+    });
+    await phone.goto("/m/e2e-search-opener");
+    await expect(phone.locator('img[alt="Meme"]').filter({ visible: true })).toBeVisible();
+    await expectNoSheet(phone);
+    const search = phone.getByPlaceholder("Search facts, hashtags…").filter({ visible: true });
+    await expect(search).toHaveCount(0);
+    await phone.getByRole("button", { name: "Search" }).filter({ visible: true }).first().tap();
+    await expect(sheet(phone)).toBeVisible();
+    await saveIdentity(phone, "Sarah");
+    await expect(search.first()).toBeVisible();
+    await context.close();
+  });
+
+  test("on a shared fact, once the arrival sheet is saved, share opens the share modal at once", async ({ page }) => {
     await stubPublicFacts(page, { facts: [factDetail({ id: 571, text: "{NAME} out-paced the rain." })] });
     await page.goto("/facts/571");
-    await expect(page.getByText(/out-paced the rain/i).filter({ visible: true }).first()).toBeVisible();
-    await expectNoSheet(page);
-
-    await page.getByTitle("Share").filter({ visible: true }).first().click();
     await expect(sheet(page)).toBeVisible();
-    await expect(page.getByRole("dialog").filter({ hasText: /share/i })).toHaveCount(0);
     await saveIdentity(page, "Sarah");
+    await expect(page.getByText(/Sarah out-paced the rain/i).filter({ visible: true }).first()).toBeVisible();
+    await page.getByTitle("Share").filter({ visible: true }).first().click();
     await expect(page.getByRole("dialog").filter({ hasText: /share/i }).first()).toBeVisible();
+    await expect(sheet(page)).toHaveCount(0);
   });
 
-  test("on a shared fact, changing the gallery sort asks first and then applies", async ({ page }) => {
+  test("on a shared fact, once the arrival sheet is saved, the rest of the page loads and the gallery sort applies at once", async ({ page }) => {
     await stubPublicFacts(page, { facts: [factDetail({ id: 573, text: "{NAME} folds fitted sheets." })] });
     await page.goto("/facts/573");
-    const sort = page.getByLabel("Sort memes");
-    await expect(sort).toBeVisible();
-    await expectNoSheet(page);
-    await sort.selectOption("new");
     await expect(sheet(page)).toBeVisible();
     await saveIdentity(page, "Emily");
+    // The below-fold sections mount after the hold releases (Phase 4, Astra round 2).
+    const sort = page.getByLabel("Sort memes");
+    await expect(sort).toBeVisible();
+    await sort.selectOption("new");
     await expect(sort).toHaveValue("new");
+    await expectNoSheet(page);
   });
 
-  test("an alternate phrasing's Make meme goes to its builder route, which asks, then holds the saved name", async ({ page }) => {
+  test("an alternate phrasing's Make meme goes to its builder route, which holds the saved name", async ({ page }) => {
     await stubPublicFacts(page, {
       facts: [
         factDetail({ id: 581, text: "{NAME} taught gravity patience.", variants: [{ id: 582, useCase: "short" }] as never }),
@@ -331,13 +351,13 @@ test.describe("Identity flow, Phase 3: in-page actions on shared pages", () => {
       ],
     });
     await page.goto("/facts/581");
-    await page.getByRole("button", { name: /make meme/i }).filter({ visible: true }).first().click();
-    await page.waitForURL((u) => u.pathname === "/facts/582/meme");
     await expect(sheet(page)).toBeVisible();
     await saveIdentity(page, "Grace");
+    await page.getByRole("button", { name: /make meme/i }).filter({ visible: true }).first().click();
+    await page.waitForURL((u) => u.pathname === "/facts/582/meme");
     await expect(page.getByText(/Grace out-waited gravity/i).filter({ visible: true }).first()).toBeVisible();
+    await expect(sheet(page)).toHaveCount(0);
   });
-
   test("on a shared meme, a signed-out heart goes straight to sign-in without asking (P3-1)", async ({ page }) => {
     await stubPublicFacts(page, {
       facts: [factDetail({ id: 591, text: "{NAME} out-stared the sun." })],
@@ -349,5 +369,63 @@ test.describe("Identity flow, Phase 3: in-page actions on shared pages", () => {
     await page.getByRole("button", { name: /heart/i }).filter({ visible: true }).first().click();
     await page.waitForURL((u) => u.pathname === "/login");
     await expectNoSheet(page);
+  });
+});
+
+test.describe("Identity flow, Phase 4: a fact page asks first; the name tag shows only chosen pronouns", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+  });
+
+  test("a cold fact page never shows its fact before a name is saved, then renders whole with it", async ({ page }) => {
+    // Record whether the fact's words ever reach the page, from the first paint.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __factSeen: boolean };
+      w.__factSeen = false;
+      new MutationObserver(() => {
+        if (document.body?.innerText.includes("raced the dawn")) w.__factSeen = true;
+      }).observe(document, { childList: true, subtree: true, characterData: true });
+    });
+    const factSeen = () => page.evaluate(() => (window as unknown as { __factSeen: boolean }).__factSeen);
+    await stubPublicFacts(page, { facts: [factDetail({ id: 601, text: "{NAME} raced the dawn." })] });
+    // The fact answers at once; the sign-in read is held back until released.
+    let releaseAuth!: () => void;
+    const authHeld = new Promise<void>((r) => (releaseAuth = r));
+    await page.route("**/api/auth/user", async (route) => {
+      await authHeld;
+      await route.continue();
+    });
+    await page.goto("/facts/601");
+    await page.waitForTimeout(PAST_OPEN_DELAY_MS);
+    expect(await factSeen()).toBe(false);
+    releaseAuth();
+    await expect(sheet(page)).toBeVisible();
+    expect(await factSeen()).toBe(false);
+    await saveIdentity(page, "Sarah");
+    await expect(page.getByText(/Sarah raced the dawn/i).filter({ visible: true }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Memes from this fact" })).toBeVisible();
+  });
+
+  test("a fact page with a saved name shows the fact with no sheet", async ({ page }) => {
+    await seedIdentity(page, "Grace", "she/her");
+    await stubPublicFacts(page, { facts: [factDetail({ id: 602, text: "{NAME} raced the dawn." })] });
+    await page.goto("/facts/602");
+    await expect(page.getByText(/Grace raced the dawn/i).filter({ visible: true }).first()).toBeVisible();
+    await expectNoSheet(page);
+  });
+
+  test("a cold shared meme still shows first, and its name tag shows no pronouns nobody chose", async ({ page }) => {
+    await stubPublicFacts(page, {
+      facts: [factDetail({ id: 603, text: "{NAME} raced the dawn." })],
+      memeDetails: [memeDetail({ id: 6031, factId: 603, permalinkSlug: "e2e-tag", factText: "Kai raced the dawn." })],
+      images: ["/api/memes/e2e-tag/image"],
+    });
+    await page.goto("/m/e2e-tag");
+    await expect(page.locator('img[alt="Meme"]').filter({ visible: true })).toBeVisible();
+    await expectNoSheet(page);
+    const tag = page.locator('[data-action="edit-name"]').filter({ visible: true }).first();
+    await expect(tag).toBeVisible();
+    await expect(tag).not.toContainText("he/him");
+    await expect(tag).not.toContainText("(");
   });
 });
