@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v9 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8), 2026-10-30 (v9), 2026-10-31 (v10)
+# PLAN — Get to launch (parent programme) · v11 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8), 2026-10-30 (v9), 2026-10-31 (v10), 2026-11-04 (v11)
 
 Workstream: #628 · Planning record: `docs/plans/reviews/get-to-launch/` · On `main` since PR #792; each amendment merges through a PR.
 
@@ -232,7 +232,11 @@ content formats; multi-role RBAC; new vendors beyond PostHog and Turnstile.
    report-only period); HSTS sent once, by Cloudflare; `pnpm audit --prod`
    shows no High or Critical; the old prod dump's exposure closed —
    sessions revoked by Phase 3's fresh database and that account's password
-   changed (rotation, not a history purge: David, 2026-10-12).
+   changed (rotation, not a history purge: David, 2026-10-12); **every
+   Cloudflare setting audited against a written record of what it should
+   be**, and the record's checks measured from outside or on the origin,
+   never read off the dashboard (amendment v11,
+   David, 2026-11-04).
 6. Every in-scope UAT step has a disposition; manual residue fits an
    afternoon; the real-data pass has run on the Repl.
 7. Compliance package in place (Terms, Privacy, DMCA agent registered,
@@ -738,7 +742,36 @@ scope:
   audit; the old dump's exposure
   closed by rotation, not a history purge (David, 2026-10-12: it held no
   credentials, only three sessions and one account's email and password hash); session cookie and private-media caching checks on the real
-  origin; then `/security-review`.
+  origin; the Cloudflare configuration audit (below); then `/security-review`.
+- **Audit every Cloudflare setting before Seed (amendment v11; David,
+  2026-11-04: *"go through every setting at Cloudflare to make sure they're
+  set correctly"*).** Why: until 2026-11-04 the `overhype.me` record was
+  DNS-only, so no production request passed through Cloudflare. The US
+  marketing default, the WAF rate limits and the OG router worker had all
+  silently never run there, while every design document assumed they did
+  (Issue #864). The fix was one toggle; finding it took a UAT failure. What
+  the audit does: walk every section of the zone's dashboard with David —
+  DNS (each record's proxy status), SSL/TLS (mode Full (strict), edge
+  certificates, HSTS sent once from here), Security and WAF (the rules in
+  `docs/cloudflare-rate-limits.md`, bot settings), Network (IP Geolocation
+  on), Caching and Rules, Workers Routes (the `og-router` routes against
+  `cloudflare/og-router/wrangler.toml`), Speed, Email, and anything a
+  dashboard change has added since — **and the account-level settings the
+  product depends on, which no zone screen shows**: the Turnstile widget
+  (account → Turnstile: its allowed hostnames include `overhype.me`, its
+  mode, and the site key the deployed frontend uses) and the `og-router`
+  worker's own settings (account → Workers & Pages → `overhype-og-router`:
+  its bindings, variables and deploy token). For each setting it writes into one
+  committed record (`docs/cloudflare-configuration.md`) the value it should
+  have and why, or "default, no dependency". The dashboard stays the source
+  of truth; the record is how a drift gets noticed. David holds the
+  dashboard, so I lead the walk screen by screen and he changes what needs
+  changing. Each setting the product depends on gets a check measured from
+  outside or on the origin, not read off the dashboard: `server: cloudflare`
+  and a `cf-ray` on every serving hostname, `CF-IPCountry` reaching the app,
+  a rate-limit rule refusing past its threshold, a crawler served the OG
+  shell, HSTS present exactly once, a Turnstile challenge completing on the
+  production hostname.
 - **Defensive testing with Claude Mythos 5.1 (David, 2026-10-07):** Mythos
   is the same underlying model as the Fable tier this planning session runs
   on, served without the cyber-capability safeguards, to organisations
@@ -798,7 +831,8 @@ scope:
   the exact place each key is set; he turns the keys and pastes nothing to
   me.
 - **Exit evidence:** `/security-review` report with no open highs; each item
-  verified on the deployed origin; the rotation checklist with every row
+  verified on the deployed origin; the Cloudflare record committed, with
+  every setting walked and each dependent check's output quoted; the rotation checklist with every row
   ticked and the old key confirmed revoked at the vendor (the app boots and
   a smoke journey passes on the new set, and a request signed with an old
   Stripe webhook secret is rejected).
@@ -920,7 +954,7 @@ stays visibly outstanding and never becomes an earlier stage's pass.
 | 2 | Production built from code; backup + media restore rehearsed | must | — | re-verified | — | — |
 | 3 | Stripe lifecycle + adverse events proven (S7 split) | test-mode proof complete | friends' test-mode use | live config verified; genuine payments watched | per-region config | per column |
 | 4 | Spend controls demonstrated; emergency stop exercised | must | — | re-verified live | — | — |
-| 5 | Security review, no open highs | must | — | green on current head | — | — |
+| 5 | Security review, no open highs; Cloudflare settings audited (v11) | must | — | green on current head; Cloudflare re-audited | — | — |
 | 6 | UAT dispositions complete; real-data pass | dispositions | real-data pass done | — | — | — |
 | 7 | Compliance package live; safety path usable; DMCA agent registered | must | — | counsel signed | GDPR checklist signed | — |
 | 8 | Alerts from five sources, each proven by injected fault; uptime, read-only mode, rollback | must | — | — | — | — |
