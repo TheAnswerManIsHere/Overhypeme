@@ -149,8 +149,7 @@ export function NameTag() {
     // Phase 4): the browser copy can hold a different choice, or the rendering
     // fallback, and the account mirror does not always replace it. A Profile
     // save refreshes the auth user, so this is current after an edit.
-    const accountPronouns = (user as { pronouns?: string | null }).pronouns?.trim();
-    const pronounsStr = accountPronouns ? (displayPronouns(accountPronouns) || null) : null;
+    const pronounsStr = displayPronouns((user as { pronouns?: string | null }).pronouns?.trim()) || null;
 
     return (
       <button
