@@ -184,8 +184,7 @@ scoped to the active repository (see *Scope* above):
     them) and, inside the current one, its *Implementation Steps*. The
     position is read from, newest first: the latest build report on the
     workstream issue (a private-path workstream's are in its private item,
-    which only David's relay brings back; its **Where we are** section — the same fact the
-    hand-back footer's **Next:** states in chat), the State of Play's
+    which only David's relay brings back; its **Where we are** section), the State of Play's
     **Where it actually stands** and **What you need to do**, the scope line
     of each merged increment's PR, and the commits on the open branch. Only
     an `author_association: OWNER` comment counts, the same filter as the
@@ -391,7 +390,7 @@ The first line names the repository, so a wrong scope is visible at a
 glance. **A candidate with a plan carries a `Plan:` line** — the file, the
 increment and step it is at, and which record placed it there — so David
 can see the answer came from the build he approved and not from a label.
-Where the hand-back that preceded this `/next` named a different **Next:**
+Where the hand-back that preceded this `/next` named a different next step
 for the same workstream, say which wins and why.
 
 ```

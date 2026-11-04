@@ -226,7 +226,7 @@ is the script-wrong case below, never a check to run early:
   does any check, in any lane, that would start a paid AI run (David,
   2026-10-17, who set the budget small for that reason; `uat-doc-format.md`,
   *Lanes*): within it the capture runs, inside the cap the declaration names,
-  and its cost goes in the run record, on the run's spend line and as a comment on the fleet's paid-run ledger, which is read before the run. One above
+  and its cost goes in the run record and as a comment on the fleet's paid-run ledger, which is read before the run. One above
   it asks, naming the PR, the paid calls and the worst-case cost, and its
   steps are Blocked on him until he answers, or he answers the judgement
   steps from an image he makes himself in the product. A consumer with no such declaration has no
@@ -298,18 +298,9 @@ you").
 
 **One step per turn.** What to do, what to expect, nothing else — not the
 next step, not the section after, not the reasoning behind the expectation
-unless he asks, and not a spend line: a walkthrough turn is exempt from the
-per-turn spend report, and the run's total goes in the end-of-run hand-back
-(`claude-core.md`, *A reversible choice proceeds, and every turn reports its
-spend*). He is clicking, not reading. **The total survives a pause because
-the run record carries it** (section 5, `Spend so far`): at every write of
-the record I add the walkthrough turns since the last write — their
-wall-clock from `date -u` at first and last tool call, and the harness's
-`<total_tokens>` differenced — so a session that resumes the run starts
-from the recorded figure rather than from a counter that holds none of the
-earlier session's tokens, and the hand-back reports the recorded figure
-plus the current segment, converted with `token-pricing.md` (Codex,
-Overhype.me #639).
+unless he asks, and not a hand-back summary: a walkthrough turn is the step
+itself, and the run's summary goes in the end-of-run hand-back
+(`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2). He is clicking, not reading.
 
 **"Yes" advances.** Any short affirmative — yes, y, ok, next, worked — is a
 Pass; I record it and move on without commentary. Anything else is a real
@@ -485,7 +476,6 @@ have no reliable way to tell which is current.
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
-**Spend so far:** 23 min · 41,200 tokens (Opus, $6/M proxy, $0.25) over 5 walkthrough turns
 **Resume at:** step 4 (2 judgement steps remaining, 4 and R3; step 2's screen fact was mine and is recorded; the 3 machine-lane checks are resolved at this commit)
 ```
 
@@ -594,11 +584,11 @@ Then, in one edit:
   useful later" is not a reason; a re-run of a merged PR's UAT is written
   fresh from current behaviour, not resurrected.
 - **Tell him what he's holding**: verdict, bugs filed with severities, what
-  he can do next — and, last, the hand-back footer
-  (Done / Next / Needs you / Spend), whose spend is the run's across its
-  walkthrough turns, which carried none of their own: the record's `Spend so
-  far` plus the turns since its last write, so a run resumed in a fresh
-  session reports the whole run, not the segment the current counter saw.
+  he can do next — and, last, the run's plain-English summary
+  (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2), with a 🛑 banner when what he
+  can do next is something the work waits on, or on the
+  `✅ **PLAN DONE** —` line when an accepted run finished the approved work
+  and nothing of mine is scheduled after it.
 
 ## Notification discipline during a run (David, 2026-08-21)
 
@@ -609,8 +599,10 @@ an active run**: ordinary step-by-step turn-taking — including the
 continue-or-pause question right after a failure — gets **no banner and no
 `PushNotification` call**. He's at the keyboard; that's the premise of the
 session. The alert hook rings nothing on those turns either: a walkthrough
-turn carries no banner and no footer, and the hook rings only for those
-(`claude-core.md`, interaction rule 6; David, 2026-11-02).
+turn carries no banner and no plan-done line, which are the only hand-backs
+the hook rings for — beyond a permission prompt the session parks on and a
+turn that dies on an error, which ring whenever they happen
+(`claude-core.md`, interaction rule 6; David, 2026-11-02 and 2026-11-04).
 
 The banner and the push fire normally when the **run ends** needing a
 decision from him, when an ask would hold work up after he's walked away, or

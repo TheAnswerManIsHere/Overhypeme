@@ -32,8 +32,8 @@ first words of each line, since he scans (interaction rule 7's reason).
 2. **Plan** — the plan we are building against, by its name, and the phase
    we are in by number and title: `Plan: "Get to launch" · Phase 4 of 6,
    "Delete old dead code"`. No plan → `No plan — <the task, one line>`.
-3. **Progress** — steps merged of steps planned, the current phase's own
-   count, and spend so far from the issue's *Spend so far* line. Then a
+3. **Progress** — steps merged of steps planned, and the current phase's
+   own count (spend is not tracked, David, 2026-11-04). Then a
    time guess for what remains, **labelled as a guess** and only ever at
    the resolution he asked for (David, 2026-10-23: *"'5 minutes' vs. '2
    hours' is useful to me"*): `about 2 hours, a guess`, never `1h40`.
@@ -96,7 +96,7 @@ reproduced whole or not at all.
 ```
 📍 DojoOS — building the audio-transcription prototype
 Plan: "Get to launch" · Phase 4 of 6, "Delete old dead code"
-Progress: 11 of 17 steps merged · Phase 4: 2 of 4 done · $142 so far · about 3 hours left, a guess
+Progress: 11 of 17 steps merged · Phase 4: 2 of 4 done · about 3 hours left, a guess
 Right now: PR #212 — Remove the legacy ingest path — is in Codex review, CI green.
 
 Since your last message (yesterday 14:10):
@@ -156,8 +156,7 @@ The output never shows these; the briefing rests on them.
    from here; for work under the disclosure carve-out say `private tracking
    only` — this repository is public).
 2. **The issue record.** `issue_read` for the body and comments: the State
-   of Play block (*Spend so far*, *Decisions taken on recommendation*,
-   *What's blocking*), the Phases checklist, the 👀 FYI comments and the
+   of Play block (*Decisions taken on recommendation*, *What's blocking*), the Phases checklist, the 👀 FYI comments and the
    build-report comments since the anchor
    ([`workstream-tracking.md`](../../../docs/ai-context/workstream-tracking.md#the-state-of-play-block)).
 3. **The plan.** The approved plan committed under `docs/plans/` on the
@@ -179,7 +178,7 @@ The output never shows these; the briefing rests on them.
    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 5. **This session's context** from the anchor forward: the 👀 FYIs, the
    🛑 asks and whether each was answered, the merge and build reports, the
-   footers.
+   hand-backs' plain-English summaries and any `✅ **PLAN DONE** —` line.
 
 ## Side effect — the tracker is repaired, silently
 
@@ -204,8 +203,8 @@ Not a background writer: it writes at the moment David invoked it.
 - Not **`/next`** — a ranked recommendation of what to pick up.
 - Not the **build report** — one account per finished unit, written by an
   independent role; this briefing points at those and never rewrites them.
-- Not the **hand-back footer** — Done / Next / Needs you / Spend is per
-  turn; this is on demand, across turns, and runs only when asked (David,
+- Not the **hand-back summary** — a sentence or two closing each turn
+  (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2); this is on demand, across turns, and runs only when asked (David,
   2026-10-23, option 1 of "should it also run unprompted"; revisit after a
   week of use).
 

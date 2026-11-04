@@ -600,7 +600,7 @@ export const SIGN_IN_INSTRUCTIONS = [
  *   --json                   events arrive on stdout as JSONL, and the last
  *                            `turn.completed` event carries the run's token
  *                            usage -- the only reading an Astra run has, so
- *                            a spend line can price it instead of writing
+ *                            a cost statement can price it instead of writing
  *                            `unable to verify` (David, 2026-10-11; measured
  *                            on codex-cli 0.160.0: `{"type":"turn.completed",
  *                            "usage":{"input_tokens":…,"cached_input_tokens":…,
@@ -691,7 +691,7 @@ export function codexUsage(jsonl) {
   if (!usage || rerouted) return null;
   // ALL FIVE OR NONE. A bucket that is missing, renamed or not a finite
   // non-negative number makes the whole reading null -- `unable to verify` in
-  // the spend line -- never a zero that prices the run confidently low. The
+  // any cost read from it -- never a zero that prices the run confidently low. The
   // CLI is installed unpinned, so a schema change is a real path, not a
   // hypothetical. (Codex, KITT #199 round 2.)
   const keys = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"];

@@ -181,7 +181,7 @@ asked; the recommendation is taken and reported.
   but a reviewed pull request (one landed by PR takes the ordinary bar, with
   its latitude line, as the Claude core's *No PR waits for David's click*
   already says — the list names the live toggle, not the reviewed diff);
-  spend above a per-turn cap once David sets one; **a paid AI run, or any
+  **a paid AI run, or any
   cost beyond the session's own tokens, above $5 for one run, and any such
   spend once the week's total across every product — read from the fleet's
   paid-run ledger in KITT (`uat-doc-format.md`, *Lanes*) — would pass
@@ -198,8 +198,11 @@ asked; the recommendation is taken and reported.
   he can clear, a UAT step that is his and that the next increment depends
   on, and the irreversible list, each with a push notification (David,
   2026-10-21: *"you should be able to autonomously complete all the steps in
-  the plan from start to finish"*) — and each of those, waiting on him,
-  rings his phone by the alert hook (`claude-core.md`, interaction rule 6).
+  the plan from start to finish"*) — and each of those, waiting on him, is
+  written as a 🛑 banner, which the alert hook rings (`claude-core.md`,
+  interaction rule 6); so is the plan's end, on its plan-done line
+  (`claude-core.md`, *A reversible choice proceeds, and every hand-back says
+  what it did*, rule 2).
   New
   scope, a new increment the plan does not hold, a new feature, a new test plan or a new plan never
   proceed, in either phase — that is where his judgement bites, and it is almost
@@ -280,11 +283,11 @@ asked; the recommendation is taken and reported.
   advice rule's override record applies.
 - **`/maintenance` counts them**: decisions taken this way in the window, and
   how many he reversed. A reversal rate is the signal that the default is set
-  wrong, in either direction — he sets the per-turn spend cap and tunes this
-  from those numbers, not from a feeling about a week. The per-turn spend
-  report itself is an agent's own enactment (Claude Code: its core, *A
-  reversible choice proceeds, and every turn reports its spend*), since what
-  a harness reports differs by agent.
+  wrong, in either direction — he tunes this from those numbers, not from a
+  feeling about a week. How an agent's hand-back reports what it did is the
+  agent's own enactment (Claude Code: its core, *A reversible choice
+  proceeds, and every hand-back says what it did*, which since 2026-11-04
+  tracks no spend per turn or per build).
 
 This is what *Decide by default, and report* above enacts; *Ask always* —
 what the product should do — is untouched, and reaches him through the plan.
@@ -530,7 +533,11 @@ taken on your recommendation, each with its way back (*A reversible choice
 proceeds on the recommendation*, above). Separate valid repo-command
 failures (which may block merge) from invalid-command/environment failures (which
 must not). Don't claim "done" until the intended behavior can actually be exercised
-in the product.
+in the product. This is the content of a completion report — a PR body, a
+build hand-off, a dispatched worker's answer — not the length of a chat
+hand-back to David, which is each agent's own enactment (Claude Code: its
+core, *A reversible choice proceeds, and every hand-back says what it did*,
+rule 2 — a sentence or two, saying only what he must know or do).
 
 ## How Claude and Codex should interact
 

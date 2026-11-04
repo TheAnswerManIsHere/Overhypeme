@@ -3134,12 +3134,15 @@ nothing about when *not* to stop, so a natural pause in the conversation
 defaulted to a hand-back.
 
 **Avoid:** a hand-back needs one of the reasons item 0 of `claude-core.md`,
-*Waiting, and scheduled check-ins*, lists, named in the footer's **Next:**:
+*Waiting, and scheduled check-ins*, lists, named in the hand-back's summary:
 the work is done; every startable item waits on an event that will wake me;
 a 🛑 stop; a report the contract makes a turn's last text, with the next
 item's resume armed before it is written; or a check-in that tripped its cap. If this recurs with that rule in place, the response is a
-deterministic check on the footer's **Next:** form (a Stop hook that
-refuses a malformed one), not a better note (*Recurring failure patterns
-become CI guards*). The alert hook already reads the form, to decide whether
-David's phone rings (`claude-core.md`, interaction rule 6; #264); it refuses nothing, so
-it is not that check.
+deterministic check, not a better note (*Recurring failure patterns become
+CI guards*). (Until 2026-11-04 the summary was a footer whose **Next:**
+field had four fixed forms a Stop hook could have checked; David retired
+the footer for a plain-English summary, so such a check now needs a shape
+to read — the 🛑 banner and the `✅ **PLAN DONE** —` line are the only
+fixed hand-back shapes the alert hook rings on (beside the harness's own
+prompt and error events), `claude-core.md`, interaction rule 6. It refuses nothing, so it is
+not that check.)
