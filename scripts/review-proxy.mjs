@@ -1285,10 +1285,12 @@ export function main(
     log(`review-proxy: ${result.instructions}`);
     return 2;
   }
-  // The usage line is the spend line's only reading for an Astra run: five
-  // buckets from `codex exec --json`, priced per bucket from token-pricing.md
-  // (its Astra rows), never by the blended proxy. "Not reported" means the
-  // run is `unable to verify`, which is what the spend line then says.
+  // The usage line is the only reading of an Astra run's cost: five buckets
+  // from `codex exec --json`, priced per bucket from token-pricing.md (its
+  // Astra rows), never by the blended proxy. "Not reported" means the run's
+  // cost is `unable to verify`. (The per-turn spend line that once read it
+  // was retired, David, 2026-11-04; the reading still informs a review
+  // request's cost statement.)
   log(
     `review-proxy: ${followUp ? `follow-up ${followUp} on ` : ""}round ${flags.round} on ${result.reviewer.id} ` +
       `(${result.reviewer.effort}, ${SANDBOX}) — ${result.seconds}s; ${usageLine(result.usage)}`,

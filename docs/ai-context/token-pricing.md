@@ -1,14 +1,18 @@
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
-# Token pricing — the published list prices the spend line uses
+# Token pricing — the published list prices a cost figure uses
 
-**What this is.** The per-million-token list prices that every spend line
-(`claude-core.md`, *A reversible choice proceeds, and every turn reports its
-spend*, item 2) converts tokens with. They are read from the vendors'
+**What this is.** The per-million-token list prices that a cost figure
+converts tokens with — a review request's one-line cost statement
+(`claude-core.md`, *The ship gate*), a routing comparison between tiers
+(the `model-routing` skill), an Astra run's priced usage. (A per-turn spend
+line used to be the main reader; David retired it on 2026-11-04,
+`claude-core.md`, *A reversible choice proceeds, and every hand-back says
+what it did*, rule 2.) They are read from the vendors'
 published pricing pages, quoted here with the date they were read, and
 **refreshed at KITT's `/maintenance` pass** (the `maintenance` skill,
 step 6b) — the one source; a consumer's copy is vendored and read-only, and
 a consumer's pass reports its dates rather than editing it.
-A spend line cites a rate from this table; `unable to verify` is for a model
+A cost figure cites a rate from this table; `unable to verify` is for a model
 this table does not carry, never for a rate it does (David, 2026-10-11:
 *"Why do you keep saying you can't verify the list price for tokens? They're
 published!"*).
@@ -109,26 +113,26 @@ Three readings behind that formula, each settled rather than assumed:
   past 272K with every request short. So: **`input_tokens` at or under
   272,000 is priced exactly from the short row** — no single request can
   exceed the turn's total. **Above it, the figure is an upper bound priced
-  from the long-context row, and the spend line says so** (`≤ $X, long-context
+  from the long-context row, and the figure says so** (`≤ $X, long-context
   row as ceiling`), since which requests crossed is not in the reading. That
   overstates and never understates, the side the Haiku rule below takes for
   the same reason (Codex, KITT #199 round 2).
 
-A run whose log says `usage not reported` is `unable to verify` in the
-spend line, as the rule at the top says. That covers a usage object lacking
+A run whose log says `usage not reported` is `unable to verify` in any
+cost figure, as the rule at the top says. That covers a usage object lacking
 any of the five buckets, the CLI's all-zero default for a turn that reported
 no usage at all, and a stream in which the CLI rerouted the run to another
 model — whose counts would be priced at the wrong rates (KITT #197
 items 4 and 5). (This replaces the single $15/M Astra proxy row and
 answers Overhype.me #639 `4243652049` and DojoOS #8 `4243765922`.)
 
-## How a spend line converts tokens — the blended proxy
+## How a cost figure converts harness tokens — the blended proxy
 
 The harness reports one number per turn, the `<total_tokens>` count
 differenced, and a task notification reports one usage figure per Claude
 subagent (an Astra run is the exception, priced per bucket above).
 Neither splits input from output or cache reads from fresh input, so no
-spend line can price each bucket at its own rate. **The proxy is a
+figure can price each bucket at its own rate. **The proxy is a
 judgement, named as one**: price every harness-counted token at the model's
 base input rate plus half again, which stands in for the output share and the
 cache-write premium in an agent turn (an input-heavy mix — roughly nine
@@ -150,9 +154,9 @@ total per dispatch with no prompt/output split — so the total is the
 stand-in: a Haiku dispatch whose reported usage exceeds 100,000 tokens is
 priced at the long-context row for all of its tokens. That overstates a
 dispatch that crossed the line late and never understates one, which is the
-side to err on for a figure a cap is set from (Codex, Overhype.me #639).
+side to err on for a figure a budget is weighed against (Codex, Overhype.me #639).
 
-A spend line names the rate it used (`proxy $15/M Fable`) so the reader can
+A cost figure names the rate it used (`proxy $15/M Fable`) so the reader can
 re-derive the figure when this table moves. The proxy rule above changes only
 by a decision recorded here; the rates change at every refresh.
 
@@ -166,7 +170,7 @@ the two tables and each section's read date, and recompute the proxy column
 from the rule above. A consumer that pins a model this table does not carry
 gets its row by a pull request to KITT, never by a local edit — a
 consumer's pins are its own, so KITT's pass cannot see them, and
-until the row lands every spend line there reads `unable to verify`, which
+until the row lands every cost figure there reads `unable to verify`, which
 is the signal to open that pull request. A consumer's `/maintenance` reads
 this table and reports each section's read date and how old it is; it never
 edits it, and it does not judge the copy stale against KITT's pass,

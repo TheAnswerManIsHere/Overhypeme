@@ -317,16 +317,6 @@ of the workstream issue's body, with these fields:
   stage name alone (the same accuracy bar `/status-all` applies). If nothing's
   blocking, say so.
 - **What you need to do** — the concrete next action, or "nothing right now."
-- **Spend so far** — the build's running total in dollars, updated at every
-  hand-back that changes it (on the private path it lives in the private
-  item, with the plan, and reaches the build report by David's relay), so
-  the build report can state what the build
-  cost (David, 2026-10-21; `claude-core.md`, *A reversible choice proceeds,
-  and every turn reports its spend*). The one ledger line a workstream
-  keeps; the other is the fleet's `paid-ai-ledger` issue in KITT's
-  repository, one comment per paid AI run in any product, which the weekly
-  paid-run budget — one total across every product — is read from
-  (`uat-doc-format.md`, *Lanes*).
 - **Decisions taken on recommendation** — one line per reversible choice the
   agent proceeded on without asking, with the way back
   ([`agent-working-rules.md`](./agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)),
