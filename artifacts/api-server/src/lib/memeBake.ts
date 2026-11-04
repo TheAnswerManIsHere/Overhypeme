@@ -12,7 +12,7 @@ import { liveContent } from "./contentVisibility";
 import { logger } from "./logger";
 import { errorCode } from "./mediaBackup/preserve";
 import { generateMemeBuffer } from "./memeGenerator";
-import { resolveBackground, resolveStoredMemeCaption } from "./memeComposite";
+import { resolveBackground, resolveStoredMemeCaption, storedMemeCaption } from "./memeComposite";
 import { ObjectStorageService } from "./objectStorage";
 import { memeKey } from "./storageKeys";
 import type { ImageSourceSchema } from "./validators/memeBuilder";
@@ -39,6 +39,7 @@ export async function renderMemeRecipe(recipe: MemeRecipe): Promise<Buffer> {
     textOptions,
     recipe.aspectRatio ?? "landscape",
     recipe.framingTransform ?? undefined,
+    storedMemeCaption(recipe.fact, recipe.creator, recipe.textOptions),
   );
 }
 

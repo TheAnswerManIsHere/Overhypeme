@@ -27,9 +27,11 @@ import { createHash } from "node:crypto";
 import {
   composeMeme,
   personalizeMemeTextOptions,
+  resolveBackground,
   resolveStoredMemeCaption,
 } from "../lib/memeComposite.js";
-import { resolveTextBlocks, type TextOptions } from "../lib/memeGenerator.js";
+import { generateMemeBuffer, resolveTextBlocks, type TextOptions } from "../lib/memeGenerator.js";
+import type { MemeCaption } from "@workspace/api-zod";
 import { hasUnresolvedFactTokens, CANONICAL_NAME } from "../lib/renderCanonical.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 
@@ -336,6 +338,11 @@ describe("composeMeme — split captions render personalized (end to end)", () =
   });
   after(photos.tearDown);
 
+  /** A render of hand-typed caption runs over the same photo, through the generator directly. */
+  async function renderLiteral(caption: MemeCaption, textOptions: TextOptions | undefined): Promise<Buffer> {
+    return generateMemeBuffer(await resolveBackground(imageSource, {}), "", textOptions, "landscape", null, caption);
+  }
+
   it("renders a tokenized split identically to the same split typed out by hand", async () => {
     // The strongest available proof that substitution reached the drawn text:
     // if the token survived to the canvas, these two renders could not be
@@ -348,15 +355,13 @@ describe("composeMeme — split captions render personalized (end to end)", () =
       textOptions: { topText: "{NAME} makes", bottomText: "onions cry." },
       aspectRatio: "landscape",
     });
-    const literal = await composeMeme({
-      factTextTemplate: "Nick Baron makes onions cry.",
-      name: "Nick Baron",
-      pronouns: "he/him",
-      imageSource,
-      textOptions: { topText: "Nick Baron makes", bottomText: "onions cry." },
-      aspectRatio: "landscape",
-    });
-    assert.equal(sha256(tokenized.buffer), sha256(literal.buffer));
+    // The same words typed out by hand, the name marked as the name (it is
+    // drawn in its own colour, #870).
+    const literal = await renderLiteral(
+      { mode: "split", top: [{ text: "Nick Baron", isName: true }, { text: " makes", isName: false }], bottom: [{ text: "onions cry.", isName: false }] },
+      { topText: "Nick Baron makes", bottomText: "onions cry." },
+    );
+    assert.equal(sha256(tokenized.buffer), sha256(literal));
   });
 
   it("still reflects the viewer's name in the split caption (not a blanket no-op)", async () => {
@@ -403,13 +408,10 @@ describe("composeMeme — split captions render personalized (end to end)", () =
       imageSource,
       aspectRatio: "landscape",
     });
-    const again = await composeMeme({
-      factTextTemplate: "Nick makes onions cry.",
-      name: "Nick",
-      pronouns: "he/him",
-      imageSource,
-      aspectRatio: "landscape",
-    });
-    assert.equal(sha256(withSplit.buffer), sha256(again.buffer));
+    const again = await renderLiteral(
+      { mode: "single", text: [{ text: "Nick", isName: true }, { text: " makes onions cry.", isName: false }] },
+      undefined,
+    );
+    assert.equal(sha256(withSplit.buffer), sha256(again));
   });
 });
