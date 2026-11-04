@@ -594,7 +594,9 @@ A cold visit to a fact link with no name set rendered "__ can set ants on fire w
 
 - `isLandingExceptionPath` (`artifacts/overhype-me/src/lib/identity.ts:30`) matches `/m/:slug` and `/facts/:id`: `s.length === 2 && (s[0] === "m" || s[0] === "facts")`.
 - `shouldAskForIdentity` returns `false` while auth is `"loading"` (`identity.ts:84`), and the welcome sheet opens 600 ms after the decision turns true (`WelcomeModal.tsx:88-99`). `FactDetail` renders the fact as soon as its data arrives (`FactDetail.tsx:260-265`), independently of either. So removing the exception alone still lets a fast fact response show the nameless text before the sheet opens (Astra, scope exchange, P4-S1).
-- The signed-out name tag always renders pronouns: `displayPronouns(pronouns) || \`${pronounSubject}/${pronounObject}\`` (`NameTag.tsx:175`), where `pronouns` carries the `he/him` rendering fallback when nothing was supplied. The provider already exposes `pronounsSupplied` (`use-person-name.ts:111`). The signed-in branch approximates the same thing by comparing with `DEFAULT_PRONOUNS` (`NameTag.tsx:154`), which hides a visitor's real choice of he/him.
+- The signed-out name tag always renders pronouns: `displayPronouns(pronouns) || \`${pronounSubject}/${pronounObject}\`` (`NameTag.tsx:175`), where `pronouns` carries the `he/him` rendering fallback when nothing was supplied. The provider already exposes `pronounsSupplied` (`use-person-name.ts:111`). The signed-in branch shows pronouns when the account holds them or the value is not the default (`NameTag.tsx:154`: `userPronounsRaw || pronouns !== DEFAULT_PRONOUNS`), so it already shows an account's chosen he/him; and the browser flag does not represent a nameless account's pronouns, which `AccountIdentityMirror.tsx:35` deliberately does not mirror (Astra, round 1).
+- `FactDetail`'s below-fold effect (`FactDetail.tsx:157-185`) attaches its observer and 5-second fallback to a sentinel that mounts with the body, and depends only on `fact` and `belowFoldMounted`. If the body is withheld when the fact arrives, the sentinel is absent, the effect returns, and saving the identity mounts the sentinel without re-running it, so the gallery, comments, alternates and related facts would never load (Astra, round 1).
+- `decisions.md` holds no entry for the 2026-10-17 Question 3 answer; it lives in this plan's *Questions for David*.
 - Link previews are unaffected: the server renders them only for memes (`api-server/src/routes/og.ts:131`, `/og/m/:slug`).
 
 ### Product intent (Phase 4)
@@ -615,17 +617,17 @@ A cold visit to a fact link with no name set rendered "__ can set ants on fire w
 ### Settled decisions (Phase 4)
 
 - **The landing exception matches `/m/:slug` only.** `isLandingExceptionPath` drops `facts`; nothing else in the decision changes.
-- **The fact page withholds its body until the identity is resolved and complete.** While auth is loading, or the decision would ask on this page, `FactDetail` shows its existing loading state inside the page chrome instead of the fact, its alternates, gallery and comments; the sheet opens over that. The predicate comes from the identity module (the same inputs `useIdentityGate` already reads), never from a check of the page's own. The page chrome, including the name tag, still renders, so the visitor can see where they are.
-- **The name tag shows pronouns only when supplied**, read from `pronounsSupplied` in both branches. Signed in, an account's own pronouns count as supplied (Phase 2's account mirror already feeds them in). A supplied `he/him` shows; the fallback never does.
+- **The fact page withholds its body until the identity is resolved and complete.** While auth is loading, or the decision would ask on this page, `FactDetail` shows its existing loading state inside the page chrome instead of the fact, its alternates, gallery and comments; the sheet opens over that. The predicate comes from the identity module (the same inputs `useIdentityGate` already reads), never from a check of the page's own. The page chrome, including the name tag, still renders, so the visitor can see where they are. When the body appears, the below-fold loading attaches to the newly mounted sentinel (the builder picks the lifecycle: a gate dependency, a callback ref, or placement), so the gallery, comments, alternates and related facts load as on any visit.
+- **The signed-out name tag shows pronouns only when supplied**, read from `pronounsSupplied`. A supplied `he/him` shows; the fallback never does. The signed-in branch is unchanged: it already shows an account's own pronouns, and the browser flag does not speak for a nameless account (Astra, round 1).
 - **The empty name tag shows a muted "Your name" placeholder** where the name would be, with the pencil, so it still reads as the place to set it (see *Questions for David (Phase 4)*, P4-1).
 
 ### Testing (Phase 4)
 
 - **Unit, the decision:** the table in `src/lib/identity.test.ts` gains rows: a cold signed-out `/facts/:id` landing asks; `/m/:slug` does not; a fact link with both halves does not ask; with one half it asks.
 - **Unit, the withhold predicate:** withheld while auth is loading, while the decision asks, and released once the identity is complete; never withheld for a complete identity, a suppressed page, or an account not yet set up.
-- **Component, the name tag:** no name and nothing supplied shows neither name nor pronouns; a name with nothing supplied shows the name alone; a supplied `he/him` shows; a custom set shows; signed in, an account's pronouns show.
+- **Component, the name tag:** no name and nothing supplied shows neither name nor pronouns; a name with nothing supplied shows the name alone; a supplied `he/him` shows; a custom set shows; signed in, an account's pronouns still show (unchanged branch, a regression row).
 - **Browser (described-screens suite), signed out with no identity:**
-  - `/facts/:id`, with the fact response served before auth resolves: the fact's text never appears in the page (checked through the sheet's opening delay and until save), the sheet opens, and after saving the fact shows the saved name.
+  - `/facts/:id`, with the fact response served before auth resolves: the fact's text never appears in the page (checked through the sheet's opening delay and until save), the sheet opens, and after saving the fact shows the saved name, and the gallery, comments and alternate phrasings then load without a refresh.
   - `/facts/:id?<share link with both halves>`: no sheet, the fact shows with the link's name.
   - `/m/:slug`: the meme shows with no sheet (unchanged).
 - **Existing tests updated to the decision** (named in the handoff on #856): the `identity.test.ts` table's fact rows; in `e2e/identityFlow.spec.ts`, the Phase 1 test whose new-tab step opens `/facts/551`, and the Phase 3 share, sort and alternate-builder journeys on `/facts/571` and `/facts/573`, which now save at arrival and then prove the action or builder still works. Meme content-first, deferred-action continuation and P3-1 coverage are kept.
@@ -634,10 +636,10 @@ A cold visit to a fact link with no name set rendered "__ can set ants on fire w
 
 Phase 4 is one increment, on a fresh branch off `main`:
 1. The exception change and the withhold predicate, with unit tests.
-2. `FactDetail` withholds its body on the predicate.
-3. The name tag's pronoun condition and empty-state placeholder, with component tests.
+2. `FactDetail` withholds its body on the predicate, with the below-fold loading re-attached when it appears.
+3. The signed-out name tag's pronoun condition and empty-state placeholder, with component tests.
 4. The browser tests, new and updated.
-5. The `decisions.md` entry beside the 2026-10-17 Question 3 answer.
+5. A dated 2026-11-04 `decisions.md` entry superseding the fact-page part of the 2026-10-17 Question 3 answer (recorded in this plan's *Questions for David*), citing #856.
 
 ### Next, not in Phase 4
 
