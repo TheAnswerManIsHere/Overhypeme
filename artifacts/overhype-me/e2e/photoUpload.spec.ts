@@ -74,3 +74,39 @@ test("a user's uploaded photo is stored, readable by its owner, and by nobody el
   expect((await anonymous.request.get(new URL(url, page.url()).toString())).status()).toBe(401);
   await anonymous.close();
 });
+
+// #848: a free account that sets an uploaded photo as its profile photo (the
+// onboarding photo step's call) is not asked for one again on Profile, and
+// keeps its generated avatar as its picture, since a photo avatar is
+// Legendary's (custom_avatar).
+test("a free account's profile photo stops Profile asking for one, and its picture stays generated", async ({ page }) => {
+  await signInThroughForm(page, FREE_ACCOUNT.email, TEST_ACCOUNT_PASSWORD);
+
+  const upload = await uploadFixturePhoto(page);
+  expect(upload.status, JSON.stringify(upload.body)).toBe(200);
+  const objectPath = upload.body["objectPath"] as string;
+
+  const csrf = await csrfToken(page);
+  const set = await page.evaluate(
+    async ({ csrf, objectPath }) => {
+      const response = await fetch("/api/users/me/profile-image", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+        body: JSON.stringify({ objectPath }),
+      });
+      return response.status;
+    },
+    { csrf, objectPath },
+  );
+  expect(set).toBe(200);
+
+  const me = (await (await page.request.get("/api/users/me")).json()) as Record<string, unknown>;
+  expect(me["profileImageUrl"]).toBe(`/api/storage${objectPath}`);
+  expect(me["avatarSource"]).toBe("avatar");
+
+  await page.goto("/profile");
+  // The banner renders in the same pass as the loaded profile's heading.
+  await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Add a real photo of you")).toHaveCount(0);
+});
