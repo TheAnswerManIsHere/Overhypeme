@@ -64,17 +64,30 @@ others carry on.
 ## Step 3 — per consumer, what has it not got?
 
 **The last delivered commit** is the one named on the consumer's most recent
-merged sync PR (title `Sync KITT <sha7>`; Step 5). With none on record, the
+merged sync PR (title `Re-sync KITT <sha7>`, the fleet's existing form; Step 5). With none on record, the
 delta is the whole payload, and that is said. `git -C "$SCRATCH/kitt-main" log
 --oneline <last>..HEAD -- core` is what the sync will carry; empty means
 nothing to deliver, and the repository is reported as current.
 
 **One sync PR per repository, ever open at once.** Before anything is
-written, look for an open PR in that repository whose title starts `Sync
+written, look for an open PR in that repository whose title starts `Re-sync
 KITT`. If there is one, this run **updates it** — its branch, merged with
 the consumer's `main` if that has moved, then synced again, its title and
 body rewritten to the new delivered commit — rather than opening a second
 that would conflict with it.
+
+**A sync PR is one this skill opened, and the title alone never shows that.**
+Every consumer is public, so anyone can open a fork PR titled `Re-sync
+KITT…` and let maintainers push to its branch. Adopting that branch would
+carry its commits into `main` under the Trivial declaration (Codex security
+review, Overhype.me PR #859). So a PR counts as a sync PR — for the
+last-delivered commit and for the one to update — only when its head branch
+is `kitt-sync/<sha7>` **in the consumer repository itself** (not a fork) and
+it was opened by the account this session pushes as. A PR that has the title
+without both is not touched: it is named in the hand-back as an impostor, and
+the run opens its own. Before merging (Step 6), the PR's diff must be only
+what the sync wrote plus Step 5's index lines; anything else stops that
+repository's merge and is reported.
 
 ## Step 4 — the declarations check (`docs/consuming-repos.md`, step 6)
 
@@ -118,7 +131,8 @@ documents*).
 
 Commit, push, and open (or update) the PR:
 
-- **Title:** `Sync KITT <sha7>: <n> KITT pull requests`.
+- **Title:** `Re-sync KITT <sha7>: <what it delivers, in a few words>` — the
+  form every sync PR in the fleet already carries, so Step 3 finds them.
 - **Body:** the delivered commit in full and the last one; each KITT PR in
   the range by number and title; every `NOTE` line; the declarations check's
   result; `Oracle source: no plan` — the content was reviewed where it was
@@ -155,6 +169,12 @@ shell command never reached the running session's context over the
 following tool calls. Skills are the exception: the same session was told
 of a new `SKILL.md` the moment it was written, and could invoke it. So a
 session must get the files, then re-read the contract files among them.
+Re-reading is the best a running session can do, and it is not proven to
+win over the copy loaded at start: the same measurement showed only that the
+change is not seen, and two live instructions that contradict each other can
+either of them fire. **Only a new session is certain to run under the new
+rules**, so the message says so, and the hand-back names any change that
+needs that certainty.
 
 List the account's sessions (`list_sessions`, `mine: true`) and send each
 one that is not archived and works in a synced repository — KITT's own
@@ -165,8 +185,9 @@ interrupted:
 > next boundary — before your next push, or when you start a branch — merge
 > `origin/main` into your branch. Not mid-review-round: a merge is a new
 > head and costs a round. Then re-read these files, since a running session
-> does not reload them: `<changed paths outside .claude/skills/>`. Nothing else about your work
-> changes.
+> does not reload them: `<changed paths outside .claude/skills/>`. Re-reading
+> is best effort; a new session is the only sure way onto the new rules.
+> Nothing else about your work changes.
 
 A session in Replit or on a local machine is not reachable this way; the
 hand-back says how many were messaged and that those were not.
