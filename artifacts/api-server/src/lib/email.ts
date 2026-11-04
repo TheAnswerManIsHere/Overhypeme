@@ -165,6 +165,10 @@ export interface EmailJobPayload {
 export async function sendEmail(
   payload: EmailPayload & { kind?: string },
   dbOverride?: Pick<typeof defaultDb, "insert">,
+  // Whether the outbox row is written under the test key. Defaults to "an
+  // override was passed" (the original opt-in); a caller passing a
+  // transaction for atomicity, not to exercise insertion, says false (#868).
+  opts: { insertUnderTestKey?: boolean } = {},
 ): Promise<void> {
   if (!isEnabled()) {
     const from = await getFromAddress();
@@ -187,7 +191,8 @@ export async function sendEmail(
   // caller explicitly supplies a dbOverride — without this guard the shared
   // async_jobs would accumulate test rows that the running dev-server's
   // worker would attempt to deliver with the real API key.
-  if (!dbOverride && (getResendApiKey()?.startsWith("re_test_") ?? false)) {
+  const insertUnderTestKey = opts.insertUnderTestKey ?? dbOverride !== undefined;
+  if (!insertUnderTestKey && (getResendApiKey()?.startsWith("re_test_") ?? false)) {
     logger.info(
       { to: payload.to, subject: payload.subject },
       "[email] test key detected — outbox insert suppressed (pass dbOverride to exercise insertion in tests)",

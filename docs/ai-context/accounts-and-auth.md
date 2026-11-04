@@ -178,6 +178,15 @@ the server enforces it:
 admin override `POST /admin/users/:id/verify-email`
 (`routes/admin.ts:2300-2313`).
 
+A link is sent at registration and on resend — and by the "Check your email"
+screen on arrival, which calls resend with `{ ifNoneOut: true }`: that sends
+only when the account has no live, unused link for its address, counts only
+an actual send against resend's limit, and is awaited, so the screen says
+"We sent a link" only once one is out. Without it, an unverified account that
+never registered locally (Google-made, or from before Phase 5) reached the
+screen with nothing sent (#868). It is the same route, so the verified-actor
+gate's exception table is unchanged.
+
 Token: raw 32-byte random value, only its SHA-256 hash stored
 (`emailVerificationTokensTable`, `lib/db/src/schema/auth.ts:72-84`), a fixed
 expiry, single-use via `usedAt` (`localAuth.ts:463-466,487-490`). Verifying

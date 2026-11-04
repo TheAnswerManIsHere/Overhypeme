@@ -68,8 +68,6 @@ async function sendVerificationEmail(userId: string, email: string, pendingEmail
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-  await db.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt, pendingEmail: pendingEmail ?? null });
-
   const verifyUrl = `${getSiteBaseUrl()}/verify-email?token=${rawToken}`;
 
   let emailContent;
@@ -78,7 +76,13 @@ async function sendVerificationEmail(userId: string, email: string, pendingEmail
   } else {
     emailContent = buildEmailVerificationEmail(verifyUrl);
   }
-  await sendEmail({ to: email, ...emailContent });
+  // One transaction: a link is saved only with its email queued, so a failed
+  // enqueue leaves no token for the check-email screen's "is a link out?"
+  // test to mistake for a sent one (#868, PR #871 round 1).
+  await db.transaction(async (tx) => {
+    await tx.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt, pendingEmail: pendingEmail ?? null });
+    await sendEmail({ to: email, ...emailContent }, tx, { insertUnderTestKey: false });
+  });
 }
 
 function setSessionCookie(res: Response, sid: string) {
@@ -643,6 +647,16 @@ router.get("/auth/email-status", async (req: Request, res: Response) => {
   });
 });
 
+// `{ ifNoneOut: true }` is the "Check your email" screen's arrival call
+// (#868): the screen says a link was sent, but only registration and an
+// explicit resend ever sent one, so an unverified account that signed in some
+// other way (made by Google sign-in, or from before Phase 5) reached it with
+// nothing in its inbox. With the flag the route sends only when the account
+// has no live, unused link for its address — a just-registered account is not
+// sent a second — and only an actual send counts against the limit. It answers
+// `status` ("sent" / "already-sent" / "verified") and awaits the send, since
+// the screen claims a link only on that answer. It stays one route so the
+// verified-actor gate's exception table is unchanged.
 router.post("/auth/resend-verification", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Not authenticated" });
@@ -650,15 +664,19 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   }
 
   const userId = req.user.id;
+  const ifNoneOut = (req.body as { ifNoneOut?: unknown } | undefined)?.ifNoneOut === true;
 
-  const resendLimit = await checkSharedRateLimit(
-    { endpoint: "auth.resend-verification", userId, recipientEmail: req.user.email ?? null },
+  const checkLimit = () => checkSharedRateLimit(
+    { endpoint: "auth.resend-verification", userId, recipientEmail: req.user!.email ?? null },
     { limit: RESEND_VERIFICATION_MAX, windowMs: RESEND_VERIFICATION_WINDOW_MS },
   );
 
-  if (!resendLimit.allowed) {
-    res.status(429).json({ error: "Too many resend attempts. Try again later." });
-    return;
+  if (!ifNoneOut) {
+    const resendLimit = await checkLimit();
+    if (!resendLimit.allowed) {
+      res.status(429).json({ error: "Too many resend attempts. Try again later." });
+      return;
+    }
   }
 
   const [user] = await db
@@ -672,11 +690,55 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
     return;
   }
 
+  if (ifNoneOut) {
+    if (user.emailVerifiedAt !== null) {
+      res.status(200).json({ status: "verified", message: "Your email is already verified." });
+      return;
+    }
+    if (!user.email) {
+      res.status(400).json({ error: "No email address on file." });
+      return;
+    }
+    const [live] = await db
+      .select({ id: emailVerificationTokensTable.id })
+      .from(emailVerificationTokensTable)
+      .where(and(
+        eq(emailVerificationTokensTable.userId, userId),
+        isNull(emailVerificationTokensTable.pendingEmail),
+        isNull(emailVerificationTokensTable.usedAt),
+        gt(emailVerificationTokensTable.expiresAt, new Date()),
+      ))
+      .limit(1);
+    if (live) {
+      res.status(200).json({ status: "already-sent", message: "A verification link is already on its way." });
+      return;
+    }
+    const sendLimit = await checkLimit();
+    if (!sendLimit.allowed) {
+      res.status(429).json({ error: "Too many links sent. Try again later." });
+      return;
+    }
+    try {
+      await sendVerificationEmail(userId, user.email);
+    } catch (err) {
+      logger.error({ err }, "[auth] Failed to send verification email from the check-email screen");
+      res.status(502).json({ error: "We couldn't send the link. Try again in a minute." });
+      return;
+    }
+    res.status(200).json({ status: "sent", message: "Verification email sent. Please check your inbox." });
+    return;
+  }
+
   // If there's a pending email change, resend the change verification email
+  // Awaited: "sent" is said only once the email is queued (PR #871 round 1).
   if (user.pendingEmail) {
-    sendVerificationEmail(userId, user.pendingEmail, user.pendingEmail).catch((err) => {
+    try {
+      await sendVerificationEmail(userId, user.pendingEmail, user.pendingEmail);
+    } catch (err) {
       logger.error({ err }, "[auth] Failed to resend email change verification");
-    });
+      res.status(502).json({ error: "We couldn't send the link. Try again in a minute." });
+      return;
+    }
     res.status(200).json({ message: "Verification email sent to your new address. Please check your inbox." });
     return;
   }
@@ -691,9 +753,13 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
     return;
   }
 
-  sendVerificationEmail(userId, user.email).catch((err) => {
+  try {
+    await sendVerificationEmail(userId, user.email);
+  } catch (err) {
     logger.error({ err }, "[auth] Failed to resend verification email");
-  });
+    res.status(502).json({ error: "We couldn't send the link. Try again in a minute." });
+    return;
+  }
 
   res.status(200).json({ message: "Verification email sent. Please check your inbox." });
 });
