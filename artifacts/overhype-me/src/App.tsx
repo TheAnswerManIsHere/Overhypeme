@@ -10,7 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes } from "@/lib/analytics";
 import { PersonNameProvider } from "@/hooks/use-person-name";
 import { WelcomeModal } from "@/components/WelcomeModal";
-import { ShareLinkResolver } from "@/hooks/use-identity-gate";
+import { PendingActionRunner, ShareLinkResolver } from "@/hooks/use-identity-gate";
 import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
@@ -264,6 +264,7 @@ function Router() {
       <AccountIdentityMirror />
       <SetupRedirect />
       <ShareLinkResolver />
+      <PendingActionRunner />
       <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
       <Switch>
         <Route path="/" component={Home} />

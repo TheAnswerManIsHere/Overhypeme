@@ -192,6 +192,44 @@ describe("MemeBuilderWizard", () => {
       });
     }
 
+    // #724: the create request carries the visitor's name and pronouns, so it
+    // goes only from a signed-in session; a selected photo is not proof of it.
+    it("a fresh signed-out builder sends nothing to /api/memes", async () => {
+      renderWizard({ viewerContext: { ...VIEWER, tier: "unregistered" } });
+      await screen.findByRole("heading", { name: /build your meme/i }, S2);
+      fireEvent.click(screen.getByRole("button", { name: "Make my meme" }));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(memeBodies).toHaveLength(0);
+    });
+
+    it("a selected-photo draft restored on a signed-out load sends nothing, and asks for sign-in", async () => {
+      const { onCancel } = openStep2WithPhoto("unregistered", false);
+      await screen.findByRole("heading", { name: /build your meme/i }, S2);
+      const make = screen.getByRole("button", { name: "Make my meme" }) as HTMLButtonElement;
+      expect(make.disabled).toBe(false);
+      fireEvent.click(make);
+      await waitFor(() => expect(onCancel).toHaveBeenCalled(), S2);
+      expect(memeBodies).toHaveLength(0);
+    });
+
+    it("a builder whose session ends while it is open sends nothing on save", async () => {
+      const { onCancel, rerender } = openStep2WithPhoto("registered", false);
+      await screen.findByRole("heading", { name: /build your meme/i }, S2);
+      rerender(
+        <MemeBuilderWizard
+          factId="fact-42"
+          factText="{NAME} can teach a fish to fly."
+          viewerContext={{ ...VIEWER, tier: "unregistered" }}
+          entryFlow="fact-detail"
+          onComplete={vi.fn()}
+          onCancel={onCancel}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Make my meme" }));
+      await waitFor(() => expect(onCancel).toHaveBeenCalled(), S2);
+      expect(memeBodies).toHaveLength(0);
+    });
+
     it("saving with Private picked in the builder sends isPublic false and the browser lands on the returned permalink", async () => {
       const { onComplete } = openStep2WithPhoto("legendary", true);
       await screen.findByRole("heading", { name: /build your meme/i }, S2);

@@ -71,6 +71,12 @@ export interface IdentityDecisionInput {
    * there) does not restore it.
    */
   landingLapsed: boolean;
+  /**
+   * An in-page action is waiting for a complete identity (Phase 3,
+   * `askBefore`). While it waits, the landing page asks too: the visitor
+   * asked to do something, so the content-first exception has done its job.
+   */
+  actionPending?: boolean;
 }
 
 /** Whether the identity sheet should be open right now. */
@@ -78,7 +84,9 @@ export function shouldAskForIdentity(input: IdentityDecisionInput): boolean {
   const { auth, completeness, accountDisplayName, location, landingLocation, landingLapsed } = input;
   if (auth === "loading") return false;
   if (isSuppressedPath(location)) return false;
-  if (!landingLapsed && location === landingLocation && isLandingExceptionPath(landingLocation)) return false;
+  if (!input.actionPending && !landingLapsed && location === landingLocation && isLandingExceptionPath(landingLocation)) {
+    return false;
+  }
   if (auth === "signedIn") {
     // Identity-flow Phase 2: a set-up account is complete when the ACCOUNT
     // has both a name and pronouns, whatever the browser holds; one missing
@@ -88,6 +96,17 @@ export function shouldAskForIdentity(input: IdentityDecisionInput): boolean {
     return !isAccountComplete(accountDisplayName, input.accountPronouns);
   }
   return !isIdentityComplete(completeness);
+}
+
+/**
+ * Whether an in-page action taken now must wait for the identity (Phase 3,
+ * `askBefore`): auth is still unknown, or the sheet would ask on this page
+ * once the action is pending. False means it runs at once: the identity is
+ * complete, the page never asks, or the account is not set up yet and
+ * onboarding is where it answers.
+ */
+export function mustWaitForIdentity(input: Omit<IdentityDecisionInput, "actionPending">): boolean {
+  return input.auth === "loading" || shouldAskForIdentity({ ...input, actionPending: true });
 }
 
 /**

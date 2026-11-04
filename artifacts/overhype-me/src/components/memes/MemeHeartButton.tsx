@@ -7,6 +7,7 @@ import { Heart } from "lucide-react";
 import { useHeartMeme } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
+import { useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
 
 interface MemeHeartButtonProps {
   memeId: number;
@@ -35,6 +36,7 @@ export function MemeHeartButton({
 }: MemeHeartButtonProps) {
   const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
+  const askBeforeSignedIn = useAskBeforeSignedIn();
   const [count, setCount] = useState(initialHeartCount);
   const [active, setActive] = useState(initialViewerHasHearted);
   const heartMutation = useHeartMeme();
@@ -49,26 +51,24 @@ export function MemeHeartButton({
   const onClick = (e: React.MouseEvent) => {
     e.preventDefault();
     if (stopPropagation) e.stopPropagation();
-    if (!isAuthenticated) {
-      setLocation(`/login?from=${encodeURIComponent(window.location.pathname)}`);
-      return;
-    }
-    const next = !active;
-    setActive(next);
-    setCount((c) => Math.max(0, c + (next ? 1 : -1)));
-    heartMutation.mutate(
-      { id: memeId },
-      {
-        onSuccess: (res) => {
-          setActive(res.viewerHasHearted);
-          setCount(res.heartCount);
+    askBeforeSignedIn(`/login?from=${encodeURIComponent(window.location.pathname)}`, () => {
+      const next = !active;
+      setActive(next);
+      setCount((c) => Math.max(0, c + (next ? 1 : -1)));
+      heartMutation.mutate(
+        { id: memeId },
+        {
+          onSuccess: (res) => {
+            setActive(res.viewerHasHearted);
+            setCount(res.heartCount);
+          },
+          onError: () => {
+            setActive(!next);
+            setCount((c) => Math.max(0, c + (next ? -1 : 1)));
+          },
         },
-        onError: () => {
-          setActive(!next);
-          setCount((c) => Math.max(0, c + (next ? -1 : 1)));
-        },
-      },
-    );
+      );
+    });
   };
 
   const iconClass = size === "sm" ? "w-4 h-4" : "w-5 h-5";

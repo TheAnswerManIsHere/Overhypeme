@@ -7,6 +7,7 @@ import { useState } from "react";
 import { NameTag } from "@/components/NameTag";
 import { AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
 import { usePersonName } from "@/hooks/use-person-name";
+import { useAskBefore } from "@/hooks/use-identity-gate";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
 
 function dicebearUrl(style: string, seed: string) {
@@ -58,6 +59,9 @@ export function Navbar() {
   })();
 
   const [, setLocation] = useLocation();
+  // Opening search in place is an in-page action: a visitor without a
+  // complete identity is asked first (identity-flow Phase 3).
+  const askBefore = useAskBefore();
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
@@ -141,7 +145,7 @@ export function Navbar() {
               "avatar lives in the top-right corner" rule. */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setMobileSearchOpen(v => !v)}
+              onClick={() => (mobileSearchOpen ? setMobileSearchOpen(false) : askBefore(() => setMobileSearchOpen(true)))}
               className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Search"
             >

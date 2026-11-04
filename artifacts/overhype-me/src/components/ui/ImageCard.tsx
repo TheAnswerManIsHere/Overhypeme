@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import type { AskBefore } from "@/hooks/use-identity-gate";
 import { Link } from "wouter";
 import {
   Trash2,
@@ -45,6 +46,13 @@ export interface ImageCardProps {
   footer?: ReactNode;
   imageOverlay?: ReactNode;
   className?: string;
+  /**
+   * The identity module's `askBefore` (identity-flow Phase 3), passed by a
+   * page that asks before an in-page action. The menu opener and the
+   * action-bar shortcuts go through it; a gesture-gated shortcut that has to
+   * wait opens the menu instead, so its tap is the visitor's next one.
+   */
+  askBefore?: AskBefore;
 }
 
 function useBlobSrc(src: string, isAuthProtected: boolean) {
@@ -359,6 +367,8 @@ function ActionMenu({
 
 // ─── ImageCard ─────────────────────────────────────────────────────────────
 
+const runNow = (action: () => void) => action();
+
 export function ImageCard({
   src,
   alt,
@@ -375,6 +385,7 @@ export function ImageCard({
   footer,
   imageOverlay,
   className,
+  askBefore = runNow,
 }: ImageCardProps) {
   const displaySrc = useBlobSrc(src, isAuthProtected);
   const isMobile = useIsMobile();
@@ -523,7 +534,12 @@ export function ImageCard({
           aria-label="Image actions"
           aria-haspopup="true"
           aria-expanded={menuOpen}
-          onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuOpen(o => !o); }}
+          onClick={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (menuOpen) setMenuOpen(false);
+            else askBefore(() => setMenuOpen(true));
+          }}
           className="absolute top-1.5 right-1.5 z-20 flex items-center justify-center transition-all duration-200"
           style={{
             width: 32,
@@ -565,7 +581,7 @@ export function ImageCard({
             <button
               aria-label="Open full resolution"
               tabIndex={0}
-              onClick={e => { e.preventDefault(); e.stopPropagation(); openLightbox(); }}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); askBefore(openLightbox, { afterAsking: () => setMenuOpen(true) }); }}
               className={cn(
                 "pointer-events-auto rounded-full text-white transition-colors",
                 compact ? "p-1 bg-black/55 hover:bg-black/75" : "p-1.5 bg-white/10 hover:bg-white/25",
@@ -579,7 +595,7 @@ export function ImageCard({
             <button
               aria-label="Copy link"
               tabIndex={0}
-              onClick={e => { e.preventDefault(); e.stopPropagation(); void handleCopy(); }}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); askBefore(() => void handleCopy(), { afterAsking: () => setMenuOpen(true) }); }}
               className={cn(
                 "pointer-events-auto rounded-full text-white transition-colors",
                 compact ? "p-1 bg-black/55 hover:bg-black/75" : "p-1.5 bg-white/10 hover:bg-white/25",
@@ -596,7 +612,7 @@ export function ImageCard({
             <button
               aria-label="Delete"
               tabIndex={0}
-              onClick={e => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest(); }}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); askBefore(handleDeleteRequest); }}
               className="pointer-events-auto rounded-full text-white transition-colors p-1 bg-black/55 hover:bg-red-600"
               title="Delete"
             >

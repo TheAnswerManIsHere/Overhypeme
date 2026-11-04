@@ -16,7 +16,7 @@ import { ImageCard } from "@/components/ui/ImageCard";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
-import { useIdentityGate } from "@/hooks/use-identity-gate";
+import { useAskBefore, useAskBeforeSignedIn, useIdentityGate } from "@/hooks/use-identity-gate";
 
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
@@ -58,21 +58,20 @@ async function fetchMemes(factId: number, visibility: "community" | "my-public" 
 }
 
 function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }) {
-  const { isAuthenticated, user, role, entitlements } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
   const { rateFact } = useAppMutations();
-  const { pronouns } = usePersonName();
-  const { builderSeed } = useIdentityGate();
-  const [showStudio, setShowStudio] = useState(false);
+  const askBeforeSignedIn = useAskBeforeSignedIn();
 
   const { data: fact, isLoading } = useGetFact(id, {
     query: { queryKey: getGetFactQueryKey(id), enabled: true }
   });
 
   const handleRate = (type: "up" | "down") => {
-    if (!isAuthenticated) return setLocation(`/login?from=/facts/${id}`);
-    const newRating = fact?.userRating === type ? "none" : type;
-    rateFact.mutate({ factId: id, data: { rating: newRating } });
+    askBeforeSignedIn(`/login?from=/facts/${id}`, () => {
+      const newRating = fact?.userRating === type ? "none" : type;
+      rateFact.mutate({ factId: id, data: { rating: newRating } });
+    });
   };
 
   if (isLoading || !fact) {
@@ -86,28 +85,6 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
 
   return (
     <>
-      {showStudio && (
-        <Suspense fallback={null}>
-          <MemeBuilderWizard
-              factId={String(id)}
-              factText={fact.text}
-              viewerContext={{
-                tier: roleToIdentity(role),
-                entitlements,
-                userId: user?.id,
-                name: user?.displayName ?? undefined,
-                pronouns: (user as { pronouns?: string } | undefined)?.pronouns ?? pronouns ?? undefined,
-                hasLibraryImages: role !== "anonymous" && role !== "unregistered",
-              }}
-              entryFlow="fact-detail"
-              initialName={builderSeed.name || undefined}
-              initialPronouns={builderSeed.pronouns || undefined}
-              onComplete={() => setShowStudio(false)}
-              onCancel={() => setShowStudio(false)}
-            />
-        </Suspense>
-      )}
-
       <FactCard
         fact={fact}
         size="variant"
@@ -141,7 +118,8 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
             <Button
               variant="primary"
               size="sm"
-              onClick={() => setShowStudio(true)}
+              // The one builder, on this phrasing's own route, which asks first (#851).
+              onClick={() => setLocation(`/facts/${id}/meme`)}
               className="gap-2"
             >
               <Flame className="w-4 h-4" />
@@ -260,6 +238,9 @@ export default function FactDetail() {
   // A builder copies the identity once at mount, so a builder reached by its
   // route waits until the identity sheet has a complete identity (#719).
   const { builderReady, builderSeed } = useIdentityGate();
+  // In-page actions on this page ask for a missing identity first, then run
+  // (identity-flow Phase 3); navigations need nothing, the next page asks.
+  const askBefore = useAskBefore();
   const showMemeStudio = isMemeRoute && builderReady;
   const openMemeStudio = () => {
     setLocation(`/facts/${factId}/meme`);
@@ -383,7 +364,7 @@ export default function FactDetail() {
           {/* COMMUNITY / MINE segmented tabs */}
           <div className="flex gap-1 bg-secondary border border-border/60 rounded-xl p-1 mb-4">
             <button
-              onClick={() => setGalleryTab("community")}
+              onClick={() => askBefore(() => setGalleryTab("community"))}
               className={cn(
                 "flex-1 h-9 rounded-[10px] font-display font-bold text-xs tracking-widest uppercase transition-all flex items-center justify-center gap-2",
                 galleryTab === "community"
@@ -398,7 +379,7 @@ export default function FactDetail() {
             </button>
             {isAuthenticated && (
               <button
-                onClick={() => setGalleryTab("mine")}
+                onClick={() => askBefore(() => setGalleryTab("mine"))}
                 className={cn(
                   "flex-1 h-9 rounded-[10px] font-display font-bold text-xs tracking-widest uppercase transition-all flex items-center justify-center gap-2",
                   galleryTab === "mine"
@@ -420,7 +401,10 @@ export default function FactDetail() {
               <span className="text-muted-foreground font-display tracking-wider uppercase">Sort</span>
               <select
                 value={memeSort}
-                onChange={(e) => setMemeSort(e.target.value as MemeSort)}
+                onChange={(e) => {
+                  const next = e.target.value as MemeSort;
+                  askBefore(() => setMemeSort(next));
+                }}
                 className="bg-secondary border border-border/80 rounded-full px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary/50 transition-colors focus:outline-none focus:border-primary"
                 aria-label="Sort memes"
               >
@@ -463,6 +447,7 @@ export default function FactDetail() {
                         onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
                         deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                         permalink={memePermalink}
+                        askBefore={askBefore}
                         footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                       />
                       <div className="w-full flex items-center px-1 py-1">
