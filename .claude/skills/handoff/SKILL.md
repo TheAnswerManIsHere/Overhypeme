@@ -224,7 +224,9 @@ The block carries these seven, in order:
    attaches — and a denied call is indistinguishable from "the issue does not
    exist", so the new session concludes the handoff pointed it at something
    imaginary. Name the tool with its server prefix: a bare `add_repo` does not
-   resolve, and the session then has to guess.
+   resolve, and the session then has to guess. A refusal of the attach itself
+   by the auto-mode permission classifier is a 🛑 for David, not a broken
+   handoff ([`add-repo-refused-in-auto-mode.md`](../../../.agents/memory/add-repo-refused-in-auto-mode.md)).
 4. **Mode, phase and tier** — feature or bugfix, the feature's phase
    (production, or prototype by David's declaration, with the regime —
    [`working-modes.md`](../../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)),

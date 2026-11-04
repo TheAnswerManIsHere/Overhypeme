@@ -158,7 +158,9 @@ comment from the trailing seven days is totalled, whichever product it
 names; that total plus the run's worst case is what is held against $25. A
 run whose cost was not recorded is counted at its worst case. A session
 whose GitHub access does not reach KITT attaches it (`add_repo`,
-push access, since it writes the comment) before the run; one that still
+push access, since it writes the comment) before the run — an attach
+refused by the auto-mode classifier stops and asks
+([`add-repo-refused-in-auto-mode.md`](../../.agents/memory/add-repo-refused-in-auto-mode.md)); one that still
 cannot read the ledger cannot know the week's total, so the run asks first,
 as one above the budget would. A spending cap the consumer
 declares bounds a run below the fleet's, never above it, and a check that
