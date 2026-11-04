@@ -2,7 +2,8 @@
  * Integration tests for routes/localAuth.ts.
  *
  * Covers email/password registration, login, password reset,
- * email-verification, set-password, and unlink-provider.
+ * email-verification, the check-email screen's link (#868), set-password,
+ * and unlink-provider.
  *
  * The forgot-password and resend-verification rate limiters are DB-backed
  * (rate_limit_counters). Forgot-password tests vary the CF-Connecting-IP
@@ -30,6 +31,7 @@ import {
 import { eq, like, sql, and } from "drizzle-orm";
 
 import localAuthRouter from "../routes/localAuth.js";
+import { createApp } from "../app.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData, BOOTSTRAP_ADMIN_EMAIL } from "../lib/auth.js";
 
@@ -771,5 +773,86 @@ describe("POST /auth/resend-verification", () => {
       .from(emailVerificationTokensTable)
       .where(eq(emailVerificationTokensTable.userId, id));
     assert.ok(tokens.length >= 1);
+  });
+});
+
+describe("POST /auth/resend-verification { ifNoneOut: true } — the check-email screen's link (#868)", () => {
+  async function liveTokens(userId: string) {
+    return db
+      .select()
+      .from(emailVerificationTokensTable)
+      .where(eq(emailVerificationTokensTable.userId, userId));
+  }
+
+  it("returns 401 when unauthenticated", async () => {
+    const res = await request(makeApp()).post("/auth/resend-verification").send({ ifNoneOut: true });
+    assert.equal(res.status, 401);
+  });
+
+  it("sends a link to an unverified account that has none — the reported case: signed in without registering", async () => {
+    const { id } = await createUserWithPassword();
+    assert.equal((await liveTokens(id)).length, 0);
+    const sid = await bearerForUser(id);
+    const res = await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`).send({ ifNoneOut: true });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.status, "sent");
+    // Awaited, so the link's token exists when the answer lands (with no
+    // email provider in tests, sendEmail logs instead of queuing).
+    assert.equal((await liveTokens(id)).length, 1);
+  });
+
+  it("sends no second link while one is live — a just-registered account keeps its one", async () => {
+    const { id } = await createUserWithPassword();
+    const sid = await bearerForUser(id);
+    const first = await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`).send({ ifNoneOut: true });
+    assert.equal(first.body.status, "sent");
+    const again = await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`).send({ ifNoneOut: true });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.status, "already-sent");
+    assert.equal((await liveTokens(id)).length, 1);
+  });
+
+  it("sends a fresh link when the only one has expired or been used", async () => {
+    const { id } = await createUserWithPassword();
+    await db.insert(emailVerificationTokensTable).values([
+      { userId: id, tokenHash: randomBytes(16).toString("hex"), expiresAt: new Date(Date.now() - 1000) },
+      { userId: id, tokenHash: randomBytes(16).toString("hex"), expiresAt: new Date(Date.now() + 3600_000), usedAt: new Date() },
+    ]);
+    const sid = await bearerForUser(id);
+    const res = await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`).send({ ifNoneOut: true });
+    assert.equal(res.body.status, "sent");
+  });
+
+  it("sends nothing to a verified account", async () => {
+    const { id } = await createUserWithPassword();
+    await db.update(usersTable).set({ emailVerifiedAt: new Date() }).where(eq(usersTable.id, id));
+    const sid = await bearerForUser(id);
+    const res = await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`).send({ ifNoneOut: true });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.status, "verified");
+    assert.equal((await liveTokens(id)).length, 0);
+  });
+
+  it("reaches an unverified account through the full app, verified-actor gate included", async () => {
+    const { id } = await createUserWithPassword();
+    const sid = await bearerForUser(id);
+    const res = await request(createApp())
+      .post("/api/auth/resend-verification")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ ifNoneOut: true });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.status, "sent");
+  });
+
+  it("shares resend's limit, so it cannot widen it", async () => {
+    const { id } = await createUserWithPassword();
+    const sid = await bearerForUser(id);
+    for (let i = 0; i < 3; i++) {
+      await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    await db.update(emailVerificationTokensTable).set({ usedAt: new Date() }).where(eq(emailVerificationTokensTable.userId, id));
+    const res = await request(makeApp()).post("/auth/resend-verification").set("authorization", `Bearer ${sid}`).send({ ifNoneOut: true });
+    assert.equal(res.status, 429);
   });
 });

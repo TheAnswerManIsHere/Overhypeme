@@ -643,6 +643,16 @@ router.get("/auth/email-status", async (req: Request, res: Response) => {
   });
 });
 
+// `{ ifNoneOut: true }` is the "Check your email" screen's arrival call
+// (#868): the screen says a link was sent, but only registration and an
+// explicit resend ever sent one, so an unverified account that signed in some
+// other way (made by Google sign-in, or from before Phase 5) reached it with
+// nothing in its inbox. With the flag the route sends only when the account
+// has no live, unused link for its address — a just-registered account is not
+// sent a second — and only an actual send counts against the limit. It answers
+// `status` ("sent" / "already-sent" / "verified") and awaits the send, since
+// the screen claims a link only on that answer. It stays one route so the
+// verified-actor gate's exception table is unchanged.
 router.post("/auth/resend-verification", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Not authenticated" });
@@ -650,15 +660,19 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   }
 
   const userId = req.user.id;
+  const ifNoneOut = (req.body as { ifNoneOut?: unknown } | undefined)?.ifNoneOut === true;
 
-  const resendLimit = await checkSharedRateLimit(
-    { endpoint: "auth.resend-verification", userId, recipientEmail: req.user.email ?? null },
+  const checkLimit = () => checkSharedRateLimit(
+    { endpoint: "auth.resend-verification", userId, recipientEmail: req.user!.email ?? null },
     { limit: RESEND_VERIFICATION_MAX, windowMs: RESEND_VERIFICATION_WINDOW_MS },
   );
 
-  if (!resendLimit.allowed) {
-    res.status(429).json({ error: "Too many resend attempts. Try again later." });
-    return;
+  if (!ifNoneOut) {
+    const resendLimit = await checkLimit();
+    if (!resendLimit.allowed) {
+      res.status(429).json({ error: "Too many resend attempts. Try again later." });
+      return;
+    }
   }
 
   const [user] = await db
@@ -669,6 +683,45 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
 
   if (!user) {
     res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (ifNoneOut) {
+    if (user.emailVerifiedAt !== null) {
+      res.status(200).json({ status: "verified", message: "Your email is already verified." });
+      return;
+    }
+    if (!user.email) {
+      res.status(400).json({ error: "No email address on file." });
+      return;
+    }
+    const [live] = await db
+      .select({ id: emailVerificationTokensTable.id })
+      .from(emailVerificationTokensTable)
+      .where(and(
+        eq(emailVerificationTokensTable.userId, userId),
+        isNull(emailVerificationTokensTable.pendingEmail),
+        isNull(emailVerificationTokensTable.usedAt),
+        gt(emailVerificationTokensTable.expiresAt, new Date()),
+      ))
+      .limit(1);
+    if (live) {
+      res.status(200).json({ status: "already-sent", message: "A verification link is already on its way." });
+      return;
+    }
+    const sendLimit = await checkLimit();
+    if (!sendLimit.allowed) {
+      res.status(429).json({ error: "Too many links sent. Try again later." });
+      return;
+    }
+    try {
+      await sendVerificationEmail(userId, user.email);
+    } catch (err) {
+      logger.error({ err }, "[auth] Failed to send verification email from the check-email screen");
+      res.status(502).json({ error: "We couldn't send the link. Try again in a minute." });
+      return;
+    }
+    res.status(200).json({ status: "sent", message: "Verification email sent. Please check your inbox." });
     return;
   }
 
