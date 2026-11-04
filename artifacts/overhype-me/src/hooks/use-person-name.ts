@@ -152,7 +152,7 @@ const _SHARE_LINK   = !!(_URL_NAME || _URL_PRONOUNS);
 
 /**
  * The path this page load landed on, relative to the router base like
- * wouter's `useLocation()`; the shared-content exception keys off it.
+ * wouter's `useLocation()`; the shared-meme landing exception (`/m/:slug` only, identity-flow Phase 4) keys off it.
  */
 export const LANDING_LOCATION = (() => {
   if (!_hasWindow) return "/";

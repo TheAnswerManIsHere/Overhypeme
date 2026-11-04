@@ -1,5 +1,5 @@
 /**
- * The landing pages' in-page actions go through the identity module's one operation (identity-flow Phase 3).
+ * The in-page actions on the fact and meme pages go through the identity module's one operation (identity-flow Phase 3). Only the meme page is a content-first landing page; a fact page asks on arrival (Phase 4), so there the operation runs at once for nearly every visitor.
  *
  * @purpose Proves each wired action family hands its effect to `askBefore` and that the effect runs once when the operation runs it: the fact card's share opens the share modal only through it, its comment button and a signed-in vote likewise; a signed-out vote and a signed-out heart go straight to sign-in without asking (P3-1, David 2026-11-04); the gallery card's copy-link and open-full shortcuts copy or open at once when nothing must wait, and when it must, the deferred action opens the card's menu so the browser gesture is the visitor's next tap; the card menu's opener goes through it.
  * @subsystem public-site

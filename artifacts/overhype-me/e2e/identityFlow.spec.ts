@@ -294,7 +294,7 @@ test.describe("Identity flow, Phase 1", () => {
   });
 });
 
-test.describe("Identity flow, Phase 3: in-page actions on shared pages", () => {
+test.describe("Identity flow, Phase 3: in-page actions ask first, then run", () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(DESKTOP);
   });
