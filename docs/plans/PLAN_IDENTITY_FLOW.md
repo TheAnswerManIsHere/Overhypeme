@@ -584,7 +584,7 @@ Phase 3 is one increment, on a fresh branch off `main`:
 
 ## Amendment — Phase 4, fact pages ask first; the name tag shows no unchosen pronouns (2026-11-04)
 
-**Status:** draft, for David's approval; P4-1 answered in his words (below). Where this section and anything earlier in this plan disagree, this section wins: it changes the *Landing exception* settled decision and David's 2026-10-17 answer to Question 3, for fact pages only. Workstream: Issue #856. The Phase 4 oracle is `.agents/reviews/identity-flow-phase4/oracle-identity-flow-phase4.md`, quoted from Issue #856's body:
+**Status:** approved by David, 2026-11-04 ("Option 1 is fine", to the approval ask); P4-1 answered in his words (below). Where this section and anything earlier in this plan disagree, this section wins: it changes the *Landing exception* settled decision and David's 2026-10-17 answer to Question 3, for fact pages only. Workstream: Issue #856. The Phase 4 oracle is `.agents/reviews/identity-flow-phase4/oracle-identity-flow-phase4.md`, quoted from Issue #856's body:
 
 > **What David saw (UAT of PR #855, 2026-11-04):** opening a fact link directly, with no name set, renders the fact as "__ can set ants on fire with a magnifying glass. At night." The name tag reads "AS: (he/him)", with pronouns nobody chose and no name.
 >
