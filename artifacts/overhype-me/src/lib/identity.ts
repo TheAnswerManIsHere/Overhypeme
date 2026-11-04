@@ -23,13 +23,15 @@ export function isSuppressedPath(path: string): boolean {
 }
 
 /**
- * The shared-content pages whose first landing shows its content before
- * asking: `/m/:slug` and `/facts/:id` itself. A builder
- * sub-route such as `/facts/:id/meme` is already an action and is excluded.
+ * The shared-content page whose first landing shows its content before
+ * asking: `/m/:slug`. A meme's image already carries its creator's name, so
+ * it is worth seeing as it is. A fact page is not one (identity-flow Phase 4,
+ * David 2026-11-04): a fact is a template with nothing to show until it has a
+ * name, so `/facts/:id` asks on arrival like every other page.
  */
 export function isLandingExceptionPath(path: string): boolean {
   const s = segments(path);
-  return s.length === 2 && (s[0] === "m" || s[0] === "facts");
+  return s.length === 2 && s[0] === "m";
 }
 
 export interface IdentityCompleteness {
@@ -107,6 +109,26 @@ export function shouldAskForIdentity(input: IdentityDecisionInput): boolean {
  */
 export function mustWaitForIdentity(input: Omit<IdentityDecisionInput, "actionPending">): boolean {
   return input.auth === "loading" || shouldAskForIdentity({ ...input, actionPending: true });
+}
+
+/**
+ * Whether a page may render personalized content (a fact read with the
+ * visitor's name) now, identity-flow Phase 4. False while the identity that
+ * would render is not known to be there yet: auth unknown with an incomplete
+ * browser identity, the sheet about to ask or asking, or a complete signed-in
+ * account whose name the browser copy has not received yet. True otherwise,
+ * including an account onboarding has not finished, which the sheet never
+ * asks. The fact page shows its loading surface until it holds, so a fact is
+ * never shown as "__".
+ */
+export function canShowPersonalizedContent(input: Omit<IdentityDecisionInput, "actionPending">): boolean {
+  const { auth, completeness } = input;
+  if (auth === "loading") return isIdentityComplete(completeness);
+  if (shouldAskForIdentity({ ...input, actionPending: false })) return false;
+  if (auth === "signedIn" && isAccountComplete(input.accountDisplayName, input.accountPronouns)) {
+    return completeness.hasName;
+  }
+  return true;
 }
 
 /**

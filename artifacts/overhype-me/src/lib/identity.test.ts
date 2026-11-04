@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canShowPersonalizedContent,
   canStartBuilder,
   isIdentityComplete,
   isLandingExceptionPath,
@@ -38,10 +39,11 @@ describe("isSuppressedPath", () => {
 });
 
 describe("isLandingExceptionPath", () => {
-  it.each(["/m/abc", "/facts/7"])("treats %s as a landing page", (p) =>
+  it.each(["/m/abc", "/m/abc?x=1"])("treats %s as a landing page", (p) =>
     expect(isLandingExceptionPath(p)).toBe(true),
   );
-  it.each(["/facts/7/meme", "/m", "/", "/search", "/video/12"])("does not treat %s as a landing page", (p) =>
+  // Phase 4 (David, 2026-11-04): a fact page is not a landing page.
+  it.each(["/facts/7", "/facts/7?ref=share", "/facts/7/meme", "/m", "/m/abc/x", "/", "/search", "/video/12"])("does not treat %s as a landing page", (p) =>
     expect(isLandingExceptionPath(p)).toBe(false),
   );
 });
@@ -77,26 +79,31 @@ describe("shouldAskForIdentity", () => {
     expect(ask({ location: "/loginx", landingLocation: "/loginx" })).toBe(true);
   });
 
-  it("does not ask on the shared-content page the visit landed on", () => {
+  it("does not ask on the shared meme the visit landed on", () => {
     expect(ask({ location: "/m/abc", landingLocation: "/m/abc" })).toBe(false);
-    expect(ask({ location: "/facts/7", landingLocation: "/facts/7" })).toBe(false);
+  });
+
+  // Phase 4 (David, 2026-11-04): a fact page asks on arrival, like every other page.
+  it("asks on a fact page the visit landed on, signed out and for a set-up incomplete account", () => {
+    expect(ask({ location: "/facts/7", landingLocation: "/facts/7" })).toBe(true);
+    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", completeness: NAME_ONLY })).toBe(true);
+    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", auth: "signedIn", accountEligible: true, accountDisplayName: "Ada", accountPronouns: null })).toBe(true);
+    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", completeness: COMPLETE })).toBe(false);
   });
 
   it("asks once the visitor leaves the landing page", () => {
     expect(ask({ location: "/", landingLocation: "/m/abc" })).toBe(true);
-    expect(ask({ location: "/facts/8", landingLocation: "/facts/7" })).toBe(true);
+    expect(ask({ location: "/m/def", landingLocation: "/m/abc" })).toBe(true);
   });
 
   it("keeps asking after the visit returns to its landing page (Back, or the app routing there)", () => {
     expect(ask({ location: "/m/abc", landingLocation: "/m/abc", landingLapsed: true })).toBe(true);
-    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", landingLapsed: true })).toBe(true);
   });
 
   // Phase 3: an in-page action on the landing page asks first.
   it("asks on the landing page while an in-page action waits, and only then", () => {
     expect(ask({ location: "/m/abc", landingLocation: "/m/abc", actionPending: true })).toBe(true);
-    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", actionPending: true })).toBe(true);
-    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", actionPending: false })).toBe(false);
+    expect(ask({ location: "/m/abc", landingLocation: "/m/abc", actionPending: false })).toBe(false);
   });
 
   it("a waiting action never makes a complete identity, a suppressed page or loading auth ask", () => {
@@ -143,7 +150,7 @@ describe("canStartBuilder", () => {
 });
 
 describe("mustWaitForIdentity (Phase 3: whether an in-page action waits)", () => {
-  const base = { auth: "signedOut" as const, completeness: NONE, location: "/facts/7", landingLocation: "/facts/7", landingLapsed: false };
+  const base = { auth: "signedOut" as const, completeness: NONE, location: "/m/abc", landingLocation: "/m/abc", landingLapsed: false };
   it("waits on the landing page for an incomplete identity, though arrival never asked", () => {
     expect(mustWaitForIdentity(base)).toBe(true);
   });
@@ -158,5 +165,32 @@ describe("mustWaitForIdentity (Phase 3: whether an in-page action waits)", () =>
   it("signed in, waits for the account, not the browser copy", () => {
     expect(mustWaitForIdentity({ ...base, auth: "signedIn", completeness: COMPLETE, accountEligible: true, accountDisplayName: null, accountPronouns: "she/her" })).toBe(true);
     expect(mustWaitForIdentity({ ...base, auth: "signedIn", accountEligible: true, accountDisplayName: "Ada", accountPronouns: "she/her" })).toBe(false);
+  });
+});
+
+describe("canShowPersonalizedContent (Phase 4: a fact never renders as \"__\")", () => {
+  const base = { auth: "signedOut" as const, completeness: NONE, location: "/facts/7", landingLocation: "/facts/7", landingLapsed: false };
+  it("holds while auth is unknown (loading or failed) and the browser identity is incomplete", () => {
+    for (const c of [NONE, NAME_ONLY, PRONOUNS_ONLY]) {
+      expect(canShowPersonalizedContent({ ...base, auth: "loading", completeness: c })).toBe(false);
+    }
+  });
+  it("shows while auth is unknown when the browser identity is complete", () => {
+    expect(canShowPersonalizedContent({ ...base, auth: "loading", completeness: COMPLETE })).toBe(true);
+  });
+  it("holds while the sheet would ask, signed out and for a set-up incomplete account", () => {
+    expect(canShowPersonalizedContent(base)).toBe(false);
+    expect(canShowPersonalizedContent({ ...base, completeness: NAME_ONLY })).toBe(false);
+    expect(canShowPersonalizedContent({ ...base, auth: "signedIn", accountEligible: true, accountDisplayName: "Ada", accountPronouns: null, completeness: COMPLETE })).toBe(false);
+  });
+  it("shows for a complete identity, signed out or in", () => {
+    expect(canShowPersonalizedContent({ ...base, completeness: COMPLETE })).toBe(true);
+    expect(canShowPersonalizedContent({ ...base, auth: "signedIn", accountEligible: true, accountDisplayName: "Ada", accountPronouns: "she/her", completeness: COMPLETE })).toBe(true);
+  });
+  it("holds a complete account until the browser copy has its name, so the fact never renders before the mirror", () => {
+    expect(canShowPersonalizedContent({ ...base, auth: "signedIn", accountEligible: true, accountDisplayName: "Ada", accountPronouns: "she/her", completeness: NONE })).toBe(false);
+  });
+  it("shows for an account onboarding has not finished, which the sheet never asks", () => {
+    expect(canShowPersonalizedContent({ ...base, auth: "signedIn", accountEligible: false })).toBe(true);
   });
 });

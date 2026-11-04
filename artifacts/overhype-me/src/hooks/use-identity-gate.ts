@@ -1,12 +1,12 @@
 /**
- * @purpose The identity module's decisions as consumers read them (#719): whether the identity sheet should be open now, whether a builder may start from the identity, and the one operation an in-page action calls to ask first and then run (`askBefore`, Phase 3); assembles the auth state, completeness and location once so no consumer rebuilds the policy's inputs.
+ * @purpose The identity module's decisions as consumers read them (#719): whether the identity sheet should be open now, whether a builder may start from the identity, whether a page may render personalized content yet (Phase 4), and the one operation an in-page action calls to ask first and then run (`askBefore`, Phase 3); assembles the auth state, completeness and location once so no consumer rebuilds the policy's inputs.
  * @subsystem public-site
  */
 import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import { LANDING_LOCATION, usePersonName } from "@/hooks/use-person-name";
-import { canStartBuilder, isAccountComplete, mustWaitForIdentity, shouldAskForIdentity, type IdentityAuthState, type IdentityDecisionInput } from "@/lib/identity";
+import { canShowPersonalizedContent, canStartBuilder, isAccountComplete, mustWaitForIdentity, shouldAskForIdentity, type IdentityAuthState, type IdentityDecisionInput } from "@/lib/identity";
 
 export interface IdentityGate {
   /** The identity sheet should be open on this page now. */
@@ -18,6 +18,12 @@ export interface IdentityGate {
    * the identity is complete where Phase 1 requires it.
    */
   builderReady: boolean;
+  /**
+   * A page may render personalized content now (identity-flow Phase 4): the
+   * fact page shows its loading surface until this holds, so a visitor without
+   * a name sees the identity sheet first and never a fact read as "__".
+   */
+  contentReady: boolean;
   /**
    * What a builder's draft starts from (identity-flow Phase 2): signed in, the
    * ACCOUNT's own name and pronouns — never this browser's copy, which the
@@ -145,6 +151,7 @@ export function useIdentityGate(): IdentityGate {
   return {
     shouldAsk: shouldAskForIdentity({ ...state.decision, actionPending: pending !== null }),
     builderReady: state.builderReady,
+    contentReady: canShowPersonalizedContent(state.decision),
     builderSeed: state.builderSeed,
   };
 }

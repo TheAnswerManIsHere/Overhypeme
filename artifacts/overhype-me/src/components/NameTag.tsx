@@ -11,7 +11,6 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import {
   displayPronouns,
-  DEFAULT_PRONOUNS,
   isCustomPronouns,
   parseCustom,
 } from "@/lib/pronouns";
@@ -30,7 +29,7 @@ function canApply(draftPronouns: string): boolean {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function NameTag() {
-  const { name, pronouns, pronounSubject, pronounObject, setName, setPronouns } = usePersonName();
+  const { name, pronouns, pronounsSupplied, setName, setPronouns } = usePersonName();
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -146,14 +145,12 @@ export function NameTag() {
     // Always read displayName from PersonNameContext — synced from auth on login
     // and updated immediately after a profile save without needing a token refresh.
     const displayName = name || (user as { displayName?: string }).displayName || "User";
-    // Show pronouns if: (a) user has them saved in DB (user.pronouns is set), OR
-    // (b) the context value was explicitly changed away from the default this session
-    // (e.g., user just saved pronouns for the first time via Profile page).
-    // This avoids showing the "he/him" default for users who never set pronouns.
-    const userPronounsRaw = (user as { pronouns?: string }).pronouns;
-    const pronounsStr = (userPronounsRaw || pronouns !== DEFAULT_PRONOUNS)
-      ? (displayPronouns(pronouns) || null)
-      : null;
+    // Signed in, the pronouns shown are the ACCOUNT's own, or none (identity-flow
+    // Phase 4): the browser copy can hold a different choice, or the rendering
+    // fallback, and the account mirror does not always replace it. A Profile
+    // save refreshes the auth user, so this is current after an edit.
+    const accountPronouns = (user as { pronouns?: string | null }).pronouns?.trim();
+    const pronounsStr = accountPronouns ? (displayPronouns(accountPronouns) || null) : null;
 
     return (
       <button
@@ -172,7 +169,9 @@ export function NameTag() {
     );
   }
 
-  const displayPron = displayPronouns(pronouns) || `${pronounSubject}/${pronounObject}`;
+  // Signed out, only pronouns the visitor or a share link supplied are shown,
+  // never the rendering fallback nobody chose (identity-flow Phase 4).
+  const displayPron = pronounsSupplied ? displayPronouns(pronouns) || null : null;
 
   return (
     <div className="relative">
@@ -185,7 +184,7 @@ export function NameTag() {
       >
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
         <span className="text-sm font-bold text-foreground font-display">{name}</span>
-        <span className="text-xs text-muted-foreground">({displayPron})</span>
+        {displayPron && <span className="text-xs text-muted-foreground">({displayPron})</span>}
         <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
       </button>
 
