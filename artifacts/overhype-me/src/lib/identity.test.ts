@@ -4,6 +4,7 @@ import {
   isIdentityComplete,
   isLandingExceptionPath,
   isSuppressedPath,
+  mustWaitForIdentity,
   shouldAskForIdentity,
   type IdentityCompleteness,
   type IdentityDecisionInput,
@@ -91,6 +92,19 @@ describe("shouldAskForIdentity", () => {
     expect(ask({ location: "/facts/7", landingLocation: "/facts/7", landingLapsed: true })).toBe(true);
   });
 
+  // Phase 3: an in-page action on the landing page asks first.
+  it("asks on the landing page while an in-page action waits, and only then", () => {
+    expect(ask({ location: "/m/abc", landingLocation: "/m/abc", actionPending: true })).toBe(true);
+    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", actionPending: true })).toBe(true);
+    expect(ask({ location: "/facts/7", landingLocation: "/facts/7", actionPending: false })).toBe(false);
+  });
+
+  it("a waiting action never makes a complete identity, a suppressed page or loading auth ask", () => {
+    expect(ask({ location: "/m/abc", landingLocation: "/m/abc", actionPending: true, completeness: COMPLETE })).toBe(false);
+    expect(ask({ location: "/login", landingLocation: "/m/abc", actionPending: true })).toBe(false);
+    expect(ask({ location: "/m/abc", landingLocation: "/m/abc", actionPending: true, auth: "loading" })).toBe(false);
+  });
+
   it("asks on a builder sub-route even when the visit landed there", () => {
     expect(ask({ location: "/facts/7/meme", landingLocation: "/facts/7/meme" })).toBe(true);
   });
@@ -125,5 +139,24 @@ describe("canStartBuilder", () => {
   it("starts a signed-in builder only from a complete account (Phase 2)", () => {
     expect(canStartBuilder("signedIn", NONE, true)).toBe(true);
     expect(canStartBuilder("signedIn", COMPLETE, false)).toBe(false);
+  });
+});
+
+describe("mustWaitForIdentity (Phase 3: whether an in-page action waits)", () => {
+  const base = { auth: "signedOut" as const, completeness: NONE, location: "/facts/7", landingLocation: "/facts/7", landingLapsed: false };
+  it("waits on the landing page for an incomplete identity, though arrival never asked", () => {
+    expect(mustWaitForIdentity(base)).toBe(true);
+  });
+  it("waits while auth is still unknown, even for a complete identity", () => {
+    expect(mustWaitForIdentity({ ...base, auth: "loading", completeness: COMPLETE })).toBe(true);
+  });
+  it("runs at once for a complete identity, on a page that never asks, and for an account not yet set up", () => {
+    expect(mustWaitForIdentity({ ...base, completeness: COMPLETE })).toBe(false);
+    expect(mustWaitForIdentity({ ...base, location: "/login" })).toBe(false);
+    expect(mustWaitForIdentity({ ...base, auth: "signedIn", accountEligible: false })).toBe(false);
+  });
+  it("signed in, waits for the account, not the browser copy", () => {
+    expect(mustWaitForIdentity({ ...base, auth: "signedIn", completeness: COMPLETE, accountEligible: true, accountDisplayName: null, accountPronouns: "she/her" })).toBe(true);
+    expect(mustWaitForIdentity({ ...base, auth: "signedIn", accountEligible: true, accountDisplayName: "Ada", accountPronouns: "she/her" })).toBe(false);
   });
 });

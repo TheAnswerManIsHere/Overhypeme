@@ -7,6 +7,7 @@ import { Heart } from "lucide-react";
 import { useHeartComment } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
+import { useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
 
 interface CommentHeartButtonProps {
   commentId: number;
@@ -21,6 +22,7 @@ interface CommentHeartButtonProps {
 export function CommentHeartButton({ commentId, initialHeartCount, initialViewerHasHearted }: CommentHeartButtonProps) {
   const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
+  const askBeforeSignedIn = useAskBeforeSignedIn();
   const [count, setCount] = useState(initialHeartCount);
   const [active, setActive] = useState(initialViewerHasHearted);
   const heartMutation = useHeartComment();
@@ -28,26 +30,24 @@ export function CommentHeartButton({ commentId, initialHeartCount, initialViewer
   const onClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!isAuthenticated) {
-      setLocation(`/login?from=${encodeURIComponent(window.location.pathname)}`);
-      return;
-    }
-    const next = !active;
-    setActive(next);
-    setCount((c) => Math.max(0, c + (next ? 1 : -1)));
-    heartMutation.mutate(
-      { id: commentId },
-      {
-        onSuccess: (res) => {
-          setActive(res.viewerHasHearted);
-          setCount(res.heartCount);
+    askBeforeSignedIn(`/login?from=${encodeURIComponent(window.location.pathname)}`, () => {
+      const next = !active;
+      setActive(next);
+      setCount((c) => Math.max(0, c + (next ? 1 : -1)));
+      heartMutation.mutate(
+        { id: commentId },
+        {
+          onSuccess: (res) => {
+            setActive(res.viewerHasHearted);
+            setCount(res.heartCount);
+          },
+          onError: () => {
+            setActive(!next);
+            setCount((c) => Math.max(0, c + (next ? -1 : 1)));
+          },
         },
-        onError: () => {
-          setActive(!next);
-          setCount((c) => Math.max(0, c + (next ? -1 : 1)));
-        },
-      },
-    );
+      );
+    });
   };
 
   return (

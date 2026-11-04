@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { AccessGate } from "@/components/AccessGate";
 import { Turnstile, type TurnstileHandle } from "@/components/ui/Turnstile";
+import { useAskBefore, useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
 
 type FormState = "idle" | "submitting" | "error";
 
@@ -70,6 +71,8 @@ export function FactComments({
 }: Props) {
   const [, setLocation] = useLocation();
   const { isAuthenticated, can, user } = useAuth();
+  const askBefore = useAskBefore();
+  const askBeforeSignedIn = useAskBeforeSignedIn();
   const { addComment } = useAppMutations();
   const { toast } = useToast();
 
@@ -152,7 +155,10 @@ export function FactComments({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) { setLocation(`/login?from=/facts/${fact.id}`); return; }
+    askBeforeSignedIn(`/login?from=/facts/${fact.id}`, submitComment);
+  };
+
+  const submitComment = () => {
     const trimmedText = text.trim();
     if (!trimmedText || formState === "submitting") return;
 
@@ -463,7 +469,10 @@ export function FactComments({
             <span className="text-muted-foreground font-display tracking-wider uppercase">Sort</span>
             <select
               value={commentSort}
-              onChange={(e) => setCommentSort(e.target.value as "top" | "new")}
+              onChange={(e) => {
+                const next = e.target.value as "top" | "new";
+                askBefore(() => setCommentSort(next));
+              }}
               className="bg-secondary border border-border/80 rounded-full px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary/50 transition-colors focus:outline-none focus:border-primary"
               aria-label="Sort comments"
             >

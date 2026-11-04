@@ -23,6 +23,7 @@ import {
 } from "@/pages/memePage/cta/CTABar";
 import { upgradeDestination } from "@/pages/memePage/upgradeDestination";
 import { MemeShareModal } from "@/components/share/MemeShareModal";
+import { useAskBefore } from "@/hooks/use-identity-gate";
 
 interface StoredImageSource {
   type?: "upload" | "identity";
@@ -87,6 +88,9 @@ export default function MemePage() {
   });
 
   const [, setLocation] = useLocation();
+  // In-page actions ask for a missing identity first (identity-flow Phase 3);
+  // sign-in and sign-up go straight there (P3-1).
+  const askBefore = useAskBefore();
   const [shareOpen, setShareOpen] = useState(false);
 
   if (isLoading) {
@@ -187,8 +191,8 @@ export default function MemePage() {
     case "own":
       ctaBar = (
         <CTABarOwn
-          onDownload={handleDownload}
-          onCustomShare={handleCustomShare}
+          onDownload={() => askBefore(handleDownload)}
+          onCustomShare={() => askBefore(handleCustomShare)}
         />
       );
       break;

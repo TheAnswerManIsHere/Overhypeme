@@ -151,6 +151,11 @@ export function Step2Image({
   }, [textOptions, factText, splitIndex]);
 
   const sourceSelected = !!selfUploadImage;
+  // The tier comes from the live auth state on every render (the builder's
+  // host passes `roleToIdentity(role)`), and the builder mounts only once auth
+  // has resolved, so "unregistered" here means signed out now, including a
+  // session that ended while the builder was open.
+  const signedIn = tier !== "unregistered";
   // The meme is saved in the face the preview shows, so saving waits until
   // that face has loaded (names-and-fonts plan).
   const captionFontId = captionFontOf(textOptions);
@@ -161,6 +166,13 @@ export function Step2Image({
   };
 
   const save = async () => {
+    // The create request carries the visitor's name and pronouns, so it goes
+    // only from a resolved, signed-in session (#724). A selected photo is not
+    // proof of sign-in: a draft restored after the session ended can hold one.
+    if (!signedIn) {
+      onRequestSignup({});
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {

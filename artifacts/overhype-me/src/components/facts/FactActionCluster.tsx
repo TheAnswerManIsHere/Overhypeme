@@ -6,6 +6,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { cn } from "@/components/ui/Button";
 import { ShareModal } from "@/components/ShareModal";
+import { useAskBefore, useAskBeforeSignedIn } from "@/hooks/use-identity-gate";
 
 type Size = "sm" | "md" | "lg";
 
@@ -80,18 +81,25 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
   const s = SIZES[size];
 
   const [shareOpen, setShareOpen] = useState(false);
+  // A visitor without a complete identity is asked first, then the action
+  // runs (identity-flow Phase 3).
+  const askBefore = useAskBefore();
+  const askBeforeSignedIn = useAskBeforeSignedIn();
   const displayedShareCount = fact.shareCount ?? 0;
 
   const handleRate = (e: React.MouseEvent, type: "up" | "down") => {
     e.stopPropagation();
-    if (!isAuthenticated) { setLocation(`/login?from=/facts/${fact.id}`); return; }
-    const newRating = fact.userRating === type ? "none" : type;
-    rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
+    askBeforeSignedIn(`/login?from=/facts/${fact.id}`, () => {
+      const newRating = fact.userRating === type ? "none" : type;
+      rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
+    });
   };
 
   const handleShare = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setShareOpen(true);
+    // Opening the share modal is the deferred action, so the native share,
+    // the social links and the clipboard run on the visitor's next tap.
+    askBefore(() => setShareOpen(true));
   };
 
   // Render-text used in the ShareModal social copy. Falls back to the
@@ -103,7 +111,7 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
 
   const handleComment = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onCommentClick();
+    askBefore(onCommentClick);
   };
 
   const handleMakeMeme = (e: React.MouseEvent) => {

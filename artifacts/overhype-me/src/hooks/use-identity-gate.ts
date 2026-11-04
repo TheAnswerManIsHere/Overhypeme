@@ -1,12 +1,12 @@
 /**
- * @purpose The identity module's decisions as consumers read them (#719): whether the identity sheet should be open now, and whether a builder may start from the identity; assembles the auth state, completeness and location once so no consumer rebuilds the policy's inputs.
+ * @purpose The identity module's decisions as consumers read them (#719): whether the identity sheet should be open now, whether a builder may start from the identity, and the one operation an in-page action calls to ask first and then run (`askBefore`, Phase 3); assembles the auth state, completeness and location once so no consumer rebuilds the policy's inputs.
  * @subsystem public-site
  */
-import { useEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import { LANDING_LOCATION, usePersonName } from "@/hooks/use-person-name";
-import { canStartBuilder, isAccountComplete, shouldAskForIdentity, type IdentityAuthState } from "@/lib/identity";
+import { canStartBuilder, isAccountComplete, mustWaitForIdentity, shouldAskForIdentity, type IdentityAuthState, type IdentityDecisionInput } from "@/lib/identity";
 
 export interface IdentityGate {
   /** The identity sheet should be open on this page now. */
@@ -49,7 +49,67 @@ export function builderSeedFor(
  */
 let landingLapsed = false;
 
-export function useIdentityGate(): IdentityGate {
+/**
+ * The one in-page action waiting for a complete identity (Phase 3). Held at
+ * module level, like `landingLapsed`, so the sheet, the runner and every page
+ * see the same one. A newer action replaces it; the runner discards it when
+ * the location changes and runs it exactly once when the identity completes.
+ */
+interface PendingAction {
+  run: () => void;
+  /** Where the visitor asked; a pending action belongs to that page. */
+  location: string;
+}
+let pendingAction: PendingAction | null = null;
+const pendingListeners = new Set<() => void>();
+function setPendingAction(next: PendingAction | null) {
+  pendingAction = next;
+  pendingListeners.forEach((l) => l());
+}
+function subscribePending(listener: () => void) {
+  pendingListeners.add(listener);
+  return () => pendingListeners.delete(listener);
+}
+const getPending = () => pendingAction;
+
+/**
+ * What `askBefore` reads when it is called: whether an action taken now must
+ * wait, and where the visitor is. The runner, mounted once, keeps it current,
+ * so the many controls that call `askBefore` (every heart in a gallery)
+ * subscribe to nothing. Null until the runner has mounted; an action then
+ * runs at once, as it did before Phase 3.
+ */
+let askSnapshot: { mustWait: boolean; location: string } | null = null;
+
+/** Test seam: set what `askBefore` reads, without mounting the runner. */
+export function setAskSnapshotForTest(next: { mustWait: boolean; location: string } | null) {
+  askSnapshot = next;
+}
+
+/** Test seam: take the waiting action's effect, clearing it, as the runner would. */
+export function takePendingActionForTest(): (() => void) | null {
+  const run = pendingAction?.run ?? null;
+  setPendingAction(null);
+  return run;
+}
+
+/** Test seam: forget any pending action, the landing lapse and the snapshot. */
+export function resetIdentityGateForTest() {
+  pendingAction = null;
+  landingLapsed = false;
+  askSnapshot = null;
+  pendingListeners.forEach((l) => l());
+}
+
+interface GateState {
+  decision: Omit<IdentityDecisionInput, "actionPending">;
+  auth: IdentityAuthState;
+  builderReady: boolean;
+  builderSeed: { name: string; pronouns: string };
+  location: string;
+}
+
+function useGateState(): GateState {
   const { user, isAuthenticated, isLoading, status } = useAuth();
   const { name, pronouns, pronounsSupplied, shareLinkResolved } = usePersonName();
   const [location] = useLocation();
@@ -62,7 +122,7 @@ export function useIdentityGate(): IdentityGate {
   const account = user as { displayName?: string | null; pronouns?: string | null; eligibility?: string } | null;
   const accountComplete = isAccountComplete(account?.displayName, account?.pronouns);
   return {
-    shouldAsk: shouldAskForIdentity({
+    decision: {
       auth,
       completeness,
       accountDisplayName: account?.displayName ?? null,
@@ -71,10 +131,92 @@ export function useIdentityGate(): IdentityGate {
       location,
       landingLocation: LANDING_LOCATION,
       landingLapsed,
-    }),
+    },
+    auth,
     builderReady: shareLinkResolved && canStartBuilder(auth, completeness, accountComplete),
     builderSeed: builderSeedFor(auth, account, { name, pronouns }),
+    location,
   };
+}
+
+export function useIdentityGate(): IdentityGate {
+  const state = useGateState();
+  const pending = useSyncExternalStore(subscribePending, getPending, getPending);
+  return {
+    shouldAsk: shouldAskForIdentity({ ...state.decision, actionPending: pending !== null }),
+    builderReady: state.builderReady,
+    builderSeed: state.builderSeed,
+  };
+}
+
+/**
+ * The one operation an in-page action calls (Phase 3): run `action` now if
+ * the identity allows, otherwise hold it as the one pending action, which
+ * opens the identity sheet even on a landing page, and run it exactly once
+ * when the identity completes. Pages wrap their own handler's effect in it;
+ * none of them decides whether to ask. An effect that needs a browser gesture
+ * (clipboard, a window, the native share sheet) keeps its tap only when it
+ * runs at once; when it has to wait, pass `afterAsking` to run instead, which
+ * opens the menu or modal that holds it, so the gesture is the visitor's next
+ * tap and never a delayed callback.
+ */
+export type AskBefore = (action: () => void, options?: { afterAsking?: () => void }) => void;
+
+const askBefore: AskBefore = (action, options) => {
+  if (!askSnapshot?.mustWait) {
+    action();
+    return;
+  }
+  setPendingAction({ run: options?.afterAsking ?? action, location: askSnapshot.location });
+};
+
+/** The operation, for a component: stable, and subscribes to nothing. */
+export function useAskBefore(): AskBefore {
+  return askBefore;
+}
+
+/**
+ * An action that needs an account (vote, heart, posting a comment): signed
+ * out, the visitor goes straight to sign-in without being asked (Phase 3,
+ * P3-1, David 2026-11-04); signed in, it goes through `askBefore`, so an
+ * account missing its name or pronouns is asked first.
+ */
+export function useAskBeforeSignedIn(): (signInHref: string, action: () => void) => void {
+  const { isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
+  return useCallback(
+    (signInHref: string, action: () => void) => {
+      if (!isAuthenticated) setLocation(signInHref);
+      else askBefore(action);
+    },
+    [isAuthenticated, setLocation],
+  );
+}
+
+/**
+ * Runs the pending action exactly once when the identity completes, and drops
+ * it when the visitor is no longer on the page they asked from. A failed
+ * account save leaves the identity incomplete, so the action keeps waiting
+ * for the sheet's retry. Mounted once.
+ */
+export function PendingActionRunner(): null {
+  const state = useGateState();
+  const pending = useSyncExternalStore(subscribePending, getPending, getPending);
+  const wait = mustWaitForIdentity(state.decision);
+  useLayoutEffect(() => {
+    askSnapshot = { mustWait: wait, location: state.location };
+  }, [wait, state.location]);
+  useEffect(() => {
+    if (!pending) return;
+    if (pending.location !== state.location) {
+      setPendingAction(null);
+      return;
+    }
+    if (wait) return;
+    setPendingAction(null);
+    pending.run();
+  }, [pending, state.location, wait]);
+  return null;
 }
 
 /**
