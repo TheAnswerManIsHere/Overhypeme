@@ -474,7 +474,7 @@ A specialist accounts-auth review goes on the PR, and the inventory oracle is re
 
 ## Amendment — Phase 3, in-page actions on shared pages (2026-11-03)
 
-**Status:** draft, for David's approval. Where this section and *Increment 3* elsewhere in this plan disagree, this section wins. The Phase 3 oracle is `.agents/reviews/identity-flow-phase3/oracle-identity-flow-phase3.md`, quoted from #719 and this plan's oracle block: item 4, the plan's Increment 3 items, and #724 (David, 2026-10-18).
+**Status:** approved by David, 2026-11-04 ("Approve and option 1"), with P3-1 answered: actions that lead to sign-in go straight there. Where this section and *Increment 3* elsewhere in this plan disagree, this section wins. The Phase 3 oracle is `.agents/reviews/identity-flow-phase3/oracle-identity-flow-phase3.md`, quoted from #719 and this plan's oracle block: item 4, the plan's Increment 3 items, and #724 (David, 2026-10-18).
 
 ### What changed since the plan was written (premises re-read at `origin/main` `bb8cce30`, 2026-11-03)
 
@@ -492,7 +492,7 @@ The class is: **every action a visitor can take on either landing page, through 
 - **destination asks:** an in-app navigation to a page the decision asks on;
 - **parent already asks:** it sits inside a menu or modal whose opener goes through the operation;
 - **capture surface:** it is itself where identity is entered (the signed-out name tag's editor);
-- **exception:** named in this plan, with David's answer (P3-1).
+- **exception:** named in this plan: actions that lead to sign-in or sign-up go straight there, without asking (David, 2026-11-04, P3-1 option 1).
 
 "Signed in only" describes who can reach an action, not its disposition: a set-up signed-in account missing identity is still asked (Phase 2), so those actions go through the operation too. The inventory is re-run at the increment's head and reconciled in the PR body. At `bb8cce30` it classifies as (round 1 of Astra's review supplied the gallery-card, comment, chrome and heart rows):
 
@@ -501,21 +501,21 @@ The class is: **every action a visitor can take on either landing page, through 
 | fact | share (the fact card's cluster) | opens the share modal | through the operation |
 | fact | comment button (scroll to comments) | scrolls | through the operation |
 | fact | gallery tabs, sort select | change the gallery | through the operation |
-| fact | vote, on the main and the alternate cards | signed out: to `/login` | see Question P3-1 |
-| fact | comment form submit, its sign-in link | signed out: to `/login` | see Question P3-1 |
+| fact | vote, on the main and the alternate cards | signed out: to `/login` | exception (P3-1): straight to sign-in |
+| fact | comment form submit, its sign-in link | signed out: to `/login` | exception (P3-1): straight to sign-in |
 | fact | alternate card's "Make meme" | opens the wizard in place, ungated | navigates to `/facts/<alternate>/meme`, like every other "make a meme" |
 | fact | "Make a meme of this" (×3), meme thumbnails, related facts, parent link | in-app navigation | none: the destination asks |
 | fact | gallery card copy link, open full size, own delete: the menu and the desktop Copy link shortcut (`FactDetail.tsx:462`, `ImageCard.tsx:394, 578`) | clipboard, `window.open`, delete | through the operation, at the menu opener and at the shortcut; both are tested |
-| fact | gallery meme hearts | signed out: to `/login` | P3-1 |
+| fact | gallery meme hearts | signed out: to `/login` | exception (P3-1): straight to sign-in |
 | fact | comment sort (`FactComments.tsx:466`) | changes the comment order | through the operation |
-| fact | comment hearts (`CommentHeartButton.tsx:29`) | signed out: to `/login` | P3-1 |
+| fact | comment hearts (`CommentHeartButton.tsx:29`) | signed out: to `/login` | exception (P3-1): straight to sign-in |
 | both | mobile search opener (`Navbar.tsx:144`) | opens the search field in place | through the operation |
-| both | navbar sign-in (`Navbar.tsx:153, 229`) | to `/login` | P3-1 |
+| both | navbar sign-in (`Navbar.tsx:153, 229`) | to `/login` | exception (P3-1): straight to sign-in |
 | both | logo, navbar links, a submitted search | in-app navigation | none: the destination asks |
 | both | signed-out name tag | opens its own name editor | capture surface: none |
 | both | account avatar (signed in) | to `/profile` | none: the destination asks |
-| meme | heart | signed out: to `/login` | P3-1 |
-| meme | signed-out "Sign up free", tier-ladder sign-in link | full-page or in-app to sign-up | see Question P3-1 |
+| meme | heart | signed out: to `/login` | exception (P3-1): straight to sign-in |
+| meme | signed-out "Sign up free", tier-ladder sign-in link | full-page or in-app to sign-up | exception (P3-1): straight to sign-in |
 | meme | own download, own custom share | signed in only | through the operation |
 | meme | "Make this fact about me", "Browse more facts", "View full fact", back links | in-app navigation | none: the destination asks |
 
@@ -555,7 +555,7 @@ A signed-in visitor on a landing page is asked only when the account is set up a
   - `/facts/:id` shows the fact with no sheet; tapping share shows the sheet; saving opens the share modal.
   - Changing the sort shows the sheet; saving applies the new sort.
   - An alternate card's "Make meme" lands on `/facts/<alternate>/meme`, which asks, and the builder then holds the saved name and pronouns.
-  - `/m/:slug` shows the meme with no sheet; the P3-1 rows behave as David answers.
+  - `/m/:slug` shows the meme with no sheet; its heart and "Sign up free" go straight to sign-in or sign-up with no sheet (P3-1).
   - No request to `/api/memes` from a signed-out builder (#724): a fresh guest builder; a selected-photo draft restored on a load that starts signed out; and a mounted builder whose auth changes to signed out before save.
 - **Inventory:** the oracle's hit list goes in the PR body, each hit classified as wired, navigation, or signed-in only.
 
@@ -572,9 +572,11 @@ Phase 3 is one increment, on a fresh branch off `main`:
 
 - **The share modal can lose the browser's tap on a slow network** (Astra, round 1): its share, Twitter and clipboard buttons await the share-copy request before calling the browser API (`MemeShareModal.tsx:88-94`). It predates and is independent of identity, so it is *next*, not Phase 3: Issue #854. The proportionate fix is to fetch the copy when the modal opens.
 
-### Questions for David (Phase 3)
+### Questions for David (Phase 3), answered 2026-11-04
 
-- **P3-1 — An exception to "pretty much any action": actions that lead to sign-in.** Your agreed behaviour is that a visitor's first real action on a shared page asks first. Some actions on those pages send a signed-out visitor to sign-in or sign-up: vote (on the fact and its alternate phrasings), the meme's heart, gallery meme hearts, comment hearts, posting a comment and its sign-in link, the navbar's sign-in, and "Sign up free". Should these be an exception, going straight to sign-in without asking? Until you say yes, the plan asks first for these too.
+- **P3-1 — An exception to "pretty much any action": actions that lead to sign-in.** Your agreed behaviour is that a visitor's first real action on a shared page asks first. Some actions on those pages send a signed-out visitor to sign-in or sign-up: vote (on the fact and its alternate phrasings), the meme's heart, gallery meme hearts, comment hearts, posting a comment and its sign-in link, the navbar's sign-in, and "Sign up free". Should these be an exception, going straight to sign-in without asking?
+
+  **Answered: option 1** (David, 2026-11-04, "Approve and option 1"). They go straight to sign-in.
   1. **Make them an exception: go straight to sign-in** (recommended; Astra agrees). A returning visitor on a new device would otherwise be asked a name their account already has, and the account then overrides it. A new account is asked its name and pronouns once in onboarding anyway. Cost: for these taps the moment of capture moves to onboarding, so a visitor who abandons sign-in leaves without a name in the browser.
   2. **No exception: ask first, then go.** Matches your words literally, and onboarding then shows the name pre-filled. Cost: a returning account holder is asked for a name before signing in, and the answer is discarded when the account wins.
 
