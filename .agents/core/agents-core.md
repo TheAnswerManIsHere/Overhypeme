@@ -84,7 +84,7 @@ batch.
 **Workstream tracking.** Every unit of work — feature, bugfix, ad-hoc doc
 harvest (the batched harvest at `/maintenance` has none of its own) —
 has a GitHub issue as its spine, tracked on a private Project board and kept
-current via `stage:`/`waiting:`/`mode:` labels — with **two** exceptions.
+current via `stage:`/`waiting:`/`mode:` labels — with **three** exceptions.
 *Sensitive/disclosure-carve-out work* never becomes a public issue and is a
 private draft Project item instead — or, where it turned sensitive after its
 issue opened, keeps that issue with sanitized tracking only
@@ -95,7 +95,10 @@ through a pull request"*), each arrives as a pull request, and that PR is its
 record. A tweak Replit commits on the Repl's own `main`, which the Repl tracks,
 cannot be pushed, so Claude moves it to a branch through the connector and
 opens the PR from there, never dropping it unless David says to. What reviewing one *finds* beyond the tweak is ordinary work and gets
-an issue like anything else. Read
+an issue like anything else. *A sync PR*, delivering KITT's payload to a
+consumer, carries no issue either: it delivers fleet machinery rather than a
+workstream, and is Trivial by David's standing declaration
+([`working-modes.md`](../../docs/ai-context/working-modes.md), *Trivial*). Read
 [`docs/ai-context/workstream-tracking.md`](../../docs/ai-context/workstream-tracking.md)
 before opening or reviewing a PR — it covers the label conventions and what
 must never happen (e.g. `Closes #N` for the PR's own workstream, which would

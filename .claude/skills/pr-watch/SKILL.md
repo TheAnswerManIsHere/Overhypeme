@@ -55,7 +55,9 @@ requires it.
   2026-10-21; until then it held the merge for him) — except on a phase
   registry PR, where the pass is read for nothing,
   P1s included (David, 2026-10-20; `working-modes.md`, *The prototype phase,
-  per feature*). Resolve each thread with one line citing his ruling, then merge on
+  per feature*). A sync PR delivering KITT's payload is Trivial by his
+  standing declaration (`working-modes.md`, *Trivial*; the `sync-fleet`
+  skill). Resolve each thread with one line citing his ruling, then merge on
   green CI.
 - **Documentation**: one pass, `review-proxy.mjs --documentation --round 1`,
   with the Fable assessor dispatched on the same package (`--prompt-only
@@ -648,7 +650,9 @@ requires it.
    taken on my recommendation** entries, the UAT handoff and, last, its
    plain-English summary — on the `✅ **PLAN DONE** —` line when this merge
    finished the approved work (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2) — then
-   dispatch the build report (step 7).
+   dispatch the build report (step 7). In KITT, finished work whose merges
+   changed `core/` runs `sync-fleet` before that line is written (KITT's
+   `CLAUDE.md`, *Delivering the payload*).
    **No readiness receipt is minted or quoted**: `pr-ready.mjs` is gone, and
    the three-item bar is read by eye.
 
@@ -672,7 +676,9 @@ silently leaving the workstream unlabeled — unless it is one of the phase's
 registry PRs, which carry `Refs #N` by design and are never subscribed, top
 of this file, or one of David's display-only Replit tweaks, which carries no
 issue by design and is its own record (`agents-core.md`, *Workstream
-tracking*), so it has no labels to keep):
+tracking*), so it has no labels to keep, or a sync PR delivering KITT's
+payload, which delivers fleet machinery rather than a workstream (the
+`sync-fleet` skill)):
 
 - **PR opens / round 1 triggers** → `stage:code-review`, `waiting:codex` — on
   a Documentation-class PR too, while its one pass waits for Codex's

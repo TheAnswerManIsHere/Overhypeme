@@ -458,7 +458,9 @@ with a comment naming the
 decision (*Promotion is a real operation*, above; the rule is
 [`working-modes.md`](working-modes.md#the-prototype-phase-per-feature-david-2026-09-26)).
 The one-line registry PRs the phase uses — at the start under the branch
-regime, at the flip, at abandonment — say `Refs #N` and own no lifecycle. Where none is owed, nothing remains for anyone to
+regime, at the flip, at abandonment — say `Refs #N` and own no lifecycle,
+and so does a sync PR delivering KITT's payload, which carries no
+`Workstream:` line (the `sync-fleet` skill). Where none is owed, nothing remains for anyone to
 verify after the close-out sync, so the issue closes then. (David, 2026-09-25. Before this,
 the only step that closed an issue was an accepted `/uat` run. Every
 workstream with no UAT — every docs, devops and Tier A bugfix PR, and in
