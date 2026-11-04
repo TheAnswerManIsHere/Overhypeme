@@ -68,8 +68,6 @@ async function sendVerificationEmail(userId: string, email: string, pendingEmail
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-  await db.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt, pendingEmail: pendingEmail ?? null });
-
   const verifyUrl = `${getSiteBaseUrl()}/verify-email?token=${rawToken}`;
 
   let emailContent;
@@ -78,7 +76,13 @@ async function sendVerificationEmail(userId: string, email: string, pendingEmail
   } else {
     emailContent = buildEmailVerificationEmail(verifyUrl);
   }
-  await sendEmail({ to: email, ...emailContent });
+  // One transaction: a link is saved only with its email queued, so a failed
+  // enqueue leaves no token for the check-email screen's "is a link out?"
+  // test to mistake for a sent one (#868, PR #871 round 1).
+  await db.transaction(async (tx) => {
+    await tx.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt, pendingEmail: pendingEmail ?? null });
+    await sendEmail({ to: email, ...emailContent }, tx, { insertUnderTestKey: false });
+  });
 }
 
 function setSessionCookie(res: Response, sid: string) {
@@ -726,10 +730,15 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   }
 
   // If there's a pending email change, resend the change verification email
+  // Awaited: "sent" is said only once the email is queued (PR #871 round 1).
   if (user.pendingEmail) {
-    sendVerificationEmail(userId, user.pendingEmail, user.pendingEmail).catch((err) => {
+    try {
+      await sendVerificationEmail(userId, user.pendingEmail, user.pendingEmail);
+    } catch (err) {
       logger.error({ err }, "[auth] Failed to resend email change verification");
-    });
+      res.status(502).json({ error: "We couldn't send the link. Try again in a minute." });
+      return;
+    }
     res.status(200).json({ message: "Verification email sent to your new address. Please check your inbox." });
     return;
   }
@@ -744,9 +753,13 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
     return;
   }
 
-  sendVerificationEmail(userId, user.email).catch((err) => {
+  try {
+    await sendVerificationEmail(userId, user.email);
+  } catch (err) {
     logger.error({ err }, "[auth] Failed to resend verification email");
-  });
+    res.status(502).json({ error: "We couldn't send the link. Try again in a minute." });
+    return;
+  }
 
   res.status(200).json({ message: "Verification email sent. Please check your inbox." });
 });
