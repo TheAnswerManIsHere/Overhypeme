@@ -579,7 +579,8 @@ says how that is resolved:
   **all-sessions** view of **the active repository only**, never other
   repositories (2026-09-25): every open workstream, grouped
   🛑 NEEDS YOU / ⚠️ STALLED / IN PROGRESS, recomputed directly from issues +
-  labels + PR state (it can't read the Project board either, per the tooling
+  labels + PR state and the live cloud sessions holding each (the skill's
+  Step 3b) (it can't read the Project board either, per the tooling
   gap above). **Read-only.** Works from any session, including a fresh
   throwaway one; that's the intended usage. See the skill file for the
   stall-detection threshold and the plain-language-blocker rule.
