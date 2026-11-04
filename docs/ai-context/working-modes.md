@@ -649,10 +649,15 @@ until the #89 cut removed it; nothing dispatched now decides anything.)
 loop, which is a phase of a feature rather than a class of change.
 
 **Trivial — "just do it."** **Only David declares it**, in words, for a
-specific change; no agent assigns it, and the PR body quotes his words. One
-standing declaration exists: a feature's phase declaration is the Trivial
+specific change; no agent assigns it, and the PR body quotes his words. Two
+standing declarations exist: a feature's phase declaration is the Trivial
 declaration for the one-line registry PR that records it (*The prototype
-phase, per feature*, below; David, 2026-09-28). No
+phase, per feature*, below; David, 2026-09-28); and a **sync PR** — one
+that delivers KITT's payload to a consumer and carries nothing else but the
+memory-index lines the delivery needs — is Trivial, since its content was
+reviewed in KITT where it was written (David, 2026-11-04, KITT's
+`sync-fleet` skill). A consumer-owned change the sync needs, an overlay
+answer or a settings entry, is its own PR under its own class. No
 review of any kind is requested: no Codex round, no assessment, and no
 build report at close-out — a stalled automatic pass gets one bare
 re-request, which restarts it rather than requesting a round (`claude-core.md`,
@@ -706,7 +711,8 @@ catches what the other misses, so the assessors get both.
 
 **Neither class covers** a change to a script, a check, CI, a setting, a
 permission or an agent role's definition, or one granting an agent latitude,
-unless David has declared that specific change Trivial. Those stay in the
+unless David has declared that specific change Trivial or a standing
+declaration above covers it. Those stay in the
 standard loop, and so does any change to the review loop itself.
 
 #### The prototype phase, per feature (David, 2026-09-26)
