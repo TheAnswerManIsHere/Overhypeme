@@ -29,12 +29,11 @@
  *
  *   - Stop: the turn's last message carries the blocking-ask banner
  *     (`🛑 **NEED YOU**`) or the open-ask line (`Still waiting on you:`).
- *   - Stop: the hand-back footer says the session is waiting on him —
- *     `**Next:**` in its `stopped —` form (a section done, his word needed
- *     before I continue) or its `nothing —` form (everything I know to do is
- *     done), or `**Needs you:**` naming anything but nothing
- *     (`claude-core.md`, *Waiting, and scheduled check-ins*, item 0 fixes
- *     the forms).
+ *   - Stop: the turn's last message carries the plan-done line
+ *     (`✅ **PLAN DONE** —`): the approved work is finished and nothing of
+ *     mine is scheduled after it (David, 2026-11-04: "that's a pretty
+ *     important milestone that I'd like to be aware of" — it is his cue to
+ *     run /archive or choose what is next).
  *   - Notification: a permission or input dialog the session is parked on —
  *     an ask the harness makes on my behalf, holding the session up the same
  *     way.
@@ -42,22 +41,28 @@
  *     until he does.
  *
  * ONE ASK, ONE RING (David, 2026-11-03: a session that kept working past an
- * unanswered ask re-rang it on every hand-back, because each footer still
- * named it). So on `Stop`:
+ * unanswered ask re-rang it on every hand-back). So on `Stop`:
  *   - a `Still waiting on you:` line rings nothing — by definition it marks
  *     an ask already rung and unchanged;
- *   - a footer that waits on him rings only when what it waits on differs
- *     from the last thing that rang in this session. The hook keeps that one
- *     key in a small file under the OS temp directory, keyed by session id,
- *     and clears it on a hand-back that waits on nothing, so the next ask —
- *     even a word-for-word repeat of an answered one — rings.
+ *   - a banner or a plan-done line rings only when its text differs from the
+ *     last thing that rang in this session. The hook keeps that one key in a
+ *     small file under the OS temp directory, keyed by session id, and clears
+ *     it on any other hand-back, so the next ask — even a word-for-word
+ *     repeat of an answered one — rings.
  * A file that cannot be read or written rings, never drops: a duplicate is
  * cheaper than a missed ask. `Notification` and `StopFailure` are not
  * deduplicated; each is a new event.
  *
+ * THE FOOTER IS GONE (David, 2026-11-04). Until then the hook also read a
+ * four-field hand-back footer — `Done:`, `Next:` in four fixed forms,
+ * `Needs you:`, `Spend:` — and rang on `Next: stopped`, `Next: nothing` and a
+ * `Needs you:` naming something. The footer was replaced by a sentence or two
+ * of plain English, which nothing parses; what it signalled now travels in
+ * the two shapes above.
+ *
  * Nothing else rings: not a 👀 FYI, not a build report, not a hand-back whose
- * work continues (`running —`, `after <event> —`), not a footer in none of
- * the forms, not text with no footer. Each alert goes once, at Pushover's high
+ * work continues, not a summary of a finished increment with more to come,
+ * not plain text. Each alert goes once, at Pushover's high
  * priority (through his quiet hours, as the repeating tier it replaced did),
  * with the siren sound; Pushover's history is where a missed one is caught up.
  * The `PostToolUse` hook that scanned the transcript for FYIs is gone with
@@ -109,8 +114,7 @@ export const WAITING = { priority: 1, sound: "siren" };
 const LINE_START = String.raw`^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+|\d+\.[ \t]+)?(?:\*\*|__|\*|_)?[ \t]*`;
 const ASK_BANNER = new RegExp(`${LINE_START}🛑\\s*\\*\\*NEED YOU\\*\\*\\s*[—–-]\\s*(.+)`, "m");
 const OPEN_ASK = new RegExp(`${LINE_START}Still waiting on you:\\s*(.+)`, "m");
-/** The four footer fields, in any order, on one line separated by `·` or on their own lines. */
-const FOOTER_FIELD = /\*\*(Done|Next|Needs you|Spend):\*\*/g;
+const PLAN_DONE = new RegExp(`${LINE_START}✅\\s*\\*\\*PLAN DONE\\*\\*\\s*[—–-]\\s*(.+)`, "m");
 
 /** Notification types that park a session on David. `idle_prompt` is not one: it fires after every hand-back, which `Stop` already reads. */
 export const BLOCKING_NOTIFICATIONS = new Set([
@@ -152,48 +156,6 @@ export function plain(text, max = 240) {
     .replace(/\s+/g, " ")
     .trim();
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
-}
-
-/**
- * The hand-back footer's fields, or null when the message carries none.
- * Each value runs to the next field or a blank line, with a separating `·`
- * dropped, so the one-block form and the one-field-per-line form read alike.
- * The LAST occurrence of a field wins: the footer is the message's last block
- * (`claude-core.md`, *A reversible choice proceeds*, rule 2 — last, except
- * before a 🛑 ask or an open-ask line, which `decide` reads first), and a
- * build report opens with a `**Needs you:**` section of its own, the role's
- * account of the unit rather than the session's state. Reading the first
- * occurrence let that line shadow the footer's in both directions (PR #265
- * round 2, Codex finding 4428858035; the Fable assessor measured the reverse).
- */
-export function footer(text) {
-  const src = String(text);
-  const marks = [...src.matchAll(FOOTER_FIELD)];
-  if (!marks.length) return null;
-  const out = {};
-  marks.forEach((m, i) => {
-    const start = m.index + m[0].length;
-    const end = i + 1 < marks.length ? marks[i + 1].index : src.length;
-    let value = src.slice(start, end);
-    const para = value.search(/\n[ \t]*\n/);
-    if (para !== -1) value = value.slice(0, para);
-    value = value.replace(/^[\s·]+|[\s·]+$/g, "");
-    const key = m[1] === "Needs you" ? "needsYou" : m[1].toLowerCase();
-    out[key] = value;
-  });
-  return out;
-}
-
-/** `Needs you:` names something, or says nothing. */
-export function needsSomething(value) {
-  const v = plain(value ?? "").replace(/^[^\p{L}]+/u, "");
-  return v !== "" && !/^(nothing|none|no)\b/i.test(v);
-}
-
-/** Which of the four `Next:` forms item 0 fixes, or null for none of them. */
-export function nextForm(value) {
-  const m = plain(value ?? "").match(/^(running|after|stopped|nothing)\b/i);
-  return m ? m[1].toLowerCase() : null;
 }
 
 /**
@@ -247,21 +209,9 @@ export function decide(input, env = {}) {
     if (banner) return { ...WAITING, title: `🛑 ${repo}: Claude needs you`, message: plain(banner[1]), key: `ask:${plain(bannerBlock(text, banner.index), Infinity)}` };
     if (OPEN_ASK.test(text)) return null; // an ask already rung, unchanged
 
-    const f = footer(text);
-    if (!f) return null;
-    const form = nextForm(f.next);
-    const needs = needsSomething(f.needsYou);
-    if (!needs && form !== "stopped" && form !== "nothing") return { clear: true };
-    const parts = [];
-    if (needs) parts.push(`Needs you: ${f.needsYou}`);
-    if (f.done) parts.push(`Done: ${f.done}`);
-    if (f.next && !needs) parts.push(`Next: ${f.next}`);
-    const title = form === "nothing" && !needs ? `✅ ${repo}: done — over to you` : `🛑 ${repo}: waiting on you`;
-    // Keys use the whole text, never the lock-screen truncation, so asks that differ only past 240 characters stay distinct.
-    // A stopped or nothing hand-back keys on what was done as well: a second finished task is a new hand-back even when its
-    // Next: is worded the same (Codex, PR #279 round 1).
-    const key = needs ? `needs:${plain(f.needsYou, Infinity)}` : `next:${plain(f.next, Infinity)}|done:${plain(f.done ?? "", Infinity)}`;
-    return { ...WAITING, title, message: plain(parts.join(" · ")), key };
+    const done = text.match(PLAN_DONE);
+    if (done) return { ...WAITING, title: `✅ ${repo}: plan done — over to you`, message: plain(done[1]), key: `done:${plain(done[1], Infinity)}` };
+    return { clear: true };
   }
   if (event === "Notification") {
     if (!BLOCKING_NOTIFICATIONS.has(input.notification_type)) return null;

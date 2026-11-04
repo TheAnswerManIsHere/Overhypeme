@@ -41,7 +41,6 @@ const answer = (over = {}) => ({
   shipping_unfixed: [],
   overbuilt: [],
   disagreements: [],
-  spend: { build_total: "$4.10 over 6 turns", paid_runs_this_week: null },
   where_we_are: { planned: "Five steps to a usable ingest.", done: "Step 1 is finished.", next: "Step 2, the logging viewer." },
   what_landed: { does_not_do: "It does not transcribe.", now_trusting: "That the proxy is faithful to the source." },
   took_on_trust: "That CI ran the worker tests; I did not read the logs.",
@@ -89,7 +88,7 @@ test("the brief carries the coordinates, the answer path and the whole schema in
   assert.ok(brief.includes(answerPath(root, "pr-7")));
   assert.ok(brief.includes('"what_was_built"'), "the schema travels with the brief");
   assert.match(brief, /no tool that can open a file/);
-  assert.match(brief, /`paid-ai-ledger` in `TheAnswerManIsHere\/KITT`/, "the ledger is the fleet's, not the unit's repository");
+  assert.doesNotMatch(brief, /paid-ai-ledger|Spend so far/, "the build report carries no spend (David, 2026-11-04)");
 });
 
 test("a branch-regime prototype version is a unit with no pull request", () => {
@@ -137,8 +136,9 @@ test("the evidence line names each PR and the issue by number and title, and say
 
 test("a valid answer validates, and a missing section does not", () => {
   assert.deepEqual(validateAnswer(answer()), []);
-  const { spend, ...noSpend } = answer();
-  assert.ok(validateAnswer(noSpend).length > 0);
+  const { where_we_are, ...noWhere } = answer();
+  assert.ok(validateAnswer(noWhere).length > 0);
+  assert.ok(validateAnswer({ ...answer(), spend: { build_total: "$1", paid_runs_this_week: null } }).length > 0, "a retired spend section is refused");
   assert.ok(validateAnswer(answer({ could_not_assess: "   " })).some((p) => /blank/.test(p)));
 });
 
@@ -178,7 +178,7 @@ test("the report prints the fixed sections in order, in the role's words", () =>
   const root = tmp();
   write(root, "c", answer());
   const text = chatReport(readAnswer(root, "c"), { askedModel: "claude-fable-5-1" });
-  const order = ["**Needs you:**", "**What was built**", "**Decisions taken on my recommendation**", "**Ramifications**", "**Shipping unfixed**", "**Where it disagrees with the builder**", "**Spend**", "**Where we are**", "*Does not do:*", "**Session**"];
+  const order = ["**Needs you:**", "**What was built**", "**Decisions taken on my recommendation**", "**Ramifications**", "**Shipping unfixed**", "**Where it disagrees with the builder**", "**Where we are**", "*Does not do:*", "**Session**"];
   let at = -1;
   for (const h of order) {
     const i = text.indexOf(h);
@@ -186,8 +186,7 @@ test("the report prints the fixed sections in order, in the role's words", () =>
     at = i;
   }
   assert.ok(text.includes("Revert the pin and bump Playwright."));
-  assert.ok(text.includes("$4.10 over 6 turns"));
-  assert.match(text, /no paid-run ledger in KITT yet/);
+  assert.doesNotMatch(text, /\*\*Spend\*\*/);
   assert.doesNotMatch(text, /took_on_trust|did not read the logs/, "took_on_trust is collected, not shown");
   assert.doesNotMatch(text, /Written by/, "a matching model prints nothing");
 });
@@ -292,7 +291,7 @@ test("a workstream private from the start is reported from the relayed source, d
   fs.writeFileSync(answerPath(root, "priv"), JSON.stringify(answer()));
   const text = chatReport(readAnswer(root, "priv"), { coords });
   assert.match(text, /chat only, never as an issue comment\. David: paste it into the workstream's private item/);
-  assert.match(text, /\*Evidence:\* private workstream \(SEC-7\) · plan, decisions and spend from the private source David relayed · PR #31 — Rotate the keys/);
+  assert.match(text, /\*Evidence:\* private workstream \(SEC-7\) · plan and decisions from the private source David relayed · PR #31 — Rotate the keys/);
   assert.match(text, /^\*\*Build report — PR #31 — Rotate the keys · agrees/);
 });
 

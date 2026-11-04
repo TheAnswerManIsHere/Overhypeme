@@ -566,8 +566,8 @@ requires it.
       plan is on a private draft Project item** — no public issue at all, or
       one that turned sensitive and keeps only sanitized tracking — is
       reported from **the item's text, relayed by David** (#227): the item
-      is write-only to agents, so I ask him to paste it (the plan, the
-      decisions taken on recommendation, the *Spend so far* line), write it
+      is write-only to agents, so I ask him to paste it (the plan and the
+      decisions taken on recommendation), write it
       to the scratchpad, never the repository, and pass `--private-source
       <file>` with `--private-ref <the item's reference>`, in place of
       `--issue` or beside a sanitized one. `brief` refuses a source inside
@@ -645,9 +645,9 @@ requires it.
    Post-merge verification section (a step that would start a paid AI run
    within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*)), post the harvest-notes comment, and send
    the merge report with both SHAs, the latitude line, the PR's **Decisions
-   taken on my recommendation** entries, the UAT handoff and, as its last
-   block, the fixed footer — Done / Next / Needs you / Spend (`claude-core.md`,
-   *A reversible choice proceeds, and every turn reports its spend*) — then
+   taken on my recommendation** entries, the UAT handoff and, last, its
+   plain-English summary — on the `✅ **PLAN DONE** —` line when this merge
+   finished the approved work (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2) — then
    dispatch the build report (step 7).
    **No readiness receipt is minted or quoted**: `pr-ready.mjs` is gone, and
    the three-item bar is read by eye.
@@ -823,7 +823,6 @@ this is the UAT-descent shape:
 
 **Every transition above lands with a State of Play update in the same
 edit** — the block's `Stage`/`Waiting on`/`Last movement` fields at minimum,
-`Spend so far` whenever the turn's spend changed it,
 and `Where it actually stands`/`What's blocking` whenever there's real
 narrative to add (a round's findings, an escalation's actual question, what
 shipped at merge), all of it under the canonical disclosure check — on a

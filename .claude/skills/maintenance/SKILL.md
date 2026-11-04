@@ -241,8 +241,7 @@ stored records. From the merged-PR list for the window:
   numbers, reported
   together: a high reversal rate says the reversible default is proceeding
   on choices that were his; a zero over many decisions says the asks that
-  remain may be ones the rule could already take. He tunes the rule and sets
-  the per-turn spend cap from these
+  remain may be ones the rule could already take. He tunes the rule from these
   ([`agent-working-rules.md`](../../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)).
 
 - **Refresh the token price table — in KITT's pass only** (David,
@@ -258,8 +257,9 @@ stored records. From the merged-PR list for the window:
   and how old it is in this report — and nothing more, since a consumer
   holds no record of when KITT's pass last ran, and a newer table
   reaches this repository only by the next sync from KITT, where the
-  source is refreshed. The spend line on every turn converts tokens with
-  that table, so an old copy misprices every turn until that sync; a page
+  source is refreshed. A review request's cost line and a routing
+  comparison convert tokens with that table, so an old copy misprices them
+  until that sync; a page
   that cannot be fetched keeps its old rows and date, and the report says so.
 
 **Step 6c — the "how are we doing" conversation.** Narrate the numbers in a few
@@ -509,9 +509,9 @@ reversible merge, so I proceed on my recommendation and report it; an alarming
 Sentry issue and a recurring flake are reported, not asked. Only what the
 irreversible list names, or a product decision, goes in a numbered question
 list at the end per the numbered-questions rule,
-with the hand-back footer — Done / Next / Needs you / Spend — directly above
-that list (`claude-core.md`, *A reversible choice proceeds, and every turn
-reports its spend*).
+with the hand-back's plain-English summary directly above that list
+(`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2), and the list itself under a 🛑
+banner, since it waits on him (interaction rule 6).
 If the report is substantial, also publish it as an Artifact page — the chat
 message remains the canonical copy. (CLAUDE.md's combined Artifact-delivery
 paragraph this used to cite was retired; only its UAT-specific rule survives,

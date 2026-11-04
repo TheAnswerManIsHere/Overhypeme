@@ -1986,8 +1986,8 @@ export function main(argv = process.argv.slice(2), { root = REPO_ROOT, run = spa
       // its absence is the ordinary case and its presence is loud.
       unpinned: flags.unpinned ?? null,
       seconds: outcome.seconds,
-      // The five usage buckets `codex exec --json` reported, or null: the spend
-      // line prices an Astra exchange from these (token-pricing.md, Astra rows).
+      // The five usage buckets `codex exec --json` reported, or null: an Astra
+      // exchange's cost is priced from these (token-pricing.md, Astra rows).
       usage: outcome.usage ?? null,
       finishedAt: new Date().toISOString(),
       accepted: !read.failed && planDrift === null,

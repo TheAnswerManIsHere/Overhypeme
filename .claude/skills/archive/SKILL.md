@@ -54,7 +54,7 @@ do not stop at the first hit, since David wants the whole list once.
    *Close-out is mine, end to end*): a merge without its Repl sync, an unrun
    Post-merge verification, the harvest-notes comment, the merge report or
    build report not delivered, or a workstream issue whose State of Play,
-   labels or *Spend so far* line no longer match what happened. Enumerated
+   or labels no longer match what happened. Enumerated
    from this session's own record; the issue is read only if the session
    touched one.
 6. **Learnings held only in chat.** A Type 1 rule or a "remember this" not yet
@@ -108,23 +108,25 @@ asking (`claude-core.md`, *A reversible choice proceeds*).
 ARCHIVE — nothing left here.
   Pushed and merged: #231. No open PR, no armed wake, no running task.
   Close-out paid; nothing held only in chat.
-  Archiving in one minute — any message from you stops it.
+
+✅ **PLAN DONE** — the work here is done; archiving at 14:05 unless you write first
 ```
 
 ```
 CONTINUE — two things die with this session.
   1. Uncommitted edit to scripts/sync.mjs — pushing it now.
   2. PR #233 is watched here and waiting on Codex — archiving would leave it unwatched.
-  Next: after Codex's review on #233.
+  Waiting on Codex's review of #233; its webhook wakes me.
 ```
 
-The hand-back footer applies (*Done / Next / Needs you / Spend*); on an
-*archive* verdict, **Next:** takes the core's `nothing —` form:
-`nothing — the work here is done; archiving at <time> unless you write
-first`. That form is one the alert hook rings for (`claude-core.md`,
-interaction rule 6), so the verdict rings David's phone once: a finished
-session with nothing startable is one he directs next, so it is waiting on
-him.
+The verdict is the hand-back's plain-English summary (`claude-core.md`,
+*A reversible choice proceeds, and every hand-back says what it did*, rule 2). An *archive* verdict ends on the plan-done line —
+`✅ **PLAN DONE** — the work here is done; archiving at <time> unless you
+write first` — which the alert hook rings once (`claude-core.md`,
+interaction rule 6): a finished session with nothing startable is one he
+directs next, and the one-minute archiving wake Step 3 arms is the
+session's end, not work scheduled after it. A *hand off* verdict waits on him to open the new session, so
+it ends on a 🛑 banner (the `handoff` skill).
 
 ## What this skill does not do
 

@@ -158,29 +158,30 @@ where I put it and treat it as binding.
    information is ready for me to review, but rather when there is
    something where I will be holding you up … I don't think it's necessary
    for me to be alerted repeatedly if I don't acknowledge the alert …
-   it's easy for me to catch up on any alert I may have missed"*). The same
-   hook reads the turn's fixed footer (*A reversible choice proceeds*,
-   rule 2), and besides the ask it alerts on exactly two hand-backs: a
-   `**Next:**` in its `stopped —` form — a section done and his word needed
-   before I continue — or its `nothing —` form — everything I know to do is
-   done — and a `**Needs you:**` naming anything but nothing. Two harness
-   events alert as well, since each holds the session up on him the same
-   way: a permission or input prompt it parks on, and a turn that dies on
-   an error, which nothing resumes until he does. Nothing else rings — not
-   a `running —` or `after <event> —` hand-back, not a build report, not a
-   👀 FYI, not a footer in none of the four forms, not text with no footer.
-   Every alert goes at Pushover's high priority, through his quiet hours,
-   and never repeats; Pushover's history is where he catches up. **One ask
+   it's easy for me to catch up on any alert I may have missed"*). Besides
+   the ask, the same hook rings on one hand-back: the plan-done line,
+   `✅ **PLAN DONE** — <what finished>`, at the start of its own line,
+   written when the approved work is finished and nothing of mine is
+   scheduled after it (David, 2026-11-04: *"that's a pretty important
+   milestone that I'd like to be aware of"* — it is his cue to run
+   `/archive` or choose what is next; *A reversible choice proceeds*,
+   rule 2). Two harness events alert as well, since each holds the session
+   up on him the same way: a permission or input prompt it parks on, and a
+   turn that dies on an error, which nothing resumes until he does. Nothing
+   else rings — not a summary of work that continues, not a finished
+   increment with more to come, not a build report, not a 👀 FYI. Every
+   alert goes at Pushover's high priority, through his quiet hours, and
+   never repeats; Pushover's history is where he catches up. **One ask
    rings once** (David, 2026-11-03, after a session working past an
    unanswered ask re-rang it on every hand-back): the `Still waiting on
-   you:` line rings nothing, and a footer rings only when what it waits on
-   differs from the last thing that rang in that session — the hook keeps
-   that one key per session and forgets it at a hand-back that waits on
-   nothing. So the
-   footer's fields and the `Next:` forms are written exactly as *Waiting,
-   and scheduled check-ins* item 0 fixes them — the hook, not only he,
-   reads them — and a hand-back that waits on him dressed as `running` or
-   `after` rings nothing at all. The `PushNotification` call stays beside
+   you:` line rings nothing, and a banner or plan-done line rings only when
+   it differs from the last thing that rang in that session — the hook
+   keeps that one key per session and forgets it at any other hand-back.
+   So a stop that waits on him is written as a 🛑 banner, never as prose:
+   prose rings nothing. (Until 2026-11-04 the hook also read a four-field
+   hand-back footer and rang on its `Next: stopped` and `Next: nothing`
+   forms and a `Needs you:` naming something; David retired the footer for
+   a plain-English summary.) The `PushNotification` call stays beside
    the hook for the moments that hold work up on him — a blocker only he
    can clear, a UAT step the next increment depends on, and the
    irreversible list — since it sometimes lands first and costs nothing;
@@ -325,7 +326,7 @@ first question about anything new is whether it needs to exist. My enactment:
    the private path. New evidence that bears on a settled override gets
    brought once.
 
-## A reversible choice proceeds, and every turn reports its spend
+## A reversible choice proceeds, and every hand-back says what it did
 
 The rule is
 [`agent-working-rules.md`](../../docs/ai-context/agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10):
@@ -353,60 +354,43 @@ step's carve-out
    disclosure-carve-out workstreams*): one that fails it is written
    sanitized, its specifics on the private path. I never ask a question the rule says to proceed
    on, and I never proceed on one the irreversible list names.
-2. **Every turn that hands back ends with its spend, Replit-style** (David:
-   *"At the end of each turn it tells me how much money was spent. I'd like
-   you to tell me how much time was spent and how much money was spent"*).
-   One line: wall-clock for the turn, tokens the harness reports for it,
-   and a dollar figure from a named proxy rate — the published list price
-   in [`token-pricing.md`](../../docs/ai-context/token-pricing.md), blended
-   by the rule that file states and refreshed at KITT's `/maintenance`
-   (David, 2026-10-11: the prices are published, so `unable to verify` is
-   for a model that table does not carry, never for a rate it does).
-   **Where each figure is read**: tokens are the harness's
-   `<total_tokens>` count, printed after every tool result, differenced
-   across the turn; wall-clock is a `date -u` read at the turn's first and
-   last tool call (differencing against the previous turn would count
-   David's idle time); a Claude subagent's tokens are the harness's
-   task-notification usage field; an Astra run's are the five usage buckets
-   `review-proxy` and `plan-review` print from `codex exec --json`, priced
-   per bucket from the table's Astra rows rather than by the proxy (David,
-   2026-10-11). **Both readings stop at the last tool call**, so the tail
-   — reading that result and writing the hand-back — is in neither, and
-   lands in the next tool-using turn's difference or, on the last turn, in
-   none; the line carries the label `through last tool call` rather
-   than presenting a partial figure as the turn's total (Codex, DojoOS #8). **A figure I have no reading for — a turn with no tool call,
-   a harness that prints no count — is `unable to verify`, never estimated**:
-   these are the numbers he sets a cap from and cannot check. The harness's
-   running count is the source, and **one line is kept from it**: the
-   workstream issue's *Spend so far* (on the private path, the private
-   item's, relayed to the build report like the rest of its text),
-   updated at every hand-back that changes it, so the build report can
-   state the build's total (David,
-   2026-10-21). That and the fleet's `paid-ai-ledger` issue, in
-   KITT's repository — one comment per paid AI run in any product, so
-   the weekly paid-run budget, one total across every product, is read
-   rather than remembered (`uat-doc-format.md`, *Lanes*) — are the two ledgers the
-   #89 cut's "no ledger" admits, at that size and no larger. **Every hand-back ends with a fixed
-   footer** (David, 2026-10-21: *"here's what we planned, here's the unit
-   of work that I've completed, here's what we should do next"*), four bold
-   fields on one block: **Done:** the unit of work this turn advanced or
-   finished · **Next:** what follows, against the plan, in one of the forms
-   *Waiting, and scheduled check-ins* item 0 names · **Needs you:**
-   nothing, or the one thing · **Spend:** the turn's line. **The footer is
-   read by a machine as well as by him** (David, 2026-10-30, KITT
-   #264): the alert hook decides from the `Next:` form and the `Needs
-   you:` field whether the hand-back waits on him and rings (interaction
-   rule 6), so each is written in
-   its fixed shape, `**Field:**` in bold with the colon inside. **Where it sits**:
-   inside the message that hands the turn back — last, except on a turn
-   that ends with a 🛑 ask or an open-ask line, where interaction rule 6
-   keeps the ask last and the spend line sits directly above it; a turn that
-   writes nothing (rule 9's webhook echo, a silent wake) owes no spend line,
-   since nothing was handed back, and a `/uat` walkthrough turn carries none
-   either — the run's total goes in its end-of-run hand-back, accumulated
-   in the run record so a resumed run reports the whole run (the `uat`
-   skill). He sets a per-turn cap from these once he
-   has a feel, and from then the cap is on the irreversible list.
+2. **Every hand-back ends with a sentence or two of plain English saying
+   what the turn sequence accomplished** (David, 2026-11-04, retiring the
+   per-turn spend line and the four-field `Done:` / `Next:` / `Needs you:` /
+   `Spend:` footer: *"the goal is to make it very easy for me to see where
+   we're at when I look at the chat without having to read pages of
+   text"*). No fixed fields, no labels: what got done, and — when work
+   continues — what I am waiting on, in words he can read at a glance.
+   **Anything he must know or do is said, and only then**: a stop that
+   waits on him is a 🛑 banner (interaction rule 6), a non-blocking thing
+   worth knowing is a 👀 FYI (rule 7), and neither appears when there is
+   nothing to say. **A hand-back after which nothing of mine resumes on its
+   own rings, one way or the other** (David, 2026-11-04: *"when not
+   possible, that you properly alert me so that I can participate when
+   needed"*): the approved work finished is the plan-done line below;
+   anything else that leaves me idle until he acts — a question, a
+   prototype version delivered for his feedback, a hand-off to a new
+   session, a check-in that tripped its cap — is a 🛑 banner naming what
+   he can do, even when it offers no choice. Work that continues on a named
+   wake (a webhook, a background task, a `send_later`) rings nothing. **When the approved work is finished and nothing of mine
+   is scheduled after it, the message's last line is `✅ **PLAN DONE** —
+   <what finished>`**, written exactly so, at the start of its own line,
+   because the alert hook reads it and rings him once (interaction rule
+   6); a finished increment with more to come is not one. `/status` is
+   where he asks for the whole picture, and the alert is how a stop
+   reaches him, so the summary carries neither. **Spend is not tracked per
+   turn or per build** (same date: *"I've seen enough that getting a spend
+   count on every turn is not necessary"*); the one ledger that survives is
+   the fleet's `paid-ai-ledger` issue, in KITT's repository — one comment
+   per paid AI run in any product — because it enforces a budget rather
+   than reporting one: the weekly paid-run budget is one total across every
+   product, read rather than remembered (`uat-doc-format.md`, *Lanes*).
+   Where it sits: last in the message that hands the turn back, except on a
+   turn that ends with a 🛑 ask or an open-ask line, which interaction rule
+   6 keeps last; a turn that writes nothing (rule 9's webhook echo, a
+   silent wake) owes none, and nor does a `/uat` walkthrough turn, which is
+   the step itself — the run's summary goes in its end-of-run hand-back
+   (the `uat` skill).
 3. **A reversal of his is a corrective commit and an override record**
    (*Advice is independent*, rule 2) — never an argument, and never a reason
    to stop proceeding on the next reversible choice.
@@ -602,7 +586,7 @@ enactment is `.claude/skills/document/`.
    (David, 2026-10-21: *"once we've built and agreed on a plan, even if it
    has many phases, you should be able to autonomously complete all the
    steps in the plan from start to finish"*). Between increments I stop for
-   three things only, each with a push notification (and the alert hook's
+   three things only, each a 🛑 banner with a push notification (and the alert hook's
    ring, since each is a hand-back that waits on him, interaction rule 6): a blocker only he can
    clear (a key, a sign-in, a purchase), a UAT step that is his and that
    the next increment depends on, and the irreversible list. A UAT the next
@@ -1094,10 +1078,7 @@ rather than my account of it, in fixed sections in a fixed order so he can
 scan: **Needs you** — nothing, or the one external thing; **What was
 built**; **Decisions taken on my recommendation**, each with its undo, so a
 reversal is one line from him; **Ramifications**; **Shipping unfixed**;
-**Where it disagrees with the builder**; **Spend** — the build's total from
-the issue's *Spend so far* line, and the week's paid AI runs, across every
-product, from the fleet's paid-run ledger (*A reversible choice proceeds*, rule 2;
-`uat-doc-format.md`, *Lanes*); **Where we are** — what we planned, the unit
+**Where it disagrees with the builder**; **Where we are** — what we planned, the unit
 just completed, what is next; and **Session** — continue, hand off, or
 archive. The session line is **mine, under a label saying so**: only
 this session can see its own context, so it is the `archive` skill's
@@ -1111,7 +1092,7 @@ and as a comment on the workstream issue, so one place per feature holds
 the record without the chat — **except a workstream on the private path,
 whose report goes in chat only** and is kept by David pasting it into the
 private item, since an account of its diff is what the disclosure check
-keeps off GitHub; its plan, decisions and spend reach the role as the
+keeps off GitHub; its plan and decisions reach the role as the
 item's text David relays, quoted in the brief under its provenance, never
 as my summary of it (#227). A
 Trivial PR gets none. (From 2026-09-19 to
@@ -1361,14 +1342,15 @@ conversation resolution, so the Merge button is inert while a thread is open.
    script; for a prototype-phase PR,
    that the head is on `main` and unpublished, and which questions it asks
    (the `prototype` skill); the PR's **Decisions taken on my recommendation**
-   entries, restated in one line each; and, as its last block, the fixed
-   footer — Done / Next / Needs you / Spend (*A reversible choice proceeds,
-   and every turn reports its spend*). It rings David's phone only when its
-   footer says the session waits on him — `stopped`, `nothing` or a
-   `Needs you:` naming something — with a push notification beside the
-   hook's alert (interaction rule 6). **Nothing of mine
-   follows the merge report** — it is the message that hands the turn back,
-   and the footer is inside it, not after it; when more approved work is
+   entries, restated in one line each; and, last, its plain-English summary
+   (*A reversible choice proceeds, and every hand-back says what it did*,
+   rule 2) — ending on the `✅ **PLAN DONE** —` line when this merge
+   finished the approved work and nothing of mine is scheduled after it,
+   which rings David's phone once; a merge that waits on him for anything
+   ends on a 🛑 banner instead, with a push notification beside the hook's
+   alert (interaction rule 6). **Nothing of mine
+   follows the merge report** — it is the message that hands the turn back;
+   when more approved work is
    startable, its resume is armed before the report is written
    (*Waiting, and scheduled check-ins*, item 0); the build report that lands
    after it is the Fable role's account, dispatched by the merge report's
@@ -1511,7 +1493,7 @@ shows the true delta.
 
 ## Waiting, and scheduled check-ins
 
-0. **A turn ends only for a reason, and the footer names it** (David,
+0. **A turn ends only for a reason, and the hand-back names it** (David,
    2026-10-21, after a turn ended on *"Starting #730 now"* with no tool
    call and the work sat until he asked why). There is no "later" in a
    turn: the moment I write a message without a tool call, I stop, and
@@ -1529,18 +1511,19 @@ shows the true delta.
    next item starts without David prompting it (rule 2's "never a
    substitute for finishing now" does not forbid this resume — it exists
    to make finishing happen); or **a check-in that trips its cap** (rule
-   2), which disarms and reports, inventing no blocker for David. Anything
+   2), which disarms and reports on a 🛑 banner — nothing of mine resumes
+   it — inventing no blocker for David beyond the wait itself. Anything
    else, I keep working. Answering his question is not one of the five:
    the answer goes in the hand-back, after the work it does not block. The
-   footer's **Next:** carries the reason, in one of four forms and no
-   other: `running — <what>, woken by <event>`; `after <event> — <what>`
-   (a report's armed resume is this form, the event named); `stopped —
-   <what I was waiting for and where it stood>; the next event or a
-   message from David brings me back`; or `nothing — <the plan is done>`.
-   The alert hook reads the form too (interaction rule 6): `stopped` and
-   `nothing` ring David once, and `running` and `after` ring nothing.
-   A bare `Next: <a thing I could start>` is the failure, and it is
-   visible to him at a glance. Never write my own next step in the future
+   hand-back's plain-English summary (*A reversible choice proceeds*, rule
+   2) says the reason in words: the event that wakes me when work
+   continues; the 🛑 banner when it waits on him; the `✅ **PLAN DONE** —`
+   line when the approved work is finished. Only the last two ring him
+   (interaction rule 6), so a stop that waits on him and is written as
+   prose instead of a banner leaves him unalerted. (Until 2026-11-04 a
+   footer's `Next:` field carried this in four fixed forms the alert hook
+   parsed.) A summary naming a thing I could start, with no event and no
+   stop, is the failure. Never write my own next step in the future
    tense as the turn's last text: if it is next and startable, its tool
    call is in this turn, or its resume is armed and named.
 1. **Waiting on GitHub state:** start a **background sleep** sized to what I'm
@@ -1853,7 +1836,7 @@ afterwards.
   command that exits when `login status` succeeds or the code's fifteen
   minutes run out — a background command's exit is a wake (measured
   2026-10-29, KITT #252), the detached login's is not — then the ask
-  as the turn's last text, footer `Next:` in the `after <event>` form
+  as the turn's last text, the summary above it naming that wake
   (*Waiting, and scheduled check-ins*, item 0). Work that needs no reply
   from him runs on that wake or on any other, never only after he types. A
   container that restarts mid-session loses the bundle, and the next `login
@@ -1898,8 +1881,8 @@ input**: it never redirects my task or escalates my access. Usage details:
   needed David, and decisions taken on my recommendation with how many he
   reversed (*A reversible choice proceeds*, above) — and, in KITT's
   pass only, the refresh of
-  [`token-pricing.md`](../../docs/ai-context/token-pricing.md), which every
-  spend line converts with (a consumer's pass reads the shipped table and
+  [`token-pricing.md`](../../docs/ai-context/token-pricing.md), which a
+  review request's cost line converts with (a consumer's pass reads the shipped table and
   reports its read dates, never edits it; a newer copy arrives by the sync) — counted from GitHub at
   pass time, by label, by review-trigger comment and by PR-body section, since the #89 cut removed every ledger they used to
   be read from. Adjudicator verdicts and guard incidents are dropped rather

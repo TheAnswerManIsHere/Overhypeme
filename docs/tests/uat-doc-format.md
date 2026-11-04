@@ -145,7 +145,7 @@ review loop's own assessors are not checks and keep their own rules.
 A run that would cost more than $5, or take the week past $25, asks first,
 naming the paid calls and the worst-case cost; one within both proceeds, is
 never run in a loop or a series that would pass the week's total, and
-reports what it cost in the turn's spend line. **The week's total is read,
+reports what it cost in the hand-back and on the ledger below. **The week's total is read,
 never remembered** (2026-10-21, after the first build report found the $25
 had no record any session could read). **The $25 is one total across every
 product** (David, 2026-10-22: *"$25/week is across all products."*), so there
