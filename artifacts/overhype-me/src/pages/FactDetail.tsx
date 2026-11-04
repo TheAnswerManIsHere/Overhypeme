@@ -155,6 +155,13 @@ export default function FactDetail() {
 
   const belowFoldSentinelRef = useRef<HTMLDivElement>(null);
 
+  // A builder copies the identity once at mount, so a builder reached by its
+  // route waits until the identity sheet has a complete identity (#719). The
+  // fact itself waits too (identity-flow Phase 4): a visitor without a name
+  // sees the identity sheet over the loading surface, never a fact read as
+  // "__", and the page renders once the identity is ready.
+  const { builderReady, builderSeed, contentReady } = useIdentityGate();
+
   useEffect(() => {
     if (belowFoldMounted) return;
     const sentinel = belowFoldSentinelRef.current;
@@ -202,7 +209,9 @@ export default function FactDetail() {
         else clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
       };
     }
-  }, [fact, belowFoldMounted]);
+    // contentReady: the sentinel mounts only once the identity hold releases
+    // (Phase 4), which may be after the fact has arrived.
+  }, [fact, belowFoldMounted, contentReady]);
 
   const { data: relatedFactsData } = useListRelatedFacts(factId, { limit: 6 }, {
     query: { queryKey: getListRelatedFactsQueryKey(factId, { limit: 6 }), enabled: !!factId && belowFoldMounted }
@@ -235,9 +244,6 @@ export default function FactDetail() {
   // Meme builder open state is derived from URL (/facts/:id/meme)
   // so that mobile browsers reloading the tab re-open the builder automatically.
 
-  // A builder copies the identity once at mount, so a builder reached by its
-  // route waits until the identity sheet has a complete identity (#719).
-  const { builderReady, builderSeed } = useIdentityGate();
   // In-page actions on this page ask for a missing identity first, then run
   // (identity-flow Phase 3); navigations need nothing, the next page asks.
   const askBefore = useAskBefore();
@@ -257,7 +263,7 @@ export default function FactDetail() {
   }
 
 
-  if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
+  if (factLoading || !contentReady) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
 
   const isVariant = !!fact.parentId;

@@ -74,6 +74,8 @@ test.describe("Public described screens", () => {
     await expect(page.getByRole("heading", { name: /counted to infinity/i })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe("/top-facts");
 
+    // A fact page asks a visitor with no name first (identity-flow Phase 4); from here this test is about the page.
+    await seedIdentity(page);
     await page.goto("/facts/501");
     await expect(page.getByRole("heading", { level: 1, name: /counted to infinity\. twice\./i })).toBeVisible();
     await expect(page.getByRole("button", { name: /make a meme of this/i }).first()).toBeVisible();
@@ -174,6 +176,8 @@ test.describe("Public described screens", () => {
     await expect(page.getByRole("heading", { name: /can divide by zero/i })).toBeVisible();
     await expect(page.getByRole("link", { name: "#legend" }).first()).toBeVisible();
 
+    // A fact page asks a visitor with no name first (identity-flow Phase 4); from here this test is about the page.
+    await seedIdentity(page);
     await page.goto("/facts/531");
     await expect(page.getByRole("heading", { level: 1, name: /does not sleep/i })).toBeVisible();
     await expect(page.getByRole("link", { name: "#night" })).toBeVisible();
@@ -222,6 +226,8 @@ test.describe("Public described screens", () => {
 
   // PR402 step 5 — logged out, the fact page's meme gallery shows the public meme.
   test("logged out, the fact page's gallery shows the public meme and not the private one", async ({ page }) => {
+    // A fact page asks a visitor with no name first (identity-flow Phase 4); this test is about the page.
+    await seedIdentity(page);
     await stubPublicFacts(page, {
       facts: [factDetail({ id: 551, text: "{NAME} out-stared the sun." })],
       memes: {
