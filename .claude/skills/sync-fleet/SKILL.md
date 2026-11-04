@@ -58,8 +58,14 @@ itself is not. Name the set found in the hand-back, so a repository missing
 from it is visible.
 
 Each consumer is attached with `add_repo` (`access: "push"`) and cloned into
-the scratchpad. A refusal there is that repository's result, reported; the
-others carry on.
+the scratchpad. A refusal from GitHub or the organisation is that
+repository's result, reported; the others carry on. **A refusal by the
+auto-mode permission classifier is not**: it is session-wide, so the run
+stops at this step and asks David once on a 🛑 — measured 2026-11-04 in a
+session whose settings had no allow rule for `add_repo`, cleared when he
+answered and the session left auto mode
+([`add-repo-refused-in-auto-mode.md`](../../../.agents/memory/add-repo-refused-in-auto-mode.md),
+which also says what KITT's allow rule may change).
 
 ## Step 3 — per consumer, what has it not got?
 
