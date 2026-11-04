@@ -653,7 +653,7 @@ Phase 3 is one increment, on a fresh branch off `main`:
 ### Implementation steps (Phase 4, one increment, one PR off `main`)
 
 1. The predicate and its comments, with the decision's unit table.
-2. The hold flag in the identity module, the fact page reading it, and their tests.
+2. The hold flag in the identity module, the fact page reading it, and their tests. When the hold releases, the page's below-fold observer and its idle fallback (`FactDetail.tsx:157-175`, which return early while their sentinel is absent and rerun only on `fact` or `belowFoldMounted`) initialize once their content mounts, so the gallery, comments, alternate phrasings and related facts appear; the cold-arrival → save → gallery-sort browser journey keeps its cold arrival to prove it (Astra, round 2).
 3. The name tag's rule, with its component test.
 4. The browser tests above, and the sweep.
 5. `decisions.md`: the change to the 2026-10-17 Question 3 answer, fact pages only.
