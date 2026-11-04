@@ -582,6 +582,83 @@ Phase 3 is one increment, on a fresh branch off `main`:
 
   Either way, a signed-in account's own actions still ask when the account is missing a name or pronouns.
 
+## Amendment — Phase 4, fact pages ask first; the name tag shows no unchosen pronouns (2026-11-04)
+
+**Status:** draft, for David's approval. Where this section and anything earlier in this plan disagree, this section wins: it changes the *Landing exception* settled decision and David's 2026-10-17 answer to Question 3, for fact pages only. Workstream: Issue #856. The Phase 4 oracle is `.agents/reviews/identity-flow-phase4/oracle-identity-flow-phase4.md`, quoted from Issue #856's body:
+
+> **What David saw (UAT of PR #855, 2026-11-04):** opening a fact link directly, with no name set, renders the fact as "__ can set ants on fire with a magnifying glass. At night." The name tag reads "AS: (he/him)", with pronouns nobody chose and no name.
+>
+> *"This is what a fact page with no name looks like. I feel like even this is wrong and because there is no name set, the name should be the first thing asked, before rendering the page."* — and of the meme page: *"Meme page feels right, content first works here."*
+>
+> **Decision (David, 2026-11-04).** This changes his 2026-10-17 answer to Question 3 (*"every first landing on a meme, video or fact page shows content first"*):
+> - **Fact pages** (`/facts/:id`) leave the content-first exception. A visitor without a complete identity is asked before the page renders, as on every other page.
+> - **Meme pages** (`/m/:slug`) keep content first, with the first action asking (Phase 3, PR #855).
+>
+> **Why the two differ:** a meme's image already carries its creator's name, so it is worth seeing as it is. A fact is a template with nothing to show until it has a name.
+>
+> **Also in scope:** the signed-out name tag never shows a pronoun fallback that wasn't supplied. With no identity it shows neither a name nor "(he/him)".
+>
+> **Done when:**
+> - A cold visit to `/facts/:id` opens the welcome sheet before the fact renders.
+> - A cold visit to `/m/:slug` still shows the meme first.
+> - The name tag shows no unchosen pronouns.
+> - `decisions.md` records the change to the 2026-10-17 answer.
+
+### Premises (read at `origin/main` `0fe9d228`, 2026-11-04)
+
+- **The exception is one predicate.** `isLandingExceptionPath` (`artifacts/overhype-me/src/lib/identity.ts:30-33`) returns true for a two-segment path under `m` or `facts`; `shouldAskForIdentity` (`:83-97`, the check at `:87`) skips asking only when that holds for the landing path, the visit has not lapsed, and no action is pending. Nothing else in the client tests for a fact path to decide whether to ask (`git grep -n "isLandingExceptionPath"`: the module, its test, and `mustWaitForIdentity` through `shouldAskForIdentity`).
+- **The order matters for signed-in accounts.** The landing check runs before the signed-in branch (`identity.ts:87-95`), so today a set-up account missing a name or pronouns also sees a fact page's content first. After this change it is asked on arrival there too, as on every other page — the same rule, not a new one.
+- **The sheet opens over the page.** `WelcomeModal` renders a fixed, full-screen dialog with a `bg-black/65` (phone) or `bg-black/70` (desktop) blurred backdrop (`components/WelcomeModal.tsx:306-307, 335-336`), cannot be dismissed without saving, and is how every non-landing page asks. The page beneath still mounts and renders.
+- **The name tag guesses.** Signed out, it prints `displayPronouns(pronouns)` unconditionally (`components/NameTag.tsx:175, 188`), and `usePersonName()` returns `pronouns: DEFAULT_PRONOUNS` ("he/him") when nothing was supplied (`hooks/use-person-name.ts:113-114, 219-222`), so a cold visitor reads "AS: (he/him)". Signed in, it shows pronouns when the auth snapshot holds any or the context value differs from "he/him" (`NameTag.tsx:153-156`) — a guess at the same fact `pronounsSupplied` already records: `setPronouns` and `syncFromProfile` set it exactly (`use-person-name.ts:274-302`).
+- **The askBefore wiring on the fact page goes quiet but stays correct.** A fact-page action taken after the arrival ask finds a complete identity and runs at once; while auth is still loading it waits, as it does today (`mustWaitForIdentity`, `identity.ts:107-109`).
+
+### Product intent (Phase 4)
+
+1. A visitor without a complete identity arriving on `/facts/:id` — by a shared link, typed, bookmarked or opened in a new tab — is asked through the welcome sheet on arrival, as on every other page; once they save, the fact shows with their name.
+2. `/m/:slug` is unchanged: the meme shows first, and the first in-page action asks (Phase 3).
+3. The name tag shows pronouns only when they were supplied — by the visitor, a share link or the account — signed in or out. With no identity it shows no name and no pronouns.
+4. `decisions.md` records the change to the 2026-10-17 Question 3 answer, with David's words and the reason the two pages differ.
+
+### Must not change (adds to the plan's list)
+
+- The meme page's landing exception and its lapse rules (Phase 1), and every Phase 3 behaviour on `/m/:slug`, P3-1 included.
+- `askBefore`, `PendingActionRunner` and `mustWaitForIdentity` as built; the decision gains no input and loses none.
+- The welcome sheet stays the one capture surface; no new prompt, banner or fact-page variant of it.
+- How names and pronouns render in facts and memes: the renderer's he/him fallback (`DEFAULT_PRONOUNS`) is a rendering default and stays; only the name tag stops displaying it as a choice.
+
+### Settled decisions (Phase 4)
+
+- **The landing exception matches `/m/:slug` only.** `isLandingExceptionPath` drops `facts`; its doc comment and `IdentityDecisionInput`'s say so. That is the whole change to the decision. A fact page now asks exactly as Home or Search does, including for a set-up signed-in account missing either half (Phase 2's rule, reached by the same path).
+- **"Asked before the page renders" is the sheet opening on arrival, over the page, as on every other page** (the oracle: *"as on every other page"*). The fact page still mounts beneath the dimmed, blurred backdrop; no page gains logic to hide itself until a name exists. This reading is the one decision here David has not stated outright, so it is **P4-1** below.
+- **The fact page's `askBefore` wiring stays.** It now runs at once for nearly every visitor, but it is still the correct behaviour while auth loads, and removing it is dead-code work for #853, not this change.
+- **One rule for the name tag, both branches: pronouns show iff `pronounsSupplied`.** The signed-in branch's guess (`userPronounsRaw || pronouns !== DEFAULT_PRONOUNS`) is replaced by the same flag, since the account mirror sets it through `syncFromProfile`. The `pronounSubject/pronounObject` fallback string is removed with it. The name span renders whatever name is held, empty included, as today.
+
+### Testing (Phase 4)
+
+- **Unit, the decision** (`src/lib/identity.test.ts`): `/facts/7` is not a landing page and `/m/abc` still is; a cold `/facts/7` landing asks, signed out and for a set-up incomplete account; the existing landing rows (exception, lapse, `actionPending`, the incomplete-identity block at `:146`) move to `/m/` paths so they keep testing the exception rather than silently testing an ordinary page.
+- **Unit, the operation** (`use-identity-gate.askBefore.test.tsx`, `__tests__/landingActions.askBefore.test.tsx`): re-run; any case that relies on `/facts/:id` being a landing page moves to `/m/:slug` or is rewritten against the new rule — each such case named in the PR body.
+- **Component, the name tag** (new `NameTag.test.tsx`): signed out with no identity shows no "(he/him)" and no pronouns at all; a name with no pronouns shows the name alone; supplied "he/him" shows "(he/him)"; a custom set shows its display form; signed in, an account without pronouns shows none and one with pronouns shows them.
+- **Browser** (`e2e/identityFlow.spec.ts`, signed out, no identity; names with a pronoun suggestion — Sarah, Emily, Grace):
+  - A cold `/facts/:id` opens the sheet on arrival; saving shows the fact with the saved name.
+  - Phase 1's "a shared meme shows its content first…": the new-tab step on `/facts/551` now expects the sheet in the new tab and none in the original; its other steps are unchanged.
+  - Phase 3's share and sort journeys on `/facts/571` and `/facts/573` are rewritten: the sheet on arrival, then share opens the modal and the sort applies at once, with no second sheet. The browser proof of `askBefore` on a landing page moves to `/m/:slug`, through the one in-page action a signed-out visitor has there: the phone's search opener (`Navbar.tsx:144`) asks, and after saving the search field opens.
+  - A cold `/m/:slug` still shows the meme with no sheet, and its name tag reads no "(he/him)".
+- **Sweep:** every browser test that lands cold on `/facts/:id` (`git grep -nE 'goto\(["\x60]/facts/' -- artifacts/overhype-me/e2e`, today in `identityFlow`, `publicScreens` and `adminPermissions`) is read, and any that interacts behind a now-open sheet seeds an identity first. The full browser suite runs locally before the PR opens.
+
+### Implementation steps (Phase 4, one increment, one PR off `main`)
+
+1. The predicate and its comments, with the decision's unit table.
+2. The name tag's one rule, with its component test.
+3. The browser tests above, and the sweep.
+4. `decisions.md`: the change to the 2026-10-17 Question 3 answer, fact pages only.
+5. The prose sweep (`prose-sweep` skill) over the payload for the retired reading "fact pages show content first" — this plan's earlier sections stay as history under this section's precedence line; live code comments and test descriptions are fixed.
+
+### Questions for David (Phase 4)
+
+- **P4-1 — What "before the page renders" means on a fact page.** Your words: the name *"should be the first thing asked, before rendering the page"*, and the decision says *"asked before the page renders, as on every other page."*
+  1. **As on every other page: the sheet opens on arrival, over the fact page** (recommended). The page loads beneath a dark, blurred backdrop, exactly as Home and Search do today, and the sheet cannot be closed without saving; once saved, the fact reads with the name. Cost: the "__" text exists behind the blur for the moment the sheet is open.
+  2. **The fact page also holds its text until a name is saved.** Nothing renders as "__" even behind the blur. Cost: the fact page becomes the one page that reads the identity to decide what to render — a second place with identity logic, which the plan's one-module rule exists to avoid — and every other page still shows its "__" text behind the sheet.
+
 ## Risks and Mitigations
 
 - **The sheet blocks a visitor who arrived to do one thing.** Intended. Bounded by the suppressed pages and the landing exception.
