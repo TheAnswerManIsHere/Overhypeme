@@ -29,7 +29,7 @@ const BOLD_WEIGHT = /font-weight:\s*(bold|bolder|[6-9]00)\b/i;
 /** Every inline style (style="…") or VML center style naming Impact. */
 function impactStyles(source: string): string[] {
   return [...source.matchAll(/style="([^"]*)"/g)]
-    .map((m) => m[1])
+    .map((m) => m[1] ?? "")
     .filter((style) => /Impact/.test(style));
 }
 
@@ -66,6 +66,6 @@ describe("email display font weight", () => {
     const html = buildEmailShell("<p>x</p>", "f");
     const m = html.match(/family=Oswald:wght@([0-9;]+)/);
     assert.ok(m, "Oswald import must be present");
-    assert.equal(m[1], "700");
+    assert.equal(m?.[1], "700");
   });
 });
