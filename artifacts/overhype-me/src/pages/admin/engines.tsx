@@ -1473,7 +1473,11 @@ export default function AdminEngines() {
   }, [load]);
 
   const handleChanged = (updated: EngineRow) => {
-    setEngines((prev) => (prev ? prev.map((e) => (e.id === updated.id ? updated : e)) : prev));
+    // Merge, not replace: save, archive and restore answer with the raw row,
+    // which lacks the list's derived fields (defaultForImageMode,
+    // eligibleAsKindDefault). None of those actions can change them; Set
+    // default, which can, reloads the list instead.
+    setEngines((prev) => (prev ? prev.map((e) => (e.id === updated.id ? { ...e, ...updated } : e)) : prev));
   };
 
   const grouped = useMemo(() => {

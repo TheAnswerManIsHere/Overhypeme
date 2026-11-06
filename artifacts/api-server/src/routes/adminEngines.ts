@@ -35,6 +35,7 @@ import { eq, ne, and } from "drizzle-orm";
 import { requireAdmin } from "./admin.js";
 import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js";
 import { currentImageEngineIds, ImageEngineRoutingError, setImageEngineForItsMode } from "../lib/imageEngineRouting.js";
+import { buildImageRequestSettings, ImageRequestBuildError } from "../lib/imageRequestBuilder.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import {
   assembleImagePromptForPreview,
@@ -1040,6 +1041,23 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
       resolution: body.resolution ?? engine.defaultResolution ?? undefined,
       endUserId,
     };
+  }
+
+  // Size from the engine's own vocabulary, through the same request builder
+  // the worker uses (launch Phase 8, A2), as the BASE layer: an explicit
+  // resolution and the engine-specific overrides below still win. Without it,
+  // an engine sized by a pixel object (GPT Image 2.5, Seedream 5.0 Pro) got no
+  // size at all and fal used its own default. A builder refusal (a fal-format
+  // or engine-specific aspect, no option for this aspect) keeps today's
+  // behaviour. Dry run and submission share these params.
+  if (benchType !== "image-classifier" && engine.sizeVocabulary) {
+    try {
+      const { sizeParams } = buildImageRequestSettings(engine, "comparison", aspectRatioWizard);
+      const explicit = Object.fromEntries(Object.entries(pipelineParams).filter(([, v]) => v !== undefined));
+      pipelineParams = { ...sizeParams, ...explicit };
+    } catch (err) {
+      if (!(err instanceof ImageRequestBuildError)) throw err;
+    }
   }
 
   // Engine-specific params from the admin override. Merged AFTER the
