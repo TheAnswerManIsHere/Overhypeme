@@ -151,7 +151,7 @@ export function buildNotificationEmail(opts: AdminNotifyOpts) {
   const siteUrl = getSiteBaseUrl();
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">New ${typeLabel}<br/>Needs Your Review</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Arial Narrow';">New ${typeLabel}<br/>Needs Your Review</h1>
 <p style="margin:0 0 8px;font-size:13px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Submitted by</p>
 <p style="margin:0 0 20px;font-size:15px;font-weight:600;color:#ffffff;">${opts.submitterName.replace(/</g, "&lt;")}</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
@@ -312,20 +312,20 @@ export function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
   const siteUrl = getSiteBaseUrl();
   const safeDisputeId = opts.disputeId.replace(/</g, "&lt;");
   const modeBadge = opts.livemode
-    ? `<span style="display:inline-block;padding:2px 8px;background:${BRAND_ORANGE};color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Live</span>`
-    : `<span style="display:inline-block;padding:2px 8px;background:#444444;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Test</span>`;
+    ? `<span style="display:inline-block;padding:2px 8px;background:${BRAND_ORANGE};color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">Live</span>`
+    : `<span style="display:inline-block;padding:2px 8px;background:#444444;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">Test</span>`;
 
   const strapColor = copy.urgent ? BRAND_ORANGE : "#cccccc";
 
   const body = `
-<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">${copy.headline} ${modeBadge}</h1>
-<p style="margin:0 0 24px;font-size:14px;color:${strapColor};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${copy.strapline}</p>
+<h1 style="margin:0 0 8px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Arial Narrow';">${copy.headline} ${modeBadge}</h1>
+<p style="margin:0 0 24px;font-size:14px;color:${strapColor};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">${copy.strapline}</p>
 <p style="margin:0 0 20px;font-size:15px;color:#aaaaaa;line-height:1.75;">${copy.leadHtml}</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
     <td style="padding:14px 16px;border-left:4px solid ${BRAND_ORANGE};">
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">${copy.amountLabel}</p>
-      <p style="margin:0 0 14px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
+      <p style="margin:0 0 14px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">${formattedAmount}</p>
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Dispute ID</p>
       <p style="margin:0;font-size:13px;font-weight:600;color:#dddddd;font-family:'Courier New',monospace;word-break:break-all;">${safeDisputeId}</p>
     </td>
@@ -414,8 +414,8 @@ export function buildAbandonedEmailNotification(opts: AdminAbandonedEmailNotifyO
   ].join("\n");
 
   const body = `
-<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Email Delivery<br/>Failed Permanently</h1>
-<p style="margin:0 0 24px;font-size:14px;color:${BRAND_ORANGE};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">All retry attempts exhausted</p>
+<h1 style="margin:0 0 8px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Arial Narrow';">Email Delivery<br/>Failed Permanently</h1>
+<p style="margin:0 0 24px;font-size:14px;color:${BRAND_ORANGE};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">All retry attempts exhausted</p>
 <p style="margin:0 0 20px;font-size:15px;color:#aaaaaa;line-height:1.75;">An outgoing email could not be delivered after all retry attempts. The recipient will <strong style="color:#ffffff;">not</strong> receive this message unless it is resent manually.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
@@ -533,8 +533,8 @@ export function buildFraudWarningEmail(opts: AdminFraudWarningNotifyOpts) {
   const safeWarningId = opts.warningId.replace(/</g, "&lt;");
   const safeChargeId = opts.chargeId.replace(/</g, "&lt;");
   const modeBadge = opts.livemode
-    ? `<span style="display:inline-block;padding:2px 8px;background:${BRAND_ORANGE};color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Live</span>`
-    : `<span style="display:inline-block;padding:2px 8px;background:#444444;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Test</span>`;
+    ? `<span style="display:inline-block;padding:2px 8px;background:${BRAND_ORANGE};color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">Live</span>`
+    : `<span style="display:inline-block;padding:2px 8px;background:#444444;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">Test</span>`;
 
   const fraudTypeHtml = opts.fraudType
     ? `<p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Fraud type</p>
@@ -546,15 +546,15 @@ export function buildFraudWarningEmail(opts: AdminFraudWarningNotifyOpts) {
     : "";
 
   const body = `
-<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Early Fraud<br/>Warning ${modeBadge}</h1>
-<p style="margin:0 0 24px;font-size:14px;color:${BRAND_ORANGE};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Refund window: 24–72 hours</p>
+<h1 style="margin:0 0 8px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Arial Narrow';">Early Fraud<br/>Warning ${modeBadge}</h1>
+<p style="margin:0 0 24px;font-size:14px;color:${BRAND_ORANGE};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">Refund window: 24–72 hours</p>
 <p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">Stripe&#39;s Radar flagged a charge as likely-fraudulent. Proactively refunding now usually prevents the cardholder from filing a formal chargeback later — and chargebacks cost more than the refund itself.</p>
 ${actionableHtml}
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
     <td style="padding:14px 16px;border-left:4px solid ${BRAND_ORANGE};">
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Amount</p>
-      <p style="margin:0 0 14px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
+      <p style="margin:0 0 14px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Arial Narrow','Roboto Condensed','sans-serif-condensed','Helvetica Neue',Arial,sans-serif;mso-font-alt:'Arial Narrow';">${formattedAmount}</p>
       ${fraudTypeHtml}
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Warning ID</p>
       <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#dddddd;font-family:'Courier New',monospace;word-break:break-all;">${safeWarningId}</p>
