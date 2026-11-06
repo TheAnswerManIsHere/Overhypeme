@@ -135,12 +135,19 @@ be pixel identical to the final meme file that is rendered."*). The builder's
 `framingTransform` and `fontSize` are in). The server draws it scaled up to the
 photo's own resolution, so the file is the preview at a larger size; the
 caption's runs come from `memeCaption` (the shared token renderer, the name
-marked so it is drawn in `MEME_NAME_COLOR`), and the watermark is drawn in a
-catalogue face so both sides draw the same glyphs. Until then the server had
-its own renderer, and every difference between the two reached the saved file;
-it also drew an orange left bar, a darkening wash and ghost "OM" letters the
-preview never showed, which David removed (2026-11-04). Anything a meme should
-show is added to `drawMeme`, never to one side.
+marked so it is drawn in `MEME_NAME_COLOR`, the brand orange the fact pages
+use). "Pixel identical" means identical to the eye (David, 2026-11-06): glyph
+edges may differ by a shade because each canvas anti-aliases on its own; text
+is placed on the alphabetic baseline because the two canvases disagree about
+`"middle"`. **The watermark** says where a meme came from to anyone who sees it
+posted elsewhere (David, 2026-11-06): "overhype.me", small, in the default
+caption face, in the bottom-right corner, and moved to the nearest clear spot
+(`watermarkPlacement`) when the caption would cover it. Every meme carries it
+today; dropping it for Legendary members is a perk still to be built. Until
+#870 the server had its own renderer, and every difference between the two
+reached the saved file; it also drew an orange left bar, a darkening wash and
+ghost "OM" letters the preview never showed, which David removed (2026-11-04).
+Anything a meme should show is added to `drawMeme`, never to one side.
 
 `GET /memes/:slug/image` serves the stored file for a baked meme and for a
 legacy meme stored before recipes existed (`imageSource === null`), with one
