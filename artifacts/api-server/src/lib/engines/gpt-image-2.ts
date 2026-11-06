@@ -24,6 +24,8 @@ export const GPT_IMAGE_2: EngineDefinition = {
   description:
     "OpenAI GPT Image 2 (alpha). Reasoning-based text-to-image with best-in-class in-image text rendering.",
   kind: "image",
+  imageMode: "t2i",
+  family: "gpt-image-2",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,

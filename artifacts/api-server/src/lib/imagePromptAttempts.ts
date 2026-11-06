@@ -22,6 +22,7 @@ import type {
 } from "@workspace/api-zod";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { enqueueJob } from "./asyncJobs";
+import { resolveImageEngine } from "./imageEngineRouting";
 
 /** RenderControls plus the route-attached fields `imagePromptJobs` reads. */
 export type RenderControlsWithRefs = RenderControls & {
@@ -65,6 +66,14 @@ export interface BuildImagePromptAttemptArgs {
    */
   requestId?: string | null;
   /**
+   * The engine to draw this attempt. Omitted: the configured engine for the
+   * mode (`image_engine_t2i` / `image_engine_i2i`). A caller that folded an
+   * engine into a hash (moderation, eval) passes the one it hashed, so the
+   * stored attempt and its hash name the same engine. Validated either way;
+   * an unusable engine refuses the attempt rather than falling back.
+   */
+  imageEngineId?: string;
+  /**
    * Moderation render-scenario metadata. Set ONLY for Step-2 visual-review
    * attempts; makes `image_prompt_attempts` the durable source of truth for the
    * scenario grid (see factRenderScenarios.ts / reviewRenderScenarios.ts).
@@ -100,6 +109,8 @@ export async function buildAndEnqueueImagePromptAttempt(
   args: BuildImagePromptAttemptArgs,
 ): Promise<{ renderJobId: string; attemptId: number }> {
   const generationMode = generationModeFromSubjectRenderMode(args.subjectRenderMode);
+  // Routing is resolved once, here, and stored: history never re-derives it.
+  const imageEngine = await resolveImageEngine(generationMode, args.imageEngineId);
   const renderJobId = randomUUID();
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)
@@ -112,6 +123,7 @@ export async function buildAndEnqueueImagePromptAttempt(
       subjectRenderMode: args.subjectRenderMode,
       userSelectedSubjectRenderMode: args.userSelectedSubjectRenderMode ?? null,
       targetEngine: "nano_banana_2",
+      actualImageEngineId: imageEngine.id,
       sourceImageAnalysis: args.analysis,
       sourceImageSha256: args.analysis.sourceImageSha256 ?? null,
       identityPolicy: args.identityPolicy,

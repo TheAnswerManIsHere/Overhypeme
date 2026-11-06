@@ -19,6 +19,9 @@ import { logger } from "./logger.js";
  *   - "float"       — Number(value)
  *   - "stringArray" — wraps a scalar into [scalar]; passes arrays through
  *                     (Nano Banana Pro wants `image_urls: [url]`)
+ *   - "dimensions"  — "WxH" (e.g. "1024x1536") → { width, height }; for
+ *                     endpoints whose size is a pixel object (GPT Image 2.5,
+ *                     Seedream 5.0). Anything else throws.
  *
  * Per-entry validation and conditional inclusion:
  *   - `enum`         — declared values array; rejects unknown values with
@@ -50,7 +53,13 @@ export type ParamPrimitive =
    * through unchanged. Needed for engines like Nano Banana Pro whose
    * `image_urls` input is an array even when only one reference is sent.
    */
-  | "stringArray";
+  | "stringArray"
+  /**
+   * Parses "WxH" into `{ width, height }` for endpoints that take a size as
+   * a pixel object (launch Phase 8's GPT Image 2.5 and Seedream 5.0 Pro).
+   * Declare no `enum` on such an entry: the emitted value is an object.
+   */
+  | "dimensions";
 
 /**
  * Tiny predicate language used by `includeWhen`. Evaluates against the
@@ -316,6 +325,13 @@ function coerce(
       return Number(value);
     case "stringArray":
       return Array.isArray(value) ? value.map(String) : [String(value)];
+    case "dimensions": {
+      const m = /^(\d+)x(\d+)$/.exec(String(value).trim());
+      if (!m) {
+        throw new InvalidEngineParamError(engineId, paramName, 'expected "WIDTHxHEIGHT"', value);
+      }
+      return { width: Number(m[1]), height: Number(m[2]) };
+    }
     default: {
       // Exhaustive check — anything else throws.
       throw new UnknownParamTypeError(engineId, paramName, String(type));

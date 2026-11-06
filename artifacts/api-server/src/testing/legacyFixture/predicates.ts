@@ -50,7 +50,7 @@ function renderHasher(): (reviewId: number, scenarioKey: string) => Promise<{ ok
     if (!contexts.has(reviewId)) contexts.set(reviewId, await loadReviewRenderContext(reviewId));
     const loaded = contexts.get(reviewId)!;
     if (!loaded.ok) return { ok: false, reason: loaded.reason };
-    return { ok: true, hash: computeScenarioInputHash(scenarioKey as RenderScenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment) };
+    return { ok: true, hash: computeScenarioInputHash(scenarioKey as RenderScenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment, loaded.ctx.imageEngines) };
   };
 }
 

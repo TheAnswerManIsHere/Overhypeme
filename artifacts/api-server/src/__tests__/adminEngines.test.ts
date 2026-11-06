@@ -41,6 +41,8 @@ import adminEnginesRouter, {
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { clearEngineCaches } from "../lib/engineInterpreter.js";
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
+import { ALL_ENGINES } from "../lib/engines/index.js";
+import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 
 const ENGINE_PREFIX = "t-ae-";
 const USER_PREFIX = "t-ae-u-";
@@ -1115,5 +1117,54 @@ describe("kind-default eligibility guard", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.endpointId, "gpt-5.5");
     assert.equal(res.body.defaultReasoningEffort, "xhigh");
+  });
+});
+
+// ─── The bench sizes through the request builder (PR #889 round 1) ────────────
+
+describe("POST /admin/engines/:id/test sizes an engine from its vocabulary", () => {
+  // Copies of catalogue definitions under the test prefix, so cleanup owns them.
+  async function seedFromCatalogue(catalogueId: string): Promise<string> {
+    const def = ALL_ENGINES.find((e) => e.id === catalogueId);
+    assert.ok(def, catalogueId);
+    const id = `${ENGINE_PREFIX}${catalogueId}-${randomUUID().slice(0, 6)}`;
+    await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id });
+    insertedEngineIds.push(id);
+    clearEngineCaches();
+    return id;
+  }
+
+  async function dryRun(id: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .post(`/api/admin/engines/${id}/test`)
+      .send({ dryRun: true, sampleImageUrl: "https://example.com/ref.png", ...body });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    return res.body.falInput as Record<string, unknown>;
+  }
+
+  it("a pixel-sized engine gets the chosen aspect's size, in both modes", async () => {
+    for (const catalogueId of ["gpt-image-2-5", "gpt-image-2-5-edit", "seedream-5-pro", "seedream-5-pro-edit"]) {
+      const id = await seedFromCatalogue(catalogueId);
+      const portrait = await dryRun(id, { aspectRatio: "portrait" });
+      const square = await dryRun(id, { aspectRatio: "square" });
+      const p = portrait["image_size"] as { width: number; height: number };
+      assert.ok(p && p.height > p.width, `${catalogueId} portrait: ${JSON.stringify(p)}`);
+      assert.deepEqual(square["image_size"], { width: 1024, height: 1024 }, catalogueId);
+    }
+  });
+
+  it("an explicit size override still wins", async () => {
+    const id = await seedFromCatalogue("gpt-image-2-5");
+    const input = await dryRun(id, { aspectRatio: "portrait", extraParams: { imageSize: "1536x2720" } });
+    assert.deepEqual(input["image_size"], { width: 1536, height: 2720 });
+  });
+
+  it("a resolution-sized engine keeps an explicit resolution, and a non-wizard aspect falls through", async () => {
+    const id = await seedFromCatalogue("nano-banana-2");
+    assert.equal((await dryRun(id, { aspectRatio: "portrait", resolution: "2K" }))["resolution"], "2K");
+    assert.equal((await dryRun(id, { aspectRatio: "portrait" }))["resolution"], "1K");
+    const odd = await dryRun(id, { aspectRatio: "4:5" });
+    assert.equal(odd["aspect_ratio"], "4:5", "an engine-specific aspect is passed through, not refused");
   });
 });

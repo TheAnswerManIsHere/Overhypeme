@@ -116,6 +116,17 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   evalRunId: bigint("eval_run_id", { mode: "number" }).references(() => evalRunsTable.id, { onDelete: "set null" }),
   evalScenarioKey: varchar("eval_scenario_key", { length: 40 }),
   evalInputHash: text("eval_input_hash"),
+  // ── Engine attribution (migration 0123, launch Phase 8) ───────────────────
+  /**
+   * The image engine that draws (or drew) this attempt, resolved once at
+   * construction and never derived from today's configuration. Null only on a
+   * row written by a release older than 0123 after it ran; such a release
+   * routed by mode alone (see `legacyImageEngineIdForGenerationMode`). A
+   * contract migration makes it NOT NULL once 0123's release is published.
+   */
+  actualImageEngineId: varchar("actual_image_engine_id", { length: 64 }),
+  /** The endpoint settings the request builder chose (purpose, size, aspect), as sent. */
+  requestSettings: jsonb("request_settings"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

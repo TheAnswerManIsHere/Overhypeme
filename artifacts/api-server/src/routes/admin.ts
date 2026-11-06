@@ -25,6 +25,7 @@ import {
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
+import { isImageEngineConfigKey, IMAGE_ENGINE_CONFIG_KEY_REFUSAL } from "../lib/imageEngineRouting";
 import { CODE_OWNED_PROMPT_REFUSAL, isCodeOwnedPromptKey, withCodeOwnedPrompts } from "../lib/codeOwnedPrompts";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { revokeUserSessions } from "../lib/auth";
@@ -2344,6 +2345,12 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   // window. The keys are owned by the safety admin surface instead.
   if (isNcmecReservedConfigKey(key)) {
     res.status(403).json({ error: NCMEC_RESERVED_KEY_REFUSAL });
+    return;
+  }
+  // The engine per render mode is written only by the engines screen's
+  // "Set default", which validates the engine (imageEngineRouting.ts).
+  if (isImageEngineConfigKey(key)) {
+    res.status(403).json({ error: IMAGE_ENGINE_CONFIG_KEY_REFUSAL });
     return;
   }
   // The six AI system prompts are set in code (codeOwnedPrompts.ts).

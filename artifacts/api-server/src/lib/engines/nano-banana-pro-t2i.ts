@@ -21,6 +21,8 @@ export const NANO_BANANA_PRO_T2I: EngineDefinition = {
   description:
     "Google Gemini 3 Pro Image. Quality-first text-to-image for LEGEND-tier hero compositions.",
   kind: "image",
+  imageMode: "t2i",
+  family: "nano-banana-pro",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,

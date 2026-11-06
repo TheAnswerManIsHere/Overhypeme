@@ -16,16 +16,15 @@ import {
   RENDER_SCENARIO_DESCRIPTORS,
   type EvalRunProfile,
   type AttemptSignature,
-  type GenerationMode,
   type RenderScenarioKey,
 } from "@workspace/api-zod";
 import type { ImagePromptAttempt } from "@workspace/db";
 import {
   SCENARIO_CONFIG_VERSION,
   DEFAULT_REFERENCE_ASSET_VERSION,
-  actualImageEngineIdForGenerationMode,
 } from "../factRenderScenarios";
 import { resolveImagePromptLLMSettings } from "../imagePrompt/generator";
+import { attemptImageEngineId } from "../imageEngineRouting";
 
 const UNKNOWN = "unknown";
 
@@ -44,7 +43,7 @@ function lookStyleIdOf(attempt: ImagePromptAttempt): string {
  * Per-attempt signature. Reference identity/version come from the stored review
  * columns when present (moderation attempts) and otherwise from the scenario
  * descriptor (eval-run attempts don't set the review columns). The engine is the
- * ACTUAL image engine for the generation mode, not the coarse `targetEngine`.
+ * ACTUAL image engine recorded on the attempt, not the coarse `targetEngine`.
  */
 export function deriveAttemptSignature(attempt: ImagePromptAttempt): AttemptSignature {
   const scenarioKey = attempt.evalScenarioKey ?? attempt.reviewRenderScenarioKey ?? UNKNOWN;
@@ -53,8 +52,10 @@ export function deriveAttemptSignature(attempt: ImagePromptAttempt): AttemptSign
     | undefined;
 
   const generationMode = attempt.generationMode || UNKNOWN;
-  const actualImageEngineId = attempt.generationMode
-    ? actualImageEngineIdForGenerationMode(attempt.generationMode as GenerationMode)
+  // The engine recorded at construction (or, for an older row, the engine its
+  // release routed to) — never today's default.
+  const actualImageEngineId = (attempt.actualImageEngineId || attempt.generationMode)
+    ? attemptImageEngineId(attempt)
     : UNKNOWN;
 
   const referenceIdentityType =

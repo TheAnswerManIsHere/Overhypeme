@@ -1,4 +1,23 @@
-import type { EngineDefinition } from "./types";
+import type { EngineDefinition, PriceModel, SizeVocabulary } from "./types";
+
+/** Shared by the text-to-image and edit definitions. */
+export const NANO_BANANA_2_SIZES: SizeVocabulary = {
+  options: [
+    { params: { resolution: "0.5K" }, megapixels: 0.25 },
+    { params: { resolution: "1K" }, megapixels: 1 },
+    { params: { resolution: "2K" }, megapixels: 4 },
+    { params: { resolution: "4K" }, megapixels: 16 },
+  ],
+};
+
+/** fal's page: $0.08 per image at 1K (1.5x at 2K, 2x at 4K); the bound is at
+ *  the comparison setting, 1K. */
+export const NANO_BANANA_2_PRICE: PriceModel = {
+  kind: "flat",
+  usdPerImage: 0.08,
+  source: "https://fal.ai/models/fal-ai/nano-banana-2",
+  readOn: "2026-11-06",
+};
 
 /**
  * Nano Banana 2 (Google Gemini 3.1 Flash Image) — text-to-image.
@@ -20,6 +39,8 @@ export const NANO_BANANA_2: EngineDefinition = {
   description:
     "Google Gemini 3.1 Flash Image. Fast, semantic-aware text-to-image — recommended default for prompt-only scene generation.",
   kind: "image",
+  imageMode: "t2i",
+  family: "nano-banana-2",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,
@@ -104,6 +125,8 @@ export const NANO_BANANA_2: EngineDefinition = {
     ],
   },
 
+  sizeVocabulary: NANO_BANANA_2_SIZES,
+  priceModel: NANO_BANANA_2_PRICE,
   expectedRunMs: 5000,
   // ~$0.08/image at 1K; 1.5x at 2K, 2x at 4K.
   estimatedCostUsdPerCall: 0.08,

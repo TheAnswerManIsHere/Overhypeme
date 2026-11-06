@@ -37,7 +37,10 @@ For work on the render-time image pipeline.
 
 Blanket text bans · `gpt-4o-mini`/`gpt-image-1`/FLUX as the render path (it's the
 `gpt-5.5` planner + Nano Banana 2) · enrichment-time visual preview as source of
-truth · violence auto-softeners · per-route preview identities.
+truth · violence auto-softeners · per-route preview identities · choosing the
+render engine by string, or deriving a stored attempt's engine from its mode (it
+is the per-mode config keys and the attempt's own column; `imageEngineRouting.ts`,
+`visual-pipeline.md` *Which engine draws a render*).
 
 ## Tests
 

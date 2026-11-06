@@ -34,6 +34,8 @@ import { eq, ne, and } from "drizzle-orm";
 
 import { requireAdmin } from "./admin.js";
 import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js";
+import { currentImageEngineIds, ImageEngineRoutingError, setImageEngineForItsMode } from "../lib/imageEngineRouting.js";
+import { buildImageRequestSettings, ImageRequestBuildError } from "../lib/imageRequestBuilder.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import {
   assembleImagePromptForPreview,
@@ -368,11 +370,16 @@ router.get("/admin/engines", requireAdmin, async (_req: Request, res: Response) 
     if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
     return a.id.localeCompare(b.id);
   });
+  // An image engine is the default for a render MODE (a config key), so the
+  // list says which mode, if any, each image engine currently serves.
+  const imageEngines = await currentImageEngineIds();
   const engines = rows.map((row) => ({
     ...row,
     eligibleAsKindDefault: isEligibleAsKindDefault(row.id),
+    defaultForImageMode:
+      row.kind === "image" ? ((["t2i", "i2i"] as const).find((m) => imageEngines[m] === row.id) ?? null) : null,
   }));
-  res.json({ engines, editableFields: ADMIN_EDITABLE_FIELDS });
+  res.json({ engines, editableFields: ADMIN_EDITABLE_FIELDS, imageEngines });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -401,6 +408,20 @@ router.patch("/admin/engines/:id", requireAdmin, async (req: Request, res: Respo
         "default for its kind (it would reroute every call of this kind through it).",
     });
     return;
+  }
+
+  // An image engine's default is per render mode and lives in a config key;
+  // the flag routes nothing for it, so the toggle is refused rather than
+  // silently accepted. "Set default" is the one writer.
+  if ("isDefault" in result.updates) {
+    const existing = await fetchEngineById(id);
+    // Refuse a CHANGE only: the editor sends the flag on every save.
+    if (existing?.kind === "image" && existing.isDefault !== result.updates.isDefault) {
+      res.status(400).json({
+        error: "An image engine's default is set per render mode with Set default, not with this toggle.",
+      });
+      return;
+    }
   }
 
   // The model (endpointId) is only editable on OpenAI/LLM engines; media engine
@@ -490,6 +511,25 @@ router.post("/admin/engines/:id/set-default", requireAdmin, async (req: Request,
   }
 
   const { kind } = target;
+
+  // An image engine is the default for its MODE, not its kind: routing is per
+  // mode (text-to-image and reference editing), so "Set default" writes that
+  // mode's config key, and `isDefault` is not used for image engines.
+  if (kind === "image") {
+    try {
+      await setImageEngineForItsMode(id);
+    } catch (err) {
+      if (err instanceof ImageEngineRoutingError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+    clearEngineCaches();
+    const updated = await fetchEngineById(id);
+    res.json(updated);
+    return;
+  }
 
   await db.transaction(async (tx) => {
     await tx
@@ -1001,6 +1041,23 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
       resolution: body.resolution ?? engine.defaultResolution ?? undefined,
       endUserId,
     };
+  }
+
+  // Size from the engine's own vocabulary, through the same request builder
+  // the worker uses (launch Phase 8, A2), as the BASE layer: an explicit
+  // resolution and the engine-specific overrides below still win. Without it,
+  // an engine sized by a pixel object (GPT Image 2.5, Seedream 5.0 Pro) got no
+  // size at all and fal used its own default. A builder refusal (a fal-format
+  // or engine-specific aspect, no option for this aspect) keeps today's
+  // behaviour. Dry run and submission share these params.
+  if (benchType !== "image-classifier" && engine.sizeVocabulary) {
+    try {
+      const { sizeParams } = buildImageRequestSettings(engine, "comparison", aspectRatioWizard);
+      const explicit = Object.fromEntries(Object.entries(pipelineParams).filter(([, v]) => v !== undefined));
+      pipelineParams = { ...sizeParams, ...explicit };
+    } catch (err) {
+      if (!(err instanceof ImageRequestBuildError)) throw err;
+    }
   }
 
   // Engine-specific params from the admin override. Merged AFTER the

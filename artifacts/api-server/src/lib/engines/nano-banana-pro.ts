@@ -49,6 +49,8 @@ export const NANO_BANANA_PRO: EngineDefinition = {
   description:
     "Google Gemini 3 Pro Image. Best-in-class face preservation for selfie-to-meme stylization.",
   kind: "image",
+  imageMode: "i2i",
+  family: "nano-banana-pro",
   tierRequirement: "legendary",
   isDefault: true,
   isActive: true,

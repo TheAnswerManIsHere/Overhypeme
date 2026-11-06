@@ -1,4 +1,5 @@
 import type { EngineDefinition } from "./types";
+import { NANO_BANANA_2_PRICE, NANO_BANANA_2_SIZES } from "./nano-banana-2";
 
 /**
  * Nano Banana 2 Edit (Google Gemini 3.1 Flash Image) — image-to-image.
@@ -20,6 +21,8 @@ export const NANO_BANANA_2_EDIT: EngineDefinition = {
   description:
     "Google Gemini 3.1 Flash Image edit. Native-identity selfie stylization — recommended PuLID replacement.",
   kind: "image",
+  imageMode: "i2i",
+  family: "nano-banana-2",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,
@@ -107,6 +110,8 @@ export const NANO_BANANA_2_EDIT: EngineDefinition = {
     ],
   },
 
+  sizeVocabulary: NANO_BANANA_2_SIZES,
+  priceModel: NANO_BANANA_2_PRICE,
   expectedRunMs: 6000,
   estimatedCostUsdPerCall: 0.08,
 };

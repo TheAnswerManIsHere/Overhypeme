@@ -95,6 +95,21 @@ export const enginesTable = pgTable("engines", {
    * with video; no catalogue engine sets it today.
    */
   featureFlagRequired: varchar("feature_flag_required", { length: 64 }),
+  // ── Image routing and costing (migration 0123, launch Phase 8) ──────────
+  // Code-owned: reconciled from the catalogue definition on every boot.
+  /** "t2i" | "i2i" for an image engine (text-to-image or reference editing); null otherwise. */
+  imageMode: varchar("image_mode", { length: 4 }),
+  /** Pairs an engine's text-to-image and edit definitions (e.g. "nano-banana-2"). */
+  family: varchar("family", { length: 64 }),
+  /** How a call is priced, with each component's documented ceiling and source. See engines/types.ts `PriceModel`. */
+  priceModel: jsonb("price_model"),
+  /** The endpoint's own size vocabulary, from which the request builder picks a setting. See engines/types.ts `SizeVocabulary`. */
+  sizeVocabulary: jsonb("size_vocabulary"),
+  /**
+   * Retired: kept for attribution only. Unlike soft-deletion, a retired engine
+   * cannot be restored, loaded by the bench, or selected by the resolver.
+   */
+  retired: boolean("retired").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   /**

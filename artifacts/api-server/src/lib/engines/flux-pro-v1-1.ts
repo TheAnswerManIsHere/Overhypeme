@@ -25,6 +25,8 @@ export const FLUX_PRO_V1_1: EngineDefinition = {
   description:
     "Text-to-image. Current production model for prompt-only scene generation and the no-face fallback.",
   kind: "image",
+  imageMode: "t2i",
+  family: "flux-pro-v1-1",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,

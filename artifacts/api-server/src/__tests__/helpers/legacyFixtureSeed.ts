@@ -224,7 +224,7 @@ const reviewRender = (hash: string) => ({
   renderedFactText: `${S.reviewSubjectName} counted to infinity, twice, and the second time it was backwards.`,
 });
 const ctx = await loadReviewRenderContext(refresh!.id);
-const currentHash = ctx.ok ? computeScenarioInputHash("generic_t2i", ctx.ctx.stagingFactId, ctx.ctx.factText, ctx.ctx.enrichment) : "unavailable";
+const currentHash = ctx.ok ? computeScenarioInputHash("generic_t2i", ctx.ctx.stagingFactId, ctx.ctx.factText, ctx.ctx.enrichment, ctx.ctx.imageEngines) : "unavailable";
 const [currentRender] = await db.insert(t.imagePromptAttemptsTable).values(reviewRender(currentHash)).returning({ id: t.imagePromptAttemptsTable.id });
 const [staleRender] = await db.insert(t.imagePromptAttemptsTable).values(reviewRender("zqx".padEnd(64, "0"))).returning({ id: t.imagePromptAttemptsTable.id });
 const reviewRenderPath = `/objects/ai-bg-v2/${activeFact!.id}/${currentRender!.id}-1767000000001.png`;
