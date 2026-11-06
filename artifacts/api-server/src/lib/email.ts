@@ -358,6 +358,12 @@ export const EMAIL_COLORS = {
  * Outlook ignores web fonts and falls back to Impact / system sans-serif, which
  * still looks intentional at this weight.
  *
+ * Display-stack styles say font-weight:400, never bold. Impact has one weight
+ * and it is already heavy; asking it for 600/700 makes Outlook and browsers
+ * synthesise a fake bold that smears the glyphs. Oswald is loaded at 700 only,
+ * so a 400 request is served the real bold face in clients that load it.
+ * Guarded by emailDisplayFontWeight.test.ts.
+ *
  * STUB LOGO: The header currently renders the brand name as styled text.
  * Once a hosted logo image is available, replace the stub block with:
  *   <img src="https://overhype.me/images/logo.png" width="48" height="48" alt="Overhype.me" style="display:block;" />
@@ -374,7 +380,7 @@ export function buildEmailShell(bodyContent: string, footerNote: string): string
   <meta name="supported-color-schemes" content="dark" />
   <!--[if !mso]><!-->
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@700&display=swap');
     :root { color-scheme: dark; supported-color-schemes: dark; }
   </style>
   <!--<![endif]-->
@@ -391,7 +397,7 @@ export function buildEmailShell(bodyContent: string, footerNote: string): string
         <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
           <tr>
             <td bgcolor="${EMAIL_COLORS.primary}" style="padding:10px 22px 12px;border-radius:10px;">
-              <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;mso-font-alt:'Impact';">OVERHYPE.ME</span>
+              <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:400;letter-spacing:3px;text-transform:uppercase;color:#ffffff;mso-font-alt:'Impact';">OVERHYPE.ME</span>
             </td>
           </tr>
         </table>
@@ -445,11 +451,11 @@ export function ctaButton(href: string, label: string): string {
       <!--[if mso]>
       <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:52px;v-text-anchor:middle;width:440px;" arcsize="22%" stroke="f" fillcolor="${EMAIL_COLORS.primary}">
         <w:anchorlock/>
-        <center style="color:#ffffff;font-family:Impact,'Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">${label}</center>
+        <center style="color:#ffffff;font-family:Impact,'Arial Narrow',sans-serif;font-size:15px;font-weight:400;letter-spacing:2px;text-transform:uppercase;">${label}</center>
       </v:roundrect>
       <![endif]-->
       <!--[if !mso]><!-- -->
-      <a href="${href}" target="_blank" style="display:block;width:100%;max-width:440px;background-color:${EMAIL_COLORS.primary};border-radius:12px;padding:16px 28px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;text-align:center;box-sizing:border-box;mso-font-alt:'Impact';">${label}</a>
+      <a href="${href}" target="_blank" style="display:block;width:100%;max-width:440px;background-color:${EMAIL_COLORS.primary};border-radius:12px;padding:16px 28px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:400;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;text-align:center;box-sizing:border-box;mso-font-alt:'Impact';">${label}</a>
       <!--<![endif]-->
     </td>
   </tr>
@@ -485,7 +491,7 @@ export function buildEmailVerificationEmail(verifyUrl: string): Pick<EmailPayloa
   ].join("\n");
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Legend<br/>Begins Here.</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Legend<br/>Begins Here.</h1>
 <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">Before we add you to the database of greatness, we need to verify that you're actually you. (Or a reasonable facsimile. We're&nbsp;not&nbsp;picky.)</p>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Hit the button. This link expires in <strong style="color:#ffffff;">24&nbsp;hours</strong>&nbsp;— unlike your legend, which is&nbsp;forever.</p>
 ${ctaButton(verifyUrl, "Verify My Email")}
@@ -518,7 +524,7 @@ export function buildEmailChangeVerificationEmail(pendingEmail: string, verifyUr
   ].join("\n");
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Confirm Your<br/>New Email.</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Confirm Your<br/>New Email.</h1>
 <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">You requested to change your Overhype.me email address&nbsp;to:</p>
 <p style="margin:0 0 28px;font-size:16px;font-weight:600;color:#ffffff;word-break:break-all;">${pendingEmail}</p>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Click the button to lock it in. This link is valid for <strong style="color:#ffffff;">24&nbsp;hours</strong>.</p>
@@ -563,7 +569,7 @@ export function buildAccountDeletionScheduledEmail(purgeAfter: Date, keepUrl: st
     "— The Overhype.me Team",
   ].join("\n");
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account Is<br/>Scheduled For Deletion</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account Is<br/>Scheduled For Deletion</h1>
 <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">On <strong style="color:#ffffff;">${date}</strong> your account, your memes, photos and images are removed from Overhype.me for&nbsp;good. Facts, comments and suggestions you submitted stay on the site, credited to a former&nbsp;member. Your votes and hearts stay in the totals without your&nbsp;name.</p>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Until then you are signed out everywhere and your memes, photos and images are hidden. Changed your mind? Sign in before that date and keep your&nbsp;account.</p>
 ${ctaButton(keepUrl, "Keep My Account")}
@@ -592,7 +598,7 @@ export function buildUnfinishedAccountDeletionEmail(purgeAfter: Date, keepUrl: s
     "— The Overhype.me Team",
   ].join("\n");
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">You Never Finished<br/>Setting Up</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">You Never Finished<br/>Setting Up</h1>
 <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">You started an Overhype.me account more than 30 days ago and never finished setting it up. On <strong style="color:#ffffff;">${date}</strong> we delete&nbsp;it.</p>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Want to keep it? Sign in before that date, keep your account, then finish setting&nbsp;up.</p>
 ${ctaButton(keepUrl, "Keep My Account")}
@@ -620,7 +626,7 @@ export function buildAccountDeletionCancelledEmail(siteUrl: string, opts: { unfi
     "— The Overhype.me Team",
   ].join("\n");
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account<br/>Is Staying</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Your Account<br/>Is Staying</h1>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">${line.replace(/ (\S+)\.$/, "&nbsp;$1.")}</p>
 ${opts.unfinished ? ctaButton(onboardUrl, "Finish Setting Up") : ctaButton(siteUrl, "Back To Overhype.me")}`;
   const html = buildEmailShell(body, "You&#39;re receiving this because a deletion of your Overhype.me account was cancelled.");
@@ -642,7 +648,7 @@ export function buildPasswordResetEmail(resetUrl: string): Pick<EmailPayload, "s
   ].join("\n");
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Forgot Your<br/>Password?</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Forgot Your<br/>Password?</h1>
 <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">It happens to the best of us. Even legends have off&nbsp;days.</p>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Click the button to set a new password. This link expires in <strong style="color:#ffffff;">1&nbsp;hour</strong>, so don't sit on&nbsp;it.</p>
 ${ctaButton(resetUrl, "Reset My Password")}
@@ -685,7 +691,7 @@ export function buildReviewApprovedEmail(opts: {
     : "";
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">It&#39;s Official,<br/>${opts.username}.</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">It&#39;s Official,<br/>${opts.username}.</h1>
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your submitted fact has been reviewed and approved. The database grows stronger.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
   <tr>
@@ -746,7 +752,7 @@ export function buildReviewRejectedEmail(opts: {
     : "";
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Not Every Legend<br/>Makes the Cut.</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Not Every Legend<br/>Makes the Cut.</h1>
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Hey <strong style="color:#ffffff;">${opts.username}</strong> — after review, we weren&#39;t able to add this one to the&nbsp;database.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
   <tr>
@@ -793,7 +799,7 @@ export function buildShareInviteEmail(
   const safeName = recipientName.replace(/</g, "&lt;");
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">${safeFrom} You&#39;re<br/>Legendary.</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">${safeFrom} You&#39;re<br/>Legendary.</h1>
 <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">They&#39;ve set up a personalised Overhype.me experience just for <strong style="color:#ffffff;">${safeName}</strong> — a community-driven database of epic facts about real people.</p>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your link is already loaded with your name and pronouns. When you open it, you&#39;ll see the world through&nbsp;your&nbsp;lens.</p>
 ${ctaButton(shareUrl, "See My Facts")}
@@ -868,7 +874,7 @@ export function buildSCAActionRequiredEmail(opts: {
       : "";
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Confirm Your<br/>Renewal.</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Confirm Your<br/>Renewal.</h1>
 <p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your bank is asking us to verify your renewal payment before it can settle (SCA / 3D Secure). Until you confirm, your <strong style="color:#ffffff;">Legendary</strong>&nbsp;access is at risk of&nbsp;lapsing.</p>
 ${amountHtml}
 ${ctaButton(opts.hostedInvoiceUrl, "Confirm Payment")}
@@ -912,7 +918,7 @@ export function buildCardAutomaticallyUpdatedEmail(opts: {
   const safeCard = cardLabel.replace(/</g, "&lt;");
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Card On File<br/>Updated.</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Card On File<br/>Updated.</h1>
 <p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your card network sent us refreshed details for <strong style="color:#ffffff;">${safeCard}</strong>.</p>
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">No action required — your Legendary renewals will continue uninterrupted.</p>
 ${divider()}
@@ -962,13 +968,13 @@ export function buildRenewalReminderEmail(opts: {
     : "";
 
   const body = `
-<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Renewal<br/>Coming Up.</h1>
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Renewal<br/>Coming Up.</h1>
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your ${planLabel}<strong style="color:#ffffff;">Legendary</strong> subscription is about to&nbsp;renew.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
     <td style="padding:14px 16px;border-left:4px solid ${BRAND_ORANGE};">
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Amount</p>
-      <p style="margin:0 0 ${dateLabel ? "18" : "0"}px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
+      <p style="margin:0 0 ${dateLabel ? "18" : "0"}px;font-size:18px;font-weight:400;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
       ${dateHtml}
     </td>
   </tr>

@@ -30,7 +30,7 @@ export function buildFactOfTheDayEmail(
   ].join("\n");
 
   const body = `
-<h1 style="margin:0 0 6px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Today's Fact.</h1>
+<h1 style="margin:0 0 6px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Today's Fact.</h1>
 <p style="margin:0 0 28px;font-size:13px;color:#888888;text-transform:uppercase;letter-spacing:2px;font-family:'Inter',-apple-system,sans-serif;">Hand-picked from the database of greatness</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 32px;">
   <tr>

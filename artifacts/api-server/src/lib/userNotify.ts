@@ -136,8 +136,8 @@ export function buildAccessRevokedEmail(kind: AccessRevocationKind): {
   ].join("\n");
 
   const body = `
-<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${EMAIL_COLORS.heading};line-height:1.2;mso-font-alt:'Impact';">${headline}</h1>
-<p style="margin:0 0 24px;font-size:13px;color:${EMAIL_COLORS.primary};font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Membership update</p>
+<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:${EMAIL_COLORS.heading};line-height:1.2;mso-font-alt:'Impact';">${headline}</h1>
+<p style="margin:0 0 24px;font-size:13px;color:${EMAIL_COLORS.primary};font-weight:400;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Membership update</p>
 <p style="margin:0 0 28px;font-size:15px;color:${EMAIL_COLORS.body};line-height:1.75;">${noticeHtml}</p>
 <p style="margin:0 0 32px;font-size:15px;color:${EMAIL_COLORS.body};line-height:1.75;">Think this happened by mistake, or want to talk through your options? We&#39;re here to&nbsp;help — reach the team at <strong style="color:${EMAIL_COLORS.heading};">${SUPPORT_EMAIL}</strong>.</p>
 ${ctaButton(supportMailto, "Contact Support")}
