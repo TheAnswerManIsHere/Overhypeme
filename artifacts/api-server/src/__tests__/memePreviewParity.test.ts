@@ -16,8 +16,11 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import sharp from "sharp";
 import {
   MEME_CANVAS_DIMS,
+  BRAND_ORANGE,
+  DEFAULT_CAPTION_FONT_ID,
   MEME_NAME_COLOR,
   WATERMARK_FONT_ID,
+  watermarkPlacement,
   captionFontById,
   captionFontStack,
   drawMeme,
@@ -229,5 +232,63 @@ describe("#872: punctuation stays attached to the name", () => {
     const first = drawn[0]!;
     assert.equal(stop.y, name.y, "the full stop is on the name's line");
     assert.notEqual(name.y, first.y, "the name's word wrapped to the next line");
+  });
+});
+
+describe("the meme's name colour and watermark (David, 2026-11-06)", () => {
+  it("draws the name in the brand orange, the colour the fact pages use", () => {
+    assert.equal(MEME_NAME_COLOR, BRAND_ORANGE);
+  });
+
+  it("draws the watermark in the default caption face", () => {
+    assert.equal(WATERMARK_FONT_ID, DEFAULT_CAPTION_FONT_ID);
+  });
+
+  const canvas = { w: 1280, h: 720 };
+  const base = { canvas, textWidth: 120, fontSize: 21, margin: 22 };
+
+  it("sits in the bottom-right corner when nothing covers it", () => {
+    const spot = watermarkPlacement({ ...base, avoid: [] });
+    assert.equal(spot.x, 1280 - 22 - 120);
+    assert.equal(spot.baseline, 720 - 22);
+  });
+
+  it("moves to the bottom-left when the caption covers the bottom right", () => {
+    const caption = { x0: 900, x1: 1280, y0: 640, y1: 720 };
+    const spot = watermarkPlacement({ ...base, avoid: [caption] });
+    assert.equal(spot.x, 22);
+    assert.equal(spot.baseline, 720 - 22);
+  });
+
+  it("moves up the right edge, clear of the caption, when a caption spans the whole bottom", () => {
+    const caption = { x0: 0, x1: 1280, y0: 600, y1: 720 };
+    const spot = watermarkPlacement({ ...base, avoid: [caption] });
+    assert.equal(spot.x, 1280 - 22 - 120);
+    assert.ok(spot.box.y1 <= 600, `watermark box ${JSON.stringify(spot.box)} clears the caption`);
+  });
+
+  it("never overlaps any caption line in a drawn meme, top and bottom captions included", () => {
+    const placed: { text: string; x: number; y: number; font: string }[] = [];
+    const ctx = {
+      fillStyle: "" as unknown, strokeStyle: "" as unknown, lineWidth: 0, lineJoin: "", font: "", textAlign: "", textBaseline: "",
+      shadowColor: "", shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 0,
+      fillRect() {}, strokeText() {}, save() {}, restore() {},
+      fillText(text: string, x: number, y: number) { placed.push({ text, x, y, font: ctx.font }); },
+      measureText(text: string) { return { width: text.length * (ctx.font === "wm" ? 10 : 30) }; },
+    };
+    const words = "word ".repeat(40);
+    drawMeme(ctx as unknown as MemeCanvasContext, {
+      image: null, drawImage: () => {}, aspectRatio: "landscape",
+      caption: memeCaption(words, { topText: words, bottomText: words }, "David", "he/him"),
+      style: { topY: 10, bottomY: 92 }, captionFont: () => "cap", watermarkFont: () => "wm",
+    });
+    const mark = placed.find((p) => p.text === "overhype.me")!;
+    assert.ok(mark, "the watermark is drawn");
+    const markBox = { x0: mark.x, x1: mark.x + 110, y0: mark.y - 21 * 0.85, y1: mark.y + 21 * 0.25 };
+    for (const p of placed.filter((q) => q.font === "cap")) {
+      const box = { x0: p.x, x1: p.x + p.text.length * 30, y0: p.y - 50 * 0.85, y1: p.y + 50 * 0.25 };
+      const hit = box.x0 < markBox.x1 && markBox.x0 < box.x1 && box.y0 < markBox.y1 && markBox.y0 < box.y1;
+      assert.ok(!hit, `watermark at (${mark.x}, ${mark.y}) overlaps "${p.text}" at (${p.x}, ${p.y})`);
+    }
   });
 });

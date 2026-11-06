@@ -16,6 +16,8 @@
  * @purpose The shared meme drawing routine and its caption segmentation, called by the builder's live preview and the server's meme renderer so a saved meme is drawn exactly as its preview was.
  * @subsystem meme-studio
  */
+import { BRAND_ORANGE } from "./brandTokens";
+import { DEFAULT_CAPTION_FONT_ID } from "./captionFonts";
 import { renderTemplateSegments, resolveIdentityForms } from "./resolvedIdentityForms";
 
 export type MemeCanvasAspectRatio = "landscape" | "square" | "portrait";
@@ -33,14 +35,14 @@ export const MEME_CANVAS_DIMS: Record<MemeCanvasAspectRatio, { w: number; h: num
 };
 
 /** The colour the person's name is drawn in, everywhere a caption names them. */
-export const MEME_NAME_COLOR = "#ff6b35";
+export const MEME_NAME_COLOR = BRAND_ORANGE;
 
 /**
- * The caption-font catalogue face the watermark is drawn in. A catalogue face
- * ships to both the browser and the server, so the mark is the same glyphs in
- * the preview and the file (a bare `sans-serif` resolves differently in each).
+ * The face the watermark is drawn in: the default caption face (David,
+ * 2026-11-06), a catalogue face, so the browser and the server draw the same
+ * glyphs (a bare `sans-serif` resolves differently in each).
  */
-export const WATERMARK_FONT_ID = "sans" as const;
+export const WATERMARK_FONT_ID = DEFAULT_CAPTION_FONT_ID;
 
 /** The text of the watermark every meme carries. */
 export const MEME_WATERMARK_TEXT = "overhype.me";
@@ -76,6 +78,7 @@ export interface MemeCanvasContext {
   fillStyle: unknown;
   strokeStyle: unknown;
   lineWidth: number;
+  lineJoin: string;
   font: string;
   textAlign: string;
   textBaseline: string;
@@ -245,6 +248,9 @@ export function drawMeme<Img extends { width: number; height: number }>(
   ctx.font = input.captionFont(fontSize);
   ctx.strokeStyle = style.outlineColor ?? "#000000";
   ctx.lineWidth = 6;
+  // Round joins: the default mitre join shoots spikes past the outline at the
+  // sharp corners of condensed faces (seen under Anton's V, 2026-11-06).
+  ctx.lineJoin = "round";
 
   if (effect === "shadow") {
     ctx.shadowColor = "rgba(0,0,0,0.85)";
@@ -274,6 +280,10 @@ export function drawMeme<Img extends { width: number; height: number }>(
     return lines;
   };
 
+  // Where the caption's ink sits, line by line, so the watermark can keep clear of it.
+  const captionBoxes: Box[] = [];
+  const inkPad = 3; // half the outline width
+
   // Each block is centred horizontally, its vertical midpoint at yPct% of the height.
   const drawBlock = (segments: CaptionSegment[], yPct: number) => {
     const lines = wrap(captionWords(segments, allCaps), dims.w * 0.92);
@@ -284,7 +294,12 @@ export function drawMeme<Img extends { width: number; height: number }>(
     ctx.textAlign = "left";
     lines.forEach((line, li) => {
       const y = firstCentre + li * lineH + fontSize * CAPTION_BASELINE_EM;
-      let x = (dims.w - ctx.measureText(line.map((w) => w.text).join(" ")).width) / 2;
+      const lineWidth = ctx.measureText(line.map((w) => w.text).join(" ")).width;
+      let x = (dims.w - lineWidth) / 2;
+      captionBoxes.push({
+        x0: x - inkPad, x1: x + lineWidth + inkPad,
+        y0: y - fontSize * GLYPH_ASCENT_EM - inkPad, y1: y + fontSize * GLYPH_DESCENT_EM + inkPad,
+      });
       line.forEach((word, wi) => {
         word.pieces.forEach((piece, pi) => {
           const lastOfWord = pi === word.pieces.length - 1;
@@ -308,17 +323,75 @@ export function drawMeme<Img extends { width: number; height: number }>(
   ctx.restore();
 
   if (input.watermark === false) return;
-  // The watermark, bottom right, the same on every meme.
+  // The watermark: small, in the default caption face, bottom right unless the
+  // caption covers that spot, in which case it moves to the nearest clear one
+  // (watermarkPlacement). Its job is to tell anyone who sees the meme posted
+  // elsewhere where it came from, so it is drawn to be read: light fill, a
+  // thin dark outline.
   const unit = Math.min(dims.w, dims.h) / 450;
+  const size = Math.round(13 * unit);
   ctx.save();
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 0;
-  ctx.font = input.watermarkFont(Math.round(13 * unit));
-  ctx.fillStyle = "rgba(255,255,255,0.45)";
-  ctx.textAlign = "right";
+  ctx.font = input.watermarkFont(size);
+  const spot = watermarkPlacement({
+    canvas: dims,
+    textWidth: ctx.measureText(MEME_WATERMARK_TEXT).width,
+    fontSize: size,
+    margin: Math.round(14 * unit),
+    avoid: captionBoxes,
+  });
+  ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  ctx.fillText(MEME_WATERMARK_TEXT, dims.w - Math.round(18 * unit), dims.h - Math.round(14 * unit));
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(2, Math.round(size / 8));
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.strokeText(MEME_WATERMARK_TEXT, spot.x, spot.baseline);
+  ctx.fillText(MEME_WATERMARK_TEXT, spot.x, spot.baseline);
   ctx.restore();
+}
+
+/** A rectangle in logical canvas units. */
+export type Box = { x0: number; y0: number; x1: number; y1: number };
+
+/** How far a line of text reaches above and below its alphabetic baseline, as fractions of the font size (fixed, so both canvases agree). */
+const GLYPH_ASCENT_EM = 0.85;
+const GLYPH_DESCENT_EM = 0.25;
+
+const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+/**
+ * Where the watermark goes: the bottom-right corner when the caption leaves it
+ * clear, otherwise the clear spot nearest it — up the right edge and the left
+ * edge, one watermark height at a time, right before left at each height.
+ * When nothing on either edge is clear, the bottom-right corner.
+ */
+export function watermarkPlacement(args: {
+  canvas: { w: number; h: number };
+  textWidth: number;
+  fontSize: number;
+  margin: number;
+  avoid: Box[];
+}): { x: number; baseline: number; box: Box } {
+  const { canvas, textWidth, fontSize, margin, avoid } = args;
+  const gap = Math.round(fontSize / 3);
+  const boxAt = (x: number, baseline: number): Box => ({
+    x0: x - gap, x1: x + textWidth + gap,
+    y0: baseline - fontSize * GLYPH_ASCENT_EM - gap, y1: baseline + fontSize * GLYPH_DESCENT_EM + gap,
+  });
+  const rightX = canvas.w - margin - textWidth;
+  const leftX = margin;
+  const bottom = canvas.h - margin;
+  const step = Math.ceil(fontSize * (GLYPH_ASCENT_EM + GLYPH_DESCENT_EM)) + gap;
+  const top = margin + fontSize * GLYPH_ASCENT_EM;
+  for (let baseline = bottom; baseline >= top; baseline -= step) {
+    for (const x of [rightX, leftX]) {
+      const box = boxAt(x, baseline);
+      if (!avoid.some((b) => overlaps(b, box))) return { x, baseline, box };
+    }
+  }
+  return { x: rightX, baseline: bottom, box: boxAt(rightX, bottom) };
 }

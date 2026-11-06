@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const textOptions = { topText: "{NAME} doesn't wear a watch.", bottomText: "{Subj} decides.", topY: 20, fontFamily: "block" };
+const textOptions = { topText: "{NAME} doesn't wear a watch.", bottomText: "{Subj} decides.", topY: 20, fontFamily: "serif" };
 
 describe("#870: LivePreview draws through the shared drawing", () => {
   it("passes the recipe, and draws the caption once its face loads and the watermark once its own does", async () => {
@@ -49,13 +49,13 @@ describe("#870: LivePreview draws through the shared drawing", () => {
     expect(before.caption).toEqual({ mode: "single", text: [] });
 
     // The caption face alone: the caption draws, the watermark waits (#872).
-    await act(async () => faces.find((f) => f.family === "OH Block")!.resolve());
+    await act(async () => faces.find((f) => f.family === "OH Serif")!.resolve());
     const captionOnly = drawMeme.mock.calls.at(-1)![1];
     expect(captionOnly.watermark).toBe(false);
     expect(captionOnly.caption.mode).toBe("split");
 
-    await act(async () => faces.find((f) => f.family === "OH Sans")!.resolve());
-    expect(faces.map((f) => f.family).sort()).toEqual(["OH Block", "OH Sans"]);
+    await act(async () => faces.find((f) => f.family === "OH Block")!.resolve());
+    expect(faces.map((f) => f.family).sort()).toEqual(["OH Block", "OH Serif"]);
 
     const input = drawMeme.mock.calls.at(-1)![1];
     expect(input.aspectRatio).toBe("portrait");
@@ -64,7 +64,8 @@ describe("#870: LivePreview draws through the shared drawing", () => {
     expect(input.watermark).toBe(true);
     expect(input.caption).toEqual(memeCaption("{NAME} doesn't wear a watch. {Subj} decides.", textOptions, "David Franklin", "he/him"));
     expect(input.caption.top[0]).toEqual({ text: "David Franklin", isName: true });
-    expect(input.captionFont(50)).toBe('normal 400 50px "OH Block", sans-serif');
-    expect(input.watermarkFont(21)).toBe('800 21px "OH Sans", sans-serif');
+    expect(input.captionFont(50)).toBe('normal 700 50px "OH Serif", sans-serif');
+    // The watermark is drawn in the default caption face, whatever face the caption uses.
+    expect(input.watermarkFont(21)).toBe('400 21px "OH Block", sans-serif');
   });
 });
