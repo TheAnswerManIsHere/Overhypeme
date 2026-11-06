@@ -65,6 +65,25 @@ describe("LockedPreview", () => {
     expect(saved).toBeGreaterThanOrEqual(160);
   });
 
+  // #881: the preview must show the meme exactly as saved (#870), and the
+  // saved meme's watermark can sit in any corner of it. So nothing may be
+  // drawn over the preview: the only thing inside its frame is the canvas.
+  it("draws nothing over the preview — the drag hint sits outside its frame", () => {
+    render(<LockedPreview {...baseProps} backgroundUrl="https://example.com/x.jpg" />);
+    const frame = screen.getByTestId("locked-preview");
+    const hint = screen.getByText(/drag the photo to reposition/i);
+    expect(frame.contains(hint)).toBe(false);
+    const drawn = Array.from(frame.querySelectorAll("*")).filter(
+      (el) => el.tagName !== "CANVAS" && (el.textContent ?? "").trim() !== "",
+    );
+    expect(drawn).toEqual([]);
+  });
+
+  it("shows the drag hint only once there is a photo to drag", () => {
+    render(<LockedPreview {...baseProps} />);
+    expect(screen.queryByText(/drag the photo to reposition/i)).toBeNull();
+  });
+
   it("double-clicking the handle clears the saved height", () => {
     window.localStorage.setItem("mbfo_locked_preview_max_h", "500");
     render(<LockedPreview {...baseProps} />);

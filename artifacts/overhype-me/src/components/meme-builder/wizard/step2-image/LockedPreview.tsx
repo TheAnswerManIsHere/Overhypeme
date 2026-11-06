@@ -34,7 +34,8 @@ function readSavedMaxH(): number | null {
 
 /**
  * The locked top section of Step 2. Hosts the LivePreview canvas and owns:
- *   - drag-to-reposition gesture (mouse + touch), lifted from `MemeBuilder.tsx`;
+ *   - drag-to-reposition gesture (mouse + touch), lifted from `MemeBuilder.tsx`,
+ *     with its hint below the canvas, never over it (#881);
  *   - a user-controlled resize handle below the canvas so the preview can be
  *     shrunk when the controls need more room. Height persists to
  *     localStorage under `mbfo_locked_preview_max_h` (clamped 160-1200px).
@@ -181,12 +182,17 @@ export function LockedPreview({
             height: "auto",
           }}
         />
-        {backgroundUrl && (
-          <p className="pointer-events-none absolute bottom-1 right-2 select-none rounded-sm bg-black/40 px-1.5 py-0.5 text-[9px] text-white/60">
-            Drag to reposition
-          </p>
-        )}
+        {/* Nothing is drawn over the canvas: the preview must show the meme
+            exactly as it is saved (#870), watermark included, and the
+            watermark can sit in any corner — so the drag hint lives in the
+            row below (#881). */}
       </div>
+
+      {backgroundUrl && (
+        <p className="mx-auto mt-1 max-w-md select-none text-center text-[10px] text-white/40">
+          Drag the photo to reposition
+        </p>
+      )}
 
       {/* Resize handle — drag the bar to shrink/grow the preview. Double-tap restores the default. */}
       <div
