@@ -229,3 +229,42 @@ export function renderTemplateWithIdentityForms(template: string, forms: Resolve
       return _match;
     });
 }
+
+/**
+ * The same render as `renderTemplateWithIdentityForms`, in runs, with the
+ * name and its possessive marked (`isName`) so a caption can draw them in
+ * their own colour (#870). Joining the runs' text gives exactly
+ * `renderTemplateWithIdentityForms(template, forms)`; a test holds the two equal.
+ */
+export function renderTemplateSegments(
+  template: string,
+  forms: ResolvedIdentityForms,
+): { text: string; isName: boolean }[] {
+  const useSingular = forms.grammaticalNumber === "singular";
+  const withArticles = template.replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
+    indefiniteArticle(art, forms.tokens.NAME) + sp + "{NAME}");
+  const out: { text: string; isName: boolean }[] = [];
+  const push = (text: string, isName: boolean) => {
+    if (!text) return;
+    const last = out[out.length - 1];
+    if (last && !last.isName && !isName) last.text += text;
+    else out.push({ text, isName });
+  };
+  const re = /\{([^{}]+)\}/g;
+  let from = 0;
+  for (let m = re.exec(withArticles); m; m = re.exec(withArticles)) {
+    push(withArticles.slice(from, m.index), false);
+    const inner = m[1]!;
+    if (inner in forms.tokens) {
+      push(forms.tokens[inner as ResolvedIdentityTokenKey], inner === "NAME" || inner === "NAME_POSSESSIVE");
+    } else if (inner.includes("|")) {
+      const parts = inner.split("|");
+      push((useSingular ? parts[0] : parts[parts.length - 1]) ?? m[0], false);
+    } else {
+      push(m[0], false);
+    }
+    from = m.index + m[0].length;
+  }
+  push(withArticles.slice(from), false);
+  return out;
+}

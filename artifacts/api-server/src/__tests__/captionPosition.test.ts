@@ -6,7 +6,7 @@
  * before this, the validator stripped them and the renderer placed the halves
  * at fixed top and bottom bands, so the slider moved only the preview.
  *
- * @purpose Proves the meme-save validator keeps topY/bottomY in 0–100 and refuses values outside it, that the caption placement puts a block's midpoint at the given percentage (clamped onto the canvas) and is unchanged when no position is given, and that a rendered meme draws its top caption where topY says rather than at the top band.
+ * @purpose Proves the meme-save validator keeps topY/bottomY in 0–100 and refuses values outside it, and that a rendered meme draws its top caption where topY says rather than at the top band.
  * @subsystem meme-studio
  */
 import { describe, it } from "node:test";
@@ -15,7 +15,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import sharp from "sharp";
 
 import { SaveMemeBody } from "../lib/validators/memeBuilder.js";
-import { blockStartY, generateMemeBuffer } from "../lib/memeGenerator.js";
+import { generateMemeBuffer } from "../lib/memeGenerator.js";
 
 const BASE = { factId: 1, imageSource: { type: "identity" as const } };
 
@@ -30,30 +30,6 @@ describe("caption position: the save validator", () => {
   it("refuses a position outside 0–100", () => {
     assert.equal(SaveMemeBody.safeParse({ ...BASE, textOptions: { topY: 120 } }).success, false);
     assert.equal(SaveMemeBody.safeParse({ ...BASE, textOptions: { bottomY: -5 } }).success, false);
-  });
-});
-
-describe("caption position: blockStartY", () => {
-  const geo = { totalH: 100, fontSize: 40, logicalH: 1000, padding: 40 };
-
-  it("with no position, places exactly as before", () => {
-    assert.equal(blockStartY({ ...geo, position: "top" }), 40 + 40);
-    assert.equal(blockStartY({ ...geo, position: "bottom" }), 1000 - 40 - 100 + 40);
-    assert.equal(blockStartY({ ...geo, position: "middle" }), (1000 - 100) / 2 + 40);
-  });
-
-  it("puts the block's midpoint at the given percentage", () => {
-    // Block top = startY - fontSize; midpoint = top + totalH / 2.
-    const startY = blockStartY({ ...geo, position: "top", yPct: 30 });
-    assert.equal(startY - geo.fontSize + geo.totalH / 2, 300);
-    assert.equal(blockStartY({ ...geo, position: "top", yPct: 50 }), blockStartY({ ...geo, position: "middle" }));
-  });
-
-  it("keeps the block on the canvas at the extremes", () => {
-    const atTop = blockStartY({ ...geo, position: "top", yPct: 0 });
-    assert.equal(atTop - geo.fontSize, 0);
-    const atBottom = blockStartY({ ...geo, position: "bottom", yPct: 100 });
-    assert.equal(atBottom - geo.fontSize + geo.totalH, 1000);
   });
 });
 

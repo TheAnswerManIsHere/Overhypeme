@@ -127,6 +127,21 @@ caption is personalised with the identity the save used, the one
 framing, aspect) stays on the row as metadata for remix and provenance;
 nothing renders from it again.
 
+**The saved file is the preview** (#870, David 2026-11-04: *"The preview must
+be pixel identical to the final meme file that is rendered."*). The builder's
+`LivePreview` and the server's `generateMemeBuffer` both draw with one routine,
+`drawMeme` in `lib/api-zod/src/memeCanvas.ts`, in one logical canvas
+(`MEME_CANVAS_DIMS`: 1280×720, 1080×1080, 720×1280 — the units a stored
+`framingTransform` and `fontSize` are in). The server draws it scaled up to the
+photo's own resolution, so the file is the preview at a larger size; the
+caption's runs come from `memeCaption` (the shared token renderer, the name
+marked so it is drawn in `MEME_NAME_COLOR`), and the watermark is drawn in a
+catalogue face so both sides draw the same glyphs. Until then the server had
+its own renderer, and every difference between the two reached the saved file;
+it also drew an orange left bar, a darkening wash and ghost "OM" letters the
+preview never showed, which David removed (2026-11-04). Anything a meme should
+show is added to `drawMeme`, never to one side.
+
 `GET /memes/:slug/image` serves the stored file for a baked meme and for a
 legacy meme stored before recipes existed (`imageSource === null`), with one
 ETag per slug (stored files are write-once). Deleting the source photo touches

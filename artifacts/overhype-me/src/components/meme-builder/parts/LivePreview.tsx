@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { captionFontById, captionFontStack } from "@workspace/api-zod";
-import { renderFactSegments } from "@/lib/render-fact";
+import {
+  MEME_CANVAS_DIMS,
+  WATERMARK_FONT_ID,
+  captionFontById,
+  captionFontStack,
+  drawMeme,
+  memeCaption,
+} from "@workspace/api-zod";
 import { useCaptionFont } from "@/lib/captionFontLoader";
 import { captionFontOf } from "../captionFont";
-import { DEFAULT_BOTTOM_Y, DEFAULT_TOP_Y, type AspectRatio, type MemeTextOptions } from "../types";
+import type { AspectRatio, MemeTextOptions } from "../types";
 
-const NAME_COLOR = "#ff6b35";
+const watermarkFont = captionFontById(WATERMARK_FONT_ID);
 
 interface Props {
   factText: string;
@@ -29,32 +35,19 @@ interface Props {
   canvasStyle?: React.CSSProperties;
 }
 
-const ASPECT_DIMS: Record<AspectRatio, { w: number; h: number }> = {
-  landscape: { w: 1280, h: 720 },
-  square:    { w: 1080, h: 1080 },
-  portrait:  { w: 720,  h: 1280 },
-};
-
 /**
- * Client-side canvas preview. Renders the background image (object-cover)
- * with the token-substituted fact text overlaid.
+ * Client-side canvas preview, drawn by `drawMeme` from `@workspace/api-zod`:
+ * the same routine, in the same logical canvas, that draws the saved file on
+ * the server (#870), so what this shows is what is saved — the crop, the
+ * caption's lines and colours (the name in its own colour), and the
+ * watermark.
  *
  * Performance:
- *   - The background image is loaded once per URL and cached in a ref so
+ *   - The background image is loaded once per URL and cached in state so
  *     drag/slider updates don't trigger a new `Image()` per render.
  *   - Canvas redraws are coalesced through `requestAnimationFrame` so rapid
  *     prop changes (drag-to-reposition, slider scrubbing) paint at most one
  *     frame per tick.
- *
- * Text rendering rules:
- *   - When `textOptions.topText` and `textOptions.bottomText` are set (Step 2
- *     split-slider mode), each half is drawn at its respective `topY`/`bottomY`
- *     percentage along the canvas height.
- *   - Otherwise (legacy / single-block mode) the full `factText` is centred.
- *   - In both modes the name token (`{NAME}`) is always drawn in brand orange
- *     (`#ff6b35`); every other token uses `textOptions.textColor`.
- *   - `textEffect`: "outline" strokes the glyphs, "shadow" draws a real drop
- *     shadow via `shadowColor`/`shadowBlur`/`shadowOffset*`, "none" does neither.
  */
 export function LivePreview({
   factText,
@@ -69,13 +62,14 @@ export function LivePreview({
 }: Props) {
   const internalCanvasRef = useRef<HTMLCanvasElement>(null);
   const canvasRef = externalCanvasRef ?? internalCanvasRef;
-  const dims = ASPECT_DIMS[aspectRatio];
+  const dims = MEME_CANVAS_DIMS[aspectRatio];
   // The caption is drawn only once its face has loaded, in that face at its
   // fixed weight, so the preview never shows a fallback font the saved meme
   // would not have (names-and-fonts plan).
   const fontId = captionFontOf(textOptions);
   const captionFont = captionFontById(fontId);
   const { status: fontStatus } = useCaptionFont(fontId);
+  const { status: watermarkStatus } = useCaptionFont(WATERMARK_FONT_ID);
 
   // Cache the background image by URL so we don't recreate an `Image` on
   // every redraw (which would also re-fire `onload` and flicker).
@@ -109,143 +103,26 @@ export function LivePreview({
     const rafId = requestAnimationFrame(() => {
       canvas.width = dims.w;
       canvas.height = dims.h;
-      ctx.fillStyle = "#111";
-      ctx.fillRect(0, 0, dims.w, dims.h);
-
-      if (bgImage) {
-        const ratio = Math.max(dims.w / bgImage.width, dims.h / bgImage.height);
-        const w = bgImage.width * ratio;
-        const h = bgImage.height * ratio;
-        const maxOffsetX = Math.max(0, (w - dims.w) / 2);
-        const maxOffsetY = Math.max(0, (h - dims.h) / 2);
-        const ox = framingOffset
-          ? Math.min(maxOffsetX, Math.max(-maxOffsetX, framingOffset.x))
-          : 0;
-        const oy = framingOffset
-          ? Math.min(maxOffsetY, Math.max(-maxOffsetY, framingOffset.y))
-          : 0;
-        ctx.drawImage(bgImage, (dims.w - w) / 2 + ox, (dims.h - h) / 2 + oy, w, h);
-      }
-
-      ctx.save();
-
-      if (fontStatus !== "ready") {
-        ctx.restore();
-        return;
-      }
-      const fontSize = textOptions.fontSize ?? Math.floor(dims.h * 0.07);
+      // The caption is drawn only once its face has loaded, and the watermark
+      // only once its own has, each independently, so the preview never shows a
+      // fallback face the saved meme would not have, and a slow or failed
+      // watermark face never hides the caption (#872).
+      const captionReady = fontStatus === "ready";
+      const watermarkReady = watermarkStatus === "ready";
       const fontStyle = textOptions.italic ? "italic" : "normal";
-      ctx.font = `${fontStyle} ${captionFont.weight} ${fontSize}px ${captionFontStack(captionFont)}`;
-      ctx.strokeStyle = textOptions.outlineColor ?? "#000000";
-      ctx.lineWidth = 6;
-
-      const allCaps = textOptions.allCaps !== false;
-      const effectiveTextColor = textOptions.textColor ?? "#ffffff";
-      const effect = textOptions.textEffect ?? "outline";
-
-      // Apply the drop-shadow once per draw call so it covers both stroke and
-      // fill. "outline" leaves shadow disabled; "none" leaves both disabled.
-      if (effect === "shadow") {
-        ctx.shadowColor = "rgba(0,0,0,0.85)";
-        ctx.shadowBlur = Math.max(8, Math.round(fontSize * 0.18));
-        ctx.shadowOffsetX = Math.max(3, Math.round(fontSize * 0.06));
-        ctx.shadowOffsetY = Math.max(3, Math.round(fontSize * 0.06));
-      } else {
-        ctx.shadowColor = "transparent";
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-      }
-
-      type Token = { word: string; isName: boolean };
-
-      // Build a flat list of word-tokens from a template block, applying allCaps
-      // and preserving the `isName` flag from `renderFactSegments`.
-      const buildTokens = (blockText: string): Token[] => {
-        const segments = renderFactSegments(
-          blockText,
-          name || "___",
-          pronouns || "they/them",
-        );
-        const tokens: Token[] = [];
-        for (const seg of segments) {
-          const raw = allCaps ? seg.text.toUpperCase() : seg.text;
-          for (const w of raw.split(/\s+/).filter(Boolean)) {
-            tokens.push({ word: w, isName: seg.isName });
-          }
-        }
-        return tokens;
-      };
-
-      // Word-wrap a flat token list into lines, keeping words on the same line
-      // as long as the combined text fits within `maxWidth`.
-      const wrapTokens = (tokens: Token[], maxWidth: number): Token[][] => {
-        const lines: Token[][] = [];
-        let current: Token[] = [];
-        for (const token of tokens) {
-          const candidate = [...current, token];
-          const candidateText = candidate.map((t) => t.word).join(" ");
-          if (ctx.measureText(candidateText).width > maxWidth && current.length > 0) {
-            lines.push(current);
-            current = [token];
-          } else {
-            current = candidate;
-          }
-        }
-        if (current.length > 0) lines.push(current);
-        return lines;
-      };
-
-      // Draw a block of wrapped lines, centred horizontally and anchored so the
-      // block's vertical midpoint sits at `yPct`% of the canvas height.
-      // The name segments are drawn in NAME_COLOR; everything else in effectiveTextColor.
-      const drawBlock = (blockText: string, yPct: number) => {
-        if (!blockText.trim()) return;
-        const tokens = buildTokens(blockText);
-        const lines = wrapTokens(tokens, dims.w * 0.92);
-        if (lines.length === 0) return;
-
-        const totalH = lines.length * fontSize * 1.1;
-        const startY = (yPct / 100) * dims.h - totalH / 2 + fontSize / 2;
-
-        ctx.textBaseline = "middle";
-        ctx.textAlign = "left";
-
-        for (let li = 0; li < lines.length; li++) {
-          const line = lines[li]!;
-          const y = startY + li * fontSize * 1.1;
-
-          // Centre the line by computing total pixel width first.
-          const lineText = line.map((t) => t.word).join(" ");
-          const totalW = ctx.measureText(lineText).width;
-          let x = (dims.w - totalW) / 2;
-
-          for (let ti = 0; ti < line.length; ti++) {
-            const { word, isName } = line[ti]!;
-            const wordWithSpace = ti < line.length - 1 ? word + " " : word;
-            ctx.fillStyle = isName ? NAME_COLOR : effectiveTextColor;
-            if (effect === "outline") {
-              ctx.strokeText(wordWithSpace, x, y);
-            }
-            ctx.fillText(wordWithSpace, x, y);
-            x += ctx.measureText(wordWithSpace).width;
-          }
-        }
-      };
-
-      if (
-        textOptions.topText !== undefined &&
-        textOptions.bottomText !== undefined
-      ) {
-        // Split mode — each half at its own vertical position.
-        if (textOptions.topText) drawBlock(textOptions.topText, textOptions.topY ?? DEFAULT_TOP_Y);
-        if (textOptions.bottomText) drawBlock(textOptions.bottomText, textOptions.bottomY ?? DEFAULT_BOTTOM_Y);
-      } else {
-        // Legacy / single-block mode — full fact text centred.
-        drawBlock(factText, 50);
-      }
-
-      ctx.restore();
+      drawMeme(ctx, {
+        image: bgImage,
+        drawImage: (image, x, y, w, h) => ctx.drawImage(image, x, y, w, h),
+        aspectRatio,
+        framingOffset: framingOffset ? { x: framingOffset.x, y: framingOffset.y } : null,
+        caption: captionReady
+          ? memeCaption(factText, textOptions, name || "___", pronouns || "they/them")
+          : { mode: "single", text: [] },
+        style: textOptions,
+        captionFont: (size) => `${fontStyle} ${captionFont.weight} ${size}px ${captionFontStack(captionFont)}`,
+        watermarkFont: (size) => `${watermarkFont.weight} ${size}px ${captionFontStack(watermarkFont)}`,
+        watermark: watermarkReady,
+      });
     });
     return () => cancelAnimationFrame(rafId);
   }, [
@@ -257,6 +134,8 @@ export function LivePreview({
     textOptions,
     captionFont,
     fontStatus,
+    watermarkStatus,
+    aspectRatio,
     dims.w,
     dims.h,
     framingOffset?.x,

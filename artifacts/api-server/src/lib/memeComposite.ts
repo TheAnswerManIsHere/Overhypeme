@@ -21,7 +21,7 @@ import { generateMemeBuffer, type BackgroundSource, type FramingTransform, type 
 import { renderPersonalized, CANONICAL_NAME } from "./renderCanonical";
 import { ObjectStorageService } from "./objectStorage";
 import type { ImageSource } from "./validators/memeBuilder";
-import type { MemeAspectRatio } from "@workspace/api-zod";
+import { memeCaption, type MemeAspectRatio, type MemeCaption } from "@workspace/api-zod";
 
 export interface ComposeMemeInput {
   /**
@@ -146,6 +146,26 @@ export function resolveStoredMemeCaption(
 }
 
 /**
+ * The caption a stored recipe draws, in runs with the name marked (#870): the
+ * same identity `resolveStoredMemeCaption` personalises with, applied to the
+ * templates, so the name is drawn in its colour exactly as the preview drew
+ * it. Undefined when there is no template, which leaves the generator to draw
+ * the resolved words unmarked.
+ */
+export function storedMemeCaption(
+  fact: StoredMemeFactRow | undefined,
+  creator: StoredMemeCreatorRow | undefined,
+  storedTextOptions: unknown,
+): MemeCaption | undefined {
+  const template = fact?.text ?? "";
+  if (!template) return undefined;
+  const halves = (storedTextOptions ?? undefined) as Pick<TextOptions, "topText" | "bottomText"> | undefined;
+  return creator?.displayName
+    ? memeCaption(template, halves, creator.displayName, creator.pronouns)
+    : memeCaption(template, halves, CANONICAL_NAME, "they/them");
+}
+
+/**
  * Source-kind manifest. Each `imageSource.type` resolves to a
  * `BackgroundSource` via exactly one entry below — adding a new source kind
  * means adding (a) a new branch to the client's `sourceKinds.ts` and (b) a
@@ -223,6 +243,7 @@ export async function composeMeme(
     textOptions,
     input.aspectRatio ?? "landscape",
     input.framingTransform ?? null,
+    memeCaption(input.factTextTemplate, input.textOptions, input.name, input.pronouns),
   );
   return { buffer, mime: "image/jpeg" };
 }

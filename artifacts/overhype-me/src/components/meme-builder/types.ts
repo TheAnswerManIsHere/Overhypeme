@@ -11,6 +11,8 @@
  * went with Pexels (launch Phase 4, removal 6; `docs/retired/README.md`). A
  * saved draft that still says "stock" is normalised on restore.
  */
+import { DEFAULT_CAPTION_BOTTOM_Y, DEFAULT_CAPTION_TOP_Y } from "@workspace/api-zod";
+
 export type Mode = "self-upload";
 
 export type Tier = "unregistered" | "registered" | "legendary";
@@ -41,8 +43,8 @@ export type MyImageSource =
  * percentage of the image height. The preview draws untouched halves here, and
  * the save sends these so the saved meme matches the preview (#707).
  */
-export const DEFAULT_TOP_Y = 17;
-export const DEFAULT_BOTTOM_Y = 88;
+export const DEFAULT_TOP_Y = DEFAULT_CAPTION_TOP_Y;
+export const DEFAULT_BOTTOM_Y = DEFAULT_CAPTION_BOTTOM_Y;
 
 export interface MemeTextOptions {
   topText?: string;
