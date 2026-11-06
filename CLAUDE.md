@@ -76,7 +76,8 @@ same rule for every other agent.
 ## Environment
 
 - **The Repl tracks `main`**; how its git pane, checkpoints and direct push
-  behave is
+  behave — and that its dev app can be stopped, so it is checked before
+  David is handed anything to click — is
   [`replit-environment.md`](docs/ai-context/replit-environment.md). Codex's
   sandbox is [`codex-environment.md`](docs/ai-context/codex-environment.md).
 - **`.claude/settings.json`** points `DATABASE_URL` at the local test database
