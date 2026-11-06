@@ -519,6 +519,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // increments 3 and 6b and declared by nothing since 7b (1231526, the
   // published release). Source of truth: lib/db/src/schema/auth.ts.
   "0122_drop_captcha_and_nsfw_opt_in",
+
+  // Hand-written expand (Launch Phase 8, increment 1): engine routing and
+  // costing columns, image_prompt_attempts.actual_image_engine_id (nullable,
+  // backfilled) and request_settings, the two image_engine_* config rows and
+  // two look styles. Source of truth: lib/db/src/schema/{engines,imagePromptAttempts}.ts.
+  "0123_image_engine_routing",
 ]);
 
 interface JournalEntry {
