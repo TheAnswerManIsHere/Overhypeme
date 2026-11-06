@@ -44,12 +44,13 @@ describe("seeded IMAGE_STYLES fit under RENDER_STYLE_COPY_MAX_CHARS", () => {
 
 // §14 completeness/consistency: the canonical named-style catalogue.
 describe("IMAGE_STYLES catalogue is complete and consistent (§14)", () => {
-  it("has exactly 18 named styles + the `none` sentinel = 19, no duplicate ids", () => {
+  // 20 since migration 0123 added 3d-cartoon and caricature (launch Phase 8).
+  it("has exactly 20 named styles + the `none` sentinel = 21, no duplicate ids", () => {
     const ids = IMAGE_STYLES.map((s) => s.id);
-    assert.equal(ids.length, 19, "expected 18 named styles + `none`");
+    assert.equal(ids.length, 21, "expected 20 named styles + `none`");
     assert.equal(new Set(ids).size, ids.length, "duplicate style id");
     assert.ok(ids.includes("none"), "the `none` sentinel must be present");
-    assert.equal(ids.filter((id) => id !== "none").length, 18, "expected exactly 18 NAMED styles");
+    assert.equal(ids.filter((id) => id !== "none").length, 20, "expected exactly 20 NAMED styles");
   });
 
   it("`none` carries empty suffixes (it applies no style copy)", () => {

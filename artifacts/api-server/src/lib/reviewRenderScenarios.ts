@@ -37,7 +37,6 @@ import {
 } from "@workspace/api-zod";
 import {
   DEFAULT_REFERENCE_ASSET_VERSION,
-  actualImageEngineIdForGenerationMode,
   buildScenarioInputHash,
   deriveScenarioStatus,
   generationModeForSubjectRenderMode,
@@ -59,6 +58,7 @@ import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
+import { attemptImageEngineId, currentImageEngineIds, type ImageEngineIds } from "./imageEngineRouting";
 
 export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
@@ -121,6 +121,7 @@ export function computeScenarioInputHash(
   stagingFactId: number,
   factText: string,
   enrichment: FactEnrichment,
+  imageEngines: ImageEngineIds,
 ): string {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
   const mode: SubjectRenderMode = desc.subjectRenderMode;
@@ -144,7 +145,9 @@ export function computeScenarioInputHash(
     lookStyleId: null,
     styleSuffixVersion: null,
     identityPolicy: defaultIdentityPolicyForRenderMode(mode),
-    actualImageEngineId: actualImageEngineIdForGenerationMode(generationModeForSubjectRenderMode(mode)),
+    // The engine a render would be routed to NOW: a changed default makes an
+    // older attempt read stale, while its own stored engine stays as it was.
+    actualImageEngineId: imageEngines[generationModeForSubjectRenderMode(mode)],
   });
 }
 
@@ -201,13 +204,15 @@ interface EnqueueScenarioArgs {
   scenarioKey: RenderScenarioKey;
   adminUserId: string;
   batchId: string;
+  /** The engine per mode, read once with the review context. */
+  imageEngines: ImageEngineIds;
 }
 
 /** Record a scenario attempt that failed before any paid work (missing reference). */
 async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessage: string): Promise<EnqueueScenarioResult> {
   const desc = RENDER_SCENARIO_DESCRIPTORS[args.scenarioKey];
   const mode = desc.subjectRenderMode;
-  const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment);
+  const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment, args.imageEngines);
   const renderControls = defaultScenarioRenderControls(args.scenarioKey);
   const subject = defaultPreviewSubjectForGender(renderControls.fallbackSubjectGender);
   const [attempt] = await db
@@ -220,6 +225,8 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
       generationMode: generationModeForSubjectRenderMode(mode),
       subjectRenderMode: mode,
       targetEngine: "nano_banana_2",
+      // Failed before any paid work; records the engine it was routed to.
+      actualImageEngineId: args.imageEngines[generationModeForSubjectRenderMode(mode)],
       sourceImageAnalysis: syntheticAnalysisForReference(desc.referenceIdentityType as ReferenceIdentityType),
       identityPolicy: defaultIdentityPolicyForRenderMode(mode),
       renderControls: {
@@ -275,7 +282,7 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
     renderControls,
   });
 
-  const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment);
+  const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment, args.imageEngines);
 
   const controls: RenderControlsWithRefs = {
     ...resolved.renderControls,
@@ -295,6 +302,7 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
     identityPolicy: resolved.identityPolicy,
     renderControls: controls,
     requestId: `admin-review-scenario:${args.reviewId}:${args.scenarioKey}:${randomUUID()}`,
+    imageEngineId: args.imageEngines[generationModeForSubjectRenderMode(mode)],
     scenario: {
       reviewId: args.reviewId,
       scenarioKey: args.scenarioKey,
@@ -315,6 +323,8 @@ export interface ReviewRenderContext {
   factText: string;
   enrichment: FactEnrichment;
   stage: string;
+  /** The engine per mode a render would be routed to now; folded into every hash. */
+  imageEngines: ImageEngineIds;
 }
 
 /**
@@ -347,9 +357,10 @@ export async function loadReviewRenderContext(
   const ev = validateEnrichment(cycle.rawEnrichment);
   if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
   const enrichment = ev.data;
+  const imageEngines = await currentImageEngineIds();
   return {
     ok: true,
-    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: cycle.text, enrichment, stage: review.workflowStage },
+    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: cycle.text, enrichment, stage: review.workflowStage, imageEngines },
   };
 }
 
@@ -396,7 +407,7 @@ export async function ensureDefaultReviewRenders(
     // Force mode always creates a fresh attempt; non-force stays idempotent per
     // (scenario, input-hash).
     if (!force) {
-      const inputHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment);
+      const inputHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment, ctx.imageEngines);
       if (await scenarioAttemptExists(reviewId, scenarioKey, inputHash)) continue; // idempotent
     }
     enqueued.push(await enqueueScenarioRender({
@@ -407,6 +418,7 @@ export async function ensureDefaultReviewRenders(
       scenarioKey,
       adminUserId: "system",
       batchId,
+      imageEngines: ctx.imageEngines,
     }));
   }
   if (enqueued.length) {
@@ -441,6 +453,7 @@ export async function runReviewScenarios(
       scenarioKey,
       adminUserId,
       batchId,
+      imageEngines: ctx.imageEngines,
     }));
   }
   return { enqueued };
@@ -461,7 +474,7 @@ async function buildCard(
 ): Promise<RenderScenarioCard> {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
   const attempt = await latestAttemptForScenario(reviewId, scenarioKey);
-  const currentHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment);
+  const currentHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment, ctx.imageEngines);
 
   let status: RenderScenarioStatus;
   let stale = false;
@@ -605,7 +618,7 @@ export async function getScenarioAttemptDiagnostics(
 
   const loaded = await loadReviewRenderContext(reviewId);
   const currentHash = loaded.ok
-    ? computeScenarioInputHash(scenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment)
+    ? computeScenarioInputHash(scenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment, loaded.ctx.imageEngines)
     : "";
   const payload = buildRenderStatusPayload(attempt);
   return {
@@ -613,9 +626,7 @@ export async function getScenarioAttemptDiagnostics(
     scenarioKey,
     referenceIdentityType: attempt.reviewReferenceIdentityType,
     referenceAssetVersion: attempt.reviewReferenceAssetVersion,
-    actualImageEngineId: actualImageEngineIdForGenerationMode(
-      generationModeForSubjectRenderMode(attempt.subjectRenderMode as SubjectRenderMode),
-    ),
+    actualImageEngineId: attemptImageEngineId(attempt),
     stale: currentHash ? isAttemptStale(attempt, currentHash) : false,
     status: deriveScenarioStatus(attempt),
   };

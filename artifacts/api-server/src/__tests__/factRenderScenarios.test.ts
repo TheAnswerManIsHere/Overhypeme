@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 
 import type { FactEnrichment } from "@workspace/api-zod";
 import {
-  actualImageEngineIdForGenerationMode,
   buildScenarioInputHash,
   deriveScenarioStatus,
   generationModeForSubjectRenderMode,
@@ -224,9 +223,7 @@ describe("requiredScenarioProblems", () => {
 });
 
 describe("engine provenance + status derivation", () => {
-  it("i2i routes to the edit engine; t2i to the base engine", () => {
-    assert.equal(actualImageEngineIdForGenerationMode("i2i"), "nano-banana-2-edit");
-    assert.equal(actualImageEngineIdForGenerationMode("t2i"), "nano-banana-2");
+  it("maps each subject render mode to its generation mode", () => {
     assert.equal(generationModeForSubjectRenderMode("human_identity_i2i"), "i2i");
     assert.equal(generationModeForSubjectRenderMode("nonhuman_subject_i2i"), "i2i");
     assert.equal(generationModeForSubjectRenderMode("t2i_fallback"), "t2i");

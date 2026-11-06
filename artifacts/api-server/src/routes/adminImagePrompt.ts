@@ -26,6 +26,7 @@ import { ImagePromptError } from "../lib/imagePrompt/generator";
 import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
 import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
+import { currentImageEngineIds } from "../lib/imageEngineRouting.js";
 
 // Re-export the plan-generator test seam (now owned by the shared preview helper)
 // so existing tests importing it from this route keep working.
@@ -217,6 +218,9 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
         subjectRenderMode,
         userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
         targetEngine: "nano_banana_2",
+        // A persisted preview is never rendered; it records the engine a render
+        // of it would be routed to at the time it was made.
+        actualImageEngineId: (await currentImageEngineIds())[generationMode],
         sourceImageAnalysis: analysis,
         sourceImageSha256: analysis.sourceImageSha256 ?? null,
         identityPolicy,

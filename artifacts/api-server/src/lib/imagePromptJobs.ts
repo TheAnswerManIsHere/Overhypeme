@@ -17,7 +17,7 @@
  *   image_generation
  *     Payload: { attemptId }.
  *     1. Loads the attempt row (visual_plan + compiled_prompt populated).
- *     2. Calls loadEngine(nano-banana-2 or nano-banana-2-edit) + buildEngineInput.
+ *     2. Resolves the engine recorded on the attempt (imageEngineRouting.ts), sizes the call (imageRequestBuilder.ts), then buildEngineInput.
  *     3. Submits to fal, downloads the result, uploads to object storage.
  *     4. Updates attempt row with generated_image_object_path.
  *     5. Updates facts.aiMemeImages + user_ai_images for read compatibility.
@@ -51,12 +51,14 @@ import {
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
+import { attemptImageEngineId, resolveImageEngine } from "./imageEngineRouting";
+import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { renderPersonalized, hasUnresolvedFactTokens } from "./renderCanonical";
 import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
 import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
-import { loadEngine, buildEngineInput } from "./engineInterpreter";
+import { buildEngineInput } from "./engineInterpreter";
 import { fal, ensureFalConfigured } from "./falClient";
 import { ObjectStorageService } from "./objectStorage";
 import { logger } from "./logger";
@@ -77,11 +79,11 @@ export function isEphemeralModerationRender(renderControls: RenderControls): boo
   );
 }
 
-/** Moderation test renders only need to show whether the visual gag lands, so
- *  they use the LOWEST resolution the nano-banana engines offer for the fastest
- *  turnaround. Real user renders stay at 2K for print-ready detail/legibility. */
-export function pickRenderResolution(renderControls: RenderControls): "0.5K" | "2K" {
-  return isEphemeralModerationRender(renderControls) ? "0.5K" : "2K";
+/** Moderation and eval test renders only need to show whether the visual gag
+ *  lands, so they ask the request builder for the engine's smallest size
+ *  (`preview`); a member's render asks for `final`, about four megapixels. */
+export function requestPurposeForRenderControls(renderControls: RenderControls): ImageRequestPurpose {
+  return isEphemeralModerationRender(renderControls) ? "preview" : "final";
 }
 
 // ─── image_prompt_generation handler ──────────────────────────────────────
@@ -324,27 +326,40 @@ export const imageGenerationHandler: JobHandler = {
       await markAttemptError(p.attemptId, "i2i_missing_reference_url");
       return { ok: false, error: "i2i_missing_reference_url" };
     }
-    const engineId = generationMode === "i2i" ? "nano-banana-2-edit" : "nano-banana-2";
-    const engine = await loadEngine(engineId);
-    if (!engine) {
-      const msg = `engine ${engineId} not found in catalogue`;
+    // The engine recorded at construction draws the attempt, never today's
+    // default: an attempt queued before a default changed still renders
+    // through the engine it was made for (and reads stale in moderation).
+    const engineId = attemptImageEngineId(attempt);
+    const renderControls = attempt.renderControls as RenderControls;
+    let engine;
+    let requestSettings: ImageRequestSettings;
+    try {
+      engine = await resolveImageEngine(generationMode, engineId);
+      requestSettings = buildImageRequestSettings(
+        engine,
+        requestPurposeForRenderControls(renderControls),
+        renderControls.aspectRatio,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       await markAttemptError(p.attemptId, msg);
       return { ok: false, error: msg };
     }
-
-    const renderControls = attempt.renderControls as RenderControls;
-    const resolution = pickRenderResolution(renderControls);
+    await db
+      .update(imagePromptAttemptsTable)
+      .set({ requestSettings, updatedAt: new Date() })
+      .where(eq(imagePromptAttemptsTable.id, p.attemptId));
     const pipelineParams: Record<string, unknown> = {
       imagePrompt: promptText,
       aspectRatio: renderControls.aspectRatio,
       numImages: 1,
-      resolution,
+      ...requestSettings.sizeParams,
     };
     if (generationMode === "i2i" && compiled.referenceImageUrl) {
       pipelineParams["referenceImageUrl"] = compiled.referenceImageUrl;
     }
     logger.info(
-      { attemptId: p.attemptId, engineId, generationMode, resolution, aspectRatio: renderControls.aspectRatio },
+      { attemptId: p.attemptId, engineId, generationMode, requestSettings },
       "[imagePromptJobs] submitting image_generation",
     );
 

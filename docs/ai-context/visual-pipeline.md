@@ -57,8 +57,9 @@ model receives.** Enrichment is an input, not the prompt (see
    why `0082` and `0084` exist.)
 3. **Compiler** (`compileForSubjectRenderMode()`, Nano Banana 2) → the
    engine-specific `compiledPrompt`.
-4. **Production** (`imagePromptJobs.ts`) renders via fal.ai and persists an attempt
-   (`imagePromptAttempts.ts`).
+4. **Production** (`imagePromptJobs.ts`) renders via fal.ai through the engine
+   recorded on the attempt, at the size the request builder chose, and persists
+   the result (`imagePromptAttempts.ts`). See *Which engine draws a render*.
 
 ## Frozen render inputs: identity + style (reproducibility)
 
@@ -202,6 +203,50 @@ bench sets it from the bench instead (`image-to-image` → `human_identity_i2i`,
 otherwise `t2i_fallback`; `routes/adminEngines.ts`).
 `generationModeFromSubjectRenderMode` maps
 `t2i_fallback → "t2i"`, everything else → `"i2i"`.
+
+## Which engine draws a render
+
+Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
+*Proposed Design* A, A2 and B). Until it, the worker chose `nano-banana-2` or
+`nano-banana-2-edit` by string. Now:
+
+- **The engine per mode is two admin-config keys**, `image_engine_t2i` and
+  `image_engine_i2i` (migration 0123 seeded them to those two engines, so
+  rendering did not change). The admin engines screen's **Set default** on an
+  image engine is their only writer: it validates the engine and writes the key
+  for that engine's own mode. The generic config route refuses both keys, and
+  an image engine's `isDefault` flag routes nothing (it still does for `llm`
+  and `utility`). `lib/imageEngineRouting.ts` owns all of this.
+- **An attempt records its engine once, at construction**, in
+  `image_prompt_attempts.actual_image_engine_id`, and the worker renders through
+  that engine, never through today's default: an attempt queued before a
+  default changed still renders through the engine it was made for. Signatures,
+  the eval dashboard and moderation diagnostics read the column
+  (`attemptImageEngineId`). A null appears only on a row an older release wrote
+  after 0123 ran; such a release routed by mode alone, so the null reads as that
+  release's engine. A later contract migration makes the column `NOT NULL`.
+- **The moderation hash folds in the engine a render would use now**, read once
+  per review context (`currentImageEngineIds`), so changing a mode's default
+  makes that mode's older attempts read stale while each keeps saying which
+  engine drew it.
+- **Every selection is validated, never defaulted**: an engine that is unknown,
+  inactive, archived, retired, not an image engine, of the other mode, or
+  without a size vocabulary is refused (`ImageEngineRoutingError`).
+- **The request builder** (`lib/imageRequestBuilder.ts`) maps a purpose, an
+  aspect and the engine to a size the endpoint itself accepts, from the
+  engine definition's `sizeVocabulary`: `preview` (moderation and eval test
+  renders) is the engine's smallest size, `comparison` the option nearest one
+  megapixel, and `final` (a member's render) the option nearest four. On Nano
+  Banana 2 that is 0.5K and 2K, as before; Nano Banana 2.1 has no 0.5K, so its
+  preview is 1K. The chosen settings are stored on the attempt
+  (`request_settings`).
+- **The catalogue holds the Phase 8 candidates as pairs** sharing a `family`
+  (one text-to-image, one edit): GPT Image 2.5 Sunburst, Nano Banana 2.1, FLUX 3
+  Image, Seedream 5.0 Pro and Meta Muse Image, beside the Nano Banana 2 control.
+  Each carries a `priceModel`, a complete per-call bound at the comparison
+  settings with each component's source, and nothing routes to one until an
+  admin sets it as a mode's default. The compiler is still Nano Banana 2's for
+  every engine; adapting it to the winner is increment 4's.
 
 ## Visual Concept
 
@@ -474,10 +519,15 @@ only the AI background backfill). Making outputs identical needs temp 0 or resul
   manual fallback, not a requirement.
 - A global "no readable text" rule.
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
-  path is the **frontier planner (`gpt-5.5`) + Nano Banana 2** (`nano-banana-2` /
-  `nano-banana-2-edit`). (The utility LLM — `gpt-6-luna` since it replaced `gpt-4o-mini`
-  on 2026-10-13 — serves utility calls only; FLUX Pro only on the AI
-  background backfill.)
+  path is the **frontier planner (`gpt-5.5`) + the configured image engine per mode**
+  (`image_engine_t2i` / `image_engine_i2i`; Nano Banana 2 and its edit engine until
+  launch Phase 8 adopts its winners). (The utility LLM — `gpt-6-luna` since it
+  replaced `gpt-4o-mini` on 2026-10-13 — serves utility calls only; FLUX Pro only
+  on the AI background backfill.)
+- **Choosing a render engine by string in the worker, or deriving a stored
+  attempt's engine from the mode** — retired in launch Phase 8; the engine comes
+  from `imageEngineRouting.ts` and the attempt's own column (see *Which engine
+  draws a render*).
 - An enrichment-time visual-preview phase (retired; render-time plan/compiler is
   the source of truth).
 - Violence auto-softeners; per-route preview identities; competing prompt channels.
@@ -526,6 +576,8 @@ only the AI background backfill). Making outputs identical needs temp 0 or resul
   `useDraftForm.ts` (`saveValue`), `EnrichmentEditor.tsx`
   (`VisualStrategyOverridePanel`, `isFixableRoleEntityTokenIssue`),
   `VisualConceptCard.tsx`, `subjectExampleNames.ts`.
-- `engines/openai-visual-planner.ts`, `engines/nano-banana-2*.ts`, `catalogue.ts`;
+- `engines/openai-visual-planner.ts`, `engines/nano-banana-2*.ts`, `catalogue.ts`
+  (and the Phase 8 candidates beside them); `imageEngineRouting.ts`,
+  `imageRequestBuilder.ts`;
   `sourceImageAnalysis/`; `factRenderScenarios.ts` (render-input hash).
 - `.agents/memory/image-prompt-preview-parity.md`, `docs/ADMIN_FIELD_REFERENCE.md`.

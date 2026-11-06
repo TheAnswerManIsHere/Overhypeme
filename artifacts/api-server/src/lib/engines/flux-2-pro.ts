@@ -22,6 +22,8 @@ export const FLUX_2_PRO: EngineDefinition = {
   description:
     "Text-to-image. Newer FLUX.2 generation — candidate upgrade for prompt-only scene generation.",
   kind: "image",
+  imageMode: "t2i",
+  family: "flux-2-pro",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,

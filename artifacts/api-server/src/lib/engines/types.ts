@@ -80,6 +80,25 @@ export interface EngineDefinition {
    *  getCachedPrice() at runtime. */
   estimatedCostUsdPerCall: number | null;
 
+  // ── Image routing and costing (launch Phase 8; code-owned, reconciled) ──
+  /**
+   * Image engines only: "t2i" draws from a prompt alone, "i2i" edits a
+   * reference photo. The router (`imageEngineRouting.ts`) refuses an engine
+   * whose mode is not the render's.
+   */
+  imageMode?: "t2i" | "i2i";
+  /** Pairs a family's text-to-image and edit definitions, e.g. "nano-banana-2". */
+  family?: string;
+  /** The endpoint's size vocabulary, from which the request builder picks a setting. */
+  sizeVocabulary?: SizeVocabulary;
+  /**
+   * A complete per-call price bound at the frozen comparison settings (about
+   * one megapixel, one output image, one reference on the edit side), each
+   * component with its documented ceiling and source. An engine without one
+   * is never dispatched to by a budgeted run.
+   */
+  priceModel?: PriceModel;
+
   // ── LLM engines ("llm" kind / provider "openai") only; omit for media ───
   /** Default sampling temperature. */
   defaultTemperature?: number | null;
@@ -121,3 +140,68 @@ export const ADMIN_EDITABLE_FIELDS = [
 ] as const;
 
 export type AdminEditableField = (typeof ADMIN_EDITABLE_FIELDS)[number];
+
+// ── Size vocabulary (request builder) ─────────────────────────────────────
+
+/** The wizard aspect names every engine maps from. */
+export type WizardAspect = "landscape" | "square" | "portrait";
+
+/**
+ * One size setting the endpoint accepts. `params` are pipeline-level keys
+ * (a param's `from`) merged into the call, e.g. `{ resolution: "1K" }`.
+ * `megapixels` is the approximate output size. An option with `aspect`
+ * applies only to that aspect (engines that take pixel dimensions); one
+ * without applies to every aspect (the aspect is sent separately).
+ */
+export interface SizeOption {
+  params: Record<string, string | number | boolean>;
+  megapixels: number;
+  aspect?: WizardAspect;
+}
+
+export interface SizeVocabulary {
+  options: SizeOption[];
+}
+
+// ── Price model ───────────────────────────────────────────────────────────
+
+/** Where a price or ceiling was read, so a bound can be re-checked. */
+export interface PriceSource {
+  /** The page or document the figure was read from. */
+  source: string;
+  /** ISO date the figure was read. */
+  readOn: string;
+}
+
+/**
+ * One billable component of a token-priced call, at its ceiling for the
+ * comparison settings. `measured: true` marks a figure that rests on a
+ * measurement rather than a documented maximum (the plan's D2 disclosure).
+ */
+export interface TokenPriceComponent {
+  name: string;
+  usdPerMillionTokens: number;
+  maxTokens: number;
+  ceilingBasis: string;
+  measured?: boolean;
+}
+
+export type PriceModel =
+  | ({ kind: "flat"; usdPerImage: number; usdPerExtraInput?: number } & PriceSource)
+  | ({ kind: "tokens"; components: TokenPriceComponent[]; usdPerCallFloor?: number } & PriceSource);
+
+/**
+ * The worst-case cost of one call at the comparison settings, from the price
+ * model alone. Flat: the image plus any priced extra inputs beyond the first.
+ * Tokens: every component at its ceiling.
+ */
+export function perCallBoundUsd(model: PriceModel, extraInputs = 0): number {
+  if (model.kind === "flat") {
+    return model.usdPerImage + (model.usdPerExtraInput ?? 0) * Math.max(0, extraInputs);
+  }
+  const total = model.components.reduce(
+    (sum, c) => sum + (c.usdPerMillionTokens * c.maxTokens) / 1_000_000,
+    0,
+  );
+  return Math.max(total, model.usdPerCallFloor ?? 0);
+}

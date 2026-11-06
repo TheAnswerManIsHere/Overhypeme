@@ -64,15 +64,11 @@ export function generationModeForSubjectRenderMode(mode: SubjectRenderMode): Gen
   return mode === "t2i_fallback" ? "t2i" : "i2i";
 }
 
-/**
- * The ACTUAL fal image engine a scenario routes to — i2i goes through the edit
- * engine. The legacy `image_prompt_attempts.target_engine` column stamps
- * "nano_banana_2" for everything, so it is NOT a reliable provenance signal;
- * this derivation is what we fold into the hash + surface in diagnostics.
- */
-export function actualImageEngineIdForGenerationMode(mode: GenerationMode): string {
-  return mode === "i2i" ? "nano-banana-2-edit" : "nano-banana-2";
-}
+// The ACTUAL image engine a scenario routes to is no longer derived from the
+// mode here: the configured engine per mode is read by `imageEngineRouting.ts`
+// and passed into the hash, and a stored attempt carries its own engine
+// (`actual_image_engine_id`). The legacy `target_engine` column stamps
+// "nano_banana_2" for everything and is NOT a provenance signal.
 
 // ─── Scenario input hash (idempotency + staleness) ───────────────────────────
 
@@ -92,7 +88,7 @@ export interface ScenarioHashInputs {
   /** Resolved style-suffix version/stamp, if a style is selected. */
   styleSuffixVersion: string | null;
   identityPolicy: IdentityPolicy;
-  /** Actual image engine the scenario routes to (edit engine for i2i). */
+  /** Image engine the scenario routes to now (the configured engine for its mode). */
   actualImageEngineId: string;
 }
 

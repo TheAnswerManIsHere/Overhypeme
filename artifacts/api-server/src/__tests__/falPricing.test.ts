@@ -19,7 +19,8 @@ import { db } from "@workspace/db";
 import { falPricingCacheTable } from "@workspace/db/schema";
 import { eq, like } from "drizzle-orm";
 
-import { refreshPricingCache, getCachedPrice } from "../lib/falPricing.js";
+import { refreshPricingCache, getCachedPrice, falPriceableEndpointIds } from "../lib/falPricing.js";
+import { ALL_ENGINES } from "../lib/engines/index.js";
 import { logger } from "../lib/logger.js";
 
 // Helper to capture logger.warn output for a single block. Replaces the
@@ -50,7 +51,8 @@ function captureLoggerWarn(): { captured: string[]; restore: () => void } {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const ENDPOINT_PREFIX = "tfppricing-";
+// A fal-path shape: the warm-up only prices ids shaped "<owner>/<model>" (K13).
+const ENDPOINT_PREFIX = "tfppricing/";
 
 function endpoint(suffix: string): string {
   return `${ENDPOINT_PREFIX}${suffix}`;
@@ -416,5 +418,48 @@ describe("getCachedPrice", () => {
       () => getCachedPrice(ep),
       /No pricing available for fal\.ai endpoint/,
     );
+  });
+});
+
+// Launch Phase 8, K13: the warm-up asks fal only for endpoints fal can price,
+// and paces its requests.
+describe("falPriceableEndpointIds and warm-up pacing", () => {
+  it("keeps fal paths (openai/… included) and drops bare model ids", () => {
+    assert.deepEqual(
+      falPriceableEndpointIds([
+        "fal-ai/nano-banana-2",
+        "openai/gpt-image-2.5/sunburst/edit",
+        "gpt-5.5",
+        "gpt-6-luna",
+        "",
+        "fal-ai/nano-banana-2",
+        "google/nano-banana-2.1",
+      ]),
+      ["fal-ai/nano-banana-2", "openai/gpt-image-2.5/sunburst/edit", "google/nano-banana-2.1"],
+    );
+  });
+
+  it("the catalogue's LLM engines are never sent to fal's pricing API", () => {
+    const priceable = new Set(falPriceableEndpointIds(ALL_ENGINES.map((e) => e.endpointId)));
+    for (const e of ALL_ENGINES) {
+      if (e.kind === "llm") assert.equal(priceable.has(e.endpointId), false, e.id);
+      if (e.kind === "image") assert.equal(priceable.has(e.endpointId), true, e.id);
+    }
+  });
+
+  it("fetches one endpoint at a time, at least paceMs apart, and skips a bare id", async () => {
+    const times: number[] = [];
+    const before = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      times.push(Date.now());
+      return new Response(JSON.stringify({ error: "down" }), { status: 503 });
+    }) as typeof fetch;
+    try {
+      await refreshPricingCache([endpoint("pace-a"), "gpt-5.5", endpoint("pace-b"), endpoint("pace-c")], { paceMs: 40 });
+    } finally {
+      globalThis.fetch = before;
+    }
+    assert.equal(times.length, 3, "the bare model id was not fetched");
+    for (let i = 1; i < times.length; i++) assert.ok(times[i]! - times[i - 1]! >= 35, `gap ${i}: ${times[i]! - times[i - 1]!}ms`);
   });
 });

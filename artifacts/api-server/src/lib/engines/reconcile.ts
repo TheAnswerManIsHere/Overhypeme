@@ -126,6 +126,13 @@ export function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
       def.defaultTemperature != null ? String(def.defaultTemperature) : null,
     defaultMaxTokens: def.defaultMaxTokens,
     defaultReasoningEffort: def.defaultReasoningEffort ?? null,
+    // Image routing and costing (0123). Code-owned: refreshed every boot.
+    // `retired` is deliberately absent: a migration sets it, and nothing in
+    // code may clear it.
+    imageMode: def.imageMode ?? null,
+    family: def.family ?? null,
+    sizeVocabulary: def.sizeVocabulary ?? null,
+    priceModel: def.priceModel ?? null,
     deletedAt: null,
   };
 }

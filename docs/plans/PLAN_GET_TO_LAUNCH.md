@@ -1,4 +1,4 @@
-# PLAN — Get to launch (parent programme) · v11 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8), 2026-10-30 (v9), 2026-10-31 (v10), 2026-11-04 (v11)
+# PLAN — Get to launch (parent programme) · v12 · APPROVED by David 2026-10-07; amended 2026-10-12 (v3, v4), 2026-10-13 (v5, v6, v7), 2026-10-27 (v8), 2026-10-30 (v9), 2026-10-31 (v10), 2026-11-04 (v11), 2026-11-06 (v12)
 
 Workstream: #628 · Planning record: `docs/plans/reviews/get-to-launch/` · On `main` since PR #792; each amendment merges through a PR.
 
@@ -515,8 +515,14 @@ scope:
 
 ### Phase 6 — The loop (as much time as it needs)
 
+*Amendment v12 (David, 2026-11-06): the product lane runs **8 → 7 → 6**, so
+the loop is demonstrated on the real free background drawn by an engine
+chosen from evidence. "Make this about you" starts the meme builder on this
+fact for the visitor; it is not a one-click meme (the creation of a meme is a
+multi-step thing by definition). Phase 6's settled scope is on #873.*
+
 - **Outcome:** a shared meme brings the next person in, and that person can
-  make it about themselves in one tap.
+  start making it about themselves in one tap.
 - **Scope:** **"Make this about you"** on every meme page (A25-new); OG
   previews fixed for memes (#592) and added for fact pages; share by every
   modality with the email invite fixed (#374); public creator pages;
@@ -552,9 +558,14 @@ scope:
   (D4); anonymous preview-only, verified account for download/save/share
   (D21); branded watermark on free downloads; speech bubbles finished on the
   moderation side (D14); private-meme gating read from the grid (#395);
-  style presets tuned **after** Phase 8.
+  style presets tuned **after** Phase 8; **the catalogue-wide hero re-render
+  on Phase 8's winning engine**, after this phase's hero-set, approval-minimum
+  and aspect-ratio decisions, so the asset set is rendered once in the shape
+  this phase decides (amendment v12: David's D1 on the Phase 8 plan,
+  2026-11-06); the style catalogue aligned with what comparable platforms
+  offer (#888).
 - **Depends on:** Phase 5 (gating), Phase 4 (templates/stock/Pexels gone);
-  presets wait for Phase 8.
+  Phase 8 (the winning engine, the tuned presets).
 - **David's batch:** aspect-ratio approach; number of hero options per fact
   (and whether all must be approved or a minimum); watermark design.
 - **Exit evidence:** CI invariants on the asset boundary; scripted builder
@@ -572,12 +583,16 @@ scope:
   same facts and scenarios; compiler work for the winner (the
   planner/compiler split is kept); default `llm` engine set (K4); fal pricing
   warm-up fixed (K13); presets reviewed and tuned.
-- **Depends on:** Phase 4 (catalogue pruned); Phase 11's accounting for
-  evaluation spend.
+- **Depends on:** Phase 4 (catalogue pruned). The wait on Phase 11's
+  accounting is replaced by the standing paid-run budget: $5 a run, $25 a
+  week, a run above it asks first (amendment v12; `uat-doc-format.md`,
+  *Lanes*). Plan: `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, approved
+  2026-11-06; workstream #887.
 - **David's batch:** the winner, from a side-by-side he judges.
 - **Exit evidence:** eval runs recorded per engine; David's pick recorded in
   `decisions.md`; presets re-reviewed against the winner.
-- **Tier:** product. **Lane:** Product, after 7's asset model.
+- **Tier:** product. **Lane:** Product, first of 8 → 7 → 6 (amendment v12;
+  until then it followed 7's asset model).
 
 ### Phase 9 — Community and takedown
 

@@ -40,6 +40,13 @@ interface EngineRow {
   /** Derived server-side from the code catalogue — false means the row is
    *  routed by a dedicated config key and can never be the kind default. */
   eligibleAsKindDefault: boolean;
+  /** Image engines: "t2i" | "i2i" (code-owned, launch Phase 8). */
+  imageMode?: "t2i" | "i2i" | null;
+  /** Pairs a family's text-to-image and edit definitions. */
+  family?: string | null;
+  /** Derived server-side: the render mode this image engine is currently the
+   *  default for (the image_engine_t2i / image_engine_i2i config keys). */
+  defaultForImageMode?: "t2i" | "i2i" | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -49,6 +56,11 @@ interface ListResponse {
   engines: EngineRow[];
   editableFields: string[];
 }
+
+const IMAGE_MODE_LABELS: Record<"t2i" | "i2i", string> = {
+  t2i: "text-to-image",
+  i2i: "editing",
+};
 
 // Fields the backend's PATCH endpoint accepts. Kept in sync with
 // ADMIN_EDITABLE_FIELDS in artifacts/api-server/src/routes/adminEngines.ts.
@@ -1071,6 +1083,7 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
             {form.isActive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
             {form.isActive ? "Active" : "Inactive"}
           </button>
+          {engine.kind !== "image" && (
           <button
             onClick={() => set("isDefault", !form.isDefault)}
             disabled={engine.eligibleAsKindDefault === false}
@@ -1082,6 +1095,7 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
             <Star className="w-3.5 h-3.5" />
             {form.isDefault ? "Default for kind" : "Not default"}
           </button>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -1262,14 +1276,19 @@ function EngineCard({
   engine,
   archived,
   onChanged,
+  onReload,
 }: {
   engine: EngineRow;
   archived: boolean;
   onChanged: (e: EngineRow) => void;
+  /** Re-reads the whole list: an image engine's Set default moves its mode's
+   *  default badge off another engine. */
+  onReload: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
   const [busy, setBusy] = useState<null | string>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const archive = async () => {
     if (!confirm(`Archive engine "${engine.label}"? It will be hidden from the wizard and interpreter but kept for job lineage.`)) return;
@@ -1292,10 +1311,17 @@ function EngineCard({
 
   const setDefault = async () => {
     setBusy("setDefault");
+    setActionError(null);
     try {
       const r = await fetch(`/api/admin/engines/${engine.id}/set-default`, { method: "POST", credentials: "include" });
-      if (!r.ok) throw new Error(await r.text());
-      onChanged(await r.json());
+      if (!r.ok) {
+        // The server says why an engine cannot be a default (e.g. inactive, or no size vocabulary).
+        const body = (await r.json().catch(() => null)) as { error?: string } | null;
+        setActionError(body?.error ?? `Set default failed (HTTP ${r.status})`);
+        return;
+      }
+      if (engine.kind === "image") onReload();
+      else onChanged(await r.json());
     } finally { setBusy(null); }
   };
 
@@ -1309,9 +1335,24 @@ function EngineCard({
               <span className="text-sm font-bold text-foreground">{engine.label}</span>
               <span className="text-[10px] font-mono text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">{engine.id}</span>
               <span className="text-[10px] font-bold text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded uppercase">{engine.provider}</span>
-              {engine.isDefault && (
+              {engine.kind !== "image" && engine.isDefault && (
                 <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
                   <Star className="w-2.5 h-2.5" /> default
+                </span>
+              )}
+              {engine.kind === "image" && engine.defaultForImageMode && (
+                <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                  <Star className="w-2.5 h-2.5" /> default · {IMAGE_MODE_LABELS[engine.defaultForImageMode]}
+                </span>
+              )}
+              {engine.kind === "image" && engine.imageMode && (
+                <span className="text-[10px] font-mono text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded">
+                  {IMAGE_MODE_LABELS[engine.imageMode]}
+                </span>
+              )}
+              {engine.kind === "image" && engine.family && (
+                <span className="text-[10px] font-mono text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded">
+                  family:{engine.family}
                 </span>
               )}
               {(() => {
@@ -1330,6 +1371,7 @@ function EngineCard({
               {archived && <span className="text-[10px] font-bold text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">ARCHIVED</span>}
             </div>
             <p className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate">{engine.endpointId}</p>
+            {actionError && <p className="text-xs text-destructive mt-1" role="alert">{actionError}</p>}
             <p className="text-xs text-muted-foreground mt-1">{engine.description}</p>
           </div>
         </button>
@@ -1347,12 +1389,16 @@ function EngineCard({
                   <Beaker className="w-3 h-3" /> Test
                 </button>
               )}
-              {!engine.isDefault && engine.eligibleAsKindDefault !== false && (
+              {(engine.kind === "image"
+                ? !!engine.imageMode && !engine.defaultForImageMode
+                : !engine.isDefault && engine.eligibleAsKindDefault !== false) && (
                 <button
                   onClick={setDefault}
                   disabled={busy === "setDefault"}
                   className="min-h-[36px] px-2 py-1 text-[11px] font-bold border border-amber-500/40 rounded-sm hover:bg-amber-500/10 text-amber-400 transition-colors flex items-center gap-1"
-                  title="Set as default for this kind"
+                  title={engine.kind === "image" && engine.imageMode
+                    ? `Make this the engine for every ${IMAGE_MODE_LABELS[engine.imageMode]} render`
+                    : "Set as default for this kind"}
                 >
                   <Star className="w-3 h-3" /> Default
                 </button>
@@ -1412,7 +1458,7 @@ export default function AdminEngines() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("live");
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch("/api/admin/engines", { credentials: "include" })
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1421,6 +1467,10 @@ export default function AdminEngines() {
       })
       .catch((e) => setError(String(e)));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleChanged = (updated: EngineRow) => {
     setEngines((prev) => (prev ? prev.map((e) => (e.id === updated.id ? updated : e)) : prev));
@@ -1496,6 +1546,7 @@ export default function AdminEngines() {
                   engine={engine}
                   archived={tab === "archived"}
                   onChanged={handleChanged}
+                  onReload={load}
                 />
               ))}
             </div>

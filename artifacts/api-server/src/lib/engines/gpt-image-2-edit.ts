@@ -21,6 +21,8 @@ export const GPT_IMAGE_2_EDIT: EngineDefinition = {
   description:
     "OpenAI GPT Image 2 edit (alpha). Reference-image editing with optional mask-based inpainting.",
   kind: "image",
+  imageMode: "i2i",
+  family: "gpt-image-2",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,

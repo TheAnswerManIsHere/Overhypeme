@@ -16,6 +16,11 @@ import { GPT_IMAGE_2 } from "./gpt-image-2";
 import { GPT_IMAGE_2_EDIT } from "./gpt-image-2-edit";
 import { FAL_YOLO_WORLD } from "./fal-yolo-world";
 import { OPENAI_GENERAL } from "./openai-general";
+import { GPT_IMAGE_2_5, GPT_IMAGE_2_5_EDIT } from "./gpt-image-2-5";
+import { NANO_BANANA_2_1, NANO_BANANA_2_1_EDIT } from "./nano-banana-2-1";
+import { FLUX_3, FLUX_3_EDIT } from "./flux-3";
+import { SEEDREAM_5_PRO, SEEDREAM_5_PRO_EDIT } from "./seedream-5-pro";
+import { MUSE_IMAGE, MUSE_IMAGE_EDIT } from "./muse-image";
 import { OPENAI_VISUAL_PLANNER } from "./openai-visual-planner";
 import { OPENAI_ENRICHER } from "./openai-enricher";
 
@@ -34,6 +39,17 @@ export const ALL_ENGINES: EngineDefinition[] = [
   FLUX_2_PRO,
   GPT_IMAGE_2,
   GPT_IMAGE_2_EDIT,
+  // Launch Phase 8 candidates, as text-to-image + edit pairs (`family`).
+  GPT_IMAGE_2_5,
+  GPT_IMAGE_2_5_EDIT,
+  NANO_BANANA_2_1,
+  NANO_BANANA_2_1_EDIT,
+  FLUX_3,
+  FLUX_3_EDIT,
+  SEEDREAM_5_PRO,
+  SEEDREAM_5_PRO_EDIT,
+  MUSE_IMAGE,
+  MUSE_IMAGE_EDIT,
   FAL_YOLO_WORLD,
   OPENAI_GENERAL,
   OPENAI_VISUAL_PLANNER,

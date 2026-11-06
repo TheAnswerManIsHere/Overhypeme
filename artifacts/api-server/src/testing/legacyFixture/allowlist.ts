@@ -159,6 +159,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     defaultAspectRatio: "keep", paramSchema: "shape:config", estimatedCostUsdPerCall: "keep", expectedRunMs: "keep",
     defaultTemperature: "keep", defaultMaxTokens: "keep", defaultReasoningEffort: "keep",
     featureFlagRequired: "keep", createdAt: "keep", updatedAt: "keep", deletedAt: "keep",
+    // 0123: code-owned, reconciled from the catalogue at boot; the committed
+    // fixture predates them, so they take their defaults on load.
+    imageMode: "drop", family: "drop", priceModel: "drop", sizeVocabulary: "drop", retired: "drop",
   }),
   include(s.lookStylesTable, {
     id: "keep", label: "keep", description: "keep", promptSuffix: "keep", promptSuffixReference: "keep",
@@ -329,6 +332,10 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     userSelectedSubjectRenderMode: "keep",
     fallbackReason: "prose",
     targetEngine: "keep",
+    // 0123: the engine that drew the attempt (structural); the request
+    // builder's settings are dropped (the fixture predates them).
+    actualImageEngineId: "keep",
+    requestSettings: "drop",
     sourceImageAnalysis: "shape:sourceImageAnalysis",
     sourceImageSha256: "rekey",
     identityPolicy: "shape:identityPolicy",

@@ -36,12 +36,12 @@ import {
   buildScenarioInputHash,
   DEFAULT_REFERENCE_ASSET_VERSION,
   generationModeForSubjectRenderMode,
-  actualImageEngineIdForGenerationMode,
 } from "../factRenderScenarios";
 import { resolveRenderReviewInput } from "../imagePrompt/resolveRenderReviewInput";
 import { buildAndEnqueueImagePromptAttempt, buildRenderStatusPayload, type RenderControlsWithRefs } from "../imagePromptAttempts";
 import { captureRunProfile } from "./signature";
 import { logger } from "../logger";
+import { currentImageEngineIds } from "../imageEngineRouting";
 
 export interface EvalRunItemResult {
   factId: number;
@@ -93,6 +93,8 @@ async function enqueueEvalScenario(args: {
     return { factId, scenarioKey, status: "failed", reason: err instanceof Error ? err.message : String(err) };
   }
 
+  // The engine this eval attempt is routed to, hashed and stored as one value.
+  const imageEngineId = (await currentImageEngineIds())[generationModeForSubjectRenderMode(mode)];
   const inputHash = buildScenarioInputHash({
     stagingFactId: factId,
     scenarioKey,
@@ -105,7 +107,7 @@ async function enqueueEvalScenario(args: {
     lookStyleId: null,
     styleSuffixVersion: null,
     identityPolicy: resolved.identityPolicy,
-    actualImageEngineId: actualImageEngineIdForGenerationMode(generationModeForSubjectRenderMode(mode)),
+    actualImageEngineId: imageEngineId,
   });
 
   const controls: RenderControlsWithRefs = {
@@ -126,6 +128,7 @@ async function enqueueEvalScenario(args: {
       identityPolicy: resolved.identityPolicy,
       renderControls: controls,
       requestId: `admin-eval:${runId}:${scenarioKey}:${randomUUID()}`,
+      imageEngineId,
       eval: { evalRunId: runId, scenarioKey, inputHash },
     });
     return { factId, scenarioKey, status: "enqueued", attemptId };

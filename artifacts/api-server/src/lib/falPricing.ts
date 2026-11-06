@@ -60,12 +60,33 @@ async function fetchPricingFromApi(endpointId: string): Promise<FalPricingEntry 
 }
 
 /**
+ * The endpoint ids fal can price: those shaped like a fal path,
+ * `<owner>/<model>[/...]` (fal hosts OpenAI's image endpoints under `openai/`,
+ * so the provider is not the test). A direct OpenAI model id such as
+ * `gpt-5.5` has no slash and is dropped, along with anything malformed.
+ * Launch Phase 8, K13.
+ */
+export function falPriceableEndpointIds(endpointIds: string[]): string[] {
+  return Array.from(new Set(endpointIds.filter((id) => /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)+$/i.test(id.trim()))));
+}
+
+/** Pause between pricing requests, so a warm-up never bursts at fal. */
+export const PRICING_REQUEST_PACE_MS = 250;
+
+/**
  * Refresh the pricing cache for the given endpoint IDs.
  * Upserts each result into fal_pricing_cache.
  * Logs a warning if any price has changed since the last fetch.
+ * Only fal-priceable ids are fetched, one at a time, `paceMs` apart.
  */
-export async function refreshPricingCache(endpointIds: string[]): Promise<void> {
-  for (const endpointId of endpointIds) {
+export async function refreshPricingCache(
+  endpointIds: string[],
+  opts: { paceMs?: number } = {},
+): Promise<void> {
+  const paceMs = opts.paceMs ?? PRICING_REQUEST_PACE_MS;
+  const priceable = falPriceableEndpointIds(endpointIds);
+  for (const [i, endpointId] of priceable.entries()) {
+    if (i > 0 && paceMs > 0) await new Promise((r) => setTimeout(r, paceMs));
     const entry = await fetchPricingFromApi(endpointId);
     if (!entry) continue;
 
