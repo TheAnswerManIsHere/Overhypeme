@@ -36,7 +36,7 @@ function impactStyles(source: string): string[] {
 describe("email display font weight", () => {
   it("the password-reset email never asks Impact for a bold weight", () => {
     const { html } = buildPasswordResetEmail("https://example.test/reset-password?token=abc");
-    const styles = impactStyles(html);
+    const styles = impactStyles(html ?? "");
     assert.ok(styles.length >= 3, "expected the wordmark, heading and button to use the display stack");
     for (const style of styles) assert.doesNotMatch(style, BOLD_WEIGHT, style);
   });
