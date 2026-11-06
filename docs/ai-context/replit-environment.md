@@ -361,6 +361,20 @@ product docs, if it needs to be authoritative. This distinction is why
 something to route around: the mutating call
 (`update_app_using_prompt`) never returns answer text at all.)*
 
+## The dev app can be stopped, and boots in about 30 seconds
+
+The Repl's dev workflows (the API server and the web front end) are not
+always running: measured 2026-11-06, two days into a UAT run, the connector
+reported them stopped and the API server unreachable on port 8080 (`curl`
+exit 7). So before handing David anything to click, ask the connector,
+read-only, for **both** workflows' state: the API's `/api/healthz` code and
+whether the web front end answers on its own port (the two are separate
+workflows, and healthz speaks for the API alone). If either is down, ask
+it (scoped: start the existing workflows, change nothing) to start them.
+**It boots in about 30 seconds** (David, 2026-11-06): check both again
+then, not minutes later, and if either is still down, find out why before
+asking him to test.
+
 ## Dev and production are two separate databases
 
 **`heliumdb`** (on the `helium` host) is the **development** database — the
