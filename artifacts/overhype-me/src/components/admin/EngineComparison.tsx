@@ -137,7 +137,7 @@ export function EngineComparison() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind, weekRemainingUsd: week }),
     }).catch(() => null);
-    const outcome = !r || !r.ok
+    const outcome: { error: string } | { result: RunPlan } = !r || !r.ok
       ? { error: r ? await readError(r) : "Failed to plan the run." }
       : { result: (await r.json()) as RunPlan };
     if (!stillSelected(id)) return;
