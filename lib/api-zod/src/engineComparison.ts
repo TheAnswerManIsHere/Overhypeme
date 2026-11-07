@@ -46,7 +46,7 @@ export const comparisonRunPlanSchema = z.object({
 }).strict();
 export type ComparisonRunPlanRequest = z.infer<typeof comparisonRunPlanSchema>;
 
-export const COMPARISON_PANEL_STATES = ["pending", "preparing", "prepared", "failed", "skipped"] as const;
+export const COMPARISON_PANEL_STATES = ["pending", "preparing", "planning", "prepared", "failed", "skipped"] as const;
 export const COMPARISON_CELL_STATES = ["expected", "enqueued", "rendered", "failed", "skipped"] as const;
 export type ComparisonPanelState = (typeof COMPARISON_PANEL_STATES)[number];
 export type ComparisonCellState = (typeof COMPARISON_CELL_STATES)[number];

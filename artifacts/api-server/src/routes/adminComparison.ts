@@ -9,6 +9,8 @@
  *   POST /api/admin/comparison/sets/:id/runs     admit and start that run (increment 2b) — the one route that spends
  *   POST /api/admin/comparison/cells/:id/retry-storage   store a failed cell's vendor image again (spends nothing)
  *   POST /api/admin/comparison/cells/:id/rerun   a failed cell's one re-run: back to expected, admitted by the next run
+ *   POST /api/admin/comparison/panels/:id/reprepare   a failed panel back to pending, admitted by the next preparation run
+ *   POST /api/admin/comparison/sets/:id/settle-bills  read fal's bills for the set's completed calls (spends nothing)
  *
  * Planning spends nothing and writes nothing; a run spends only what admission reserved.
  */
@@ -26,8 +28,10 @@ import {
 import {
   ComparisonCellActionRefused,
   ComparisonRunRefused,
+  reprepareFailedPanel,
   rerunCell,
   retryCellStorage,
+  settlePendingBills,
   startComparisonRun,
 } from "../lib/comparison/runs";
 import { logger } from "../lib/logger";
@@ -99,12 +103,22 @@ router.post("/admin/comparison/sets/:id/runs", requireAdmin, async (req: Authent
   }
 });
 
-for (const [path, action] of [["retry-storage", retryCellStorage], ["rerun", rerunCell]] as const) {
-  router.post(`/admin/comparison/cells/:id/${path}`, requireAdmin, async (req: Request, res: Response) => {
+router.post("/admin/comparison/sets/:id/settle-bills", requireAdmin, async (req: Request, res: Response) => {
+  const id = idParam(req);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  res.json(await settlePendingBills(id));
+});
+
+for (const [path, key, action] of [
+  ["cells/:id/retry-storage", "cell", retryCellStorage],
+  ["cells/:id/rerun", "cell", rerunCell],
+  ["panels/:id/reprepare", "panel", reprepareFailedPanel],
+] as const) {
+  router.post(`/admin/comparison/${path}`, requireAdmin, async (req: Request, res: Response) => {
     const id = idParam(req);
     if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
     try {
-      res.json({ cell: await action(id) });
+      res.json({ [key]: await action(id) });
     } catch (err) {
       if (err instanceof ComparisonCellActionRefused) { res.status(409).json({ error: "cell_action_refused", refusal: err.message }); return; }
       throw err;

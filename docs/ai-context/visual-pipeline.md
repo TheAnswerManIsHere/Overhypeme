@@ -106,9 +106,12 @@ beside the eval run rather than inside it (plan
   path (`resolveRenderReviewInput` → `assembleImagePromptForPreview`) with
   the scenario's default reference resized to 1024 pixels on the long edge
   (`resolveDefaultReferenceUrl(type, { maxEdgePx })`), and freezes the plan,
-  the compiled prompt, the reference and the style on the panel. A planner
-  that fell back to another model fails the panel: it is a different
-  experiment.
+  the compiled prompt, the reference and the style on the panel. Its planner
+  calls run inside `withoutLlmRetries` (`artifacts/api-server/src/lib/utilityLLM.ts`),
+  so each permitted call, the corrective one included, is one submission. A
+  planner that fell back to another model fails the panel: it is a different
+  experiment. A failed panel can be prepared again; the next preparation run
+  admits it.
 - **A cell submits once** (`artifacts/api-server/src/lib/comparison/transport.ts`):
   one POST to fal's queue of our own — the SDK retries submission — with the
   request id stored before polling, so a resumed job polls and never
@@ -118,12 +121,26 @@ beside the eval run rather than inside it (plan
   (`artifacts/api-server/src/lib/imageEngineRequest.ts`), so it measures what
   production sends.
 - **Settlement**: a call that never reached a vendor releases its
-  reservation; a completed call settles at its flat price, or with the amount
-  unreported for a token-billed engine or the planner (the paid-run ledger
-  records the bound); a call that failed after submission stays reserved,
-  since it may have been billed. A storage failure keeps the vendor's URL and
-  its retry stores that image again; a render failure gets one re-run, which
-  the next render run admits.
+  reservation. A completed fal call settles at the bill fal reports for its
+  request (`GET https://api.fal.ai/v1/models/billing-events?request_id=…`,
+  `cost_total`), never clipped to the reservation; a bill not yet reported
+  keeps the reservation held — still counted against the week — until a
+  later read ("Check fal's bills", and before each render run's admission).
+  A planner call settles at its bound, since OpenAI reports no per-request
+  bill. A call that failed after submission stays reserved, since it may have
+  been billed. A storage failure keeps the vendor's URL and its retry stores
+  that image again; a render failure gets one re-run, which the next render
+  run admits.
+- **A restart never repeats a paid call.** A panel is marked `planning`
+  before its planner call, and a cell's request settings are written before
+  its submission; a job that resumes to find the marker without a result
+  fails as ambiguous and keeps its reservation, rather than calling again.
+- **The D2 check** (`gateMeasuredFamilies` in
+  `artifacts/api-server/src/lib/comparison/sets.ts`): a family whose price
+  rests on a measured figure (GPT Image 2.5's reference-image charge) renders
+  one edit cell first; its other cells wait until fal's bill for that edit
+  is read, are admitted once it is within its reservation, and are refused
+  with the figure if it is above.
 - **The eval runner can name its engine per mode**
   (`POST /api/admin/eval/runs` `imageEngines: { t2i?, i2i? }`); an engine
   that cannot draw its mode refuses the run, never falls back.

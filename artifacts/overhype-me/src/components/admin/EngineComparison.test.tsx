@@ -211,3 +211,34 @@ describe("EngineComparison — starting a run", () => {
     await waitFor(() => expect(posts.at(-1)?.url).toBe("/api/admin/comparison/cells/2/rerun"));
   });
 });
+
+describe("EngineComparison — a start that finishes after the selection changed", () => {
+  it("leaves the start button usable on the set now selected", async () => {
+    const PLAN = { admitted: true, items: [{ ref: "panel:1", label: "", boundUsd: 0.768 }], boundUsd: 0.768, allowanceUsd: 5, remainingItems: 0, remainingBoundUsd: 0, runsNeeded: 1, refusal: null };
+    let releaseStart: () => void = () => {};
+    const detailFor = (id: number) => ({ ...DETAIL, set: { ...DETAIL.set, id, label: `Set ${id}` } });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/comparison/sets")) return { ok: true, json: async () => ({ sets: [7, 8].map((id) => ({ id, label: `Set ${id}`, round: 1, createdAt: "", panels: 1, cells: 2 })) }) } as unknown as Response;
+      if (url.endsWith("/comparison/sets/7") || url.endsWith("/comparison/sets/8")) return { ok: true, json: async () => detailFor(Number(url.slice(-1))) } as unknown as Response;
+      if (url.endsWith("/plan")) return { ok: true, json: async () => PLAN } as unknown as Response;
+      if (url.endsWith("/runs")) {
+        await new Promise<void>((r) => { releaseStart = r; });
+        return { ok: true, status: 202, json: async () => ({ run: { id: 1, kind: "prepare", state: "running", boundUsd: "0.7680", refusal: null, createdAt: "" }, plan: PLAN }) } as unknown as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+    }));
+    render(<EngineComparison />);
+    fireEvent.click(await screen.findByText(/#7 Set 7/));
+    fireEvent.change(await screen.findByTestId("comparison-week-remaining"), { target: { value: "25" } });
+    fireEvent.click(screen.getByTestId("comparison-plan-prepare"));
+    fireEvent.click(await screen.findByTestId("comparison-start-run"));
+    fireEvent.click(screen.getByText(/#8 Set 8/));
+    await waitFor(() => expect(screen.getByTestId("comparison-detail").textContent).toMatch(/Set #8/));
+    releaseStart();
+    await new Promise((r) => setTimeout(r, 0));
+    fireEvent.change(screen.getByTestId("comparison-week-remaining"), { target: { value: "25" } });
+    fireEvent.click(screen.getByTestId("comparison-plan-prepare"));
+    const button = await screen.findByTestId("comparison-start-run");
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
+});

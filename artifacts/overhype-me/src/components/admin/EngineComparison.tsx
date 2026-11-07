@@ -37,6 +37,8 @@ interface RunPlan {
   remainingBoundUsd: number;
   runsNeeded: number;
   refusal: string | null;
+  /** Why some cells wait, e.g. a family held until its first measured edit is billed. */
+  notes?: string[];
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -45,7 +47,7 @@ function StateIcon({ state }: { state: string }) {
   if (state === "rendered" || state === "prepared") return <CheckCircle2 className="w-3 h-3 text-green-500" />;
   if (state === "failed") return <AlertTriangle className="w-3 h-3 text-amber-500" />;
   if (state === "skipped") return <MinusCircle className="w-3 h-3 text-muted-foreground" />;
-  if (state === "enqueued" || state === "preparing") return <Loader2 className="w-3 h-3 animate-spin text-blue-500" />;
+  if (state === "enqueued" || state === "preparing" || state === "planning") return <Loader2 className="w-3 h-3 animate-spin text-blue-500" />;
   return <Circle className="w-3 h-3 text-muted-foreground" />;
 }
 
@@ -106,11 +108,12 @@ export function EngineComparison() {
     setDetail(null);
     setPlan(null);
     setPlanning(false);
+    setStarting(false);
     await refreshDetail(id, { reportErrors: true });
   }, [refreshDetail]);
   useEffect(() => { if (selected != null) void loadDetail(selected); }, [selected, loadDetail]);
 
-  const inFlight = !!detail && detail.set.id === selected && detail.panels.some((p) => p.state === "preparing" || p.cells.some((c) => c.state === "enqueued"));
+  const inFlight = !!detail && detail.set.id === selected && detail.panels.some((p) => p.state === "preparing" || p.state === "planning" || p.cells.some((c) => c.state === "enqueued"));
   useEffect(() => {
     if (!inFlight || selected == null) return;
     const id = selected;
@@ -190,22 +193,28 @@ export function EngineComparison() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind, weekRemainingUsd: week }),
     }).catch(() => null);
-    const outcome: { error: string } | { run: RunView; plan: RunPlan } = !r || !r.ok
+    const outcome: { error: string } | { run: RunView; plan: RunPlan; notes?: string[] } = !r || !r.ok
       ? { error: r ? await readError(r) : "Failed to start the run." }
-      : ((await r.json()) as { run: RunView; plan: RunPlan });
-    if (!stillSelected(id)) return;
+      : ((await r.json()) as { run: RunView; plan: RunPlan; notes?: string[] });
+    // The start finished, whichever set is on screen now: the button is free again.
     setStarting(false);
+    if (!stillSelected(id)) return;
     setPlan(null);
     if ("error" in outcome) { setError(`Run refused: ${outcome.error}`); await refreshDetail(id); return; }
-    setNotice(`Run #${outcome.run.id} started: ${outcome.plan.items.length} item${outcome.plan.items.length === 1 ? "" : "s"}, at most ${usd(outcome.plan.boundUsd)}.`);
+    setNotice(`Run #${outcome.run.id} started: ${outcome.plan.items.length} item${outcome.plan.items.length === 1 ? "" : "s"}, at most ${usd(outcome.plan.boundUsd)}.${outcome.notes?.length ? ` ${outcome.notes.join("; ")}.` : ""}`);
     await refreshDetail(id);
   };
 
-  /** A failed cell's recovery: storage again (free) or its one re-run (admitted by the next render run). */
-  const cellAction = async (cellId: number, action: "retry-storage" | "rerun") => {
+  /**
+   * Recovery and bookkeeping that spend nothing: a cell's storage again, its
+   * one re-run, a failed panel's re-preparation (each admitted by the next
+   * run), or reading fal's bills for the set.
+   */
+  const cellAction = async (targetId: number, action: "retry-storage" | "rerun" | "reprepare" | "settle-bills") => {
     const id = selected;
     if (id == null) return;
-    const r = await fetch(`/api/admin/comparison/cells/${cellId}/${action}`, { method: "POST", credentials: "include" }).catch(() => null);
+    const path = action === "reprepare" ? `panels/${targetId}/reprepare` : action === "settle-bills" ? `sets/${targetId}/settle-bills` : `cells/${targetId}/${action}`;
+    const r = await fetch(`/api/admin/comparison/${path}`, { method: "POST", credentials: "include" }).catch(() => null);
     if (!stillSelected(id)) return;
     if (!r || !r.ok) { setError(r ? await readError(r) : "The cell action failed."); return; }
     await refreshDetail(id);
@@ -293,6 +302,7 @@ export function EngineComparison() {
             </label>
             <button type="button" disabled={planning} onClick={() => void planRun("prepare")} data-testid="comparison-plan-prepare" className="px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted disabled:opacity-40">Plan a preparation run</button>
             <button type="button" disabled={planning} onClick={() => void planRun("render")} data-testid="comparison-plan-render" className="px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted disabled:opacity-40">Plan a render run</button>
+            <button type="button" onClick={() => void cellAction(shown.set.id, "settle-bills")} data-testid="comparison-settle-bills" className="px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted">Check fal's bills</button>
             {planning && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
           </div>
 
@@ -310,6 +320,11 @@ export function EngineComparison() {
               ) : (
                 <p data-testid="comparison-plan-refusal"><strong>Refused:</strong> {plan.result.refusal}</p>
               )}
+              {plan.result.admitted && (plan.result.notes?.length ?? 0) > 0 && (
+                <ul className="mt-1 text-xs text-muted-foreground list-disc pl-4" data-testid="comparison-plan-notes">
+                  {plan.result.notes!.map((n) => <li key={n}>{n}</li>)}
+                </ul>
+              )}
             </div>
           )}
 
@@ -318,6 +333,9 @@ export function EngineComparison() {
               <div key={p.id} className="flex flex-wrap items-center gap-1.5 text-[11px]">
                 <span className="inline-flex items-center gap-1 font-mono text-muted-foreground w-64 shrink-0" title={p.error ?? p.skipReason ?? undefined}>
                   <StateIcon state={p.state} /> fact #{p.factId} · {p.scenarioKey} · {p.lookStyleId}
+                  {p.state === "failed" && (
+                    <button type="button" onClick={() => void cellAction(p.id, "reprepare")} data-testid={`comparison-reprepare-${p.id}`} className="ml-1 text-primary underline">prepare again</button>
+                  )}
                 </span>
                 {p.cells.map((c) => (
                   <span key={c.id} title={c.error ?? c.skipReason ?? c.state} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-border">

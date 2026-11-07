@@ -34,6 +34,7 @@ import {
   type ComparisonSetCreate,
 } from "@workspace/api-zod";
 import { resolveImagePromptLLMSettings } from "../imagePrompt/generator";
+import type { PriceModel } from "../engines";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
 import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type PlannerRequestSettings, type RunPlan, type WorkItem } from "./admission";
 
@@ -151,6 +152,8 @@ export interface SetRows {
   panels: ComparisonPanel[];
   cells: ComparisonCell[];
   prices: Map<string, unknown>;
+  /** Each cell engine's family, for the measured-price gate. */
+  families: Map<string, string | null>;
 }
 
 /**
@@ -180,9 +183,13 @@ export async function loadSetRows(setId: number, exec: Executor = db): Promise<S
     : [];
   const engineIds = [...new Set(cells.map((c) => c.engineId))];
   const engines = engineIds.length
-    ? await exec.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds))
+    ? await exec.select({ id: enginesTable.id, priceModel: enginesTable.priceModel, family: enginesTable.family }).from(enginesTable).where(inArray(enginesTable.id, engineIds))
     : [];
-  return { set, panels, cells, prices: new Map(engines.map((r) => [r.id, r.priceModel])) };
+  return {
+    set, panels, cells,
+    prices: new Map(engines.map((r) => [r.id, r.priceModel])),
+    families: new Map(engines.map((r) => [r.id, r.family])),
+  };
 }
 
 /** Panels still to prepare, each priced at two planner calls at the planner's real ceiling. */
@@ -262,17 +269,72 @@ export async function unresolvedReservedUsd(exec: Executor = db): Promise<number
   return Number(row?.total ?? 0);
 }
 
-/** The work a run of `kind` would take; the planner is resolved only for preparation. */
-export async function runItems(kind: "prepare" | "render", rows: SetRows): Promise<WorkItem[]> {
-  return kind === "prepare" ? prepareItems(rows, await plannerSettings()) : renderItems(rows, { preparedOnly: true });
+/** A price whose bound rests on a measured figure rather than a documented maximum (D2). */
+export function hasMeasuredComponent(priceModel: unknown): boolean {
+  const m = priceModel as PriceModel | null;
+  return !!m && m.kind === "tokens" && m.components.some((c) => c.measured);
 }
 
-export async function planComparisonRun(setId: number, req: ComparisonRunPlanRequest): Promise<RunPlan | null> {
+/**
+ * The D2 check, at admission (launch Phase 8 plan: "the first GPT cell to
+ * dispatch ... is an edit cell with a frozen comparison reference, it settles
+ * before any other GPT cell dispatches, and a settled bill above its
+ * reservation halts the run"). For each family with a measured price, per set:
+ * until one of its measured-price cells has a bill from fal within its
+ * reservation, a render run admits exactly one such cell and none of the
+ * family's others; while that bill is awaited, none; and once a bill comes in
+ * above its reservation, none, with the figure.
+ */
+export async function gateMeasuredFamilies(items: WorkItem[], rows: SetRows, exec: Executor = db): Promise<{ items: WorkItem[]; notes: string[] }> {
+  const measuredEngines = new Set([...rows.prices].filter(([, m]) => hasMeasuredComponent(m)).map(([id]) => id));
+  if (measuredEngines.size === 0) return { items, notes: [] };
+  const cellIds = rows.cells.map((c) => c.id);
+  const reservations = cellIds.length
+    ? await exec.select().from(comparisonReservationsTable).where(inArray(comparisonReservationsTable.cellId, cellIds))
+    : [];
+  const familyOf = (engineId: string) => rows.families.get(engineId) ?? engineId;
+  const cellEngine = new Map(rows.cells.map((c) => [c.id, c.engineId]));
+  const notes: string[] = [];
+  let kept = items;
+  for (const family of new Set([...measuredEngines].map(familyOf))) {
+    const inFamily = (engineId: string | undefined) => !!engineId && familyOf(engineId) === family;
+    const probeRows = reservations.filter((r) => r.cellId != null && measuredEngines.has(cellEngine.get(r.cellId) ?? "") && inFamily(cellEngine.get(r.cellId)));
+    const billed = probeRows.filter((r) => r.state === "settled" && r.settledUsd != null);
+    const over = billed.find((r) => Number(r.settledUsd) > Number(r.boundUsd) + 1e-9);
+    const familyItems = kept.filter((i) => inFamily(i.engineId));
+    if (familyItems.length === 0) continue;
+    if (over) {
+      kept = kept.filter((i) => !inFamily(i.engineId));
+      notes.push(`${family}: refused — its first measured edit billed $${Number(over.settledUsd).toFixed(4)}, above its $${Number(over.boundUsd).toFixed(4)} reservation`);
+      continue;
+    }
+    if (billed.length > 0) continue; // a bill within its reservation clears the family
+    if (probeRows.some((r) => r.state === "reserved")) {
+      kept = kept.filter((i) => !inFamily(i.engineId));
+      notes.push(`${family}: waiting for fal's bill for its first edit before its other ${familyItems.length} cell${familyItems.length === 1 ? "" : "s"} render`);
+      continue;
+    }
+    const probe = familyItems.find((i) => measuredEngines.has(i.engineId!));
+    kept = kept.filter((i) => !inFamily(i.engineId) || i === probe);
+    if (probe) notes.push(`${family}: one edit renders first; its other ${familyItems.length - 1} cell${familyItems.length - 1 === 1 ? "" : "s"} wait for its bill`);
+    else notes.push(`${family}: waiting for an edit cell to render first; its other ${familyItems.length} cell${familyItems.length === 1 ? "" : "s"} wait`);
+  }
+  return { items: kept, notes };
+}
+
+/** The work a run of `kind` would take; the planner is resolved only for preparation. */
+export async function runItems(kind: "prepare" | "render", rows: SetRows, exec: Executor = db): Promise<{ items: WorkItem[]; notes: string[] }> {
+  if (kind === "prepare") return { items: prepareItems(rows, await plannerSettings()), notes: [] };
+  return gateMeasuredFamilies(renderItems(rows, { preparedOnly: true }), rows, exec);
+}
+
+export async function planComparisonRun(setId: number, req: ComparisonRunPlanRequest): Promise<(RunPlan & { notes: string[] }) | null> {
   const [rows, reserved] = await Promise.all([loadSetRows(setId), unresolvedReservedUsd()]);
   if (!rows) return null;
-  return planRun(await runItems(req.kind, rows), {
+  const { items, notes } = await runItems(req.kind, rows);
+  return { ...planRun(items, {
     allowanceUsd: req.allowanceUsd ?? PAID_RUN_ALLOWANCE_USD,
     weekRemainingUsd: req.weekRemainingUsd,
     unresolvedReservedUsd: reserved,
-  });
+  }), notes };
 }

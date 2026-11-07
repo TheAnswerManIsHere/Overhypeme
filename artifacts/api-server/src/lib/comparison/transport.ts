@@ -20,9 +20,17 @@ export interface ComparisonFal {
   status(endpointId: string, requestId: string): Promise<string>;
   /** The completed request's output. */
   result(endpointId: string, requestId: string): Promise<unknown>;
+  /**
+   * What fal billed for a request, in USD, or null while it has not reported
+   * it. Read from fal's billing events by request id
+   * (`GET https://api.fal.ai/v1/models/billing-events?request_id=…`,
+   * `cost_total`); a key without billing permission throws, saying so.
+   */
+  billedUsd(requestId: string): Promise<number | null>;
 }
 
 const FAL_QUEUE_BASE = "https://queue.fal.run";
+const FAL_BILLING_EVENTS = "https://api.fal.ai/v1/models/billing-events";
 
 const liveFal: ComparisonFal = {
   async submit(endpointId, input) {
@@ -48,6 +56,19 @@ const liveFal: ComparisonFal = {
   async result(endpointId, requestId) {
     const r = (await fal.queue.result(endpointId, { requestId })) as { data?: unknown };
     return r.data ?? r;
+  },
+  async billedUsd(requestId) {
+    const key = getFalApiKey();
+    if (!key) throw new Error("FAL_AI_API_KEY (or FAL_KEY) is not set, so no bill can be read");
+    // The default window is the last 24 hours, which covers a run in progress.
+    const res = await fetch(`${FAL_BILLING_EVENTS}?request_id=${encodeURIComponent(requestId)}`, { headers: { Authorization: `Key ${key}` } });
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`fal refused to report bills (${res.status}): the key needs billing permission`);
+    }
+    if (!res.ok) throw new Error(`fal's billing events returned ${res.status}`);
+    const body = (await res.json()) as { billing_events?: Array<{ request_id?: string; cost_total?: unknown }> };
+    const events = (body.billing_events ?? []).filter((e) => e.request_id === requestId && typeof e.cost_total === "number");
+    return events.length ? events.reduce((sum, e) => sum + (e.cost_total as number), 0) : null;
   },
 };
 

@@ -11,6 +11,7 @@
  * baked-in defaults so a misconfiguration degrades rather than hard-fails.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type OpenAI from "openai";
 import { getOpenAIClient } from "./aiClients";
 import { loadDefaultEngine } from "./engineInterpreter";
@@ -70,6 +71,22 @@ interface LLMSettings {
 
 // Test seam: lets tests capture the request a call site sends without a live
 // OpenAI key. Mirrors `__setSuggestHashtagsForTest`. Always reset in an after().
+/**
+ * A scope in which every utility LLM call submits once: the SDK's own retries
+ * are off. The engine comparison runs its planner calls inside one, because it
+ * reserves exactly the calls it permits and a retry is another priced call
+ * (launch Phase 8 plan, "Comparison planner calls use an OpenAI client built
+ * with `maxRetries: 0`"). Everything else keeps the SDK's defaults.
+ */
+const noRetryScope = new AsyncLocalStorage<true>();
+export function withoutLlmRetries<T>(fn: () => Promise<T>): Promise<T> {
+  return noRetryScope.run(true, fn);
+}
+/** The retry count the current scope imposes, or undefined for the SDK's default. */
+export function llmMaxRetriesInScope(): number | undefined {
+  return noRetryScope.getStore() ? 0 : undefined;
+}
+
 let clientForTest: ReturnType<typeof getOpenAIClient> | null = null;
 export function __setUtilityLLMClientForTest(client: ReturnType<typeof getOpenAIClient> | null): void {
   clientForTest = client;
@@ -121,6 +138,6 @@ export async function callUtilityLLM(
       ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
       messages: req.messages,
     },
-    { timeout: timeoutMs },
+    { timeout: timeoutMs, ...(llmMaxRetriesInScope() === 0 ? { maxRetries: 0 } : {}) },
   );
 }

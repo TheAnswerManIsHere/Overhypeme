@@ -37,14 +37,17 @@ import { __setComparisonFalForTest, type ComparisonFal } from "../lib/comparison
 import {
   __allowComparisonDispatchInCiForTest,
   __setComparisonImageStoreForTest,
+  BILL_POLL,
   CELL_POLL,
   COMPARISON_PREPARE_QUEUE,
   COMPARISON_RENDER_QUEUE,
   preparePanel,
   renderCell,
+  reprepareFailedPanel,
   rerunCell,
   retryCellStorage,
 } from "../lib/comparison/runs.js";
+import { llmMaxRetriesInScope } from "../lib/utilityLLM.js";
 
 const P = `t-cr-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -69,7 +72,12 @@ const fakeFal: ComparisonFal = {
   },
   async status() { return statusScript.shift() ?? "COMPLETED"; },
   async result(_e, requestId) { return { images: [{ url: `https://vendor.test/${requestId}.png` }] }; },
+  async billedUsd(requestId) { return billFor(requestId); },
 };
+/** What fal reports as billed for a request; null while it has not reported. */
+let billFor: (requestId: string) => number | null = () => 0.05;
+/** The retry count the planner call ran under, per preparation. */
+let plannerRetries: Array<number | undefined> = [];
 
 before(async () => {
   for (const [family, src] of SOURCES) {
@@ -94,6 +102,8 @@ after(async () => {
   __setComparisonImageStoreForTest(null);
   __setPlanGeneratorForTest(null);
   CELL_POLL.intervalMs = 3_000;
+  BILL_POLL.intervalMs = 10_000;
+  BILL_POLL.attempts = 6;
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
@@ -114,14 +124,19 @@ function installFakes(): void {
     if (failStore) throw new Error("bucket unavailable");
     return `/objects/comparison/cell-${cell.id}.png`;
   });
-  __setPlanGeneratorForTest(async (input) => makeStubPlan(
-    (input as { subjectRenderMode: string }).subjectRenderMode === "t2i_fallback" ? "t2i_fallback" : "human_identity_i2i",
-    "A protagonist lifts a mountain.",
-  ) as never);
+  __setPlanGeneratorForTest(async (input) => {
+    plannerRetries.push(llmMaxRetriesInScope());
+    return makeStubPlan(
+      (input as { subjectRenderMode: string }).subjectRenderMode === "t2i_fallback" ? "t2i_fallback" : "human_identity_i2i",
+      "A protagonist lifts a mountain.",
+    ) as never;
+  });
   CELL_POLL.intervalMs = 0;
+  BILL_POLL.intervalMs = 0;
+  BILL_POLL.attempts = 1;
 }
 
-beforeEach(() => { submissions = []; statusScript = []; failStore = false; installFakes(); });
+beforeEach(() => { submissions = []; statusScript = []; failStore = false; billFor = () => 0.05; plannerRetries = []; installFakes(); });
 
 async function newSet(label: string): Promise<number> {
   const { setId } = await createComparisonSet({
@@ -215,37 +230,103 @@ describe("starting a comparison run", () => {
   });
 });
 
+/** The render jobs a run queued, as the worker would receive them. */
+async function renderPayloads(runId: number) {
+  return (await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.queue, COMPARISON_RENDER_QUEUE)))
+    .map((j) => j.payload as { runId: number; cellId: number; reservationId: number })
+    .filter((p) => p.runId === runId);
+}
+
+const isGpt = (engineId: string) => engineId.startsWith(FAMILIES.gpt);
+
 describe("a comparison run end to end, with fakes", () => {
-  it("prepares the panels once, then renders each cell with exactly one submission", async () => {
+  it("prepares the panels once, without SDK retries, and settles each planner call at its bound", async () => {
     const setId = await newSet("e2e");
     const prep = await start(setId, "prepare");
     await drain(prep.body.run.id);
     const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
     assert.ok(panels.every((p) => p.state === "prepared"), JSON.stringify(panels.map((p) => [p.state, p.error])));
+    assert.deepEqual(plannerRetries, [0, 0], "every planner call runs with the SDK's retries off");
     const edit = panels.find((p) => p.imageMode === "i2i")!;
     assert.match(String(edit.referenceImageUrl), /^https:\/\/fal\.test\/ref-\d+\.jpg$/);
     assert.deepEqual(uploadedTypes.slice(-1), ["image/jpeg"]); // the resized reference
-    assert.ok(panels.every((p) => p.compiledPrompt));
-    assert.ok((await reservations(prep.body.run.id)).every((r) => r.state === "settled" && r.settledUsd === null));
+    for (const r of await reservations(prep.body.run.id)) {
+      assert.equal(r.state, "settled");
+      assert.equal(r.settledUsd, r.boundUsd, "OpenAI reports no per-request bill: the bound is recorded");
+    }
     const [prepRun] = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.id, prep.body.run.id));
     assert.equal(prepRun!.state, "done");
+  });
 
+  it("renders the GPT family's edit first, settles it from fal's bill, then admits the rest of the family", async () => {
+    const setId = await newSet("gate");
+    await drain((await start(setId, "prepare")).body.run.id);
     statusScript = ["IN_QUEUE", "IN_PROGRESS"]; // the first cell waits two polls
-    const render = await start(setId, "render");
-    assert.equal(render.status, 202, JSON.stringify(render.body));
-    await drain(render.body.run.id);
-    const cells = await cellsOf(setId);
-    assert.ok(cells.every((c) => c.state === "rendered"), JSON.stringify(cells.map((c) => [c.state, c.error])));
-    assert.equal(submissions.length, 4);
-    assert.ok(cells.every((c) => c.falRequestId && c.imageObjectPath && c.vendorResultUrl));
-    const editSubmission = submissions.find((s) => s.endpointId.includes("edit"));
-    assert.ok(stringValues(editSubmission!.input).includes(edit.referenceImageUrl!), "the edit call carries the panel's resized reference");
-    const settled = await reservations(render.body.run.id);
-    for (const r of settled) {
+
+    const first = await start(setId, "render");
+    assert.equal(first.status, 202, JSON.stringify(first.body));
+    const admitted = await renderPayloads(first.body.run.id);
+    const cellsBefore = await cellsOf(setId);
+    const engineOf = (cellId: number) => cellsBefore.find((c) => c.id === cellId)!.engineId;
+    const gptAdmitted = admitted.filter((p) => isGpt(engineOf(p.cellId)));
+    assert.equal(gptAdmitted.length, 1, "one GPT cell, the probe");
+    assert.ok(engineOf(gptAdmitted[0]!.cellId).endsWith("-i2i"), "the probe is an edit cell");
+    assert.equal(admitted.length, 3, "the probe and both FLUX cells");
+    assert.ok(first.body.notes.some((n: string) => /one edit renders first/.test(n)));
+
+    await drain(first.body.run.id);
+    const submittedFirst = submissions.length;
+    assert.equal(submittedFirst, 3);
+    for (const r of await reservations(first.body.run.id)) {
       assert.equal(r.state, "settled");
-      if (r.target.startsWith(FAMILIES.flux)) assert.equal(Number(r.settledUsd), 0.048); // flat: the billed price
-      else assert.equal(r.settledUsd, null); // token-billed: not reported, the ledger records the bound
+      assert.equal(Number(r.settledUsd), 0.05, "the bill fal reported, never clipped");
     }
+
+    const second = await start(setId, "render");
+    assert.equal(second.status, 202, JSON.stringify(second.body));
+    const rest = await renderPayloads(second.body.run.id);
+    assert.equal(rest.length, 1);
+    assert.ok(isGpt(engineOf(rest[0]!.cellId)), "the GPT text-to-image cell, once its family's edit was billed within its reservation");
+    await drain(second.body.run.id);
+    const cells = await cellsOf(setId);
+    assert.ok(cells.every((c) => c.state === "rendered" && c.falRequestId && c.imageObjectPath), JSON.stringify(cells.map((c) => [c.state, c.error])));
+    assert.equal(submissions.length, 4, "exactly one submission per cell");
+    const editSubmission = submissions.find((x) => x.endpointId.includes("edit"));
+    const editPanel = (await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId))).find((p) => p.imageMode === "i2i")!;
+    assert.ok(stringValues(editSubmission!.input).includes(editPanel.referenceImageUrl!), "the edit call carries the panel's resized reference");
+  });
+
+  it("keeps the family waiting while the probe's bill is unreported, and reads it later", async () => {
+    const setId = await newSet("unbilled");
+    await drain((await start(setId, "prepare")).body.run.id);
+    billFor = () => null;
+    const first = await start(setId, "render");
+    await drain(first.body.run.id);
+    const held = await reservations(first.body.run.id);
+    assert.equal(held.filter((r) => isGpt(r.target)).length, 1);
+    assert.ok(held.every((r) => r.state === "reserved"), "an unreported bill stays held against the week");
+
+    // FLUX is done, so only the waiting GPT cell remains, and it is not admitted.
+    const waiting = await start(setId, "render");
+    assert.equal(waiting.status, 409);
+    assert.match(waiting.body.refusal, /waiting for fal's bill/);
+
+    billFor = () => 0.06;
+    const res = await request(app()).post(`/api/admin/comparison/sets/${setId}/settle-bills`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.settled, 3, "the probe's bill and both FLUX bills, all unread until now");
+    const released = await start(setId, "render");
+    assert.equal(released.status, 202, JSON.stringify(released.body));
+  });
+
+  it("refuses the rest of the family, with the figure, when the probe's bill is over its reservation", async () => {
+    const setId = await newSet("overrun");
+    await drain((await start(setId, "prepare")).body.run.id);
+    billFor = (requestId) => (submissions[Number(requestId.split("-")[1]) - 1]!.endpointId.includes("edit") && submissions[Number(requestId.split("-")[1]) - 1]!.endpointId.includes("gpt") ? 0.5 : 0.04);
+    await drain((await start(setId, "render")).body.run.id);
+    const res = await start(setId, "render");
+    assert.equal(res.status, 409);
+    assert.match(res.body.refusal, /refused — its first measured edit billed \$0\.5000, above its \$0\.0[0-9]+ reservation/);
   });
 
   it("keeps a failed call's reservation, and a resumed cell never resubmits", async () => {
@@ -253,9 +334,7 @@ describe("a comparison run end to end, with fakes", () => {
     await drain((await start(setId, "prepare")).body.run.id);
     statusScript = ["FAILED"];
     const render = await start(setId, "render");
-    const payloads = (await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.queue, COMPARISON_RENDER_QUEUE)))
-      .map((j) => j.payload as { runId: number; cellId: number; reservationId: number })
-      .filter((p) => p.runId === render.body.run.id);
+    const payloads = await renderPayloads(render.body.run.id);
     await renderCell(payloads[0]!);
     const [failed] = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.id, payloads[0]!.cellId));
     assert.equal(failed!.state, "failed");
@@ -273,13 +352,50 @@ describe("a comparison run end to end, with fakes", () => {
     assert.equal(resumed!.vendorResultUrl, "https://vendor.test/req-existing.png");
   });
 
+  it("never repeats a paid call whose outcome a restart left unknown", async () => {
+    const setId = await newSet("ambiguous");
+    const prep = await start(setId, "prepare");
+    const prepJobs = (await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.queue, COMPARISON_PREPARE_QUEUE)))
+      .map((j) => j.payload as { runId: number; panelId: number; reservationId: number })
+      .filter((p) => p.runId === prep.body.run.id);
+    // A restart after the planner call began.
+    await db.update(comparisonPanelsTable).set({ state: "planning" }).where(eq(comparisonPanelsTable.id, prepJobs[0]!.panelId));
+    await preparePanel(prepJobs[0]!);
+    assert.deepEqual(plannerRetries, [], "no planner call was made");
+    const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, prepJobs[0]!.panelId));
+    assert.equal(panel!.state, "failed");
+    assert.match(String(panel!.error), /interrupted during the planner call/);
+    const [panelHeld] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, prepJobs[0]!.reservationId));
+    assert.equal(panelHeld!.state, "reserved");
+    // A failed panel can be prepared again, through the next run's admission.
+    const again = await reprepareFailedPanel(panel!.id);
+    assert.equal(again.state, "pending");
+    await assert.rejects(reprepareFailedPanel(panel!.id), /only a failed panel/);
+    await preparePanel(prepJobs[1]!);
+    await drain((await start(setId, "prepare")).body.run.id);
+
+    // A restart after the submission marker was written and before the request id was.
+    const render = await start(setId, "render");
+    const [job] = await renderPayloads(render.body.run.id);
+    await db.update(comparisonCellsTable).set({ requestSettings: { sizeParams: {} } }).where(eq(comparisonCellsTable.id, job!.cellId));
+    const before = submissions.length;
+    await renderCell(job!);
+    assert.equal(submissions.length, before, "no second submission");
+    const [cell] = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.id, job!.cellId));
+    assert.equal(cell!.state, "failed");
+    assert.match(String(cell!.error), /interrupted during submission/);
+    const [cellHeld] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, job!.reservationId));
+    assert.equal(cellHeld!.state, "reserved");
+  });
+
   it("retries a storage failure without a second image, and allows one re-run of a render failure", async () => {
     const setId = await newSet("recover");
     await drain((await start(setId, "prepare")).body.run.id);
     failStore = true;
     await drain((await start(setId, "render")).body.run.id);
-    let cells = await cellsOf(setId);
-    assert.ok(cells.every((c) => c.state === "failed" && c.vendorResultUrl && !c.imageObjectPath));
+    let cells = (await cellsOf(setId)).filter((c) => c.vendorResultUrl);
+    assert.equal(cells.length, 3);
+    assert.ok(cells.every((c) => c.state === "failed" && !c.imageObjectPath));
     const target = cells[0]!;
     await assert.rejects(rerunCell(target.id), /retry its storage instead/);
 
@@ -306,20 +422,20 @@ describe("a comparison run end to end, with fakes", () => {
     const setId = await newSet("refuse");
     await drain((await start(setId, "prepare")).body.run.id);
     const render = await start(setId, "render");
-    const [gptT2i] = engineIds;
-    await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, gptT2i!));
+    const fluxT2i = engineIds[2]!;
+    await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, fluxT2i));
     try {
       const before = submissions.length;
       await drain(render.body.run.id);
       const rows = await reservations(render.body.run.id);
-      const released = rows.filter((r) => r.target === gptT2i);
+      const released = rows.filter((r) => r.target === fluxT2i);
       assert.equal(released.length, 1);
       assert.equal(released[0]!.state, "released");
-      assert.equal(submissions.length, before + 3);
+      assert.equal(submissions.length, before + 2);
       const [cell] = await db.select().from(comparisonCellsTable).where(and(eq(comparisonCellsTable.id, released[0]!.cellId!)));
       assert.match(String(cell!.error), /not rendered: it is inactive/);
     } finally {
-      await db.update(enginesTable).set({ isActive: true }).where(eq(enginesTable.id, gptT2i!));
+      await db.update(enginesTable).set({ isActive: true }).where(eq(enginesTable.id, fluxT2i));
     }
   });
 });

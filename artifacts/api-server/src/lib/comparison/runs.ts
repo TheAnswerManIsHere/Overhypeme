@@ -50,6 +50,7 @@ import { defaultScenarioRenderControls, syntheticAnalysisForReference } from "..
 import { ReferenceAssetUnavailableError, resolveDefaultReferenceUrl } from "../defaultReferenceResolver";
 import { resolveRenderReviewInput } from "../imagePrompt/resolveRenderReviewInput";
 import { assembleImagePromptForPreview } from "../imagePrompt/preview";
+import { withoutLlmRetries } from "../utilityLLM";
 import type { IdentityPolicy } from "@workspace/api-zod";
 import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
@@ -57,7 +58,6 @@ import { buildEngineInput } from "../engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "../imageEngineRequest";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
-import type { PriceModel } from "../engines";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
 import { loadSetRows, runItems, unresolvedReservedUsd } from "./sets";
 import { awaitResult, comparisonFal } from "./transport";
@@ -101,32 +101,36 @@ export async function startComparisonRun(
   setId: number,
   req: ComparisonRunPlanRequest,
   adminUserId: string | null,
-): Promise<{ run: ComparisonRun; plan: RunPlan } | null> {
+): Promise<{ run: ComparisonRun; plan: RunPlan; notes: string[] } | null> {
   const ci = paidDispatchRefusal();
   if (ci) throw new ComparisonRunRefused(ci, null, null);
   const allowanceUsd = req.allowanceUsd ?? PAID_RUN_ALLOWANCE_USD;
+  // A bill fal has reported since the last run frees its reservation, and may
+  // clear (or refuse) a family waiting on its first measured edit.
+  if (req.kind === "render") await settlePendingBills(setId);
 
   const outcome = await db.transaction(async (tx) => {
     await tx.execute(ADMISSION_LOCK);
     const rows = await loadSetRows(setId, tx);
     if (!rows) return null;
-    const items = await runItems(req.kind, rows);
-    const plan = planRun(items, { allowanceUsd, weekRemainingUsd: req.weekRemainingUsd, unresolvedReservedUsd: await unresolvedReservedUsd(tx) });
+    const { items, notes } = await runItems(req.kind, rows, tx);
+    const planned = planRun(items, { allowanceUsd, weekRemainingUsd: req.weekRemainingUsd, unresolvedReservedUsd: await unresolvedReservedUsd(tx) });
+    const plan = !planned.admitted && notes.length ? { ...planned, refusal: `${planned.refusal}: ${notes.join("; ")}` } : planned;
     const base = {
       setId, kind: req.kind, allowanceUsd: String(allowanceUsd), weekRemainingUsd: String(req.weekRemainingUsd), createdBy: adminUserId,
     };
     if (!plan.admitted) {
       const [run] = await tx.insert(comparisonRunsTable).values({ ...base, state: "refused", boundUsd: String(plan.boundUsd), refusal: plan.refusal, endedAt: new Date() }).returning();
-      return { refused: true as const, run: run!, plan };
+      return { refused: true as const, run: run!, plan, notes };
     }
     const [run] = await tx.insert(comparisonRunsTable).values({ ...base, state: "running", boundUsd: String(plan.boundUsd) }).returning();
     for (const item of plan.items) await admitItem(tx, run!, item);
-    return { refused: false as const, run: run!, plan };
+    return { refused: false as const, run: run!, plan, notes };
   });
   if (!outcome) return null;
   if (outcome.refused) throw new ComparisonRunRefused(outcome.plan.refusal ?? "refused", outcome.run, outcome.plan);
   logger.info({ setId, runId: outcome.run.id, kind: req.kind, items: outcome.plan.items.length, boundUsd: outcome.plan.boundUsd }, "[comparison] run admitted");
-  return { run: outcome.run, plan: outcome.plan };
+  return { run: outcome.run, plan: outcome.plan, notes: outcome.notes };
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -157,17 +161,68 @@ async function release(reservationId: number): Promise<void> {
   await db.update(comparisonReservationsTable).set({ state: "released", settledAt: new Date() }).where(eq(comparisonReservationsTable.id, reservationId));
 }
 
-/** The call completed: `billedUsd` when the price is known, else null (the ledger records the bound). */
-async function settle(reservationId: number, billedUsd: number | null): Promise<void> {
+/** The call's bill is known: record it, never clipped to the reservation. */
+async function settle(reservationId: number, billedUsd: number): Promise<void> {
   await db.update(comparisonReservationsTable)
-    .set({ state: "settled", settledUsd: billedUsd == null ? null : String(billedUsd), settledAt: new Date() })
-    .where(eq(comparisonReservationsTable.id, reservationId));
+    .set({ state: "settled", settledUsd: String(billedUsd), settledAt: new Date() })
+    .where(and(eq(comparisonReservationsTable.id, reservationId), eq(comparisonReservationsTable.state, "reserved")));
 }
 
-/** A flat-priced engine's bill is its price; a token-billed one is not known until fal reports it. */
-function knownBilledUsd(priceModel: unknown): number | null {
-  const m = priceModel as PriceModel | null;
-  return m && m.kind === "flat" ? m.usdPerImage : null;
+/**
+ * A planner call completed, and OpenAI reports no per-request bill: it
+ * settles at its bound, the most it could have cost, so the figure is still
+ * a real one and the paid-run ledger records it.
+ */
+async function settleAtBound(reservationId: number): Promise<void> {
+  await db.update(comparisonReservationsTable)
+    .set({ state: "settled", settledUsd: sql`${comparisonReservationsTable.boundUsd}`, settledAt: new Date() })
+    .where(and(eq(comparisonReservationsTable.id, reservationId), eq(comparisonReservationsTable.state, "reserved")));
+}
+
+/** How long a completed cell waits for fal to report its bill before leaving it to a later check. */
+export const BILL_POLL = { attempts: 6, intervalMs: 10_000 };
+
+/**
+ * Read fal's bill for a completed cell and settle it. A bill not yet
+ * reported leaves the reservation reserved — still counted against the week —
+ * for `settlePendingBills` to read later.
+ */
+async function settleFromFal(reservationId: number, requestId: string, opts = BILL_POLL): Promise<boolean> {
+  for (let i = 0; i < opts.attempts; i++) {
+    const billed = await comparisonFal().billedUsd(requestId);
+    if (billed != null) {
+      await settle(reservationId, billed);
+      return true;
+    }
+    if (i < opts.attempts - 1 && opts.intervalMs > 0) await new Promise((r) => setTimeout(r, opts.intervalMs));
+  }
+  return false;
+}
+
+/**
+ * Read fal's bill for every reserved image call of a set whose submission is
+ * known. Run before each render run's admission, and on request.
+ */
+export async function settlePendingBills(setId: number): Promise<{ settled: number; waiting: number; error: string | null }> {
+  const rows = await db.select({ reservationId: comparisonReservationsTable.id, requestId: comparisonCellsTable.falRequestId })
+    .from(comparisonReservationsTable)
+    .innerJoin(comparisonCellsTable, eq(comparisonCellsTable.id, comparisonReservationsTable.cellId))
+    .innerJoin(comparisonPanelsTable, eq(comparisonPanelsTable.id, comparisonCellsTable.panelId))
+    .where(and(
+      eq(comparisonPanelsTable.setId, setId),
+      eq(comparisonReservationsTable.state, "reserved"),
+      sql`${comparisonCellsTable.falRequestId} is not null`,
+      sql`${comparisonCellsTable.state} <> 'enqueued'`,
+    ));
+  let settled = 0;
+  try {
+    for (const row of rows) {
+      if (await settleFromFal(row.reservationId, row.requestId!, { attempts: 1, intervalMs: 0 })) settled += 1;
+    }
+  } catch (err) {
+    return { settled, waiting: rows.length - settled, error: err instanceof Error ? err.message : String(err) };
+  }
+  return { settled, waiting: rows.length - settled, error: null };
 }
 
 /** A run ends when none of its items is still in flight. */
@@ -179,7 +234,7 @@ async function finishRunIfDone(runId: number): Promise<void> {
     .leftJoin(comparisonCellsTable, eq(comparisonCellsTable.id, comparisonReservationsTable.cellId))
     .where(and(
       eq(comparisonReservationsTable.runId, runId),
-      sql`(${comparisonPanelsTable.state} = 'preparing' or ${comparisonCellsTable.state} = 'enqueued')`,
+      sql`(${comparisonPanelsTable.state} in ('preparing', 'planning') or ${comparisonCellsTable.state} = 'enqueued')`,
     ));
   if ((row?.inFlight ?? 0) === 0) {
     await db.update(comparisonRunsTable).set({ state: "done", endedAt: new Date() }).where(and(eq(comparisonRunsTable.id, runId), eq(comparisonRunsTable.state, "running")));
@@ -202,6 +257,12 @@ async function failPanel(panelId: number, state: "failed" | "skipped", reason: s
  */
 export async function preparePanel(p: PreparePayload): Promise<HandlerResult> {
   const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, p.panelId));
+  if (panel?.state === "planning") {
+    // A restart after the planner call began: it may have been billed, so no second call.
+    await failPanel(panel.id, "failed", "interrupted during the planner call: it may have been billed, so it was not repeated");
+    await finishRunIfDone(p.runId);
+    return terminalFailure("comparison_dispatch_ambiguous", "planner call outcome unknown");
+  }
   if (!panel || panel.state !== "preparing") return { ok: true, result: "not in flight" };
   try {
     return await preparePanelInFlight(panel, p);
@@ -248,10 +309,16 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     return terminalFailure("comparison_input_failed", msg);
   }
 
-  // The paid call: from here a failure keeps the reservation.
+  // The paid call: from here a failure keeps the reservation. The marker is
+  // committed first, so a restart mid-call never calls again.
+  const [marked] = await db.update(comparisonPanelsTable).set({ state: "planning", updatedAt: new Date() })
+    .where(and(eq(comparisonPanelsTable.id, panel.id), eq(comparisonPanelsTable.state, "preparing")))
+    .returning({ id: comparisonPanelsTable.id });
+  if (!marked) return { ok: true, result: "not in flight" };
   let assembled;
   try {
-    assembled = await assembleImagePromptForPreview({
+    // One submission per permitted call: the SDK's own retries are off.
+    assembled = await withoutLlmRetries(() => assembleImagePromptForPreview({
       renderedFactText: resolved.renderedFactText,
       enrichment: enrichment.data,
       sourceImageAnalysis: resolved.analysis,
@@ -263,13 +330,13 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
       referenceImageUrl: reference?.url ?? null,
       renderedSubject: resolved.renderedSubject,
       requestId: `comparison:${p.runId}:panel:${panel.id}:${randomUUID()}`,
-    });
+    }));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await failPanel(panel.id, "failed", `planner failed: ${msg}`);
     return terminalFailure("comparison_planner_failed", msg);
   }
-  await settle(p.reservationId, null);
+  await settleAtBound(p.reservationId);
   const provenance = assembled.output.plannerProvenance;
   if (provenance?.fallbackReason) {
     // The planner fell back to another model: this is not the experiment the set describes.
@@ -328,6 +395,13 @@ async function storeCell(cell: ComparisonCell, url: string): Promise<boolean> {
 export async function renderCell(p: RenderPayload): Promise<HandlerResult> {
   const [cell] = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.id, p.cellId));
   if (!cell || cell.state !== "enqueued") return { ok: true, result: "not in flight" };
+  if (cell.requestSettings != null && !cell.falRequestId) {
+    // The marker is set and no request id was stored: a restart may have
+    // landed after fal accepted the submission. Never submit a second time.
+    await failCell(cell.id, "interrupted during submission: fal may have accepted it, so it was not resubmitted");
+    await finishRunIfDone(p.runId);
+    return terminalFailure("comparison_dispatch_ambiguous", "submission outcome unknown");
+  }
   try {
     return await renderCellInFlight(cell, p);
   } finally {
@@ -368,9 +442,11 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     return terminalFailure("comparison_request_invalid", msg);
   }
 
-  // One submission. Its id is stored before polling, so nothing submits twice.
+  // One submission. The request settings are the marker that one may have
+  // been made, committed before it; the id is stored before polling.
   let requestId = cell.falRequestId;
   if (!requestId) {
+    await db.update(comparisonCellsTable).set({ requestSettings, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
     try {
       requestId = await comparisonFal().submit(engine!.endpointId, input);
     } catch (err) {
@@ -378,7 +454,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
       await failCell(cell.id, `submit failed: ${msg}`);
       return terminalFailure("comparison_submit_failed", msg);
     }
-    await db.update(comparisonCellsTable).set({ falRequestId: requestId, requestSettings, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    await db.update(comparisonCellsTable).set({ falRequestId: requestId, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
   }
   let url: string | null;
   try {
@@ -388,7 +464,12 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await failCell(cell.id, `render failed: ${msg}`);
     return terminalFailure("comparison_render_failed", msg);
   }
-  await settle(p.reservationId, knownBilledUsd(engine!.priceModel));
+  try {
+    await settleFromFal(p.reservationId, requestId);
+  } catch (err) {
+    // The image is fine; only its bill is unread. The reservation stays held.
+    logger.warn({ cellId: cell.id, err: err instanceof Error ? err.message : String(err) }, "[comparison] fal bill unread");
+  }
   if (!url) {
     await failCell(cell.id, "render failed: the response carried no image URL");
     return terminalFailure("comparison_render_failed", "no image url");
@@ -426,6 +507,19 @@ export async function rerunCell(cellId: number): Promise<ComparisonCell> {
     .where(and(eq(comparisonCellsTable.id, cellId), eq(comparisonCellsTable.state, "failed"), isNull(comparisonCellsTable.vendorResultUrl)))
     .returning();
   if (!after) throw new ComparisonCellActionRefused("the cell changed while re-running it");
+  return after;
+}
+
+/** A failed panel back to pending, so the next preparation run admits it again. */
+export async function reprepareFailedPanel(panelId: number): Promise<ComparisonPanel> {
+  const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, panelId));
+  if (!panel) throw new ComparisonCellActionRefused("no such panel");
+  if (panel.state !== "failed") throw new ComparisonCellActionRefused("only a failed panel can be prepared again");
+  const [after] = await db.update(comparisonPanelsTable)
+    .set({ state: "pending", error: null, updatedAt: new Date() })
+    .where(and(eq(comparisonPanelsTable.id, panelId), eq(comparisonPanelsTable.state, "failed")))
+    .returning();
+  if (!after) throw new ComparisonCellActionRefused("the panel changed while preparing it again");
   return after;
 }
 
