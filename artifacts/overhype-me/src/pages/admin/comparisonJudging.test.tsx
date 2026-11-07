@@ -11,10 +11,10 @@ vi.mock("@/components/admin/AdminLayout", () => ({
   AdminLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-import ComparisonJudging from "./comparisonJudging";
+import ComparisonJudging, { REFRESH_MS } from "./comparisonJudging";
 
 const img = (panelId: number, token: string) => ({ token, src: `/api/admin/comparison/panels/${panelId}/images/${token}` });
-const panel = (over: Record<string, unknown>) => ({
+const panel = (over: Record<string, unknown>): Record<string, unknown> => ({
   factId: 11, factText: "Alex lifts a mountain", lookStyleId: "none", imagesReady: 2, imagesExpected: 2, judgeable: true, pick: null, ...over,
 });
 
@@ -102,5 +102,43 @@ describe("ComparisonJudging", () => {
     expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByTestId("judging-pick-A"));
     expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("refreshes while images render, keeping the panel and an unsaved pick", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let ready = false;
+      vi.stubGlobal("fetch", vi.fn(async () => {
+        const body = blindSet();
+        body.panels[1] = { ...body.panels[1]!, judgeable: ready, imagesReady: ready ? 2 : 1, images: ready ? body.panels[1]!.images : [] };
+        return { ok: true, json: async () => body } as unknown as Response;
+      }));
+      render(<ComparisonJudging params={{ setId: "7" }} />);
+      await screen.findByTestId("judging-images");
+      fireEvent.click(screen.getByTestId("judging-pick-B")); // unsaved
+      ready = true;
+      await vi.advanceTimersByTimeAsync(REFRESH_MS + 10);
+      await waitFor(() => expect(screen.getByTestId("judging-progress").textContent).toMatch(/2 ready to judge/));
+      expect(screen.getByTestId("judging-panel").textContent).toMatch(/Panel 1 of 3/);
+      expect(screen.getByTestId("judging-pick-B").getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(screen.getByTestId("judging-next"));
+      expect(screen.getByTestId("judging-images").querySelectorAll("img")).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lists a skipped panel with its reason, and counts it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      const body = blindSet();
+      body.panels[2] = { ...body.panels[2]!, skipped: true, skipReason: "the fact's enrichment does not validate" };
+      return { ok: true, json: async () => ({ ...body, progress: { ...body.progress, skipped: 1 } }) } as unknown as Response;
+    }));
+    render(<ComparisonJudging params={{ setId: "7" }} />);
+    await screen.findByTestId("judging-images");
+    expect(screen.getByTestId("judging-progress").textContent).toMatch(/1 skipped, never judged/);
+    fireEvent.click(screen.getByTestId("judging-prev"));
+    expect((await screen.findByTestId("judging-skipped")).textContent).toMatch(/enrichment does not validate/);
+    expect(screen.queryByTestId("judging-save")).toBeNull();
   });
 });

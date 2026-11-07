@@ -8,7 +8,10 @@
  * (the server sends opaque tokens and serves each image without its path).
  * David picks the best and, on panels with a person's reference photo, marks
  * any face that is not the person. Saving moves to the next panel still to
- * judge; a saved panel can be judged again, which replaces the pick.
+ * judge; a saved panel can be judged again, which replaces the pick. While
+ * images are still rendering the page refreshes every few seconds, keeping
+ * the panel on screen and any unsaved pick; a panel skipped at preparation
+ * stays listed with its reason.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
@@ -28,6 +31,8 @@ interface BlindPanel {
   imageMode: string;
   faceMarkable: boolean;
   judgeable: boolean;
+  skipped: boolean;
+  skipReason: string | null;
   imagesReady: number;
   imagesExpected: number;
   images: BlindImage[];
@@ -35,11 +40,14 @@ interface BlindPanel {
 }
 interface BlindSet {
   set: { id: number; label: string; round: number };
-  progress: { panels: number; judgeable: number; judged: number };
+  progress: { panels: number; judgeable: number; judged: number; skipped: number };
   panels: BlindPanel[];
 }
 
 const letter = (i: number) => String.fromCharCode(65 + i);
+
+/** How often the page re-reads while images are still rendering. */
+export const REFRESH_MS = 5_000;
 
 /** The first panel still to judge after `from`, wrapping round; else `from`. */
 function nextToJudge(panels: BlindPanel[], from: number): number {
@@ -78,6 +86,15 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
   }, [load]);
 
   const panel = data?.panels[index] ?? null;
+
+  // While any image is still to come, refresh quietly: the panel on screen,
+  // and any pick not yet saved, stay as they are.
+  const rendering = !!data && data.panels.some((p) => !p.judgeable && !p.skipped);
+  useEffect(() => {
+    if (!rendering) return;
+    const timer = setInterval(() => { void load(); }, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [rendering, load]);
 
   // The panel's saved pick, or a clean slate, whenever the panel changes —
   // before paint, so a click on the newly shown panel is never wiped by a
@@ -145,6 +162,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
               <p className="text-sm font-semibold text-foreground">Set #{data.set.id} · {data.set.label} · round {data.set.round}</p>
               <p className="text-xs font-mono text-muted-foreground" data-testid="judging-progress">
                 {data.progress.judged} of {data.progress.panels} judged · {data.progress.judgeable} ready to judge
+                {data.progress.skipped > 0 ? ` · ${data.progress.skipped} skipped, never judged` : ""}
               </p>
             </div>
 
@@ -166,7 +184,11 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                   </div>
                 </div>
 
-                {!panel.judgeable ? (
+                {panel.skipped ? (
+                  <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-skipped">
+                    Skipped at preparation, so this panel can't be judged{panel.skipReason ? `: ${panel.skipReason}` : ""}. It still counts in the round.
+                  </p>
+                ) : !panel.judgeable ? (
                   <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-not-ready">
                     {panel.imagesReady} of {panel.imagesExpected} images are ready. A panel is judged only when every engine's image is in.
                   </p>

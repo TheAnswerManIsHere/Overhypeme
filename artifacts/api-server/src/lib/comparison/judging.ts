@@ -10,7 +10,10 @@
  *   token order, which is a shuffle that is stable across reloads. The payload
  *   carries no engine id, endpoint, cell id or storage path.
  * - **A panel is judgeable only when every one of its cells has a stored
- *   image**; until then it shows how many are ready and none of them.
+ *   image**; until then it shows how many are ready and none of them. A
+ *   panel skipped at preparation stays listed, with its reason, and counts in
+ *   every total: a smaller comparison is never a silent one (plan, *Proposed
+ *   Design* C).
  * - **A pick is recorded against the hidden cell.** Re-judging replaces the
  *   pick and keeps the previous one in the row's history.
  * - **Results reveal the engines**: wins per family overall, per mode
@@ -82,6 +85,9 @@ export interface BlindPanel {
   imageMode: string;
   faceMarkable: boolean;
   judgeable: boolean;
+  /** Skipped at preparation: it will never be judged. Its reason names no engine. */
+  skipped: boolean;
+  skipReason: string | null;
   imagesReady: number;
   imagesExpected: number;
   /** Empty until the panel is judgeable. */
@@ -90,7 +96,7 @@ export interface BlindPanel {
 }
 export interface BlindSet {
   set: { id: number; label: string; round: number };
-  progress: { panels: number; judgeable: number; judged: number };
+  progress: { panels: number; judgeable: number; judged: number; skipped: number };
   panels: BlindPanel[];
 }
 
@@ -108,7 +114,7 @@ async function panelRows(setIds: number[]) {
 
 const asIds = (v: unknown): number[] => (Array.isArray(v) ? v.filter((n): n is number => typeof n === "number") : []);
 
-/** The blind view of a set. Skipped panels (nothing to judge) are left out. */
+/** The blind view of a set: every panel, skipped ones included. */
 export async function getBlindSet(setId: number): Promise<BlindSet | null> {
   const [[set], { panels, cellsByPanel, picks }] = await Promise.all([
     db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId)),
@@ -120,7 +126,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
   const factText = new Map(facts.map((f) => [f.id, renderCanonical(f.text)]));
 
   const out: BlindPanel[] = [];
-  for (const panel of panels.filter((p) => p.state !== "skipped")) {
+  for (const panel of panels) {
     const cells = cellsByPanel.get(panel.id) ?? [];
     const ordered = blindOrder(panel, cells);
     const judgeable = isJudgeable(cells);
@@ -137,6 +143,8 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
       imageMode: panel.imageMode,
       faceMarkable: isHumanReference(panel.scenarioKey),
       judgeable,
+      skipped: panel.state === "skipped",
+      skipReason: panel.state === "skipped" ? panel.skipReason : null,
       imagesReady: cells.filter(hasImage).length,
       imagesExpected: cells.length,
       images: judgeable ? ordered.map((o) => ({ token: o.token, src: `/api/admin/comparison/panels/${panel.id}/images/${o.token}` })) : [],
@@ -151,7 +159,12 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
   }
   return {
     set: { id: set.id, label: set.label, round: set.round },
-    progress: { panels: out.length, judgeable: out.filter((p) => p.judgeable).length, judged: out.filter((p) => p.pick).length },
+    progress: {
+      panels: out.length,
+      judgeable: out.filter((p) => p.judgeable).length,
+      judged: out.filter((p) => p.pick).length,
+      skipped: out.filter((p) => p.skipped).length,
+    },
     panels: out,
   };
 }
@@ -207,7 +220,8 @@ type Wins = Record<string, number>;
 export interface ComparisonResults {
   sets: Array<{ id: number; label: string; round: number }>;
   families: string[];
-  panels: { total: number; judged: number; judgeable: number };
+  /** Every panel of the sets counts in `total`; `skipped` will never be judged. */
+  panels: { total: number; judged: number; judgeable: number; skipped: number };
   wins: {
     overall: Wins;
     /** "t2i" (text-to-image) and "i2i" (reference edit): a winner each. */
@@ -306,9 +320,10 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
     sets: sets.map((s) => ({ id: s.id, label: s.label, round: s.round })),
     families,
     panels: {
-      total: panels.filter((p) => p.state !== "skipped").length,
+      total: panels.length,
       judged: picks.size,
       judgeable: panels.filter((p) => isJudgeable(cellsByPanel.get(p.id) ?? [])).length,
+      skipped: panels.filter((p) => p.state === "skipped").length,
     },
     wins,
     leaders,

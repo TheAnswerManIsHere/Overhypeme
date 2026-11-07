@@ -19,6 +19,7 @@
  */
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { comparisonPickSchema, comparisonResultsQuerySchema, comparisonRunPlanSchema, comparisonSetCreateSchema } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { requireAdmin } from "./admin";
@@ -41,7 +42,13 @@ import { blindImagePath, ComparisonPickRefused, getBlindSet, getComparisonResult
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 
-const blindImageStorage = new ObjectStorageService();
+type BlindImageStorage = Pick<ObjectStorageService, "getObjectEntityFile" | "downloadObject">;
+const liveBlindImageStorage = new ObjectStorageService();
+let blindImageStorage: BlindImageStorage = liveBlindImageStorage;
+/** Test seam: serve blind images from a fake store. */
+export function __setBlindImageStorageForTest(impl: BlindImageStorage | null): void {
+  blindImageStorage = impl ?? liveBlindImageStorage;
+}
 
 const router: IRouter = Router();
 
@@ -154,9 +161,16 @@ router.get("/admin/comparison/panels/:id/images/:token", requireAdmin, async (re
     if (length) res.setHeader("Content-Length", length);
     // A cell's stored image never changes once it has one, so its token's URL can be cached.
     res.setHeader("Cache-Control", "private, max-age=3600");
-    if (response.body) Readable.fromWeb(response.body as never).pipe(res);
+    // Awaited, so a storage error mid-body lands in the catch below and ends
+    // only this response, never the process.
+    if (response.body) await pipeline(Readable.fromWeb(response.body as never), res);
     else res.end();
   } catch (err) {
+    if (res.headersSent) {
+      logger.warn({ err, panelId: id }, "[comparison] blind image stream failed mid-body");
+      res.destroy();
+      return;
+    }
     if (err instanceof ObjectNotFoundError) { res.status(404).json({ error: "image_not_found" }); return; }
     logger.error({ err, panelId: id }, "[comparison] blind image stream failed");
     res.status(500).json({ error: "image_stream_failed" });

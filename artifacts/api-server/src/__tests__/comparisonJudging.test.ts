@@ -23,7 +23,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
 
-import adminComparisonRouter from "../routes/adminComparison.js";
+import adminComparisonRouter, { __setBlindImageStorageForTest } from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
@@ -151,6 +151,57 @@ describe("the blind view", () => {
   });
 });
 
+describe("a skipped panel", () => {
+  it("stays listed with its reason and counts in every total, judging and results alike", async () => {
+    const { setId, panels } = await renderedSet("skipped");
+    const human = panels.find((p) => p.imageMode === "i2i")!;
+    await db.update(comparisonPanelsTable).set({ state: "skipped", skipReason: "reference asset unavailable: missing file defaults/male.jpg" }).where(eq(comparisonPanelsTable.id, human.id));
+    await db.update(comparisonCellsTable).set({ state: "expected", imageObjectPath: null }).where(eq(comparisonCellsTable.panelId, human.id));
+
+    const blind = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
+    assert.equal(blind.body.panels.length, 2, "the skipped panel is still listed");
+    const skipped = blind.body.panels.find((p: { panelId: number }) => p.panelId === human.id);
+    assert.equal(skipped.skipped, true);
+    assert.equal(skipped.judgeable, false);
+    assert.match(skipped.skipReason, /reference asset unavailable/);
+    assert.deepEqual(skipped.images, []);
+    assert.deepEqual(blind.body.progress, { panels: 2, judgeable: 1, judged: 0, skipped: 1 });
+
+    const generic = blind.body.panels.find((p: { panelId: number }) => p.panelId !== human.id);
+    await request(app()).post(`/api/admin/comparison/panels/${generic.panelId}/pick`).send({ pickedToken: generic.images[0].token });
+    const results = await request(app()).get(`/api/admin/comparison/results?setIds=${setId}`);
+    assert.deepEqual(results.body.panels, { total: 2, judged: 1, judgeable: 1, skipped: 1 }, "every available panel judged is still not a complete comparison");
+  });
+});
+
+describe("a blind image whose storage fails mid-body", () => {
+  it("ends only that response; the process keeps serving", async () => {
+    const { setId } = await renderedSet("stream");
+    const blind = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
+    const img = blind.body.panels[0].images[0];
+    const uncaught: unknown[] = [];
+    const onUncaught = (err: unknown) => { uncaught.push(err); };
+    process.on("uncaughtException", onUncaught);
+    __setBlindImageStorageForTest({
+      getObjectEntityFile: async () => ({}) as never,
+      downloadObject: async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new Uint8Array([137, 80, 78, 71])); },
+        pull(controller) { controller.error(new Error("storage failed mid-body")); },
+      }), { status: 200, headers: { "content-type": "image/png" } }),
+    });
+    try {
+      await assert.rejects(request(app()).get(img.src), "the response is cut off, not completed");
+      await new Promise((r) => setTimeout(r, 50));
+      assert.deepEqual(uncaught, [], "no error escaped to the process");
+      const after = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
+      assert.equal(after.status, 200, "the server still answers");
+    } finally {
+      __setBlindImageStorageForTest(null);
+      process.off("uncaughtException", onUncaught);
+    }
+  });
+});
+
 describe("picks", () => {
   it("records a pick against the hidden cell, replaces it keeping the history, and validates face marks", async () => {
     const { setId, cells } = await renderedSet("pick");
@@ -222,7 +273,7 @@ describe("results", () => {
     const res = await request(app()).get(`/api/admin/comparison/results?setIds=${setId}`);
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const r = res.body;
-    assert.deepEqual(r.panels, { total: 2, judged: 2, judgeable: 2 });
+    assert.deepEqual(r.panels, { total: 2, judged: 2, judgeable: 2, skipped: 0 });
     assert.deepEqual(r.wins.overall, { [FAMILIES.flux]: 2 });
     assert.deepEqual(r.wins.byMode, { t2i: { [FAMILIES.flux]: 1 }, i2i: { [FAMILIES.flux]: 1 } });
     assert.deepEqual(r.wins.byStyle, { none: { [FAMILIES.flux]: 2 } });

@@ -15,7 +15,7 @@ type Wins = Record<string, number>;
 interface Results {
   sets: Array<{ id: number; label: string; round: number }>;
   families: string[];
-  panels: { total: number; judged: number; judgeable: number };
+  panels: { total: number; judged: number; judgeable: number; skipped: number };
   wins: { overall: Wins; byMode: Record<string, Wins>; byStyle: Record<string, Wins>; byScenario: Record<string, Wins> };
   leaders: Record<string, { families: string[]; wins: number; judged: number }>;
   faceMismatches: Wins;
@@ -101,6 +101,7 @@ export default function ComparisonResults() {
             <p className="text-sm text-foreground" data-testid="results-summary">
               {data.sets.map((s) => `#${s.id} ${s.label} (round ${s.round})`).join(" + ")} — {data.panels.judged} of {data.panels.total} panels judged
               {data.panels.judged < data.panels.total ? ` (${data.panels.judgeable} ready to judge)` : ""}.
+              {data.panels.skipped > 0 && <strong> {data.panels.skipped} panel{data.panels.skipped === 1 ? " was" : "s were"} skipped at preparation and will never be judged: this comparison is smaller than planned.</strong>}
             </p>
 
             <div className="grid sm:grid-cols-2 gap-3" data-testid="results-leaders">
