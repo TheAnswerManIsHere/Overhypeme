@@ -17,6 +17,7 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { panelPreparationBoundUsd } from "../lib/comparison/admission.js";
+import { DEFAULT_IMAGE_PROMPT_ENGINE_ID } from "../lib/imagePromptConfig.js";
 
 const P = `t-cmp-${randomUUID().slice(0, 6)}`;
 const FAMILIES = [`${P}-gpt`, `${P}-flux`];
@@ -28,6 +29,8 @@ const engineIds: string[] = [];
 let adminId = "";
 let userId = "";
 let factId = 0;
+/** The default planner engine, seeded only when this database lacks it, and removed only then. */
+let seededPlanner = false;
 
 before(async () => {
   for (const family of FAMILIES) {
@@ -38,6 +41,9 @@ before(async () => {
       engineIds.push(id);
     }
   }
+  const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
+  const inserted = await db.insert(enginesTable).values(codeDefinitionToRow(planner)).onConflictDoNothing().returning({ id: enginesTable.id });
+  seededPlanner = inserted.length > 0;
   adminId = `${P}-admin`;
   userId = `${P}-user`;
   await db.insert(usersTable).values([
@@ -51,7 +57,7 @@ before(async () => {
 after(async () => {
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(inArray(factsTable.id, [factId]));
-  await db.delete(enginesTable).where(inArray(enginesTable.id, engineIds));
+  await db.delete(enginesTable).where(inArray(enginesTable.id, seededPlanner ? [...engineIds, DEFAULT_IMAGE_PROMPT_ENGINE_ID] : engineIds));
   await db.delete(usersTable).where(inArray(usersTable.id, [adminId, userId]));
 });
 
@@ -90,7 +96,7 @@ describe("admin comparison routes", () => {
       assert.equal(mode, scenario === "generic_t2i" ? "t2i" : "i2i");
       assert.deepEqual(cells, FAMILIES.map((f) => `${f}-${mode}`).sort());
     }
-    assert.ok(Math.abs(detail.body.estimate.preparationBoundUsd - 4 * panelPreparationBoundUsd()) < 1e-3);
+    assert.ok(Math.abs(detail.body.estimate.preparationBoundUsd - 4 * panelPreparationBoundUsd("gpt-5.5")) < 1e-3);
 
     const list = await request(app).get("/api/admin/comparison/sets");
     assert.ok(list.body.sets.some((s: { id: number; cells: number }) => s.id === created.body.setId && s.cells === 8));

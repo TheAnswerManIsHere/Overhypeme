@@ -23,7 +23,7 @@ import {
   type ComparisonPanel,
   type ComparisonSet,
 } from "@workspace/db/schema";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   COMPARISON_CELL_STATES,
   COMPARISON_PANEL_STATES,
@@ -31,36 +31,40 @@ import {
   type ComparisonRunPlanRequest,
   type ComparisonSetCreate,
 } from "@workspace/api-zod";
-import { ComparisonLayoutError, deriveComparisonLayout, type LayoutPanel } from "./layout";
-import { cellBoundUsd, panelPreparationBoundUsd, planRun, type RunPlan, type WorkItem } from "./admission";
+import { getImagePromptEngineId } from "../imagePromptConfig";
+import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
+import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type RunPlan, type WorkItem } from "./admission";
 
 export { ComparisonLayoutError };
 
 export async function createComparisonSet(input: ComparisonSetCreate, adminUserId: string | null): Promise<{ setId: number; panels: number; cells: number }> {
-  const reasons: string[] = [];
-  const facts = await db.select({ id: factsTable.id }).from(factsTable).where(inArray(factsTable.id, input.factIds));
-  const missingFacts = input.factIds.filter((id) => !facts.some((f) => f.id === id));
-  if (missingFacts.length) reasons.push(`unknown fact ${missingFacts.join(", ")}`);
   const styleIds = input.lookStyleIds.filter((s) => s !== "none");
-  if (styleIds.length) {
-    const styles = await db.select({ id: lookStylesTable.id, isActive: lookStylesTable.isActive }).from(lookStylesTable).where(inArray(lookStylesTable.id, styleIds));
-    for (const id of styleIds) {
-      const row = styles.find((s) => s.id === id);
-      if (!row) reasons.push(`unknown look style "${id}"`);
-      else if (!row.isActive) reasons.push(`look style "${id}" is inactive`);
-    }
+  const [facts, styles, engines] = await Promise.all([
+    db.select({ id: factsTable.id }).from(factsTable).where(inArray(factsTable.id, input.factIds)),
+    styleIds.length
+      ? db.select({ id: lookStylesTable.id, isActive: lookStylesTable.isActive }).from(lookStylesTable).where(inArray(lookStylesTable.id, styleIds))
+      : Promise.resolve([] as Array<{ id: string; isActive: boolean }>),
+    db.select().from(enginesTable).where(eq(enginesTable.kind, "image")),
+  ]);
+
+  const reasons: string[] = [];
+  const knownFacts = new Set(facts.map((f) => f.id));
+  const missingFacts = input.factIds.filter((id) => !knownFacts.has(id));
+  if (missingFacts.length) reasons.push(`unknown fact ${missingFacts.join(", ")}`);
+  for (const id of styleIds) {
+    const row = styles.find((s) => s.id === id);
+    if (!row) reasons.push(`unknown look style "${id}"`);
+    else if (!row.isActive) reasons.push(`look style "${id}" is inactive`);
   }
-  const engines = await db.select().from(enginesTable).where(eq(enginesTable.kind, "image"));
-  let layout: LayoutPanel[] | undefined;
+  let layout: ReturnType<typeof deriveComparisonLayout> = [];
   try {
     layout = deriveComparisonLayout(input, engines);
   } catch (err) {
-    if (err instanceof ComparisonLayoutError) reasons.push(...err.reasons);
-    else throw err;
+    if (!(err instanceof ComparisonLayoutError)) throw err;
+    reasons.push(...err.reasons);
   }
-  if (reasons.length || !layout) throw new ComparisonLayoutError(reasons);
+  if (reasons.length) throw new ComparisonLayoutError(reasons);
 
-  const panelsToWrite = layout;
   return db.transaction(async (tx) => {
     const [set] = await tx.insert(comparisonSetsTable).values({
       label: input.label,
@@ -71,20 +75,18 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
       engineFamilies: input.engineFamilies,
       createdBy: adminUserId,
     }).returning({ id: comparisonSetsTable.id });
-    let cells = 0;
-    for (const p of panelsToWrite) {
-      const [panel] = await tx.insert(comparisonPanelsTable).values({
-        setId: set!.id,
-        factId: p.factId,
-        scenarioKey: p.scenarioKey,
-        lookStyleId: p.lookStyleId,
-        imageMode: p.imageMode,
-        shuffleSeed: randomInt(0, 2 ** 31 - 1),
-      }).returning({ id: comparisonPanelsTable.id });
-      await tx.insert(comparisonCellsTable).values(p.engineIds.map((engineId: string) => ({ panelId: panel!.id, engineId })));
-      cells += p.engineIds.length;
-    }
-    return { setId: set!.id, panels: panelsToWrite.length, cells };
+    // Postgres returns a multi-row insert's rows in the order given.
+    const panels = await tx.insert(comparisonPanelsTable).values(layout.map((p) => ({
+      setId: set!.id,
+      factId: p.factId,
+      scenarioKey: p.scenarioKey,
+      lookStyleId: p.lookStyleId,
+      imageMode: p.imageMode,
+      shuffleSeed: randomInt(0, 2 ** 31 - 1),
+    }))).returning({ id: comparisonPanelsTable.id });
+    const cells = layout.flatMap((p, i) => p.engineIds.map((engineId) => ({ panelId: panels[i]!.id, engineId })));
+    await tx.insert(comparisonCellsTable).values(cells);
+    return { setId: set!.id, panels: panels.length, cells: cells.length };
   });
 }
 
@@ -98,17 +100,19 @@ export interface ComparisonSetSummary {
 }
 
 export async function listComparisonSets(): Promise<ComparisonSetSummary[]> {
-  const sets = await db.select().from(comparisonSetsTable).orderBy(desc(comparisonSetsTable.createdAt));
-  if (sets.length === 0) return [];
-  const panelCounts = await db
-    .select({ setId: comparisonPanelsTable.setId, panels: sql<number>`count(distinct ${comparisonPanelsTable.id})::int`, cells: sql<number>`count(${comparisonCellsTable.id})::int` })
-    .from(comparisonPanelsTable)
-    .leftJoin(comparisonCellsTable, eq(comparisonCellsTable.panelId, comparisonPanelsTable.id))
-    .groupBy(comparisonPanelsTable.setId);
-  return sets.map((s) => {
-    const c = panelCounts.find((p) => p.setId === s.id);
-    return { id: s.id, label: s.label, round: s.round, createdAt: s.createdAt.toISOString(), panels: c?.panels ?? 0, cells: c?.cells ?? 0 };
-  });
+  const [sets, counts] = await Promise.all([
+    db.select().from(comparisonSetsTable).orderBy(desc(comparisonSetsTable.createdAt)),
+    db
+      .select({ setId: comparisonPanelsTable.setId, panels: sql<number>`count(distinct ${comparisonPanelsTable.id})::int`, cells: sql<number>`count(${comparisonCellsTable.id})::int` })
+      .from(comparisonPanelsTable)
+      .leftJoin(comparisonCellsTable, eq(comparisonCellsTable.panelId, comparisonPanelsTable.id))
+      .groupBy(comparisonPanelsTable.setId),
+  ]);
+  const bySet = new Map(counts.map((c) => [c.setId, c]));
+  return sets.map((s) => ({
+    id: s.id, label: s.label, round: s.round, createdAt: s.createdAt.toISOString(),
+    panels: bySet.get(s.id)?.panels ?? 0, cells: bySet.get(s.id)?.cells ?? 0,
+  }));
 }
 
 type Tally<S extends string> = Record<S, number>;
@@ -126,6 +130,7 @@ export interface ComparisonSetDetail {
     panels: Tally<(typeof COMPARISON_PANEL_STATES)[number]>;
     cells: Tally<(typeof COMPARISON_CELL_STATES)[number]>;
   };
+  /** The most the set's remaining work can cost: every pending panel, every expected cell. */
   estimate: {
     preparationBoundUsd: number;
     renderBoundUsd: number;
@@ -133,71 +138,96 @@ export interface ComparisonSetDetail {
   };
 }
 
-async function loadSetRows(setId: number): Promise<{ set: ComparisonSet; panels: ComparisonPanel[]; cells: ComparisonCell[] } | null> {
-  const [set] = await db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId));
+interface SetRows {
+  set: ComparisonSet;
+  panels: ComparisonPanel[];
+  cells: ComparisonCell[];
+  prices: Map<string, unknown>;
+  plannerModel: string;
+}
+
+/**
+ * The model the planner engine names (`fact_image_prompt_engine_id`). A
+ * missing or inactive planner engine refuses rather than pricing a guess.
+ */
+export async function plannerModel(): Promise<string> {
+  const engineId = await getImagePromptEngineId();
+  const [row] = await db.select({ endpointId: enginesTable.endpointId, isActive: enginesTable.isActive }).from(enginesTable).where(eq(enginesTable.id, engineId));
+  if (!row || !row.isActive) throw new ComparisonLayoutError([`the planner engine "${engineId}" is ${row ? "inactive" : "not in the catalogue"}, so no preparation can be bounded`]);
+  return row.endpointId;
+}
+
+async function loadSetRows(setId: number): Promise<SetRows | null> {
+  const [setRow, panels, model] = await Promise.all([
+    db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId)),
+    db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId)).orderBy(asc(comparisonPanelsTable.id)),
+    plannerModel(),
+  ]);
+  const set = setRow[0];
   if (!set) return null;
-  const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId)).orderBy(asc(comparisonPanelsTable.id));
   const cells = panels.length
     ? await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id))).orderBy(asc(comparisonCellsTable.id))
     : [];
-  return { set, panels, cells };
+  const engineIds = [...new Set(cells.map((c) => c.engineId))];
+  const engines = engineIds.length
+    ? await db.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds))
+    : [];
+  return { set, panels, cells, prices: new Map(engines.map((r) => [r.id, r.priceModel])), plannerModel: model };
 }
 
-async function enginePriceModels(engineIds: string[]): Promise<Map<string, unknown>> {
-  if (engineIds.length === 0) return new Map();
-  const rows = await db.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds));
-  return new Map(rows.map((r) => [r.id, r.priceModel]));
-}
-
-/** What is still to do, priced at each call's complete bound, in the order a run takes it. */
-function pendingWork(
-  kind: "prepare" | "render",
-  panels: ComparisonPanel[],
-  cells: ComparisonCell[],
-  prices: Map<string, unknown>,
-): WorkItem[] {
+/**
+ * Work still to do, priced at each call's complete bound, in the order a run
+ * takes it. `preparedOnly` limits cells to panels already prepared: a render
+ * run can only take those, while the set's estimate counts every expected cell.
+ */
+function workItems(kind: "prepare" | "render", rows: SetRows, opts: { preparedOnly: boolean }): WorkItem[] {
   if (kind === "prepare") {
-    const bound = panelPreparationBoundUsd();
-    return panels.filter((p) => p.state === "pending").map((p) => ({
+    const bound = panelPreparationBoundUsd(rows.plannerModel);
+    return rows.panels.filter((p) => p.state === "pending").map((p) => ({
       ref: `panel:${p.id}`,
       label: `preparing panel ${p.id} (fact ${p.factId}, ${p.scenarioKey}, ${p.lookStyleId})`,
       boundUsd: bound,
     }));
   }
-  const prepared = new Set(panels.filter((p) => p.state === "prepared").map((p) => p.id));
-  return cells.filter((c) => c.state === "expected" && prepared.has(c.panelId)).map((c) => ({
+  const prepared = new Set(rows.panels.filter((p) => p.state === "prepared").map((p) => p.id));
+  return rows.cells.filter((c) => c.state === "expected" && (!opts.preparedOnly || prepared.has(c.panelId))).map((c) => ({
     ref: `cell:${c.id}`,
     label: `rendering cell ${c.id} (${c.engineId})`,
-    boundUsd: cellBoundUsd(prices.get(c.engineId)),
+    boundUsd: cellBoundUsd(rows.prices.get(c.engineId)),
+    engineId: c.engineId,
   }));
+}
+
+/** The bounds of a set's remaining work, shared by the status view and the dry run. */
+export function estimateOf(prepare: WorkItem[], render: WorkItem[]): ComparisonSetDetail["estimate"] {
+  const perEngine: Record<string, number> = {};
+  for (const item of render) perEngine[item.engineId!] = (perEngine[item.engineId!] ?? 0) + item.boundUsd;
+  const sum = (items: WorkItem[]) => round4(items.reduce((s, i) => s + i.boundUsd, 0));
+  return {
+    preparationBoundUsd: sum(prepare),
+    renderBoundUsd: sum(render),
+    perEngineBoundUsd: Object.fromEntries(Object.entries(perEngine).map(([k, v]) => [k, round4(v)])),
+  };
 }
 
 export async function getComparisonSet(setId: number): Promise<ComparisonSetDetail | null> {
   const rows = await loadSetRows(setId);
   if (!rows) return null;
-  const prices = await enginePriceModels([...new Set(rows.cells.map((c) => c.engineId))]);
-  const perEngine: Record<string, number> = {};
-  for (const c of rows.cells.filter((c) => c.state === "expected")) {
-    perEngine[c.engineId] = (perEngine[c.engineId] ?? 0) + cellBoundUsd(prices.get(c.engineId));
-  }
-  const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
+  const cellsByPanel = new Map<number, ComparisonCell[]>();
+  for (const c of rows.cells) cellsByPanel.set(c.panelId, [...(cellsByPanel.get(c.panelId) ?? []), c]);
   return {
     set: rows.set,
-    panels: rows.panels.map((p) => ({ ...p, cells: rows.cells.filter((c) => c.panelId === p.id) })),
+    panels: rows.panels.map((p) => ({ ...p, cells: cellsByPanel.get(p.id) ?? [] })),
     aggregate: {
       panels: tally(COMPARISON_PANEL_STATES, rows.panels.map((p) => p.state)),
       cells: tally(COMPARISON_CELL_STATES, rows.cells.map((c) => c.state)),
     },
-    estimate: {
-      preparationBoundUsd: round4(rows.panels.filter((p) => p.state === "pending").length * panelPreparationBoundUsd()),
-      renderBoundUsd: round4(Object.values(perEngine).reduce((s, v) => s + v, 0)),
-      perEngineBoundUsd: Object.fromEntries(Object.entries(perEngine).map(([k, v]) => [k, round4(v)])),
-    },
+    estimate: estimateOf(workItems("prepare", rows, { preparedOnly: false }), workItems("render", rows, { preparedOnly: false })),
   };
 }
 
 /** Every reservation not yet settled or released counts at its bound. */
-export async function unresolvedReservedUsd(): Promise<number> {
+async function unresolvedReservedUsd(): Promise<number> {
   const [row] = await db
     .select({ total: sql<string>`coalesce(sum(${comparisonReservationsTable.boundUsd}), 0)` })
     .from(comparisonReservationsTable)
@@ -206,18 +236,11 @@ export async function unresolvedReservedUsd(): Promise<number> {
 }
 
 export async function planComparisonRun(setId: number, req: ComparisonRunPlanRequest): Promise<RunPlan | null> {
-  const rows = await loadSetRows(setId);
+  const [rows, reserved] = await Promise.all([loadSetRows(setId), unresolvedReservedUsd()]);
   if (!rows) return null;
-  const prices = await enginePriceModels([...new Set(rows.cells.map((c) => c.engineId))]);
-  return planRun(pendingWork(req.kind, rows.panels, rows.cells, prices), {
+  return planRun(workItems(req.kind, rows, { preparedOnly: true }), {
     allowanceUsd: req.allowanceUsd ?? PAID_RUN_ALLOWANCE_USD,
     weekRemainingUsd: req.weekRemainingUsd,
-    unresolvedReservedUsd: await unresolvedReservedUsd(),
+    unresolvedReservedUsd: reserved,
   });
-}
-
-// Kept so a later increment's executor shares one query for a set's cells.
-export async function cellsForPanels(panelIds: number[]): Promise<ComparisonCell[]> {
-  if (panelIds.length === 0) return [];
-  return db.select().from(comparisonCellsTable).where(and(inArray(comparisonCellsTable.panelId, panelIds)));
 }

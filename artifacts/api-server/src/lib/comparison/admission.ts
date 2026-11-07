@@ -7,7 +7,7 @@
  * - A planner preparation reserves two calls (the generator makes one
  *   corrective call on a validation failure), each at its output ceiling: the
  *   request's `max_completion_tokens` (IMAGE_PROMPT_MAX_TOKENS + the reasoning
- *   headroom) at gpt-5.5's output rate, plus its input bounded at 8,000 tokens.
+ *   headroom) at the configured planner model's output rate, plus its input bounded at 8,000 tokens.
  * - An image call reserves its engine's `perCallBoundUsd`.
  * - A run takes items in order while the running total stays within the
  *   per-run allowance; an item that alone exceeds it refuses the run with the
@@ -20,21 +20,21 @@ import { IMAGE_PROMPT_MAX_TOKENS } from "../imagePrompt/generator";
 import { REASONING_TOKEN_HEADROOM } from "../openaiChatParams";
 import { OPENAI_PRICES } from "../aiDouble/recorder";
 
-export const PLANNER_MODEL = "gpt-5.5";
 /** The planner's input (system prompt, schema and user message) is bounded at this. */
-export const PLANNER_INPUT_TOKEN_BOUND = 8000;
-/** One validation failure buys one corrective call. */
-export const PLANNER_CALLS_PER_PANEL = 2;
+const PLANNER_INPUT_TOKEN_BOUND = 8000;
+/** One validation failure buys one corrective call (`imagePrompt/generator.ts`, its header). */
+const PLANNER_CALLS_PER_PANEL = 2;
 
-export function plannerCallBoundUsd(): number {
-  const price = OPENAI_PRICES[PLANNER_MODEL];
-  if (!price) throw new Error(`no price for ${PLANNER_MODEL}`);
+/** One planner call at its output ceiling, for the OpenAI model the planner engine names. */
+function plannerCallBoundUsd(model: string): number {
+  const price = OPENAI_PRICES[model];
+  if (!price) throw new Error(`no price for the planner model "${model}", so no run can bound its cost`);
   const outputTokens = IMAGE_PROMPT_MAX_TOKENS + REASONING_TOKEN_HEADROOM;
   return (outputTokens * price.output + PLANNER_INPUT_TOKEN_BOUND * price.input) / 1_000_000;
 }
 
-export function panelPreparationBoundUsd(): number {
-  return PLANNER_CALLS_PER_PANEL * plannerCallBoundUsd();
+export function panelPreparationBoundUsd(plannerModel: string): number {
+  return PLANNER_CALLS_PER_PANEL * plannerCallBoundUsd(plannerModel);
 }
 
 export function cellBoundUsd(priceModel: unknown): number {
@@ -47,6 +47,8 @@ export interface WorkItem {
   ref: string;
   label: string;
   boundUsd: number;
+  /** The engine a cell renders on; absent on a panel's preparation. */
+  engineId?: string;
 }
 
 export interface RunPlan {
@@ -62,7 +64,7 @@ export interface RunPlan {
   refusal: string | null;
 }
 
-const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
+export const round4 = (n: number): number => Math.round(n * 10_000) / 10_000;
 
 /** How many runs a list of items needs, packed greedily in order. */
 function countRuns(items: WorkItem[], allowanceUsd: number): number {

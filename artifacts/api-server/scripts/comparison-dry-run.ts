@@ -17,9 +17,13 @@ installStdioGuard();
 import { db } from "@workspace/db";
 import { enginesTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
-import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspace/api-zod";
+import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS, PAID_RUN_ALLOWANCE_USD, PAID_WEEK_ALLOWANCE_USD } from "@workspace/api-zod";
 import { deriveComparisonLayout } from "../src/lib/comparison/layout.js";
 import { cellBoundUsd, panelPreparationBoundUsd, planRun, type WorkItem } from "../src/lib/comparison/admission.js";
+import { estimateOf, plannerModel } from "../src/lib/comparison/sets.js";
+
+/** A week with this much left must refuse a render run of rounds 1 and 2. */
+const TIGHT_WEEK_USD = 1;
 
 async function main(): Promise<void> {
   const engines = await db.select().from(enginesTable).where(eq(enginesTable.kind, "image"));
@@ -33,22 +37,17 @@ async function main(): Promise<void> {
     }, engines);
   });
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
-  const cells: WorkItem[] = panels.flatMap((p, i) => p.engineIds.map((id) => ({ ref: `cell:${i}:${id}`, label: `rendering ${id}`, boundUsd: cellBoundUsd(price.get(id)) })));
-  const perEngine: Record<string, number> = {};
-  for (const c of cells) {
-    const id = c.label.replace("rendering ", "");
-    perEngine[id] = (perEngine[id] ?? 0) + c.boundUsd;
-  }
-  const renderBound = cells.reduce((s, c) => s + c.boundUsd, 0);
-  const tight = planRun(cells, { allowanceUsd: 5, weekRemainingUsd: 1, unresolvedReservedUsd: 0 });
-  const full = planRun(cells, { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
+  const prepareBound = panelPreparationBoundUsd(await plannerModel());
+  const prepare: WorkItem[] = panels.map((_, i) => ({ ref: `panel:${i}`, label: `preparing panel ${i}`, boundUsd: prepareBound }));
+  const cells: WorkItem[] = panels.flatMap((p, i) => p.engineIds.map((engineId) => ({ ref: `cell:${i}:${engineId}`, label: `rendering ${engineId}`, boundUsd: cellBoundUsd(price.get(engineId)), engineId })));
+  const estimate = estimateOf(prepare, cells);
+  const tight = planRun(cells, { allowanceUsd: PAID_RUN_ALLOWANCE_USD, weekRemainingUsd: TIGHT_WEEK_USD, unresolvedReservedUsd: 0 });
+  const full = planRun(cells, { allowanceUsd: PAID_RUN_ALLOWANCE_USD, weekRemainingUsd: PAID_WEEK_ALLOWANCE_USD, unresolvedReservedUsd: 0 });
 
   const report = {
     panels: panels.length,
     cells: cells.length,
-    preparationBoundUsd: +(panels.length * panelPreparationBoundUsd()).toFixed(4),
-    renderBoundUsd: +renderBound.toFixed(4),
-    perEngineBoundUsd: Object.fromEntries(Object.entries(perEngine).map(([k, v]) => [k, +v.toFixed(4)])),
+    ...estimate,
     renderRunsAtFiveDollars: full.runsNeeded,
     refusedWithOneDollarLeft: tight.admitted === false,
     refusal: tight.refusal,

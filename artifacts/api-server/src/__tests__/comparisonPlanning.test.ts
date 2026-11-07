@@ -7,20 +7,12 @@ import assert from "node:assert/strict";
 
 import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspace/api-zod";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { ComparisonLayoutError, deriveComparisonLayout, type LayoutEngine } from "../lib/comparison/layout.js";
+import type { Engine } from "@workspace/db/schema";
+import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
+import { ComparisonLayoutError, deriveComparisonLayout } from "../lib/comparison/layout.js";
 import { cellBoundUsd, panelPreparationBoundUsd, planRun, type WorkItem } from "../lib/comparison/admission.js";
 
-const catalogue: LayoutEngine[] = ALL_ENGINES.filter((e) => e.kind === "image").map((e) => ({
-  id: e.id,
-  kind: e.kind,
-  family: e.family ?? null,
-  imageMode: e.imageMode ?? null,
-  isActive: true,
-  retired: false,
-  deletedAt: null,
-  priceModel: e.priceModel ?? null,
-  sizeVocabulary: e.sizeVocabulary ?? null,
-}));
+const catalogue = ALL_ENGINES.filter((e) => e.kind === "image").map((e) => ({ ...codeDefinitionToRow(e), deletedAt: null, retired: false }) as Engine);
 
 function round(n: 1 | 2) {
   const p = COMPARISON_ROUND_PRESETS[n];
@@ -60,7 +52,7 @@ describe("comparison layout", () => {
     const unpriced = catalogue.map((e) => (e.id === "muse-image" ? { ...e, priceModel: null } : e));
     assert.throws(() => deriveComparisonLayout(round(1), unpriced), /muse-image: it has no price model/);
     const inactive = catalogue.map((e) => (e.id === "seedream-5-pro-edit" ? { ...e, isActive: false } : e));
-    assert.throws(() => deriveComparisonLayout(round(1), inactive), /seedream-5-pro-edit: inactive/);
+    assert.throws(() => deriveComparisonLayout(round(1), inactive), /seedream-5-pro-edit: it is inactive/);
   });
 
   it("an unknown scenario is refused", () => {
@@ -73,7 +65,11 @@ describe("run admission", () => {
     Array.from({ length: n }, (_, i) => ({ ref: `${prefix}:${i}`, label: `${prefix} ${i}`, boundUsd: bound }));
 
   it("a panel's preparation reserves two planner calls at their ceiling ($0.728)", () => {
-    assert.ok(Math.abs(panelPreparationBoundUsd() - 0.728) < 1e-9, String(panelPreparationBoundUsd()));
+    assert.ok(Math.abs(panelPreparationBoundUsd("gpt-5.5") - 0.728) < 1e-9, String(panelPreparationBoundUsd("gpt-5.5")));
+  });
+
+  it("a planner model with no price refuses rather than guessing", () => {
+    assert.throws(() => panelPreparationBoundUsd("no-such-model"), /no price for the planner model "no-such-model"/);
   });
 
   it("an engine without a price model has no bound", () => {
@@ -81,7 +77,7 @@ describe("run admission", () => {
   });
 
   it("packs a run greedily under the allowance and counts the runs left", () => {
-    const plan = planRun(items(15, panelPreparationBoundUsd(), "panel"), { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
+    const plan = planRun(items(15, panelPreparationBoundUsd("gpt-5.5"), "panel"), { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
     assert.equal(plan.admitted, true);
     assert.equal(plan.items.length, 6); // 6 × 0.728 = 4.368; a seventh would be 5.096
     assert.equal(plan.remainingItems, 9);

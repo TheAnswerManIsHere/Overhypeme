@@ -16,20 +16,9 @@ import {
   type GenerationMode,
   type RenderScenarioKey,
 } from "@workspace/api-zod";
+import type { Engine } from "@workspace/db/schema";
 import { generationModeForSubjectRenderMode } from "../factRenderScenarios";
-
-/** The fields of an engine row the layout reads. */
-export interface LayoutEngine {
-  id: string;
-  kind: string;
-  family: string | null;
-  imageMode: string | null;
-  isActive: boolean;
-  retired: boolean;
-  deletedAt: Date | null;
-  priceModel: unknown;
-  sizeVocabulary: unknown;
-}
+import { imageEngineRefusal } from "../imageEngineRouting";
 
 export interface LayoutInput {
   factIds: number[];
@@ -57,18 +46,15 @@ function dedupe<T>(xs: T[]): T[] {
   return Array.from(new Set(xs));
 }
 
-/** Why `engine` cannot be a comparison cell, or null. */
-export function comparisonEngineRefusal(engine: LayoutEngine): string | null {
-  if (engine.kind !== "image") return "not an image engine";
-  if (engine.retired) return "retired";
-  if (engine.deletedAt) return "archived";
-  if (!engine.isActive) return "inactive";
-  if (!engine.priceModel) return "it has no price model, so no run can bound its cost";
-  if (!engine.sizeVocabulary) return "it declares no size vocabulary";
-  return null;
+/**
+ * Why `engine` cannot be a `mode` cell, or null: the routing rule the product
+ * itself applies, plus a price model, since no run can bound an unpriced call.
+ */
+function comparisonEngineRefusal(engine: Engine, mode: GenerationMode): string | null {
+  return imageEngineRefusal(engine, mode) ?? (engine.priceModel ? null : "it has no price model, so no run can bound its cost");
 }
 
-export function deriveComparisonLayout(input: LayoutInput, engines: LayoutEngine[]): LayoutPanel[] {
+export function deriveComparisonLayout(input: LayoutInput, engines: Engine[]): LayoutPanel[] {
   const reasons: string[] = [];
   const families = dedupe(input.engineFamilies);
   const byFamilyMode = new Map<string, string>();
@@ -79,7 +65,7 @@ export function deriveComparisonLayout(input: LayoutInput, engines: LayoutEngine
         reasons.push(`family "${family}" has ${members.length} ${mode} engines, not one`);
         continue;
       }
-      const refusal = comparisonEngineRefusal(members[0]!);
+      const refusal = comparisonEngineRefusal(members[0]!, mode);
       if (refusal) reasons.push(`${members[0]!.id}: ${refusal}`);
       else byFamilyMode.set(`${family}|${mode}`, members[0]!.id);
     }

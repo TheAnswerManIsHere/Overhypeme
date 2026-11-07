@@ -37,8 +37,7 @@ router.post("/admin/comparison/sets", requireAdmin, async (req: AuthenticatedReq
     logger.info({ ...result, adminId: req.user.id }, "[comparison] set created");
     res.status(201).json(result);
   } catch (err) {
-    if (err instanceof ComparisonLayoutError) { res.status(400).json({ error: "set_refused", reasons: err.reasons }); return; }
-    throw err;
+    sendRefusal(res, err);
   }
 });
 
@@ -46,10 +45,17 @@ router.get("/admin/comparison/sets", requireAdmin, async (_req: Request, res: Re
   res.json({ sets: await listComparisonSets() });
 });
 
+/** A refusal (an unusable family, an unpriceable planner) is the admin's to read, with its reasons. */
+function sendRefusal(res: Response, err: unknown): void {
+  if (err instanceof ComparisonLayoutError) { res.status(400).json({ error: "set_refused", reasons: err.reasons }); return; }
+  throw err;
+}
+
 router.get("/admin/comparison/sets/:id", requireAdmin, async (req: Request, res: Response) => {
   const id = setIdParam(req);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
-  const detail = await getComparisonSet(id);
+  const detail = await getComparisonSet(id).catch((err: unknown) => { sendRefusal(res, err); return undefined; });
+  if (detail === undefined) return;
   if (!detail) { res.status(404).json({ error: "set_not_found" }); return; }
   res.json(detail);
 });
@@ -59,7 +65,8 @@ router.post("/admin/comparison/sets/:id/plan", requireAdmin, async (req: Request
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
   const parsed = comparisonRunPlanSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
-  const plan = await planComparisonRun(id, parsed.data);
+  const plan = await planComparisonRun(id, parsed.data).catch((err: unknown) => { sendRefusal(res, err); return undefined; });
+  if (plan === undefined) return;
   if (!plan) { res.status(404).json({ error: "set_not_found" }); return; }
   res.json(plan);
 });
