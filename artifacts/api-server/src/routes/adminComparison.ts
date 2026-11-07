@@ -6,8 +6,11 @@
  *   GET  /api/admin/comparison/sets              list sets
  *   GET  /api/admin/comparison/sets/:id          a set's status: per cell and aggregate, with its estimate
  *   POST /api/admin/comparison/sets/:id/plan     the next run of a kind, its bound, or the refusal with the figure
+ *   POST /api/admin/comparison/sets/:id/runs     admit and start that run (increment 2b) — the one route that spends
+ *   POST /api/admin/comparison/cells/:id/retry-storage   store a failed cell's vendor image again (spends nothing)
+ *   POST /api/admin/comparison/cells/:id/rerun   a failed cell's one re-run: back to expected, admitted by the next run
  *
- * Planning spends nothing and writes nothing. Running is increment 2b's.
+ * Planning spends nothing and writes nothing; a run spends only what admission reserved.
  */
 import { Router, type IRouter, type Request, type Response } from "express";
 import { comparisonRunPlanSchema, comparisonSetCreateSchema } from "@workspace/api-zod";
@@ -20,6 +23,13 @@ import {
   listComparisonSets,
   planComparisonRun,
 } from "../lib/comparison/sets";
+import {
+  ComparisonCellActionRefused,
+  ComparisonRunRefused,
+  rerunCell,
+  retryCellStorage,
+  startComparisonRun,
+} from "../lib/comparison/runs";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -70,5 +80,39 @@ router.post("/admin/comparison/sets/:id/plan", requireAdmin, async (req: Request
   if (!plan) { res.status(404).json({ error: "set_not_found" }); return; }
   res.json(plan);
 });
+
+router.post("/admin/comparison/sets/:id/runs", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = setIdParam(req);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const parsed = comparisonRunPlanSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
+  try {
+    const started = await startComparisonRun(id, parsed.data, req.user.id);
+    if (!started) { res.status(404).json({ error: "set_not_found" }); return; }
+    logger.info({ setId: id, runId: started.run.id, adminId: req.user.id }, "[comparison] run started");
+    res.status(202).json(started);
+  } catch (err) {
+    if (err instanceof ComparisonRunRefused) { res.status(409).json({ error: "run_refused", refusal: err.refusal, run: err.run, plan: err.plan }); return; }
+    sendRefusal(res, err);
+  }
+});
+
+function cellIdParam(req: Request): number | null {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+for (const [path, action] of [["retry-storage", retryCellStorage], ["rerun", rerunCell]] as const) {
+  router.post(`/admin/comparison/cells/:id/${path}`, requireAdmin, async (req: Request, res: Response) => {
+    const id = cellIdParam(req);
+    if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+    try {
+      res.json({ cell: await action(id) });
+    } catch (err) {
+      if (err instanceof ComparisonCellActionRefused) { res.status(409).json({ error: "cell_action_refused", refusal: err.message }); return; }
+      throw err;
+    }
+  });
+}
 
 export default router;

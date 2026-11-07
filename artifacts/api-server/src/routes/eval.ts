@@ -28,6 +28,7 @@ import {
   evalRunCreateSchema,
 } from "@workspace/api-zod";
 import { requireAdmin } from "./admin";
+import { ImageEngineRoutingError, resolveImageEngine } from "../lib/imageEngineRouting";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { startEvalRun, listEvalRuns, getEvalRunStatus } from "../lib/eval/evalRunJobs";
 import { buildEvalDashboard } from "../lib/eval/dashboard";
@@ -102,7 +103,20 @@ router.post("/admin/eval/runs", requireAdmin, async (req: AuthenticatedRequest, 
   const parsed = evalRunCreateSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
   const label = parsed.data.label && parsed.data.label.trim() ? parsed.data.label.trim() : null;
-  const result = await startEvalRun({ label, adminUserId: req.user.id });
+  // A named engine is checked for its mode before anything is created: an
+  // unusable one refuses the run rather than rendering through the default.
+  const imageEngines = parsed.data.imageEngines ?? {};
+  for (const mode of ["t2i", "i2i"] as const) {
+    const id = imageEngines[mode];
+    if (!id) continue;
+    try {
+      await resolveImageEngine(mode, id);
+    } catch (err) {
+      if (err instanceof ImageEngineRoutingError) { res.status(400).json({ error: "image_engine_refused", mode, details: err.message }); return; }
+      throw err;
+    }
+  }
+  const result = await startEvalRun({ label, adminUserId: req.user.id, imageEngines });
   logger.info({ runId: result.runId, items: result.items.length, adminId: req.user.id }, "[eval] run created");
   res.status(202).json(result);
 });

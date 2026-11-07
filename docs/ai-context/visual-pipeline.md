@@ -92,6 +92,36 @@ beside the eval run rather than inside it (plan
   returns the next run's bound and how many runs remain, or the refusal.
   Reservations (`comparison_reservations`) are written by the run that spends,
   so a plan that never runs holds no budget.
+- **Starting a run is the one action that spends**
+  (`POST /api/admin/comparison/sets/:id/runs`,
+  `artifacts/api-server/src/lib/comparison/runs.ts`). Admission takes one
+  advisory lock, re-reads the set and every unresolved reservation, plans the
+  run, and either records the refusal with its figure or writes one
+  reservation row per permitted call, marks each item in flight and queues it,
+  all in one transaction. Paid comparison runs never run in CI. The two queues
+  (`comparison_prepare`, `comparison_render`) run each job at one attempt.
+- **Preparation** goes through the Runtime Compiled Prompt preview's own
+  path (`resolveRenderReviewInput` → `assembleImagePromptForPreview`) with
+  the scenario's default reference resized to 1024 pixels on the long edge
+  (`resolveDefaultReferenceUrl(type, { maxEdgePx })`), and freezes the plan,
+  the compiled prompt, the reference and the style on the panel. A planner
+  that fell back to another model fails the panel: it is a different
+  experiment.
+- **A cell submits once** (`artifacts/api-server/src/lib/comparison/transport.ts`):
+  one POST to fal's queue of our own — the SDK retries submission — with the
+  request id stored before polling, so a resumed job polls and never
+  resubmits. It does not go through the ordinary `image_generation` worker,
+  whose `fal.subscribe` retries.
+- **Settlement**: a call that never reached a vendor releases its
+  reservation; a completed call settles at its flat price, or with the amount
+  unreported for a token-billed engine or the planner (the paid-run ledger
+  records the bound); a call that failed after submission stays reserved,
+  since it may have been billed. A storage failure keeps the vendor's URL and
+  its retry stores that image again; a render failure gets one re-run, which
+  the next render run admits.
+- **The eval runner can name its engine per mode**
+  (`POST /api/admin/eval/runs` `imageEngines: { t2i?, i2i? }`); an engine
+  that cannot draw its mode refuses the run, never falls back.
 - **Status is shown at both altitudes** on `/admin/eval`: every cell's state,
   and the set's aggregate and remaining bound. A response is applied only
   while the set it was requested for is still selected, so one set's figures

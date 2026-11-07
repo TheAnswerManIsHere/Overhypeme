@@ -15,12 +15,14 @@ import {
   comparisonCellsTable,
   comparisonPanelsTable,
   comparisonReservationsTable,
+  comparisonRunsTable,
   comparisonSetsTable,
   enginesTable,
   factsTable,
   lookStylesTable,
   type ComparisonCell,
   type ComparisonPanel,
+  type ComparisonRun,
   type ComparisonSet,
 } from "@workspace/db/schema";
 import { asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -132,18 +134,23 @@ export interface ComparisonSetDetail {
   };
   /** The most the set's remaining work can cost: every pending panel, every expected cell. */
   estimate: {
-    preparationBoundUsd: number;
+    /** Null when the planner cannot be priced; `preparationRefusal` says why. */
+    preparationBoundUsd: number | null;
+    preparationRefusal: string | null;
     renderBoundUsd: number;
     perEngineBoundUsd: Record<string, number>;
   };
+  runs: ComparisonRun[];
 }
 
-interface SetRows {
+/** A database handle or a transaction: the reads admission repeats under its lock. */
+export type Executor = Pick<typeof db, "select" | "insert" | "update" | "execute">;
+
+export interface SetRows {
   set: ComparisonSet;
   panels: ComparisonPanel[];
   cells: ComparisonCell[];
   prices: Map<string, unknown>;
-  planner: PlannerRequestSettings;
 }
 
 /**
@@ -161,38 +168,39 @@ export async function plannerSettings(): Promise<PlannerRequestSettings> {
   return { model: resolved.model, maxTokens: resolved.maxTokens, temperature: resolved.temperature, reasoningEffort: resolved.reasoningEffort };
 }
 
-async function loadSetRows(setId: number): Promise<SetRows | null> {
-  const [setRow, panels, planner] = await Promise.all([
-    db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId)),
-    db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId)).orderBy(asc(comparisonPanelsTable.id)),
-    plannerSettings(),
+export async function loadSetRows(setId: number, exec: Executor = db): Promise<SetRows | null> {
+  const [setRow, panels] = await Promise.all([
+    exec.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId)),
+    exec.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId)).orderBy(asc(comparisonPanelsTable.id)),
   ]);
   const set = setRow[0];
   if (!set) return null;
   const cells = panels.length
-    ? await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id))).orderBy(asc(comparisonCellsTable.id))
+    ? await exec.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id))).orderBy(asc(comparisonCellsTable.id))
     : [];
   const engineIds = [...new Set(cells.map((c) => c.engineId))];
   const engines = engineIds.length
-    ? await db.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds))
+    ? await exec.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds))
     : [];
-  return { set, panels, cells, prices: new Map(engines.map((r) => [r.id, r.priceModel])), planner };
+  return { set, panels, cells, prices: new Map(engines.map((r) => [r.id, r.priceModel])) };
+}
+
+/** Panels still to prepare, each priced at two planner calls at the planner's real ceiling. */
+export function prepareItems(rows: SetRows, planner: PlannerRequestSettings): WorkItem[] {
+  const bound = panelPreparationBoundUsd(planner);
+  return rows.panels.filter((p) => p.state === "pending").map((p) => ({
+    ref: `panel:${p.id}`,
+    label: `preparing panel ${p.id} (fact ${p.factId}, ${p.scenarioKey}, ${p.lookStyleId})`,
+    boundUsd: bound,
+  }));
 }
 
 /**
- * Work still to do, priced at each call's complete bound, in the order a run
- * takes it. `preparedOnly` limits cells to panels already prepared: a render
- * run can only take those, while the set's estimate counts every expected cell.
+ * Cells still to render, each at its engine's per-call bound, in the order a
+ * run takes them. `preparedOnly` limits them to prepared panels: a render run
+ * can only take those, while the set's estimate counts every expected cell.
  */
-function workItems(kind: "prepare" | "render", rows: SetRows, opts: { preparedOnly: boolean }): WorkItem[] {
-  if (kind === "prepare") {
-    const bound = panelPreparationBoundUsd(rows.planner);
-    return rows.panels.filter((p) => p.state === "pending").map((p) => ({
-      ref: `panel:${p.id}`,
-      label: `preparing panel ${p.id} (fact ${p.factId}, ${p.scenarioKey}, ${p.lookStyleId})`,
-      boundUsd: bound,
-    }));
-  }
+export function renderItems(rows: SetRows, opts: { preparedOnly: boolean }): WorkItem[] {
   const prepared = new Set(rows.panels.filter((p) => p.state === "prepared").map((p) => p.id));
   return rows.cells.filter((c) => c.state === "expected" && (!opts.preparedOnly || prepared.has(c.panelId))).map((c) => ({
     ref: `cell:${c.id}`,
@@ -203,7 +211,7 @@ function workItems(kind: "prepare" | "render", rows: SetRows, opts: { preparedOn
 }
 
 /** The bounds of a set's remaining work, shared by the status view and the dry run. */
-export function estimateOf(prepare: WorkItem[], render: WorkItem[]): ComparisonSetDetail["estimate"] {
+export function estimateOf(prepare: WorkItem[], render: WorkItem[]): Omit<ComparisonSetDetail["estimate"], "preparationRefusal"> & { preparationBoundUsd: number } {
   const perEngine: Record<string, number> = {};
   for (const item of render) perEngine[item.engineId!] = (perEngine[item.engineId!] ?? 0) + item.boundUsd;
   const sum = (items: WorkItem[]) => round4(items.reduce((s, i) => s + i.boundUsd, 0));
@@ -219,6 +227,20 @@ export async function getComparisonSet(setId: number): Promise<ComparisonSetDeta
   if (!rows) return null;
   const cellsByPanel = new Map<number, ComparisonCell[]>();
   for (const c of rows.cells) cellsByPanel.set(c.panelId, [...(cellsByPanel.get(c.panelId) ?? []), c]);
+  // An unusable planner withholds only the preparation figure; the grid, the
+  // render estimate and the runs stay readable.
+  let prepare: WorkItem[] = [];
+  let preparationRefusal: string | null = null;
+  if (rows.panels.some((p) => p.state === "pending")) {
+    try {
+      prepare = prepareItems(rows, await plannerSettings());
+    } catch (err) {
+      if (!(err instanceof ComparisonLayoutError)) throw err;
+      preparationRefusal = err.reasons.join("; ");
+    }
+  }
+  const estimate = estimateOf(prepare, renderItems(rows, { preparedOnly: false }));
+  const runs = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.setId, setId)).orderBy(desc(comparisonRunsTable.createdAt));
   return {
     set: rows.set,
     panels: rows.panels.map((p) => ({ ...p, cells: cellsByPanel.get(p.id) ?? [] })),
@@ -226,23 +248,29 @@ export async function getComparisonSet(setId: number): Promise<ComparisonSetDeta
       panels: tally(COMPARISON_PANEL_STATES, rows.panels.map((p) => p.state)),
       cells: tally(COMPARISON_CELL_STATES, rows.cells.map((c) => c.state)),
     },
-    estimate: estimateOf(workItems("prepare", rows, { preparedOnly: false }), workItems("render", rows, { preparedOnly: false })),
+    estimate: { ...estimate, preparationBoundUsd: preparationRefusal ? null : estimate.preparationBoundUsd, preparationRefusal },
+    runs,
   };
 }
 
 /** Every reservation not yet settled or released counts at its bound. */
-async function unresolvedReservedUsd(): Promise<number> {
-  const [row] = await db
+export async function unresolvedReservedUsd(exec: Executor = db): Promise<number> {
+  const [row] = await exec
     .select({ total: sql<string>`coalesce(sum(${comparisonReservationsTable.boundUsd}), 0)` })
     .from(comparisonReservationsTable)
     .where(eq(comparisonReservationsTable.state, "reserved"));
   return Number(row?.total ?? 0);
 }
 
+/** The work a run of `kind` would take; the planner is resolved only for preparation. */
+export async function runItems(kind: "prepare" | "render", rows: SetRows): Promise<WorkItem[]> {
+  return kind === "prepare" ? prepareItems(rows, await plannerSettings()) : renderItems(rows, { preparedOnly: true });
+}
+
 export async function planComparisonRun(setId: number, req: ComparisonRunPlanRequest): Promise<RunPlan | null> {
   const [rows, reserved] = await Promise.all([loadSetRows(setId), unresolvedReservedUsd()]);
   if (!rows) return null;
-  return planRun(workItems(req.kind, rows, { preparedOnly: true }), {
+  return planRun(await runItems(req.kind, rows), {
     allowanceUsd: req.allowanceUsd ?? PAID_RUN_ALLOWANCE_USD,
     weekRemainingUsd: req.weekRemainingUsd,
     unresolvedReservedUsd: reserved,

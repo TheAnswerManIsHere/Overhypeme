@@ -333,3 +333,32 @@ describe("GET /admin/eval/dashboard (aggregation + run diff)", () => {
     assert.ok(drift.status === 401 || drift.status === 403);
   });
 });
+
+describe("POST /admin/eval/runs with a named engine (launch Phase 8)", () => {
+  it("renders the run's text-to-image attempts through the named engine, and refuses an unusable one", async () => {
+    const { enginesTable } = await import("@workspace/db/schema");
+    const { ALL_ENGINES } = await import("../lib/engines/index.js");
+    const { codeDefinitionToRow } = await import("../lib/engines/reconcile.js");
+    const id = `t-ev-${randomUUID().slice(0, 8)}`;
+    const def = ALL_ENGINES.find((e) => e.id === "flux-3")!;
+    await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, isDefault: false });
+    try {
+      await makeFact({ active: true, golden: true });
+      const unknown = await authp(request(app).post(`/admin/eval/runs`), adminSid).send({ label: "override", imageEngines: { t2i: "no-such-engine" } });
+      assert.equal(unknown.status, 400);
+      assert.equal(unknown.body.error, "image_engine_refused");
+      const wrongMode = await authp(request(app).post(`/admin/eval/runs`), adminSid).send({ label: "override", imageEngines: { i2i: id } });
+      assert.equal(wrongMode.status, 400, "a text-to-image engine cannot be named for edits");
+
+      const res = await authp(request(app).post(`/admin/eval/runs`), adminSid).send({ label: "override", imageEngines: { t2i: id } });
+      assert.equal(res.status, 202, JSON.stringify(res.body));
+      const t2i = (res.body.items as Array<{ scenarioKey: string; status: string; attemptId?: number }>).filter((i) => i.scenarioKey === "generic_t2i" && i.attemptId);
+      assert.ok(t2i.length >= 1, JSON.stringify(res.body.items));
+      const attempts = await db.select({ engine: imagePromptAttemptsTable.actualImageEngineId }).from(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, t2i.map((i) => i.attemptId!)));
+      assert.ok(attempts.every((a) => a.engine === id));
+    } finally {
+      await db.delete(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.actualImageEngineId, id));
+      await db.delete(enginesTable).where(eq(enginesTable.id, id));
+    }
+  });
+});

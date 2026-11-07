@@ -129,15 +129,29 @@ async function uploadToFal(buf: Buffer, contentType: string): Promise<string> {
  */
 export async function resolveDefaultReferenceUrl(
   identityType: ReferenceIdentityType,
+  opts: {
+    /**
+     * Downscale so the longer edge is at most this many pixels before upload
+     * (never upscaled). The engine comparison sends 1024, the size its edit
+     * price bounds assume (launch Phase 8 plan, D2).
+     */
+    maxEdgePx?: number;
+  } = {},
 ): Promise<{ url: string; version: string }> {
   const meta = referenceAssetMeta(identityType);
-  const cacheKey = `${identityType}@${meta.version}`;
+  const cacheKey = `${identityType}@${meta.version}${opts.maxEdgePx ? `@${opts.maxEdgePx}` : ""}`;
   let pending = urlCache.get(cacheKey);
   if (!pending) {
     pending = (async () => {
       await statRealAsset(meta);
       const buf = await fs.readFile(meta.filePath);
-      return uploadToFal(buf, meta.contentType);
+      if (!opts.maxEdgePx) return uploadToFal(buf, meta.contentType);
+      const { default: sharp } = await import("sharp");
+      const resized = await sharp(buf)
+        .resize(opts.maxEdgePx, opts.maxEdgePx, { fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 92 })
+        .toBuffer();
+      return uploadToFal(resized, "image/jpeg");
     })().catch((err) => {
       urlCache.delete(cacheKey); // allow retry on a later request
       throw err;

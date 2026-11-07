@@ -69,6 +69,15 @@ export type EvalGoldenWrite = z.infer<typeof evalGoldenWriteSchema>;
 
 export const evalRunCreateSchema = z.object({
   label: z.string().max(120).nullable().optional(),
+  /**
+   * Render this run through a named engine per mode instead of the configured
+   * defaults (launch Phase 8). Each id is validated against the catalogue for
+   * its mode, and an unusable one refuses the run, never falls back.
+   */
+  imageEngines: z.object({
+    t2i: z.string().trim().min(1).max(64).optional(),
+    i2i: z.string().trim().min(1).max(64).optional(),
+  }).strict().optional(),
 });
 export type EvalRunCreate = z.infer<typeof evalRunCreateSchema>;
 

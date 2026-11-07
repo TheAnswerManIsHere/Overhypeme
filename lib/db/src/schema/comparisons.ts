@@ -46,7 +46,7 @@ export const comparisonPanelsTable = pgTable("comparison_panels", {
   lookStyleId: varchar("look_style_id", { length: 64 }).notNull(),
   /** "t2i" | "i2i", from the scenario. */
   imageMode: varchar("image_mode", { length: 4 }).notNull(),
-  /** "pending" | "prepared" | "failed" | "skipped" */
+  /** "pending" | "preparing" | "prepared" | "failed" | "skipped" */
   state: varchar("state", { length: 16 }).notNull().default("pending"),
   skipReason: text("skip_reason"),
   /** Frozen at preparation (increment 2b): the planner output and the compiled prompt every cell renders. */
@@ -54,6 +54,8 @@ export const comparisonPanelsTable = pgTable("comparison_panels", {
   compiledPrompt: jsonb("compiled_prompt"),
   referenceIdentityType: varchar("reference_identity_type", { length: 32 }),
   referenceAssetVersion: varchar("reference_asset_version", { length: 32 }),
+  /** The resized default reference every edit cell of this panel receives (2b). */
+  referenceImageUrl: text("reference_image_url"),
   styleSnapshot: jsonb("style_snapshot"),
   renderControls: jsonb("render_controls"),
   error: text("error"),
@@ -77,6 +79,14 @@ export const comparisonCellsTable = pgTable("comparison_cells", {
   /** Manual re-runs taken (the plan allows one per cell, through admission). */
   rerunCount: smallint("rerun_count").notNull().default(0),
   error: text("error"),
+  /** The one fal submission this cell's attempt made; stored before polling so a resume never resubmits. */
+  falRequestId: varchar("fal_request_id", { length: 128 }),
+  /** The vendor's image URL, kept so a storage failure retries without buying a second image. */
+  vendorResultUrl: text("vendor_result_url"),
+  /** Where the rendered image is stored. */
+  imageObjectPath: text("image_object_path"),
+  /** The endpoint settings this cell sent. */
+  requestSettings: jsonb("request_settings"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
