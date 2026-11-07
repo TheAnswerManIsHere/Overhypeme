@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 import { db } from "@workspace/db";
-import { comparisonSetsTable, enginesTable, factsTable, usersTable } from "@workspace/db/schema";
+import { comparisonSetsTable, enginesTable, factsTable, lookStylesTable, usersTable } from "@workspace/db/schema";
 import { inArray, like } from "drizzle-orm";
 
 import adminComparisonRouter from "../routes/adminComparison.js";
@@ -25,6 +25,8 @@ const SOURCES: Record<string, [string, string]> = {
   [FAMILIES[0]!]: ["gpt-image-2-5", "gpt-image-2-5-edit"],
   [FAMILIES[1]!]: ["flux-3", "flux-3-edit"],
 };
+/** Seeded here: a test database carries no look styles of its own. */
+const STYLE = `${P}-style`;
 const engineIds: string[] = [];
 let adminId = "";
 let userId = "";
@@ -44,6 +46,7 @@ before(async () => {
   const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
   const inserted = await db.insert(enginesTable).values(codeDefinitionToRow(planner)).onConflictDoNothing().returning({ id: enginesTable.id });
   seededPlanner = inserted.length > 0;
+  await db.insert(lookStylesTable).values({ id: STYLE, label: "Comparison test look", promptSuffix: "test look" });
   adminId = `${P}-admin`;
   userId = `${P}-user`;
   await db.insert(usersTable).values([
@@ -57,6 +60,7 @@ before(async () => {
 after(async () => {
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(inArray(factsTable.id, [factId]));
+  await db.delete(lookStylesTable).where(inArray(lookStylesTable.id, [STYLE]));
   await db.delete(enginesTable).where(inArray(enginesTable.id, seededPlanner ? [...engineIds, DEFAULT_IMAGE_PROMPT_ENGINE_ID] : engineIds));
   await db.delete(usersTable).where(inArray(usersTable.id, [adminId, userId]));
 });
@@ -66,7 +70,7 @@ const body = (over: Record<string, unknown> = {}) => ({
   round: 1,
   factIds: [factId],
   scenarioKeys: ["generic_t2i", "i2i_male_default"],
-  lookStyleIds: ["none", "anime"],
+  lookStyleIds: ["none", STYLE],
   engineFamilies: FAMILIES,
   ...over,
 });
