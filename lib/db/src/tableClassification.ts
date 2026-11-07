@@ -177,6 +177,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   enrichment_override_history: { class: "product" },
   comparison_cells: { class: "product" },
   comparison_panels: { class: "product" },
+  comparison_picks: { class: "product" },
   comparison_reservations: { class: "product" },
   comparison_runs: { class: "product" },
   comparison_sets: { class: "product" },

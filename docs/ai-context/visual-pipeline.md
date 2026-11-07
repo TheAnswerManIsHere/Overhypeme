@@ -75,30 +75,27 @@ beside the eval run rather than inside it (plan
   the whole set with the reason; it is never dropped, since a silently smaller
   comparison is what the plan forbids. Round 1 is 15 panels and 90 cells,
   round 2 18 and 108 (`COMPARISON_ROUND_PRESETS`).
-- **Spend is bounded before dispatch** (`artifacts/api-server/src/lib/comparison/admission.ts`). A
-  panel's preparation reserves two planner calls, each at the completion
-  ceiling its request would send — taken from the planner call's own
-  resolution (`resolveImagePromptLLMSettings`) and request-shaping rule
-  (`chatModelTuningParams`), so raising the planner's token limit raises the
-  bound — plus 12,000 input tokens ($0.768 a panel on the shipped gpt-5.5 at
-  2,800 tokens). Any planner fallback, or a model with no price, refuses
-  rather than pricing a guess. A cell reserves its engine's
-  `perCallBoundUsd`. A run takes items
-  in order while its bound stays under the $5 per-run allowance, and is refused
-  — with the figure — when one item alone exceeds it, or when the run plus
-  every reservation still unresolved exceeds what the operator reads as left
-  this week from the fleet's paid-run ledger.
+- **Pricing does not gate a comparison run** (David, 2026-11-07, *"Ignore
+  pricing entirely. Doesn't matter right now."*; `decisions.md`). A run takes
+  every pending item of its kind: no per-run allowance, no week figure, no
+  reading of fal's bills, no first-edit gate. Each call is still priced at its
+  worst case, as a record (`artifacts/api-server/src/lib/comparison/admission.ts`):
+  a panel's preparation at two planner calls, each at the completion ceiling
+  its request would send — taken from the planner call's own resolution
+  (`resolveImagePromptLLMSettings`) and request-shaping rule
+  (`chatModelTuningParams`) — plus 12,000 input tokens ($0.768 a panel on the
+  shipped gpt-5.5 at 2,800 tokens); a cell at its engine's `perCallBoundUsd`.
+  A planner fallback still refuses preparation, since it would be a different
+  experiment.
 - **Planning writes nothing**: `POST /api/admin/comparison/sets/:id/plan`
-  returns the next run's bound and how many runs remain, or the refusal.
-  Reservations (`comparison_reservations`) are written by the run that spends,
-  so a plan that never runs holds no budget.
+  returns the next run's items and their worst case, or "nothing left to do".
 - **Starting a run is the one action that spends**
   (`POST /api/admin/comparison/sets/:id/runs`,
   `artifacts/api-server/src/lib/comparison/runs.ts`). Admission takes one
-  advisory lock, re-reads the set and every unresolved reservation, plans the
-  run, and either records the refusal with its figure or writes one
-  reservation row per permitted call, marks each item in flight and queues it,
-  all in one transaction. Paid comparison runs never run in CI, refused at
+  advisory lock — so two starts can never both take the same pending item —
+  re-reads the set, and writes one reservation row per call (the call's
+  record: its worst case and, once submitted, its fal request id), marks each
+  item in flight and queues it, all in one transaction. Paid comparison runs never run in CI, refused at
   admission and again at the transport's submission. The two queues
   (`comparison_prepare`, `comparison_render`) run each job at one attempt, on
   the bulk lane so a long run never holds up moderation or member renders.
@@ -120,46 +117,46 @@ beside the eval run rather than inside it (plan
   vendor's answer with the worker's own functions
   (`artifacts/api-server/src/lib/imageEngineRequest.ts`), so it measures what
   production sends.
-- **Settlement**: a call that never reached a vendor releases its
-  reservation. Each reservation records the fal request it paid for, written
-  with the cell's at submission; a re-run replaces the cell's id and never the
-  reservation's, so every reservation settles only from its own call's bill.
-  A completed fal call settles at the bill fal reports for its
-  request (`GET https://api.fal.ai/v1/models/billing-events?request_id=…`,
-  `cost_total`), never clipped to the reservation; a bill not yet reported
-  keeps the reservation held — still counted against the week — until a
-  later read ("Check fal's bills", and before each render run's admission).
-  A planner call settles at its bound, since OpenAI reports no per-request
-  bill. A call that failed after submission stays reserved, since it may have
-  been billed. A storage failure keeps the vendor's URL and its retry stores
-  that image again; a render failure gets one re-run, which the next render
-  run admits.
+- **The record of each call**: a call that never reached a vendor is
+  released. A completed call, planner or fal, is settled at its bound — no
+  bill is read; fal's dashboard has what was actually billed. A call that
+  failed after submission stays reserved, since it may have been billed. Each
+  reservation records the fal request it was for, written with the cell's at
+  submission; a re-run replaces the cell's id and never the reservation's. A
+  storage failure keeps the vendor's URL and its retry stores that image
+  again; a render failure gets one re-run, which the next render run takes.
 - **A restart never repeats a paid call.** A panel is marked `planning`
   before its planner call, and a cell's request settings are written before
   its submission; a job that resumes to find the marker without a result
   fails as ambiguous and keeps its reservation, rather than calling again.
-- **The D2 check** (`gateMeasuredFamilies` in
-  `artifacts/api-server/src/lib/comparison/sets.ts`): a family whose price
-  rests on a measured figure (GPT Image 2.5's reference-image charge) renders
-  one edit cell first; its other cells wait until fal's bill for that edit
-  is read, are admitted once it is within its reservation, and are refused
-  with the figure if it is above. Only a call still in flight, or one that
-  returned the cell's image, is a bill awaited: a first edit that failed keeps
-  its reservation against the week, and the next run admits another first edit.
-- **Start never runs more than the plan shown.** The start carries the
-  bound of the plan on screen (`expectedBoundUsd`); if the work has grown
-  since — a panel prepared, a family cleared by its first bill — the start is
-  refused with the new figure, to be planned again, and reserves nothing.
 - **The eval runner can name its engine per mode**
   (`POST /api/admin/eval/runs` `imageEngines: { t2i?, i2i? }`); an engine
   that cannot draw its mode refuses the run, never falls back.
 - **Status is shown at both altitudes** on `/admin/eval`: every cell's state,
-  and the set's aggregate and remaining bound. A response is applied only
+  and the set's aggregate and remaining worst case. A response is applied only
   while the set it was requested for is still selected, so one set's figures
   never appear under another.
-- **Read-only dry run**: `artifacts/api-server/scripts/comparison-dry-run.ts` derives rounds 1 and 2
-  against a database's real catalogue and checks 33 panels, 198 cells and a
-  refusal with $1 left in the week.
+- **Blind judging** (`/admin/eval/judge/:setId`,
+  `artifacts/api-server/src/lib/comparison/judging.ts`): one panel at a time,
+  its images lettered A, B, C… in a shuffle that is stable across reloads. Each
+  image is addressed by an opaque token — a hash of the panel's stored shuffle
+  seed and the cell id, the seed never leaving the server — and served by
+  `GET /api/admin/comparison/panels/:id/images/:token` with only its content
+  type, so neither the payload nor the image names an engine, endpoint, cell
+  or storage path. A panel is judgeable only when every cell has a stored
+  image; until then it shows how many are in and none of them. David picks
+  the best and, on panels with a person's reference photo, marks any face that
+  is not the person (`comparison_picks`, one row per panel); re-judging
+  replaces the pick and keeps the previous one in the row's `history`.
+- **Results** (`/admin/eval/results?sets=…`, `GET
+  /api/admin/comparison/results?setIds=…`) reveal the engines, across one or
+  more sets so rounds 1 and 2 read together: wins per family by mode (the
+  leader of text-to-image and of reference edit, ties shown), by style and by
+  scenario; the "not the person" marks against the human-reference panels
+  judged; and each engine's calls with their worst case.
+- **Read-only dry run**: `artifacts/api-server/scripts/comparison-dry-run.ts`
+  derives rounds 1 and 2 against a database's real catalogue and checks 33
+  panels and 198 cells, reporting the worst case.
 - **FLUX 3 is judged at `safety_tolerance` 3**, not fal's default 2: the same
   rank (second-most permissive) as the Nano Banana engines' 5 of 1–6, so the
   comparison judges its drawing, not a stricter filter.

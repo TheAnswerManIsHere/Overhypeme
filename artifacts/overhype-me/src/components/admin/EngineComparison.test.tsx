@@ -1,7 +1,8 @@
 /**
  * EngineComparison — the launch Phase 8 comparison section on /admin/eval.
  * Creating a set from a round preset, the per-cell grid and aggregate, the
- * bounded estimate, and a planned run's bound or its refusal with the figure.
+ * bounded estimate, a planned run's worst case, and the links to judging.
+ * Pricing does not gate a run (David, 2026-11-07): no week figure is asked.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -63,25 +64,32 @@ describe("EngineComparison", () => {
     expect(posts).toEqual([]);
   });
 
-  it("shows a planned run's bound and the runs left", async () => {
-    vi.stubGlobal("fetch", routeFetch({ admitted: true, items: Array.from({ length: 6 }, (_, i) => ({ ref: `panel:${i}`, label: "", boundUsd: 0.728 })), boundUsd: 4.368, allowanceUsd: 5, remainingItems: 9, remainingBoundUsd: 6.552, runsNeeded: 3, refusal: null }));
+  it("shows a planned run's worst case, and asks for no week figure", async () => {
+    vi.stubGlobal("fetch", routeFetch({ admitted: true, items: Array.from({ length: 6 }, (_, i) => ({ ref: `panel:${i}`, label: "", boundUsd: 0.728 })), boundUsd: 4.368, refusal: null }));
     render(<EngineComparison />);
     fireEvent.click(await screen.findByText(/#7 Round 1/));
-    fireEvent.change(await screen.findByTestId("comparison-week-remaining"), { target: { value: "25" } });
     fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
     const plan = await screen.findByTestId("comparison-plan");
-    expect(plan.textContent).toMatch(/takes 6 items, bounded at \$4\.37 of the \$5\.00 allowance/);
-    expect(plan.textContent).toMatch(/9 more .* need 2 further runs/);
-    expect(posts.at(-1)!.body).toEqual({ kind: "prepare", weekRemainingUsd: 25 });
+    expect(plan.textContent).toMatch(/takes all 6 items still to do, at most \$4\.37/);
+    expect(posts.at(-1)!.body).toEqual({ kind: "prepare" });
+    expect(screen.queryByTestId("comparison-week-remaining")).toBeNull();
+    expect(screen.queryByTestId("comparison-settle-bills")).toBeNull();
   });
 
-  it("shows a refusal with its figure", async () => {
-    vi.stubGlobal("fetch", routeFetch({ admitted: false, items: [], boundUsd: 0, allowanceUsd: 5, remainingItems: 1, remainingBoundUsd: 0.7, runsNeeded: 1, refusal: "this run is bounded at $0.7280 … above the $0.50 left this week" }));
+  it("shows a refusal", async () => {
+    vi.stubGlobal("fetch", routeFetch({ admitted: false, items: [], boundUsd: 0, refusal: "nothing left to do" }));
     render(<EngineComparison />);
     fireEvent.click(await screen.findByText(/#7 Round 1/));
-    fireEvent.change(await screen.findByTestId("comparison-week-remaining"), { target: { value: "0.5" } });
-    fireEvent.click(screen.getByTestId("comparison-plan-prepare"));
-    expect((await screen.findByTestId("comparison-plan-refusal")).textContent).toMatch(/above the \$0\.50 left this week/);
+    fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
+    expect((await screen.findByTestId("comparison-plan-refusal")).textContent).toMatch(/nothing left to do/);
+  });
+
+  it("links the selected set to its blind judging page and its results", async () => {
+    vi.stubGlobal("fetch", routeFetch(null));
+    render(<EngineComparison />);
+    fireEvent.click(await screen.findByText(/#7 Round 1/));
+    expect((await screen.findByTestId("comparison-judge-link")).getAttribute("href")).toBe("/admin/eval/judge/7");
+    expect(screen.getByTestId("comparison-results-link").getAttribute("href")).toBe("/admin/eval/results?sets=7");
   });
 });
 
@@ -132,14 +140,13 @@ describe("EngineComparison — responses for an earlier selection", () => {
   });
 
   it("a plan requested for the previous set never appears under the selected one", async () => {
-    const plan = { admitted: true, items: [{ ref: "panel:1", label: "", boundUsd: 0.768 }], boundUsd: 0.768, allowanceUsd: 5, remainingItems: 0, remainingBoundUsd: 0, runsNeeded: 1, refusal: null };
+    const plan = { admitted: true, items: [{ ref: "panel:1", label: "", boundUsd: 0.768 }], boundUsd: 0.768, refusal: null };
     const { fetchMock, release } = controlledFetch({ "/comparison/sets/7": { body: detailFor(7) }, "/comparison/sets/7/plan": { body: plan } });
     vi.stubGlobal("fetch", fetchMock);
     render(<EngineComparison />);
     fireEvent.click(await screen.findByText(/#7 Set 7/));
     await new Promise((r) => setTimeout(r, 0));
     release["/comparison/sets/7"]!();
-    fireEvent.change(await screen.findByTestId("comparison-week-remaining"), { target: { value: "25" } });
     fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
     fireEvent.click(screen.getByText(/#8 Set 8/));
     await waitFor(() => expect(screen.getByTestId("comparison-detail").textContent).toMatch(/Set #8/));
@@ -150,7 +157,7 @@ describe("EngineComparison — responses for an earlier selection", () => {
 });
 
 describe("EngineComparison — starting a run", () => {
-  const PLAN = { admitted: true, items: [{ ref: "panel:1", label: "", boundUsd: 0.768 }], boundUsd: 0.768, allowanceUsd: 5, remainingItems: 0, remainingBoundUsd: 0, runsNeeded: 1, refusal: null };
+  const PLAN = { admitted: true, items: [{ ref: "panel:1", label: "", boundUsd: 0.768 }], boundUsd: 0.768, refusal: null };
   const FAILED = {
     ...DETAIL,
     panels: [{ ...DETAIL.panels[0]!, state: "prepared", cells: [
@@ -170,34 +177,23 @@ describe("EngineComparison — starting a run", () => {
     });
   }
 
-  it("refuses to plan with nothing typed for the week, without calling the server", async () => {
-    vi.stubGlobal("fetch", startFetch({ status: 202, body: {} }));
-    render(<EngineComparison />);
-    fireEvent.click(await screen.findByText(/#7 Round 1/));
-    fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
-    expect((await screen.findByTestId("comparison-error")).textContent).toMatch(/Enter what the paid-run ledger says is left this week/);
-    expect(posts).toEqual([]);
-  });
-
-  it("starts the planned run with the typed week figure and reports it", async () => {
+  it("starts the planned run and reports it", async () => {
     vi.stubGlobal("fetch", startFetch({ status: 202, body: { run: { id: 3, kind: "prepare", state: "running", boundUsd: "0.7680", refusal: null, createdAt: "" }, plan: PLAN } }));
     render(<EngineComparison />);
     fireEvent.click(await screen.findByText(/#7 Round 1/));
-    fireEvent.change(await screen.findByTestId("comparison-week-remaining"), { target: { value: "18.4" } });
-    fireEvent.click(screen.getByTestId("comparison-plan-prepare"));
+    fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
     fireEvent.click(await screen.findByTestId("comparison-start-run"));
     expect((await screen.findByTestId("comparison-notice")).textContent).toMatch(/Run #3 started: 1 item, at most \$0\.77/);
-    expect(posts.at(-1)).toEqual({ url: "/api/admin/comparison/sets/7/runs", body: { kind: "prepare", weekRemainingUsd: 18.4, expectedBoundUsd: 0.768 } });
+    expect(posts.at(-1)).toEqual({ url: "/api/admin/comparison/sets/7/runs", body: { kind: "prepare" } });
   });
 
-  it("shows a refused start with its figure", async () => {
-    vi.stubGlobal("fetch", startFetch({ status: 409, body: { error: "run_refused", refusal: "this run is bounded at $0.7680 … above the $0.50 left this week" } }));
+  it("shows a refused start", async () => {
+    vi.stubGlobal("fetch", startFetch({ status: 409, body: { error: "run_refused", refusal: "paid comparison runs never run in CI" } }));
     render(<EngineComparison />);
     fireEvent.click(await screen.findByText(/#7 Round 1/));
-    fireEvent.change(await screen.findByTestId("comparison-week-remaining"), { target: { value: "25" } });
-    fireEvent.click(screen.getByTestId("comparison-plan-prepare"));
+    fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
     fireEvent.click(await screen.findByTestId("comparison-start-run"));
-    expect((await screen.findByTestId("comparison-error")).textContent).toMatch(/Run refused: .*\$0\.50 left this week/);
+    expect((await screen.findByTestId("comparison-error")).textContent).toMatch(/Run refused: paid comparison runs never run in CI/);
   });
 
   it("offers storage-only retry for a stored-at-vendor failure and a re-run otherwise", async () => {
@@ -214,7 +210,7 @@ describe("EngineComparison — starting a run", () => {
 
 describe("EngineComparison — a start that finishes after the selection changed", () => {
   it("leaves the start button usable on the set now selected", async () => {
-    const PLAN = { admitted: true, items: [{ ref: "panel:1", label: "", boundUsd: 0.768 }], boundUsd: 0.768, allowanceUsd: 5, remainingItems: 0, remainingBoundUsd: 0, runsNeeded: 1, refusal: null };
+    const PLAN = { admitted: true, items: [{ ref: "panel:1", label: "", boundUsd: 0.768 }], boundUsd: 0.768, refusal: null };
     let releaseStart: () => void = () => {};
     const detailFor = (id: number) => ({ ...DETAIL, set: { ...DETAIL.set, id, label: `Set ${id}` } });
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
@@ -229,15 +225,13 @@ describe("EngineComparison — a start that finishes after the selection changed
     }));
     render(<EngineComparison />);
     fireEvent.click(await screen.findByText(/#7 Set 7/));
-    fireEvent.change(await screen.findByTestId("comparison-week-remaining"), { target: { value: "25" } });
-    fireEvent.click(screen.getByTestId("comparison-plan-prepare"));
+    fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
     fireEvent.click(await screen.findByTestId("comparison-start-run"));
     fireEvent.click(screen.getByText(/#8 Set 8/));
     await waitFor(() => expect(screen.getByTestId("comparison-detail").textContent).toMatch(/Set #8/));
     releaseStart();
     await new Promise((r) => setTimeout(r, 0));
-    fireEvent.change(screen.getByTestId("comparison-week-remaining"), { target: { value: "25" } });
-    fireEvent.click(screen.getByTestId("comparison-plan-prepare"));
+    fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
     const button = await screen.findByTestId("comparison-start-run");
     expect((button as HTMLButtonElement).disabled).toBe(false);
   });

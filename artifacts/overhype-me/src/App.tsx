@@ -34,6 +34,8 @@ const AdminBilling = lazy(() => import("@/pages/admin/billing"));
 const AdminRefundsDisputes = lazy(() => import("@/pages/admin/refundsDisputes"));
 const AdminModeration = lazy(() => import("@/pages/admin/moderation"));
 const AdminEvalDashboard = lazy(() => import("@/pages/admin/evalDashboard"));
+const AdminComparisonJudging = lazy(() => import("@/pages/admin/comparisonJudging"));
+const AdminComparisonResults = lazy(() => import("@/pages/admin/comparisonResults"));
 const AdminConfig = lazy(() => import("@/pages/admin/config"));
 const AdminEngines = lazy(() => import("@/pages/admin/engines"));
 const AdminTaxonomyHealth = lazy(() => import("@/pages/admin/taxonomy-health"));
@@ -281,6 +283,8 @@ function Router() {
         <Route path="/admin/billing" component={AdminBilling} />
         <Route path="/admin/refunds-disputes" component={AdminRefundsDisputes} />
         <Route path="/admin/moderation" component={AdminModeration} />
+        <Route path="/admin/eval/judge/:setId" component={AdminComparisonJudging} />
+        <Route path="/admin/eval/results" component={AdminComparisonResults} />
         <Route path="/admin/eval" component={AdminEvalDashboard} />
         <Route path="/admin/comments"><AdminModerationRedirect /></Route>
         <Route path="/admin/reviews"><AdminModerationRedirect /></Route>

@@ -554,6 +554,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.comparisonCellsTable, "not-catalogue", "the Phase 8 engine comparison, an admin evaluation lane"),
   exclude(s.comparisonRunsTable, "not-catalogue", "the Phase 8 engine comparison, an admin evaluation lane"),
   exclude(s.comparisonReservationsTable, "not-catalogue", "the Phase 8 engine comparison's spend records"),
+  exclude(s.comparisonPicksTable, "not-catalogue", "the Phase 8 engine comparison's blind picks, an admin evaluation lane"),
   exclude(s.tierFeaturePermissionAuditTable, "not-catalogue", "admin audit history"),
   exclude(s.featurePermissionsMigrationLogTable, "not-catalogue", "one-off migration bookkeeping"),
   exclude(s.engineRevisionBumpsTable, "not-catalogue", "admin audit history"),

@@ -530,6 +530,8 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // five new tables. Source of truth: lib/db/src/schema/comparisons.ts.
   "0124_engine_comparison",
   "0125_comparison_runs",
+  // Hand-written expand (increment 3): comparison_picks, and allowance_usd nullable.
+  "0126_comparison_picks",
 ]);
 
 interface JournalEntry {

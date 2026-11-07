@@ -72,11 +72,9 @@ describe("run admission", () => {
     assert.ok(Math.abs(panelPreparationBoundUsd(SHIPPED) - 0.768) < 1e-9, String(panelPreparationBoundUsd(SHIPPED)));
   });
 
-  it("a raised planner token ceiling raises the bound, and admits fewer panels", () => {
+  it("a raised planner token ceiling raises the bound", () => {
     const raised = { ...SHIPPED, maxTokens: 6000 };
     assert.ok(Math.abs(panelPreparationBoundUsd(raised) - 0.96) < 1e-9, String(panelPreparationBoundUsd(raised)));
-    const plan = planRun(items(15, panelPreparationBoundUsd(raised), "panel"), { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
-    assert.equal(plan.items.length, 5); // 5 × 0.96 = 4.80; a sixth would be 5.76
   });
 
   it("a planner request without reasoning headroom is priced from its own ceiling", () => {
@@ -93,32 +91,20 @@ describe("run admission", () => {
     assert.throws(() => cellBoundUsd(null), /never admitted/);
   });
 
-  it("packs a run greedily under the allowance and counts the runs left", () => {
-    const plan = planRun(items(15, panelPreparationBoundUsd(SHIPPED), "panel"), { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
+  // David, 2026-11-07: "Ignore pricing entirely." No allowance or week limits a run.
+  it("takes every pending item, with no allowance or week limit, and records the worst case", () => {
+    const plan = planRun(items(15, panelPreparationBoundUsd(SHIPPED), "panel"));
     assert.equal(plan.admitted, true);
-    assert.equal(plan.items.length, 6); // 6 × 0.768 = 4.608; a seventh would be 5.376
-    assert.equal(plan.remainingItems, 9);
-    assert.equal(plan.runsNeeded, 3);
-    assert.ok(plan.boundUsd <= 5);
-  });
-
-  it("refuses an item that alone exceeds the allowance, with the figure", () => {
-    const plan = planRun([{ ref: "cell:1", label: "rendering cell 1 (x)", boundUsd: 6 }], { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
-    assert.equal(plan.admitted, false);
-    assert.match(plan.refusal ?? "", /\$6\.0000, above the \$5\.00 per-run allowance/);
-  });
-
-  it("refuses a run the week cannot cover once unresolved reservations count", () => {
-    const plan = planRun(items(10, 0.4), { allowanceUsd: 5, weekRemainingUsd: 4, unresolvedReservedUsd: 1 });
-    assert.equal(plan.admitted, false);
-    assert.equal(plan.items.length, 10);
-    assert.match(plan.refusal ?? "", /\$1\.0000 is still reserved.*above the \$4\.00 left this week/);
+    assert.equal(plan.items.length, 15);
+    assert.ok(Math.abs(plan.boundUsd - 11.52) < 1e-9, String(plan.boundUsd)); // 15 × 0.768, above the old $5
+    const big = planRun([{ ref: "cell:1", label: "rendering cell 1 (x)", boundUsd: 6 }]);
+    assert.equal(big.admitted, true, "an item above the old $5 allowance is no longer refused");
   });
 
   it("nothing pending is not a run", () => {
-    const plan = planRun([], { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
+    const plan = planRun([]);
     assert.equal(plan.admitted, false);
-    assert.equal(plan.runsNeeded, 0);
+    assert.equal(plan.refusal, "nothing left to do");
   });
 
   it("rounds 1 and 2 render within the plan's figure at the candidates' bounds", () => {
