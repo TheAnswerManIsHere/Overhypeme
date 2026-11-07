@@ -25,6 +25,7 @@ import {
   type RenderScenarioKey,
   type ReferenceIdentityType,
   type FactEnrichment,
+  type GenerationMode,
 } from "@workspace/api-zod";
 import type { SourceImageAnalysis } from "@workspace/api-zod";
 import {
@@ -57,6 +58,8 @@ async function enqueueEvalScenario(args: {
   factText: string;
   enrichment: FactEnrichment;
   scenarioKey: RenderScenarioKey;
+  /** A named engine per mode, overriding the configured default (validated by the route). */
+  imageEngines?: Partial<Record<GenerationMode, string>>;
 }): Promise<EvalRunItemResult> {
   const { runId, factId, factText, enrichment, scenarioKey } = args;
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
@@ -94,7 +97,8 @@ async function enqueueEvalScenario(args: {
   }
 
   // The engine this eval attempt is routed to, hashed and stored as one value.
-  const imageEngineId = (await currentImageEngineIds())[generationModeForSubjectRenderMode(mode)];
+  const generationMode = generationModeForSubjectRenderMode(mode);
+  const imageEngineId = args.imageEngines?.[generationMode] ?? (await currentImageEngineIds())[generationMode];
   const inputHash = buildScenarioInputHash({
     stagingFactId: factId,
     scenarioKey,
@@ -142,7 +146,7 @@ async function enqueueEvalScenario(args: {
  * approval-required scenarios (generic t2i, male i2i, female i2i). Best-effort
  * per item. Returns the run id + the per-item enqueue outcome (rule-8 status).
  */
-export async function startEvalRun(args: { label: string | null; adminUserId: string }): Promise<{
+export async function startEvalRun(args: { label: string | null; adminUserId: string; imageEngines?: Partial<Record<GenerationMode, string>> }): Promise<{
   runId: number;
   items: EvalRunItemResult[];
 }> {
@@ -166,7 +170,7 @@ export async function startEvalRun(args: { label: string | null; adminUserId: st
       continue;
     }
     for (const scenarioKey of REQUIRED_RENDER_SCENARIO_KEYS) {
-      items.push(await enqueueEvalScenario({ runId, factId: fact.id, factText: fact.text, enrichment: ev.data, scenarioKey }));
+      items.push(await enqueueEvalScenario({ runId, factId: fact.id, factText: fact.text, enrichment: ev.data, scenarioKey, imageEngines: args.imageEngines }));
     }
   }
 

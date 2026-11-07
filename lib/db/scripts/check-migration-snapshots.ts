@@ -529,6 +529,7 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // Hand-written expand (Launch Phase 8, increment 2a): the engine comparison's
   // five new tables. Source of truth: lib/db/src/schema/comparisons.ts.
   "0124_engine_comparison",
+  "0125_comparison_runs",
 ]);
 
 interface JournalEntry {

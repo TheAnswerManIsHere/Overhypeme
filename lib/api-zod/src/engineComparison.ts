@@ -43,10 +43,16 @@ export const comparisonRunPlanSchema = z.object({
   allowanceUsd: z.number().positive().max(PAID_RUN_ALLOWANCE_USD).optional(),
   /** What the fleet paid-run ledger says is left this week, read by the operator. */
   weekRemainingUsd: z.number().min(0).max(PAID_WEEK_ALLOWANCE_USD),
+  /**
+   * On a start: the bound of the plan the operator was shown. A live plan
+   * that has grown past it is refused, so a run is never larger than the
+   * figure on the button that started it.
+   */
+  expectedBoundUsd: z.number().min(0).max(PAID_RUN_ALLOWANCE_USD).optional(),
 }).strict();
 export type ComparisonRunPlanRequest = z.infer<typeof comparisonRunPlanSchema>;
 
-export const COMPARISON_PANEL_STATES = ["pending", "prepared", "failed", "skipped"] as const;
+export const COMPARISON_PANEL_STATES = ["pending", "preparing", "planning", "prepared", "failed", "skipped"] as const;
 export const COMPARISON_CELL_STATES = ["expected", "enqueued", "rendered", "failed", "skipped"] as const;
 export type ComparisonPanelState = (typeof COMPARISON_PANEL_STATES)[number];
 export type ComparisonCellState = (typeof COMPARISON_CELL_STATES)[number];

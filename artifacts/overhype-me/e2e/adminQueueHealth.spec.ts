@@ -28,6 +28,8 @@ const LANES = ["fast", "render", "bulk", "ai_meme_backfill"] as const;
  * deliberate line here. (Codex, #563 round 5.)
  */
 const REGISTERED_QUEUES = [
+  "comparison_prepare",
+  "comparison_render",
   "email",
   "enrichment",
   "fact_ai_meme_backfill",
