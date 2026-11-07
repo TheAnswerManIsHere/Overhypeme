@@ -22,10 +22,6 @@ export const COMPARISON_ROUND_PRESETS: Record<1 | 2, { scenarioKeys: readonly Re
   2: { scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: ["anime", "3d-cartoon", "caricature"] },
 };
 
-/** The paid-run budget (`uat-doc-format.md`, *Lanes*): per run, and per week across every product. */
-export const PAID_RUN_ALLOWANCE_USD = 5;
-export const PAID_WEEK_ALLOWANCE_USD = 25;
-
 export const comparisonSetCreateSchema = z.object({
   label: z.string().trim().min(1).max(200),
   round: z.union([z.literal(1), z.literal(2), z.literal(3)]),
@@ -37,18 +33,12 @@ export const comparisonSetCreateSchema = z.object({
 export type ComparisonSetCreate = z.infer<typeof comparisonSetCreateSchema>;
 
 export const comparisonRunPlanSchema = z.object({
-  /** "prepare": plan the panels still to prepare; "render": the cells still to render. */
-  kind: z.enum(["prepare", "render"]),
-  /** Defaults to the per-run allowance; may only lower it. */
-  allowanceUsd: z.number().positive().max(PAID_RUN_ALLOWANCE_USD).optional(),
-  /** What the fleet paid-run ledger says is left this week, read by the operator. */
-  weekRemainingUsd: z.number().min(0).max(PAID_WEEK_ALLOWANCE_USD),
   /**
-   * On a start: the bound of the plan the operator was shown. A live plan
-   * that has grown past it is refused, so a run is never larger than the
-   * figure on the button that started it.
+   * "prepare": every panel still to prepare; "render": every cell still to
+   * render. No allowance or week figure: pricing does not gate a comparison
+   * run (David, 2026-11-07, `decisions.md`).
    */
-  expectedBoundUsd: z.number().min(0).max(PAID_RUN_ALLOWANCE_USD).optional(),
+  kind: z.enum(["prepare", "render"]),
 }).strict();
 export type ComparisonRunPlanRequest = z.infer<typeof comparisonRunPlanSchema>;
 
@@ -56,3 +46,19 @@ export const COMPARISON_PANEL_STATES = ["pending", "preparing", "planning", "pre
 export const COMPARISON_CELL_STATES = ["expected", "enqueued", "rendered", "failed", "skipped"] as const;
 export type ComparisonPanelState = (typeof COMPARISON_PANEL_STATES)[number];
 export type ComparisonCellState = (typeof COMPARISON_CELL_STATES)[number];
+
+/**
+ * A blind pick (increment 3, plan *Proposed Design* E). Cells are named by the
+ * opaque tokens the blind view issued, never by id or engine.
+ */
+export const comparisonPickSchema = z.object({
+  pickedToken: z.string().regex(/^[0-9a-f]{16}$/),
+  /** Images whose face is not the person; human-reference panels only. */
+  faceMismatchTokens: z.array(z.string().regex(/^[0-9a-f]{16}$/)).max(12).default([]),
+}).strict();
+export type ComparisonPickRequest = z.infer<typeof comparisonPickSchema>;
+
+/** Results across one or more sets, e.g. round 1 and round 2 together. */
+export const comparisonResultsQuerySchema = z.object({
+  setIds: z.string().regex(/^\d+(,\d+)*$/).transform((s) => [...new Set(s.split(",").map(Number))]).pipe(z.array(z.number().int().positive()).min(1).max(10)),
+}).strict();

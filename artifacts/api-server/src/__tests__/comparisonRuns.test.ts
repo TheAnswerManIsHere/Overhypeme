@@ -1,6 +1,7 @@
-// Launch Phase 8, increment 2b: the comparison's runs against the test
-// database, with every paid call faked (plan PLAN_PHASE8_ENGINE_EVALUATION.md,
-// *Settled Decisions*, "Spend is bounded before dispatch, by reservation").
+// Launch Phase 8, increments 2b and 3: the comparison's runs against the test
+// database, with every paid call faked. Pricing does not gate a run (David,
+// 2026-11-07, decisions.md); what is tested is that each paid call happens
+// once and is recorded.
 // Seeds two engine families under a `t-cr-` prefix (GPT, token-billed; FLUX,
 // flat), the default planner engine when absent, one enriched fact, and a set
 // of two panels (generic_t2i and i2i_male_default, unstyled) — four cells.
@@ -37,7 +38,6 @@ import { __setComparisonFalForTest, type ComparisonFal } from "../lib/comparison
 import {
   __allowComparisonDispatchInCiForTest,
   __setComparisonImageStoreForTest,
-  BILL_POLL,
   CELL_POLL,
   COMPARISON_PREPARE_QUEUE,
   COMPARISON_RENDER_QUEUE,
@@ -75,7 +75,6 @@ const fakeFal: ComparisonFal = {
     return statusScript.shift() ?? "COMPLETED";
   },
   async result(_e, requestId) { return { images: [{ url: `https://vendor.test/${requestId}.png` }] }; },
-  async billedUsd(requestId) { return billFor(requestId); },
 };
 /** When set, the next status read of a GPT edit request reports FAILED (once). */
 let failNextGptEdit = false;
@@ -84,8 +83,6 @@ const isGptEditRequest = (requestId: string) => {
   const s = submissionOf(requestId);
   return !!s && s.endpointId.includes("gpt") && s.endpointId.includes("edit");
 };
-/** What fal reports as billed for a request; null while it has not reported. */
-let billFor: (requestId: string) => number | null = () => 0.05;
 /** The retry count the planner call ran under, per preparation. */
 let plannerRetries: Array<number | undefined> = [];
 
@@ -112,8 +109,6 @@ after(async () => {
   __setComparisonImageStoreForTest(null);
   __setPlanGeneratorForTest(null);
   CELL_POLL.intervalMs = 3_000;
-  BILL_POLL.intervalMs = 10_000;
-  BILL_POLL.attempts = 6;
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
@@ -142,11 +137,9 @@ function installFakes(): void {
     ) as never;
   });
   CELL_POLL.intervalMs = 0;
-  BILL_POLL.intervalMs = 0;
-  BILL_POLL.attempts = 1;
 }
 
-beforeEach(() => { submissions = []; statusScript = []; failStore = false; failNextGptEdit = false; billFor = () => 0.05; plannerRetries = []; installFakes(); });
+beforeEach(() => { submissions = []; statusScript = []; failStore = false; failNextGptEdit = false; plannerRetries = []; installFakes(); });
 
 async function newSet(label: string): Promise<number> {
   const { setId } = await createComparisonSet({
@@ -159,8 +152,8 @@ async function newSet(label: string): Promise<number> {
 
 const app = () => buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
 
-async function start(setId: number, kind: "prepare" | "render", weekRemainingUsd = 25, expectedBoundUsd?: number) {
-  return request(app()).post(`/api/admin/comparison/sets/${setId}/runs`).send({ kind, weekRemainingUsd, ...(expectedBoundUsd == null ? {} : { expectedBoundUsd }) });
+async function start(setId: number, kind: "prepare" | "render") {
+  return request(app()).post(`/api/admin/comparison/sets/${setId}/runs`).send({ kind });
 }
 
 /** Run every queued job of a run through its handler, as the worker would. */
@@ -209,15 +202,11 @@ describe("starting a comparison run", () => {
     }
   });
 
-  it("records a refusal with its figure and reserves nothing when the week cannot cover it", async () => {
-    const setId = await newSet("week");
-    const res = await start(setId, "prepare", 0.5);
-    assert.equal(res.status, 409);
-    assert.match(res.body.refusal, /above the \$0\.50 left this week/);
-    assert.equal(res.body.run.state, "refused");
-    assert.equal((await reservations(res.body.run.id)).length, 0);
-    const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
-    assert.ok(panels.every((p) => p.state === "pending"));
+  it("asks for no allowance or week figure, and refuses the old budget fields", async () => {
+    const setId = await newSet("nobudget");
+    const res = await request(app()).post(`/api/admin/comparison/sets/${setId}/runs`).send({ kind: "prepare", weekRemainingUsd: 0.5 });
+    assert.equal(res.status, 400, "the budget fields are gone from the request");
+    assert.equal((await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.setId, setId))).length, 0);
   });
 
   it("reserves each permitted call, marks it in flight and queues it at one attempt", async () => {
@@ -247,7 +236,6 @@ async function renderPayloads(runId: number) {
     .filter((p) => p.runId === runId);
 }
 
-const isGpt = (engineId: string) => engineId.startsWith(FAMILIES.gpt);
 
 describe("a comparison run end to end, with fakes", () => {
   it("prepares the panels once, without SDK retries, and settles each planner call at its bound", async () => {
@@ -268,75 +256,34 @@ describe("a comparison run end to end, with fakes", () => {
     assert.equal(prepRun!.state, "done");
   });
 
-  it("renders the GPT family's edit first, settles it from fal's bill, then admits the rest of the family", async () => {
-    const setId = await newSet("gate");
+  it("renders every cell in one run, one submission each, each recorded at its bound with no bill read", async () => {
+    const setId = await newSet("all");
     await drain((await start(setId, "prepare")).body.run.id);
     statusScript = ["IN_QUEUE", "IN_PROGRESS"]; // the first cell waits two polls
 
-    const first = await start(setId, "render");
-    assert.equal(first.status, 202, JSON.stringify(first.body));
-    const admitted = await renderPayloads(first.body.run.id);
-    const cellsBefore = await cellsOf(setId);
-    const engineOf = (cellId: number) => cellsBefore.find((c) => c.id === cellId)!.engineId;
-    const gptAdmitted = admitted.filter((p) => isGpt(engineOf(p.cellId)));
-    assert.equal(gptAdmitted.length, 1, "one GPT cell, the probe");
-    assert.ok(engineOf(gptAdmitted[0]!.cellId).endsWith("-i2i"), "the probe is an edit cell");
-    assert.equal(admitted.length, 3, "the probe and both FLUX cells");
-    assert.ok(first.body.notes.some((n: string) => /one edit renders first/.test(n)));
+    const render = await start(setId, "render");
+    assert.equal(render.status, 202, JSON.stringify(render.body));
+    const admitted = await renderPayloads(render.body.run.id);
+    assert.equal(admitted.length, 4, "both families, both modes: no first-edit gate");
+    const [run] = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.id, render.body.run.id));
+    assert.equal(run!.allowanceUsd, null, "no allowance is checked, so none is recorded");
+    assert.equal(run!.weekRemainingUsd, null);
 
-    await drain(first.body.run.id);
-    const submittedFirst = submissions.length;
-    assert.equal(submittedFirst, 3);
-    for (const r of await reservations(first.body.run.id)) {
-      assert.equal(r.state, "settled");
-      assert.equal(Number(r.settledUsd), 0.05, "the bill fal reported, never clipped");
-    }
-
-    const second = await start(setId, "render");
-    assert.equal(second.status, 202, JSON.stringify(second.body));
-    const rest = await renderPayloads(second.body.run.id);
-    assert.equal(rest.length, 1);
-    assert.ok(isGpt(engineOf(rest[0]!.cellId)), "the GPT text-to-image cell, once its family's edit was billed within its reservation");
-    await drain(second.body.run.id);
+    await drain(render.body.run.id);
     const cells = await cellsOf(setId);
     assert.ok(cells.every((c) => c.state === "rendered" && c.falRequestId && c.imageObjectPath), JSON.stringify(cells.map((c) => [c.state, c.error])));
     assert.equal(submissions.length, 4, "exactly one submission per cell");
+    for (const r of await reservations(render.body.run.id)) {
+      assert.equal(r.state, "settled");
+      assert.equal(r.settledUsd, r.boundUsd, "recorded at the most it could have cost");
+      assert.ok(r.falRequestId, "each record carries its own fal request id");
+    }
     const editSubmission = submissions.find((x) => x.endpointId.includes("edit"));
     const editPanel = (await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId))).find((p) => p.imageMode === "i2i")!;
     assert.ok(stringValues(editSubmission!.input).includes(editPanel.referenceImageUrl!), "the edit call carries the panel's resized reference");
-  });
-
-  it("keeps the family waiting while the probe's bill is unreported, and reads it later", async () => {
-    const setId = await newSet("unbilled");
-    await drain((await start(setId, "prepare")).body.run.id);
-    billFor = () => null;
-    const first = await start(setId, "render");
-    await drain(first.body.run.id);
-    const held = await reservations(first.body.run.id);
-    assert.equal(held.filter((r) => isGpt(r.target)).length, 1);
-    assert.ok(held.every((r) => r.state === "reserved"), "an unreported bill stays held against the week");
-
-    // FLUX is done, so only the waiting GPT cell remains, and it is not admitted.
-    const waiting = await start(setId, "render");
-    assert.equal(waiting.status, 409);
-    assert.match(waiting.body.refusal, /waiting for fal's bill/);
-
-    billFor = () => 0.06;
-    const res = await request(app()).post(`/api/admin/comparison/sets/${setId}/settle-bills`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.settled, 3, "the probe's bill and both FLUX bills, all unread until now");
-    const released = await start(setId, "render");
-    assert.equal(released.status, 202, JSON.stringify(released.body));
-  });
-
-  it("refuses the rest of the family, with the figure, when the probe's bill is over its reservation", async () => {
-    const setId = await newSet("overrun");
-    await drain((await start(setId, "prepare")).body.run.id);
-    billFor = (requestId) => (submissions[Number(requestId.split("-")[1]) - 1]!.endpointId.includes("edit") && submissions[Number(requestId.split("-")[1]) - 1]!.endpointId.includes("gpt") ? 0.5 : 0.04);
-    await drain((await start(setId, "render")).body.run.id);
-    const res = await start(setId, "render");
-    assert.equal(res.status, 409);
-    assert.match(res.body.refusal, /refused — its first measured edit billed \$0\.5000, above its \$0\.0[0-9]+ reservation/);
+    const again = await start(setId, "render");
+    assert.equal(again.status, 409);
+    assert.equal(again.body.refusal, "nothing left to do");
   });
 
   it("keeps a failed call's reservation, and a resumed cell never resubmits", async () => {
@@ -404,7 +351,7 @@ describe("a comparison run end to end, with fakes", () => {
     failStore = true;
     await drain((await start(setId, "render")).body.run.id);
     let cells = (await cellsOf(setId)).filter((c) => c.vendorResultUrl);
-    assert.equal(cells.length, 3);
+    assert.equal(cells.length, 4);
     assert.ok(cells.every((c) => c.state === "failed" && !c.imageObjectPath));
     const target = cells[0]!;
     await assert.rejects(rerunCell(target.id), /retry its storage instead/);
@@ -428,60 +375,30 @@ describe("a comparison run end to end, with fakes", () => {
     assert.equal(cells.filter((c) => c.state === "rendered").length, 1);
   });
 
-  it("settles each reservation from its own request's bill across a re-run, and a failed first edit never strands its family", async () => {
+  it("gives a re-run its own record, and the failed first call keeps its own", async () => {
     const setId = await newSet("rebind");
     await drain((await start(setId, "prepare")).body.run.id);
     failNextGptEdit = true;
-    billFor = (id) => (isGptEditRequest(id) ? null : 0.05);
     const first = await start(setId, "render");
     await drain(first.body.run.id);
     const firstEdit = submissions.findIndex((s) => s.endpointId.includes("gpt") && s.endpointId.includes("edit"));
     const reqA = `req-${firstEdit + 1}`;
     const [r1] = (await reservations(first.body.run.id)).filter((r) => r.falRequestId === reqA);
-    assert.ok(r1, "the reservation carries its own request id");
-    assert.equal(r1!.state, "reserved", "a call that failed after submission keeps its reservation");
-    const probeCell = (await cellsOf(setId)).find((c) => c.id === r1!.cellId)!;
-    assert.equal(probeCell.state, "failed");
+    assert.ok(r1, "the record carries its own request id");
+    assert.equal(r1!.state, "reserved", "a call that failed after submission stays held: it may have been billed");
+    const failedCell = (await cellsOf(setId)).find((c) => c.id === r1!.cellId)!;
+    assert.equal(failedCell.state, "failed");
 
-    await rerunCell(probeCell.id);
-    // The failed call taught nothing about the price: the next run admits a first edit again.
-    billFor = (id) => (id === reqA ? null : 0.05);
+    await rerunCell(failedCell.id);
     const second = await start(setId, "render");
     assert.equal(second.status, 202, JSON.stringify(second.body));
-    const admitted = await renderPayloads(second.body.run.id);
-    assert.deepEqual(admitted.map((p) => p.cellId), [probeCell.id], "exactly the re-run edit, the family's one first edit");
+    assert.deepEqual((await renderPayloads(second.body.run.id)).map((p) => p.cellId), [failedCell.id]);
     await drain(second.body.run.id);
     const [r2] = await reservations(second.body.run.id);
     assert.notEqual(r2!.falRequestId, reqA);
     assert.equal(r2!.state, "settled");
-    assert.equal(Number(r2!.settledUsd), 0.05);
     const [r1After] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, r1!.id));
-    assert.equal(r1After!.state, "reserved", "the retry's bill never settles the first call");
-
-    await request(app()).post(`/api/admin/comparison/sets/${setId}/settle-bills`);
-    const [stillHeld] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, r1!.id));
-    assert.equal(stillHeld!.state, "reserved", "a bill check reads only the first call's own bill, still unreported");
-    billFor = (id) => (id === reqA ? 0.07 : 0.05);
-    const res = await request(app()).post(`/api/admin/comparison/sets/${setId}/settle-bills`);
-    assert.equal(res.body.settled, 1);
-    const [r1Settled] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, r1!.id));
-    assert.equal(r1Settled!.state, "settled");
-    assert.equal(Number(r1Settled!.settledUsd), 0.07, "the first call settles at its own bill");
-  });
-
-  it("refuses a start whose work grew past the plan shown, and starts one that did not", async () => {
-    const setId = await newSet("ceiling");
-    await drain((await start(setId, "prepare")).body.run.id);
-    const shown = await request(app()).post(`/api/admin/comparison/sets/${setId}/plan`).send({ kind: "render", weekRemainingUsd: 25 });
-    assert.equal(shown.status, 200, JSON.stringify(shown.body));
-    const reservationsBefore = (await db.select().from(comparisonReservationsTable)).length;
-    const stale = await start(setId, "render", 25, shown.body.boundUsd / 2);
-    assert.equal(stale.status, 409);
-    assert.match(stale.body.refusal, /the work changed since this run was planned/);
-    assert.equal((await db.select().from(comparisonReservationsTable)).length, reservationsBefore, "nothing reserved");
-    const ok = await start(setId, "render", 25, shown.body.boundUsd);
-    assert.equal(ok.status, 202, JSON.stringify(ok.body));
-    assert.equal(ok.body.plan.boundUsd, shown.body.boundUsd);
+    assert.equal(r1After!.state, "reserved", "the re-run never rewrites the first call's record");
   });
 
   it("releases the reservation of a cell refused before dispatch", async () => {
@@ -497,7 +414,7 @@ describe("a comparison run end to end, with fakes", () => {
       const released = rows.filter((r) => r.target === fluxT2i);
       assert.equal(released.length, 1);
       assert.equal(released[0]!.state, "released");
-      assert.equal(submissions.length, before + 2);
+      assert.equal(submissions.length, before + 3);
       const [cell] = await db.select().from(comparisonCellsTable).where(and(eq(comparisonCellsTable.id, released[0]!.cellId!)));
       assert.match(String(cell!.error), /not rendered: it is inactive/);
     } finally {

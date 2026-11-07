@@ -107,20 +107,19 @@ describe("admin comparison routes", () => {
     assert.ok(list.body.sets.some((s: { id: number; cells: number }) => s.id === created.body.setId && s.cells === 8));
   });
 
-  it("plans a preparation run, and refuses one the week cannot cover with the figure", async () => {
+  it("plans a preparation run of every pending panel, with no week figure", async () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
     const created = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} plan` }));
-    const ok = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", weekRemainingUsd: 25 });
+    const ok = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare" });
     assert.equal(ok.status, 200);
     assert.equal(ok.body.admitted, true);
     assert.equal(ok.body.items.length, 4);
 
-    const tight = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", weekRemainingUsd: 1 });
-    assert.equal(tight.body.admitted, false);
-    assert.match(tight.body.refusal, /above the \$1\.00 left this week/);
+    const budgeted = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", weekRemainingUsd: 1 });
+    assert.equal(budgeted.status, 400, "the budget fields are gone (David, 2026-11-07)");
 
     // Nothing is prepared yet, so there is nothing to render.
-    const render = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "render", weekRemainingUsd: 25 });
+    const render = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "render" });
     assert.equal(render.body.admitted, false);
     assert.equal(render.body.refusal, "nothing left to do");
   });
@@ -138,7 +137,7 @@ describe("admin comparison routes", () => {
 
       await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
       clearEngineCaches();
-      const refused = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", weekRemainingUsd: 25 });
+      const refused = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare" });
       assert.equal(refused.status, 400);
       assert.ok(refused.body.reasons.some((r: string) => r.includes(`"${DEFAULT_IMAGE_PROMPT_ENGINE_ID}" cannot be used (engine_inactive)`)), JSON.stringify(refused.body));
     } finally {
@@ -147,10 +146,10 @@ describe("admin comparison routes", () => {
     }
   });
 
-  it("refuses an allowance above the per-run budget, and a set naming an unknown family or fact", async () => {
+  it("refuses an allowance field, and a set naming an unknown family or fact", async () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
     const created = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} refuse` }));
-    const over = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", allowanceUsd: 6, weekRemainingUsd: 25 });
+    const over = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", allowanceUsd: 6 });
     assert.equal(over.status, 400);
 
     const badFamily = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} bad`, engineFamilies: [`${P}-nope`] }));

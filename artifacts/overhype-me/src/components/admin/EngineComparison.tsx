@@ -3,19 +3,15 @@
  * plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Admin/User UX Impact*).
  *
  * Create a comparison set from a round preset, see each set's status at both
- * altitudes (every cell's state, and the aggregate), its bounded estimate, and
- * plan the next run of a kind: the run's bound and how many runs are left, or
- * the refusal with the figure. Planning spends nothing; running arrives in
- * increment 2b.
+ * altitudes (every cell's state, and the aggregate), plan the next run of a
+ * kind (every pending item, with the most it could cost) and start it, and
+ * open the blind judging page and the results. Pricing does not gate a run
+ * (David, 2026-11-07, `decisions.md`).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, Circle, Loader2, MinusCircle, Plus } from "lucide-react";
-import {
-  COMPARISON_DEFAULT_FAMILIES,
-  COMPARISON_ROUND_PRESETS,
-  PAID_RUN_ALLOWANCE_USD,
-  PAID_WEEK_ALLOWANCE_USD,
-} from "@workspace/api-zod";
+import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspace/api-zod";
 
 interface SetSummary { id: number; label: string; round: number; createdAt: string; panels: number; cells: number }
 interface CellView { id: number; engineId: string; state: string; skipReason: string | null; error: string | null; vendorResultUrl?: string | null; rerunCount?: number }
@@ -32,13 +28,7 @@ interface RunPlan {
   admitted: boolean;
   items: Array<{ ref: string; label: string; boundUsd: number }>;
   boundUsd: number;
-  allowanceUsd: number;
-  remainingItems: number;
-  remainingBoundUsd: number;
-  runsNeeded: number;
   refusal: string | null;
-  /** Why some cells wait, e.g. a family held until its first measured edit is billed. */
-  notes?: string[];
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -71,9 +61,6 @@ export function EngineComparison() {
   const [label, setLabel] = useState("");
   const [round, setRound] = useState<1 | 2>(1);
   const [factIds, setFactIds] = useState("");
-  // Never pre-filled: the week's budget is one total across every product, and
-  // only the paid-run ledger knows what is left of it.
-  const [weekRemaining, setWeekRemaining] = useState("");
   const [starting, setStarting] = useState(false);
   const [notice, setNotice] = useState("");
   const [plan, setPlan] = useState<{ kind: string; result: RunPlan } | null>(null);
@@ -121,14 +108,6 @@ export function EngineComparison() {
     return () => clearInterval(timer);
   }, [inFlight, selected, refreshDetail]);
 
-  /** The week's remaining budget as typed, or an error message. */
-  const weekFigure = (): number | string => {
-    if (weekRemaining.trim() === "") return "Enter what the paid-run ledger says is left this week.";
-    const week = Number(weekRemaining);
-    if (!Number.isFinite(week) || week < 0 || week > PAID_WEEK_ALLOWANCE_USD) return `This week's remaining budget is between $0 and ${usd(PAID_WEEK_ALLOWANCE_USD)}.`;
-    return week;
-  };
-
   const create = async () => {
     const ids = factIds.split(/[\s,]+/).filter(Boolean).map(Number);
     if (ids.length === 0 || ids.some((n) => !Number.isInteger(n) || n <= 0)) { setError("Fact ids must be positive whole numbers, comma-separated."); return; }
@@ -159,8 +138,6 @@ export function EngineComparison() {
   const planRun = async (kind: "prepare" | "render") => {
     const id = selected;
     if (id == null) return;
-    const week = weekFigure();
-    if (typeof week === "string") { setError(week); return; }
     setPlanning(true);
     setError("");
     setNotice("");
@@ -168,7 +145,7 @@ export function EngineComparison() {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, weekRemainingUsd: week }),
+      body: JSON.stringify({ kind }),
     }).catch(() => null);
     const outcome: { error: string } | { result: RunPlan } = !r || !r.ok
       ? { error: r ? await readError(r) : "Failed to plan the run." }
@@ -180,40 +157,37 @@ export function EngineComparison() {
   };
 
   /** Start the run just planned: the one action here that spends. */
-  const startRun = async (kind: string, expectedBoundUsd: number) => {
+  const startRun = async (kind: string) => {
     const id = selected;
     if (id == null) return;
-    const week = weekFigure();
-    if (typeof week === "string") { setError(week); return; }
     setStarting(true);
     setError("");
     const r = await fetch(`/api/admin/comparison/sets/${id}/runs`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, weekRemainingUsd: week, expectedBoundUsd }),
+      body: JSON.stringify({ kind }),
     }).catch(() => null);
-    const outcome: { error: string } | { run: RunView; plan: RunPlan; notes?: string[] } = !r || !r.ok
+    const outcome: { error: string } | { run: RunView; plan: RunPlan } = !r || !r.ok
       ? { error: r ? await readError(r) : "Failed to start the run." }
-      : ((await r.json()) as { run: RunView; plan: RunPlan; notes?: string[] });
+      : ((await r.json()) as { run: RunView; plan: RunPlan });
     // The start finished, whichever set is on screen now: the button is free again.
     setStarting(false);
     if (!stillSelected(id)) return;
     setPlan(null);
     if ("error" in outcome) { setError(`Run refused: ${outcome.error}`); await refreshDetail(id); return; }
-    setNotice(`Run #${outcome.run.id} started: ${outcome.plan.items.length} item${outcome.plan.items.length === 1 ? "" : "s"}, at most ${usd(outcome.plan.boundUsd)}.${outcome.notes?.length ? ` ${outcome.notes.join("; ")}.` : ""}`);
+    setNotice(`Run #${outcome.run.id} started: ${outcome.plan.items.length} item${outcome.plan.items.length === 1 ? "" : "s"}, at most ${usd(outcome.plan.boundUsd)}.`);
     await refreshDetail(id);
   };
 
   /**
-   * Recovery and bookkeeping that spend nothing: a cell's storage again, its
-   * one re-run, a failed panel's re-preparation (each admitted by the next
-   * run), or reading fal's bills for the set.
+   * Recovery that spends nothing: a cell's storage again, its one re-run, or a
+   * failed panel's re-preparation (each taken by the next run).
    */
-  const cellAction = async (targetId: number, action: "retry-storage" | "rerun" | "reprepare" | "settle-bills") => {
+  const cellAction = async (targetId: number, action: "retry-storage" | "rerun" | "reprepare") => {
     const id = selected;
     if (id == null) return;
-    const path = action === "reprepare" ? `panels/${targetId}/reprepare` : action === "settle-bills" ? `sets/${targetId}/settle-bills` : `cells/${targetId}/${action}`;
+    const path = action === "reprepare" ? `panels/${targetId}/reprepare` : `cells/${targetId}/${action}`;
     const r = await fetch(`/api/admin/comparison/${path}`, { method: "POST", credentials: "include" }).catch(() => null);
     if (!stillSelected(id)) return;
     if (!r || !r.ok) { setError(r ? await readError(r) : "The cell action failed."); return; }
@@ -229,7 +203,7 @@ export function EngineComparison() {
       <div>
         <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Engine comparison</h2>
         <p className="text-xs text-muted-foreground">
-          The same prepared prompt rendered by every candidate engine, judged blind. Every run is bounded under {usd(PAID_RUN_ALLOWANCE_USD)} before it is dispatched.
+          The same prepared prompt rendered by every candidate engine, judged blind. Each run shows the most it could cost before it starts.
         </p>
       </div>
 
@@ -296,13 +270,10 @@ export function EngineComparison() {
           </div>
 
           <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs text-muted-foreground space-y-1">
-              <span className="block">Left this week (from the paid-run ledger)</span>
-              <input value={weekRemaining} onChange={(e) => setWeekRemaining(e.target.value)} inputMode="decimal" placeholder="e.g. 18.40" data-testid="comparison-week-remaining" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground w-28" />
-            </label>
             <button type="button" disabled={planning} onClick={() => void planRun("prepare")} data-testid="comparison-plan-prepare" className="px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted disabled:opacity-40">Plan a preparation run</button>
             <button type="button" disabled={planning} onClick={() => void planRun("render")} data-testid="comparison-plan-render" className="px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted disabled:opacity-40">Plan a render run</button>
-            <button type="button" onClick={() => void cellAction(shown.set.id, "settle-bills")} data-testid="comparison-settle-bills" className="px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted">Check fal's bills</button>
+            <Link href={`/admin/eval/judge/${shown.set.id}`} data-testid="comparison-judge-link" className="px-3 py-1.5 text-sm font-bold rounded-sm border border-primary text-primary hover:bg-primary/10">Judge blind</Link>
+            <Link href={`/admin/eval/results?sets=${shown.set.id}`} data-testid="comparison-results-link" className="px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted">Results (shows engines)</Link>
             {planning && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
           </div>
 
@@ -310,20 +281,14 @@ export function EngineComparison() {
             <div className={`rounded-sm border p-2 text-sm ${plan.result.admitted ? "border-green-500/40 bg-green-500/5" : "border-amber-500/40 bg-amber-500/5"}`} data-testid="comparison-plan">
               {plan.result.admitted ? (
                 <p>
-                  The next {plan.kind === "prepare" ? "preparation" : "render"} run takes <strong>{plan.result.items.length}</strong> item{plan.result.items.length === 1 ? "" : "s"}, bounded at <strong>{usd(plan.result.boundUsd)}</strong> of the {usd(plan.result.allowanceUsd)} allowance.
-                  {" "}{plan.result.remainingItems > 0 ? `${plan.result.remainingItems} more (at most ${usd(plan.result.remainingBoundUsd)}) need ${plan.result.runsNeeded - 1} further run${plan.result.runsNeeded - 1 === 1 ? "" : "s"}.` : "That finishes this kind of work."}
+                  The next {plan.kind === "prepare" ? "preparation" : "render"} run takes all <strong>{plan.result.items.length}</strong> item{plan.result.items.length === 1 ? "" : "s"} still to do, at most <strong>{usd(plan.result.boundUsd)}</strong>.
                   {" "}
-                  <button type="button" disabled={starting} onClick={() => void startRun(plan.kind, plan.result.boundUsd)} data-testid="comparison-start-run" className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40">
+                  <button type="button" disabled={starting} onClick={() => void startRun(plan.kind)} data-testid="comparison-start-run" className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40">
                     {starting && <Loader2 className="w-3 h-3 animate-spin" />} Start this run — real spend, at most {usd(plan.result.boundUsd)}
                   </button>
                 </p>
               ) : (
                 <p data-testid="comparison-plan-refusal"><strong>Refused:</strong> {plan.result.refusal}</p>
-              )}
-              {plan.result.admitted && (plan.result.notes?.length ?? 0) > 0 && (
-                <ul className="mt-1 text-xs text-muted-foreground list-disc pl-4" data-testid="comparison-plan-notes">
-                  {plan.result.notes!.map((n) => <li key={n}>{n}</li>)}
-                </ul>
               )}
             </div>
           )}

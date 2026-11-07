@@ -1,22 +1,25 @@
 /**
- * The engine comparison's runs: admission, preparation, rendering and
- * settlement (launch Phase 8, increment 2b; plan
- * `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Settled Decisions*, "Spend
- * is bounded before dispatch, by reservation", and *Proposed Design* C and D).
+ * The engine comparison's runs: admission, preparation, rendering and the
+ * record of each call (launch Phase 8, increments 2b and 3; plan
+ * `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Proposed Design* C and D).
+ *
+ * Pricing does not gate a comparison run (David, 2026-11-07: *"Ignore pricing
+ * entirely. Doesn't matter right now."*, `decisions.md`): no per-run or weekly
+ * limit, no reading of fal's bills, no first-edit gate. What stays is what
+ * keeps a paid call from happening twice:
  *
  * - **Admission** runs under one advisory lock, so two starts can never both
- *   count the same headroom: it re-reads the set and every unresolved
- *   reservation, plans the run, and either records the refusal with its figure
- *   or writes one reservation row per permitted call and enqueues the work in
- *   the same transaction. Paid dispatch never runs in CI.
- * - **Each call is one priced call.** Both queues run at one attempt; a cell
- *   submits once through the comparison transport and stores fal's request id
- *   before it polls, so nothing resubmits.
- * - **Settlement.** A call that never reached a vendor releases its
- *   reservation. A call that completed settles: at its flat price when the
- *   engine bills flat, otherwise with the billed amount marked unknown (the
- *   paid-run ledger records the bound). A call that failed after submission
- *   stays reserved, because it may have been billed.
+ *   take the same pending item: it re-reads the set, takes every pending item
+ *   of the run's kind, and writes one reservation row per call (the record of
+ *   the call, its bound and its fal request id) and enqueues the work in the
+ *   same transaction. Paid dispatch never runs in CI.
+ * - **Each call is one call.** Both queues run at one attempt; a cell submits
+ *   once through the comparison transport and stores fal's request id before
+ *   it polls, so nothing resubmits; a restart that finds a marker but no
+ *   result fails as ambiguous rather than calling again.
+ * - **The record.** A call that never reached a vendor is released; one that
+ *   completed is settled at its bound; one that failed after submission stays
+ *   reserved, because it may have been billed.
  * - **A storage failure never buys a second image**: the cell keeps the
  *   vendor's URL and its retry stores that image again.
  */
@@ -37,7 +40,6 @@ import {
   type Engine,
 } from "@workspace/db/schema";
 import {
-  PAID_RUN_ALLOWANCE_USD,
   RENDER_SCENARIO_DESCRIPTORS,
   validateEnrichment,
   type ComparisonRunPlanRequest,
@@ -59,7 +61,7 @@ import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "../im
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
-import { loadSetRows, runItems, unresolvedReservedUsd } from "./sets";
+import { loadSetRows, runItems } from "./sets";
 import { awaitResult, comparisonFal } from "./transport";
 
 export const COMPARISON_PREPARE_QUEUE = "comparison_prepare";
@@ -93,50 +95,36 @@ export class ComparisonRunRefused extends Error {
 const ADMISSION_LOCK = sql`select pg_advisory_xact_lock(hashtext('comparison_admission'))`;
 
 /**
- * Admit and start the next run of `kind` for a set. Throws
- * `ComparisonRunRefused` (with the refused run row, when one was recorded)
- * rather than spending anything it cannot bound.
+ * Admit and start the next run of `kind` for a set: every pending item of that
+ * kind. Throws `ComparisonRunRefused` (with the refused run row, when one was
+ * recorded) when there is nothing to run or the run would be paid in CI.
  */
 export async function startComparisonRun(
   setId: number,
   req: ComparisonRunPlanRequest,
   adminUserId: string | null,
-): Promise<{ run: ComparisonRun; plan: RunPlan; notes: string[] } | null> {
+): Promise<{ run: ComparisonRun; plan: RunPlan } | null> {
   const ci = paidDispatchRefusal();
   if (ci) throw new ComparisonRunRefused(ci, null, null);
-  const allowanceUsd = req.allowanceUsd ?? PAID_RUN_ALLOWANCE_USD;
-  // A bill fal has reported since the last run frees its reservation, and may
-  // clear (or refuse) a family waiting on its first measured edit.
-  if (req.kind === "render") await settlePendingBills(setId);
 
   const outcome = await db.transaction(async (tx) => {
     await tx.execute(ADMISSION_LOCK);
     const rows = await loadSetRows(setId, tx);
     if (!rows) return null;
-    const { items, notes } = await runItems(req.kind, rows, tx);
-    const planned = planRun(items, { allowanceUsd, weekRemainingUsd: req.weekRemainingUsd, unresolvedReservedUsd: await unresolvedReservedUsd(tx) });
-    const plan = !planned.admitted && notes.length ? { ...planned, refusal: `${planned.refusal}: ${notes.join("; ")}` } : planned;
-    // The work changed since the operator's plan (a panel prepared, a family
-    // cleared): never start a run larger than the figure they were shown.
-    if (plan.admitted && req.expectedBoundUsd != null && plan.boundUsd > req.expectedBoundUsd + 1e-9) {
-      return { stale: true as const, plan: { ...plan, admitted: false, refusal: `the work changed since this run was planned: it is now ${plan.items.length} item${plan.items.length === 1 ? "" : "s"} at $${plan.boundUsd.toFixed(4)}, above the $${req.expectedBoundUsd.toFixed(4)} shown — plan again` } };
-    }
-    const base = {
-      setId, kind: req.kind, allowanceUsd: String(allowanceUsd), weekRemainingUsd: String(req.weekRemainingUsd), createdBy: adminUserId,
-    };
+    const plan = planRun(await runItems(req.kind, rows));
+    const base = { setId, kind: req.kind, createdBy: adminUserId };
     if (!plan.admitted) {
-      const [run] = await tx.insert(comparisonRunsTable).values({ ...base, state: "refused", boundUsd: String(plan.boundUsd), refusal: plan.refusal, endedAt: new Date() }).returning();
-      return { refused: true as const, run: run!, plan, notes };
+      const [run] = await tx.insert(comparisonRunsTable).values({ ...base, state: "refused", boundUsd: "0", refusal: plan.refusal, endedAt: new Date() }).returning();
+      return { refused: true as const, run: run!, plan };
     }
     const [run] = await tx.insert(comparisonRunsTable).values({ ...base, state: "running", boundUsd: String(plan.boundUsd) }).returning();
     for (const item of plan.items) await admitItem(tx, run!, item);
-    return { refused: false as const, run: run!, plan, notes };
+    return { refused: false as const, run: run!, plan };
   });
   if (!outcome) return null;
-  if ("stale" in outcome) throw new ComparisonRunRefused(outcome.plan.refusal!, null, outcome.plan);
   if (outcome.refused) throw new ComparisonRunRefused(outcome.plan.refusal ?? "refused", outcome.run, outcome.plan);
   logger.info({ setId, runId: outcome.run.id, kind: req.kind, items: outcome.plan.items.length, boundUsd: outcome.plan.boundUsd }, "[comparison] run admitted");
-  return { run: outcome.run, plan: outcome.plan, notes: outcome.notes };
+  return { run: outcome.run, plan: outcome.plan };
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -167,70 +155,15 @@ async function release(reservationId: number): Promise<void> {
   await db.update(comparisonReservationsTable).set({ state: "released", settledAt: new Date() }).where(eq(comparisonReservationsTable.id, reservationId));
 }
 
-/** The call's bill is known: record it, never clipped to the reservation. */
-async function settle(reservationId: number, billedUsd: number): Promise<void> {
-  await db.update(comparisonReservationsTable)
-    .set({ state: "settled", settledUsd: String(billedUsd), settledAt: new Date() })
-    .where(and(eq(comparisonReservationsTable.id, reservationId), eq(comparisonReservationsTable.state, "reserved")));
-}
-
 /**
- * A planner call completed, and OpenAI reports no per-request bill: it
- * settles at its bound, the most it could have cost, so the figure is still
- * a real one and the paid-run ledger records it.
+ * A call completed: it is recorded at its bound, the most it could have cost.
+ * No bill is read (David's override, 2026-11-07); fal's dashboard is the
+ * record of what was actually billed.
  */
 async function settleAtBound(reservationId: number): Promise<void> {
   await db.update(comparisonReservationsTable)
     .set({ state: "settled", settledUsd: sql`${comparisonReservationsTable.boundUsd}`, settledAt: new Date() })
     .where(and(eq(comparisonReservationsTable.id, reservationId), eq(comparisonReservationsTable.state, "reserved")));
-}
-
-/** How long a completed cell waits for fal to report its bill before leaving it to a later check. */
-export const BILL_POLL = { attempts: 6, intervalMs: 10_000 };
-
-/**
- * Read fal's bill for a completed cell and settle it. A bill not yet
- * reported leaves the reservation reserved — still counted against the week —
- * for `settlePendingBills` to read later.
- */
-async function settleFromFal(reservationId: number, requestId: string, opts = BILL_POLL): Promise<boolean> {
-  for (let i = 0; i < opts.attempts; i++) {
-    const billed = await comparisonFal().billedUsd(requestId);
-    if (billed != null) {
-      await settle(reservationId, billed);
-      return true;
-    }
-    if (i < opts.attempts - 1 && opts.intervalMs > 0) await new Promise((r) => setTimeout(r, opts.intervalMs));
-  }
-  return false;
-}
-
-/**
- * Read fal's bill for every reserved image call of a set whose submission is
- * known, each from its own request id. Run before each render run's
- * admission, and on request. A call still being polled by its job is left to
- * that job.
- */
-export async function settlePendingBills(setId: number): Promise<{ settled: number; waiting: number; error: string | null }> {
-  const rows = await db.select({ reservationId: comparisonReservationsTable.id, requestId: comparisonReservationsTable.falRequestId })
-    .from(comparisonReservationsTable)
-    .innerJoin(comparisonRunsTable, eq(comparisonRunsTable.id, comparisonReservationsTable.runId))
-    .leftJoin(comparisonCellsTable, eq(comparisonCellsTable.id, comparisonReservationsTable.cellId))
-    .where(and(
-      eq(comparisonRunsTable.setId, setId),
-      eq(comparisonReservationsTable.state, "reserved"),
-      sql`${comparisonReservationsTable.falRequestId} is not null`,
-      sql`not coalesce(${comparisonCellsTable.state} = 'enqueued' and ${comparisonCellsTable.falRequestId} is not distinct from ${comparisonReservationsTable.falRequestId}, false)`,
-    ));
-  let settled = 0;
-  try {
-    for (const row of rows) {
-      if (await settleFromFal(row.reservationId, row.requestId!, { attempts: 1, intervalMs: 0 })) settled += 1;
-    }
-  } catch (err) {
-    return { settled, waiting: rows.length - settled, error: err instanceof Error ? err.message : String(err) };
-  }
-  return { settled, waiting: rows.length - settled, error: null };
 }
 
 /** A run ends when none of its items is still in flight. */
@@ -476,12 +409,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await failCell(cell.id, `render failed: ${msg}`);
     return terminalFailure("comparison_render_failed", msg);
   }
-  try {
-    await settleFromFal(p.reservationId, requestId);
-  } catch (err) {
-    // The image is fine; only its bill is unread. The reservation stays held.
-    logger.warn({ cellId: cell.id, err: err instanceof Error ? err.message : String(err) }, "[comparison] fal bill unread");
-  }
+  await settleAtBound(p.reservationId);
   if (!url) {
     await failCell(cell.id, "render failed: the response carried no image URL");
     return terminalFailure("comparison_render_failed", "no image url");

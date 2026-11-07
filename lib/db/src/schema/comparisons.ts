@@ -13,11 +13,11 @@ import { imagePromptAttemptsTable } from "./imagePromptAttempts";
  * A SET names its facts, scenarios, styles and engine families. A PANEL is one
  * fact × scenario × style, prepared once (planner + compiler) and frozen, so
  * every engine renders the same compiled prompt. A CELL is panel × engine. A
- * RUN is one budgeted batch of paid work (preparing panels or rendering
- * cells); its RESERVATIONS hold each permitted call's worst-case cost until
- * billing settles it, so admission reads rows, not memory, and a resumed run
- * cannot reset what is already committed. Picks (blind judging) are
- * increment 3's.
+ * RUN is one batch of paid work (preparing panels or rendering cells); its
+ * RESERVATIONS are the record of each call it made — its worst-case cost and
+ * its fal request id. Since David's override of 2026-11-07 no allowance gates
+ * a run (`decisions.md`). A PICK is David's blind choice for one panel
+ * (increment 3; migration 0126).
  */
 
 export const comparisonSetsTable = pgTable("comparison_sets", {
@@ -102,9 +102,9 @@ export const comparisonRunsTable = pgTable("comparison_runs", {
   state: varchar("state", { length: 16 }).notNull(),
   /** Sum of the run's reservations at admission. */
   boundUsd: numeric("bound_usd", { precision: 10, scale: 4 }).notNull(),
-  /** The per-run allowance admission checked against. */
-  allowanceUsd: numeric("allowance_usd", { precision: 10, scale: 4 }).notNull(),
-  /** The week's remaining paid-run budget the operator supplied from the fleet ledger. */
+  /** The per-run allowance admission checked against; null since the 2026-11-07 override (no allowance). */
+  allowanceUsd: numeric("allowance_usd", { precision: 10, scale: 4 }),
+  /** The week's remaining paid-run budget the operator supplied; null since the 2026-11-07 override. */
   weekRemainingUsd: numeric("week_remaining_usd", { precision: 10, scale: 4 }),
   /** Why admission refused, with the figure. */
   refusal: text("refusal"),
@@ -138,8 +138,29 @@ export const comparisonReservationsTable = pgTable("comparison_reservations", {
   settledAt: timestamp("settled_at", { withTimezone: true }),
 }, (t) => [index("IDX_comparison_reservations_state").on(t.state, t.createdAt)]);
 
+/**
+ * David's blind pick for one panel (plan, *Proposed Design* E). One row per
+ * panel; a re-judgement replaces the pick and moves the previous one into
+ * `history`. Face marks name cells whose face is not the person (human
+ * reference panels only).
+ */
+export const comparisonPicksTable = pgTable("comparison_picks", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  panelId: bigint("panel_id", { mode: "number" }).notNull().references(() => comparisonPanelsTable.id, { onDelete: "cascade" }),
+  pickedCellId: bigint("picked_cell_id", { mode: "number" }).notNull().references(() => comparisonCellsTable.id, { onDelete: "cascade" }),
+  /** number[] — cells of this panel marked "not the person". */
+  faceMismatchCellIds: jsonb("face_mismatch_cell_ids").notNull().default([]),
+  /** Previous picks, oldest first: { pickedCellId, faceMismatchCellIds, judgedBy, judgedAt }[]. */
+  history: jsonb("history").notNull().default([]),
+  judgedBy: varchar("judged_by").references(() => usersTable.id, { onDelete: "set null" }),
+  judgedAt: timestamp("judged_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("UQ_comparison_picks_panel").on(t.panelId),
+]);
+
 export type ComparisonSet = typeof comparisonSetsTable.$inferSelect;
 export type ComparisonPanel = typeof comparisonPanelsTable.$inferSelect;
 export type ComparisonCell = typeof comparisonCellsTable.$inferSelect;
 export type ComparisonRun = typeof comparisonRunsTable.$inferSelect;
 export type ComparisonReservation = typeof comparisonReservationsTable.$inferSelect;
+export type ComparisonPick = typeof comparisonPicksTable.$inferSelect;
