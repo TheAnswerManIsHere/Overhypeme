@@ -10,7 +10,7 @@
  * any face that is not the person. Saving moves to the next panel still to
  * judge; a saved panel can be judged again, which replaces the pick.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -79,8 +79,10 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
 
   const panel = data?.panels[index] ?? null;
 
-  // The panel's saved pick, or a clean slate, whenever the panel changes.
-  useEffect(() => {
+  // The panel's saved pick, or a clean slate, whenever the panel changes —
+  // before paint, so a click on the newly shown panel is never wiped by a
+  // reset that lands after it.
+  useLayoutEffect(() => {
     setPicked(panel?.pick?.pickedToken ?? null);
     setFaceMarks(new Set(panel?.pick?.faceMismatchTokens ?? []));
     setNotice("");
