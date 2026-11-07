@@ -61,6 +61,40 @@ model receives.** Enrichment is an input, not the prompt (see
    recorded on the attempt, at the size the request builder chose, and persists
    the result (`imagePromptAttempts.ts`). See *Which engine draws a render*.
 
+## The engine comparison (launch Phase 8)
+
+The comparison that chooses the launch engine per mode is its own small model,
+beside the eval run rather than inside it (plan
+`docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Proposed Design* C and D).
+
+- **A set is frozen at creation**: facts × scenarios × styles (`"none"` is no
+  style) × engine families (`comparison_sets`). Each fact × scenario × style is
+  a **panel** whose mode is its scenario's; each panel has one **cell** per
+  family, the family's engine of that mode (`lib/comparison/layout.ts`). A
+  family that is not exactly one active, priced, sized engine per mode refuses
+  the whole set with the reason; it is never dropped, since a silently smaller
+  comparison is what the plan forbids. Round 1 is 15 panels and 90 cells,
+  round 2 18 and 108 (`COMPARISON_ROUND_PRESETS`).
+- **Spend is bounded before dispatch** (`lib/comparison/admission.ts`). A
+  panel's preparation reserves two planner calls at their output ceiling
+  ($0.728); a cell reserves its engine's `perCallBoundUsd`. A run takes items
+  in order while its bound stays under the $5 per-run allowance, and is refused
+  — with the figure — when one item alone exceeds it, or when the run plus
+  every reservation still unresolved exceeds what the operator reads as left
+  this week from the fleet's paid-run ledger.
+- **Planning writes nothing**: `POST /api/admin/comparison/sets/:id/plan`
+  returns the next run's bound and how many runs remain, or the refusal.
+  Reservations (`comparison_reservations`) are written by the run that spends,
+  so a plan that never runs holds no budget.
+- **Status is shown at both altitudes** on `/admin/eval`: every cell's state,
+  and the set's aggregate and remaining bound.
+- **Read-only dry run**: `scripts/comparison-dry-run.ts` derives rounds 1 and 2
+  against a database's real catalogue and checks 33 panels, 198 cells and a
+  refusal with $1 left in the week.
+- **FLUX 3 is judged at `safety_tolerance` 3**, not fal's default 2: the same
+  rank (second-most permissive) as the Nano Banana engines' 5 of 1–6, so the
+  comparison judges its drawing, not a stricter filter.
+
 ## Frozen render inputs: identity + style (reproducibility)
 
 **A render's identity and style are frozen ONCE, at the moment the user clicks

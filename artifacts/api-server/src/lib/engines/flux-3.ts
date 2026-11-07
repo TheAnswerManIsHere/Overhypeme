@@ -6,8 +6,11 @@ import type { EngineDefinition, PriceModel, SizeVocabulary } from "./types";
  * https://fal.ai/models/blackforestlabs/flux-3/text-to-image and .../edit-image.
  * One flat price per image at 1K, "whatever the number of references"; the
  * edit takes up to 10 references, each at least 256 px a side. No
- * num_images or seed parameter. `safety_tolerance` (0 strictest to 4) keeps
- * fal's default, 2.
+ * num_images or seed parameter. `safety_tolerance` (0 strictest to 4) is 3,
+ * not fal's default 2: the same rank (second-most permissive) as the "5" of
+ * 1–6 the Nano Banana engines carry because this product's real-likeness
+ * prompts trip their default, so the blind comparison judges FLUX 3's drawing,
+ * not a stricter dial (PR #889's build report, 2026-11-07).
  */
 
 export const FLUX_3_SIZES: SizeVocabulary = {
@@ -37,7 +40,7 @@ const SHARED_PARAMS = [
   },
   { name: "resolution", from: "resolution", type: "string" as const, enum: ["768sq", "1k", "1.5k", "2k", "4k"], default: "1k" },
   { name: "output_format", from: "outputFormat", type: "string" as const, enum: ["jpeg", "png"], default: "png" },
-  { name: "safety_tolerance", from: "safetyTolerance", type: "int" as const, default: 2, range: { min: 0, max: 4, policy: "clamp" as const } },
+  { name: "safety_tolerance", from: "safetyTolerance", type: "int" as const, default: 3, range: { min: 0, max: 4, policy: "clamp" as const } },
   { name: "enable_prompt_expansion", from: "enablePromptExpansion", type: "boolean" as const, default: false },
 ];
 

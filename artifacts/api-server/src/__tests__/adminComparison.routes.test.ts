@@ -1,0 +1,131 @@
+// Launch Phase 8, increment 2a: the comparison's admin routes against the test
+// database (plan PLAN_PHASE8_ENGINE_EVALUATION.md, *Admin/User UX Impact*).
+// Seeds two engine families under the `t-cmp-` prefix (a t2i and an edit
+// definition each, copied from real candidates so their price models are
+// real), one fact, and an admin. Planning spends nothing and calls nothing.
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+
+import request from "supertest";
+import { db } from "@workspace/db";
+import { comparisonSetsTable, enginesTable, factsTable, usersTable } from "@workspace/db/schema";
+import { inArray, like } from "drizzle-orm";
+
+import adminComparisonRouter from "../routes/adminComparison.js";
+import { buildTestApp } from "./helpers/buildTestApp.js";
+import { ALL_ENGINES } from "../lib/engines/index.js";
+import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
+import { panelPreparationBoundUsd } from "../lib/comparison/admission.js";
+
+const P = `t-cmp-${randomUUID().slice(0, 6)}`;
+const FAMILIES = [`${P}-gpt`, `${P}-flux`];
+const SOURCES: Record<string, [string, string]> = {
+  [FAMILIES[0]!]: ["gpt-image-2-5", "gpt-image-2-5-edit"],
+  [FAMILIES[1]!]: ["flux-3", "flux-3-edit"],
+};
+const engineIds: string[] = [];
+let adminId = "";
+let userId = "";
+let factId = 0;
+
+before(async () => {
+  for (const family of FAMILIES) {
+    for (const src of SOURCES[family]!) {
+      const def = ALL_ENGINES.find((e) => e.id === src)!;
+      const id = `${family}-${def.imageMode}`;
+      await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, family, isDefault: false });
+      engineIds.push(id);
+    }
+  }
+  adminId = `${P}-admin`;
+  userId = `${P}-user`;
+  await db.insert(usersTable).values([
+    { id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true },
+    { id: userId, email: `${userId}@test.local`, membershipTier: "registered", isAdmin: false },
+  ]);
+  const [fact] = await db.insert(factsTable).values({ text: `${P} fact`, isActive: false }).returning({ id: factsTable.id });
+  factId = fact!.id;
+});
+
+after(async () => {
+  await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
+  await db.delete(factsTable).where(inArray(factsTable.id, [factId]));
+  await db.delete(enginesTable).where(inArray(enginesTable.id, engineIds));
+  await db.delete(usersTable).where(inArray(usersTable.id, [adminId, userId]));
+});
+
+const body = (over: Record<string, unknown> = {}) => ({
+  label: `${P} set`,
+  round: 1,
+  factIds: [factId],
+  scenarioKeys: ["generic_t2i", "i2i_male_default"],
+  lookStyleIds: ["none", "anime"],
+  engineFamilies: FAMILIES,
+  ...over,
+});
+
+describe("admin comparison routes", () => {
+  it("are admin-only", async () => {
+    const anon = buildTestApp({ kind: "unauthenticated" }, adminComparisonRouter);
+    const user = buildTestApp({ kind: "authenticated", userId }, adminComparisonRouter);
+    for (const app of [anon, user]) {
+      assert.ok([401, 403].includes((await request(app).get("/api/admin/comparison/sets")).status));
+      assert.ok([401, 403].includes((await request(app).post("/api/admin/comparison/sets").send(body())).status));
+    }
+  });
+
+  it("creates a set's panels and expected cells, and reports them at both altitudes", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
+    const created = await request(app).post("/api/admin/comparison/sets").send(body());
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.deepEqual({ panels: created.body.panels, cells: created.body.cells }, { panels: 4, cells: 8 });
+
+    const detail = await request(app).get(`/api/admin/comparison/sets/${created.body.setId}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.aggregate.panels.pending, 4);
+    assert.equal(detail.body.aggregate.cells.expected, 8);
+    const modes = detail.body.panels.map((p: { scenarioKey: string; imageMode: string; cells: Array<{ engineId: string }> }) => [p.scenarioKey, p.imageMode, p.cells.map((c) => c.engineId).sort()]);
+    for (const [scenario, mode, cells] of modes) {
+      assert.equal(mode, scenario === "generic_t2i" ? "t2i" : "i2i");
+      assert.deepEqual(cells, FAMILIES.map((f) => `${f}-${mode}`).sort());
+    }
+    assert.ok(Math.abs(detail.body.estimate.preparationBoundUsd - 4 * panelPreparationBoundUsd()) < 1e-3);
+
+    const list = await request(app).get("/api/admin/comparison/sets");
+    assert.ok(list.body.sets.some((s: { id: number; cells: number }) => s.id === created.body.setId && s.cells === 8));
+  });
+
+  it("plans a preparation run, and refuses one the week cannot cover with the figure", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
+    const created = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} plan` }));
+    const ok = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", weekRemainingUsd: 25 });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.admitted, true);
+    assert.equal(ok.body.items.length, 4);
+
+    const tight = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", weekRemainingUsd: 1 });
+    assert.equal(tight.body.admitted, false);
+    assert.match(tight.body.refusal, /above the \$1\.00 left this week/);
+
+    // Nothing is prepared yet, so there is nothing to render.
+    const render = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "render", weekRemainingUsd: 25 });
+    assert.equal(render.body.admitted, false);
+    assert.equal(render.body.refusal, "nothing left to do");
+  });
+
+  it("refuses an allowance above the per-run budget, and a set naming an unknown family or fact", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
+    const created = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} refuse` }));
+    const over = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", allowanceUsd: 6, weekRemainingUsd: 25 });
+    assert.equal(over.status, 400);
+
+    const badFamily = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} bad`, engineFamilies: [`${P}-nope`] }));
+    assert.equal(badFamily.status, 400);
+    assert.ok(badFamily.body.reasons.some((r: string) => /has 0 t2i engines/.test(r)));
+
+    const badFact = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} bad`, factIds: [2_000_000_000] }));
+    assert.equal(badFact.status, 400);
+    assert.ok(badFact.body.reasons.some((r: string) => /unknown fact/.test(r)));
+  });
+});
