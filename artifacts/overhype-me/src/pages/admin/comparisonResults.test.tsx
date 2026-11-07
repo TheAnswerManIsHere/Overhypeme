@@ -15,7 +15,7 @@ import ComparisonResults from "./comparisonResults";
 const RESULTS = {
   sets: [{ id: 4, label: "Round 1", round: 1 }, { id: 5, label: "Round 2", round: 2 }],
   families: ["flux-3", "gpt-image-2-5"],
-  panels: { total: 33, judged: 31, judgeable: 31, skipped: 2 },
+  panels: { total: 33, judged: 30, judgeable: 30, skipped: 2, lost: 1 },
   wins: {
     overall: { "flux-3": 20, "gpt-image-2-5": 13 },
     byMode: { t2i: { "flux-3": 9, "gpt-image-2-5": 6 }, i2i: { "flux-3": 9, "gpt-image-2-5": 9 } },
@@ -41,7 +41,7 @@ describe("ComparisonResults", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/comparison/results?setIds=4,5", expect.anything());
     expect(leaders.textContent).toMatch(/Text-to-image.*flux-3 — 9 of 15 panels/);
     expect(leaders.textContent).toMatch(/Reference edit.*flux-3 = gpt-image-2-5 — 9 of 18 panels \(tied\)/);
-    expect(screen.getByTestId("results-summary").textContent).toMatch(/31 of 33 panels judged.*2 panels were skipped at preparation and will never be judged/);
+    expect(screen.getByTestId("results-summary").textContent).toMatch(/30 of 33 panels judged.*1 panel lost an engine\x27s image for good.*2 panels were skipped at preparation and will never be judged/);
     expect(screen.getByTestId("results-by-style").textContent).toMatch(/anime/);
     expect(screen.getByTestId("results-faces").textContent).toMatch(/of 12 judged.*gpt-image-2-5 3/);
     expect(screen.getByTestId("results-costs").textContent).toMatch(/flux-3 \(flux-3\) · 15 calls · \$0\.72.*total, at most · \$3\.22/);

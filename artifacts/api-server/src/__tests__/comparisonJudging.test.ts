@@ -165,12 +165,41 @@ describe("a skipped panel", () => {
     assert.equal(skipped.judgeable, false);
     assert.match(skipped.skipReason, /reference asset unavailable/);
     assert.deepEqual(skipped.images, []);
-    assert.deepEqual(blind.body.progress, { panels: 2, judgeable: 1, judged: 0, skipped: 1 });
+    assert.deepEqual(blind.body.progress, { panels: 2, judgeable: 1, judged: 0, skipped: 1, lost: 0 });
 
     const generic = blind.body.panels.find((p: { panelId: number }) => p.panelId !== human.id);
     await request(app()).post(`/api/admin/comparison/panels/${generic.panelId}/pick`).send({ pickedToken: generic.images[0].token });
     const results = await request(app()).get(`/api/admin/comparison/results?setIds=${setId}`);
-    assert.deepEqual(results.body.panels, { total: 2, judged: 1, judgeable: 1, skipped: 1 }, "every available panel judged is still not a complete comparison");
+    assert.deepEqual(results.body.panels, { total: 2, judged: 1, judgeable: 1, skipped: 1, lost: 0 }, "every available panel judged is still not a complete comparison");
+  });
+});
+
+describe("why a panel is waiting", () => {
+  it("tells a lost image from one that needs action and from one still rendering, naming no engine", async () => {
+    const { setId, cells } = await renderedSet("waiting", { missingT2i: true });
+    const missing = cells.find((c) => c.engineId.startsWith(FAMILIES.flux) && c.engineId.endsWith("-t2i"))!;
+    const read = async () => {
+      const res = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
+      return { panel: res.body.panels.find((p: { panelId: number }) => p.panelId === missing.panelId), body: res.body };
+    };
+    assert.equal((await read()).panel.waiting, "rendering", "its cell is still expected");
+
+    await db.update(comparisonCellsTable).set({ state: "failed", error: "render failed: content policy" }).where(eq(comparisonCellsTable.id, missing.id));
+    assert.equal((await read()).panel.waiting, "needs_action", "a failed cell with its re-run left");
+
+    await db.update(comparisonCellsTable).set({ rerunCount: 1 }).where(eq(comparisonCellsTable.id, missing.id));
+    const lost = await read();
+    assert.equal(lost.panel.waiting, "lost", "a failed cell with its re-run used and no image at the vendor");
+    assert.equal(lost.panel.judgeable, false);
+    assert.deepEqual(lost.panel.images, []);
+    assert.equal(lost.body.progress.lost, 1);
+    const strings = stringValues(lost.body);
+    assert.ok(!strings.some((s) => s.includes("content policy")), "a cell's error, which may name its engine's filter, is never sent");
+    const results = await request(app()).get(`/api/admin/comparison/results?setIds=${setId}`);
+    assert.equal(results.body.panels.lost, 1);
+
+    await db.update(comparisonCellsTable).set({ vendorResultUrl: "https://vendor.test/x.png" }).where(eq(comparisonCellsTable.id, missing.id));
+    assert.equal((await read()).panel.waiting, "needs_action", "an image kept at the vendor can still be stored");
   });
 });
 
@@ -273,7 +302,7 @@ describe("results", () => {
     const res = await request(app()).get(`/api/admin/comparison/results?setIds=${setId}`);
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const r = res.body;
-    assert.deepEqual(r.panels, { total: 2, judged: 2, judgeable: 2, skipped: 0 });
+    assert.deepEqual(r.panels, { total: 2, judged: 2, judgeable: 2, skipped: 0, lost: 0 });
     assert.deepEqual(r.wins.overall, { [FAMILIES.flux]: 2 });
     assert.deepEqual(r.wins.byMode, { t2i: { [FAMILIES.flux]: 1 }, i2i: { [FAMILIES.flux]: 1 } });
     assert.deepEqual(r.wins.byStyle, { none: { [FAMILIES.flux]: 2 } });

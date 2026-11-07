@@ -32,6 +32,8 @@ interface BlindPanel {
   faceMarkable: boolean;
   judgeable: boolean;
   skipped: boolean;
+  /** Why a panel that is neither judgeable nor skipped is waiting. */
+  waiting?: "lost" | "needs_action" | "rendering" | null;
   skipReason: string | null;
   imagesReady: number;
   imagesExpected: number;
@@ -40,7 +42,7 @@ interface BlindPanel {
 }
 interface BlindSet {
   set: { id: number; label: string; round: number };
-  progress: { panels: number; judgeable: number; judged: number; skipped: number };
+  progress: { panels: number; judgeable: number; judged: number; skipped: number; lost?: number };
   panels: BlindPanel[];
 }
 
@@ -89,7 +91,9 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
 
   // While any image is still to come, refresh quietly: the panel on screen,
   // and any pick not yet saved, stay as they are.
-  const rendering = !!data && data.panels.some((p) => !p.judgeable && !p.skipped);
+  // Only work still in progress is polled for: a lost panel will never change,
+  // and one that needs action changes only when someone acts on the comparison screen.
+  const rendering = !!data && data.panels.some((p) => !p.judgeable && !p.skipped && (p.waiting ?? "rendering") === "rendering");
   useEffect(() => {
     if (!rendering) return;
     const timer = setInterval(() => { void load(); }, REFRESH_MS);
@@ -163,6 +167,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
               <p className="text-xs font-mono text-muted-foreground" data-testid="judging-progress">
                 {data.progress.judged} of {data.progress.panels} judged · {data.progress.judgeable} ready to judge
                 {data.progress.skipped > 0 ? ` · ${data.progress.skipped} skipped, never judged` : ""}
+                {(data.progress.lost ?? 0) > 0 ? ` · ${data.progress.lost} lost an image for good` : ""}
               </p>
             </div>
 
@@ -187,6 +192,14 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                 {panel.skipped ? (
                   <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-skipped">
                     Skipped at preparation, so this panel can't be judged{panel.skipReason ? `: ${panel.skipReason}` : ""}. It still counts in the round.
+                  </p>
+                ) : panel.waiting === "lost" ? (
+                  <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-lost">
+                    One engine's image for this panel failed after its re-run, so the panel can never be judged ({panel.imagesReady} of {panel.imagesExpected} images exist). It still counts in the round.
+                  </p>
+                ) : panel.waiting === "needs_action" ? (
+                  <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-needs-action">
+                    {panel.imagesReady} of {panel.imagesExpected} images are ready, and something failed: re-run it or prepare the panel again on the comparison screen, then come back.
                   </p>
                 ) : !panel.judgeable ? (
                   <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-not-ready">

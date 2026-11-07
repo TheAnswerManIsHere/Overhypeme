@@ -66,6 +66,30 @@ export function isJudgeable(cells: ComparisonCell[]): boolean {
   return cells.length > 0 && cells.every(hasImage);
 }
 
+/**
+ * Why a panel that is neither judgeable nor skipped is waiting, in words
+ * that name no engine:
+ * - "lost": one of its images will never exist (a cell failed after its one
+ *   re-run, with no image kept at the vendor, or was skipped), so the panel
+ *   can never be judged — the plan's scope question for David, never shown
+ *   as work in progress;
+ * - "needs_action": something on the comparison screen would move it on (a
+ *   failed panel to prepare again, a failed cell to re-run or to retry its
+ *   storage);
+ * - "rendering": its images are still being prepared or drawn.
+ */
+export type PanelWait = "lost" | "needs_action" | "rendering";
+
+const cellLost = (c: ComparisonCell) =>
+  c.state === "skipped" || (c.state === "failed" && !c.vendorResultUrl && c.rerunCount >= 1);
+
+export function panelWait(panel: Pick<ComparisonPanel, "state">, cells: ComparisonCell[]): PanelWait | null {
+  if (panel.state === "skipped" || isJudgeable(cells)) return null;
+  if (cells.some(cellLost)) return "lost";
+  if (panel.state === "failed" || cells.some((c) => c.state === "failed")) return "needs_action";
+  return "rendering";
+}
+
 /** Whether a panel's reference is a person, so "not the person" can be marked. */
 export function isHumanReference(scenarioKey: string): boolean {
   const type = RENDER_SCENARIO_DESCRIPTORS[scenarioKey as RenderScenarioKey]?.referenceIdentityType;
@@ -88,6 +112,8 @@ export interface BlindPanel {
   /** Skipped at preparation: it will never be judged. Its reason names no engine. */
   skipped: boolean;
   skipReason: string | null;
+  /** Why a panel that is neither judgeable nor skipped is waiting; null otherwise. */
+  waiting: PanelWait | null;
   imagesReady: number;
   imagesExpected: number;
   /** Empty until the panel is judgeable. */
@@ -96,7 +122,7 @@ export interface BlindPanel {
 }
 export interface BlindSet {
   set: { id: number; label: string; round: number };
-  progress: { panels: number; judgeable: number; judged: number; skipped: number };
+  progress: { panels: number; judgeable: number; judged: number; skipped: number; lost: number };
   panels: BlindPanel[];
 }
 
@@ -145,6 +171,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
       judgeable,
       skipped: panel.state === "skipped",
       skipReason: panel.state === "skipped" ? panel.skipReason : null,
+      waiting: panelWait(panel, cells),
       imagesReady: cells.filter(hasImage).length,
       imagesExpected: cells.length,
       images: judgeable ? ordered.map((o) => ({ token: o.token, src: `/api/admin/comparison/panels/${panel.id}/images/${o.token}` })) : [],
@@ -164,6 +191,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
       judgeable: out.filter((p) => p.judgeable).length,
       judged: out.filter((p) => p.pick).length,
       skipped: out.filter((p) => p.skipped).length,
+      lost: out.filter((p) => p.waiting === "lost").length,
     },
     panels: out,
   };
@@ -221,7 +249,7 @@ export interface ComparisonResults {
   sets: Array<{ id: number; label: string; round: number }>;
   families: string[];
   /** Every panel of the sets counts in `total`; `skipped` will never be judged. */
-  panels: { total: number; judged: number; judgeable: number; skipped: number };
+  panels: { total: number; judged: number; judgeable: number; skipped: number; lost: number };
   wins: {
     overall: Wins;
     /** "t2i" (text-to-image) and "i2i" (reference edit): a winner each. */
@@ -324,6 +352,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
       judged: picks.size,
       judgeable: panels.filter((p) => isJudgeable(cellsByPanel.get(p.id) ?? [])).length,
       skipped: panels.filter((p) => p.state === "skipped").length,
+      lost: panels.filter((p) => panelWait(p, cellsByPanel.get(p.id) ?? []) === "lost").length,
     },
     wins,
     leaders,

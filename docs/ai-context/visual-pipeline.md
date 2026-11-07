@@ -144,7 +144,12 @@ beside the eval run rather than inside it (plan
   `GET /api/admin/comparison/panels/:id/images/:token` with only its content
   type, so neither the payload nor the image names an engine, endpoint, cell
   or storage path. A panel is judgeable only when every cell has a stored
-  image; until then it shows how many are in and none of them. David picks
+  image; until then it shows how many are in and none of them, and says why
+  it waits (`panelWait`): still rendering (the page polls every 5 s), needing
+  action on the comparison screen (a re-run or re-preparation left), or lost
+  for good (a cell failed after its one re-run) — a lost panel counts in every
+  total and is never shown as work in progress. A panel skipped at
+  preparation stays listed with its reason. David picks
   the best and, on panels with a person's reference photo, marks any face that
   is not the person (`comparison_picks`, one row per panel); re-judging
   replaces the pick and keeps the previous one in the row's `history`.

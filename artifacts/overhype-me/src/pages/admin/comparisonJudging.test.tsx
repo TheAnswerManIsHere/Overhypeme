@@ -141,4 +141,39 @@ describe("ComparisonJudging", () => {
     expect((await screen.findByTestId("judging-skipped")).textContent).toMatch(/enrichment does not validate/);
     expect(screen.queryByTestId("judging-save")).toBeNull();
   });
+
+  it("says a lost panel can never be judged, and stops refreshing for it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetchMock = vi.fn(async () => {
+        const body = blindSet();
+        body.panels[2] = { ...body.panels[2]!, waiting: "lost", imagesReady: 1 };
+        return { ok: true, json: async () => ({ ...body, progress: { ...body.progress, lost: 1 } }) } as unknown as Response;
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      render(<ComparisonJudging params={{ setId: "7" }} />);
+      await screen.findByTestId("judging-images");
+      expect(screen.getByTestId("judging-progress").textContent).toMatch(/1 lost an image for good/);
+      fireEvent.click(screen.getByTestId("judging-prev"));
+      expect((await screen.findByTestId("judging-lost")).textContent).toMatch(/can never be judged/);
+      expect(screen.queryByTestId("judging-not-ready")).toBeNull();
+      const calls = fetchMock.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(REFRESH_MS * 3);
+      expect(fetchMock.mock.calls.length).toBe(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("points a panel whose image failed, with a re-run left, to the comparison screen", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      const body = blindSet();
+      body.panels[2] = { ...body.panels[2]!, waiting: "needs_action" };
+      return { ok: true, json: async () => body } as unknown as Response;
+    }));
+    render(<ComparisonJudging params={{ setId: "7" }} />);
+    await screen.findByTestId("judging-images");
+    fireEvent.click(screen.getByTestId("judging-prev"));
+    expect((await screen.findByTestId("judging-needs-action")).textContent).toMatch(/re-run it or prepare the panel again on the comparison screen/);
+  });
 });
