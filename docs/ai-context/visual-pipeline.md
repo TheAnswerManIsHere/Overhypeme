@@ -76,9 +76,14 @@ beside the eval run rather than inside it (plan
   comparison is what the plan forbids. Round 1 is 15 panels and 90 cells,
   round 2 18 and 108 (`COMPARISON_ROUND_PRESETS`).
 - **Spend is bounded before dispatch** (`artifacts/api-server/src/lib/comparison/admission.ts`). A
-  panel's preparation reserves two planner calls at their output ceiling,
-  priced for the model the planner engine names ($0.728 on gpt-5.5; a
-  missing, inactive or unpriced planner refuses rather than guessing); a cell reserves its engine's `perCallBoundUsd`. A run takes items
+  panel's preparation reserves two planner calls, each at the completion
+  ceiling its request would send — taken from the planner call's own
+  resolution (`resolveImagePromptLLMSettings`) and request-shaping rule
+  (`chatModelTuningParams`), so raising the planner's token limit raises the
+  bound — plus 12,000 input tokens ($0.768 a panel on the shipped gpt-5.5 at
+  2,800 tokens). Any planner fallback, or a model with no price, refuses
+  rather than pricing a guess. A cell reserves its engine's
+  `perCallBoundUsd`. A run takes items
   in order while its bound stays under the $5 per-run allowance, and is refused
   — with the figure — when one item alone exceeds it, or when the run plus
   every reservation still unresolved exceeds what the operator reads as left
@@ -88,7 +93,9 @@ beside the eval run rather than inside it (plan
   Reservations (`comparison_reservations`) are written by the run that spends,
   so a plan that never runs holds no budget.
 - **Status is shown at both altitudes** on `/admin/eval`: every cell's state,
-  and the set's aggregate and remaining bound.
+  and the set's aggregate and remaining bound. A response is applied only
+  while the set it was requested for is still selected, so one set's figures
+  never appear under another.
 - **Read-only dry run**: `artifacts/api-server/scripts/comparison-dry-run.ts` derives rounds 1 and 2
   against a database's real catalogue and checks 33 panels, 198 cells and a
   refusal with $1 left in the week.

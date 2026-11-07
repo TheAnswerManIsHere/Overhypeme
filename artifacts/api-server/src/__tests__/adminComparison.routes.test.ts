@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { db } from "@workspace/db";
 import { comparisonSetsTable, enginesTable, factsTable, lookStylesTable, usersTable } from "@workspace/db/schema";
-import { inArray, like } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 
 import adminComparisonRouter from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -18,6 +18,7 @@ import { ALL_ENGINES } from "../lib/engines/index.js";
 import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { panelPreparationBoundUsd } from "../lib/comparison/admission.js";
 import { DEFAULT_IMAGE_PROMPT_ENGINE_ID } from "../lib/imagePromptConfig.js";
+import { clearEngineCaches } from "../lib/engineInterpreter.js";
 
 const P = `t-cmp-${randomUUID().slice(0, 6)}`;
 const FAMILIES = [`${P}-gpt`, `${P}-flux`];
@@ -100,7 +101,7 @@ describe("admin comparison routes", () => {
       assert.equal(mode, scenario === "generic_t2i" ? "t2i" : "i2i");
       assert.deepEqual(cells, FAMILIES.map((f) => `${f}-${mode}`).sort());
     }
-    assert.ok(Math.abs(detail.body.estimate.preparationBoundUsd - 4 * panelPreparationBoundUsd("gpt-5.5")) < 1e-3);
+    assert.ok(Math.abs(detail.body.estimate.preparationBoundUsd - 4 * panelPreparationBoundUsd({ model: "gpt-5.5", maxTokens: 2800, temperature: 0.4 })) < 1e-3);
 
     const list = await request(app).get("/api/admin/comparison/sets");
     assert.ok(list.body.sets.some((s: { id: number; cells: number }) => s.id === created.body.setId && s.cells === 8));
@@ -122,6 +123,28 @@ describe("admin comparison routes", () => {
     const render = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "render", weekRemainingUsd: 25 });
     assert.equal(render.body.admitted, false);
     assert.equal(render.body.refusal, "nothing left to do");
+  });
+
+  it("prices preparation from the planner's configured settings, and refuses on a planner fallback", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
+    const created = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} planner` }));
+    const [original] = await db.select({ defaultMaxTokens: enginesTable.defaultMaxTokens, isActive: enginesTable.isActive }).from(enginesTable).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
+    try {
+      await db.update(enginesTable).set({ defaultMaxTokens: 6000 }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
+      clearEngineCaches();
+      const raised = await request(app).get(`/api/admin/comparison/sets/${created.body.setId}`);
+      assert.equal(raised.status, 200);
+      assert.ok(Math.abs(raised.body.estimate.preparationBoundUsd - 4 * 0.96) < 1e-3, String(raised.body.estimate.preparationBoundUsd));
+
+      await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
+      clearEngineCaches();
+      const refused = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare", weekRemainingUsd: 25 });
+      assert.equal(refused.status, 400);
+      assert.ok(refused.body.reasons.some((r: string) => r.includes(`"${DEFAULT_IMAGE_PROMPT_ENGINE_ID}" cannot be used (engine_inactive)`)), JSON.stringify(refused.body));
+    } finally {
+      await db.update(enginesTable).set({ defaultMaxTokens: original!.defaultMaxTokens, isActive: original!.isActive }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
+      clearEngineCaches();
+    }
   });
 
   it("refuses an allowance above the per-run budget, and a set naming an unknown family or fact", async () => {

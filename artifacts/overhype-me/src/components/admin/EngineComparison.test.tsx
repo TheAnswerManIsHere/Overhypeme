@@ -83,3 +83,66 @@ describe("EngineComparison", () => {
     expect((await screen.findByTestId("comparison-plan-refusal")).textContent).toMatch(/above the \$0\.50 left this week/);
   });
 });
+
+describe("EngineComparison — responses for an earlier selection", () => {
+  const detailFor = (id: number) => ({ ...DETAIL, set: { ...DETAIL.set, id, label: `Set ${id}` } });
+  const SETS = [7, 8].map((id) => ({ id, label: `Set ${id}`, round: 1, createdAt: new Date().toISOString(), panels: 1, cells: 2 }));
+  const ok = (body: unknown) => ({ ok: true, json: async () => body }) as unknown as Response;
+
+  /** Every request for `deferred` URLs waits until its release is called. */
+  function controlledFetch(deferred: Record<string, { status?: number; body: unknown }>) {
+    const release: Record<string, () => void> = {};
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/comparison/sets")) return ok({ sets: SETS });
+      const match = Object.keys(deferred).find((k) => url.endsWith(k));
+      if (match) {
+        await new Promise<void>((resolve) => { release[match] = resolve; });
+        const d = deferred[match]!;
+        return { ok: (d.status ?? 200) < 400, status: d.status ?? 200, json: async () => d.body } as unknown as Response;
+      }
+      if (url.endsWith("/comparison/sets/8")) return ok(detailFor(8));
+      return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+    });
+    return { fetchMock, release };
+  }
+
+  it("a late detail for the previous set never replaces the selected set's", async () => {
+    const { fetchMock, release } = controlledFetch({ "/comparison/sets/7": { body: detailFor(7) } });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<EngineComparison />);
+    fireEvent.click(await screen.findByText(/#7 Set 7/));
+    fireEvent.click(screen.getByText(/#8 Set 8/));
+    await waitFor(() => expect(screen.getByTestId("comparison-detail").textContent).toMatch(/Set #8/));
+    release["/comparison/sets/7"]!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByTestId("comparison-detail").textContent).toMatch(/Set #8/);
+  });
+
+  it("a late failure for the previous set shows no error", async () => {
+    const { fetchMock, release } = controlledFetch({ "/comparison/sets/7": { status: 500, body: { error: "boom" } } });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<EngineComparison />);
+    fireEvent.click(await screen.findByText(/#7 Set 7/));
+    fireEvent.click(screen.getByText(/#8 Set 8/));
+    await screen.findByTestId("comparison-detail");
+    release["/comparison/sets/7"]!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId("comparison-error")).toBeNull();
+  });
+
+  it("a plan requested for the previous set never appears under the selected one", async () => {
+    const plan = { admitted: true, items: [{ ref: "panel:1", label: "", boundUsd: 0.768 }], boundUsd: 0.768, allowanceUsd: 5, remainingItems: 0, remainingBoundUsd: 0, runsNeeded: 1, refusal: null };
+    const { fetchMock, release } = controlledFetch({ "/comparison/sets/7": { body: detailFor(7) }, "/comparison/sets/7/plan": { body: plan } });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<EngineComparison />);
+    fireEvent.click(await screen.findByText(/#7 Set 7/));
+    await new Promise((r) => setTimeout(r, 0));
+    release["/comparison/sets/7"]!();
+    fireEvent.click(await screen.findByTestId("comparison-plan-prepare"));
+    fireEvent.click(screen.getByText(/#8 Set 8/));
+    await waitFor(() => expect(screen.getByTestId("comparison-detail").textContent).toMatch(/Set #8/));
+    release["/comparison/sets/7/plan"]!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId("comparison-plan")).toBeNull();
+  });
+});

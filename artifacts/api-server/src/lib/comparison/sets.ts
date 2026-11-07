@@ -31,9 +31,9 @@ import {
   type ComparisonRunPlanRequest,
   type ComparisonSetCreate,
 } from "@workspace/api-zod";
-import { getImagePromptEngineId } from "../imagePromptConfig";
+import { resolveImagePromptLLMSettings } from "../imagePrompt/generator";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
-import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type RunPlan, type WorkItem } from "./admission";
+import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type PlannerRequestSettings, type RunPlan, type WorkItem } from "./admission";
 
 export { ComparisonLayoutError };
 
@@ -143,25 +143,29 @@ interface SetRows {
   panels: ComparisonPanel[];
   cells: ComparisonCell[];
   prices: Map<string, unknown>;
-  plannerModel: string;
+  planner: PlannerRequestSettings;
 }
 
 /**
- * The model the planner engine names (`fact_image_prompt_engine_id`). A
- * missing or inactive planner engine refuses rather than pricing a guess.
+ * The planner's request settings, from the one resolution its call uses
+ * (`resolveImagePromptLLMSettings`). A fallback of any kind refuses: a bound
+ * for a planner other than the configured one would price a different
+ * experiment, and a guess is no bound.
  */
-export async function plannerModel(): Promise<string> {
-  const engineId = await getImagePromptEngineId();
-  const [row] = await db.select({ endpointId: enginesTable.endpointId, isActive: enginesTable.isActive }).from(enginesTable).where(eq(enginesTable.id, engineId));
-  if (!row || !row.isActive) throw new ComparisonLayoutError([`the planner engine "${engineId}" is ${row ? "inactive" : "not in the catalogue"}, so no preparation can be bounded`]);
-  return row.endpointId;
+export async function plannerSettings(): Promise<PlannerRequestSettings> {
+  const resolved = await resolveImagePromptLLMSettings();
+  const { fallbackReason, configuredEngineId } = resolved.plannerProvenance;
+  if (fallbackReason || !resolved.model) {
+    throw new ComparisonLayoutError([`the planner engine "${configuredEngineId}" cannot be used (${fallbackReason ?? "no model"}), so no preparation can be bounded`]);
+  }
+  return { model: resolved.model, maxTokens: resolved.maxTokens, temperature: resolved.temperature, reasoningEffort: resolved.reasoningEffort };
 }
 
 async function loadSetRows(setId: number): Promise<SetRows | null> {
-  const [setRow, panels, model] = await Promise.all([
+  const [setRow, panels, planner] = await Promise.all([
     db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId)),
     db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId)).orderBy(asc(comparisonPanelsTable.id)),
-    plannerModel(),
+    plannerSettings(),
   ]);
   const set = setRow[0];
   if (!set) return null;
@@ -172,7 +176,7 @@ async function loadSetRows(setId: number): Promise<SetRows | null> {
   const engines = engineIds.length
     ? await db.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds))
     : [];
-  return { set, panels, cells, prices: new Map(engines.map((r) => [r.id, r.priceModel])), plannerModel: model };
+  return { set, panels, cells, prices: new Map(engines.map((r) => [r.id, r.priceModel])), planner };
 }
 
 /**
@@ -182,7 +186,7 @@ async function loadSetRows(setId: number): Promise<SetRows | null> {
  */
 function workItems(kind: "prepare" | "render", rows: SetRows, opts: { preparedOnly: boolean }): WorkItem[] {
   if (kind === "prepare") {
-    const bound = panelPreparationBoundUsd(rows.plannerModel);
+    const bound = panelPreparationBoundUsd(rows.planner);
     return rows.panels.filter((p) => p.state === "pending").map((p) => ({
       ref: `panel:${p.id}`,
       label: `preparing panel ${p.id} (fact ${p.factId}, ${p.scenarioKey}, ${p.lookStyleId})`,

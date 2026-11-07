@@ -8,7 +8,7 @@
  * the refusal with the figure. Planning spends nothing; running arrives in
  * increment 2b.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Circle, Loader2, MinusCircle, Plus } from "lucide-react";
 import {
   COMPARISON_DEFAULT_FAMILIES,
@@ -69,6 +69,11 @@ export function EngineComparison() {
   const [weekRemaining, setWeekRemaining] = useState(String(PAID_WEEK_ALLOWANCE_USD));
   const [plan, setPlan] = useState<{ kind: string; result: RunPlan } | null>(null);
   const [planning, setPlanning] = useState(false);
+  // A response is applied only while the set it was requested for is still
+  // the selected one: a late answer for an earlier selection is dropped.
+  const selectedRef = useRef<number | null>(null);
+  selectedRef.current = selected;
+  const stillSelected = (id: number) => selectedRef.current === id;
 
   const loadSets = useCallback(async () => {
     const r = await fetch("/api/admin/comparison/sets", { credentials: "include" }).catch(() => null);
@@ -80,9 +85,15 @@ export function EngineComparison() {
   const loadDetail = useCallback(async (id: number) => {
     setDetail(null);
     setPlan(null);
+    setPlanning(false);
     const r = await fetch(`/api/admin/comparison/sets/${id}`, { credentials: "include" }).catch(() => null);
-    if (!r || !r.ok) { setError(r ? await readError(r) : "Failed to load the set."); return; }
-    setDetail((await r.json()) as SetDetail);
+    if (!r || !r.ok) {
+      const message = r ? await readError(r) : "Failed to load the set.";
+      if (stillSelected(id)) setError(message);
+      return;
+    }
+    const body = (await r.json()) as SetDetail;
+    if (stillSelected(id)) setDetail(body);
   }, []);
   useEffect(() => { if (selected != null) void loadDetail(selected); }, [selected, loadDetail]);
 
@@ -114,23 +125,30 @@ export function EngineComparison() {
   };
 
   const planRun = async (kind: "prepare" | "render") => {
-    if (selected == null) return;
+    const id = selected;
+    if (id == null) return;
     const week = Number(weekRemaining);
     if (!Number.isFinite(week) || week < 0 || week > PAID_WEEK_ALLOWANCE_USD) { setError(`This week's remaining budget is between $0 and ${usd(PAID_WEEK_ALLOWANCE_USD)}.`); return; }
     setPlanning(true);
     setError("");
-    const r = await fetch(`/api/admin/comparison/sets/${selected}/plan`, {
+    const r = await fetch(`/api/admin/comparison/sets/${id}/plan`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind, weekRemainingUsd: week }),
     }).catch(() => null);
+    const outcome = !r || !r.ok
+      ? { error: r ? await readError(r) : "Failed to plan the run." }
+      : { result: (await r.json()) as RunPlan };
+    if (!stillSelected(id)) return;
     setPlanning(false);
-    if (!r || !r.ok) { setError(r ? await readError(r) : "Failed to plan the run."); return; }
-    setPlan({ kind, result: (await r.json()) as RunPlan });
+    if ("error" in outcome) setError(outcome.error);
+    else setPlan({ kind, result: outcome.result });
   };
 
   const preset = COMPARISON_ROUND_PRESETS[round];
+  /** The detail on screen is always the selected set's, never a stale one. */
+  const shown = detail && detail.set.id === selected ? detail : null;
 
   return (
     <section className="space-y-3" data-testid="comparison-section">
@@ -183,18 +201,18 @@ export function EngineComparison() {
         </ul>
       )}
 
-      {selected != null && !detail && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
-      {detail && (
+      {selected != null && !shown && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+      {shown && (
         <div className="rounded-sm border border-border bg-background p-3 space-y-3" data-testid="comparison-detail">
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">Set #{detail.set.id} · {detail.set.label}</p>
+            <p className="text-sm font-semibold text-foreground">Set #{shown.set.id} · {shown.set.label}</p>
             <p className="text-xs font-mono text-muted-foreground" data-testid="comparison-aggregate">
-              panels: {tallyLine(detail.aggregate.panels)} — cells: {tallyLine(detail.aggregate.cells)}
+              panels: {tallyLine(shown.aggregate.panels)} — cells: {tallyLine(shown.aggregate.cells)}
             </p>
             <p className="text-xs text-muted-foreground" data-testid="comparison-estimate">
-              Still to spend, at most: preparing {usd(detail.estimate.preparationBoundUsd)} · rendering {usd(detail.estimate.renderBoundUsd)}
-              {Object.keys(detail.estimate.perEngineBoundUsd).length > 0 && (
-                <> ({Object.entries(detail.estimate.perEngineBoundUsd).map(([e, v]) => `${e} ${usd(v)}`).join(", ")})</>
+              Still to spend, at most: preparing {usd(shown.estimate.preparationBoundUsd)} · rendering {usd(shown.estimate.renderBoundUsd)}
+              {Object.keys(shown.estimate.perEngineBoundUsd).length > 0 && (
+                <> ({Object.entries(shown.estimate.perEngineBoundUsd).map(([e, v]) => `${e} ${usd(v)}`).join(", ")})</>
               )}
             </p>
           </div>
@@ -223,7 +241,7 @@ export function EngineComparison() {
           )}
 
           <div className="space-y-1" data-testid="comparison-grid">
-            {detail.panels.map((p) => (
+            {shown.panels.map((p) => (
               <div key={p.id} className="flex flex-wrap items-center gap-1.5 text-[11px]">
                 <span className="inline-flex items-center gap-1 font-mono text-muted-foreground w-64 shrink-0" title={p.error ?? p.skipReason ?? undefined}>
                   <StateIcon state={p.state} /> fact #{p.factId} · {p.scenarioKey} · {p.lookStyleId}

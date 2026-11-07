@@ -20,7 +20,7 @@ import { eq } from "drizzle-orm";
 import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS, PAID_RUN_ALLOWANCE_USD, PAID_WEEK_ALLOWANCE_USD } from "@workspace/api-zod";
 import { deriveComparisonLayout } from "../src/lib/comparison/layout.js";
 import { cellBoundUsd, panelPreparationBoundUsd, planRun, type WorkItem } from "../src/lib/comparison/admission.js";
-import { estimateOf, plannerModel } from "../src/lib/comparison/sets.js";
+import { estimateOf, plannerSettings } from "../src/lib/comparison/sets.js";
 
 /** A week with this much left must refuse a render run of rounds 1 and 2. */
 const TIGHT_WEEK_USD = 1;
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
     }, engines);
   });
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
-  const prepareBound = panelPreparationBoundUsd(await plannerModel());
+  const prepareBound = panelPreparationBoundUsd(await plannerSettings());
   const prepare: WorkItem[] = panels.map((_, i) => ({ ref: `panel:${i}`, label: `preparing panel ${i}`, boundUsd: prepareBound }));
   const cells: WorkItem[] = panels.flatMap((p, i) => p.engineIds.map((engineId) => ({ ref: `cell:${i}:${engineId}`, label: `rendering ${engineId}`, boundUsd: cellBoundUsd(price.get(engineId)), engineId })));
   const estimate = estimateOf(prepare, cells);

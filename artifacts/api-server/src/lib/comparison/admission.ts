@@ -6,8 +6,9 @@
  *
  * - A planner preparation reserves two calls (the generator makes one
  *   corrective call on a validation failure), each at its output ceiling: the
- *   request's `max_completion_tokens` (IMAGE_PROMPT_MAX_TOKENS + the reasoning
- *   headroom) at the configured planner model's output rate, plus its input bounded at 8,000 tokens.
+ *   completion-token ceiling the real request sends, derived by the same
+ *   request-shaping rule from the planner's resolved settings, at the model's
+ *   output rate, plus its input bounded at 12,000 tokens.
  * - An image call reserves its engine's `perCallBoundUsd`.
  * - A run takes items in order while the running total stays within the
  *   per-run allowance; an item that alone exceeds it refuses the run with the
@@ -16,25 +17,39 @@
  */
 
 import { perCallBoundUsd, type PriceModel } from "../engines";
-import { IMAGE_PROMPT_MAX_TOKENS } from "../imagePrompt/generator";
-import { REASONING_TOKEN_HEADROOM } from "../openaiChatParams";
+import { chatModelTuningParams } from "../openaiChatParams";
 import { OPENAI_PRICES } from "../aiDouble/recorder";
 
-/** The planner's input (system prompt, schema and user message) is bounded at this. */
-const PLANNER_INPUT_TOKEN_BOUND = 8000;
+/**
+ * The planner's input (system prompt, schema and user message) is bounded at
+ * this. Recorded planner calls used 7,333 to 7,501 prompt tokens
+ * (`aiDouble/recordings/openai.chat--*`); the system prompt is admin-editable
+ * and the user message grows with a fact's enrichment, so the bound keeps
+ * about 60% headroom over them.
+ */
+const PLANNER_INPUT_TOKEN_BOUND = 12_000;
 /** One validation failure buys one corrective call (`imagePrompt/generator.ts`, its header). */
 const PLANNER_CALLS_PER_PANEL = 2;
 
-/** One planner call at its output ceiling, for the OpenAI model the planner engine names. */
-function plannerCallBoundUsd(model: string): number {
-  const price = OPENAI_PRICES[model];
-  if (!price) throw new Error(`no price for the planner model "${model}", so no run can bound its cost`);
-  const outputTokens = IMAGE_PROMPT_MAX_TOKENS + REASONING_TOKEN_HEADROOM;
+/** The planner settings that shape its request: what `resolveImagePromptLLMSettings()` resolves. */
+export interface PlannerRequestSettings {
+  model: string;
+  maxTokens: number;
+  temperature: number;
+  reasoningEffort?: string;
+}
+
+/** One planner call at the completion ceiling its request would actually send. */
+function plannerCallBoundUsd(settings: PlannerRequestSettings): number {
+  const price = OPENAI_PRICES[settings.model];
+  if (!price) throw new Error(`no price for the planner model "${settings.model}", so no run can bound its cost`);
+  const tuning = chatModelTuningParams(settings);
+  const outputTokens = tuning.max_completion_tokens ?? tuning.max_tokens ?? settings.maxTokens;
   return (outputTokens * price.output + PLANNER_INPUT_TOKEN_BOUND * price.input) / 1_000_000;
 }
 
-export function panelPreparationBoundUsd(plannerModel: string): number {
-  return PLANNER_CALLS_PER_PANEL * plannerCallBoundUsd(plannerModel);
+export function panelPreparationBoundUsd(settings: PlannerRequestSettings): number {
+  return PLANNER_CALLS_PER_PANEL * plannerCallBoundUsd(settings);
 }
 
 export function cellBoundUsd(priceModel: unknown): number {

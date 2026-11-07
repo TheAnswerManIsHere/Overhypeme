@@ -64,12 +64,29 @@ describe("run admission", () => {
   const items = (n: number, bound: number, prefix = "cell"): WorkItem[] =>
     Array.from({ length: n }, (_, i) => ({ ref: `${prefix}:${i}`, label: `${prefix} ${i}`, boundUsd: bound }));
 
-  it("a panel's preparation reserves two planner calls at their ceiling ($0.728)", () => {
-    assert.ok(Math.abs(panelPreparationBoundUsd("gpt-5.5") - 0.728) < 1e-9, String(panelPreparationBoundUsd("gpt-5.5")));
+  // The shipped planner: gpt-5.5, 2,800 visible tokens, temperature 0.4.
+  const SHIPPED = { model: "gpt-5.5", maxTokens: 2800, temperature: 0.4 };
+
+  it("a panel's preparation reserves two planner calls at the ceiling the request sends ($0.768)", () => {
+    // (2,800 + 8,000 reasoning headroom) × $30/M + 12,000 input × $5/M = $0.384 a call.
+    assert.ok(Math.abs(panelPreparationBoundUsd(SHIPPED) - 0.768) < 1e-9, String(panelPreparationBoundUsd(SHIPPED)));
+  });
+
+  it("a raised planner token ceiling raises the bound, and admits fewer panels", () => {
+    const raised = { ...SHIPPED, maxTokens: 6000 };
+    assert.ok(Math.abs(panelPreparationBoundUsd(raised) - 0.96) < 1e-9, String(panelPreparationBoundUsd(raised)));
+    const plan = planRun(items(15, panelPreparationBoundUsd(raised), "panel"), { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
+    assert.equal(plan.items.length, 5); // 5 × 0.96 = 4.80; a sixth would be 5.76
+  });
+
+  it("a planner request without reasoning headroom is priced from its own ceiling", () => {
+    // GPT-6 at reasoning effort "none" sends max_completion_tokens = maxTokens, no headroom.
+    const bound = panelPreparationBoundUsd({ model: "gpt-6-luna", maxTokens: 512, temperature: 0.4, reasoningEffort: "none" });
+    assert.ok(Math.abs(bound - 2 * (512 * 0.5 + 12_000 * 0.1) / 1_000_000) < 1e-12, String(bound));
   });
 
   it("a planner model with no price refuses rather than guessing", () => {
-    assert.throws(() => panelPreparationBoundUsd("no-such-model"), /no price for the planner model "no-such-model"/);
+    assert.throws(() => panelPreparationBoundUsd({ ...SHIPPED, model: "no-such-model" }), /no price for the planner model "no-such-model"/);
   });
 
   it("an engine without a price model has no bound", () => {
@@ -77,9 +94,9 @@ describe("run admission", () => {
   });
 
   it("packs a run greedily under the allowance and counts the runs left", () => {
-    const plan = planRun(items(15, panelPreparationBoundUsd("gpt-5.5"), "panel"), { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
+    const plan = planRun(items(15, panelPreparationBoundUsd(SHIPPED), "panel"), { allowanceUsd: 5, weekRemainingUsd: 25, unresolvedReservedUsd: 0 });
     assert.equal(plan.admitted, true);
-    assert.equal(plan.items.length, 6); // 6 × 0.728 = 4.368; a seventh would be 5.096
+    assert.equal(plan.items.length, 6); // 6 × 0.768 = 4.608; a seventh would be 5.376
     assert.equal(plan.remainingItems, 9);
     assert.equal(plan.runsNeeded, 3);
     assert.ok(plan.boundUsd <= 5);
