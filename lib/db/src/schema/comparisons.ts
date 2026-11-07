@@ -1,0 +1,129 @@
+import {
+  pgTable, bigserial, bigint, integer, smallint, varchar, text, jsonb, numeric, timestamp, index, uniqueIndex,
+} from "drizzle-orm/pg-core";
+import { usersTable } from "./auth";
+import { factsTable } from "./facts";
+import { imagePromptAttemptsTable } from "./imagePromptAttempts";
+
+/**
+ * Launch Phase 8 — the engine comparison (plan
+ * `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Proposed Design* C and D,
+ * *Data Model* items 2c and 3; migration 0124).
+ *
+ * A SET names its facts, scenarios, styles and engine families. A PANEL is one
+ * fact × scenario × style, prepared once (planner + compiler) and frozen, so
+ * every engine renders the same compiled prompt. A CELL is panel × engine. A
+ * RUN is one budgeted batch of paid work (preparing panels or rendering
+ * cells); its RESERVATIONS hold each permitted call's worst-case cost until
+ * billing settles it, so admission reads rows, not memory, and a resumed run
+ * cannot reset what is already committed. Picks (blind judging) are
+ * increment 3's.
+ */
+
+export const comparisonSetsTable = pgTable("comparison_sets", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  label: text("label").notNull(),
+  /** 1, 2 or 3 (the plan's rounds). */
+  round: smallint("round").notNull(),
+  /** number[] — the facts David named. */
+  factIds: jsonb("fact_ids").notNull(),
+  /** RenderScenarioKey[] */
+  scenarioKeys: jsonb("scenario_keys").notNull(),
+  /** string[] — look style ids; "none" for no style. */
+  lookStyleIds: jsonb("look_style_ids").notNull(),
+  /** string[] — engine families (engines.family), each a text-to-image + edit pair. */
+  engineFamilies: jsonb("engine_families").notNull(),
+  createdBy: varchar("created_by").references(() => usersTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const comparisonPanelsTable = pgTable("comparison_panels", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  setId: bigint("set_id", { mode: "number" }).notNull().references(() => comparisonSetsTable.id, { onDelete: "cascade" }),
+  factId: integer("fact_id").notNull().references(() => factsTable.id, { onDelete: "cascade" }),
+  scenarioKey: varchar("scenario_key", { length: 40 }).notNull(),
+  /** "none" for no style. */
+  lookStyleId: varchar("look_style_id", { length: 64 }).notNull(),
+  /** "t2i" | "i2i", from the scenario. */
+  imageMode: varchar("image_mode", { length: 4 }).notNull(),
+  /** "pending" | "prepared" | "failed" | "skipped" */
+  state: varchar("state", { length: 16 }).notNull().default("pending"),
+  skipReason: text("skip_reason"),
+  /** Frozen at preparation (increment 2b): the planner output and the compiled prompt every cell renders. */
+  visualPlan: jsonb("visual_plan"),
+  compiledPrompt: jsonb("compiled_prompt"),
+  referenceIdentityType: varchar("reference_identity_type", { length: 32 }),
+  referenceAssetVersion: varchar("reference_asset_version", { length: 32 }),
+  styleSnapshot: jsonb("style_snapshot"),
+  renderControls: jsonb("render_controls"),
+  error: text("error"),
+  /** Seeds the blind view's stable shuffle (increment 3). */
+  shuffleSeed: integer("shuffle_seed").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("UQ_comparison_panels_identity").on(t.setId, t.factId, t.scenarioKey, t.lookStyleId),
+]);
+
+export const comparisonCellsTable = pgTable("comparison_cells", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  panelId: bigint("panel_id", { mode: "number" }).notNull().references(() => comparisonPanelsTable.id, { onDelete: "cascade" }),
+  /** The engine of the set's family whose mode is the panel's. */
+  engineId: varchar("engine_id", { length: 64 }).notNull(),
+  /** "expected" | "enqueued" | "rendered" | "failed" | "skipped" */
+  state: varchar("state", { length: 16 }).notNull().default("expected"),
+  skipReason: text("skip_reason"),
+  attemptId: bigint("attempt_id", { mode: "number" }).references(() => imagePromptAttemptsTable.id, { onDelete: "set null" }),
+  /** Manual re-runs taken (the plan allows one per cell, through admission). */
+  rerunCount: smallint("rerun_count").notNull().default(0),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("UQ_comparison_cells_panel_engine").on(t.panelId, t.engineId),
+]);
+
+export const comparisonRunsTable = pgTable("comparison_runs", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  setId: bigint("set_id", { mode: "number" }).notNull().references(() => comparisonSetsTable.id, { onDelete: "cascade" }),
+  /** "prepare" | "render" */
+  kind: varchar("kind", { length: 16 }).notNull(),
+  /** "admitted" | "refused" | "running" | "done" | "failed" */
+  state: varchar("state", { length: 16 }).notNull(),
+  /** Sum of the run's reservations at admission. */
+  boundUsd: numeric("bound_usd", { precision: 10, scale: 4 }).notNull(),
+  /** The per-run allowance admission checked against. */
+  allowanceUsd: numeric("allowance_usd", { precision: 10, scale: 4 }).notNull(),
+  /** The week's remaining paid-run budget the operator supplied from the fleet ledger. */
+  weekRemainingUsd: numeric("week_remaining_usd", { precision: 10, scale: 4 }),
+  /** Why admission refused, with the figure. */
+  refusal: text("refusal"),
+  createdBy: varchar("created_by").references(() => usersTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+}, (t) => [index("IDX_comparison_runs_set").on(t.setId, t.createdAt)]);
+
+export const comparisonReservationsTable = pgTable("comparison_reservations", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  runId: bigint("run_id", { mode: "number" }).notNull().references(() => comparisonRunsTable.id, { onDelete: "cascade" }),
+  /** "planner" | "image" */
+  kind: varchar("kind", { length: 16 }).notNull(),
+  /** The model or engine id the call goes to. */
+  target: varchar("target", { length: 128 }).notNull(),
+  panelId: bigint("panel_id", { mode: "number" }).references(() => comparisonPanelsTable.id, { onDelete: "set null" }),
+  cellId: bigint("cell_id", { mode: "number" }).references(() => comparisonCellsTable.id, { onDelete: "set null" }),
+  /** The worst-case cost held until billing settles it. */
+  boundUsd: numeric("bound_usd", { precision: 10, scale: 4 }).notNull(),
+  /** The real billed amount once established (never clipped to the bound). */
+  settledUsd: numeric("settled_usd", { precision: 10, scale: 4 }),
+  /** "reserved" | "settled" | "released" — a reserved row counts at its bound. */
+  state: varchar("state", { length: 16 }).notNull().default("reserved"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+}, (t) => [index("IDX_comparison_reservations_state").on(t.state, t.createdAt)]);
+
+export type ComparisonSet = typeof comparisonSetsTable.$inferSelect;
+export type ComparisonPanel = typeof comparisonPanelsTable.$inferSelect;
+export type ComparisonCell = typeof comparisonCellsTable.$inferSelect;
+export type ComparisonRun = typeof comparisonRunsTable.$inferSelect;
+export type ComparisonReservation = typeof comparisonReservationsTable.$inferSelect;

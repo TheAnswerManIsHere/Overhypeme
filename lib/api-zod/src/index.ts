@@ -21,6 +21,7 @@ export * from "./renderPolicyEnums";
 export * from "./visualStrategyOverride";
 export * from "./visualConcepts";
 export * from "./eval";
+export * from "./engineComparison";
 export * from "./moderationWorkflow";
 export * from "./renderScenarios";
 export * from "./factTextEdit";

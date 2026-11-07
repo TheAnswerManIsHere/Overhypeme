@@ -12,6 +12,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Loader2, AlertTriangle, Play, CheckCircle2, TrendingUp, TrendingDown } from "lucide-react";
 import { FAILURE_TAG_VALUES, type FailureTag } from "@workspace/api-zod";
 import { AttemptEvalControl, FAILURE_TAG_LABELS, type EvalWriteBody } from "@/components/admin/AttemptEvalControl";
+import { EngineComparison } from "@/components/admin/EngineComparison";
 
 // ─── API view types (mirror lib/eval/dashboard.ts + evalRunJobs.ts) ──────────
 
@@ -209,6 +210,9 @@ export default function EvalDashboard() {
             </div>
           </div>
         )}
+
+        {/* The launch Phase 8 engine comparison. */}
+        <EngineComparison />
 
         {/* Golden set. */}
         <section className="space-y-2">
