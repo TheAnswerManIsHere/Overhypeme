@@ -187,7 +187,7 @@ describe("EngineComparison — starting a run", () => {
     fireEvent.click(screen.getByTestId("comparison-plan-prepare"));
     fireEvent.click(await screen.findByTestId("comparison-start-run"));
     expect((await screen.findByTestId("comparison-notice")).textContent).toMatch(/Run #3 started: 1 item, at most \$0\.77/);
-    expect(posts.at(-1)).toEqual({ url: "/api/admin/comparison/sets/7/runs", body: { kind: "prepare", weekRemainingUsd: 18.4 } });
+    expect(posts.at(-1)).toEqual({ url: "/api/admin/comparison/sets/7/runs", body: { kind: "prepare", weekRemainingUsd: 18.4, expectedBoundUsd: 0.768 } });
   });
 
   it("shows a refused start with its figure", async () => {

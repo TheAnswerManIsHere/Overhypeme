@@ -121,7 +121,10 @@ beside the eval run rather than inside it (plan
   (`artifacts/api-server/src/lib/imageEngineRequest.ts`), so it measures what
   production sends.
 - **Settlement**: a call that never reached a vendor releases its
-  reservation. A completed fal call settles at the bill fal reports for its
+  reservation. Each reservation records the fal request it paid for, written
+  with the cell's at submission; a re-run replaces the cell's id and never the
+  reservation's, so every reservation settles only from its own call's bill.
+  A completed fal call settles at the bill fal reports for its
   request (`GET https://api.fal.ai/v1/models/billing-events?request_id=…`,
   `cost_total`), never clipped to the reservation; a bill not yet reported
   keeps the reservation held — still counted against the week — until a
@@ -140,7 +143,13 @@ beside the eval run rather than inside it (plan
   rests on a measured figure (GPT Image 2.5's reference-image charge) renders
   one edit cell first; its other cells wait until fal's bill for that edit
   is read, are admitted once it is within its reservation, and are refused
-  with the figure if it is above.
+  with the figure if it is above. Only a call still in flight, or one that
+  returned the cell's image, is a bill awaited: a first edit that failed keeps
+  its reservation against the week, and the next run admits another first edit.
+- **Start never runs more than the plan shown.** The start carries the
+  bound of the plan on screen (`expectedBoundUsd`); if the work has grown
+  since — a panel prepared, a family cleared by its first bill — the start is
+  refused with the new figure, to be planned again, and reserves nothing.
 - **The eval runner can name its engine per mode**
   (`POST /api/admin/eval/runs` `imageEngines: { t2i?, i2i? }`); an engine
   that cannot draw its mode refuses the run, never falls back.

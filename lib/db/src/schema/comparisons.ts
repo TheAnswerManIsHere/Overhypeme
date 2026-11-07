@@ -122,6 +122,12 @@ export const comparisonReservationsTable = pgTable("comparison_reservations", {
   target: varchar("target", { length: 128 }).notNull(),
   panelId: bigint("panel_id", { mode: "number" }).references(() => comparisonPanelsTable.id, { onDelete: "set null" }),
   cellId: bigint("cell_id", { mode: "number" }).references(() => comparisonCellsTable.id, { onDelete: "set null" }),
+  /**
+   * The fal request this reservation paid for, written with the cell's at
+   * submission. A re-run replaces the cell's id; this one never changes, so
+   * each reservation settles only from its own call's bill.
+   */
+  falRequestId: varchar("fal_request_id", { length: 128 }),
   /** The worst-case cost held until billing settles it. */
   boundUsd: numeric("bound_usd", { precision: 10, scale: 4 }).notNull(),
   /** The real billed amount once established (never clipped to the bound). */

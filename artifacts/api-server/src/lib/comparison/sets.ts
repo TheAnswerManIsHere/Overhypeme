@@ -284,6 +284,12 @@ export function hasMeasuredComponent(priceModel: unknown): boolean {
  * reservation, a render run admits exactly one such cell and none of the
  * family's others; while that bill is awaited, none; and once a bill comes in
  * above its reservation, none, with the figure.
+ *
+ * A bill is awaited only for a call that is still in flight (its cell's
+ * newest reservation, the cell enqueued) or that produced the cell's image
+ * (its own request id is the cell's, and the vendor returned an image). A
+ * held reservation on a call that failed taught nothing about the price: it
+ * still counts against the week, but the next run admits another first edit.
  */
 export async function gateMeasuredFamilies(items: WorkItem[], rows: SetRows, exec: Executor = db): Promise<{ items: WorkItem[]; notes: string[] }> {
   const measuredEngines = new Set([...rows.prices].filter(([, m]) => hasMeasuredComponent(m)).map(([id]) => id));
@@ -294,6 +300,15 @@ export async function gateMeasuredFamilies(items: WorkItem[], rows: SetRows, exe
     : [];
   const familyOf = (engineId: string) => rows.families.get(engineId) ?? engineId;
   const cellEngine = new Map(rows.cells.map((c) => [c.id, c.engineId]));
+  const cellById = new Map(rows.cells.map((c) => [c.id, c]));
+  const newestReservation = new Map<number, number>();
+  for (const r of reservations) if (r.cellId != null) newestReservation.set(r.cellId, Math.max(newestReservation.get(r.cellId) ?? 0, r.id));
+  const awaited = (r: (typeof reservations)[number]): boolean => {
+    const cell = r.cellId != null ? cellById.get(r.cellId) : undefined;
+    if (r.state !== "reserved" || !cell) return false;
+    if (cell.state === "enqueued" && newestReservation.get(cell.id) === r.id) return true;
+    return r.falRequestId != null && r.falRequestId === cell.falRequestId && cell.vendorResultUrl != null;
+  };
   const notes: string[] = [];
   let kept = items;
   for (const family of new Set([...measuredEngines].map(familyOf))) {
@@ -309,7 +324,7 @@ export async function gateMeasuredFamilies(items: WorkItem[], rows: SetRows, exe
       continue;
     }
     if (billed.length > 0) continue; // a bill within its reservation clears the family
-    if (probeRows.some((r) => r.state === "reserved")) {
+    if (probeRows.some(awaited)) {
       kept = kept.filter((i) => !inFamily(i.engineId));
       notes.push(`${family}: waiting for fal's bill for its first edit before its other ${familyItems.length} cell${familyItems.length === 1 ? "" : "s"} render`);
       continue;

@@ -180,7 +180,7 @@ export function EngineComparison() {
   };
 
   /** Start the run just planned: the one action here that spends. */
-  const startRun = async (kind: string) => {
+  const startRun = async (kind: string, expectedBoundUsd: number) => {
     const id = selected;
     if (id == null) return;
     const week = weekFigure();
@@ -191,7 +191,7 @@ export function EngineComparison() {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, weekRemainingUsd: week }),
+      body: JSON.stringify({ kind, weekRemainingUsd: week, expectedBoundUsd }),
     }).catch(() => null);
     const outcome: { error: string } | { run: RunView; plan: RunPlan; notes?: string[] } = !r || !r.ok
       ? { error: r ? await readError(r) : "Failed to start the run." }
@@ -313,7 +313,7 @@ export function EngineComparison() {
                   The next {plan.kind === "prepare" ? "preparation" : "render"} run takes <strong>{plan.result.items.length}</strong> item{plan.result.items.length === 1 ? "" : "s"}, bounded at <strong>{usd(plan.result.boundUsd)}</strong> of the {usd(plan.result.allowanceUsd)} allowance.
                   {" "}{plan.result.remainingItems > 0 ? `${plan.result.remainingItems} more (at most ${usd(plan.result.remainingBoundUsd)}) need ${plan.result.runsNeeded - 1} further run${plan.result.runsNeeded - 1 === 1 ? "" : "s"}.` : "That finishes this kind of work."}
                   {" "}
-                  <button type="button" disabled={starting} onClick={() => void startRun(plan.kind)} data-testid="comparison-start-run" className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40">
+                  <button type="button" disabled={starting} onClick={() => void startRun(plan.kind, plan.result.boundUsd)} data-testid="comparison-start-run" className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40">
                     {starting && <Loader2 className="w-3 h-3 animate-spin" />} Start this run — real spend, at most {usd(plan.result.boundUsd)}
                   </button>
                 </p>

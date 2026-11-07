@@ -70,9 +70,19 @@ const fakeFal: ComparisonFal = {
     submissions.push({ endpointId, input });
     return `req-${submissions.length}`;
   },
-  async status() { return statusScript.shift() ?? "COMPLETED"; },
+  async status(_endpointId, requestId) {
+    if (failNextGptEdit && isGptEditRequest(requestId)) { failNextGptEdit = false; return "FAILED"; }
+    return statusScript.shift() ?? "COMPLETED";
+  },
   async result(_e, requestId) { return { images: [{ url: `https://vendor.test/${requestId}.png` }] }; },
   async billedUsd(requestId) { return billFor(requestId); },
+};
+/** When set, the next status read of a GPT edit request reports FAILED (once). */
+let failNextGptEdit = false;
+const submissionOf = (requestId: string) => submissions[Number(requestId.split("-")[1]) - 1];
+const isGptEditRequest = (requestId: string) => {
+  const s = submissionOf(requestId);
+  return !!s && s.endpointId.includes("gpt") && s.endpointId.includes("edit");
 };
 /** What fal reports as billed for a request; null while it has not reported. */
 let billFor: (requestId: string) => number | null = () => 0.05;
@@ -136,7 +146,7 @@ function installFakes(): void {
   BILL_POLL.attempts = 1;
 }
 
-beforeEach(() => { submissions = []; statusScript = []; failStore = false; billFor = () => 0.05; plannerRetries = []; installFakes(); });
+beforeEach(() => { submissions = []; statusScript = []; failStore = false; failNextGptEdit = false; billFor = () => 0.05; plannerRetries = []; installFakes(); });
 
 async function newSet(label: string): Promise<number> {
   const { setId } = await createComparisonSet({
@@ -149,8 +159,8 @@ async function newSet(label: string): Promise<number> {
 
 const app = () => buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
 
-async function start(setId: number, kind: "prepare" | "render", weekRemainingUsd = 25) {
-  return request(app()).post(`/api/admin/comparison/sets/${setId}/runs`).send({ kind, weekRemainingUsd });
+async function start(setId: number, kind: "prepare" | "render", weekRemainingUsd = 25, expectedBoundUsd?: number) {
+  return request(app()).post(`/api/admin/comparison/sets/${setId}/runs`).send({ kind, weekRemainingUsd, ...(expectedBoundUsd == null ? {} : { expectedBoundUsd }) });
 }
 
 /** Run every queued job of a run through its handler, as the worker would. */
@@ -416,6 +426,62 @@ describe("a comparison run end to end, with fakes", () => {
     await assert.rejects(rerunCell(other.id), /had its one re-run/);
     cells = await cellsOf(setId);
     assert.equal(cells.filter((c) => c.state === "rendered").length, 1);
+  });
+
+  it("settles each reservation from its own request's bill across a re-run, and a failed first edit never strands its family", async () => {
+    const setId = await newSet("rebind");
+    await drain((await start(setId, "prepare")).body.run.id);
+    failNextGptEdit = true;
+    billFor = (id) => (isGptEditRequest(id) ? null : 0.05);
+    const first = await start(setId, "render");
+    await drain(first.body.run.id);
+    const firstEdit = submissions.findIndex((s) => s.endpointId.includes("gpt") && s.endpointId.includes("edit"));
+    const reqA = `req-${firstEdit + 1}`;
+    const [r1] = (await reservations(first.body.run.id)).filter((r) => r.falRequestId === reqA);
+    assert.ok(r1, "the reservation carries its own request id");
+    assert.equal(r1!.state, "reserved", "a call that failed after submission keeps its reservation");
+    const probeCell = (await cellsOf(setId)).find((c) => c.id === r1!.cellId)!;
+    assert.equal(probeCell.state, "failed");
+
+    await rerunCell(probeCell.id);
+    // The failed call taught nothing about the price: the next run admits a first edit again.
+    billFor = (id) => (id === reqA ? null : 0.05);
+    const second = await start(setId, "render");
+    assert.equal(second.status, 202, JSON.stringify(second.body));
+    const admitted = await renderPayloads(second.body.run.id);
+    assert.deepEqual(admitted.map((p) => p.cellId), [probeCell.id], "exactly the re-run edit, the family's one first edit");
+    await drain(second.body.run.id);
+    const [r2] = await reservations(second.body.run.id);
+    assert.notEqual(r2!.falRequestId, reqA);
+    assert.equal(r2!.state, "settled");
+    assert.equal(Number(r2!.settledUsd), 0.05);
+    const [r1After] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, r1!.id));
+    assert.equal(r1After!.state, "reserved", "the retry's bill never settles the first call");
+
+    await request(app()).post(`/api/admin/comparison/sets/${setId}/settle-bills`);
+    const [stillHeld] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, r1!.id));
+    assert.equal(stillHeld!.state, "reserved", "a bill check reads only the first call's own bill, still unreported");
+    billFor = (id) => (id === reqA ? 0.07 : 0.05);
+    const res = await request(app()).post(`/api/admin/comparison/sets/${setId}/settle-bills`);
+    assert.equal(res.body.settled, 1);
+    const [r1Settled] = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.id, r1!.id));
+    assert.equal(r1Settled!.state, "settled");
+    assert.equal(Number(r1Settled!.settledUsd), 0.07, "the first call settles at its own bill");
+  });
+
+  it("refuses a start whose work grew past the plan shown, and starts one that did not", async () => {
+    const setId = await newSet("ceiling");
+    await drain((await start(setId, "prepare")).body.run.id);
+    const shown = await request(app()).post(`/api/admin/comparison/sets/${setId}/plan`).send({ kind: "render", weekRemainingUsd: 25 });
+    assert.equal(shown.status, 200, JSON.stringify(shown.body));
+    const reservationsBefore = (await db.select().from(comparisonReservationsTable)).length;
+    const stale = await start(setId, "render", 25, shown.body.boundUsd / 2);
+    assert.equal(stale.status, 409);
+    assert.match(stale.body.refusal, /the work changed since this run was planned/);
+    assert.equal((await db.select().from(comparisonReservationsTable)).length, reservationsBefore, "nothing reserved");
+    const ok = await start(setId, "render", 25, shown.body.boundUsd);
+    assert.equal(ok.status, 202, JSON.stringify(ok.body));
+    assert.equal(ok.body.plan.boundUsd, shown.body.boundUsd);
   });
 
   it("releases the reservation of a cell refused before dispatch", async () => {

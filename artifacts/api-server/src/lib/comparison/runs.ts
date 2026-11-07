@@ -116,6 +116,11 @@ export async function startComparisonRun(
     const { items, notes } = await runItems(req.kind, rows, tx);
     const planned = planRun(items, { allowanceUsd, weekRemainingUsd: req.weekRemainingUsd, unresolvedReservedUsd: await unresolvedReservedUsd(tx) });
     const plan = !planned.admitted && notes.length ? { ...planned, refusal: `${planned.refusal}: ${notes.join("; ")}` } : planned;
+    // The work changed since the operator's plan (a panel prepared, a family
+    // cleared): never start a run larger than the figure they were shown.
+    if (plan.admitted && req.expectedBoundUsd != null && plan.boundUsd > req.expectedBoundUsd + 1e-9) {
+      return { stale: true as const, plan: { ...plan, admitted: false, refusal: `the work changed since this run was planned: it is now ${plan.items.length} item${plan.items.length === 1 ? "" : "s"} at $${plan.boundUsd.toFixed(4)}, above the $${req.expectedBoundUsd.toFixed(4)} shown — plan again` } };
+    }
     const base = {
       setId, kind: req.kind, allowanceUsd: String(allowanceUsd), weekRemainingUsd: String(req.weekRemainingUsd), createdBy: adminUserId,
     };
@@ -128,6 +133,7 @@ export async function startComparisonRun(
     return { refused: false as const, run: run!, plan, notes };
   });
   if (!outcome) return null;
+  if ("stale" in outcome) throw new ComparisonRunRefused(outcome.plan.refusal!, null, outcome.plan);
   if (outcome.refused) throw new ComparisonRunRefused(outcome.plan.refusal ?? "refused", outcome.run, outcome.plan);
   logger.info({ setId, runId: outcome.run.id, kind: req.kind, items: outcome.plan.items.length, boundUsd: outcome.plan.boundUsd }, "[comparison] run admitted");
   return { run: outcome.run, plan: outcome.plan, notes: outcome.notes };
@@ -201,18 +207,20 @@ async function settleFromFal(reservationId: number, requestId: string, opts = BI
 
 /**
  * Read fal's bill for every reserved image call of a set whose submission is
- * known. Run before each render run's admission, and on request.
+ * known, each from its own request id. Run before each render run's
+ * admission, and on request. A call still being polled by its job is left to
+ * that job.
  */
 export async function settlePendingBills(setId: number): Promise<{ settled: number; waiting: number; error: string | null }> {
-  const rows = await db.select({ reservationId: comparisonReservationsTable.id, requestId: comparisonCellsTable.falRequestId })
+  const rows = await db.select({ reservationId: comparisonReservationsTable.id, requestId: comparisonReservationsTable.falRequestId })
     .from(comparisonReservationsTable)
-    .innerJoin(comparisonCellsTable, eq(comparisonCellsTable.id, comparisonReservationsTable.cellId))
-    .innerJoin(comparisonPanelsTable, eq(comparisonPanelsTable.id, comparisonCellsTable.panelId))
+    .innerJoin(comparisonRunsTable, eq(comparisonRunsTable.id, comparisonReservationsTable.runId))
+    .leftJoin(comparisonCellsTable, eq(comparisonCellsTable.id, comparisonReservationsTable.cellId))
     .where(and(
-      eq(comparisonPanelsTable.setId, setId),
+      eq(comparisonRunsTable.setId, setId),
       eq(comparisonReservationsTable.state, "reserved"),
-      sql`${comparisonCellsTable.falRequestId} is not null`,
-      sql`${comparisonCellsTable.state} <> 'enqueued'`,
+      sql`${comparisonReservationsTable.falRequestId} is not null`,
+      sql`not coalesce(${comparisonCellsTable.state} = 'enqueued' and ${comparisonCellsTable.falRequestId} is not distinct from ${comparisonReservationsTable.falRequestId}, false)`,
     ));
   let settled = 0;
   try {
@@ -454,7 +462,11 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
       await failCell(cell.id, `submit failed: ${msg}`);
       return terminalFailure("comparison_submit_failed", msg);
     }
-    await db.update(comparisonCellsTable).set({ falRequestId: requestId, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    const submitted = requestId;
+    await db.transaction(async (tx) => {
+      await tx.update(comparisonCellsTable).set({ falRequestId: submitted, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+      await tx.update(comparisonReservationsTable).set({ falRequestId: submitted }).where(eq(comparisonReservationsTable.id, p.reservationId));
+    });
   }
   let url: string | null;
   try {

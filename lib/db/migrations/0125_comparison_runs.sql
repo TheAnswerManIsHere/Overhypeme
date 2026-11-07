@@ -10,8 +10,12 @@
 --   storage failure is retried without buying a second image.
 -- comparison_cells.image_object_path: where the rendered image is stored.
 -- comparison_cells.request_settings: the endpoint settings the cell sent.
+-- comparison_reservations.fal_request_id: the fal request this reservation
+--   paid for, so each reservation settles from its own call's bill — a cell's
+--   id is replaced by its re-run, a reservation's never is.
 ALTER TABLE "comparison_panels" ADD COLUMN IF NOT EXISTS "reference_image_url" text;--> statement-breakpoint
 ALTER TABLE "comparison_cells" ADD COLUMN IF NOT EXISTS "fal_request_id" varchar(128);--> statement-breakpoint
 ALTER TABLE "comparison_cells" ADD COLUMN IF NOT EXISTS "vendor_result_url" text;--> statement-breakpoint
 ALTER TABLE "comparison_cells" ADD COLUMN IF NOT EXISTS "image_object_path" text;--> statement-breakpoint
-ALTER TABLE "comparison_cells" ADD COLUMN IF NOT EXISTS "request_settings" jsonb;
+ALTER TABLE "comparison_cells" ADD COLUMN IF NOT EXISTS "request_settings" jsonb;--> statement-breakpoint
+ALTER TABLE "comparison_reservations" ADD COLUMN IF NOT EXISTS "fal_request_id" varchar(128);
