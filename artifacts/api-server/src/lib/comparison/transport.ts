@@ -26,6 +26,8 @@ const FAL_QUEUE_BASE = "https://queue.fal.run";
 
 const liveFal: ComparisonFal = {
   async submit(endpointId, input) {
+    // The one place a comparison can spend: refused in CI whatever called it.
+    if (process.env["CI"]) throw new Error("paid comparison calls never run in CI");
     const key = getFalApiKey();
     if (!key) throw new Error("FAL_AI_API_KEY (or FAL_KEY) is not set, so no comparison call can be submitted");
     const res = await fetch(`${FAL_QUEUE_BASE}/${endpointId}`, {
@@ -63,7 +65,7 @@ export function comparisonFal(): ComparisonFal {
 /** fal's queue statuses that mean "not finished yet". */
 const PENDING = new Set(["IN_QUEUE", "IN_PROGRESS"]);
 
-export interface PollOptions {
+interface PollOptions {
   intervalMs: number;
   timeoutMs: number;
   sleep?: (ms: number) => Promise<void>;
@@ -87,18 +89,4 @@ export async function awaitResult(endpointId: string, requestId: string, opts: P
     if (Date.now() >= deadline) throw new Error(`fal request ${requestId} on ${endpointId} did not complete within ${opts.timeoutMs} ms`);
     await sleep(opts.intervalMs);
   }
-}
-
-/** The first image URL in a fal image response ({ images: [{ url }] }, { image: { url } } or { url }). */
-export function firstImageUrl(data: unknown): string | null {
-  if (!data || typeof data !== "object") return null;
-  const obj = data as Record<string, unknown>;
-  const images = obj["images"];
-  if (Array.isArray(images)) {
-    const first = images[0] as Record<string, unknown> | undefined;
-    if (first && typeof first["url"] === "string") return first["url"];
-  }
-  const image = obj["image"] as Record<string, unknown> | undefined;
-  if (image && typeof image["url"] === "string") return image["url"];
-  return typeof obj["url"] === "string" ? obj["url"] : null;
 }

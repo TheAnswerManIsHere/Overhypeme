@@ -54,18 +54,19 @@ import type { IdentityPolicy } from "@workspace/api-zod";
 import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
 import { buildEngineInput } from "../engineInterpreter";
+import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "../imageEngineRequest";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
 import type { PriceModel } from "../engines";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
 import { loadSetRows, runItems, unresolvedReservedUsd } from "./sets";
-import { awaitResult, comparisonFal, firstImageUrl } from "./transport";
+import { awaitResult, comparisonFal } from "./transport";
 
 export const COMPARISON_PREPARE_QUEUE = "comparison_prepare";
 export const COMPARISON_RENDER_QUEUE = "comparison_render";
 
 /** The comparison's reference images are sent at most this size on the long edge (plan, D2). */
-export const COMPARISON_REFERENCE_MAX_EDGE_PX = 1024;
+const COMPARISON_REFERENCE_MAX_EDGE_PX = 1024;
 
 /** How a cell polls its one submission. */
 export const CELL_POLL = { intervalMs: 3_000, timeoutMs: 10 * 60_000 };
@@ -77,7 +78,7 @@ export function __allowComparisonDispatchInCiForTest(allow: boolean): void {
 }
 
 /** Why paid dispatch is refused here, or null. */
-export function paidDispatchRefusal(): string | null {
+function paidDispatchRefusal(): string | null {
   if (process.env["CI"] && !allowPaidDispatchInCi) return "paid comparison runs never run in CI";
   return null;
 }
@@ -135,9 +136,8 @@ async function admitItem(tx: Tx, run: ComparisonRun, item: WorkItem): Promise<vo
   const [kind, idText] = item.ref.split(":");
   const id = Number(idText);
   if (kind === "panel") {
-    const [panel] = await tx.select({ factId: comparisonPanelsTable.factId }).from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, id));
     const [reservation] = await tx.insert(comparisonReservationsTable).values({
-      runId: run.id, kind: "planner", target: `panel ${id} planner (fact ${panel?.factId ?? "?"})`, panelId: id, boundUsd: String(item.boundUsd),
+      runId: run.id, kind: "planner", target: item.label.slice(0, 128), panelId: id, boundUsd: String(item.boundUsd),
     }).returning({ id: comparisonReservationsTable.id });
     await tx.update(comparisonPanelsTable).set({ state: "preparing", error: null, updatedAt: new Date() }).where(eq(comparisonPanelsTable.id, id));
     await enqueueJob({ queue: COMPARISON_PREPARE_QUEUE, payload: { runId: run.id, panelId: id, reservationId: reservation!.id }, dedupeKey: `comparison:prepare:${run.id}:${id}`, maxAttempts: 1 }, tx);
@@ -165,7 +165,7 @@ async function settle(reservationId: number, billedUsd: number | null): Promise<
 }
 
 /** A flat-priced engine's bill is its price; a token-billed one is not known until fal reports it. */
-export function knownBilledUsd(priceModel: unknown): number | null {
+function knownBilledUsd(priceModel: unknown): number | null {
   const m = priceModel as PriceModel | null;
   return m && m.kind === "flat" ? m.usdPerImage : null;
 }
@@ -305,9 +305,7 @@ export function __setComparisonImageStoreForTest(impl: ((cell: ComparisonCell, u
 
 async function storeVendorImage(cell: ComparisonCell, url: string): Promise<string> {
   if (storeImageOverride) return storeImageOverride(cell, url);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`download ${url} returned ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
+  const buffer = await downloadToBuffer(url);
   return objectStorage.uploadObjectBuffer({ subPath: `comparison/panel-${cell.panelId}/cell-${cell.id}-${Date.now()}.png`, buffer, contentType: "image/png" });
 }
 
@@ -357,9 +355,12 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     if (!promptText) throw new Error("the panel's compiled prompt has no text");
     if (panel!.imageMode === "i2i" && !panel!.referenceImageUrl) throw new Error("the panel has no reference image");
     requestSettings = buildImageRequestSettings(engine!, "comparison", aspectRatio);
-    const params: Record<string, unknown> = { imagePrompt: promptText, aspectRatio, numImages: 1, ...requestSettings.sizeParams };
-    if (panel!.imageMode === "i2i") params["referenceImageUrl"] = panel!.referenceImageUrl;
-    input = buildEngineInput(engine!, params);
+    input = buildEngineInput(engine!, imageEngineParams(requestSettings, {
+      generationMode: panel!.imageMode as GenerationMode,
+      promptText,
+      aspectRatio,
+      referenceImageUrl: panel!.referenceImageUrl,
+    }));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await failCell(cell.id, `not rendered: ${msg}`);
@@ -381,7 +382,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   }
   let url: string | null;
   try {
-    url = firstImageUrl(await awaitResult(engine!.endpointId, requestId, CELL_POLL));
+    url = extractFirstImageUrl(await awaitResult(engine!.endpointId, requestId, CELL_POLL)) || null;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await failCell(cell.id, `render failed: ${msg}`);
@@ -429,6 +430,8 @@ export async function rerunCell(cellId: number): Promise<ComparisonCell> {
 }
 
 export function registerComparisonHandlers(): void {
-  registerJobHandler(COMPARISON_PREPARE_QUEUE, { run: (payload) => preparePanel(payload as PreparePayload) }, { lane: "render" });
-  registerJobHandler(COMPARISON_RENDER_QUEUE, { run: (payload) => renderCell(payload as RenderPayload) }, { lane: "render" });
+  // The bulk lane, not render: a cell waits on fal for its whole generation,
+  // and a comparison run must never hold up moderation and member renders.
+  registerJobHandler(COMPARISON_PREPARE_QUEUE, { run: (payload) => preparePanel(payload as PreparePayload) }, { lane: "bulk" });
+  registerJobHandler(COMPARISON_RENDER_QUEUE, { run: (payload) => renderCell(payload as RenderPayload) }, { lane: "bulk" });
 }

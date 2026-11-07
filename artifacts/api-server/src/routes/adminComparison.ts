@@ -34,7 +34,13 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-function setIdParam(req: Request): number | null {
+/** A refusal (an unusable family, an unpriceable planner) is the admin's to read, with its reasons. */
+function sendRefusal(res: Response, err: unknown): void {
+  if (err instanceof ComparisonLayoutError) { res.status(400).json({ error: "set_refused", reasons: err.reasons }); return; }
+  throw err;
+}
+
+function idParam(req: Request): number | null {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   return Number.isFinite(id) && id > 0 ? id : null;
 }
@@ -55,34 +61,30 @@ router.get("/admin/comparison/sets", requireAdmin, async (_req: Request, res: Re
   res.json({ sets: await listComparisonSets() });
 });
 
-/** A refusal (an unusable family, an unpriceable planner) is the admin's to read, with its reasons. */
-function sendRefusal(res: Response, err: unknown): void {
-  if (err instanceof ComparisonLayoutError) { res.status(400).json({ error: "set_refused", reasons: err.reasons }); return; }
-  throw err;
-}
-
 router.get("/admin/comparison/sets/:id", requireAdmin, async (req: Request, res: Response) => {
-  const id = setIdParam(req);
+  const id = idParam(req);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
-  const detail = await getComparisonSet(id).catch((err: unknown) => { sendRefusal(res, err); return undefined; });
-  if (detail === undefined) return;
+  const detail = await getComparisonSet(id);
   if (!detail) { res.status(404).json({ error: "set_not_found" }); return; }
   res.json(detail);
 });
 
 router.post("/admin/comparison/sets/:id/plan", requireAdmin, async (req: Request, res: Response) => {
-  const id = setIdParam(req);
+  const id = idParam(req);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
   const parsed = comparisonRunPlanSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
-  const plan = await planComparisonRun(id, parsed.data).catch((err: unknown) => { sendRefusal(res, err); return undefined; });
-  if (plan === undefined) return;
-  if (!plan) { res.status(404).json({ error: "set_not_found" }); return; }
-  res.json(plan);
+  try {
+    const plan = await planComparisonRun(id, parsed.data);
+    if (!plan) { res.status(404).json({ error: "set_not_found" }); return; }
+    res.json(plan);
+  } catch (err) {
+    sendRefusal(res, err);
+  }
 });
 
 router.post("/admin/comparison/sets/:id/runs", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = setIdParam(req);
+  const id = idParam(req);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
   const parsed = comparisonRunPlanSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
@@ -97,14 +99,9 @@ router.post("/admin/comparison/sets/:id/runs", requireAdmin, async (req: Authent
   }
 });
 
-function cellIdParam(req: Request): number | null {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  return Number.isFinite(id) && id > 0 ? id : null;
-}
-
 for (const [path, action] of [["retry-storage", retryCellStorage], ["rerun", rerunCell]] as const) {
   router.post(`/admin/comparison/cells/:id/${path}`, requireAdmin, async (req: Request, res: Response) => {
-    const id = cellIdParam(req);
+    const id = idParam(req);
     if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
     try {
       res.json({ cell: await action(id) });

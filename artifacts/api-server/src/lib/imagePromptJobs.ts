@@ -59,6 +59,7 @@ import { renderPersonalized, hasUnresolvedFactTokens } from "./renderCanonical";
 import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
 import { resolveRenderStyle, isValidRenderStyleSnapshot } from "./imagePrompt/styleResolution";
 import { buildEngineInput } from "./engineInterpreter";
+import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "./imageEngineRequest";
 import { fal, ensureFalConfigured } from "./falClient";
 import { ObjectStorageService } from "./objectStorage";
 import { logger } from "./logger";
@@ -349,15 +350,12 @@ export const imageGenerationHandler: JobHandler = {
       .update(imagePromptAttemptsTable)
       .set({ requestSettings, updatedAt: new Date() })
       .where(eq(imagePromptAttemptsTable.id, p.attemptId));
-    const pipelineParams: Record<string, unknown> = {
-      imagePrompt: promptText,
+    const pipelineParams = imageEngineParams(requestSettings, {
+      generationMode,
+      promptText,
       aspectRatio: renderControls.aspectRatio,
-      numImages: 1,
-      ...requestSettings.sizeParams,
-    };
-    if (generationMode === "i2i" && compiled.referenceImageUrl) {
-      pipelineParams["referenceImageUrl"] = compiled.referenceImageUrl;
-    }
+      referenceImageUrl: compiled.referenceImageUrl,
+    });
     logger.info(
       { attemptId: p.attemptId, engineId, generationMode, requestSettings },
       "[imagePromptJobs] submitting image_generation",
@@ -609,31 +607,6 @@ function extractReferenceImageUrl(attempt: ImagePromptAttempt): string | null {
     analysis.uploadedObjectPath ??
     null
   );
-}
-
-function extractFirstImageUrl(data: unknown): string {
-  if (!data || typeof data !== "object") return "";
-  const obj = data as Record<string, unknown>;
-  // Nano Banana 2 returns { images: [{ url, ... }] }.
-  if (Array.isArray(obj["images"])) {
-    const first = obj["images"][0];
-    if (first && typeof first === "object" && typeof (first as Record<string, unknown>)["url"] === "string") {
-      return (first as Record<string, string>)["url"] ?? "";
-    }
-  }
-  if (typeof obj["image"] === "object" && obj["image"] !== null) {
-    const im = obj["image"] as Record<string, unknown>;
-    if (typeof im["url"] === "string") return im["url"];
-  }
-  if (typeof obj["url"] === "string") return obj["url"];
-  return "";
-}
-
-async function downloadToBuffer(url: string): Promise<Buffer> {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`download ${url} returned ${r.status}`);
-  const arr = await r.arrayBuffer();
-  return Buffer.from(arr);
 }
 
 /**

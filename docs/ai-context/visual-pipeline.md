@@ -98,8 +98,10 @@ beside the eval run rather than inside it (plan
   advisory lock, re-reads the set and every unresolved reservation, plans the
   run, and either records the refusal with its figure or writes one
   reservation row per permitted call, marks each item in flight and queues it,
-  all in one transaction. Paid comparison runs never run in CI. The two queues
-  (`comparison_prepare`, `comparison_render`) run each job at one attempt.
+  all in one transaction. Paid comparison runs never run in CI, refused at
+  admission and again at the transport's submission. The two queues
+  (`comparison_prepare`, `comparison_render`) run each job at one attempt, on
+  the bulk lane so a long run never holds up moderation or member renders.
 - **Preparation** goes through the Runtime Compiled Prompt preview's own
   path (`resolveRenderReviewInput` → `assembleImagePromptForPreview`) with
   the scenario's default reference resized to 1024 pixels on the long edge
@@ -111,7 +113,10 @@ beside the eval run rather than inside it (plan
   one POST to fal's queue of our own — the SDK retries submission — with the
   request id stored before polling, so a resumed job polls and never
   resubmits. It does not go through the ordinary `image_generation` worker,
-  whose `fal.subscribe` retries.
+  whose `fal.subscribe` retries — but it builds its parameters and reads the
+  vendor's answer with the worker's own functions
+  (`artifacts/api-server/src/lib/imageEngineRequest.ts`), so it measures what
+  production sends.
 - **Settlement**: a call that never reached a vendor releases its
   reservation; a completed call settles at its flat price, or with the amount
   unreported for a token-billed engine or the planner (the paid-run ledger

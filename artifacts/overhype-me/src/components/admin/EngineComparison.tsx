@@ -89,12 +89,11 @@ export function EngineComparison() {
   }, []);
   useEffect(() => { void loadSets(); }, [loadSets]);
 
-  const loadDetail = useCallback(async (id: number) => {
-    setDetail(null);
-    setPlan(null);
-    setPlanning(false);
+  /** Re-read the selected set without clearing it, while a run moves its items. */
+  const refreshDetail = useCallback(async (id: number, opts: { reportErrors?: boolean } = {}) => {
     const r = await fetch(`/api/admin/comparison/sets/${id}`, { credentials: "include" }).catch(() => null);
     if (!r || !r.ok) {
+      if (!opts.reportErrors) return;
       const message = r ? await readError(r) : "Failed to load the set.";
       if (stillSelected(id)) setError(message);
       return;
@@ -102,15 +101,14 @@ export function EngineComparison() {
     const body = (await r.json()) as SetDetail;
     if (stillSelected(id)) setDetail(body);
   }, []);
-  useEffect(() => { if (selected != null) void loadDetail(selected); }, [selected, loadDetail]);
 
-  /** Re-read the selected set without clearing it, while a run moves its items. */
-  const refreshDetail = useCallback(async (id: number) => {
-    const r = await fetch(`/api/admin/comparison/sets/${id}`, { credentials: "include" }).catch(() => null);
-    if (!r || !r.ok) return;
-    const body = (await r.json()) as SetDetail;
-    if (stillSelected(id)) setDetail(body);
-  }, []);
+  const loadDetail = useCallback(async (id: number) => {
+    setDetail(null);
+    setPlan(null);
+    setPlanning(false);
+    await refreshDetail(id, { reportErrors: true });
+  }, [refreshDetail]);
+  useEffect(() => { if (selected != null) void loadDetail(selected); }, [selected, loadDetail]);
 
   const inFlight = !!detail && detail.set.id === selected && detail.panels.some((p) => p.state === "preparing" || p.cells.some((c) => c.state === "enqueued"));
   useEffect(() => {
