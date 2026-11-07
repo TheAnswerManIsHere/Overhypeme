@@ -149,6 +149,14 @@ async function drain(runId: number): Promise<void> {
   }
 }
 
+/** Every string anywhere in a request body, so a URL is compared whole, never as a substring. */
+function stringValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringValues);
+  if (value && typeof value === "object") return Object.values(value).flatMap(stringValues);
+  return [];
+}
+
 async function reservations(runId: number) {
   return db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.runId, runId));
 }
@@ -215,7 +223,7 @@ describe("a comparison run end to end, with fakes", () => {
     const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
     assert.ok(panels.every((p) => p.state === "prepared"), JSON.stringify(panels.map((p) => [p.state, p.error])));
     const edit = panels.find((p) => p.imageMode === "i2i")!;
-    assert.match(String(edit.referenceImageUrl), /^https:\/\/fal\.test\/ref-/);
+    assert.match(String(edit.referenceImageUrl), /^https:\/\/fal\.test\/ref-\d+\.jpg$/);
     assert.deepEqual(uploadedTypes.slice(-1), ["image/jpeg"]); // the resized reference
     assert.ok(panels.every((p) => p.compiledPrompt));
     assert.ok((await reservations(prep.body.run.id)).every((r) => r.state === "settled" && r.settledUsd === null));
@@ -231,7 +239,7 @@ describe("a comparison run end to end, with fakes", () => {
     assert.equal(submissions.length, 4);
     assert.ok(cells.every((c) => c.falRequestId && c.imageObjectPath && c.vendorResultUrl));
     const editSubmission = submissions.find((s) => s.endpointId.includes("edit"));
-    assert.ok(JSON.stringify(editSubmission!.input).includes("https://fal.test/ref-"), "the edit call carries the resized reference");
+    assert.ok(stringValues(editSubmission!.input).includes(edit.referenceImageUrl!), "the edit call carries the panel's resized reference");
     const settled = await reservations(render.body.run.id);
     for (const r of settled) {
       assert.equal(r.state, "settled");
