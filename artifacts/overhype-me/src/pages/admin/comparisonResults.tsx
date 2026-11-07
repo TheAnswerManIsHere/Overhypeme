@@ -66,7 +66,7 @@ export default function ComparisonResults() {
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async (text: string) => {
-    const ids = text.split(/[\s,]+/).filter(Boolean);
+    const ids = text.match(/[^\s,]+/g) ?? [];
     if (ids.length === 0 || ids.some((s) => !/^\d+$/.test(s))) { setError("Enter one or more set ids, comma-separated."); return; }
     setLoading(true);
     setError("");

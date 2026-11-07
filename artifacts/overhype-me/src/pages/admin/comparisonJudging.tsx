@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { readError } from "@/components/admin/EngineComparison";
 
 interface BlindImage { token: string; src: string }
 interface BlindPanel {
@@ -39,11 +40,6 @@ interface BlindSet {
 }
 
 const letter = (i: number) => String.fromCharCode(65 + i);
-
-async function readError(r: Response): Promise<string> {
-  const body = (await r.json().catch(() => null)) as { error?: string; refusal?: string } | null;
-  return body?.refusal ?? body?.error ?? `request failed (${r.status})`;
-}
 
 /** The first panel still to judge after `from`, wrapping round; else `from`. */
 function nextToJudge(panels: BlindPanel[], from: number): number {

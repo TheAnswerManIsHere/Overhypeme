@@ -45,7 +45,8 @@ function tallyLine(t: Record<string, number>): string {
   return Object.entries(t).filter(([, n]) => n > 0).map(([s, n]) => `${n} ${s}`).join(" · ") || "none";
 }
 
-async function readError(r: Response): Promise<string> {
+/** The refusal or error an admin comparison route answered with, in words. */
+export async function readError(r: Response): Promise<string> {
   const body = (await r.json().catch(() => null)) as { error?: string; reasons?: string[]; refusal?: string } | null;
   if (body?.reasons?.length) return body.reasons.join("; ");
   if (body?.refusal) return body.refusal;

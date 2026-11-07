@@ -218,11 +218,20 @@ export function estimateOf(prepare: WorkItem[], render: WorkItem[]): Omit<Compar
   };
 }
 
+/** Cells keyed by their panel, each list in the order given. */
+export function groupCellsByPanel(cells: ComparisonCell[]): Map<number, ComparisonCell[]> {
+  const out = new Map<number, ComparisonCell[]>();
+  for (const c of cells) {
+    const list = out.get(c.panelId);
+    if (list) list.push(c); else out.set(c.panelId, [c]);
+  }
+  return out;
+}
+
 export async function getComparisonSet(setId: number): Promise<ComparisonSetDetail | null> {
   const rows = await loadSetRows(setId);
   if (!rows) return null;
-  const cellsByPanel = new Map<number, ComparisonCell[]>();
-  for (const c of rows.cells) cellsByPanel.set(c.panelId, [...(cellsByPanel.get(c.panelId) ?? []), c]);
+  const cellsByPanel = groupCellsByPanel(rows.cells);
   // An unusable planner withholds only the preparation figure; the grid, the
   // render estimate and the runs stay readable.
   let prepare: WorkItem[] = [];

@@ -152,7 +152,8 @@ router.get("/admin/comparison/panels/:id/images/:token", requireAdmin, async (re
     const length = response.headers.get("content-length");
     if (type) res.setHeader("Content-Type", type);
     if (length) res.setHeader("Content-Length", length);
-    res.setHeader("Cache-Control", "private, no-store");
+    // A cell's stored image never changes once it has one, so its token's URL can be cached.
+    res.setHeader("Cache-Control", "private, max-age=3600");
     if (response.body) Readable.fromWeb(response.body as never).pipe(res);
     else res.end();
   } catch (err) {

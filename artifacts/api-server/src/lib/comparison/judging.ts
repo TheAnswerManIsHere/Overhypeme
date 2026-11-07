@@ -37,6 +37,7 @@ import {
 import { RENDER_SCENARIO_DESCRIPTORS, type ComparisonPickRequest, type RenderScenarioKey } from "@workspace/api-zod";
 import { renderCanonical } from "../renderCanonical";
 import { round4 } from "./admission";
+import { groupCellsByPanel } from "./sets";
 
 /** The opaque, engine-free name of a cell in the blind view. */
 export function blindToken(panel: Pick<ComparisonPanel, "shuffleSeed">, cellId: number): string {
@@ -48,6 +49,11 @@ function blindOrder(panel: ComparisonPanel, cells: ComparisonCell[]): Array<{ ce
   return cells
     .map((cell) => ({ cell, token: blindToken(panel, cell.id) }))
     .sort((a, b) => (a.token < b.token ? -1 : a.token > b.token ? 1 : 0));
+}
+
+/** A panel's cells by their blind token. */
+function cellsByToken(panel: ComparisonPanel, cells: ComparisonCell[]): Map<string, ComparisonCell> {
+  return new Map(cells.map((c) => [blindToken(panel, c.id), c]));
 }
 
 const hasImage = (c: ComparisonCell) => c.state === "rendered" && !!c.imageObjectPath;
@@ -97,18 +103,18 @@ async function panelRows(setIds: number[]) {
       db.select().from(comparisonPicksTable).where(inArray(comparisonPicksTable.panelId, ids)),
     ])
     : [[], []];
-  const cellsByPanel = new Map<number, ComparisonCell[]>();
-  for (const c of cells) cellsByPanel.set(c.panelId, [...(cellsByPanel.get(c.panelId) ?? []), c]);
-  return { panels, cellsByPanel, picks: new Map(picks.map((p) => [p.panelId, p])) };
+  return { panels, cellsByPanel: groupCellsByPanel(cells), picks: new Map(picks.map((p) => [p.panelId, p])) };
 }
 
 const asIds = (v: unknown): number[] => (Array.isArray(v) ? v.filter((n): n is number => typeof n === "number") : []);
 
 /** The blind view of a set. Skipped panels (nothing to judge) are left out. */
 export async function getBlindSet(setId: number): Promise<BlindSet | null> {
-  const [set] = await db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId));
+  const [[set], { panels, cellsByPanel, picks }] = await Promise.all([
+    db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId)),
+    panelRows([setId]),
+  ]);
   if (!set) return null;
-  const { panels, cellsByPanel, picks } = await panelRows([setId]);
   const factIds = [...new Set(panels.map((p) => p.factId))];
   const facts = factIds.length ? await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(inArray(factsTable.id, factIds)) : [];
   const factText = new Map(facts.map((f) => [f.id, renderCanonical(f.text)]));
@@ -155,7 +161,7 @@ export async function blindImagePath(panelId: number, token: string): Promise<st
   const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, panelId));
   if (!panel) return null;
   const cells = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panelId));
-  const hit = cells.find((c) => blindToken(panel, c.id) === token);
+  const hit = cellsByToken(panel, cells).get(token);
   return hit && hasImage(hit) ? hit.imageObjectPath : null;
 }
 
@@ -168,7 +174,7 @@ export async function recordPick(panelId: number, req: ComparisonPickRequest, ad
     if (!panel) throw new ComparisonPickRefused("no such panel");
     const cells = await tx.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panelId));
     if (!isJudgeable(cells)) throw new ComparisonPickRefused("this panel cannot be judged until every image is ready");
-    const byToken = new Map(cells.map((c) => [blindToken(panel, c.id), c.id]));
+    const byToken = new Map([...cellsByToken(panel, cells)].map(([t, c]) => [t, c.id]));
     const picked = byToken.get(req.pickedToken);
     if (picked == null) throw new ComparisonPickRefused("the picked image is not one of this panel's");
     const marks = [...new Set(req.faceMismatchTokens)];
