@@ -91,3 +91,8 @@ same rule for every other agent.
   `cancel-in-progress`, so editing a PR body while a run is in flight cancels
   it and starts a replacement — a restart, nothing worse.
 - **`.mcp.json`** declares Firecrawl; the key policy is the core's.
+- **fal.ai is a claude.ai connector** (`mcp__Fal_ai__*`, OAuth, so not in
+  `.mcp.json`): on any AI image or video work, its catalogue, schemas and
+  pricing are free to read, and a generation is a paid AI run under the
+  fleet budget. Details and gotchas:
+  [`fal-mcp-connector.md`](.agents/memory/fal-mcp-connector.md).
