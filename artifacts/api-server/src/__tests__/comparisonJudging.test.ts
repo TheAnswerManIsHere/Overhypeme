@@ -127,15 +127,16 @@ describe("the blind view", () => {
     assert.match(generic.factText, /lifts a mountain/);
   });
 
-  it("shows a reference panel's source photo beside its pictures, and none on text-to-image", async () => {
+  it("shows a reference panel's source photo and prompt beside its pictures, and no photo on text-to-image", async () => {
     const { setId, panels } = await renderedSet("reference");
     const human = panels.find((p) => p.imageMode === "i2i")!;
-    await db.update(comparisonPanelsTable).set({ referenceImageUrl: "https://v3b.fal.media/files/ref-male-1024.jpg", referenceIdentityType: "male" }).where(eq(comparisonPanelsTable.id, human.id));
+    await db.update(comparisonPanelsTable).set({ referenceImageUrl: "https://v3b.fal.media/files/ref-male-1024.jpg", referenceIdentityType: "male", compiledPrompt: { imagePrompt: "A man lifts a mountain at dawn." } }).where(eq(comparisonPanelsTable.id, human.id));
     const blind = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
     const ref = blind.body.panels.find((p: { panelId: number }) => p.panelId === human.id);
     const t2i = blind.body.panels.find((p: { panelId: number }) => p.panelId !== human.id);
     assert.deepEqual(ref.reference, { src: "https://v3b.fal.media/files/ref-male-1024.jpg", identityType: "male" });
     assert.equal(t2i.reference, null);
+    assert.equal(ref.prompt, "A man lifts a mountain at dawn.", "the prompt every engine was sent, word for word");
     const strings = stringValues(blind.body);
     assert.ok(!engineIds.some((id) => strings.some((s) => s.includes(id))), "still names no engine");
   });

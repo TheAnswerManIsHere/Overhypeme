@@ -147,7 +147,10 @@ beside the eval run rather than inside it (plan
   `decisions.md`, in place of picking the best one). A reference panel shows
   its source photo beside the pictures (`BlindPanel.reference`, the panel's
   stored `reference_image_url`, the same for every engine), so a likeness is
-  judged against the face each engine was given (David, 2026-11-10). A panel is judgeable once
+  judged against the face each engine was given (David, 2026-11-10). Every
+  prepared panel also shows, collapsed, the prompt every engine was sent word
+  for word (`BlindPanel.prompt`, from the frozen `compiled_prompt`), so
+  faithfulness to it can be judged too (David, 2026-11-10). A panel is judgeable once
   every cell is settled — it has a stored image or is lost for good (failed
   after its one re-run with nothing kept at the vendor, or skipped) — and at
   least one image exists; until then it shows how many are in and none of

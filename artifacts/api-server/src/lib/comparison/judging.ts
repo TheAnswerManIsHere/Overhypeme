@@ -50,6 +50,7 @@ import { renderCanonical } from "../renderCanonical";
 import { round4 } from "./admission";
 import { perImagePrice, type PriceModel } from "../engines";
 import { groupCellsByPanel } from "./sets";
+import { promptTextOf } from "./runs";
 
 /** The opaque, engine-free name of a cell in the blind view. */
 export function blindToken(panel: Pick<ComparisonPanel, "shuffleSeed">, cellId: number): string {
@@ -143,6 +144,13 @@ export interface BlindPanel {
    * names none. Null on a text-to-image panel.
    */
   reference: { src: string; identityType: string | null } | null;
+  /**
+   * The prompt every engine of this panel was sent, word for word (the
+   * panel's frozen compiled prompt), so how faithfully each picture follows
+   * it can be judged (David, 2026-11-10). The same for every engine, so it
+   * names none. Null before the panel is prepared.
+   */
+  prompt: string | null;
   judgeable: boolean;
   /** Skipped at preparation: it will never be judged. Its reason names no engine. */
   skipped: boolean;
@@ -209,6 +217,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
       imageMode: panel.imageMode,
       faceMarkable: isHumanReference(panel.scenarioKey),
       reference: panel.referenceImageUrl ? { src: panel.referenceImageUrl, identityType: panel.referenceIdentityType } : null,
+      prompt: promptTextOf(panel.compiledPrompt),
       judgeable,
       skipped: panel.state === "skipped",
       skipReason: panel.state === "skipped" ? panel.skipReason : null,

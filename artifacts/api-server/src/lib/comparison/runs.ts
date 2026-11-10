@@ -65,6 +65,13 @@ import { loadSetRows, runItems } from "./sets";
 import { awaitResult, comparisonFal } from "./transport";
 
 export const COMPARISON_PREPARE_QUEUE = "comparison_prepare";
+/** The prompt text a panel's frozen compiled prompt sends to every engine, or null. */
+export function promptTextOf(compiledPrompt: unknown): string | null {
+  const compiled = compiledPrompt as { imagePrompt?: unknown; prompt?: unknown } | null;
+  const text = compiled?.imagePrompt ?? compiled?.prompt;
+  return typeof text === "string" && text.length > 0 ? text : null;
+}
+
 export const COMPARISON_RENDER_QUEUE = "comparison_render";
 
 /** The comparison's reference images are sent at most this size on the long edge (plan, D2). */
@@ -361,8 +368,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await release(p.reservationId);
     return { ok: true, result: "refused before dispatch" };
   }
-  const compiled = panel!.compiledPrompt as { imagePrompt?: string; prompt?: string } | null;
-  const promptText = compiled?.imagePrompt ?? compiled?.prompt;
+  const promptText = promptTextOf(panel!.compiledPrompt);
   const aspectRatio = (panel!.renderControls as { aspectRatio?: string } | null)?.aspectRatio;
   let input: Record<string, unknown>;
   let requestSettings;
