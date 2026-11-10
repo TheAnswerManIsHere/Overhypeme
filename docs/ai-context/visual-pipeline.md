@@ -144,7 +144,13 @@ beside the eval run rather than inside it (plan
   `GET /api/admin/comparison/panels/:id/images/:token` with only its content
   type, so neither the payload nor the image names an engine, endpoint, cell
   or storage path. **Every image is scored 1 to 5** (David, 2026-11-10,
-  `decisions.md`, in place of picking the best one). A panel is judgeable once
+  `decisions.md`, in place of picking the best one). A reference panel shows
+  its source photo beside the pictures (`BlindPanel.reference`, the panel's
+  stored `reference_image_url`, the same for every engine), so a likeness is
+  judged against the face each engine was given (David, 2026-11-10). Every
+  prepared panel also shows, collapsed, the prompt every engine was sent word
+  for word (`BlindPanel.prompt`, from the frozen `compiled_prompt`), so
+  faithfulness to it can be judged too (David, 2026-11-10). A panel is judgeable once
   every cell is settled — it has a stored image or is lost for good (failed
   after its one re-run with nothing kept at the vendor, or skipped) — and at
   least one image exists; until then it shows how many are in and none of
@@ -164,6 +170,9 @@ beside the eval run rather than inside it (plan
   mode (the leader of text-to-image and of reference edit, ties shown), by
   style and by scenario; how many of each engine's images were lost for good
   on judged panels, each counting as a 1 in its averages (David, 2026-11-10);
+  each engine's median and slowest time per picture, from its request reaching
+  fal to the picture coming back (`comparison_cells.submitted_at` and
+  `completed_at`, migration 0128; shown only here, never on the blind page);
   the "not the person" marks against the
   human-reference panels judged; and each engine's calls with their worst
   case. It is stage 2 of judging (David, 2026-11-10, `decisions.md`): each

@@ -41,6 +41,16 @@ interface RankRow {
   lost: number;
   usdPerImage: number | null;
   exact: boolean;
+  medianSeconds?: number | null;
+  slowestSeconds?: number | null;
+  timed?: number;
+}
+
+/** "14s (slowest 41s)", or a dash when nothing was timed. */
+function timeText(row: RankRow): string {
+  if (row.medianSeconds == null) return "—";
+  const s = (n: number) => (n >= 100 ? `${Math.round(n)}s` : `${n.toFixed(n < 10 ? 1 : 0)}s`);
+  return `${s(row.medianSeconds)} (slowest ${s(row.slowestSeconds ?? row.medianSeconds)})`;
 }
 
 const meanText = (mean: number | null) => (mean == null ? "—" : mean.toFixed(2));
@@ -67,6 +77,7 @@ function RankingTable({ label, rows }: { label: string; rows: RankRow[] }) {
             <th className="text-right font-semibold">Scored</th>
             <th className="text-right font-semibold">Couldn't draw (as 1)</th>
             <th className="text-right font-semibold">Per image</th>
+            <th className="text-right font-semibold">Time per image</th>
           </tr>
         </thead>
         <tbody>
@@ -78,6 +89,7 @@ function RankingTable({ label, rows }: { label: string; rows: RankRow[] }) {
               <td className="text-right text-foreground">{row.scored}</td>
               <td className={`text-right ${row.lost > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-muted-foreground"}`}>{row.lost}</td>
               <td className="text-right font-mono text-foreground">{priceText(row)}</td>
+              <td className="text-right font-mono text-foreground" title={row.timed ? `median of ${row.timed} timed` : undefined}>{timeText(row)}</td>
             </tr>
           ))}
         </tbody>
@@ -191,7 +203,7 @@ export default function ComparisonResults() {
                     <RankingTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.ranking![mode]!} />
                   ))}
                 </div>
-                <p className="text-[11px] text-muted-foreground">Ranked by average score; equal averages share a rank. "Couldn't draw" counts this engine's pictures lost for good on judged panels; each counts as a 1 in its average. Per-image prices are fal's list prices at the comparison's size (about 1 megapixel). "About" marks a token-billed engine: a typical cost, within about 10%.</p>
+                <p className="text-[11px] text-muted-foreground">Ranked by average score; equal averages share a rank. "Couldn't draw" counts this engine's pictures lost for good on judged panels; each counts as a 1 in its average. Time per image is the median from sending the request to fal to getting the picture back (fal's queue plus drawing), with the slowest beside it. Per-image prices are fal's list prices at the comparison's size (about 1 megapixel). "About" marks a token-billed engine: a typical cost, within about 10%.</p>
               </div>
             )}
 

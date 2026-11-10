@@ -535,10 +535,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // Hand-written expand (increment 3): comparison_picks.ratings. Left out of
   // this list when it merged; added by image tracing's increment 1.
   "0127_comparison_ratings",
+  // Hand-written expand (engine comparison, PR #906): comparison_cells
+  // submitted_at and completed_at. Left out of this list when it merged.
+  "0128_comparison_cell_timing",
   // Hand-written expand (image tracing, increment 1): image_provenance and
   // image_generation_requests, and the retention config row. Source of truth:
   // lib/db/src/schema/imageProvenance.ts.
-  "0128_image_provenance",
+  "0129_image_provenance",
 ]);
 
 interface JournalEntry {

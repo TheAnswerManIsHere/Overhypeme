@@ -272,6 +272,8 @@ describe("a comparison run end to end, with fakes", () => {
     await drain(render.body.run.id);
     const cells = await cellsOf(setId);
     assert.ok(cells.every((c) => c.state === "rendered" && c.falRequestId && c.imageObjectPath), JSON.stringify(cells.map((c) => [c.state, c.error])));
+    // Render time (David, 2026-11-10): sent, then returned, on every rendered cell.
+    assert.ok(cells.every((c) => c.submittedAt && c.completedAt && c.completedAt.getTime() >= c.submittedAt.getTime()), "each rendered cell is timed");
     assert.equal(submissions.length, 4, "exactly one submission per cell");
     for (const r of await reservations(render.body.run.id)) {
       assert.equal(r.state, "settled");
@@ -368,6 +370,8 @@ describe("a comparison run end to end, with fakes", () => {
     await db.update(comparisonCellsTable).set({ vendorResultUrl: null }).where(eq(comparisonCellsTable.id, other.id));
     const rerun = await rerunCell(other.id);
     assert.equal(rerun.state, "expected");
+    assert.equal(rerun.submittedAt, null, "a re-run starts its own clock");
+    assert.equal(rerun.completedAt, null);
     assert.equal(rerun.rerunCount, 1);
     await db.update(comparisonCellsTable).set({ state: "failed" }).where(eq(comparisonCellsTable.id, other.id));
     await assert.rejects(rerunCell(other.id), /had its one re-run/);

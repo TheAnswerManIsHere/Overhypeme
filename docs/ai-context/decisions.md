@@ -21,6 +21,25 @@
 - **Reference:** #905; `docs/plans/PLAN_IMAGE_TRACING.md` (approved 2026-11-10, sha256 `1b92ae4f5324cd3ad81e11a2ca21c26331705bcc93094fd272ada3120eefcc21`).
 - **Revisit if:** Phase 14's legal read requires a retention period or a narrower retained identity; the watermark proves visible or too slow in the meme preview; or cropped pictures turn out to matter enough to justify a fingerprint.
 
+### 2026-11-10 · An engine whose content policy refuses this product's facts on retry is ruled out
+- **Decision:** David, 2026-11-10, on FLUX 3 refusing all five of fact 34324's pictures (fal's `content_policy_violation`): *"Give one re-run but if it's rejected again, that's critical information. We can't use an engine that has a strict policy."* A candidate whose content filter refuses a fact on its first try **and again on its one re-run** cannot be adopted for that mode, whatever its average score. Its refusals still count as 1s in the results.
+- **Why:** members write the facts. An engine that refuses ordinary product content, here a gas-station joke whose concept names a car brand, fails members in a way no picture quality makes up for.
+- **Round 1 evidence:** fal's request history shows FLUX 3 refused five requests between 22:02 and 22:12 UTC, all fact 34324, every one `content_policy_violation`. It drew facts 67 and 22587. The re-run is David's to start.
+- **Reference:** #887 (comments of 2026-11-10).
+- **Revisit if:** a refusal turns out to come from something in our request rather than the content, such as a setting fal rejects for one engine only.
+
+### 2026-11-10 · Round 1's render times are backfilled from fal's request history
+- **Decision:** David, 2026-11-10: *"Backfill them please."* Round 1 rendered before migration 0128 recorded times. The fal connector reads the same account the app uses, so each round 1 request's send and end times were read from fal's request history into `artifacts/api-server/scripts/data/comparison-round1-fal-timing.json`. `scripts/comparison-backfill-timing.ts` writes them to the matching cells by fal request id, filling only empty cells, so it is idempotent and never overwrites an app-recorded time.
+- **Measure:** fal's `sent_at` to `ended_at`. That is the same span the app records (send to result); fal's queue added under a second in round 1.
+- **Reference:** #887.
+
+### 2026-11-10 · The engine comparison records how long each picture took, and the results show it
+- **Decision:** David, 2026-11-10: *"If one engine can render an image in 10 seconds and another one takes 2 minutes, that's going to be important to know."* Each comparison cell records when its one request went to fal (`submitted_at`) and when the picture came back (`completed_at`), from migration 0128. The results page shows each engine's median time per picture in each mode, with its slowest beside it.
+- **What the figure is:** the wait a caller sees, which is fal's queue plus the drawing. It is not the vendor's pure drawing time, and it is the right figure for a member waiting on a render. A re-run starts its own clock. A job resumed after a restart keeps its first send time, so a restart mid-render lengthens that one picture's time.
+- **Not shown while judging:** time is revealed only on the results page with the engine names, because a distinctive render time would identify an engine on the blind page.
+- **Reference:** #887; `artifacts/api-server/src/lib/comparison/runs.ts` (`renderCell`), `judging.ts` (`medianSeconds`, `slowestSeconds`).
+- **Revisit if:** member renders need the same measure. Production attempts do not record it yet; that is part of the image-tracing work in #905.
+
 ### 2026-11-10 · GPT Image 2.6 runs at high reasoning, and a picture an engine could not draw counts as a 1 (David's override)
 - **Decision:** David, 2026-11-10, answering PR #902's and PR #903's build reports: *"1. High. Count it as 1."*
   - GPT Image 2.6 is sent `reasoning_effort: "high"`, fal's default, in place of "low", so every engine is judged as its vendor ships it.

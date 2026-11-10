@@ -335,7 +335,7 @@ describe("the engine workbench", () => {
 
 describe("retention", () => {
   it("deletes nothing while the setting is 0 (kept indefinitely)", async () => {
-    // Migration 0128 seeds the setting at 0; a database without the row reads the same default.
+    // Migration 0129 seeds the setting at 0; a database without the row reads the same default.
     const [cfg] = await db.select().from(adminConfigTable).where(eq(adminConfigTable.key, "image_provenance.retention_days"));
     assert.ok(cfg === undefined || cfg.value === "0");
     const result = await runProvenanceRetentionPurge();

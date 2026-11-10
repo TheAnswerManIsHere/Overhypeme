@@ -77,6 +77,13 @@ import { loadSetRows, runItems } from "./sets";
 import { awaitResult, comparisonFal } from "./transport";
 
 export const COMPARISON_PREPARE_QUEUE = "comparison_prepare";
+/** The prompt text a panel's frozen compiled prompt sends to every engine, or null. */
+export function promptTextOf(compiledPrompt: unknown): string | null {
+  const compiled = compiledPrompt as { imagePrompt?: unknown; prompt?: unknown } | null;
+  const text = compiled?.imagePrompt ?? compiled?.prompt;
+  return typeof text === "string" && text.length > 0 ? text : null;
+}
+
 export const COMPARISON_RENDER_QUEUE = "comparison_render";
 
 /** The comparison's reference images are sent at most this size on the long edge (plan, D2). */
@@ -411,8 +418,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await release(p.reservationId);
     return { ok: true, result: "refused before dispatch" };
   }
-  const compiled = panel!.compiledPrompt as { imagePrompt?: string; prompt?: string } | null;
-  const promptText = compiled?.imagePrompt ?? compiled?.prompt;
+  const promptText = promptTextOf(panel!.compiledPrompt);
   const aspectRatio = (panel!.renderControls as { aspectRatio?: string } | null)?.aspectRatio;
   let input: Record<string, unknown>;
   let requestSettings;
@@ -437,7 +443,8 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   // been made, committed before it; the id is stored before polling.
   let requestId = cell.falRequestId;
   if (!requestId) {
-    await db.update(comparisonCellsTable).set({ requestSettings, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    // The submission's clock starts here, with the marker (David, 2026-11-10: render time matters).
+    await db.update(comparisonCellsTable).set({ requestSettings, submittedAt: new Date(), completedAt: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
     // Image tracing: the exact input and the admin who started the run,
     // persisted before the vendor is called; a recovery reads this row.
     const [run] = await db.select({ createdBy: comparisonRunsTable.createdBy }).from(comparisonRunsTable)
@@ -474,7 +481,9 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await failCell(cell.id, `render failed: ${msg}`);
     return terminalFailure("comparison_render_failed", msg);
   }
+  const completedAt = new Date();
   await settleAtBound(p.reservationId);
+  await db.update(comparisonCellsTable).set({ completedAt, updatedAt: completedAt }).where(eq(comparisonCellsTable.id, cell.id));
   if (!url) {
     await failCell(cell.id, "render failed: the response carried no image URL");
     return terminalFailure("comparison_render_failed", "no image url");
@@ -508,7 +517,7 @@ export async function rerunCell(cellId: number): Promise<ComparisonCell> {
   if (cell.vendorResultUrl) throw new ComparisonCellActionRefused("this cell's image exists at the vendor; retry its storage instead");
   if (cell.rerunCount >= 1) throw new ComparisonCellActionRefused("this cell has had its one re-run");
   const [after] = await db.update(comparisonCellsTable)
-    .set({ state: "expected", rerunCount: cell.rerunCount + 1, error: null, falRequestId: null, requestSettings: null, updatedAt: new Date() })
+    .set({ state: "expected", rerunCount: cell.rerunCount + 1, error: null, falRequestId: null, requestSettings: null, submittedAt: null, completedAt: null, updatedAt: new Date() })
     .where(and(eq(comparisonCellsTable.id, cellId), eq(comparisonCellsTable.state, "failed"), isNull(comparisonCellsTable.vendorResultUrl)))
     .returning();
   if (!after) throw new ComparisonCellActionRefused("the cell changed while re-running it");
