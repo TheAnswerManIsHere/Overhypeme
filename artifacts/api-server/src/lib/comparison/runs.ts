@@ -69,6 +69,7 @@ import {
   SYSTEM_ACTOR,
   type ProvenanceActor,
 } from "../provenance/records";
+import { blindToken } from "./judging";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
@@ -322,6 +323,13 @@ export function __setComparisonImageStoreForTest(impl: ((cell: ComparisonCell, u
   storeImageOverride = impl;
 }
 
+/** The token blind judging serves this cell's picture under, so its judging link traces. */
+async function cellBlindToken(cell: ComparisonCell): Promise<string | null> {
+  const [panel] = await db.select({ shuffleSeed: comparisonPanelsTable.shuffleSeed }).from(comparisonPanelsTable)
+    .where(eq(comparisonPanelsTable.id, cell.panelId)).limit(1);
+  return panel ? blindToken(panel, cell.id) : null;
+}
+
 /** The admin who created the cell's set: the initiator when no request was captured. */
 async function setCreatorActor(cell: ComparisonCell): Promise<ProvenanceActor> {
   const [row] = await db.select({ createdBy: comparisonSetsTable.createdBy })
@@ -354,7 +362,7 @@ async function storeVendorImage(cell: ComparisonCell, url: string): Promise<stri
     attemptId: cell.attemptId ?? null,
     factId: request?.factId ?? null,
     engineId: cell.engineId,
-    snapshot: { panelId: cell.panelId, requestCaptured: request != null },
+    snapshot: { panelId: cell.panelId, blindToken: await cellBlindToken(cell), requestCaptured: request != null },
   });
   return finished.objectPath;
 }

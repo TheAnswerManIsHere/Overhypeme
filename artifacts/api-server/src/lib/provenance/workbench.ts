@@ -4,7 +4,7 @@
 import { and, eq } from "drizzle-orm";
 import { db, imageProvenanceTable, imageGenerationRequestsTable, type Engine } from "@workspace/db";
 import { downloadToBuffer } from "../imageEngineRequest";
-import { ObjectStorageService } from "../objectStorage";
+import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { actorOf, finishAndStore, SYSTEM_ACTOR, type ImageStore } from "./records";
 
 /** The admin-only URL that serves a record's stored picture. */
@@ -40,12 +40,27 @@ export async function finishWorkbenchResult(
   engine: Pick<Engine, "id" | "label">,
   vendorRequestId: string,
   falResult: unknown,
-  deps: { storage?: ImageStore; download?: (url: string) => Promise<Buffer> } = {},
+  deps: {
+    storage?: ImageStore;
+    download?: (url: string) => Promise<Buffer>;
+    /** Whether a stored object exists: a record is reused only when its picture was stored. */
+    exists?: (objectPath: string) => Promise<boolean>;
+  } = {},
 ): Promise<unknown> {
   const result = structuredClone(falResult);
   const found = imageUrls(result);
   if (found.length === 0) return result;
-  const storage = deps.storage ?? new ObjectStorageService();
+  const live = new ObjectStorageService();
+  const storage = deps.storage ?? live;
+  const exists = deps.exists ?? (async (objectPath: string) => {
+    try {
+      await live.getObjectEntityFile(objectPath);
+      return true;
+    } catch (err) {
+      if (err instanceof ObjectNotFoundError) return false;
+      throw err;
+    }
+  });
   const download = deps.download ?? downloadToBuffer;
 
   const [request] = await db.select().from(imageGenerationRequestsTable)
@@ -55,11 +70,18 @@ export async function finishWorkbenchResult(
     )).limit(1);
   const actor = request ? actorOf(request) : SYSTEM_ACTOR;
   const existing = request
-    ? await db.select({ id: imageProvenanceTable.id, snapshot: imageProvenanceTable.snapshot })
+    ? await db.select({ id: imageProvenanceTable.id, snapshot: imageProvenanceTable.snapshot, objectPath: imageProvenanceTable.objectPath })
         .from(imageProvenanceTable)
         .where(and(eq(imageProvenanceTable.generationRequestId, request.id), eq(imageProvenanceTable.kind, "workbench")))
     : [];
-  const byIndex = new Map(existing.map((r) => [(r.snapshot as { index?: number }).index, r.id]));
+  // A repeated poll reuses a record only when its picture reached storage; a
+  // store that failed after its record was committed is finished again (a new
+  // record — the old one stays, naming a picture that was never stored).
+  const byIndex = new Map<number, number>();
+  for (const r of existing) {
+    const index = (r.snapshot as { index?: number }).index;
+    if (typeof index === "number" && r.objectPath && await exists(r.objectPath)) byIndex.set(index, r.id);
+  }
 
   for (let i = 0; i < found.length; i++) {
     const f = found[i]!;
@@ -67,7 +89,9 @@ export async function finishWorkbenchResult(
     if (provenanceId === undefined) {
       const finished = await finishAndStore({
         store: storage,
-        subPathFor: (ext) => `engine-workbench/${engine.id}/${vendorRequestId}-${i}.${ext}`,
+        // Each store attempt has its own key (the store is write-once), so a
+        // failed attempt's record and a retry's never name the same file.
+        subPathFor: (ext) => `engine-workbench/${engine.id}/${vendorRequestId}-${i}-${Date.now()}.${ext}`,
         bytes: await download(f.url),
         kind: "workbench",
         actor,

@@ -178,7 +178,7 @@ function RecordCard({ t }: { t: TracedRecord }) {
               src={`/api/admin/provenance/images/${r.id}`}
               alt={`The stored picture of record ${r.id}`}
               className="w-full rounded-sm border border-border bg-muted/30"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).replaceWith(Object.assign(document.createElement("p"), { className: "text-xs text-muted-foreground", textContent: "The stored picture is gone (deleted)." })); }}
+              onError={(e) => { (e.currentTarget as HTMLImageElement).replaceWith(Object.assign(document.createElement("p"), { className: "text-xs text-muted-foreground", textContent: "The picture is not in storage (deleted, or never saved)." })); }}
             />
           </a>
         )}

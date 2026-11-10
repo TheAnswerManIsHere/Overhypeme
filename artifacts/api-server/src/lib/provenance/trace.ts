@@ -1,16 +1,18 @@
 /**
- * @purpose The trace behind the admin "Trace an image" screen (plan PLAN_IMAGE_TRACING.md, Product Intent): from an id or a link to every matching provenance record, with its generation request, the record of the picture it was made from, and whether the meme, the stored picture and the account still exist — reading only records, never rebuilding a gap from today's rows. It says which lookup matched, and what it tried when nothing did.
+ * @purpose The trace behind the admin "Trace an image" screen (plan PLAN_IMAGE_TRACING.md, Product Intent): from an id or a link to every matching provenance record, with its generation request, the record of the picture it was made from, and whether the meme, the stored picture and the account still exist — reading what it shows only from records — a live row is used only to find a record or to say a pre-tracing picture has none, never to fill a gap. It says which lookup matched, and what it tried when nothing did.
  */
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   db,
   imageProvenanceTable,
   imageGenerationRequestsTable,
   memesTable,
   usersTable,
+  imagePromptAttemptsTable,
   type ImageProvenance,
   type ImageGenerationRequest,
 } from "@workspace/db";
+import { blindImagePath } from "../comparison/judging";
 
 /** Increment 2 adds the lookups from a picture itself (metadata, exact hash, watermark). */
 export type TraceMethod = "id" | "link";
@@ -38,6 +40,9 @@ type ParsedTraceInput =
   | { kind: "meme"; slug: string }
   | { kind: "object"; objectPath: string }
   | { kind: "provenanceImage"; id: number }
+  | { kind: "attempt"; attemptId: number }
+  | { kind: "moderationRender"; renderJobId: string }
+  | { kind: "comparisonImage"; panelId: number; token: string }
   | { kind: "unrecognised" };
 
 const SLUG = "[A-Za-z0-9_-]{4,16}";
@@ -49,14 +54,24 @@ export function parseTraceInput(raw: string): ParsedTraceInput {
     const id = Number(input);
     return Number.isSafeInteger(id) && id > 0 ? { kind: "id", id } : { kind: "unrecognised" };
   }
-  let path = input;
+  let url: URL;
+  let path: string;
   try {
-    if (/^https?:\/\//i.test(input)) path = new URL(input).pathname;
+    url = new URL(input, "https://overhype.me");
+    path = decodeURIComponent(url.pathname);
   } catch {
     return { kind: "unrecognised" };
   }
-  path = decodeURIComponent(path.split(/[?#]/)[0] ?? "");
   let m: RegExpExecArray | null;
+  // The links the admin and member screens actually show for a recorded
+  // picture, each resolved to the picture it serves (Codex, PR #911).
+  if (path === "/api/memes/ai-user/image") {
+    const storagePath = url.searchParams.get("storagePath") ?? "";
+    return /^\/objects\/.+/.test(storagePath) ? { kind: "object", objectPath: storagePath } : { kind: "unrecognised" };
+  }
+  if ((m = /^\/api\/admin\/reviews\/\d+\/renders\/([^/]{1,64})\/image$/.exec(path))) return { kind: "moderationRender", renderJobId: m[1]! };
+  if ((m = /^\/api\/admin\/comparison\/panels\/(\d+)\/images\/([0-9a-f]{16})$/.exec(path))) return { kind: "comparisonImage", panelId: Number(m[1]), token: m[2]! };
+  if ((m = /^\/api\/admin\/eval\/attempts\/(\d+)\/image$/.exec(path))) return { kind: "attempt", attemptId: Number(m[1]) };
   if ((m = /^\/api\/admin\/provenance\/images\/(\d{1,16})$/.exec(path))) return { kind: "provenanceImage", id: Number(m[1]) };
   if ((m = new RegExp(`^(?:/api)?/(?:og/)?m/(${SLUG})/?$`).exec(path))) return { kind: "meme", slug: m[1]! };
   if ((m = new RegExp(`^/api/memes/(${SLUG})/image$`).exec(path))) return { kind: "meme", slug: m[1]! };
@@ -121,16 +136,48 @@ export async function traceIdOrLink(raw: string): Promise<TraceResult> {
       : null;
     return { method: rows.length ? "link" : null, matches: await expand(rows), tried, note };
   }
-  if (parsed.kind === "object") {
-    const rows = (await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.objectPath, parsed.objectPath))).sort(NEWEST_FIRST);
-    tried.push(`stored picture ${parsed.objectPath}: ${rows.length} record${rows.length === 1 ? "" : "s"}`);
-    return {
-      method: rows.length ? "link" : null,
-      matches: await expand(rows),
-      tried,
-      note: rows.length ? null : preTracingNote(parsed.objectPath),
-    };
+  if (parsed.kind === "comparisonImage") {
+    // The record holds the panel and blind token it was judged under, so the
+    // link traces after the panel is gone; the live panel is only a fallback
+    // for a picture stored before tracing.
+    const rows = (await db.select().from(imageProvenanceTable).where(sql`${imageProvenanceTable.snapshot}->>'panelId' = ${String(parsed.panelId)} AND ${imageProvenanceTable.snapshot}->>'blindToken' = ${parsed.token}`)).sort(NEWEST_FIRST);
+    tried.push(`comparison picture (panel ${parsed.panelId}): ${rows.length} record${rows.length === 1 ? "" : "s"}`);
+    if (rows.length) return { method: "link", matches: await expand(rows), tried, note: null };
+    const objectPath = await blindImagePath(parsed.panelId, parsed.token);
+    if (!objectPath) return { method: null, matches: [], tried, note: "This comparison picture's panel no longer exists and no record names it." };
+    return traceObjectPath(objectPath, tried);
   }
-  tried.push("not an id or a link this screen recognises");
+  if (parsed.kind === "attempt" || parsed.kind === "moderationRender") {
+    // The record names its attempt and render job itself, so the link traces
+    // after the attempt row is gone.
+    const rows = (parsed.kind === "attempt"
+      ? await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.attemptId, parsed.attemptId))
+      : await db.select().from(imageProvenanceTable).where(sql`${imageProvenanceTable.snapshot}->>'renderJobId' = ${parsed.renderJobId}`)
+    ).sort(NEWEST_FIRST);
+    const label = parsed.kind === "attempt" ? `render attempt ${parsed.attemptId}` : `moderation render ${parsed.renderJobId}`;
+    tried.push(`${label}: ${rows.length} record${rows.length === 1 ? "" : "s"}`);
+    let note: string | null = null;
+    if (!rows.length) {
+      const where = parsed.kind === "attempt"
+        ? eq(imagePromptAttemptsTable.id, parsed.attemptId)
+        : eq(imagePromptAttemptsTable.renderJobId, parsed.renderJobId);
+      const [attempt] = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(where).limit(1);
+      if (attempt) note = "This render was made before image tracing began, so it has no provenance record.";
+    }
+    return { method: rows.length ? "link" : null, matches: await expand(rows), tried, note };
+  }
+  if (parsed.kind === "object") return traceObjectPath(parsed.objectPath, tried);
+  tried.push("not an id or a link this screen recognises (a record id, a meme link, or an image link from the admin or member screens)");
   return { method: null, matches: [], tried, note: null };
+}
+
+async function traceObjectPath(objectPath: string, tried: string[]): Promise<TraceResult> {
+  const rows = (await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.objectPath, objectPath))).sort(NEWEST_FIRST);
+  tried.push(`stored picture ${objectPath}: ${rows.length} record${rows.length === 1 ? "" : "s"}`);
+  return {
+    method: rows.length ? "link" : null,
+    matches: await expand(rows),
+    tried,
+    note: rows.length ? null : preTracingNote(objectPath),
+  };
 }

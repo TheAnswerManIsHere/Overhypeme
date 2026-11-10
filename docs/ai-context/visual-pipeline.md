@@ -229,7 +229,8 @@ came to exist. The rules a change here must keep:
   `/memes/ai-user/image` serves the stored content type.
 - **The trace:** admin **Trace an image** (`/admin/trace`, API
   `/api/admin/provenance/trace` and `/images/:id`, admin-only) reads only
-  records, returns every match, and labels legacy FLUX backfill images
+  records (a live row only finds a record), resolves the image links the admin
+  and member screens show, returns every match, and labels legacy FLUX backfill images
   "legacy path, settings not recorded".
 
 ## Frozen render inputs: identity + style (reproducibility)

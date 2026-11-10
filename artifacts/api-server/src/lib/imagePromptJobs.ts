@@ -421,7 +421,7 @@ export const imageGenerationHandler: JobHandler = {
         attemptId: p.attemptId,
         factId: attempt.factId,
         engineId: engine.id,
-        snapshot: { producer: provenance.producer, generationMode, prompt: promptText, renderControls },
+        snapshot: { producer: provenance.producer, generationMode, prompt: promptText, renderControls, renderJobId: attempt.renderJobId },
       });
       storedPath = finished.objectPath;
     } catch (err) {

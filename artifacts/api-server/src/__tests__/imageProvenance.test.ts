@@ -195,6 +195,11 @@ describe("the trace", () => {
     assert.deepEqual(parseTraceInput("https://overhype.me/api/storage/objects/ai-bg-v2/5/9-1.png?x=1"), { kind: "object", objectPath: "/objects/ai-bg-v2/5/9-1.png" });
     assert.deepEqual(parseTraceInput("/api/admin/provenance/images/77"), { kind: "provenanceImage", id: 77 });
     assert.equal(parseTraceInput("hello there").kind, "unrecognised");
+    // The links the admin screens show for a recorded picture (Codex, PR #911).
+    assert.deepEqual(parseTraceInput("https://overhype.me/api/admin/reviews/12/renders/abc-123/image"), { kind: "moderationRender", renderJobId: "abc-123" });
+    assert.deepEqual(parseTraceInput("/api/admin/comparison/panels/7/images/0123456789abcdef"), { kind: "comparisonImage", panelId: 7, token: "0123456789abcdef" });
+    assert.deepEqual(parseTraceInput("/api/admin/eval/attempts/44/image"), { kind: "attempt", attemptId: 44 });
+    assert.deepEqual(parseTraceInput("/api/memes/ai-user/image?storagePath=%2Fobjects%2Fai-bg-v2%2F5%2F9-1.png"), { kind: "object", objectPath: "/objects/ai-bg-v2/5/9-1.png" });
   });
 
   it("returns every record a link matches, never picking one", async () => {
@@ -206,6 +211,38 @@ describe("the trace", () => {
     assert.equal(trace.method, "link");
     assert.equal(trace.matches.length, 2);
     assert.deepEqual(new Set(trace.matches.map((m) => m.record.actorUserId)), new Set([memberId, adminId]));
+  });
+
+  it("traces a moderation render's and an eval render's link after the attempt is gone", async () => {
+    const attemptId = 800_000_000 + Math.floor(Math.random() * 1000);
+    const renderJobId = `${P}-job`;
+    await finish({
+      bytes: await picture("png"), kind: "ai_render", actor: await actorForUser(adminId, "admin"), stamp: true, stampEngine: "E",
+      attemptId, objectPath: `/objects/ai-bg-v2/${P}/r.png`, snapshot: { renderJobId },
+    });
+    const byRender = await traceIdOrLink(`/api/admin/reviews/1/renders/${renderJobId}/image`);
+    assert.equal(byRender.matches.length, 1);
+    assert.equal(byRender.matches[0]!.record.attemptId, attemptId);
+    const byEval = await traceIdOrLink(`/api/admin/eval/attempts/${attemptId}/image`);
+    assert.equal(byEval.matches.length, 1);
+  });
+
+  it("traces a blind-judging link through the token the record holds, with no panel row", async () => {
+    const panelId = 700_000_000 + Math.floor(Math.random() * 1000);
+    const token = "0123456789abcdef";
+    await finish({
+      bytes: await picture("png"), kind: "comparison_cell", actor: await actorForUser(adminId, "admin"), stamp: true,
+      comparisonCellId: 1, objectPath: `/objects/comparison/${P}/c.png`, snapshot: { panelId, blindToken: token },
+    });
+    const t = await traceIdOrLink(`https://overhype.me/api/admin/comparison/panels/${panelId}/images/${token}`);
+    assert.equal(t.method, "link");
+    assert.equal(t.matches.length, 1);
+  });
+
+  it("reads a broken link as unrecognised rather than failing", async () => {
+    assert.equal(parseTraceInput("https://overhype.me/m/%E0%A4%A").kind, "unrecognised");
+    const t = await traceIdOrLink("/api/storage/objects/%zz");
+    assert.equal(t.matches.length, 0);
   });
 
   it("labels a legacy FLUX picture and says what it tried", async () => {
@@ -242,6 +279,7 @@ describe("the engine workbench", () => {
     const deps = {
       storage: { uploadObjectBuffer: async (a: { subPath: string; buffer: Buffer }) => { stored.push(a); return `/objects/${a.subPath}`; } },
       download: async () => png,
+      exists: async (path: string) => stored.some((x) => `/objects/${x.subPath}` === path),
     };
     const vendorResult = { images: [{ url: "https://v3.fal.media/files/x.png", width: 41 }], seed: 3 };
     const first = await finishWorkbenchResult({ id: "wb-engine", label: "WB Engine" }, vendorId, vendorResult, deps) as typeof vendorResult & { images: Array<{ url: string; provenance_id: string }> };
@@ -257,6 +295,36 @@ describe("the engine workbench", () => {
     const again = await finishWorkbenchResult({ id: "wb-engine", label: "WB Engine" }, vendorId, vendorResult, deps) as typeof first;
     assert.equal(again.images[0]!.url, first.images[0]!.url, "a repeated poll reuses the record");
     assert.equal(stored.length, 1);
+  });
+
+  it("stores again when an earlier poll's store failed after its record was written (Codex, PR #911)", async () => {
+    const vendorId = `${P}-wb-fail`;
+    const reqId = await recordGenerationRequest({
+      producer: "engine_workbench", engineId: "wb-engine", endpointId: "fal-ai/wb", request: { prompt: "x" },
+      actor: await actorForUser(adminId, "admin"),
+    });
+    createdRequestIds.push(reqId);
+    await setVendorRequestId(reqId, vendorId);
+    const png = await picture("png");
+    const stored: string[] = [];
+    let failNext = true;
+    const deps = {
+      storage: { uploadObjectBuffer: async (a: { subPath: string }) => {
+        if (failNext) { failNext = false; throw new Error("storage down"); }
+        stored.push(`/objects/${a.subPath}`); return `/objects/${a.subPath}`;
+      } },
+      download: async () => png,
+      exists: async (path: string) => stored.includes(path),
+    };
+    const vendorResult = { images: [{ url: "https://v3.fal.media/files/y.png" }] };
+    await assert.rejects(finishWorkbenchResult({ id: "wb-engine", label: "WB" }, vendorId, vendorResult, deps));
+    const retried = await finishWorkbenchResult({ id: "wb-engine", label: "WB" }, vendorId, vendorResult, deps) as { images: Array<{ url: string; provenance_id: string }> };
+    assert.equal(stored.length, 1, "the second poll stored the picture");
+    const records = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.generationRequestId, reqId));
+    records.forEach((r) => createdRecordIds.push(r.id));
+    assert.equal(records.length, 2, "the failed store's record stays; the stored picture has its own");
+    assert.equal(retried.images[0]!.url, `/api/admin/provenance/images/${retried.images[0]!.provenance_id}`);
+    assert.equal(stored[0], records.find((r) => String(r.id) === retried.images[0]!.provenance_id)!.objectPath);
   });
 
   it("leaves a result with no image unchanged", async () => {

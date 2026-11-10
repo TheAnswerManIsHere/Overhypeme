@@ -42,7 +42,7 @@ router.get("/admin/provenance/images/:id", requireAdmin, async (req: Request, re
     else res.end();
   } catch (err) {
     if (res.headersSent) { res.destroy(); return; }
-    if (err instanceof ObjectNotFoundError) { res.status(404).json({ error: "image_not_found", deleted: true }); return; }
+    if (err instanceof ObjectNotFoundError) { res.status(404).json({ error: "image_not_found" }); return; }
     logger.error({ err, id }, "[provenance] image stream failed");
     res.status(500).json({ error: "image_stream_failed" });
   }
