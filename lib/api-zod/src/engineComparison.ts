@@ -50,14 +50,25 @@ export const COMPARISON_CELL_STATES = ["expected", "enqueued", "rendered", "fail
 export type ComparisonPanelState = (typeof COMPARISON_PANEL_STATES)[number];
 export type ComparisonCellState = (typeof COMPARISON_CELL_STATES)[number];
 
+const blindTokenSchema = z.string().regex(/^[0-9a-f]{16}$/);
+
+/** A score David gives one image: 1 (worst) to 5 (best). */
+export const COMPARISON_SCORE_MIN = 1;
+export const COMPARISON_SCORE_MAX = 5;
+
 /**
- * A blind pick (increment 3, plan *Proposed Design* E). Cells are named by the
- * opaque tokens the blind view issued, never by id or engine.
+ * A blind judgement (plan *Proposed Design* E): a score of 1 to 5 for every
+ * image the panel shows (David, 2026-11-10, in place of a single "best" pick).
+ * Cells are named by the opaque tokens the blind view issued, never by id or
+ * engine.
  */
 export const comparisonPickSchema = z.object({
-  pickedToken: z.string().regex(/^[0-9a-f]{16}$/),
+  ratings: z.array(z.object({
+    token: blindTokenSchema,
+    score: z.number().int().min(COMPARISON_SCORE_MIN).max(COMPARISON_SCORE_MAX),
+  }).strict()).min(1).max(12),
   /** Images whose face is not the person; human-reference panels only. */
-  faceMismatchTokens: z.array(z.string().regex(/^[0-9a-f]{16}$/)).max(12).default([]),
+  faceMismatchTokens: z.array(blindTokenSchema).max(12).default([]),
 }).strict();
 export type ComparisonPickRequest = z.infer<typeof comparisonPickSchema>;
 

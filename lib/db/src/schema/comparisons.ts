@@ -139,18 +139,22 @@ export const comparisonReservationsTable = pgTable("comparison_reservations", {
 }, (t) => [index("IDX_comparison_reservations_state").on(t.state, t.createdAt)]);
 
 /**
- * David's blind pick for one panel (plan, *Proposed Design* E). One row per
- * panel; a re-judgement replaces the pick and moves the previous one into
- * `history`. Face marks name cells whose face is not the person (human
- * reference panels only).
+ * David's blind judgement of one panel (plan, *Proposed Design* E): a score of
+ * 1 to 5 for every image the panel showed (David, 2026-11-10, in place of a
+ * single "best" pick; migration 0127). One row per panel; a re-judgement
+ * replaces the scores and moves the previous ones into `history`. Face marks
+ * name cells whose face is not the person (human reference panels only).
  */
 export const comparisonPicksTable = pgTable("comparison_picks", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
   panelId: bigint("panel_id", { mode: "number" }).notNull().references(() => comparisonPanelsTable.id, { onDelete: "cascade" }),
-  pickedCellId: bigint("picked_cell_id", { mode: "number" }).notNull().references(() => comparisonCellsTable.id, { onDelete: "cascade" }),
+  /** The single-pick judging's "best" cell; written null since judging rates every image. */
+  pickedCellId: bigint("picked_cell_id", { mode: "number" }).references(() => comparisonCellsTable.id, { onDelete: "cascade" }),
+  /** { cellId: number; score: 1..5 }[] — one per image the panel showed. */
+  ratings: jsonb("ratings").notNull().default([]),
   /** number[] — cells of this panel marked "not the person". */
   faceMismatchCellIds: jsonb("face_mismatch_cell_ids").notNull().default([]),
-  /** Previous picks, oldest first: { pickedCellId, faceMismatchCellIds, judgedBy, judgedAt }[]. */
+  /** Previous judgements, oldest first: { ratings, faceMismatchCellIds, judgedBy, judgedAt }[]. */
   history: jsonb("history").notNull().default([]),
   judgedBy: varchar("judged_by").references(() => usersTable.id, { onDelete: "set null" }),
   judgedAt: timestamp("judged_at", { withTimezone: true }).notNull().defaultNow(),

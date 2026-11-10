@@ -83,6 +83,13 @@ async function renderedSet(label: string, opts: { missingT2i?: boolean } = {}): 
   return { setId, panels, cells };
 }
 
+const pickPath = (panelId: number) => `/api/admin/comparison/panels/${panelId}/pick`;
+
+/** The same score for every image a blind panel shows. */
+function rateAll(panel: { images: Array<{ token: string }> }, score: number): Array<{ token: string; score: number }> {
+  return panel.images.map((i) => ({ token: i.token, score }));
+}
+
 /** Every string anywhere in a value. */
 function stringValues(value: unknown): string[] {
   if (typeof value === "string") return [value];
@@ -136,7 +143,7 @@ describe("the blind view", () => {
     assert.equal(missing.status, 404);
   });
 
-  it("shows no image of a panel still missing one, and refuses a pick on it", async () => {
+  it("shows no image of a panel still waiting on one, and refuses scores on it", async () => {
     const { setId } = await renderedSet("missing", { missingT2i: true });
     const blind = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
     const generic = blind.body.panels.find((p: { scenarioKey: string }) => p.scenarioKey === "generic_t2i");
@@ -145,7 +152,7 @@ describe("the blind view", () => {
     assert.equal(generic.imagesReady, 1);
     assert.equal(generic.imagesExpected, 2);
     assert.equal(blind.body.progress.judgeable, 1);
-    const res = await request(app()).post(`/api/admin/comparison/panels/${generic.panelId}/pick`).send({ pickedToken: "0123456789abcdef" });
+    const res = await request(app()).post(pickPath(generic.panelId)).send({ ratings: [{ token: "0123456789abcdef", score: 3 }] });
     assert.equal(res.status, 409);
     assert.match(res.body.refusal, /every image is ready/);
   });
@@ -168,14 +175,14 @@ describe("a skipped panel", () => {
     assert.deepEqual(blind.body.progress, { panels: 2, judgeable: 1, judged: 0, skipped: 1, lost: 0 });
 
     const generic = blind.body.panels.find((p: { panelId: number }) => p.panelId !== human.id);
-    await request(app()).post(`/api/admin/comparison/panels/${generic.panelId}/pick`).send({ pickedToken: generic.images[0].token });
+    await request(app()).post(pickPath(generic.panelId)).send({ ratings: rateAll(generic, 3) });
     const results = await request(app()).get(`/api/admin/comparison/results?setIds=${setId}`);
     assert.deepEqual(results.body.panels, { total: 2, judged: 1, judgeable: 1, skipped: 1, lost: 0 }, "every available panel judged is still not a complete comparison");
   });
 });
 
-describe("why a panel is waiting", () => {
-  it("tells a lost image from one that needs action and from one still rendering, naming no engine", async () => {
+describe("why a panel is waiting, and a lost image", () => {
+  it("tells needs-action from rendering; a lost image is shown missing and the rest are scored, naming no engine", async () => {
     const { setId, cells } = await renderedSet("waiting", { missingT2i: true });
     const missing = cells.find((c) => c.engineId.startsWith(FAMILIES.flux) && c.engineId.endsWith("-t2i"))!;
     const read = async () => {
@@ -189,17 +196,33 @@ describe("why a panel is waiting", () => {
 
     await db.update(comparisonCellsTable).set({ rerunCount: 1 }).where(eq(comparisonCellsTable.id, missing.id));
     const lost = await read();
-    assert.equal(lost.panel.waiting, "lost", "a failed cell with its re-run used and no image at the vendor");
-    assert.equal(lost.panel.judgeable, false);
-    assert.deepEqual(lost.panel.images, []);
-    assert.equal(lost.body.progress.lost, 1);
+    assert.equal(lost.panel.waiting, null, "one lost image no longer holds the panel back");
+    assert.equal(lost.panel.judgeable, true);
+    assert.equal(lost.panel.images.length, 1, "only the image that exists is shown");
+    assert.equal(lost.panel.imagesMissing, 1);
+    assert.equal(lost.body.progress.lost, 0);
     const strings = stringValues(lost.body);
     assert.ok(!strings.some((s) => s.includes("content policy")), "a cell's error, which may name its engine's filter, is never sent");
+    assert.ok(!engineIds.some((id) => strings.includes(id)), "no engine is named");
+
+    const scored = await request(app()).post(pickPath(missing.panelId)).send({ ratings: rateAll(lost.panel, 4) });
+    assert.equal(scored.status, 200, JSON.stringify(scored.body));
     const results = await request(app()).get(`/api/admin/comparison/results?setIds=${setId}`);
-    assert.equal(results.body.panels.lost, 1);
+    const t2i = results.body.ranking.t2i as Array<{ family: string; mean: number | null; scored: number; lost: number }>;
+    assert.deepEqual(t2i.map((r) => [r.family, r.mean, r.scored, r.lost]), [
+      [FAMILIES.gpt, 4, 1, 0],
+      [FAMILIES.flux, null, 0, 1],
+    ], "the engine that could not draw has no score there, and its loss is counted");
 
     await db.update(comparisonCellsTable).set({ vendorResultUrl: "https://vendor.test/x.png" }).where(eq(comparisonCellsTable.id, missing.id));
     assert.equal((await read()).panel.waiting, "needs_action", "an image kept at the vendor can still be stored");
+
+    // Every image lost for good: nothing to score.
+    await db.update(comparisonCellsTable).set({ state: "skipped", imageObjectPath: null, vendorResultUrl: null }).where(eq(comparisonCellsTable.panelId, missing.panelId));
+    const none = await read();
+    assert.equal(none.panel.waiting, "lost");
+    assert.equal(none.panel.judgeable, false);
+    assert.equal(none.body.progress.lost, 1);
   });
 });
 
@@ -231,62 +254,74 @@ describe("a blind image whose storage fails mid-body", () => {
   });
 });
 
-describe("picks", () => {
-  it("records a pick against the hidden cell, replaces it keeping the history, and validates face marks", async () => {
-    const { setId, cells } = await renderedSet("pick");
+describe("scores", () => {
+  it("scores every image 1 to 5 against its hidden cell, replaces them keeping the history, and validates", async () => {
+    const { setId } = await renderedSet("pick");
     const blind = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
     const human = blind.body.panels.find((p: { scenarioKey: string }) => p.scenarioKey === "i2i_male_default");
     const generic = blind.body.panels.find((p: { scenarioKey: string }) => p.scenarioKey === "generic_t2i");
     const [a, b] = human.images.map((i: { token: string }) => i.token);
-    const pickPath = (panelId: number) => `/api/admin/comparison/panels/${panelId}/pick`;
 
-    const faceOnGeneric = await request(app()).post(pickPath(generic.panelId)).send({ pickedToken: generic.images[0].token, faceMismatchTokens: [generic.images[1].token] });
+    const faceOnGeneric = await request(app()).post(pickPath(generic.panelId)).send({ ratings: rateAll(generic, 3), faceMismatchTokens: [generic.images[1].token] });
     assert.equal(faceOnGeneric.status, 409);
     assert.match(faceOnGeneric.body.refusal, /person's reference photo/);
-    const foreign = await request(app()).post(pickPath(human.panelId)).send({ pickedToken: generic.images[0].token });
+    const foreign = await request(app()).post(pickPath(human.panelId)).send({ ratings: [{ token: a, score: 3 }, { token: generic.images[0].token, score: 3 }] });
     assert.equal(foreign.status, 409);
-    const named = await request(app()).post(pickPath(human.panelId)).send({ pickedToken: engineIds[1] });
-    assert.equal(named.status, 400, "a pick is made by token, never by engine");
+    const partial = await request(app()).post(pickPath(human.panelId)).send({ ratings: [{ token: a, score: 3 }] });
+    assert.equal(partial.status, 409);
+    assert.match(partial.body.refusal, /score every image: 1 of 2/);
+    const twice = await request(app()).post(pickPath(human.panelId)).send({ ratings: [{ token: a, score: 3 }, { token: a, score: 4 }] });
+    assert.equal(twice.status, 409);
+    for (const score of [0, 6, 2.5]) {
+      const out = await request(app()).post(pickPath(human.panelId)).send({ ratings: [{ token: a, score }, { token: b, score: 3 }] });
+      assert.equal(out.status, 400, `a score of ${score} is refused`);
+    }
+    const named = await request(app()).post(pickPath(human.panelId)).send({ ratings: [{ token: engineIds[1], score: 3 }] });
+    assert.equal(named.status, 400, "a score names an image by token, never by engine");
+    const oldShape = await request(app()).post(pickPath(human.panelId)).send({ pickedToken: a });
+    assert.equal(oldShape.status, 400, "a single pick is no longer a judgement");
 
-    const first = await request(app()).post(pickPath(human.panelId)).send({ pickedToken: a, faceMismatchTokens: [b] });
+    const first = await request(app()).post(pickPath(human.panelId)).send({ ratings: [{ token: a, score: 5 }, { token: b, score: 2 }], faceMismatchTokens: [b] });
     assert.equal(first.status, 200, JSON.stringify(first.body));
     const [row] = await db.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, human.panelId));
-    const humanCells = cells.filter((c) => c.panelId === human.panelId);
-    const pickedPath = await blindImagePath(human.panelId, a);
-    assert.ok(pickedPath?.includes(`cell-${row!.pickedCellId}-`), "the pick is the cell behind the token");
-    assert.deepEqual(row!.faceMismatchCellIds, humanCells.filter((c) => c.id !== row!.pickedCellId).map((c) => c.id));
+    const stored = row!.ratings as Array<{ cellId: number; score: number }>;
+    const cellOf = async (token: string) => Number((await blindImagePath(human.panelId, token))!.match(/cell-(\d+)-/)![1]);
+    assert.deepEqual(new Map(stored.map((r) => [r.cellId, r.score])), new Map([[await cellOf(a), 5], [await cellOf(b), 2]]), "each score is the cell behind its token");
+    assert.equal(row!.pickedCellId, null);
+    assert.deepEqual(row!.faceMismatchCellIds, [await cellOf(b)]);
     assert.equal(row!.judgedBy, adminId);
 
-    const again = await request(app()).post(pickPath(human.panelId)).send({ pickedToken: b });
+    const again = await request(app()).post(pickPath(human.panelId)).send({ ratings: [{ token: a, score: 1 }, { token: b, score: 4 }] });
     assert.equal(again.status, 200);
     const [replaced] = await db.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, human.panelId));
-    assert.notEqual(replaced!.pickedCellId, row!.pickedCellId);
     assert.deepEqual(replaced!.faceMismatchCellIds, []);
-    const history = replaced!.history as Array<{ pickedCellId: number }>;
+    const history = replaced!.history as Array<{ ratings: unknown }>;
     assert.equal(history.length, 1);
-    assert.equal(history[0]!.pickedCellId, row!.pickedCellId);
+    assert.deepEqual(history[0]!.ratings, stored);
 
     const reread = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
     const humanAgain = reread.body.panels.find((p: { panelId: number }) => p.panelId === human.panelId);
-    assert.equal(humanAgain.pick.pickedToken, b, "the pick survives a reload, by token");
+    assert.deepEqual(humanAgain.pick.ratings, { [a]: 1, [b]: 4 }, "the scores survive a reload, by token");
     assert.equal(reread.body.progress.judged, 1);
   });
 });
 
 describe("results", () => {
-  it("reveals the engines: wins per mode, style and scenario, face marks and what the calls could cost", async () => {
+  it("reveals the engines: average scores per mode, style and scenario, ranked with price; face marks and costs", async () => {
     const { setId, panels, cells } = await renderedSet("results");
     const blind = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
-    // Pick FLUX on both panels, by reading which token is FLUX's from the database.
+    // FLUX scores 5 on text-to-image and 4 on the edit; GPT 3 and 4 (a tie on the edit).
     for (const panel of blind.body.panels) {
-      const fluxCell = cells.find((c) => c.panelId === panel.panelId && c.engineId.startsWith(FAMILIES.flux))!;
-      let fluxToken: string | null = null;
+      const ratings = [];
+      let gptToken = "";
       for (const img of panel.images) {
-        if ((await blindImagePath(panel.panelId, img.token))?.includes(`cell-${fluxCell.id}-`)) fluxToken = img.token;
+        const path = (await blindImagePath(panel.panelId, img.token))!;
+        const cell = cells.find((c) => path.includes(`cell-${c.id}-`))!;
+        const flux = cell.engineId.startsWith(FAMILIES.flux);
+        if (!flux) gptToken = img.token;
+        ratings.push({ token: img.token, score: panel.imageMode === "t2i" ? (flux ? 5 : 3) : 4 });
       }
-      const others = panel.images.map((i: { token: string }) => i.token).filter((t: string) => t !== fluxToken);
-      const res = await request(app()).post(`/api/admin/comparison/panels/${panel.panelId}/pick`)
-        .send({ pickedToken: fluxToken, faceMismatchTokens: panel.faceMarkable ? others : [] });
+      const res = await request(app()).post(pickPath(panel.panelId)).send({ ratings, faceMismatchTokens: panel.faceMarkable ? [gptToken] : [] });
       assert.equal(res.status, 200, JSON.stringify(res.body));
     }
     // Two recorded image calls and one planner call; a released call costs nothing.
@@ -303,29 +338,30 @@ describe("results", () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const r = res.body;
     assert.deepEqual(r.panels, { total: 2, judged: 2, judgeable: 2, skipped: 0, lost: 0 });
-    assert.deepEqual(r.wins.overall, { [FAMILIES.flux]: 2 });
-    assert.deepEqual(r.wins.byMode, { t2i: { [FAMILIES.flux]: 1 }, i2i: { [FAMILIES.flux]: 1 } });
-    assert.deepEqual(r.wins.byStyle, { none: { [FAMILIES.flux]: 2 } });
-    assert.deepEqual(r.leaders.t2i, { families: [FAMILIES.flux], wins: 1, judged: 1 });
-    assert.deepEqual(r.leaders.i2i, { families: [FAMILIES.flux], wins: 1, judged: 1 });
+    assert.deepEqual(r.scores.overall, { [FAMILIES.flux]: { mean: 4.5, count: 2 }, [FAMILIES.gpt]: { mean: 3.5, count: 2 } });
+    assert.deepEqual(r.scores.byMode, {
+      t2i: { [FAMILIES.flux]: { mean: 5, count: 1 }, [FAMILIES.gpt]: { mean: 3, count: 1 } },
+      i2i: { [FAMILIES.flux]: { mean: 4, count: 1 }, [FAMILIES.gpt]: { mean: 4, count: 1 } },
+    });
+    assert.deepEqual(r.scores.byStyle, { none: { [FAMILIES.flux]: { mean: 4.5, count: 2 }, [FAMILIES.gpt]: { mean: 3.5, count: 2 } } });
+    assert.deepEqual(r.leaders.t2i, { families: [FAMILIES.flux], mean: 5, judged: 1 });
+    assert.deepEqual(r.leaders.i2i, { families: [FAMILIES.flux, FAMILIES.gpt].sort(), mean: 4, judged: 1 }, "an equal average is a tie");
     assert.deepEqual(r.faceMismatches, { [FAMILIES.gpt]: 1 });
     assert.equal(r.humanReferencePanelsJudged, 1);
     assert.deepEqual(r.costs[fluxT2i], { family: FAMILIES.flux, calls: 1, boundUsd: 0.048 });
     assert.deepEqual(r.costs[engineIds[0]!], { family: FAMILIES.gpt, calls: 1, boundUsd: 0.06 }, "a call held after a failure may have been billed, so it counts");
     assert.equal(r.costs[engineIds[1]!], undefined, "a released call never reached fal");
     assert.equal(r.preparationBoundUsd, 0.768);
-    // Stage 2: each mode's engines in quality order, with what one image costs.
-    const fluxT2iId = engineIds[2]!;
-    const gptT2iId = engineIds[0]!;
+    // Stage 2: each mode's engines in score order, with what one image costs.
     assert.deepEqual(r.ranking.t2i, [
-      { family: FAMILIES.flux, engineId: fluxT2iId, wins: 1, usdPerImage: 0.048, exact: true },
-      { family: FAMILIES.gpt, engineId: gptT2iId, wins: 0, usdPerImage: 0.058, exact: false },
+      { rank: 1, family: FAMILIES.flux, engineId: engineIds[2]!, mean: 5, scored: 1, lost: 0, usdPerImage: 0.048, exact: true },
+      { rank: 2, family: FAMILIES.gpt, engineId: engineIds[0]!, mean: 3, scored: 1, lost: 0, usdPerImage: 0.058, exact: false },
     ], "a flat price is exact; a token price shows its typical figure, marked approximate");
-    assert.deepEqual(r.ranking.i2i.map((row: { family: string; usdPerImage: number; exact: boolean }) => [row.family, row.usdPerImage, row.exact]), [
-      [FAMILIES.flux, 0.048, true],
-      [FAMILIES.gpt, 0.066, false],
-    ]);
-    assert.ok(r.perPanel.every((p: { picked: { family: string } }) => p.picked.family === FAMILIES.flux));
+    assert.deepEqual(r.ranking.i2i.map((row: { rank: number; usdPerImage: number; exact: boolean }) => [row.rank, row.usdPerImage, row.exact]).sort(), [
+      [1, 0.048, true],
+      [1, 0.066, false],
+    ], "engines with the same average share a rank");
+    assert.ok(r.perPanel.every((p: { ratings: unknown[] }) => p.ratings.length === 2));
 
     const two = await request(app()).get(`/api/admin/comparison/results?setIds=${setId},${setId}`);
     assert.equal(two.status, 200, "a repeated id reads once");

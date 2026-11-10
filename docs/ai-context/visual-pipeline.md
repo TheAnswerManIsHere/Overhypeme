@@ -143,27 +143,35 @@ beside the eval run rather than inside it (plan
   seed and the cell id, the seed never leaving the server — and served by
   `GET /api/admin/comparison/panels/:id/images/:token` with only its content
   type, so neither the payload nor the image names an engine, endpoint, cell
-  or storage path. A panel is judgeable only when every cell has a stored
-  image; until then it shows how many are in and none of them, and says why
-  it waits (`panelWait`): still rendering (the page polls every 5 s), needing
-  action on the comparison screen (a re-run or re-preparation left), or lost
-  for good (a cell failed after its one re-run) — a lost panel counts in every
-  total and is never shown as work in progress. A panel skipped at
-  preparation stays listed with its reason. David picks
-  the best and, on panels with a person's reference photo, marks any face that
-  is not the person (`comparison_picks`, one row per panel); re-judging
-  replaces the pick and keeps the previous one in the row's `history`.
+  or storage path. **Every image is scored 1 to 5** (David, 2026-11-10,
+  `decisions.md`, in place of picking the best one). A panel is judgeable once
+  every cell is settled — it has a stored image or is lost for good (failed
+  after its one re-run with nothing kept at the vendor, or skipped) — and at
+  least one image exists; until then it shows how many are in and none of
+  them, and says why it waits (`panelWait`): still rendering (the page polls
+  every 5 s), or needing action on the comparison screen (a re-run or
+  re-preparation left). A lost image does not hold its panel back: it is shown
+  as missing, naming no engine, and the others are scored; a panel whose
+  every image is lost has nothing to score, counts in every total and is
+  never shown as work in progress. A panel skipped at preparation stays listed
+  with its reason. Saving needs a score for every image shown; on panels with
+  a person's reference photo David also marks any face that is not the person
+  (`comparison_picks.ratings`, one row per panel); re-judging replaces the
+  scores and keeps the previous ones in the row's `history`.
 - **Results** (`/admin/eval/results?sets=…`, `GET
   /api/admin/comparison/results?setIds=…`) reveal the engines, across one or
-  more sets so rounds 1 and 2 read together: wins per family by mode (the
-  leader of text-to-image and of reference edit, ties shown), by style and by
-  scenario; the "not the person" marks against the human-reference panels
-  judged; and each engine's calls with their worst case. It is stage 2 of
-  judging (David, 2026-11-10, `decisions.md`): each mode's engines are ranked
-  by wins with the price of one image beside them (`perImagePrice` in
-  `artifacts/api-server/src/lib/engines/types.ts`) — exact for a flat price, "about" for a token price
-  (`typicalUsdPerImage` on the definition, within about 10%). The judging page
-  itself shows no price.
+  more sets so rounds 1 and 2 read together: each family's average score by
+  mode (the leader of text-to-image and of reference edit, ties shown), by
+  style and by scenario; how many of each engine's images were lost for good
+  and so never scored; the "not the person" marks against the
+  human-reference panels judged; and each engine's calls with their worst
+  case. It is stage 2 of judging (David, 2026-11-10, `decisions.md`): each
+  mode's engines are ranked by average score, equal averages sharing a rank,
+  with the price of one image beside them (`perImagePrice` in
+  `artifacts/api-server/src/lib/engines/types.ts`) — exact for a flat price,
+  "about" for a token price (`typicalUsdPerImage` on the definition, within
+  about 10%), both at the comparison's size of about 1 megapixel. The judging
+  page itself shows no price.
 - **Read-only dry run**: `artifacts/api-server/scripts/comparison-dry-run.ts`
   derives rounds 1 and 2 against a database's real catalogue and checks 33
   panels and 198 cells, reporting the worst case.

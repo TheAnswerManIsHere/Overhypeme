@@ -13,6 +13,14 @@
 
 ---
 
+### 2026-11-10 · The engine comparison scores every image 1 to 5, and ranks by the average
+- **Decision:** David, 2026-11-10: *"Set up the judging such that each image is rated on a scale of 1 - 5. That way, we can calculate a ranking that makes more sense."* The blind judging page scores every image of a panel 1 (worst) to 5 (best), and a panel saves only when every image shown has a score. The results page ranks each mode's engines by their average score, equal averages sharing a rank, with how many images were scored, how many the engine could not draw, and the price of one image beside them.
+- **Why:** a single "best" pick per panel counts only first places. A close second scores the same zero as a poor last, so the "80% as good at 20% of the cost" trade that stage 2 exists for could not be read from the results (PR #901's build report). A score per image measures every engine on every panel.
+- **A lost image (on my recommendation):** an engine whose image is lost for good no longer holds its panel back. The image shows as missing, naming no engine, and the rest are scored. The lost image is left out of that engine's average, not scored as 1, and the ranking shows a "Couldn't draw" count beside the average so a failure is visible rather than silently forgiven. This replaces the single-pick rule that a panel was judgeable only with all six images, and settles the open question of 2026-11-10 about showing a lost panel's finished pictures.
+- **Supersedes:** the plan's *Proposed Design* E "best plus a per-image 'not the person' mark", and the wins-based ranking in the stage-2 entry below. The face marks, the blind tokens and the two stages are unchanged.
+- **Reference:** #887; migration 0127 (`comparison_picks.ratings`); `artifacts/api-server/src/lib/comparison/judging.ts`.
+- **Revisit if:** David's scores drift across a long session (the same image would score differently later). Then normalise each panel's scores, e.g. rank within the panel, before averaging.
+
 ### 2026-11-10 · GPT Image 2.6 Sunburst, at low reasoning, replaces 2.5 as the comparison's GPT candidate
 - **Decision:** David, 2026-11-10: *"2.6."* The engine comparison's GPT family is `gpt-image-2-6` (text-to-image and edit on fal's `openai/gpt-image-2.6/sunburst/*`), sent with `reasoning_effort: "low"` at `quality: "high"`. GPT Image 2.5's definitions stay in the catalogue, inactive for users as every candidate is, until increment 4 sweeps the losers.
 - **Why:** the plan's own rule was "GPT Image 2.6 replaces 2.5 if its fal price settles before the runs". What kept 2.5 was D2's bound, which needed a published reasoning ceiling; that gate went with the 2026-11-07 override. Low reasoning is the setting whose price was measured at launch (about $0.053 for a 1024x1024 image), the same as 2.5's image.
