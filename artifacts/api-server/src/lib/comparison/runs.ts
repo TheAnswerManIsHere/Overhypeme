@@ -69,7 +69,7 @@ import {
   SYSTEM_ACTOR,
   type ProvenanceActor,
 } from "../provenance/records";
-import { blindToken } from "./judging";
+import { blindToken } from "./blindToken";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
