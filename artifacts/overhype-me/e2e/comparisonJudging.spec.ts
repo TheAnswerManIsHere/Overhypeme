@@ -3,14 +3,15 @@
  * Phase 8, increment 3; plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
  * *Testing Plan*: "The blind page itself, driven in a browser: pick, face
  * mark, reload, and the pick survives; a panel with a missing cell cannot be
- * picked").
+ * picked"). Judging scores every image 1 to 5 since David's 2026-11-10
+ * decision, so "pick" here is a score for each image.
  *
  * The dev stack's database holds no comparison set, and making one takes paid
  * planner and fal calls, so the judging API is stubbed here by a small
- * in-memory server: the read, the images, and the pick. That the server
- * stores a pick against the hidden cell, keeps the history and names no
+ * in-memory server: the read, the images, and the scores. That the server
+ * stores each score against its hidden cell, keeps the history and names no
  * engine in its payload is `comparisonJudging.test.ts`, against the real
- * database. What this spec owns is the page: that a click, a face mark and a
+ * database. What this spec owns is the page: that a score, a face mark and a
  * reload behave in a real browser.
  */
 import { expect, test, type Page, type Route } from "@playwright/test";
@@ -20,7 +21,7 @@ const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQ
 
 const tokens = (prefix: string) => ["a", "b", "c", "d", "e", "f"].map((l) => `${prefix}${l}`.padEnd(16, l));
 
-interface Pick { pickedToken: string; faceMismatchTokens: string[]; judgedAt: string }
+interface Pick { ratings: Record<string, number>; faceMismatchTokens: string[]; judgedAt: string }
 
 /** The judging API for set 7: a text-to-image panel, a reference panel, and one still missing an image. */
 async function stubJudging(page: Page): Promise<{ picks: Map<number, Pick> }> {
@@ -46,10 +47,11 @@ async function stubJudging(page: Page): Promise<{ picks: Map<number, Pick> }> {
   await page.route(/\/api\/admin\/comparison\/panels\/(\d+)\/pick$/, async (route: Route) => {
     const panelId = Number(route.request().url().match(/panels\/(\d+)\/pick/)![1]);
     const panel = panels.find((p) => p.panelId === panelId)!;
-    const req = route.request().postDataJSON() as { pickedToken: string; faceMismatchTokens: string[] };
+    const req = route.request().postDataJSON() as { ratings: Array<{ token: string; score: number }>; faceMismatchTokens: string[] };
     if (!panel.judgeable) return route.fulfill({ status: 409, json: { error: "pick_refused", refusal: "this panel cannot be judged until every image is ready" } });
-    picks.set(panelId, { ...req, judgedAt: new Date().toISOString() });
-    return route.fulfill({ json: { pick: req } });
+    const ratings = Object.fromEntries(req.ratings.map((r) => [r.token, r.score]));
+    picks.set(panelId, { ratings, faceMismatchTokens: req.faceMismatchTokens, judgedAt: new Date().toISOString() });
+    return route.fulfill({ json: { pick: { ratings, faceMismatchTokens: req.faceMismatchTokens } } });
   });
   return { picks };
 }
@@ -60,7 +62,7 @@ test.describe("Admin · Engine comparison · blind judging", () => {
     expect(login.ok(), `dev-admin-login should be 200, got ${login.status()}`).toBe(true);
   });
 
-  test("pick and face mark survive a reload; a panel missing an image cannot be picked", async ({ page }) => {
+  test("scores and a face mark survive a reload; a panel still missing an image cannot be scored", async ({ page }) => {
     const { picks } = await stubJudging(page);
     await page.goto("/admin/eval/judge/7", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("judging-images")).toBeVisible({ timeout: 30_000 });
@@ -69,29 +71,38 @@ test.describe("Admin · Engine comparison · blind judging", () => {
     // Every image actually drew.
     await expect.poll(() => page.getByTestId("judging-images").locator("img").evaluateAll((imgs) => imgs.every((i) => (i as HTMLImageElement).naturalWidth > 0))).toBe(true);
 
-    // Panel 1 (no person): pick C, save, and the page moves on.
+    const letters = ["A", "B", "C", "D", "E", "F"];
+    const scoreAll = async (score: (letter: string) => number) => {
+      for (const l of letters) await page.getByTestId(`judging-score-${l}-${score(l)}`).click();
+    };
+
+    // Panel 1 (no person): Save waits for every score; then save, and the page moves on.
     await expect(page.getByTestId("judging-face-A")).toHaveCount(0);
-    await page.getByTestId("judging-pick-C").click();
+    await page.getByTestId("judging-score-C-5").click();
+    await expect(page.getByTestId("judging-save")).toBeDisabled();
+    await scoreAll((l) => (l === "C" ? 5 : 2));
     await page.getByTestId("judging-save").click();
     await expect(page.getByTestId("judging-panel")).toContainText("Panel 2 of 3");
 
-    // Panel 2 (a person's photo): pick A and mark B's face.
-    await page.getByTestId("judging-pick-A").click();
+    // Panel 2 (a person's photo): score every image and mark B's face.
+    await scoreAll((l) => (l === "A" ? 4 : 3));
     await page.getByTestId("judging-face-B").check();
     await page.getByTestId("judging-save").click();
     await expect(page.getByTestId("judging-progress")).toContainText("2 of 3 judged");
     expect(picks.get(102)?.faceMismatchTokens).toHaveLength(1);
+    expect(Object.values(picks.get(101)?.ratings ?? {}).sort()).toEqual([2, 2, 2, 2, 2, 5]);
 
-    // Reload: the picks are read back and shown on their panels.
+    // Reload: the scores are read back and shown on their panels.
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("judging-images")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("judging-panel")).toContainText("Panel 1 of 3");
-    await expect(page.getByTestId("judging-pick-C")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("judging-score-C-5")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("judging-score-A-2")).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("judging-next").click();
-    await expect(page.getByTestId("judging-pick-A")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("judging-score-A-4")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("judging-face-B")).toBeChecked();
 
-    // Panel 3 is missing an image: no images, nothing to pick.
+    // Panel 3 is still waiting on an image: no images, nothing to score.
     await page.getByTestId("judging-next").click();
     await expect(page.getByTestId("judging-not-ready")).toContainText("5 of 6 images are ready");
     await expect(page.getByTestId("judging-images")).toHaveCount(0);
