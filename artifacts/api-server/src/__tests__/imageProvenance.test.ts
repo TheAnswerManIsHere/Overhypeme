@@ -274,3 +274,33 @@ describe("retention", () => {
     assert.deepEqual(result, { retentionDays: 0, deletedRecords: 0, deletedRequests: 0 });
   });
 });
+
+describe("the producer inventory", () => {
+  // Plan, Settled Decision 10 and Testing Plan: a producer that skips the
+  // finishing step is caught here. Every source file that stores bytes or
+  // calls the image vendor must also record provenance, or be named below
+  // with the reason it does not (yet).
+  const SRC = new URL("../", import.meta.url).pathname;
+  const EXEMPT: Record<string, string> = {
+    "lib/objectStorage.ts": "the store itself, and the restricted (quarantine) wrapper, which moves existing bytes",
+    "lib/aiMemePipeline.ts": "the legacy FLUX path, labelled not instrumented; retired by #887 increment 4",
+    "lib/memeBake.ts": "meme images: increment 2 of the plan",
+    "lib/sourceImageAnalysis/tier1FalDetector.ts": "a classifier: returns no image",
+    "lib/comparison/transport.ts": "the comparison's fal transport, behind comparison/runs.ts, which records",
+    "testing/legacyFixture/load.ts": "test fixture data",
+  };
+  const PRODUCES = /uploadObjectBuffer\(|fal\.subscribe\(|fal\.queue\.submit|fal\.queue\.result/;
+  const RECORDS = /finishAndStore\(|finishImage\(|recordGenerationRequest\(|finishWorkbenchResult\(/;
+
+  it("every file that stores a picture or calls the image vendor records provenance, or is named as exempt", async () => {
+    const { readdir, readFile } = await import("node:fs/promises");
+    const files = (await readdir(SRC, { recursive: true }))
+      .filter((f) => f.endsWith(".ts") && !f.includes("__tests__") && !f.endsWith(".test.ts"));
+    const unrecorded: string[] = [];
+    for (const f of files) {
+      const text = await readFile(SRC + f, "utf8");
+      if (PRODUCES.test(text) && !RECORDS.test(text) && !(f in EXEMPT) && f !== "lib/provenance/records.ts") unrecorded.push(f);
+    }
+    assert.deepEqual(unrecorded, [], "a new producer must call the finishing step (lib/provenance/records.ts) or be exempted here with a reason");
+  });
+});
