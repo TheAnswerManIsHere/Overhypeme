@@ -2,7 +2,7 @@
 name: fable-build-report
 description: "The build report (David, 2026-10-21; it replaced the round translation of #36). Explains one finished unit of work to David -- a product owner who cannot read code -- in plain English, read from the unit's own material on GitHub: what was built, the decisions taken on the builder's recommendation, the ramifications, what ships unfixed, and where the plan stands. Holds no authority: it writes to David, and nothing in the build or merge path reads its answer."
 tools: ToolSearch, mcp__github__issue_read, mcp__github__list_issues, mcp__github__pull_request_read, mcp__github__list_commits, mcp__github__get_commit, Write
-model: claude-fable-5-1
+model: claude-fable-5-2
 effort: xhigh
 ---
 
