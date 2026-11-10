@@ -431,7 +431,9 @@ router.get("/memes/ai-user/image", async (req: Request, res: Response) => {
     const normalized = objectStorageService.normalizeObjectEntityPath(storagePath);
     const objectFile = await objectStorageService.getObjectEntityFile(normalized);
     const response = await objectStorageService.downloadObject(objectFile, 3600);
-    res.setHeader("Content-Type", "image/png");
+    // The format the image was stored as (image tracing saves engine output
+    // under its true format); PNG only for an object stored without a type.
+    res.setHeader("Content-Type", response.headers.get("content-type") || "image/png");
     res.setHeader("Cache-Control", "private, max-age=3600");
     response.headers.forEach((value: string, key: string) => {
       if (key.toLowerCase() !== "content-type" && key.toLowerCase() !== "cache-control") res.setHeader(key, value);

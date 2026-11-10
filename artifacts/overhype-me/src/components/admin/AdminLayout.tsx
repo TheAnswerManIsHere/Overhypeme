@@ -28,6 +28,7 @@ import {
   HeartPulse,
   BookOpen,
   HelpCircle,
+  ScanSearch,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -44,6 +45,7 @@ const NAV_ITEMS = [
   { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false as const },
   { href: "/admin/refunds-disputes", label: "Refunds & Disputes", icon: Undo2, badge: false as const },
   { href: "/admin/engines", label: "Engines", icon: Boxes, badge: false as const },
+  { href: "/admin/trace", label: "Trace an image", icon: ScanSearch, badge: false as const },
   { href: "/admin/taxonomy-health", label: "Taxonomy Health", icon: Activity, badge: false as const },
   { href: "/admin/email-queue", label: "Email Queue", icon: Mail, badge: false as const },
   { href: "/admin/queue-health", label: "Queue Health", icon: HeartPulse, badge: false as const },

@@ -180,6 +180,58 @@ beside the eval run rather than inside it (plan
   rank (second-most permissive) as the Nano Banana engines' 5 of 1–6, so the
   comparison judges its drawing, not a stricter filter.
 
+## Image provenance: every picture traceable to how it was made
+
+Image tracing (plan `docs/plans/PLAN_IMAGE_TRACING.md`; #905, increment 1
+#907). Any picture that leaves the system leads back to a record of how it
+came to exist. The rules a change here must keep:
+
+- **One finishing step.** Every producer calls
+  `lib/provenance/records.ts` `finishImage` with the bytes it is about to
+  store or send. It settles the true format from the bytes, stamps the
+  opaque id into the file, hashes the final bytes and commits the record —
+  only then are the bytes stored or sent. A picture with no committed
+  record never leaves; a failure there fails the request.
+- **The request is captured before the vendor is called.**
+  `recordGenerationRequest` persists the exact input, the producer and the
+  person who started it into `image_generation_requests` before
+  submission; the vendor's request id is added when it returns. A recovery
+  or a storage-only retry reads that row and never rebuilds the request
+  from today's configuration.
+- **Producers today:** the render worker (`imagePromptJobs.ts`: product,
+  moderation and eval renders), the engine comparison (`comparison/runs.ts`),
+  the engine workbench (`routes/adminEngines.ts` via
+  `lib/provenance/workbench.ts`, whose completed result names our stored
+  copy, never the vendor URL), and member uploads (`userImageUpload.ts`,
+  recorded unstamped). Meme images join in increment 2. A new producer
+  joins by calling `finishImage`; the inventory oracles are in the plan's
+  Settled Decision 10.
+- **What a file carries:** one XMP packet with `ovh:ProvenanceId` and, for an
+  AI render, `ovh:Engine` — never settings or prompts. It is spliced into
+  the container (PNG iTXt, JPEG APP1, WebP XMP chunk), so decoded pixels
+  are byte-identical. Comparison pictures carry the id only, so blind
+  judging stays blind.
+- **Who made it** comes from named sources (`lib/provenance/attemptActor.ts`):
+  a moderation render's admin from its review audit — the approving admin
+  rides the render-preparation job's payload — an eval render's from its
+  eval run, a comparison cell's from its run, a product render's member
+  from the attempt. `"system"` only for genuinely unattended work. The
+  record keeps the account id and its email at the time (David,
+  2026-11-10).
+- **Records outlive everything else.** Neither table has a foreign key;
+  only the retention purge (`image_provenance.retention_days`, 0 = kept
+  indefinitely) removes a record.
+- **The code version is the commit** (`lib/codeVersion.ts`): baked into the
+  production bundle by `build.mjs` with its date and subject, read from git
+  in dev; an unversioned run says so.
+- **Engine output is saved and served under its true format** — the
+  `ai-bg-v2/` and `comparison/` keys take the sniffed extension, and
+  `/memes/ai-user/image` serves the stored content type.
+- **The trace:** admin **Trace an image** (`/admin/trace`, API
+  `/api/admin/provenance/trace` and `/images/:id`, admin-only) reads only
+  records, returns every match, and labels legacy FLUX backfill images
+  "legacy path, settings not recorded".
+
 ## Frozen render inputs: identity + style (reproducibility)
 
 **A render's identity and style are frozen ONCE, at the moment the user clicks

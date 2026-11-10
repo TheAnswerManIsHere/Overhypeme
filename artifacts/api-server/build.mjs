@@ -5,18 +5,47 @@ import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import { rm, cp } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
+// The source commit the bundle is built from, its date and its subject (a
+// squash merge's subject is the pull request's title), baked into the bundle
+// for image provenance (src/lib/codeVersion.ts; plan PLAN_IMAGE_TRACING.md,
+// Settled Decision 6). Read from git; where the build has no checkout, the
+// platform's commit variable gives the commit alone. Empty means unversioned,
+// which codeVersion() reports rather than guesses.
+function sourceCommit() {
+  try {
+    const [commit, at, title] = execFileSync("git", ["log", "-1", "--format=%H%n%cI%n%s"], {
+      cwd: artifactDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim().split("\n");
+    if (/^[0-9a-f]{40}$/.test(commit ?? "")) return { commit, at: at ?? "", title: title ?? "" };
+  } catch {
+    // fall through
+  }
+  const env = process.env.REPLIT_GIT_COMMIT_SHA ?? "";
+  return { commit: /^[0-9a-f]{40}$/.test(env) ? env : "", at: "", title: "" };
+}
+
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
+  const source = sourceCommit();
+  console.log(`[build] source commit: ${source.commit || "none (unversioned)"}`);
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    define: {
+      "process.env.OVERHYPE_SOURCE_COMMIT": JSON.stringify(source.commit),
+      "process.env.OVERHYPE_SOURCE_COMMIT_AT": JSON.stringify(source.at),
+      "process.env.OVERHYPE_SOURCE_COMMIT_TITLE": JSON.stringify(source.title),
+    },
     platform: "node",
     bundle: true,
     format: "esm",

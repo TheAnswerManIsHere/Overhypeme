@@ -32,6 +32,7 @@ import {
   comparisonPanelsTable,
   comparisonReservationsTable,
   comparisonRunsTable,
+  comparisonSetsTable,
   enginesTable,
   factsTable,
   type ComparisonCell,
@@ -58,6 +59,16 @@ import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
 import { buildEngineInput } from "../engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "../imageEngineRequest";
+import {
+  actorForUser,
+  finishImage,
+  latestGenerationRequest,
+  recordGenerationRequest,
+  setVendorRequestId,
+  storedObjectPath,
+  type ProvenanceActor,
+} from "../provenance/records";
+import { sniffImage } from "../provenance/imageFile";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
@@ -311,10 +322,42 @@ export function __setComparisonImageStoreForTest(impl: ((cell: ComparisonCell, u
   storeImageOverride = impl;
 }
 
+/** The admin who created the cell's set: the initiator when no request was captured. */
+async function setCreatorActor(cell: ComparisonCell): Promise<ProvenanceActor> {
+  const [row] = await db.select({ createdBy: comparisonSetsTable.createdBy })
+    .from(comparisonPanelsTable)
+    .innerJoin(comparisonSetsTable, eq(comparisonSetsTable.id, comparisonPanelsTable.setId))
+    .where(eq(comparisonPanelsTable.id, cell.panelId)).limit(1);
+  return actorForUser(row?.createdBy ?? null, "admin");
+}
+
 async function storeVendorImage(cell: ComparisonCell, url: string): Promise<string> {
   if (storeImageOverride) return storeImageOverride(cell, url);
   const buffer = await downloadToBuffer(url);
-  return objectStorage.uploadObjectBuffer({ subPath: `comparison/panel-${cell.panelId}/cell-${cell.id}-${Date.now()}.png`, buffer, contentType: "image/png" });
+  // Image tracing: the record is written from the request frozen at
+  // submission (a storage-only retry included), and stamped with the opaque
+  // id only — never the engine, so blind judging stays blind. The stamp is
+  // spliced into the container; the judged pixels are unchanged.
+  const request = await latestGenerationRequest({ comparisonCellId: cell.id });
+  const actor: ProvenanceActor = request
+    ? { kind: request.actorKind, userId: request.actorUserId, email: request.actorEmail }
+    : await setCreatorActor(cell);
+  const subPath = `comparison/panel-${cell.panelId}/cell-${cell.id}-${Date.now()}.${sniffImage(buffer).ext}`;
+  const finished = await finishImage({
+    bytes: buffer,
+    kind: "comparison_cell",
+    actor,
+    stamp: true,
+    stampEngine: null,
+    generationRequestId: request?.id ?? null,
+    comparisonCellId: cell.id,
+    attemptId: cell.attemptId ?? null,
+    factId: request?.factId ?? null,
+    engineId: cell.engineId,
+    objectPath: storedObjectPath(subPath),
+    snapshot: { panelId: cell.panelId, requestCaptured: request != null },
+  });
+  return objectStorage.uploadObjectBuffer({ subPath, buffer: finished.bytes, contentType: finished.mime });
 }
 
 async function failCell(cellId: number, error: string): Promise<void> {
@@ -388,8 +431,23 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   let requestId = cell.falRequestId;
   if (!requestId) {
     await db.update(comparisonCellsTable).set({ requestSettings, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    // Image tracing: the exact input and the admin who started the run,
+    // persisted before the vendor is called; a recovery reads this row.
+    const [run] = await db.select({ createdBy: comparisonRunsTable.createdBy }).from(comparisonRunsTable)
+      .where(eq(comparisonRunsTable.id, p.runId)).limit(1);
+    const generationRequestId = await recordGenerationRequest({
+      producer: "comparison_cell",
+      engineId: cell.engineId,
+      endpointId: engine!.endpointId,
+      request: input,
+      actor: await actorForUser(run?.createdBy ?? null, "admin"),
+      comparisonCellId: cell.id,
+      attemptId: cell.attemptId ?? null,
+      factId: panel!.factId,
+    });
     try {
       requestId = await comparisonFal().submit(engine!.endpointId, input);
+      await setVendorRequestId(generationRequestId, requestId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await failCell(cell.id, `submit failed: ${msg}`);

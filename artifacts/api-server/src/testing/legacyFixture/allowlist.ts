@@ -558,6 +558,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.tierFeaturePermissionAuditTable, "not-catalogue", "admin audit history"),
   exclude(s.featurePermissionsMigrationLogTable, "not-catalogue", "one-off migration bookkeeping"),
   exclude(s.engineRevisionBumpsTable, "not-catalogue", "admin audit history"),
+  exclude(s.imageProvenanceTable, "telemetry", "image tracing records: who made each picture, with their email at the time"),
+  exclude(s.imageGenerationRequestsTable, "telemetry", "image tracing: each engine request and who started it"),
 ];
 
 /** Every table the schema exports, by SQL name. */

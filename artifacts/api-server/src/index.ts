@@ -165,6 +165,14 @@ function scheduleTransientRenderPurger() {
       } catch (err) {
         logger.error({ err }, "transient_renders purger failed");
       }
+      try {
+        // Image provenance retention rides the same hour; a no-op while the
+        // setting is 0 (kept indefinitely).
+        const { runProvenanceRetentionPurge } = await import("./jobs/provenanceRetentionPurger");
+        await runProvenanceRetentionPurge();
+      } catch (err) {
+        logger.error({ err }, "image provenance retention purge failed");
+      }
       schedule();
     }, msUntilNext).unref();
   };

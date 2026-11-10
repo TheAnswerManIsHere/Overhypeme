@@ -16,6 +16,7 @@ import { quarantineImage } from "./moderation/quarantine";
 import { checkUploadRateLimit } from "./moderation/uploadRateLimit";
 import { classifyAndDecide, isNsfwClassifierFailOpen } from "./moderation/nsfwClassifier";
 import { GENERIC_REJECT_MESSAGE } from "./moderation/types";
+import { actorForUser, finishImage, storedObjectPath } from "./provenance/records";
 
 /**
  * Unified user-image upload pipeline.
@@ -374,6 +375,18 @@ export async function processAndStoreUserUpload(
     const subPath = uploadKey(randomUUID(), ext);
     const visibility: "public" | "private" =
       options.variant === "avatar" ? "public" : "private";
+    // Image tracing: the import is recorded with its exact hash before the
+    // photo is stored. A member's photo is theirs, so it is not stamped; the
+    // record says who uploaded it, never who authored it (plan
+    // PLAN_IMAGE_TRACING.md, Settled Decision 4).
+    await finishImage({
+      bytes: buffer,
+      kind: "upload",
+      actor: await actorForUser(req.user.id, "member"),
+      stamp: false,
+      objectPath: storedObjectPath(subPath),
+      snapshot: { variant: options.variant, declaredContentType: normalizedContentType },
+    });
     // The ACL is part of the first write, so the new object never has a
     // state without it (write-once; lib/mediaBackup/preserve.ts).
     const objectPath = await objectStorageService.uploadObjectBuffer({
