@@ -35,6 +35,8 @@ interface BlindPanel {
   faceMarkable: boolean;
   /** The source photo every engine was given (reference panels only). */
   reference?: { src: string; identityType: string | null } | null;
+  /** The prompt every engine was sent, word for word. */
+  prompt?: string | null;
   judgeable: boolean;
   skipped: boolean;
   /** Why a panel that is neither judgeable nor skipped is waiting. */
@@ -233,6 +235,12 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                       <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="judging-missing">
                         {panel.imagesMissing} engine{panel.imagesMissing === 1 ? "" : "s"} could not draw this panel, so {panel.imagesMissing === 1 ? "its picture is" : "their pictures are"} missing and {panel.imagesMissing === 1 ? "counts" : "count"} as a 1. Score the {panel.images.length} that exist.
                       </p>
+                    )}
+                    {panel.prompt && (
+                      <details className="rounded-sm border border-dashed border-border p-2 text-xs" data-testid="judging-prompt">
+                        <summary className="cursor-pointer font-bold text-foreground">Prompt every engine was sent ({panel.prompt.length.toLocaleString()} characters)</summary>
+                        <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground" data-testid="judging-prompt-text">{panel.prompt}</pre>
+                      </details>
                     )}
                     {panel.reference && (
                       <div className="flex items-start gap-3 rounded-sm border border-dashed border-border p-2" data-testid="judging-reference">

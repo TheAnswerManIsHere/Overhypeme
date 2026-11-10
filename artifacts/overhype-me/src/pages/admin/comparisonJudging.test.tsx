@@ -25,7 +25,7 @@ function blindSet(picks: Record<number, unknown> = {}) {
     progress: { panels: 3, judgeable: 2, judged: Object.keys(picks).length },
     panels: [
       panel({ panelId: 1, position: 1, scenarioKey: "generic_t2i", scenarioLabel: "Generic (text-to-image)", imageMode: "t2i", faceMarkable: false, images: [img(1, "aaaaaaaaaaaaaaaa"), img(1, "bbbbbbbbbbbbbbbb")], pick: picks[1] ?? null }),
-      panel({ panelId: 2, position: 2, scenarioKey: "i2i_male_default", scenarioLabel: "Male subject (image-to-image)", imageMode: "i2i", faceMarkable: true, reference: { src: "https://fal.test/ref-male.jpg", identityType: "male" }, images: [img(2, "cccccccccccccccc"), img(2, "dddddddddddddddd")], pick: picks[2] ?? null }),
+      panel({ panelId: 2, position: 2, scenarioKey: "i2i_male_default", scenarioLabel: "Male subject (image-to-image)", imageMode: "i2i", faceMarkable: true, reference: { src: "https://fal.test/ref-male.jpg", identityType: "male" }, prompt: "A man lifts a mountain at dawn, photographed from below.", images: [img(2, "cccccccccccccccc"), img(2, "dddddddddddddddd")], pick: picks[2] ?? null }),
       panel({ panelId: 3, position: 3, scenarioKey: "i2i_female_default", scenarioLabel: "Female subject (image-to-image)", imageMode: "i2i", faceMarkable: true, judgeable: false, imagesReady: 1, images: [] }),
     ],
   };
@@ -91,6 +91,9 @@ describe("ComparisonJudging", () => {
     expect(ref.querySelector("img")!.getAttribute("src")).toBe("https://fal.test/ref-male.jpg");
     expect(ref.textContent).toMatch(/Every engine was given this same photo/);
     expect(screen.getByTestId("judging-images").querySelectorAll("img")).toHaveLength(2);
+    // The prompt every engine was sent, word for word.
+    expect(screen.getByTestId("judging-prompt-text").textContent).toBe("A man lifts a mountain at dawn, photographed from below.");
+    expect(screen.getByTestId("judging-prompt").textContent).toMatch(/Prompt every engine was sent \(56 characters\)/);
     fireEvent.click(screen.getByTestId("judging-score-A-5"));
     fireEvent.click(screen.getByTestId("judging-score-B-1"));
     fireEvent.click(screen.getByTestId("judging-face-B"));
