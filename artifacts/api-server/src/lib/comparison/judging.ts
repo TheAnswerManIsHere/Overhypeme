@@ -136,6 +136,13 @@ export interface BlindPanel {
   lookStyleId: string;
   imageMode: string;
   faceMarkable: boolean;
+  /**
+   * The source photo every engine of a reference panel was given (the same
+   * resized default reference), shown beside the pictures so a likeness can be
+   * judged against it (David, 2026-11-10). Identical for every engine, so it
+   * names none. Null on a text-to-image panel.
+   */
+  reference: { src: string; identityType: string | null } | null;
   judgeable: boolean;
   /** Skipped at preparation: it will never be judged. Its reason names no engine. */
   skipped: boolean;
@@ -201,6 +208,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
       lookStyleId: panel.lookStyleId,
       imageMode: panel.imageMode,
       faceMarkable: isHumanReference(panel.scenarioKey),
+      reference: panel.referenceImageUrl ? { src: panel.referenceImageUrl, identityType: panel.referenceIdentityType } : null,
       judgeable,
       skipped: panel.state === "skipped",
       skipReason: panel.state === "skipped" ? panel.skipReason : null,
