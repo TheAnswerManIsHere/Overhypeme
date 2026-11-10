@@ -10,8 +10,8 @@ import { GPT_IMAGE_2_5_SIZES } from "./gpt-image-2-5";
  *
  * The inputs are 2.5's (a pixel `image_size` object, `quality`), plus
  * `reasoning_effort` (low / medium / high; fal's default is high). It is sent
- * as "low", the setting whose price was measured at launch (Issue #887,
- * pre-run checks of 2026-11-10). The size limits are 2.5's, so the size
+ * as "high", fal's default, so every engine is judged as its vendor ships it
+ * (David, 2026-11-10: "High."). The size limits are 2.5's, so the size
  * vocabulary is shared.
  */
 
@@ -29,16 +29,20 @@ const PRICE_SOURCE = {
  */
 const T2I_COMPONENTS: TokenPriceComponent[] = [
   { name: "image output", usdPerMillionTokens: 30, maxTokens: 1756, ceilingBasis: "vendor constant at 1024x1024, quality high (as 2.5; the launch measurement matches it)" },
-  { name: "reasoning (text output)", usdPerMillionTokens: 10, maxTokens: 4000, ceilingBasis: "no published ceiling: an allowance at low reasoning, not a documented maximum" },
+  { name: "reasoning (text output)", usdPerMillionTokens: 10, maxTokens: 4000, ceilingBasis: "no published ceiling: an allowance, not a documented maximum (high reasoning may exceed it)" },
   { name: "prompt (text input)", usdPerMillionTokens: 5, maxTokens: 4000, ceilingBasis: "compiled prompt bounded at 4,000 tokens" },
 ];
 
-/** Typical: the measured $0.053 image at low reasoning plus a compiled prompt of about 1,000 tokens. */
+/**
+ * Typical: fal's launch quote of about $0.053 (for the sister variant, Flare,
+ * at low reasoning) plus a compiled prompt of about 1,000 tokens. At high
+ * reasoning this is a floor: read fal's bill for round 1's GPT pictures.
+ */
 export const GPT_IMAGE_2_6_PRICE: PriceModel = {
   kind: "tokens",
   components: T2I_COMPONENTS,
   typicalUsdPerImage: 0.058,
-  typicalBasis: "about $0.053 measured at launch for 1024x1024, high quality, low reasoning, plus a compiled prompt of about 1,000 tokens",
+  typicalBasis: "a floor: fal's launch quote of about $0.053 for Flare at 1024x1024, high quality, low reasoning, plus a compiled prompt of about 1,000 tokens; high reasoning bills more",
   ...PRICE_SOURCE,
 };
 
@@ -58,7 +62,7 @@ const SHARED_PARAMS = [
   { name: "prompt", from: "imagePrompt", type: "string" as const, required: true },
   { name: "image_size", from: "imageSize", type: "dimensions" as const },
   { name: "quality", from: "quality", type: "string" as const, enum: ["auto", "low", "medium", "high", "xhigh", "max"], default: "high" },
-  { name: "reasoning_effort", from: "reasoningEffort", type: "string" as const, enum: ["low", "medium", "high"], default: "low" },
+  { name: "reasoning_effort", from: "reasoningEffort", type: "string" as const, enum: ["low", "medium", "high"], default: "high" },
   { name: "output_format", from: "outputFormat", type: "string" as const, enum: ["jpeg", "png", "webp"], default: "png" },
   { name: "num_images", from: "numImages", type: "int" as const, default: 1, range: { min: 1, max: 10, policy: "clamp" as const } },
 ];
@@ -68,7 +72,7 @@ export const GPT_IMAGE_2_6: EngineDefinition = {
   provider: "openai",
   endpointId: "openai/gpt-image-2.6/sunburst/text-to-image",
   label: "GPT Image 2.6 Sunburst (text-to-image)",
-  description: "OpenAI GPT Image 2.6 Sunburst via fal, at low reasoning (Phase 8 candidate, in place of 2.5).",
+  description: "OpenAI GPT Image 2.6 Sunburst via fal, at high reasoning (Phase 8 candidate, in place of 2.5).",
   kind: "image",
   imageMode: "t2i",
   family: "gpt-image-2-6",
@@ -93,7 +97,7 @@ export const GPT_IMAGE_2_6_EDIT: EngineDefinition = {
   id: "gpt-image-2-6-edit",
   endpointId: "openai/gpt-image-2.6/sunburst/edit",
   label: "GPT Image 2.6 Sunburst (edit)",
-  description: "OpenAI GPT Image 2.6 Sunburst edit via fal, at low reasoning: reference-photo editing (Phase 8 candidate, in place of 2.5).",
+  description: "OpenAI GPT Image 2.6 Sunburst edit via fal, at high reasoning: reference-photo editing (Phase 8 candidate, in place of 2.5).",
   imageMode: "i2i",
   sortOrder: 63,
   paramSchema: {

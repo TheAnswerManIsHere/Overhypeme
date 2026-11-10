@@ -211,8 +211,10 @@ describe("why a panel is waiting, and a lost image", () => {
     const t2i = results.body.ranking.t2i as Array<{ family: string; mean: number | null; scored: number; lost: number }>;
     assert.deepEqual(t2i.map((r) => [r.family, r.mean, r.scored, r.lost]), [
       [FAMILIES.gpt, 4, 1, 0],
-      [FAMILIES.flux, null, 0, 1],
-    ], "the engine that could not draw has no score there, and its loss is counted");
+      [FAMILIES.flux, 1, 0, 1],
+    ], "the picture the engine could not draw counts as a 1 (David, 2026-11-10), and its loss is counted");
+    assert.deepEqual(results.body.leaders.t2i, { families: [FAMILIES.gpt], pictures: [1], mean: 4, judged: 1 });
+    assert.deepEqual(results.body.scores.byMode.t2i[FAMILIES.flux], { mean: 1, count: 1 });
 
     await db.update(comparisonCellsTable).set({ vendorResultUrl: "https://vendor.test/x.png" }).where(eq(comparisonCellsTable.id, missing.id));
     assert.equal((await read()).panel.waiting, "needs_action", "an image kept at the vendor can still be stored");
@@ -344,8 +346,8 @@ describe("results", () => {
       i2i: { [FAMILIES.flux]: { mean: 4, count: 1 }, [FAMILIES.gpt]: { mean: 4, count: 1 } },
     });
     assert.deepEqual(r.scores.byStyle, { none: { [FAMILIES.flux]: { mean: 4.5, count: 2 }, [FAMILIES.gpt]: { mean: 3.5, count: 2 } } });
-    assert.deepEqual(r.leaders.t2i, { families: [FAMILIES.flux], mean: 5, judged: 1 });
-    assert.deepEqual(r.leaders.i2i, { families: [FAMILIES.flux, FAMILIES.gpt].sort(), mean: 4, judged: 1 }, "an equal average is a tie");
+    assert.deepEqual(r.leaders.t2i, { families: [FAMILIES.flux], pictures: [1], mean: 5, judged: 1 });
+    assert.deepEqual(r.leaders.i2i, { families: [FAMILIES.flux, FAMILIES.gpt].sort(), pictures: [1, 1], mean: 4, judged: 1 }, "an equal average is a tie");
     assert.deepEqual(r.faceMismatches, { [FAMILIES.gpt]: 1 });
     assert.equal(r.humanReferencePanelsJudged, 1);
     assert.deepEqual(r.costs[fluxT2i], { family: FAMILIES.flux, calls: 1, boundUsd: 0.048 });

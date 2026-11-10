@@ -163,7 +163,8 @@ beside the eval run rather than inside it (plan
   more sets so rounds 1 and 2 read together: each family's average score by
   mode (the leader of text-to-image and of reference edit, ties shown), by
   style and by scenario; how many of each engine's images were lost for good
-  and so never scored; the "not the person" marks against the
+  on judged panels, each counting as a 1 in its averages (David, 2026-11-10);
+  the "not the person" marks against the
   human-reference panels judged; and each engine's calls with their worst
   case. It is stage 2 of judging (David, 2026-11-10, `decisions.md`): each
   mode's engines are ranked by average score, equal averages sharing a rank,
@@ -359,7 +360,7 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
   preview is 1K. The chosen settings are stored on the attempt
   (`request_settings`).
 - **The catalogue holds the Phase 8 candidates as pairs** sharing a `family`
-  (one text-to-image, one edit): GPT Image 2.6 Sunburst at low reasoning (in
+  (one text-to-image, one edit): GPT Image 2.6 Sunburst at high reasoning (in
   place of 2.5, whose pair stays in the catalogue unused; David, 2026-11-10),
   Nano Banana 2.1, FLUX 3 Image, Seedream 5.0 Pro and Meta Muse Image, beside
   the Nano Banana 2 control.

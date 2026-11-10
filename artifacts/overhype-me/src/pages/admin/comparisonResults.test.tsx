@@ -22,7 +22,7 @@ const RESULTS = {
     byStyle: { none: { "flux-3": { mean: 4, count: 15 } }, anime: { "gpt-image-2-5": { mean: 4.5, count: 6 } } },
     byScenario: { generic_t2i: { "flux-3": { mean: 4.2, count: 3 } } },
   },
-  leaders: { t2i: { families: ["flux-3"], mean: 4.2, judged: 15 }, i2i: { families: ["flux-3", "gpt-image-2-5"], mean: 3.75, judged: 18 } },
+  leaders: { t2i: { families: ["flux-3"], pictures: [15], mean: 4.2, judged: 15 }, i2i: { families: ["flux-3", "gpt-image-2-5"], pictures: [18, 17], mean: 3.75, judged: 18 } },
   faceMismatches: { "gpt-image-2-5": 3 },
   ranking: {
     t2i: [
@@ -49,8 +49,8 @@ describe("ComparisonResults", () => {
     render(<ComparisonResults />);
     const leaders = await screen.findByTestId("results-leaders");
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/comparison/results?setIds=4,5", expect.anything());
-    expect(leaders.textContent).toMatch(/Text-to-image.*flux-3 — average 4\.20 of 5, over 15 panels/);
-    expect(leaders.textContent).toMatch(/Reference edit.*flux-3 = gpt-image-2-5 — average 3\.75 of 5, over 18 panels \(tied\)/);
+    expect(leaders.textContent).toMatch(/Text-to-image.*flux-3 \(15 pictures\) — average 4\.20 of 5, 15 panels judged/);
+    expect(leaders.textContent).toMatch(/Reference edit.*flux-3 \(18 pictures\) = gpt-image-2-5 \(17 pictures\) — average 3\.75 of 5, 18 panels judged \(tied\)/);
     expect(screen.getByTestId("results-summary").textContent).toMatch(/30 of 33 panels judged.*1 panel lost every image for good.*2 panels were skipped at preparation and will never be judged/);
     const ranking = screen.getByTestId("results-ranking");
     const t2iRows = [...ranking.querySelectorAll("table")[0]!.querySelectorAll("tbody tr")].map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent));

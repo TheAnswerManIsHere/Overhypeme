@@ -291,6 +291,9 @@ export async function recordPick(panelId: number, req: ComparisonPickRequest, ad
 
 // ─── Results ──────────────────────────────────────────────────────────────────
 
+/** The score a picture an engine could not draw counts as (David, 2026-11-10). */
+export const LOST_IMAGE_SCORE = COMPARISON_SCORE_MIN;
+
 /** An average score: the mean of `count` scores of 1 to 5, or null when none. */
 export interface Score { mean: number | null; count: number }
 type Scores = Record<string, Score>;
@@ -303,7 +306,7 @@ export interface RankRow {
   mean: number | null;
   /** Images of this engine David scored in this mode. */
   scored: number;
-  /** This engine's images in this mode that were lost for good, so never scored. */
+  /** This engine's images in this mode, on judged panels, lost for good; each counts as a 1 in `mean`. */
   lost: number;
   usdPerImage: number | null;
   exact: boolean;
@@ -331,7 +334,8 @@ export interface ComparisonResults {
    */
   ranking: Record<string, RankRow[]>;
   /** Per mode, the family (or tied families) with the highest average score. */
-  leaders: Record<string, { families: string[]; mean: number; judged: number }>;
+  /** `pictures[i]` is how many pictures `families[i]`'s average rests on (scored, plus lost counted as 1). */
+  leaders: Record<string, { families: string[]; pictures: number[]; mean: number; judged: number }>;
   /** "Not the person" marks per family, against the human-reference panels judged. */
   faceMismatches: Record<string, number>;
   humanReferencePanelsJudged: number;
@@ -402,10 +406,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
     const cells = cellsByPanel.get(panel.id) ?? [];
     const engines = enginesByMode.get(panel.imageMode) ?? new Set<string>();
     enginesByMode.set(panel.imageMode, engines);
-    for (const c of cells) {
-      engines.add(c.engineId);
-      if (cellLost(c)) bump(lostByEngineMode, `${panel.imageMode}|${c.engineId}`);
-    }
+    for (const c of cells) engines.add(c.engineId);
     const pick = picks.get(panel.id);
     const scores = pick ? ratingsOf(pick.ratings) : new Map<number, number>();
     const ratings = [...scores].map(([cellId, score]) => ({ ...familyOfCell(cellId), score }));
@@ -413,7 +414,11 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
     if (ratings.length > 0) {
       judged += 1;
       judgedByMode[panel.imageMode] = (judgedByMode[panel.imageMode] ?? 0) + 1;
-      for (const r of ratings) {
+      // A picture an engine could not draw counts as the lowest score (David,
+      // 2026-11-10: "Count it as 1"), on the panels David judged.
+      const lostAsScores = cells.filter(cellLost).map((c) => ({ ...familyOfCell(c.id), score: LOST_IMAGE_SCORE }));
+      for (const l of lostAsScores) bump(lostByEngineMode, `${panel.imageMode}|${l.engineId}`);
+      for (const r of [...ratings, ...lostAsScores]) {
         tally(overall, r.family, r.score);
         tally((byMode[panel.imageMode] ??= {}), r.family, r.score);
         tally((byStyle[panel.lookStyleId] ??= {}), r.family, r.score);
@@ -440,7 +445,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
         family: familyOfEngine.get(engineId) ?? engineId,
         engineId,
         mean: meanOf(t),
-        scored: t?.count ?? 0,
+        scored: (t?.count ?? 0) - (lostByEngineMode[`${mode}|${engineId}`] ?? 0),
         lost: lostByEngineMode[`${mode}|${engineId}`] ?? 0,
         usdPerImage: price?.usd ?? null,
         exact: price?.exact ?? false,
@@ -451,7 +456,10 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const leaders: ComparisonResults["leaders"] = {};
   for (const [mode, rows] of Object.entries(ranking)) {
     const top = rows.filter((r) => r.rank === 1 && r.mean != null);
-    if (top.length) leaders[mode] = { families: top.map((r) => r.family).sort(), mean: top[0]!.mean!, judged: judgedByMode[mode] ?? 0 };
+    if (top.length) {
+      const sorted = [...top].sort((a, b) => a.family.localeCompare(b.family));
+      leaders[mode] = { families: sorted.map((r) => r.family), pictures: sorted.map((r) => r.scored + r.lost), mean: top[0]!.mean!, judged: judgedByMode[mode] ?? 0 };
+    }
   }
 
   // What each engine's calls could have cost: every image call that reached
