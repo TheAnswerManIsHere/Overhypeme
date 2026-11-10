@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { COMPARISON_SCORE_MAX } from "@workspace/api-zod";
 
 interface Score { mean: number | null; count: number }
 type Scores = Record<string, Score>;
@@ -175,7 +176,7 @@ export default function ComparisonResults() {
                     <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{MODE_LABEL[mode]}</p>
                     {lead ? (
                       <p className="text-sm text-foreground">
-                        <strong className="font-mono">{lead.families.join(" = ")}</strong> — average {lead.mean.toFixed(2)} of 5, over {lead.judged} panel{lead.judged === 1 ? "" : "s"}{lead.families.length > 1 ? " (tied)" : ""}
+                        <strong className="font-mono">{lead.families.join(" = ")}</strong> — average {lead.mean.toFixed(2)} of {COMPARISON_SCORE_MAX}, over {lead.judged} panel{lead.judged === 1 ? "" : "s"}{lead.families.length > 1 ? " (tied)" : ""}
                       </p>
                     ) : <p className="text-sm text-muted-foreground">No panels judged yet.</p>}
                   </div>

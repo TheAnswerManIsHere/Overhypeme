@@ -45,7 +45,7 @@ import {
   type ComparisonCell,
   type ComparisonPanel,
 } from "@workspace/db/schema";
-import { RENDER_SCENARIO_DESCRIPTORS, type ComparisonPickRequest, type RenderScenarioKey } from "@workspace/api-zod";
+import { COMPARISON_SCORE_MAX, COMPARISON_SCORE_MIN, RENDER_SCENARIO_DESCRIPTORS, type ComparisonPickRequest, type RenderScenarioKey } from "@workspace/api-zod";
 import { renderCanonical } from "../renderCanonical";
 import { round4 } from "./admission";
 import { perImagePrice, type PriceModel } from "../engines";
@@ -110,8 +110,9 @@ export function ratingsOf(v: unknown): Map<number, number> {
   const out = new Map<number, number>();
   if (!Array.isArray(v)) return out;
   for (const r of v) {
-    if (r && typeof r === "object" && typeof (r as { cellId?: unknown }).cellId === "number" && typeof (r as { score?: unknown }).score === "number") {
-      out.set((r as { cellId: number }).cellId, (r as { score: number }).score);
+    const { cellId, score } = (r ?? {}) as { cellId?: unknown; score?: unknown };
+    if (typeof cellId === "number" && Number.isInteger(score) && (score as number) >= COMPARISON_SCORE_MIN && (score as number) <= COMPARISON_SCORE_MAX) {
+      out.set(cellId, score as number);
     }
   }
   return out;
@@ -272,7 +273,7 @@ export async function recordPick(panelId: number, req: ComparisonPickRequest, ad
     const [existing] = await tx.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, panelId));
     const now = new Date();
     if (!existing) {
-      await tx.insert(comparisonPicksTable).values({ panelId, pickedCellId: null, ratings, faceMismatchCellIds: markIds, judgedBy: adminUserId, judgedAt: now });
+      await tx.insert(comparisonPicksTable).values({ panelId, ratings, faceMismatchCellIds: markIds, judgedBy: adminUserId, judgedAt: now });
     } else {
       const history = [...(Array.isArray(existing.history) ? existing.history : []), {
         ratings: existing.ratings,
@@ -281,7 +282,7 @@ export async function recordPick(panelId: number, req: ComparisonPickRequest, ad
         judgedAt: existing.judgedAt.toISOString(),
       }];
       await tx.update(comparisonPicksTable)
-        .set({ pickedCellId: null, ratings, faceMismatchCellIds: markIds, judgedBy: adminUserId, judgedAt: now, history })
+        .set({ ratings, faceMismatchCellIds: markIds, judgedBy: adminUserId, judgedAt: now, history })
         .where(and(eq(comparisonPicksTable.id, existing.id), eq(comparisonPicksTable.panelId, panelId)));
     }
     return { ratings: Object.fromEntries(scored), faceMismatchTokens: marks };
@@ -357,6 +358,7 @@ const tally = (t: Record<string, Tally>, k: string, score: number) => {
 };
 const meanOf = (t: Tally | undefined): number | null => (t && t.count > 0 ? Math.round((t.sum / t.count) * 100) / 100 : null);
 const toScores = (t: Record<string, Tally>): Scores => Object.fromEntries(Object.entries(t).map(([k, v]) => [k, { mean: meanOf(v), count: v.count }]));
+const toGroupedScores = (g: Record<string, Record<string, Tally>>): Record<string, Scores> => Object.fromEntries(Object.entries(g).map(([k, v]) => [k, toScores(v)]));
 const bump = (w: Record<string, number>, k: string) => { w[k] = (w[k] ?? 0) + 1; };
 
 /** Rank rows by average score, best first; equal averages share a rank, unscored rows last. */
@@ -387,8 +389,10 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const byMode: Record<string, Record<string, Tally>> = {};
   const byStyle: Record<string, Record<string, Tally>> = {};
   const byScenario: Record<string, Record<string, Tally>> = {};
-  const byEngineMode = new Map<string, Tally>();
-  const lostByEngineMode = new Map<string, number>();
+  /** Keyed `${mode}|${engineId}`. */
+  const byEngineMode: Record<string, Tally> = {};
+  const lostByEngineMode: Record<string, number> = {};
+  const enginesByMode = new Map<string, Set<string>>();
   const judgedByMode: Record<string, number> = {};
   const faceMismatches: Record<string, number> = {};
   let humanJudged = 0;
@@ -396,8 +400,11 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const perPanel: ComparisonResults["perPanel"] = [];
   for (const panel of panels) {
     const cells = cellsByPanel.get(panel.id) ?? [];
+    const engines = enginesByMode.get(panel.imageMode) ?? new Set<string>();
+    enginesByMode.set(panel.imageMode, engines);
     for (const c of cells) {
-      if (cellLost(c)) lostByEngineMode.set(`${panel.imageMode}|${c.engineId}`, (lostByEngineMode.get(`${panel.imageMode}|${c.engineId}`) ?? 0) + 1);
+      engines.add(c.engineId);
+      if (cellLost(c)) bump(lostByEngineMode, `${panel.imageMode}|${c.engineId}`);
     }
     const pick = picks.get(panel.id);
     const scores = pick ? ratingsOf(pick.ratings) : new Map<number, number>();
@@ -411,11 +418,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
         tally((byMode[panel.imageMode] ??= {}), r.family, r.score);
         tally((byStyle[panel.lookStyleId] ??= {}), r.family, r.score);
         tally((byScenario[panel.scenarioKey] ??= {}), r.family, r.score);
-        const key = `${panel.imageMode}|${r.engineId}`;
-        const t = byEngineMode.get(key) ?? { sum: 0, count: 0 };
-        t.sum += r.score;
-        t.count += 1;
-        byEngineMode.set(key, t);
+        tally(byEngineMode, `${panel.imageMode}|${r.engineId}`, r.score);
       }
       if (isHumanReference(panel.scenarioKey)) humanJudged += 1;
       for (const m of marks) bump(faceMismatches, m.family);
@@ -428,23 +431,17 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
 
   // Every engine that drew a panel of a mode, ranked by its average score in that mode.
   const priceOf = new Map(engines.map((e) => [e.id, e.priceModel ? perImagePrice(e.priceModel as PriceModel) : null]));
-  const enginesByMode = new Map<string, Set<string>>();
-  for (const panel of panels) {
-    const set = enginesByMode.get(panel.imageMode) ?? new Set<string>();
-    for (const c of cellsByPanel.get(panel.id) ?? []) set.add(c.engineId);
-    enginesByMode.set(panel.imageMode, set);
-  }
   const ranking: ComparisonResults["ranking"] = {};
   for (const [mode, ids] of enginesByMode) {
     ranking[mode] = rankByMean([...ids].map((engineId) => {
-      const t = byEngineMode.get(`${mode}|${engineId}`);
+      const t = byEngineMode[`${mode}|${engineId}`];
       const price = priceOf.get(engineId) ?? null;
       return {
         family: familyOfEngine.get(engineId) ?? engineId,
         engineId,
         mean: meanOf(t),
         scored: t?.count ?? 0,
-        lost: lostByEngineMode.get(`${mode}|${engineId}`) ?? 0,
+        lost: lostByEngineMode[`${mode}|${engineId}`] ?? 0,
         usdPerImage: price?.usd ?? null,
         exact: price?.exact ?? false,
       };
@@ -490,9 +487,9 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
     },
     scores: {
       overall: toScores(overall),
-      byMode: Object.fromEntries(Object.entries(byMode).map(([k, v]) => [k, toScores(v)])),
-      byStyle: Object.fromEntries(Object.entries(byStyle).map(([k, v]) => [k, toScores(v)])),
-      byScenario: Object.fromEntries(Object.entries(byScenario).map(([k, v]) => [k, toScores(v)])),
+      byMode: toGroupedScores(byMode),
+      byStyle: toGroupedScores(byStyle),
+      byScenario: toGroupedScores(byScenario),
     },
     ranking,
     leaders,

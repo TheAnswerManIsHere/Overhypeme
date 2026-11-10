@@ -20,6 +20,7 @@ import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { readError } from "@/components/admin/EngineComparison";
+import { COMPARISON_SCORE_MAX, COMPARISON_SCORE_MIN } from "@workspace/api-zod";
 
 interface BlindImage { token: string; src: string }
 interface BlindPanel {
@@ -53,8 +54,8 @@ interface BlindSet {
 
 const letter = (i: number) => String.fromCharCode(65 + i);
 
-/** The scale: 1 (worst) to 5 (best). */
-export const SCORES = [1, 2, 3, 4, 5] as const;
+/** The scale, worst to best, from the wire schema's bounds. */
+export const SCORES = Array.from({ length: COMPARISON_SCORE_MAX - COMPARISON_SCORE_MIN + 1 }, (_, i) => COMPARISON_SCORE_MIN + i);
 
 const sameRatings = (a: Record<string, number>, b: Record<string, number>) =>
   Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([t, v]) => b[t] === v);
@@ -249,7 +250,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                                     type="button"
                                     onClick={() => rate(img.token, n)}
                                     aria-pressed={score === n}
-                                    aria-label={`Score image ${letter(i)} ${n} of 5`}
+                                    aria-label={`Score image ${letter(i)} ${n} of ${COMPARISON_SCORE_MAX}`}
                                     data-testid={`judging-score-${letter(i)}-${n}`}
                                     className={`w-7 h-7 rounded-sm border text-sm font-bold ${score === n ? "bg-primary text-white border-primary" : "border-border text-foreground hover:bg-muted"}`}
                                   >
