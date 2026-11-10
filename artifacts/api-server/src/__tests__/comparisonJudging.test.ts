@@ -127,6 +127,19 @@ describe("the blind view", () => {
     assert.match(generic.factText, /lifts a mountain/);
   });
 
+  it("shows a reference panel's source photo beside its pictures, and none on text-to-image", async () => {
+    const { setId, panels } = await renderedSet("reference");
+    const human = panels.find((p) => p.imageMode === "i2i")!;
+    await db.update(comparisonPanelsTable).set({ referenceImageUrl: "https://v3b.fal.media/files/ref-male-1024.jpg", referenceIdentityType: "male" }).where(eq(comparisonPanelsTable.id, human.id));
+    const blind = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
+    const ref = blind.body.panels.find((p: { panelId: number }) => p.panelId === human.id);
+    const t2i = blind.body.panels.find((p: { panelId: number }) => p.panelId !== human.id);
+    assert.deepEqual(ref.reference, { src: "https://v3b.fal.media/files/ref-male-1024.jpg", identityType: "male" });
+    assert.equal(t2i.reference, null);
+    const strings = stringValues(blind.body);
+    assert.ok(!engineIds.some((id) => strings.some((s) => s.includes(id))), "still names no engine");
+  });
+
   it("serves each token's image and nothing for a token that is not the panel's", async () => {
     const { setId, cells } = await renderedSet("tokens");
     const blind = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);

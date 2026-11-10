@@ -33,6 +33,8 @@ interface BlindPanel {
   lookStyleId: string;
   imageMode: string;
   faceMarkable: boolean;
+  /** The source photo every engine was given (reference panels only). */
+  reference?: { src: string; identityType: string | null } | null;
   judgeable: boolean;
   skipped: boolean;
   /** Why a panel that is neither judgeable nor skipped is waiting. */
@@ -231,6 +233,15 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                       <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="judging-missing">
                         {panel.imagesMissing} engine{panel.imagesMissing === 1 ? "" : "s"} could not draw this panel, so {panel.imagesMissing === 1 ? "its picture is" : "their pictures are"} missing and {panel.imagesMissing === 1 ? "counts" : "count"} as a 1. Score the {panel.images.length} that exist.
                       </p>
+                    )}
+                    {panel.reference && (
+                      <div className="flex items-start gap-3 rounded-sm border border-dashed border-border p-2" data-testid="judging-reference">
+                        <img src={panel.reference.src} alt="Source photo given to every engine" className="w-40 h-40 object-contain bg-muted rounded-sm" />
+                        <div className="text-xs text-muted-foreground space-y-1">
+                          <p className="font-bold text-foreground">Source photo</p>
+                          <p>Every engine was given this same photo for this panel. Compare each picture against it{panel.faceMarkable ? ", and tick \"not the person\" where the face isn't this person" : ""}.</p>
+                        </div>
+                      </div>
                     )}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="judging-images">
                       {panel.images.map((img, i) => {
