@@ -3,7 +3,10 @@
  * Phase 8, increment 3; plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
  * *Proposed Design* E). The engines revealed: wins per mode (text-to-image;
  * reference edit) with the leader of each, per style and per scenario, the
- * "not the person" marks, and what each engine's calls could have cost.
+ * "not the person" marks, and what each engine's calls could have cost. Stage 2
+ * of judging (David, 2026-11-10): beside each mode's quality ranking, what one
+ * image from each engine costs — exact for a flat price, "about" for a token
+ * price — so quality can be weighed against price after it was judged blind.
  * Several sets read together, so round 1 and round 2 give one winner per mode.
  */
 import { useCallback, useEffect, useState } from "react";
@@ -18,10 +21,47 @@ interface Results {
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost?: number };
   wins: { overall: Wins; byMode: Record<string, Wins>; byStyle: Record<string, Wins>; byScenario: Record<string, Wins> };
   leaders: Record<string, { families: string[]; wins: number; judged: number }>;
+  ranking?: Record<string, RankRow[]>;
   faceMismatches: Wins;
   humanReferencePanelsJudged: number;
   costs: Record<string, { family: string; calls: number; boundUsd: number }>;
   preparationBoundUsd: number;
+}
+
+interface RankRow { family: string; engineId: string; wins: number; usdPerImage: number | null; exact: boolean }
+
+function priceText(row: RankRow): string {
+  if (row.usdPerImage == null) return "—";
+  return (row.exact ? "" : "about ") + "$" + row.usdPerImage.toFixed(3);
+}
+
+/** One mode's engines in quality order, each with what one of its images costs. */
+function RankingTable({ label, rows }: { label: string; rows: RankRow[] }) {
+  return (
+    <div className="rounded-sm border border-border bg-background p-3 space-y-1">
+      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}: quality, then price</p>
+      <table className="text-xs w-full">
+        <thead>
+          <tr className="text-muted-foreground">
+            <th className="text-left font-semibold py-0.5">#</th>
+            <th className="text-left font-semibold">Engine</th>
+            <th className="text-right font-semibold">Wins</th>
+            <th className="text-right font-semibold">Per image</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={row.engineId} className="border-t border-border">
+              <td className="py-0.5 text-muted-foreground">{i + 1}</td>
+              <td className="font-mono text-foreground">{row.family}</td>
+              <td className="text-right text-foreground">{row.wins}</td>
+              <td className="text-right font-mono text-foreground">{priceText(row)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 const MODE_LABEL: Record<string, string> = { t2i: "Text-to-image", i2i: "Reference edit" };
@@ -120,6 +160,17 @@ export default function ComparisonResults() {
                 );
               })}
             </div>
+
+            {data.ranking && Object.keys(data.ranking).length > 0 && (
+              <div className="space-y-1" data-testid="results-ranking">
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {["t2i", "i2i"].filter((m) => data.ranking![m]).map((mode) => (
+                    <RankingTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.ranking![mode]!} />
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">Per-image prices are fal's list prices. "About" marks a token-billed engine: a typical cost, within about 10%.</p>
+              </div>
+            )}
 
             <WinsTable title="Wins by mode" groups={data.wins.byMode} families={data.families} testId="results-by-mode" />
             <WinsTable title="Wins by style" groups={data.wins.byStyle} families={data.families} testId="results-by-style" />

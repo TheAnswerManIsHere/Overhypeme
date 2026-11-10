@@ -158,7 +158,12 @@ beside the eval run rather than inside it (plan
   more sets so rounds 1 and 2 read together: wins per family by mode (the
   leader of text-to-image and of reference edit, ties shown), by style and by
   scenario; the "not the person" marks against the human-reference panels
-  judged; and each engine's calls with their worst case.
+  judged; and each engine's calls with their worst case. It is stage 2 of
+  judging (David, 2026-11-10, `decisions.md`): each mode's engines are ranked
+  by wins with the price of one image beside them (`perImagePrice` in
+  `artifacts/api-server/src/lib/engines/types.ts`) — exact for a flat price, "about" for a token price
+  (`typicalUsdPerImage` on the definition, within about 10%). The judging page
+  itself shows no price.
 - **Read-only dry run**: `artifacts/api-server/scripts/comparison-dry-run.ts`
   derives rounds 1 and 2 against a database's real catalogue and checks 33
   panels and 198 cells, reporting the worst case.

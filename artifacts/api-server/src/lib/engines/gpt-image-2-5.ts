@@ -37,7 +37,18 @@ const T2I_COMPONENTS = [
   { name: "prompt (text input)", usdPerMillionTokens: 5, maxTokens: 4000, ceilingBasis: "compiled prompt bounded at 4,000 tokens" },
 ];
 
-export const GPT_IMAGE_2_5_PRICE: PriceModel = { kind: "tokens", components: T2I_COMPONENTS, ...PRICE_SOURCE };
+/**
+ * Typical: the image at quality high is a vendor constant, 1,756 × $30/M =
+ * $0.0527 (fal's bills match it to the cent); a compiled prompt of about
+ * 1,000 tokens adds about $0.005.
+ */
+export const GPT_IMAGE_2_5_PRICE: PriceModel = {
+  kind: "tokens",
+  components: T2I_COMPONENTS,
+  typicalUsdPerImage: 0.058,
+  typicalBasis: "image output $0.0527 (vendor constant at 1024x1024 high) plus a compiled prompt of about 1,000 tokens",
+  ...PRICE_SOURCE,
+};
 
 /**
  * The reference image is the one component OpenAI publishes no rule for on
@@ -51,6 +62,8 @@ export const GPT_IMAGE_2_5_EDIT_PRICE: PriceModel = {
     ...T2I_COMPONENTS,
     { name: "reference image (image input)", usdPerMillionTokens: 8, maxTokens: 2000, ceilingBasis: "twice fal's measured charge for a reference resized to 1024 on the long edge", measured: true },
   ],
+  typicalUsdPerImage: 0.066,
+  typicalBasis: "the text-to-image figure plus fal's measured $0.008 for a reference resized to 1024 on the long edge",
   ...PRICE_SOURCE,
 };
 

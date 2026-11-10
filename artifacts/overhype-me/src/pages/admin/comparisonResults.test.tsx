@@ -24,6 +24,16 @@ const RESULTS = {
   },
   leaders: { t2i: { families: ["flux-3"], wins: 9, judged: 15 }, i2i: { families: ["flux-3", "gpt-image-2-5"], wins: 9, judged: 18 } },
   faceMismatches: { "gpt-image-2-5": 3 },
+  ranking: {
+    t2i: [
+      { family: "flux-3", engineId: "flux-3", wins: 9, usdPerImage: 0.048, exact: true },
+      { family: "gpt-image-2-5", engineId: "gpt-image-2-5", wins: 6, usdPerImage: 0.058, exact: false },
+    ],
+    i2i: [
+      { family: "gpt-image-2-5", engineId: "gpt-image-2-5-edit", wins: 9, usdPerImage: 0.066, exact: false },
+      { family: "flux-3", engineId: "flux-3-edit", wins: 9, usdPerImage: 0.048, exact: true },
+    ],
+  },
   humanReferencePanelsJudged: 12,
   costs: { "flux-3": { family: "flux-3", calls: 15, boundUsd: 0.72 } },
   preparationBoundUsd: 2.5,
@@ -42,6 +52,9 @@ describe("ComparisonResults", () => {
     expect(leaders.textContent).toMatch(/Text-to-image.*flux-3 — 9 of 15 panels/);
     expect(leaders.textContent).toMatch(/Reference edit.*flux-3 = gpt-image-2-5 — 9 of 18 panels \(tied\)/);
     expect(screen.getByTestId("results-summary").textContent).toMatch(/30 of 33 panels judged.*1 panel lost an engine\x27s image for good.*2 panels were skipped at preparation and will never be judged/);
+    const ranking = screen.getByTestId("results-ranking").textContent ?? "";
+    expect(ranking).toMatch(/Text-to-image: quality, then price.*flux-3.*\$0\.048.*gpt-image-2-5.*about \$0\.058/);
+    expect(ranking).toMatch(/Reference edit: quality, then price.*gpt-image-2-5.*about \$0\.066.*flux-3/);
     expect(screen.getByTestId("results-by-style").textContent).toMatch(/anime/);
     expect(screen.getByTestId("results-faces").textContent).toMatch(/of 12 judged.*gpt-image-2-5 3/);
     expect(screen.getByTestId("results-costs").textContent).toMatch(/flux-3 \(flux-3\) · 15 calls · \$0\.72.*total, at most · \$3\.22/);

@@ -22,4 +22,4 @@ export type {
   TokenPriceComponent,
   WizardAspect,
 } from "./types";
-export { ADMIN_EDITABLE_FIELDS, type AdminEditableField, perCallBoundUsd } from "./types";
+export { ADMIN_EDITABLE_FIELDS, type AdminEditableField, perCallBoundUsd, perImagePrice } from "./types";
