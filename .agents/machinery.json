@@ -9,7 +9,7 @@
   ],
   "models": {
     "strongestClaude": {
-      "id": "claude-fable-5-1",
+      "id": "claude-fable-5-2",
       "effort": "xhigh"
     },
     "strongestCodex": {
