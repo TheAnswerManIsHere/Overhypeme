@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS "image_generation_requests" (
 CREATE INDEX IF NOT EXISTS "IDX_igr_attempt_id" ON "image_generation_requests" ("attempt_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "IDX_igr_comparison_cell_id" ON "image_generation_requests" ("comparison_cell_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "IDX_igr_vendor_request_id" ON "image_generation_requests" ("vendor_request_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "IDX_igr_created_at" ON "image_generation_requests" ("created_at");--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "image_provenance" (
   "id" bigint PRIMARY KEY NOT NULL,
   "kind" varchar(24) NOT NULL,
@@ -72,6 +73,7 @@ CREATE INDEX IF NOT EXISTS "IDX_image_provenance_meme_slug" ON "image_provenance
 CREATE INDEX IF NOT EXISTS "IDX_image_provenance_attempt_id" ON "image_provenance" ("attempt_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "IDX_image_provenance_comparison_cell_id" ON "image_provenance" ("comparison_cell_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "IDX_image_provenance_created_at" ON "image_provenance" ("created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "IDX_image_provenance_generation_request_id" ON "image_provenance" ("generation_request_id");--> statement-breakpoint
 -- The retention setting (plan, Settled): 0 means records never expire.
 INSERT INTO "admin_config" ("key", "value", "data_type", "label", "description", "min_value")
 VALUES ('image_provenance.retention_days', '0', 'integer', 'Image provenance retention (days; 0 = kept indefinitely)', 'How long a picture''s provenance record is kept after it is made. 0 keeps every record indefinitely (David, 2026-11-10); Phase 14''s legal read may set a period.', 0)

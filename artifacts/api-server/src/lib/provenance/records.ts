@@ -7,7 +7,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import sharp from "sharp";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -16,10 +16,12 @@ import {
   type GenerationProducer,
   type ProvenanceActorKind,
   type ProvenanceKind,
-  type ImageProvenance,
+  type ImageGenerationRequest,
 } from "@workspace/db";
 import { codeVersionColumns } from "../codeVersion";
 import { sniffImage, stampImage } from "./imageFile";
+import { logger } from "../logger";
+import type { ObjectAclPolicy } from "../objectAcl";
 
 /** Who started the work, as recorded. The email is the account's contact address at the time. */
 export interface ProvenanceActor {
@@ -28,18 +30,26 @@ export interface ProvenanceActor {
   email: string | null;
 }
 
-export const ANONYMOUS_ACTOR: ProvenanceActor = { kind: "anonymous", userId: null, email: null };
 export const SYSTEM_ACTOR: ProvenanceActor = { kind: "system", userId: null, email: null };
 
 /**
  * The account as it is now, frozen into the record (David, 2026-11-10,
  * Question 1: keep the account id and its email at the time). An id that no
- * longer resolves is still recorded, with no email.
+ * longer resolves is still recorded, with no email. A caller with no person
+ * passes SYSTEM_ACTOR itself; that choice is never made here.
  */
-export async function actorForUser(userId: string | null | undefined, kind: "member" | "admin"): Promise<ProvenanceActor> {
-  if (!userId) return kind === "admin" ? SYSTEM_ACTOR : ANONYMOUS_ACTOR;
+export async function actorForUser(userId: string, kind: "member" | "admin"): Promise<ProvenanceActor> {
   const [u] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   return { kind, userId, email: u?.email ?? null };
+}
+
+/** The actor a captured generation request recorded: what a later stage reuses. */
+export function actorOf(row: Pick<ImageGenerationRequest, "actorKind" | "actorUserId" | "actorEmail">): ProvenanceActor {
+  return { kind: row.actorKind, userId: row.actorUserId, email: row.actorEmail };
+}
+
+function actorColumns(a: ProvenanceActor) {
+  return { actorKind: a.kind, actorUserId: a.userId, actorEmail: a.email };
 }
 
 /** A random 52-bit id: unique by primary key, unguessable from another, exact in JavaScript. */
@@ -75,9 +85,7 @@ export async function recordGenerationRequest(input: GenerationRequestInput): Pr
     attemptId: input.attemptId ?? null,
     comparisonCellId: input.comparisonCellId ?? null,
     factId: input.factId ?? null,
-    actorKind: input.actor.kind,
-    actorUserId: input.actor.userId,
-    actorEmail: input.actor.email,
+    ...actorColumns(input.actor),
     ...codeVersionColumns(),
   }).returning({ id: imageGenerationRequestsTable.id });
   return row!.id;
@@ -91,16 +99,12 @@ export async function setVendorRequestId(generationRequestId: number, vendorRequ
     .where(eq(imageGenerationRequestsTable.id, generationRequestId));
 }
 
-/** The latest request captured for an attempt or a comparison cell: what a recovery reads. */
-export async function latestGenerationRequest(
-  by: { attemptId: number } | { comparisonCellId: number },
-): Promise<typeof imageGenerationRequestsTable.$inferSelect | null> {
-  const where = "attemptId" in by
-    ? eq(imageGenerationRequestsTable.attemptId, by.attemptId)
-    : eq(imageGenerationRequestsTable.comparisonCellId, by.comparisonCellId);
-  const rows = await db.select().from(imageGenerationRequestsTable).where(where)
-    .orderBy(imageGenerationRequestsTable.id);
-  return rows.at(-1) ?? null;
+/** The latest request captured for a comparison cell: what a storage-only retry reads. */
+export async function latestCellGenerationRequest(comparisonCellId: number): Promise<ImageGenerationRequest | null> {
+  const [row] = await db.select().from(imageGenerationRequestsTable)
+    .where(eq(imageGenerationRequestsTable.comparisonCellId, comparisonCellId))
+    .orderBy(desc(imageGenerationRequestsTable.id)).limit(1);
+  return row ?? null;
 }
 
 // ─── The finishing step ───────────────────────────────────────────────────────
@@ -163,9 +167,7 @@ export async function finishImage(input: FinishImageInput): Promise<FinishedImag
     kind: input.kind,
     generationRequestId: input.generationRequestId ?? null,
     sourceProvenanceId: input.sourceProvenanceId ?? null,
-    actorKind: input.actor.kind,
-    actorUserId: input.actor.userId,
-    actorEmail: input.actor.email,
+    ...actorColumns(input.actor),
     memeSlug: input.memeSlug ?? null,
     objectPath: input.objectPath ?? null,
     attemptId: input.attemptId ?? null,
@@ -185,12 +187,45 @@ export async function finishImage(input: FinishImageInput): Promise<FinishedImag
   return { bytes: stamped, mime, ext, provenanceId: id };
 }
 
+/** The store a finished picture goes to: `ObjectStorageService`, or a test fake. */
+export interface ImageStore {
+  uploadObjectBuffer(args: { subPath: string; buffer: Buffer; contentType: string; aclPolicy?: ObjectAclPolicy }): Promise<string>;
+}
+
 /**
- * The path `ObjectStorageService.uploadObjectBuffer` returns for a sub-path,
- * known before the store, so the record names its object and is never edited.
+ * The path `uploadObjectBuffer` returns for a sub-path, known before the
+ * store so the record names its object and is never edited.
  */
-export function storedObjectPath(subPath: string): string {
+function storedObjectPath(subPath: string): string {
   return `/objects/${subPath}`;
 }
 
-export type { ImageProvenance };
+/**
+ * Finish a picture and store it, as one step: the sub-path takes the true
+ * format's extension, the record (naming that stored object) is committed,
+ * then exactly the recorded bytes are stored. Every producer that stores a
+ * picture goes through here, so none can record one path and store another.
+ */
+export async function finishAndStore(
+  input: Omit<FinishImageInput, "objectPath"> & {
+    store: ImageStore;
+    /** The sub-path for a given extension, e.g. (ext) => `ai-bg-v2/5/9-1.${ext}`. */
+    subPathFor: (ext: string) => string;
+    aclPolicy?: ObjectAclPolicy;
+  },
+): Promise<FinishedImage & { objectPath: string }> {
+  const { store, subPathFor, aclPolicy, ...finish } = input;
+  const subPath = subPathFor(sniffImage(finish.bytes).ext);
+  const recordedPath = storedObjectPath(subPath);
+  const finished = await finishImage({ ...finish, objectPath: recordedPath });
+  const objectPath = await store.uploadObjectBuffer({
+    subPath,
+    buffer: finished.bytes,
+    contentType: finished.mime,
+    ...(aclPolicy ? { aclPolicy } : {}),
+  });
+  if (objectPath !== recordedPath) {
+    logger.error({ recordedPath, objectPath, provenanceId: finished.provenanceId }, "[provenance] the store returned a different path than the record names");
+  }
+  return { ...finished, objectPath };
+}

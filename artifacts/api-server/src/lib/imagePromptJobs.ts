@@ -51,9 +51,8 @@ import {
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
-import { finishImage, recordGenerationRequest, setVendorRequestId, storedObjectPath } from "./provenance/records";
+import { finishAndStore, recordGenerationRequest, setVendorRequestId } from "./provenance/records";
 import { attemptProvenanceContext } from "./provenance/attemptActor";
-import { sniffImage } from "./provenance/imageFile";
 import { attemptImageEngineId, resolveImageEngine } from "./imageEngineRouting";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
@@ -409,8 +408,10 @@ export const imageGenerationHandler: JobHandler = {
       const buf = await downloadToBuffer(resultUrl);
       // Saved under the format the engine actually returned, and recorded,
       // stamped and hashed before it is stored (image tracing).
-      const subPath = `ai-bg-v2/${attempt.factId}/${attempt.id}-${Date.now()}.${sniffImage(buf).ext}`;
-      const finished = await finishImage({
+      const stamp = Date.now();
+      const finished = await finishAndStore({
+        store: objectStorage,
+        subPathFor: (ext) => `ai-bg-v2/${attempt.factId}/${attempt.id}-${stamp}.${ext}`,
         bytes: buf,
         kind: "ai_render",
         actor: provenance.actor,
@@ -420,14 +421,9 @@ export const imageGenerationHandler: JobHandler = {
         attemptId: p.attemptId,
         factId: attempt.factId,
         engineId: engine.id,
-        objectPath: storedObjectPath(subPath),
         snapshot: { producer: provenance.producer, generationMode, prompt: promptText, renderControls },
       });
-      storedPath = await objectStorage.uploadObjectBuffer({
-        subPath,
-        buffer: finished.bytes,
-        contentType: finished.mime,
-      });
+      storedPath = finished.objectPath;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await markAttemptError(p.attemptId, `image store failed: ${msg}`);

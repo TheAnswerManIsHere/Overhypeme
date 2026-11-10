@@ -19,7 +19,7 @@ export async function attemptProvenanceContext(
   if (attempt.evalRunId != null) {
     const [run] = await db.select({ createdBy: evalRunsTable.createdBy }).from(evalRunsTable)
       .where(eq(evalRunsTable.id, attempt.evalRunId)).limit(1);
-    return { producer: "eval_render", actor: await actorForUser(run?.createdBy ?? null, "admin") };
+    return { producer: "eval_render", actor: run?.createdBy ? await actorForUser(run.createdBy, "admin") : SYSTEM_ACTOR };
   }
   return {
     producer: "product_render",

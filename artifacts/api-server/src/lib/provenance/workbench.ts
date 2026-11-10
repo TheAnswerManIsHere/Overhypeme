@@ -5,8 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { db, imageProvenanceTable, imageGenerationRequestsTable, type Engine } from "@workspace/db";
 import { downloadToBuffer } from "../imageEngineRequest";
 import { ObjectStorageService } from "../objectStorage";
-import { finishImage, storedObjectPath, SYSTEM_ACTOR, type ProvenanceActor } from "./records";
-import { sniffImage } from "./imageFile";
+import { actorOf, finishAndStore, SYSTEM_ACTOR, type ImageStore } from "./records";
 
 /** The admin-only URL that serves a record's stored picture. */
 export function provenanceImageUrl(provenanceId: number): string {
@@ -32,10 +31,6 @@ function imageUrls(value: unknown, underImage = false, out: FoundUrl[] = []): Fo
   return out;
 }
 
-export interface WorkbenchStorage {
-  uploadObjectBuffer(args: { subPath: string; buffer: Buffer; contentType: string }): Promise<string>;
-}
-
 /**
  * The completed result with each vendor image replaced by our stamped,
  * recorded, stored copy. A result with no image (a classifier) is returned
@@ -45,7 +40,7 @@ export async function finishWorkbenchResult(
   engine: Pick<Engine, "id" | "label">,
   vendorRequestId: string,
   falResult: unknown,
-  deps: { storage?: WorkbenchStorage; download?: (url: string) => Promise<Buffer> } = {},
+  deps: { storage?: ImageStore; download?: (url: string) => Promise<Buffer> } = {},
 ): Promise<unknown> {
   const result = structuredClone(falResult);
   const found = imageUrls(result);
@@ -58,9 +53,7 @@ export async function finishWorkbenchResult(
       eq(imageGenerationRequestsTable.vendorRequestId, vendorRequestId),
       eq(imageGenerationRequestsTable.producer, "engine_workbench"),
     )).limit(1);
-  const actor: ProvenanceActor = request
-    ? { kind: request.actorKind, userId: request.actorUserId, email: request.actorEmail }
-    : SYSTEM_ACTOR;
+  const actor = request ? actorOf(request) : SYSTEM_ACTOR;
   const existing = request
     ? await db.select({ id: imageProvenanceTable.id, snapshot: imageProvenanceTable.snapshot })
         .from(imageProvenanceTable)
@@ -72,10 +65,10 @@ export async function finishWorkbenchResult(
     const f = found[i]!;
     let provenanceId = byIndex.get(i);
     if (provenanceId === undefined) {
-      const raw = await download(f.url);
-      const subPath = `engine-workbench/${engine.id}/${vendorRequestId}-${i}.${sniffImage(raw).ext}`;
-      const finished = await finishImage({
-        bytes: raw,
+      const finished = await finishAndStore({
+        store: storage,
+        subPathFor: (ext) => `engine-workbench/${engine.id}/${vendorRequestId}-${i}.${ext}`,
+        bytes: await download(f.url),
         kind: "workbench",
         actor,
         stamp: true,
@@ -83,10 +76,8 @@ export async function finishWorkbenchResult(
         generationRequestId: request?.id ?? null,
         factId: request?.factId ?? null,
         engineId: engine.id,
-        objectPath: storedObjectPath(subPath),
         snapshot: { index: i, vendorRequestId, requestCaptured: request != null },
       });
-      await storage.uploadObjectBuffer({ subPath, buffer: finished.bytes, contentType: finished.mime });
       provenanceId = finished.provenanceId;
     }
     f.holder["url"] = provenanceImageUrl(provenanceId);

@@ -111,11 +111,12 @@ function webpCanvas(buf: Buffer): { w: number; h: number } | null {
 function stampWebp(buf: Buffer, xmp: string): Buffer | null {
   const xmpChunk = riffChunk("XMP ", Buffer.from(xmp, "utf8"));
   const first = buf.toString("ascii", 12, 16);
-  let body: Buffer;
+  let parts: Buffer[];
   if (first === "VP8X") {
-    body = Buffer.from(buf.subarray(12));
-    body[8] = body[8]! | 0x04; // XMP flag
-    body = Buffer.concat([body, xmpChunk]);
+    // Patch the XMP flag in a copy of the 18-byte VP8X chunk only.
+    const vp8xChunk = Buffer.from(buf.subarray(12, 30));
+    vp8xChunk[8] = vp8xChunk[8]! | 0x04;
+    parts = [vp8xChunk, buf.subarray(30), xmpChunk];
   } else {
     const size = webpCanvas(buf);
     if (!size) return null;
@@ -125,13 +126,14 @@ function stampWebp(buf: Buffer, xmp: string): Buffer | null {
     vp8x[0] = 0x04 | (losslessAlpha ? 0x10 : 0);
     vp8x.writeUIntLE(size.w - 1, 4, 3);
     vp8x.writeUIntLE(size.h - 1, 7, 3);
-    body = Buffer.concat([riffChunk("VP8X", vp8x), buf.subarray(12), xmpChunk]);
+    parts = [riffChunk("VP8X", vp8x), buf.subarray(12), xmpChunk];
   }
+  const bodyLength = parts.reduce((n, p) => n + p.length, 0);
   const head = Buffer.alloc(12);
   head.write("RIFF", 0, "ascii");
-  head.writeUInt32LE(body.length + 4, 4);
+  head.writeUInt32LE(bodyLength + 4, 4);
   head.write("WEBP", 8, "ascii");
-  return Buffer.concat([head, body]);
+  return Buffer.concat([head, ...parts]);
 }
 
 /**

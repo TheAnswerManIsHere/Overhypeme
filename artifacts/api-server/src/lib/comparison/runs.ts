@@ -61,14 +61,14 @@ import { buildEngineInput } from "../engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "../imageEngineRequest";
 import {
   actorForUser,
-  finishImage,
-  latestGenerationRequest,
+  actorOf,
+  finishAndStore,
+  latestCellGenerationRequest,
   recordGenerationRequest,
   setVendorRequestId,
-  storedObjectPath,
+  SYSTEM_ACTOR,
   type ProvenanceActor,
 } from "../provenance/records";
-import { sniffImage } from "../provenance/imageFile";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
@@ -328,7 +328,7 @@ async function setCreatorActor(cell: ComparisonCell): Promise<ProvenanceActor> {
     .from(comparisonPanelsTable)
     .innerJoin(comparisonSetsTable, eq(comparisonSetsTable.id, comparisonPanelsTable.setId))
     .where(eq(comparisonPanelsTable.id, cell.panelId)).limit(1);
-  return actorForUser(row?.createdBy ?? null, "admin");
+  return row?.createdBy ? actorForUser(row.createdBy, "admin") : SYSTEM_ACTOR;
 }
 
 async function storeVendorImage(cell: ComparisonCell, url: string): Promise<string> {
@@ -338,12 +338,12 @@ async function storeVendorImage(cell: ComparisonCell, url: string): Promise<stri
   // submission (a storage-only retry included), and stamped with the opaque
   // id only — never the engine, so blind judging stays blind. The stamp is
   // spliced into the container; the judged pixels are unchanged.
-  const request = await latestGenerationRequest({ comparisonCellId: cell.id });
-  const actor: ProvenanceActor = request
-    ? { kind: request.actorKind, userId: request.actorUserId, email: request.actorEmail }
-    : await setCreatorActor(cell);
-  const subPath = `comparison/panel-${cell.panelId}/cell-${cell.id}-${Date.now()}.${sniffImage(buffer).ext}`;
-  const finished = await finishImage({
+  const request = await latestCellGenerationRequest(cell.id);
+  const actor: ProvenanceActor = request ? actorOf(request) : await setCreatorActor(cell);
+  const stamp = Date.now();
+  const finished = await finishAndStore({
+    store: objectStorage,
+    subPathFor: (ext) => `comparison/panel-${cell.panelId}/cell-${cell.id}-${stamp}.${ext}`,
     bytes: buffer,
     kind: "comparison_cell",
     actor,
@@ -354,10 +354,9 @@ async function storeVendorImage(cell: ComparisonCell, url: string): Promise<stri
     attemptId: cell.attemptId ?? null,
     factId: request?.factId ?? null,
     engineId: cell.engineId,
-    objectPath: storedObjectPath(subPath),
     snapshot: { panelId: cell.panelId, requestCaptured: request != null },
   });
-  return objectStorage.uploadObjectBuffer({ subPath, buffer: finished.bytes, contentType: finished.mime });
+  return finished.objectPath;
 }
 
 async function failCell(cellId: number, error: string): Promise<void> {
@@ -440,7 +439,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
       engineId: cell.engineId,
       endpointId: engine!.endpointId,
       request: input,
-      actor: await actorForUser(run?.createdBy ?? null, "admin"),
+      actor: run?.createdBy ? await actorForUser(run.createdBy, "admin") : SYSTEM_ACTOR,
       comparisonCellId: cell.id,
       attemptId: cell.attemptId ?? null,
       factId: panel!.factId,

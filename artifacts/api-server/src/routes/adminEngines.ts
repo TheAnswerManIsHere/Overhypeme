@@ -33,7 +33,6 @@ import {
 import { eq, ne, and } from "drizzle-orm";
 
 import { requireAdmin } from "./admin.js";
-import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js";
 import { currentImageEngineIds, ImageEngineRoutingError, setImageEngineForItsMode } from "../lib/imageEngineRouting.js";
 import { buildImageRequestSettings, ImageRequestBuildError } from "../lib/imageRequestBuilder.js";
@@ -66,7 +65,7 @@ const WORKBENCH_TEST_PRONOUNS = RUNTIME_PREVIEW_DEFAULT_PRONOUNS;
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
 import { ALL_ENGINES } from "../lib/engines/catalogue.js";
 import { logger } from "../lib/logger.js";
-import { actorForUser, recordGenerationRequest, setVendorRequestId } from "../lib/provenance/records.js";
+import { actorForUser, recordGenerationRequest, setVendorRequestId, SYSTEM_ACTOR } from "../lib/provenance/records.js";
 import { finishWorkbenchResult } from "../lib/provenance/workbench.js";
 
 const router: IRouter = Router();
@@ -1123,7 +1122,7 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
           engineId: engine.id,
           endpointId: engine.endpointId,
           request: falInput,
-          actor: await actorForUser((req as AuthenticatedRequest).user?.id ?? null, "admin"),
+          actor: req.user?.id ? await actorForUser(req.user.id, "admin") : SYSTEM_ACTOR,
         });
 
     const submitted = await submit(engine.endpointId, { input: falInput });

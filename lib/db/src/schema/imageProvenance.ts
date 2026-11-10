@@ -60,6 +60,7 @@ export const imageGenerationRequestsTable = pgTable("image_generation_requests",
   index("IDX_igr_attempt_id").on(t.attemptId),
   index("IDX_igr_comparison_cell_id").on(t.comparisonCellId),
   index("IDX_igr_vendor_request_id").on(t.vendorRequestId),
+  index("IDX_igr_created_at").on(t.createdAt),
   check("image_generation_requests_producer_check", sql`((producer)::text = ANY (ARRAY[('product_render'::character varying)::text, ('review_render'::character varying)::text, ('eval_render'::character varying)::text, ('comparison_cell'::character varying)::text, ('engine_workbench'::character varying)::text]))`),
   check("image_generation_requests_actor_kind_check", sql`((actor_kind)::text = ANY (ARRAY[('member'::character varying)::text, ('admin'::character varying)::text, ('anonymous'::character varying)::text, ('system'::character varying)::text]))`),
 ]);
@@ -124,6 +125,7 @@ export const imageProvenanceTable = pgTable("image_provenance", {
   index("IDX_image_provenance_attempt_id").on(t.attemptId),
   index("IDX_image_provenance_comparison_cell_id").on(t.comparisonCellId),
   index("IDX_image_provenance_created_at").on(t.createdAt),
+  index("IDX_image_provenance_generation_request_id").on(t.generationRequestId),
   check("image_provenance_kind_check", sql`((kind)::text = ANY (ARRAY[('ai_render'::character varying)::text, ('comparison_cell'::character varying)::text, ('workbench'::character varying)::text, ('upload'::character varying)::text, ('meme_bake'::character varying)::text, ('meme_live'::character varying)::text, ('preview'::character varying)::text, ('download'::character varying)::text]))`),
   check("image_provenance_actor_kind_check", sql`((actor_kind)::text = ANY (ARRAY[('member'::character varying)::text, ('admin'::character varying)::text, ('anonymous'::character varying)::text, ('system'::character varying)::text]))`),
 ]);

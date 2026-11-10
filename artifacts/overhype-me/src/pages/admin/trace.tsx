@@ -10,8 +10,10 @@
  */
 import { useState, type FormEvent } from "react";
 import { Link } from "wouter";
-import { AlertTriangle, Loader2, Search } from "lucide-react";
+import { AlertTriangle, Search } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 
 interface ProvenanceRecord {
   id: number;
@@ -65,7 +67,7 @@ interface TracedRecord {
 }
 
 interface TraceResult {
-  method: "id" | "link" | "metadata" | "hash" | "watermark" | null;
+  method: "id" | "link" | null;
   matches: TracedRecord[];
   tried: string[];
   note: string | null;
@@ -93,9 +95,6 @@ const PRODUCER_LABEL: Record<string, string> = {
 const METHOD_LABEL: Record<string, string> = {
   id: "the record id",
   link: "the link",
-  metadata: "the id in the file's metadata",
-  hash: "the file's exact bytes",
-  watermark: "the invisible watermark",
 };
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—");
@@ -251,21 +250,18 @@ export default function AdminTrace() {
           Paste a record id, a meme link or an image link to see how the picture was made.
         </p>
         <form onSubmit={onSubmit} className="flex gap-2">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. 1234567890123 or https://overhype.me/m/abc123"
-            aria-label="Record id or link"
-            className="flex-1 rounded-sm border border-border bg-background px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={loading || !query.trim()}
-            className="inline-flex items-center gap-1.5 rounded-sm bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            {loading ? "Tracing…" : "Trace"}
-          </button>
+          <div className="flex-1">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="e.g. 1234567890123 or https://overhype.me/m/abc123"
+              aria-label="Record id or link"
+              icon={<Search className="h-4 w-4" />}
+            />
+          </div>
+          <Button type="submit" isLoading={loading} disabled={!query.trim()}>
+            Trace
+          </Button>
         </form>
 
         {error && (

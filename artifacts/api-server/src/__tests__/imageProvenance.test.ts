@@ -23,11 +23,10 @@ import { readStampedId, sniffImage, stampImage, xmpPacket } from "../lib/provena
 import {
   actorForUser,
   finishImage,
-  latestGenerationRequest,
+  latestCellGenerationRequest,
   newProvenanceId,
   recordGenerationRequest,
   setVendorRequestId,
-  storedObjectPath,
 } from "../lib/provenance/records.js";
 import { parseTraceInput, traceIdOrLink } from "../lib/provenance/trace.js";
 import { finishWorkbenchResult } from "../lib/provenance/workbench.js";
@@ -115,7 +114,7 @@ describe("the record", () => {
     const raw = await picture("png");
     const out = await finish({
       bytes: raw, kind: "ai_render", actor: await actorForUser(memberId, "member"), stamp: true, stampEngine: "Test Engine",
-      objectPath: storedObjectPath(`ai-bg-v2/${P}/a.png`), snapshot: { prompt: "a test prompt" },
+      objectPath: ("/objects/" + `ai-bg-v2/${P}/a.png`), snapshot: { prompt: "a test prompt" },
     });
     const [row] = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.id, out.provenanceId));
     assert.equal(row!.sha256, createHash("sha256").update(out.bytes).digest("hex"));
@@ -129,7 +128,7 @@ describe("the record", () => {
 
   it("an upload is recorded unstamped: the member's bytes are not changed", async () => {
     const raw = await picture("jpeg");
-    const out = await finish({ bytes: raw, kind: "upload", actor: await actorForUser(memberId, "member"), stamp: false, objectPath: storedObjectPath(`uploads/${P}/u.jpg`) });
+    const out = await finish({ bytes: raw, kind: "upload", actor: await actorForUser(memberId, "member"), stamp: false, objectPath: ("/objects/" + `uploads/${P}/u.jpg`) });
     assert.ok(out.bytes.equals(raw));
     assert.equal(readStampedId(out.bytes), null);
   });
@@ -137,7 +136,7 @@ describe("the record", () => {
   it("survives deletion of the account that made it, keeping its contact address at the time", async () => {
     const goneId = `${P}-gone`;
     await db.insert(usersTable).values({ id: goneId, email: `${goneId}@test.local`, membershipTier: "registered", isAdmin: false });
-    const out = await finish({ bytes: await picture("png"), kind: "upload", actor: await actorForUser(goneId, "member"), stamp: false, objectPath: storedObjectPath(`uploads/${P}/gone.png`) });
+    const out = await finish({ bytes: await picture("png"), kind: "upload", actor: await actorForUser(goneId, "member"), stamp: false, objectPath: ("/objects/" + `uploads/${P}/gone.png`) });
     await db.delete(usersTable).where(eq(usersTable.id, goneId));
     const trace = await traceIdOrLink(String(out.provenanceId));
     assert.equal(trace.matches.length, 1);
@@ -153,7 +152,7 @@ describe("the record", () => {
     });
     createdRequestIds.push(id);
     await setVendorRequestId(id, `${P}-vendor`);
-    const frozen = await latestGenerationRequest({ comparisonCellId: cellId });
+    const frozen = await latestCellGenerationRequest(cellId);
     assert.equal(frozen!.id, id);
     assert.deepEqual(frozen!.request, { prompt: "first", quality: "high" });
     assert.equal(frozen!.vendorRequestId, `${P}-vendor`);
@@ -199,7 +198,7 @@ describe("the trace", () => {
   });
 
   it("returns every record a link matches, never picking one", async () => {
-    const path = storedObjectPath(`uploads/${P}/same.jpg`);
+    const path = ("/objects/" + `uploads/${P}/same.jpg`);
     const bytes = await picture("jpeg");
     await finish({ bytes, kind: "upload", actor: await actorForUser(memberId, "member"), stamp: false, objectPath: path });
     await finish({ bytes, kind: "upload", actor: await actorForUser(adminId, "member"), stamp: false, objectPath: path });

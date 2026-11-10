@@ -12,7 +12,8 @@ import {
   type ImageGenerationRequest,
 } from "@workspace/db";
 
-export type TraceMethod = "id" | "link" | "metadata" | "hash" | "watermark";
+/** Increment 2 adds the lookups from a picture itself (metadata, exact hash, watermark). */
+export type TraceMethod = "id" | "link";
 
 export interface TracedRecord {
   record: ImageProvenance;
@@ -32,7 +33,7 @@ export interface TraceResult {
 }
 
 /** What a pasted string can be: a record id, a meme slug, or a stored object path. */
-export type ParsedTraceInput =
+type ParsedTraceInput =
   | { kind: "id"; id: number }
   | { kind: "meme"; slug: string }
   | { kind: "object"; objectPath: string }
@@ -59,8 +60,7 @@ export function parseTraceInput(raw: string): ParsedTraceInput {
   if ((m = /^\/api\/admin\/provenance\/images\/(\d{1,16})$/.exec(path))) return { kind: "provenanceImage", id: Number(m[1]) };
   if ((m = new RegExp(`^(?:/api)?/(?:og/)?m/(${SLUG})/?$`).exec(path))) return { kind: "meme", slug: m[1]! };
   if ((m = new RegExp(`^/api/memes/(${SLUG})/image$`).exec(path))) return { kind: "meme", slug: m[1]! };
-  if ((m = /^(?:\/api\/storage)?\/objects\/(.+)$/.exec(path))) return { kind: "object", objectPath: `/objects/${m[1]}` };
-  if ((m = /^\/api\/storage\/public-objects\/(.+)$/.exec(path))) return { kind: "object", objectPath: `/objects/${m[1]}` };
+  if ((m = /^(?:\/api\/storage)?\/(?:public-)?objects\/(.+)$/.exec(path))) return { kind: "object", objectPath: `/objects/${m[1]}` };
   return { kind: "unrecognised" };
 }
 
@@ -116,8 +116,7 @@ export async function traceIdOrLink(raw: string): Promise<TraceResult> {
   if (parsed.kind === "meme") {
     const rows = (await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.memeSlug, parsed.slug))).sort(NEWEST_FIRST);
     tried.push(`meme link ${parsed.slug}: ${rows.length} record${rows.length === 1 ? "" : "s"}`);
-    const [meme] = rows.length ? [] : await db.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.permalinkSlug, parsed.slug)).limit(1);
-    const note = rows.length ? null : meme
+    const note = rows.length === 0 && (await db.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.permalinkSlug, parsed.slug)).limit(1)).length > 0
       ? "This meme was made before image tracing began, so it has no provenance record."
       : null;
     return { method: rows.length ? "link" : null, matches: await expand(rows), tried, note };
