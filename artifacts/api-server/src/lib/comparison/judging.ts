@@ -40,6 +40,7 @@ import {
 import { RENDER_SCENARIO_DESCRIPTORS, type ComparisonPickRequest, type RenderScenarioKey } from "@workspace/api-zod";
 import { renderCanonical } from "../renderCanonical";
 import { round4 } from "./admission";
+import { perImagePrice, type PriceModel } from "../engines";
 import { groupCellsByPanel } from "./sets";
 
 /** The opaque, engine-free name of a cell in the blind view. */
@@ -257,6 +258,13 @@ export interface ComparisonResults {
     byStyle: Record<string, Wins>;
     byScenario: Record<string, Wins>;
   };
+  /**
+   * Stage 2 of judging (David, 2026-11-10): per mode, every family ranked by
+   * its wins, with what one of its images costs beside it — exact for a flat
+   * price, approximate (`exact: false`) for a token price. The judging page
+   * shows no price; this is where quality meets price.
+   */
+  ranking: Record<string, Array<{ family: string; engineId: string; wins: number; usdPerImage: number | null; exact: boolean }>>;
   /** Per mode, the family (or tied families) with the most wins. */
   leaders: Record<string, { families: string[]; wins: number; judged: number }>;
   /** "Not the person" marks per family, against the human-reference panels judged. */
@@ -285,7 +293,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const { panels, cellsByPanel, picks } = await panelRows(setIds);
   const allCells = [...cellsByPanel.values()].flat();
   const engineIds = [...new Set(allCells.map((c) => c.engineId))];
-  const engines = engineIds.length ? await db.select({ id: enginesTable.id, family: enginesTable.family }).from(enginesTable).where(inArray(enginesTable.id, engineIds)) : [];
+  const engines = engineIds.length ? await db.select({ id: enginesTable.id, family: enginesTable.family, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds)) : [];
   const familyOfEngine = new Map(engines.map((e) => [e.id, e.family ?? e.id]));
   const cellById = new Map(allCells.map((c) => [c.id, c]));
   const familyOfCell = (id: number) => {
@@ -315,6 +323,23 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
       panelId: panel.id, setId: panel.setId, factId: panel.factId, scenarioKey: panel.scenarioKey,
       lookStyleId: panel.lookStyleId, imageMode: panel.imageMode, picked, faceMismatches: marks,
     });
+  }
+
+  // Every engine that drew a panel of a mode, ranked by its family's wins in that mode.
+  const priceOf = new Map(engines.map((e) => [e.id, e.priceModel ? perImagePrice(e.priceModel as PriceModel) : null]));
+  const enginesByMode = new Map<string, Set<string>>();
+  for (const panel of panels) {
+    const set = enginesByMode.get(panel.imageMode) ?? new Set<string>();
+    for (const c of cellsByPanel.get(panel.id) ?? []) set.add(c.engineId);
+    enginesByMode.set(panel.imageMode, set);
+  }
+  const ranking: ComparisonResults["ranking"] = {};
+  for (const [mode, ids] of enginesByMode) {
+    ranking[mode] = [...ids].map((engineId) => {
+      const family = familyOfEngine.get(engineId) ?? engineId;
+      const price = priceOf.get(engineId) ?? null;
+      return { family, engineId, wins: wins.byMode[mode]?.[family] ?? 0, usdPerImage: price?.usd ?? null, exact: price?.exact ?? false };
+    }).sort((a, b) => b.wins - a.wins || a.family.localeCompare(b.family));
   }
 
   const leaders: ComparisonResults["leaders"] = {};
@@ -355,6 +380,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
       lost: panels.filter((p) => panelWait(p, cellsByPanel.get(p.id) ?? []) === "lost").length,
     },
     wins,
+    ranking,
     leaders,
     faceMismatches,
     humanReferencePanelsJudged: humanJudged,

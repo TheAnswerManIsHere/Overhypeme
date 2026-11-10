@@ -314,6 +314,17 @@ describe("results", () => {
     assert.deepEqual(r.costs[engineIds[0]!], { family: FAMILIES.gpt, calls: 1, boundUsd: 0.06 }, "a call held after a failure may have been billed, so it counts");
     assert.equal(r.costs[engineIds[1]!], undefined, "a released call never reached fal");
     assert.equal(r.preparationBoundUsd, 0.768);
+    // Stage 2: each mode's engines in quality order, with what one image costs.
+    const fluxT2iId = engineIds[2]!;
+    const gptT2iId = engineIds[0]!;
+    assert.deepEqual(r.ranking.t2i, [
+      { family: FAMILIES.flux, engineId: fluxT2iId, wins: 1, usdPerImage: 0.048, exact: true },
+      { family: FAMILIES.gpt, engineId: gptT2iId, wins: 0, usdPerImage: 0.058, exact: false },
+    ], "a flat price is exact; a token price shows its typical figure, marked approximate");
+    assert.deepEqual(r.ranking.i2i.map((row: { family: string; usdPerImage: number; exact: boolean }) => [row.family, row.usdPerImage, row.exact]), [
+      [FAMILIES.flux, 0.048, true],
+      [FAMILIES.gpt, 0.066, false],
+    ]);
     assert.ok(r.perPanel.every((p: { picked: { family: string } }) => p.picked.family === FAMILIES.flux));
 
     const two = await request(app()).get(`/api/admin/comparison/results?setIds=${setId},${setId}`);

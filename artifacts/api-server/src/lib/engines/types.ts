@@ -188,7 +188,29 @@ export interface TokenPriceComponent {
 
 export type PriceModel =
   | ({ kind: "flat"; usdPerImage: number; usdPerExtraInput?: number } & PriceSource)
-  | ({ kind: "tokens"; components: TokenPriceComponent[]; usdPerCallFloor?: number } & PriceSource);
+  | ({
+    kind: "tokens";
+    components: TokenPriceComponent[];
+    usdPerCallFloor?: number;
+    /**
+     * What one image typically costs at the comparison settings, for showing
+     * David an approximate price (within about 10%: his bar, 2026-11-10).
+     * Never used as a bound.
+     */
+    typicalUsdPerImage?: number;
+    /** Where the typical figure comes from. */
+    typicalBasis?: string;
+  } & PriceSource);
+
+/**
+ * What one image costs, for display: exact for a flat price, the typical
+ * figure for a token price (approximate), and null when a token price has no
+ * typical figure (its worst case is no estimate of what it costs).
+ */
+export function perImagePrice(model: PriceModel): { usd: number; exact: boolean } | null {
+  if (model.kind === "flat") return { usd: model.usdPerImage, exact: true };
+  return model.typicalUsdPerImage != null ? { usd: model.typicalUsdPerImage, exact: false } : null;
+}
 
 /**
  * The worst-case cost of one call at the comparison settings, from the price

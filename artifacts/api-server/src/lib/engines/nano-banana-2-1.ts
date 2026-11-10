@@ -33,6 +33,8 @@ export const NANO_BANANA_2_1_PRICE: PriceModel = {
     { name: "prompt (text input)", usdPerMillionTokens: 1.764, maxTokens: 4000, ceilingBasis: "compiled prompt bounded at 4,000 tokens" },
     { name: "reference image (input)", usdPerMillionTokens: 1.764, maxTokens: 1120, ceilingBasis: "Google: 1,120 tokens per input image" },
   ],
+  typicalUsdPerImage: 0.045,
+  typicalBasis: "fal's measured bills, $0.0396 to $0.049 a call (thinking varies); the midpoint, within about 10% of either end",
   source: "https://fal.ai/models/google/nano-banana-2.1 (rates); Google's model page for gemini-nano-banana-2.1 (token ceilings)",
   readOn: "2026-11-06",
 };
