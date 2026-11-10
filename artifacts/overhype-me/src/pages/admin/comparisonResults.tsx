@@ -24,7 +24,7 @@ interface Results {
   families: string[];
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost?: number };
   scores: { overall: Scores; byMode: Record<string, Scores>; byStyle: Record<string, Scores>; byScenario: Record<string, Scores> };
-  leaders: Record<string, { families: string[]; mean: number; judged: number }>;
+  leaders: Record<string, { families: string[]; pictures?: number[]; mean: number; judged: number }>;
   ranking?: Record<string, RankRow[]>;
   faceMismatches: Record<string, number>;
   humanReferencePanelsJudged: number;
@@ -65,7 +65,7 @@ function RankingTable({ label, rows }: { label: string; rows: RankRow[] }) {
             <th className="text-left font-semibold">Engine</th>
             <th className="text-right font-semibold">Average (1–5)</th>
             <th className="text-right font-semibold">Scored</th>
-            <th className="text-right font-semibold">Couldn't draw</th>
+            <th className="text-right font-semibold">Couldn't draw (as 1)</th>
             <th className="text-right font-semibold">Per image</th>
           </tr>
         </thead>
@@ -176,7 +176,7 @@ export default function ComparisonResults() {
                     <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{MODE_LABEL[mode]}</p>
                     {lead ? (
                       <p className="text-sm text-foreground">
-                        <strong className="font-mono">{lead.families.join(" = ")}</strong> — average {lead.mean.toFixed(2)} of {COMPARISON_SCORE_MAX}, over {lead.judged} panel{lead.judged === 1 ? "" : "s"}{lead.families.length > 1 ? " (tied)" : ""}
+                        <strong className="font-mono">{lead.families.map((f, i) => (lead.pictures ? `${f} (${lead.pictures[i]} picture${lead.pictures[i] === 1 ? "" : "s"})` : f)).join(" = ")}</strong> — average {lead.mean.toFixed(2)} of {COMPARISON_SCORE_MAX}, {lead.judged} panel{lead.judged === 1 ? "" : "s"} judged{lead.families.length > 1 ? " (tied)" : ""}
                       </p>
                     ) : <p className="text-sm text-muted-foreground">No panels judged yet.</p>}
                   </div>
@@ -191,7 +191,7 @@ export default function ComparisonResults() {
                     <RankingTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.ranking![mode]!} />
                   ))}
                 </div>
-                <p className="text-[11px] text-muted-foreground">Ranked by average score; equal averages share a rank. "Couldn't draw" counts this engine's images lost for good, which have no score. Per-image prices are fal's list prices at the comparison's size (about 1 megapixel). "About" marks a token-billed engine: a typical cost, within about 10%.</p>
+                <p className="text-[11px] text-muted-foreground">Ranked by average score; equal averages share a rank. "Couldn't draw" counts this engine's pictures lost for good on judged panels; each counts as a 1 in its average. Per-image prices are fal's list prices at the comparison's size (about 1 megapixel). "About" marks a token-billed engine: a typical cost, within about 10%.</p>
               </div>
             )}
 

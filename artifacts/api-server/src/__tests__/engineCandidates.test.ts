@@ -111,14 +111,14 @@ describe("sizes the endpoints accept", () => {
     assert.equal(input["quality"], "high");
   });
 
-  it("GPT Image 2.6 sends low reasoning at high quality, sized like 2.5", () => {
+  it("GPT Image 2.6 sends high reasoning at high quality, sized like 2.5", () => {
     for (const id of ["gpt-image-2-6", "gpt-image-2-6-edit"]) {
       const def = byId(id);
       const s = buildImageRequestSettings(def, "comparison", "portrait");
       const params: Record<string, unknown> = { imagePrompt: "p", aspectRatio: "portrait", ...s.sizeParams };
       if (def.imageMode === "i2i") params["referenceImageUrl"] = "https://example.com/r.jpg";
       const input = buildEngineInput(def as unknown as Engine, params);
-      assert.equal(input["reasoning_effort"], "low", id);
+      assert.equal(input["reasoning_effort"], "high", id);
       assert.equal(input["quality"], "high", id);
       assert.deepEqual(input["image_size"], { width: 768, height: 1360 }, id);
     }

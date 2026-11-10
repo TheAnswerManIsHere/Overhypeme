@@ -207,7 +207,7 @@ describe("ComparisonJudging", () => {
     render(<ComparisonJudging params={{ setId: "7" }} />);
     const images = await screen.findByTestId("judging-images");
     expect(images.querySelectorAll("img")).toHaveLength(1);
-    expect(screen.getByTestId("judging-missing").textContent).toMatch(/1 engine could not draw this panel.*Score the 1 that exist/);
+    expect(screen.getByTestId("judging-missing").textContent).toMatch(/1 engine could not draw this panel.*counts as a 1\. Score the 1 that exist/);
     fireEvent.click(screen.getByTestId("judging-score-A-4"));
     fireEvent.click(screen.getByTestId("judging-save"));
     await waitFor(() => expect(posts).toHaveLength(1));

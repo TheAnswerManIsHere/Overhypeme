@@ -13,6 +13,16 @@
 
 ---
 
+### 2026-11-10 · GPT Image 2.6 runs at high reasoning, and a picture an engine could not draw counts as a 1 (David's override)
+- **Decision:** David, 2026-11-10, answering PR #902's and PR #903's build reports: *"1. High. Count it as 1."*
+  - GPT Image 2.6 is sent `reasoning_effort: "high"`, fal's default, in place of "low", so every engine is judged as its vendor ships it.
+  - On a panel David judged, each picture an engine could not draw (lost for good after its one re-run) counts as a score of 1 in that engine's averages, in place of being left out. The results' "Couldn't draw (as 1)" column counts them.
+  - The winner's box names how many pictures each leader's average rests on.
+- **Why:** both build reports. Low reasoning was the one candidate run below its vendor's default, so a narrow GPT loss could not be read. Leaving failures out let an engine that refuses hard scenes be ranked on the easy ones. A picture that never arrives is the worst outcome for the product.
+- **Supersedes:** the reasoning line of the GPT Image 2.6 entry below, and the "lost image is left out of that engine's average, not scored as 1" line of the 1-to-5 entry below. Both were my recommendations.
+- **Price:** 2.6's "about $0.058" is now a floor. It was fal's launch quote for the sister variant, Flare, at low reasoning; read fal's bill for round 1's GPT pictures before a value call turns on it.
+- **Reference:** #887; the Trivial PR that enacts it, declared Trivial by David (*"This change is trivial, don't run it through the code review loop."*).
+
 ### 2026-11-10 · The engine comparison scores every image 1 to 5, and ranks by the average
 - **Decision:** David, 2026-11-10: *"Set up the judging such that each image is rated on a scale of 1 - 5. That way, we can calculate a ranking that makes more sense."* The blind judging page scores every image of a panel 1 (worst) to 5 (best), and a panel saves only when every image shown has a score. The results page ranks each mode's engines by their average score, equal averages sharing a rank, with how many images were scored, how many the engine could not draw, and the price of one image beside them.
 - **Why:** a single "best" pick per panel counts only first places. A close second scores the same zero as a poor last, so the "80% as good at 20% of the cost" trade that stage 2 exists for could not be read from the results (PR #901's build report). A score per image measures every engine on every panel.
