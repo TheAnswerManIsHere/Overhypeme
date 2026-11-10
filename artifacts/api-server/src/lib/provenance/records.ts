@@ -52,13 +52,16 @@ function actorColumns(a: ProvenanceActor) {
   return { actorKind: a.kind, actorUserId: a.userId, actorEmail: a.email };
 }
 
-/** A random 52-bit id: unique by primary key, unguessable from another, exact in JavaScript. */
+/**
+ * A random 52-bit id: unique by primary key, unguessable from another, exact
+ * in JavaScript. 52 uniform bits are taken in one draw (no arithmetic on the
+ * random value, which CodeQL flags as a bias); an all-zero draw is redrawn.
+ */
 export function newProvenanceId(): number {
-  const b = randomBytes(7);
-  // 52 bits: the top nibble of the 7th byte is dropped; never zero.
-  const hi = b.readUIntBE(0, 3) & 0x0fffff; // 20 bits
-  const lo = b.readUInt32BE(3); // 32 bits
-  return hi * 2 ** 32 + lo || 1;
+  for (;;) {
+    const id = Number(BigInt.asUintN(52, randomBytes(8).readBigUInt64BE()));
+    if (id !== 0) return id;
+  }
 }
 
 // ─── Generation requests ──────────────────────────────────────────────────────
