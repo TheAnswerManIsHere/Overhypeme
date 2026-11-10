@@ -187,7 +187,7 @@ Image tracing (plan `docs/plans/PLAN_IMAGE_TRACING.md`; #905, increment 1
 came to exist. The rules a change here must keep:
 
 - **One finishing step.** Every producer calls
-  `lib/provenance/records.ts` `finishImage` with the bytes it is about to
+  `artifacts/api-server/src/lib/provenance/records.ts` `finishImage` with the bytes it is about to
   store or send. It settles the true format from the bytes, stamps the
   opaque id into the file, hashes the final bytes and commits the record —
   only then are the bytes stored or sent. A picture with no committed
@@ -201,7 +201,7 @@ came to exist. The rules a change here must keep:
 - **Producers today:** the render worker (`imagePromptJobs.ts`: product,
   moderation and eval renders), the engine comparison (`comparison/runs.ts`),
   the engine workbench (`routes/adminEngines.ts` via
-  `lib/provenance/workbench.ts`, whose completed result names our stored
+  `artifacts/api-server/src/lib/provenance/workbench.ts`, whose completed result names our stored
   copy, never the vendor URL), and member uploads (`userImageUpload.ts`,
   recorded unstamped). Meme images join in increment 2. A new producer
   joins by calling `finishImage`; the inventory oracles are in the plan's
@@ -211,7 +211,7 @@ came to exist. The rules a change here must keep:
   the container (PNG iTXt, JPEG APP1, WebP XMP chunk), so decoded pixels
   are byte-identical. Comparison pictures carry the id only, so blind
   judging stays blind.
-- **Who made it** comes from named sources (`lib/provenance/attemptActor.ts`):
+- **Who made it** comes from named sources (`artifacts/api-server/src/lib/provenance/attemptActor.ts`):
   a moderation render's admin from its review audit — the approving admin
   rides the render-preparation job's payload — an eval render's from its
   eval run, a comparison cell's from its run, a product render's member
@@ -221,7 +221,7 @@ came to exist. The rules a change here must keep:
 - **Records outlive everything else.** Neither table has a foreign key;
   only the retention purge (`image_provenance.retention_days`, 0 = kept
   indefinitely) removes a record.
-- **The code version is the commit** (`lib/codeVersion.ts`): baked into the
+- **The code version is the commit** (`artifacts/api-server/src/lib/codeVersion.ts`): baked into the
   production bundle by `build.mjs` with its date and subject, read from git
   in dev; an unversioned run says so.
 - **Engine output is saved and served under its true format** — the
