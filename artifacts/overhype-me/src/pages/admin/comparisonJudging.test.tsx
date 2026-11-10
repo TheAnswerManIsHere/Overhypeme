@@ -1,8 +1,9 @@
 /**
  * ComparisonJudging — /admin/eval/judge/:setId, the blind page of the launch
  * Phase 8 comparison. AdminLayout is stubbed. Opens on the first panel still to
- * judge, letters the images with nothing naming an engine, picks and marks
- * faces by token, refuses a panel that is not ready, and moves on after saving.
+ * judge, letters the images with nothing naming an engine, scores every image
+ * 1 to 5 and marks faces by token, saves only when every image is scored,
+ * refuses a panel that is not ready, and moves on after saving.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -36,10 +37,10 @@ let picks: Record<number, unknown> = {};
 function routeFetch() {
   return vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as { pickedToken: string; faceMismatchTokens: string[] };
+      const body = JSON.parse(String(init.body)) as { ratings: Array<{ token: string; score: number }>; faceMismatchTokens: string[] };
       posts.push({ url, body });
       const panelId = Number(url.match(/panels\/(\d+)\/pick/)![1]);
-      picks[panelId] = { ...body, judgedAt: new Date().toISOString() };
+      picks[panelId] = { ratings: Object.fromEntries(body.ratings.map((r) => [r.token, r.score])), faceMismatchTokens: body.faceMismatchTokens, judgedAt: new Date().toISOString() };
       return { ok: true, json: async () => ({ pick: body }) } as unknown as Response;
     }
     if (url.endsWith("/comparison/sets/7/judging")) return { ok: true, json: async () => blindSet(picks) } as unknown as Response;
@@ -51,7 +52,7 @@ beforeEach(() => { posts = []; picks = {}; });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("ComparisonJudging", () => {
-  it("shows a panel's images lettered, naming no engine, and saves the pick by token", async () => {
+  it("shows a panel's images lettered, naming no engine, and saves a score for each by token", async () => {
     vi.stubGlobal("fetch", routeFetch());
     render(<ComparisonJudging params={{ setId: "7" }} />);
     const images = await screen.findByTestId("judging-images");
@@ -62,24 +63,34 @@ describe("ComparisonJudging", () => {
     expect(screen.queryByTestId("judging-face-A")).toBeNull(); // text-to-image: no face to mark
     expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(screen.getByTestId("judging-pick-B"));
+    fireEvent.click(screen.getByTestId("judging-score-B-4"));
+    expect(screen.getByTestId("judging-unscored").textContent).toMatch(/1 still to score/);
+    expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(true); // A is unscored
+    fireEvent.click(screen.getByTestId("judging-score-A-2"));
+    fireEvent.click(screen.getByTestId("judging-score-B-5")); // a score can be changed before saving
+    expect(screen.getByTestId("judging-score-B-5").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("judging-score-B-4").getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(screen.getByTestId("judging-save"));
     await waitFor(() => expect(posts).toHaveLength(1));
-    expect(posts[0]).toEqual({ url: "/api/admin/comparison/panels/1/pick", body: { pickedToken: "bbbbbbbbbbbbbbbb", faceMismatchTokens: [] } });
+    expect(posts[0]).toEqual({
+      url: "/api/admin/comparison/panels/1/pick",
+      body: { ratings: [{ token: "aaaaaaaaaaaaaaaa", score: 2 }, { token: "bbbbbbbbbbbbbbbb", score: 5 }], faceMismatchTokens: [] },
+    });
     // Saving moves to the next panel still to judge.
     await waitFor(() => expect(screen.getByTestId("judging-panel").textContent).toMatch(/Panel 2 of 3/));
   });
 
   it("marks faces on a panel with a person's photo", async () => {
-    picks = { 1: { pickedToken: "aaaaaaaaaaaaaaaa", faceMismatchTokens: [], judgedAt: "2026-11-07T00:00:00Z" } };
+    picks = { 1: { ratings: { aaaaaaaaaaaaaaaa: 3, bbbbbbbbbbbbbbbb: 3 }, faceMismatchTokens: [], judgedAt: "2026-11-07T00:00:00Z" } };
     vi.stubGlobal("fetch", routeFetch());
     render(<ComparisonJudging params={{ setId: "7" }} />);
     await waitFor(() => expect(screen.getByTestId("judging-panel").textContent).toMatch(/Panel 2 of 3/));
-    fireEvent.click(screen.getByTestId("judging-pick-A"));
+    fireEvent.click(screen.getByTestId("judging-score-A-5"));
+    fireEvent.click(screen.getByTestId("judging-score-B-1"));
     fireEvent.click(screen.getByTestId("judging-face-B"));
     fireEvent.click(screen.getByTestId("judging-save"));
     await waitFor(() => expect(posts).toHaveLength(1));
-    expect(posts[0]!.body).toEqual({ pickedToken: "cccccccccccccccc", faceMismatchTokens: ["dddddddddddddddd"] });
+    expect(posts[0]!.body).toEqual({ ratings: [{ token: "cccccccccccccccc", score: 5 }, { token: "dddddddddddddddd", score: 1 }], faceMismatchTokens: ["dddddddddddddddd"] });
   });
 
   it("shows how many images are in for a panel that is not ready, and no images", async () => {
@@ -92,19 +103,25 @@ describe("ComparisonJudging", () => {
     expect(screen.queryByTestId("judging-save")).toBeNull();
   });
 
-  it("re-opens a judged panel with its saved pick, and saves only a change", async () => {
-    picks = { 1: { pickedToken: "bbbbbbbbbbbbbbbb", faceMismatchTokens: [], judgedAt: "2026-11-07T00:00:00Z" }, 2: { pickedToken: "cccccccccccccccc", faceMismatchTokens: [], judgedAt: "2026-11-07T00:00:00Z" } };
+  it("re-opens a judged panel with its saved scores, and saves only a change", async () => {
+    picks = {
+      1: { ratings: { aaaaaaaaaaaaaaaa: 2, bbbbbbbbbbbbbbbb: 4 }, faceMismatchTokens: [], judgedAt: "2026-11-07T00:00:00Z" },
+      2: { ratings: { cccccccccccccccc: 3, dddddddddddddddd: 3 }, faceMismatchTokens: [], judgedAt: "2026-11-07T00:00:00Z" },
+    };
     vi.stubGlobal("fetch", routeFetch());
     render(<ComparisonJudging params={{ setId: "7" }} />);
     await screen.findByTestId("judging-images");
     expect(screen.getByTestId("judging-panel").textContent).toMatch(/Panel 1 of 3.*judged/);
-    expect(screen.getByTestId("judging-pick-B").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("judging-score-B-4").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("judging-score-A-2").getAttribute("aria-pressed")).toBe("true");
     expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByTestId("judging-pick-A"));
+    fireEvent.click(screen.getByTestId("judging-score-A-3"));
     expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId("judging-score-A-2")); // back to what was saved
+    expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("refreshes while images render, keeping the panel and an unsaved pick", async () => {
+  it("refreshes while images render, keeping the panel and an unsaved score", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       let ready = false;
@@ -115,12 +132,12 @@ describe("ComparisonJudging", () => {
       }));
       render(<ComparisonJudging params={{ setId: "7" }} />);
       await screen.findByTestId("judging-images");
-      fireEvent.click(screen.getByTestId("judging-pick-B")); // unsaved
+      fireEvent.click(screen.getByTestId("judging-score-B-3")); // unsaved
       ready = true;
       await vi.advanceTimersByTimeAsync(REFRESH_MS + 10);
       await waitFor(() => expect(screen.getByTestId("judging-progress").textContent).toMatch(/2 ready to judge/));
       expect(screen.getByTestId("judging-panel").textContent).toMatch(/Panel 1 of 3/);
-      expect(screen.getByTestId("judging-pick-B").getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByTestId("judging-score-B-3").getAttribute("aria-pressed")).toBe("true");
       fireEvent.click(screen.getByTestId("judging-next"));
       expect(screen.getByTestId("judging-images").querySelectorAll("img")).toHaveLength(2);
     } finally {
@@ -142,20 +159,20 @@ describe("ComparisonJudging", () => {
     expect(screen.queryByTestId("judging-save")).toBeNull();
   });
 
-  it("says a lost panel can never be judged, and stops refreshing for it", async () => {
+  it("says a panel with every image lost has nothing to score, and stops refreshing for it", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const fetchMock = vi.fn(async () => {
         const body = blindSet();
-        body.panels[2] = { ...body.panels[2]!, waiting: "lost", imagesReady: 1 };
+        body.panels[2] = { ...body.panels[2]!, waiting: "lost", imagesReady: 0 };
         return { ok: true, json: async () => ({ ...body, progress: { ...body.progress, lost: 1 } }) } as unknown as Response;
       });
       vi.stubGlobal("fetch", fetchMock);
       render(<ComparisonJudging params={{ setId: "7" }} />);
       await screen.findByTestId("judging-images");
-      expect(screen.getByTestId("judging-progress").textContent).toMatch(/1 lost an image for good/);
+      expect(screen.getByTestId("judging-progress").textContent).toMatch(/1 lost every image for good/);
       fireEvent.click(screen.getByTestId("judging-prev"));
-      expect((await screen.findByTestId("judging-lost")).textContent).toMatch(/can never be judged/);
+      expect((await screen.findByTestId("judging-lost")).textContent).toMatch(/nothing to score/);
       expect(screen.queryByTestId("judging-not-ready")).toBeNull();
       const calls = fetchMock.mock.calls.length;
       await vi.advanceTimersByTimeAsync(REFRESH_MS * 3);
@@ -175,5 +192,25 @@ describe("ComparisonJudging", () => {
     await screen.findByTestId("judging-images");
     fireEvent.click(screen.getByTestId("judging-prev"));
     expect((await screen.findByTestId("judging-needs-action")).textContent).toMatch(/re-run it or prepare the panel again on the comparison screen/);
+  });
+
+  it("shows a lost image as missing, naming no engine, and scores the rest", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts.push({ url, body: JSON.parse(String(init.body)) });
+        return { ok: true, json: async () => ({}) } as unknown as Response;
+      }
+      const body = blindSet();
+      body.panels[0] = { ...body.panels[0]!, imagesReady: 1, imagesMissing: 1, images: [img(1, "aaaaaaaaaaaaaaaa")] };
+      return { ok: true, json: async () => body } as unknown as Response;
+    }));
+    render(<ComparisonJudging params={{ setId: "7" }} />);
+    const images = await screen.findByTestId("judging-images");
+    expect(images.querySelectorAll("img")).toHaveLength(1);
+    expect(screen.getByTestId("judging-missing").textContent).toMatch(/1 engine could not draw this panel.*Score the 1 that exist/);
+    fireEvent.click(screen.getByTestId("judging-score-A-4"));
+    fireEvent.click(screen.getByTestId("judging-save"));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]!.body).toEqual({ ratings: [{ token: "aaaaaaaaaaaaaaaa", score: 4 }], faceMismatchTokens: [] });
   });
 });

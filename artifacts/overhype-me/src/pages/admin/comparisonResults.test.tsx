@@ -16,22 +16,22 @@ const RESULTS = {
   sets: [{ id: 4, label: "Round 1", round: 1 }, { id: 5, label: "Round 2", round: 2 }],
   families: ["flux-3", "gpt-image-2-5"],
   panels: { total: 33, judged: 30, judgeable: 30, skipped: 2, lost: 1 },
-  wins: {
-    overall: { "flux-3": 20, "gpt-image-2-5": 13 },
-    byMode: { t2i: { "flux-3": 9, "gpt-image-2-5": 6 }, i2i: { "flux-3": 9, "gpt-image-2-5": 9 } },
-    byStyle: { none: { "flux-3": 8 }, anime: { "gpt-image-2-5": 4 } },
-    byScenario: { generic_t2i: { "flux-3": 9 } },
+  scores: {
+    overall: { "flux-3": { mean: 3.9, count: 33 }, "gpt-image-2-5": { mean: 3.4, count: 31 } },
+    byMode: { t2i: { "flux-3": { mean: 4.2, count: 15 }, "gpt-image-2-5": { mean: 3.1, count: 14 } }, i2i: { "flux-3": { mean: 3.75, count: 18 }, "gpt-image-2-5": { mean: 3.75, count: 17 } } },
+    byStyle: { none: { "flux-3": { mean: 4, count: 15 } }, anime: { "gpt-image-2-5": { mean: 4.5, count: 6 } } },
+    byScenario: { generic_t2i: { "flux-3": { mean: 4.2, count: 3 } } },
   },
-  leaders: { t2i: { families: ["flux-3"], wins: 9, judged: 15 }, i2i: { families: ["flux-3", "gpt-image-2-5"], wins: 9, judged: 18 } },
+  leaders: { t2i: { families: ["flux-3"], mean: 4.2, judged: 15 }, i2i: { families: ["flux-3", "gpt-image-2-5"], mean: 3.75, judged: 18 } },
   faceMismatches: { "gpt-image-2-5": 3 },
   ranking: {
     t2i: [
-      { family: "flux-3", engineId: "flux-3", wins: 9, usdPerImage: 0.048, exact: true },
-      { family: "gpt-image-2-5", engineId: "gpt-image-2-5", wins: 6, usdPerImage: 0.058, exact: false },
+      { rank: 1, family: "flux-3", engineId: "flux-3", mean: 4.2, scored: 15, lost: 0, usdPerImage: 0.048, exact: true },
+      { rank: 2, family: "gpt-image-2-5", engineId: "gpt-image-2-5", mean: 3.1, scored: 14, lost: 1, usdPerImage: 0.058, exact: false },
     ],
     i2i: [
-      { family: "gpt-image-2-5", engineId: "gpt-image-2-5-edit", wins: 9, usdPerImage: 0.066, exact: false },
-      { family: "flux-3", engineId: "flux-3-edit", wins: 9, usdPerImage: 0.048, exact: true },
+      { rank: 1, family: "flux-3", engineId: "flux-3-edit", mean: 3.75, scored: 18, lost: 0, usdPerImage: 0.048, exact: true },
+      { rank: 1, family: "gpt-image-2-5", engineId: "gpt-image-2-5-edit", mean: 3.75, scored: 17, lost: 0, usdPerImage: 0.066, exact: false },
     ],
   },
   humanReferencePanelsJudged: 12,
@@ -49,13 +49,20 @@ describe("ComparisonResults", () => {
     render(<ComparisonResults />);
     const leaders = await screen.findByTestId("results-leaders");
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/comparison/results?setIds=4,5", expect.anything());
-    expect(leaders.textContent).toMatch(/Text-to-image.*flux-3 — 9 of 15 panels/);
-    expect(leaders.textContent).toMatch(/Reference edit.*flux-3 = gpt-image-2-5 — 9 of 18 panels \(tied\)/);
-    expect(screen.getByTestId("results-summary").textContent).toMatch(/30 of 33 panels judged.*1 panel lost an engine\x27s image for good.*2 panels were skipped at preparation and will never be judged/);
-    const ranking = screen.getByTestId("results-ranking").textContent ?? "";
-    expect(ranking).toMatch(/Text-to-image: quality, then price.*flux-3.*\$0\.048.*gpt-image-2-5.*about \$0\.058/);
-    expect(ranking).toMatch(/Reference edit: quality, then price.*gpt-image-2-5.*about \$0\.066.*flux-3/);
-    expect(screen.getByTestId("results-by-style").textContent).toMatch(/anime/);
+    expect(leaders.textContent).toMatch(/Text-to-image.*flux-3 — average 4\.20 of 5, over 15 panels/);
+    expect(leaders.textContent).toMatch(/Reference edit.*flux-3 = gpt-image-2-5 — average 3\.75 of 5, over 18 panels \(tied\)/);
+    expect(screen.getByTestId("results-summary").textContent).toMatch(/30 of 33 panels judged.*1 panel lost every image for good.*2 panels were skipped at preparation and will never be judged/);
+    const ranking = screen.getByTestId("results-ranking");
+    const t2iRows = [...ranking.querySelectorAll("table")[0]!.querySelectorAll("tbody tr")].map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent));
+    expect(t2iRows).toEqual([
+      ["1", "flux-3", "4.20", "15", "0", "$0.048"],
+      ["2", "gpt-image-2-5", "3.10", "14", "1", "about $0.058"],
+    ]);
+    const i2iRanks = [...ranking.querySelectorAll("table")[1]!.querySelectorAll("tbody tr")].map((tr) => tr.querySelector("td")!.textContent);
+    expect(i2iRanks).toEqual(["1", "1"]); // an equal average shares a rank
+    expect(ranking.textContent).toMatch(/Reference edit: quality, then price/);
+    expect(ranking.textContent).toMatch(/at the comparison's size/);
+    expect(screen.getByTestId("results-by-style").textContent).toMatch(/anime.*4\.50/);
     expect(screen.getByTestId("results-faces").textContent).toMatch(/of 12 judged.*gpt-image-2-5 3/);
     expect(screen.getByTestId("results-costs").textContent).toMatch(/flux-3 \(flux-3\) · 15 calls · \$0\.72.*total, at most · \$3\.22/);
   });

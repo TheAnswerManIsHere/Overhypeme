@@ -1,12 +1,14 @@
 /**
  * The engine comparison's results — /admin/eval/results?sets=1,2 (launch
  * Phase 8, increment 3; plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
- * *Proposed Design* E). The engines revealed: wins per mode (text-to-image;
- * reference edit) with the leader of each, per style and per scenario, the
- * "not the person" marks, and what each engine's calls could have cost. Stage 2
- * of judging (David, 2026-11-10): beside each mode's quality ranking, what one
- * image from each engine costs — exact for a flat price, "about" for a token
- * price — so quality can be weighed against price after it was judged blind.
+ * *Proposed Design* E). The engines revealed: each one's average score (every
+ * image is scored 1 to 5, David, 2026-11-10) per mode (text-to-image;
+ * reference edit) with the leader of each, per style and per scenario, how
+ * often it could not draw a panel, the "not the person" marks, and what each
+ * engine's calls could have cost. Stage 2 of judging (David, 2026-11-10):
+ * beside each mode's ranking, what one image from each engine costs — exact
+ * for a flat price, "about" for a token price — so quality can be weighed
+ * against price after it was judged blind.
  * Several sets read together, so round 1 and round 2 give one winner per mode.
  */
 import { useCallback, useEffect, useState } from "react";
@@ -14,28 +16,43 @@ import { Link } from "wouter";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 
-type Wins = Record<string, number>;
+interface Score { mean: number | null; count: number }
+type Scores = Record<string, Score>;
 interface Results {
   sets: Array<{ id: number; label: string; round: number }>;
   families: string[];
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost?: number };
-  wins: { overall: Wins; byMode: Record<string, Wins>; byStyle: Record<string, Wins>; byScenario: Record<string, Wins> };
-  leaders: Record<string, { families: string[]; wins: number; judged: number }>;
+  scores: { overall: Scores; byMode: Record<string, Scores>; byStyle: Record<string, Scores>; byScenario: Record<string, Scores> };
+  leaders: Record<string, { families: string[]; mean: number; judged: number }>;
   ranking?: Record<string, RankRow[]>;
-  faceMismatches: Wins;
+  faceMismatches: Record<string, number>;
   humanReferencePanelsJudged: number;
   costs: Record<string, { family: string; calls: number; boundUsd: number }>;
   preparationBoundUsd: number;
 }
 
-interface RankRow { family: string; engineId: string; wins: number; usdPerImage: number | null; exact: boolean }
+interface RankRow {
+  rank: number;
+  family: string;
+  engineId: string;
+  mean: number | null;
+  scored: number;
+  lost: number;
+  usdPerImage: number | null;
+  exact: boolean;
+}
+
+const meanText = (mean: number | null) => (mean == null ? "—" : mean.toFixed(2));
 
 function priceText(row: RankRow): string {
   if (row.usdPerImage == null) return "—";
   return (row.exact ? "" : "about ") + "$" + row.usdPerImage.toFixed(3);
 }
 
-/** One mode's engines in quality order, each with what one of its images costs. */
+/**
+ * One mode's engines in score order, each with what one of its images costs.
+ * Engines with the same average share a rank; one never scored has no rank.
+ */
 function RankingTable({ label, rows }: { label: string; rows: RankRow[] }) {
   return (
     <div className="rounded-sm border border-border bg-background p-3 space-y-1">
@@ -45,16 +62,20 @@ function RankingTable({ label, rows }: { label: string; rows: RankRow[] }) {
           <tr className="text-muted-foreground">
             <th className="text-left font-semibold py-0.5">#</th>
             <th className="text-left font-semibold">Engine</th>
-            <th className="text-right font-semibold">Wins</th>
+            <th className="text-right font-semibold">Average (1–5)</th>
+            <th className="text-right font-semibold">Scored</th>
+            <th className="text-right font-semibold">Couldn't draw</th>
             <th className="text-right font-semibold">Per image</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
+          {rows.map((row) => (
             <tr key={row.engineId} className="border-t border-border">
-              <td className="py-0.5 text-muted-foreground">{i + 1}</td>
+              <td className="py-0.5 text-muted-foreground">{row.mean == null ? "—" : row.rank}</td>
               <td className="font-mono text-foreground">{row.family}</td>
-              <td className="text-right text-foreground">{row.wins}</td>
+              <td className="text-right font-bold text-foreground">{meanText(row.mean)}</td>
+              <td className="text-right text-foreground">{row.scored}</td>
+              <td className={`text-right ${row.lost > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-muted-foreground"}`}>{row.lost}</td>
               <td className="text-right font-mono text-foreground">{priceText(row)}</td>
             </tr>
           ))}
@@ -71,7 +92,8 @@ function setsFromUrl(): string {
   return new URLSearchParams(window.location.search).get("sets") ?? "";
 }
 
-function WinsTable({ title, groups, families, testId }: { title: string; groups: Record<string, Wins>; families: string[]; testId: string }) {
+/** Each family's average score per group; a blank cell is a family with no score there. */
+function ScoresTable({ title, groups, families, testId }: { title: string; groups: Record<string, Scores>; families: string[]; testId: string }) {
   const keys = Object.keys(groups).sort();
   if (keys.length === 0) return null;
   return (
@@ -89,7 +111,7 @@ function WinsTable({ title, groups, families, testId }: { title: string; groups:
             {keys.map((k) => (
               <tr key={k} className="border-t border-border">
                 <td className="pr-3 py-1 font-mono text-foreground">{MODE_LABEL[k] ?? k}</td>
-                {families.map((f) => <td key={f} className="px-2 py-1 text-center text-foreground">{groups[k]![f] ?? 0}</td>)}
+                {families.map((f) => <td key={f} className="px-2 py-1 text-center text-foreground" title={groups[k]![f] ? `${groups[k]![f]!.count} scored` : undefined}>{meanText(groups[k]![f]?.mean ?? null)}</td>)}
               </tr>
             ))}
           </tbody>
@@ -141,7 +163,7 @@ export default function ComparisonResults() {
             <p className="text-sm text-foreground" data-testid="results-summary">
               {data.sets.map((s) => `#${s.id} ${s.label} (round ${s.round})`).join(" + ")} — {data.panels.judged} of {data.panels.total} panels judged
               {data.panels.judged < data.panels.total ? ` (${data.panels.judgeable} ready to judge)` : ""}.
-              {(data.panels.lost ?? 0) > 0 && <strong> {data.panels.lost} panel{data.panels.lost === 1 ? " lost" : "s lost"} an engine's image for good and will never be judged.</strong>}
+              {(data.panels.lost ?? 0) > 0 && <strong> {data.panels.lost} panel{data.panels.lost === 1 ? " lost" : "s lost"} every image for good and will never be judged.</strong>}
               {data.panels.skipped > 0 && <strong> {data.panels.skipped} panel{data.panels.skipped === 1 ? " was" : "s were"} skipped at preparation and will never be judged: this comparison is smaller than planned.</strong>}
             </p>
 
@@ -153,7 +175,7 @@ export default function ComparisonResults() {
                     <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{MODE_LABEL[mode]}</p>
                     {lead ? (
                       <p className="text-sm text-foreground">
-                        <strong className="font-mono">{lead.families.join(" = ")}</strong> — {lead.wins} of {lead.judged} panels{lead.families.length > 1 ? " (tied)" : ""}
+                        <strong className="font-mono">{lead.families.join(" = ")}</strong> — average {lead.mean.toFixed(2)} of 5, over {lead.judged} panel{lead.judged === 1 ? "" : "s"}{lead.families.length > 1 ? " (tied)" : ""}
                       </p>
                     ) : <p className="text-sm text-muted-foreground">No panels judged yet.</p>}
                   </div>
@@ -168,13 +190,13 @@ export default function ComparisonResults() {
                     <RankingTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.ranking![mode]!} />
                   ))}
                 </div>
-                <p className="text-[11px] text-muted-foreground">Per-image prices are fal's list prices. "About" marks a token-billed engine: a typical cost, within about 10%.</p>
+                <p className="text-[11px] text-muted-foreground">Ranked by average score; equal averages share a rank. "Couldn't draw" counts this engine's images lost for good, which have no score. Per-image prices are fal's list prices at the comparison's size (about 1 megapixel). "About" marks a token-billed engine: a typical cost, within about 10%.</p>
               </div>
             )}
 
-            <WinsTable title="Wins by mode" groups={data.wins.byMode} families={data.families} testId="results-by-mode" />
-            <WinsTable title="Wins by style" groups={data.wins.byStyle} families={data.families} testId="results-by-style" />
-            <WinsTable title="Wins by scenario" groups={data.wins.byScenario} families={data.families} testId="results-by-scenario" />
+            <ScoresTable title="Average score by mode" groups={data.scores.byMode} families={data.families} testId="results-by-mode" />
+            <ScoresTable title="Average score by style" groups={data.scores.byStyle} families={data.families} testId="results-by-style" />
+            <ScoresTable title="Average score by scenario" groups={data.scores.byScenario} families={data.families} testId="results-by-scenario" />
 
             <div className="space-y-1" data-testid="results-faces">
               <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">"Not the person" marks, of {data.humanReferencePanelsJudged} judged panels with a person's photo</h3>

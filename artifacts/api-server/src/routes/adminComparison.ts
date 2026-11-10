@@ -10,10 +10,10 @@
  *   POST /api/admin/comparison/cells/:id/retry-storage   store a failed cell's vendor image again (spends nothing)
  *   POST /api/admin/comparison/cells/:id/rerun   a failed cell's one re-run: back to expected, admitted by the next run
  *   POST /api/admin/comparison/panels/:id/reprepare   a failed panel back to pending, admitted by the next preparation run
- *   GET  /api/admin/comparison/sets/:id/judging   the blind view: panels, images by opaque token, picks (increment 3)
+ *   GET  /api/admin/comparison/sets/:id/judging   the blind view: panels, images by opaque token, saved scores (increment 3)
  *   GET  /api/admin/comparison/panels/:id/images/:token   one blind image, with nothing that names its engine
- *   POST /api/admin/comparison/panels/:id/pick    record or replace David's pick and face marks for a panel
- *   GET  /api/admin/comparison/results?setIds=1,2 the engines revealed: wins per mode, style and scenario, face marks, costs
+ *   POST /api/admin/comparison/panels/:id/pick    record or replace David's 1-to-5 scores and face marks for a panel
+ *   GET  /api/admin/comparison/results?setIds=1,2 the engines revealed: average scores per mode, style and scenario, face marks, costs
  *
  * Planning spends nothing and writes nothing; a run is the one action that spends.
  */

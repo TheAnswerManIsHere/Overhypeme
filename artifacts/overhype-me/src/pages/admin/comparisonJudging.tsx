@@ -6,12 +6,14 @@
  * One panel at a time: the same prompt drawn by each candidate engine, in a
  * stable shuffled order, lettered A, B, C… with nothing that names an engine
  * (the server sends opaque tokens and serves each image without its path).
- * David picks the best and, on panels with a person's reference photo, marks
- * any face that is not the person. Saving moves to the next panel still to
- * judge; a saved panel can be judged again, which replaces the pick. While
- * images are still rendering the page refreshes every few seconds, keeping
- * the panel on screen and any unsaved pick; a panel skipped at preparation
- * stays listed with its reason.
+ * David scores every image 1 to 5 (David, 2026-11-10, in place of picking the
+ * best) and, on panels with a person's reference photo, marks any face that
+ * is not the person. An image an engine could not draw is shown as missing,
+ * naming no engine, and the rest are scored. Saving moves to the next panel
+ * still to judge; a saved panel can be judged again, which replaces its
+ * scores. While images are still rendering the page refreshes every few
+ * seconds, keeping the panel on screen and any unsaved scores; a panel
+ * skipped at preparation stays listed with its reason.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
@@ -37,8 +39,11 @@ interface BlindPanel {
   skipReason: string | null;
   imagesReady: number;
   imagesExpected: number;
+  /** Images an engine could not draw, lost for good. */
+  imagesMissing?: number;
   images: BlindImage[];
-  pick: { pickedToken: string; faceMismatchTokens: string[]; judgedAt: string } | null;
+  /** The saved scores, by blind token. */
+  pick: { ratings: Record<string, number>; faceMismatchTokens: string[]; judgedAt: string } | null;
 }
 interface BlindSet {
   set: { id: number; label: string; round: number };
@@ -47,6 +52,12 @@ interface BlindSet {
 }
 
 const letter = (i: number) => String.fromCharCode(65 + i);
+
+/** The scale: 1 (worst) to 5 (best). */
+export const SCORES = [1, 2, 3, 4, 5] as const;
+
+const sameRatings = (a: Record<string, number>, b: Record<string, number>) =>
+  Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([t, v]) => b[t] === v);
 
 /** How often the page re-reads while images are still rendering. */
 export const REFRESH_MS = 5_000;
@@ -65,7 +76,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
   const [data, setData] = useState<BlindSet | null>(null);
   const [error, setError] = useState("");
   const [index, setIndex] = useState(0);
-  const [picked, setPicked] = useState<string | null>(null);
+  const [ratings, setRatings] = useState<Record<string, number>>({});
   const [faceMarks, setFaceMarks] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -90,7 +101,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
   const panel = data?.panels[index] ?? null;
 
   // While any image is still to come, refresh quietly: the panel on screen,
-  // and any pick not yet saved, stay as they are.
+  // and any scores not yet saved, stay as they are.
   // Only work still in progress is polled for: a lost panel will never change,
   // and one that needs action changes only when someone acts on the comparison screen.
   const rendering = !!data && data.panels.some((p) => !p.judgeable && !p.skipped && (p.waiting ?? "rendering") === "rendering");
@@ -100,22 +111,27 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
     return () => clearInterval(timer);
   }, [rendering, load]);
 
-  // The panel's saved pick, or a clean slate, whenever the panel changes —
+  // The panel's saved scores, or a clean slate, whenever the panel changes —
   // before paint, so a click on the newly shown panel is never wiped by a
   // reset that lands after it.
   useLayoutEffect(() => {
-    setPicked(panel?.pick?.pickedToken ?? null);
+    setRatings({ ...(panel?.pick?.ratings ?? {}) });
     setFaceMarks(new Set(panel?.pick?.faceMismatchTokens ?? []));
     setNotice("");
   }, [panel?.panelId, panel?.pick?.judgedAt]);
 
+  const unscored = panel ? panel.images.filter((img) => ratings[img.token] == null).length : 0;
+  const complete = !!panel && panel.images.length > 0 && unscored === 0;
+
   const dirty = useMemo(() => {
     if (!panel) return false;
     const saved = panel.pick;
-    if (!saved) return picked != null;
+    if (!saved) return Object.keys(ratings).length > 0;
     const savedMarks = new Set(saved.faceMismatchTokens);
-    return saved.pickedToken !== picked || savedMarks.size !== faceMarks.size || [...faceMarks].some((t) => !savedMarks.has(t));
-  }, [panel, picked, faceMarks]);
+    return !sameRatings(saved.ratings, ratings) || savedMarks.size !== faceMarks.size || [...faceMarks].some((t) => !savedMarks.has(t));
+  }, [panel, ratings, faceMarks]);
+
+  const rate = (token: string, score: number) => setRatings((prev) => ({ ...prev, [token]: score }));
 
   const toggleFace = (token: string) => {
     setFaceMarks((prev) => {
@@ -126,14 +142,17 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
   };
 
   const save = async () => {
-    if (!panel || !picked) return;
+    if (!panel || !complete) return;
     setSaving(true);
     setError("");
     const r = await fetch(`/api/admin/comparison/panels/${panel.panelId}/pick`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pickedToken: picked, faceMismatchTokens: panel.faceMarkable ? [...faceMarks] : [] }),
+      body: JSON.stringify({
+        ratings: panel.images.map((img) => ({ token: img.token, score: ratings[img.token]! })),
+        faceMismatchTokens: panel.faceMarkable ? [...faceMarks] : [],
+      }),
     }).catch(() => null);
     setSaving(false);
     if (!r || !r.ok) { setError(r ? `Not saved: ${await readError(r)}` : "Not saved: the request failed."); return; }
@@ -153,7 +172,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
       <div className="space-y-4 max-w-6xl" data-testid="judging-page">
         <p className="text-xs text-muted-foreground">
           <Link href="/admin/eval" className="text-primary underline">← Eval dashboard</Link>
-          {" · "}Judge how each picture looks; prompt fidelity is tuned after the pick. Engines stay hidden until{" "}
+          {" · "}Score how each picture looks, 1 (worst) to 5 (best); prompt fidelity is tuned after the winner is chosen. Engines stay hidden until{" "}
           <Link href={`/admin/eval/results?sets=${setId}`} className="text-primary underline">the results</Link>.
         </p>
 
@@ -167,7 +186,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
               <p className="text-xs font-mono text-muted-foreground" data-testid="judging-progress">
                 {data.progress.judged} of {data.progress.panels} judged · {data.progress.judgeable} ready to judge
                 {data.progress.skipped > 0 ? ` · ${data.progress.skipped} skipped, never judged` : ""}
-                {(data.progress.lost ?? 0) > 0 ? ` · ${data.progress.lost} lost an image for good` : ""}
+                {(data.progress.lost ?? 0) > 0 ? ` · ${data.progress.lost} lost every image for good` : ""}
               </p>
             </div>
 
@@ -195,7 +214,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                   </p>
                 ) : panel.waiting === "lost" ? (
                   <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-lost">
-                    One engine's image for this panel failed after its re-run, so the panel can never be judged ({panel.imagesReady} of {panel.imagesExpected} images exist). It still counts in the round.
+                    No engine's image for this panel could be made, so there is nothing to score. It still counts in the round.
                   </p>
                 ) : panel.waiting === "needs_action" ? (
                   <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-needs-action">
@@ -203,35 +222,48 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                   </p>
                 ) : !panel.judgeable ? (
                   <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="judging-not-ready">
-                    {panel.imagesReady} of {panel.imagesExpected} images are ready. A panel is judged only when every engine's image is in.
+                    {panel.imagesReady} of {panel.imagesExpected} images are ready. A panel is scored once every engine's image is in, or lost for good.
                   </p>
                 ) : (
                   <>
+                    {(panel.imagesMissing ?? 0) > 0 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="judging-missing">
+                        {panel.imagesMissing} engine{panel.imagesMissing === 1 ? "" : "s"} could not draw this panel, so {panel.imagesMissing === 1 ? "its picture is" : "their pictures are"} missing. Score the {panel.images.length} that exist.
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="judging-images">
                       {panel.images.map((img, i) => {
-                        const isPicked = picked === img.token;
+                        const score = ratings[img.token];
                         const marked = faceMarks.has(img.token);
                         return (
-                          <div key={img.token} className={`rounded-sm border-2 p-1 space-y-1 ${isPicked ? "border-primary" : "border-transparent"}`}>
-                            <button
-                              type="button"
-                              onClick={() => setPicked(img.token)}
-                              aria-pressed={isPicked}
-                              aria-label={`Pick image ${letter(i)}`}
-                              data-testid={`judging-pick-${letter(i)}`}
-                              className="block w-full aspect-square bg-muted rounded-sm overflow-hidden"
-                            >
+                          <div key={img.token} className={`rounded-sm border-2 p-1 space-y-1 ${score != null ? "border-primary/60" : "border-transparent"}`}>
+                            <div className="block w-full aspect-square bg-muted rounded-sm overflow-hidden">
                               <img src={img.src} alt={`Image ${letter(i)}`} className="w-full h-full object-contain" />
-                            </button>
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-bold text-foreground">{letter(i)}{isPicked ? " — best" : ""}</span>
-                              {panel.faceMarkable && (
-                                <label className="inline-flex items-center gap-1 text-muted-foreground">
-                                  <input type="checkbox" checked={marked} onChange={() => toggleFace(img.token)} data-testid={`judging-face-${letter(i)}`} />
-                                  not the person
-                                </label>
-                              )}
                             </div>
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <span className="font-bold text-foreground">{letter(i)}</span>
+                              <div className="flex items-center gap-1" role="group" aria-label={`Score image ${letter(i)}`}>
+                                {SCORES.map((n) => (
+                                  <button
+                                    key={n}
+                                    type="button"
+                                    onClick={() => rate(img.token, n)}
+                                    aria-pressed={score === n}
+                                    aria-label={`Score image ${letter(i)} ${n} of 5`}
+                                    data-testid={`judging-score-${letter(i)}-${n}`}
+                                    className={`w-7 h-7 rounded-sm border text-sm font-bold ${score === n ? "bg-primary text-white border-primary" : "border-border text-foreground hover:bg-muted"}`}
+                                  >
+                                    {n}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            {panel.faceMarkable && (
+                              <label className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                <input type="checkbox" checked={marked} onChange={() => toggleFace(img.token)} data-testid={`judging-face-${letter(i)}`} />
+                                not the person
+                              </label>
+                            )}
                           </div>
                         );
                       })}
@@ -240,13 +272,13 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                       <button
                         type="button"
                         onClick={() => void save()}
-                        disabled={!picked || saving || !dirty}
+                        disabled={!complete || saving || !dirty}
                         data-testid="judging-save"
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40"
                       >
-                        {saving && <Loader2 className="w-4 h-4 animate-spin" />} {panel.pick ? "Save new pick" : "Save pick"}
+                        {saving && <Loader2 className="w-4 h-4 animate-spin" />} {panel.pick ? "Save new scores" : "Save scores"}
                       </button>
-                      {!picked && <span className="text-xs text-muted-foreground">Click the best image to pick it.</span>}
+                      {!complete && <span className="text-xs text-muted-foreground" data-testid="judging-unscored">Score every picture: {unscored} still to score.</span>}
                       {notice && <span className="text-xs text-foreground" data-testid="judging-notice">{notice}</span>}
                     </div>
                   </>
