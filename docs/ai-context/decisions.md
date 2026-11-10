@@ -13,6 +13,13 @@
 
 ---
 
+### 2026-11-10 · GPT Image 2.6 Sunburst, at low reasoning, replaces 2.5 as the comparison's GPT candidate
+- **Decision:** David, 2026-11-10: *"2.6."* The engine comparison's GPT family is `gpt-image-2-6` (text-to-image and edit on fal's `openai/gpt-image-2.6/sunburst/*`), sent with `reasoning_effort: "low"` at `quality: "high"`. GPT Image 2.5's definitions stay in the catalogue, inactive for users as every candidate is, until increment 4 sweeps the losers.
+- **Why:** the plan's own rule was "GPT Image 2.6 replaces 2.5 if its fal price settles before the runs". What kept 2.5 was D2's bound, which needed a published reasoning ceiling; that gate went with the 2026-11-07 override. Low reasoning is the setting whose price was measured at launch (about $0.053 for a 1024x1024 image), the same as 2.5's image.
+- **Price:** shown as about $0.058, or $0.066 for an edit, on the results page. The per-call bound carries a 4,000-token reasoning allowance that is not a documented maximum, since none is published; pricing gates no comparison run, so the bound is a record only.
+- **Reference:** #887 (pre-run checks, 2026-11-10); `artifacts/api-server/src/lib/engines/gpt-image-2-6.ts`.
+- **Revisit if:** 2.6 wins a mode and its real bills, read in fal's dashboard, run well above the measured figure (higher reasoning spent than "low" suggests).
+
 ### 2026-11-10 · The engine comparison is judged in two stages: quality blind, then price
 - **Decision:** David judges value, not looks alone. In his words (2026-11-10): *"I'm not just judging absolute quality, I'm judging quality/dollar. If there's an image that looks 80% as good as another one but cost 20% as much to generate, I may choose that."* And on the shape: *"We'll do two rounds of judging. The first one hides the price and I'm simply choosing based on quality. Then, once we have the quality ranked, I'll look at the associated prices and see how they stack up."* So:
   - **Stage 1** is the blind judging page as built: no engine name and no price.

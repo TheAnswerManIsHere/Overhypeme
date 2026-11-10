@@ -351,8 +351,10 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
   preview is 1K. The chosen settings are stored on the attempt
   (`request_settings`).
 - **The catalogue holds the Phase 8 candidates as pairs** sharing a `family`
-  (one text-to-image, one edit): GPT Image 2.5 Sunburst, Nano Banana 2.1, FLUX 3
-  Image, Seedream 5.0 Pro and Meta Muse Image, beside the Nano Banana 2 control.
+  (one text-to-image, one edit): GPT Image 2.6 Sunburst at low reasoning (in
+  place of 2.5, whose pair stays in the catalogue unused; David, 2026-11-10),
+  Nano Banana 2.1, FLUX 3 Image, Seedream 5.0 Pro and Meta Muse Image, beside
+  the Nano Banana 2 control.
   Each carries a `priceModel`, a complete per-call bound at the comparison
   settings with each component's source, and nothing routes to one until an
   admin sets it as a mode's default. The compiler is still Nano Banana 2's for

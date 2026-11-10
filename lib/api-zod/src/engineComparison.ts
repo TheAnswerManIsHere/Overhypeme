@@ -6,9 +6,12 @@
 import { z } from "zod";
 import { RENDER_SCENARIO_KEYS, renderScenarioKeySchema, type RenderScenarioKey } from "./renderScenarios";
 
-/** The six engine families David shortlisted (2026-11-06), the control last. */
+/**
+ * The six engine families David shortlisted (2026-11-06), the control last;
+ * GPT Image 2.6 in place of 2.5 (David, 2026-11-10).
+ */
 export const COMPARISON_DEFAULT_FAMILIES = [
-  "gpt-image-2-5",
+  "gpt-image-2-6",
   "nano-banana-2-1",
   "flux-3",
   "seedream-5-pro",

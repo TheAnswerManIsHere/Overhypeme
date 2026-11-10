@@ -10,7 +10,7 @@ import { buildEngineInput } from "../lib/engineInterpreter";
 import { buildImageRequestSettings } from "../lib/imageRequestBuilder";
 import type { Engine } from "@workspace/db/schema";
 
-const CANDIDATE_FAMILIES = ["gpt-image-2-5", "nano-banana-2-1", "flux-3", "seedream-5-pro", "muse-image", "nano-banana-2"];
+const CANDIDATE_FAMILIES = ["gpt-image-2-6", "gpt-image-2-5", "nano-banana-2-1", "flux-3", "seedream-5-pro", "muse-image", "nano-banana-2"];
 
 function family(name: string): EngineDefinition[] {
   return ALL_ENGINES.filter((e) => e.family === name);
@@ -53,6 +53,9 @@ describe("per-call bounds at the comparison settings match the plan", () => {
   const cases: Array<[string, number, number]> = [
     ["gpt-image-2-5", 0.073, 0.0005],
     ["gpt-image-2-5-edit", 0.089, 0.0005],
+    // 2.6: 2.5's components plus a reasoning allowance of 4,000 tokens at $10/M.
+    ["gpt-image-2-6", 0.113, 0.0005],
+    ["gpt-image-2-6-edit", 0.129, 0.0005],
     ["nano-banana-2-1", 0.34, 0.02],
     ["nano-banana-2-1-edit", 0.34, 0.02],
     ["flux-3", 0.048, 0],
@@ -106,6 +109,19 @@ describe("sizes the endpoints accept", () => {
     const input = buildEngineInput(def as unknown as Engine, { imagePrompt: "p", aspectRatio: "portrait", ...s.sizeParams });
     assert.deepEqual(input["image_size"], { width: 768, height: 1360 });
     assert.equal(input["quality"], "high");
+  });
+
+  it("GPT Image 2.6 sends low reasoning at high quality, sized like 2.5", () => {
+    for (const id of ["gpt-image-2-6", "gpt-image-2-6-edit"]) {
+      const def = byId(id);
+      const s = buildImageRequestSettings(def, "comparison", "portrait");
+      const params: Record<string, unknown> = { imagePrompt: "p", aspectRatio: "portrait", ...s.sizeParams };
+      if (def.imageMode === "i2i") params["referenceImageUrl"] = "https://example.com/r.jpg";
+      const input = buildEngineInput(def as unknown as Engine, params);
+      assert.equal(input["reasoning_effort"], "low", id);
+      assert.equal(input["quality"], "high", id);
+      assert.deepEqual(input["image_size"], { width: 768, height: 1360 }, id);
+    }
   });
 
   it("Nano Banana 2.1 previews at 1K (it has no 0.5K) and thinks at medium", () => {
