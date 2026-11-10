@@ -21,12 +21,14 @@ published!"*).
 
 Read 2026-11-01 from
 <https://platform.claude.com/docs/en/about-claude/pricing> (the `.md` form of
-the page). Standard tier; USD per million tokens. Rows quoted as the page
+the page); the Claude Fable 5.2 row was added from the same page on
+2026-11-10, at its release. Standard tier; USD per million tokens. Rows quoted as the page
 printed them, whitespace collapsed and the cache-read column's footnote
 markers dropped (the footnotes state the multiplier the figure already
 applies):
 
 ```
+| Claude Fable 5.2 | $8 / MTok | $10 / MTok | $16 / MTok | $0.20 / MTok | $40 / MTok |
 | Claude Fable 5.1 | $10 / MTok | $12.50 / MTok | $20 / MTok | $0.25 / MTok | $50 / MTok |
 | Claude Opus 5.5 | $4 / MTok | $5 / MTok | $8 / MTok | $0.20 / MTok | $20 / MTok |
 | Claude Sonnet 5.5 | $2 / MTok | $2.50 / MTok | $4 / MTok | $0.10 / MTok | $10 / MTok |
@@ -39,6 +41,7 @@ write, cache read, output.
 
 | Model | Input | Cache write 5m | Cache write 1h | Cache read | Output |
 |---|---|---|---|---|---|
+| Claude Fable 5.2 (`claude-fable-5-2`) | $8 | $10 | $16 | $0.20 | $40 |
 | Claude Fable 5.1 (`claude-fable-5-1`) | $10 | $12.50 | $20 | $0.25 | $50 |
 | Claude Opus 5.5 (`claude-opus-5-5`) | $4 | $5 | $8 | $0.20 | $20 |
 | Claude Sonnet 5.5 (`claude-sonnet-5-5`) | $2 | $2.50 | $4 | $0.10 | $10 |
@@ -142,7 +145,7 @@ assumption the line rests on, not a reading).
 
 | Role | Model | Proxy rate per million tokens |
 |---|---|---|
-| Main loop on Fable, Fable assessor, build report | Claude Fable 5.1 | $15 |
+| Main loop on Fable, Fable assessor, build report | Claude Fable 5.2 | $12 |
 | Main loop on Opus, a build session | Claude Opus 5.5 | $6 |
 | Sonnet subagents (sweep readers, investigations) | Claude Sonnet 5.5 | $3 |
 | Haiku subagents, dispatch reported at 100,000 tokens or fewer | Claude Haiku 5.5 | $0.15 |
@@ -156,7 +159,7 @@ priced at the long-context row for all of its tokens. That overstates a
 dispatch that crossed the line late and never understates one, which is the
 side to err on for a figure a budget is weighed against (Codex, Overhype.me #639).
 
-A cost figure names the rate it used (`proxy $15/M Fable`) so the reader can
+A cost figure names the rate it used (`proxy $12/M Fable`) so the reader can
 re-derive the figure when this table moves. The proxy rule above changes only
 by a decision recorded here; the rates change at every refresh.
 

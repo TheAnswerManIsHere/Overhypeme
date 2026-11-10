@@ -2,7 +2,7 @@
 name: fable-review-assessor
 description: "The second independent assessment of a code-review round (KITT #96). Reads the same brief, findings, intent and revision the other assessor reads, forms its own judgment without seeing theirs, and writes it as Markdown. Advises rather than commands; may settle a purely technical disagreement once the evidence is in, and never a decision reserved for David."
 tools: Read, Grep, Glob, Bash, Write
-model: claude-fable-5-1
+model: claude-fable-5-2
 effort: xhigh
 ---
 

@@ -178,7 +178,7 @@ export function machineryConfig(io = nodeIo()) {
  *
  * A FULL ID, NEVER AN ALIAS, and the refusal is the same one the role
  * definitions used to carry: a dispatch stamps the id it asked for against
- * the id that answered, and `fable` compared to `claude-fable-5-1` establishes
+ * the id that answered, and `fable` compared to `claude-fable-5-2` establishes
  * nothing. Moving the id into configuration moves that check here; it does not
  * remove it.
  *
@@ -213,7 +213,7 @@ export function modelTier(tier, io = nodeIo()) {
       `${MACHINERY_CONFIG_FILE}'s models.${tier}.id is ${JSON.stringify(id)}, which is an alias or an ` +
         `unrecognised id. A dispatch stamps the model it asked for against the model that answered, and an ` +
         `alias cannot be compared -- "it ran on the strongest tier" would be probably-true and never ` +
-        `established. Declare a full model id (for example claude-fable-5-1, or gpt-6-astra).`,
+        `established. Declare a full model id (for example claude-fable-5-2, or gpt-6-astra).`,
     );
   }
   const effort = typeof entry.effort === "string" ? entry.effort.trim() : "";
