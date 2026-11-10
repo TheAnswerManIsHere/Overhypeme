@@ -387,7 +387,8 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   // been made, committed before it; the id is stored before polling.
   let requestId = cell.falRequestId;
   if (!requestId) {
-    await db.update(comparisonCellsTable).set({ requestSettings, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    // The submission's clock starts here, with the marker (David, 2026-11-10: render time matters).
+    await db.update(comparisonCellsTable).set({ requestSettings, submittedAt: new Date(), completedAt: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
     try {
       requestId = await comparisonFal().submit(engine!.endpointId, input);
     } catch (err) {
@@ -409,7 +410,9 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await failCell(cell.id, `render failed: ${msg}`);
     return terminalFailure("comparison_render_failed", msg);
   }
+  const completedAt = new Date();
   await settleAtBound(p.reservationId);
+  await db.update(comparisonCellsTable).set({ completedAt, updatedAt: completedAt }).where(eq(comparisonCellsTable.id, cell.id));
   if (!url) {
     await failCell(cell.id, "render failed: the response carried no image URL");
     return terminalFailure("comparison_render_failed", "no image url");
@@ -443,7 +446,7 @@ export async function rerunCell(cellId: number): Promise<ComparisonCell> {
   if (cell.vendorResultUrl) throw new ComparisonCellActionRefused("this cell's image exists at the vendor; retry its storage instead");
   if (cell.rerunCount >= 1) throw new ComparisonCellActionRefused("this cell has had its one re-run");
   const [after] = await db.update(comparisonCellsTable)
-    .set({ state: "expected", rerunCount: cell.rerunCount + 1, error: null, falRequestId: null, requestSettings: null, updatedAt: new Date() })
+    .set({ state: "expected", rerunCount: cell.rerunCount + 1, error: null, falRequestId: null, requestSettings: null, submittedAt: null, completedAt: null, updatedAt: new Date() })
     .where(and(eq(comparisonCellsTable.id, cellId), eq(comparisonCellsTable.state, "failed"), isNull(comparisonCellsTable.vendorResultUrl)))
     .returning();
   if (!after) throw new ComparisonCellActionRefused("the cell changed while re-running it");

@@ -13,6 +13,13 @@
 
 ---
 
+### 2026-11-10 · The engine comparison records how long each picture took, and the results show it
+- **Decision:** David, 2026-11-10: *"If one engine can render an image in 10 seconds and another one takes 2 minutes, that's going to be important to know."* Each comparison cell records when its one request went to fal (`submitted_at`) and when the picture came back (`completed_at`), from migration 0128. The results page shows each engine's median time per picture in each mode, with its slowest beside it.
+- **What the figure is:** the wait a caller sees, which is fal's queue plus the drawing. It is not the vendor's pure drawing time, and it is the right figure for a member waiting on a render. A re-run starts its own clock. A job resumed after a restart keeps its first send time, so a restart mid-render lengthens that one picture's time.
+- **Not shown while judging:** time is revealed only on the results page with the engine names, because a distinctive render time would identify an engine on the blind page.
+- **Reference:** #887; `artifacts/api-server/src/lib/comparison/runs.ts` (`renderCell`), `judging.ts` (`medianSeconds`, `slowestSeconds`).
+- **Revisit if:** member renders need the same measure. Production attempts do not record it yet; that is part of the image-tracing work in #905.
+
 ### 2026-11-10 · GPT Image 2.6 runs at high reasoning, and a picture an engine could not draw counts as a 1 (David's override)
 - **Decision:** David, 2026-11-10, answering PR #902's and PR #903's build reports: *"1. High. Count it as 1."*
   - GPT Image 2.6 is sent `reasoning_effort: "high"`, fal's default, in place of "low", so every engine is judged as its vendor ships it.

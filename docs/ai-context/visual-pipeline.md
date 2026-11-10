@@ -164,6 +164,9 @@ beside the eval run rather than inside it (plan
   mode (the leader of text-to-image and of reference edit, ties shown), by
   style and by scenario; how many of each engine's images were lost for good
   on judged panels, each counting as a 1 in its averages (David, 2026-11-10);
+  each engine's median and slowest time per picture, from its request reaching
+  fal to the picture coming back (`comparison_cells.submitted_at` and
+  `completed_at`, migration 0128; shown only here, never on the blind page);
   the "not the person" marks against the
   human-reference panels judged; and each engine's calls with their worst
   case. It is stage 2 of judging (David, 2026-11-10, `decisions.md`): each

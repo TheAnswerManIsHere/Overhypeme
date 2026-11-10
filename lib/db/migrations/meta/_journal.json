@@ -897,6 +897,13 @@
       "when": 1786000000000,
       "tag": "0127_comparison_ratings",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1786100000000,
+      "tag": "0128_comparison_cell_timing",
+      "breakpoints": true
     }
   ]
 }

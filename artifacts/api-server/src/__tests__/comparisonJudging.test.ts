@@ -29,7 +29,7 @@ import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
-import { blindImagePath } from "../lib/comparison/judging.js";
+import { blindImagePath, median } from "../lib/comparison/judging.js";
 
 const P = `t-cj-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -326,6 +326,11 @@ describe("results", () => {
       const res = await request(app()).post(pickPath(panel.panelId)).send({ ratings, faceMismatchTokens: panel.faceMarkable ? [gptToken] : [] });
       assert.equal(res.status, 200, JSON.stringify(res.body));
     }
+    // Render times: FLUX's text-to-image took 10 s, GPT's 120 s; the edits are not timed.
+    const t0 = new Date("2026-11-10T12:00:00Z");
+    const at = (secs: number) => new Date(t0.getTime() + secs * 1000);
+    await db.update(comparisonCellsTable).set({ submittedAt: t0, completedAt: at(10) }).where(eq(comparisonCellsTable.id, cells.find((c) => c.engineId === engineIds[2])!.id));
+    await db.update(comparisonCellsTable).set({ submittedAt: t0, completedAt: at(120) }).where(eq(comparisonCellsTable.id, cells.find((c) => c.engineId === engineIds[0])!.id));
     // Two recorded image calls and one planner call; a released call costs nothing.
     const [run] = await db.insert(comparisonRunsTable).values({ setId, kind: "render", state: "done", boundUsd: "0.2000" }).returning();
     const fluxT2i = engineIds[2]!;
@@ -356,9 +361,10 @@ describe("results", () => {
     assert.equal(r.preparationBoundUsd, 0.768);
     // Stage 2: each mode's engines in score order, with what one image costs.
     assert.deepEqual(r.ranking.t2i, [
-      { rank: 1, family: FAMILIES.flux, engineId: engineIds[2]!, mean: 5, scored: 1, lost: 0, usdPerImage: 0.048, exact: true },
-      { rank: 2, family: FAMILIES.gpt, engineId: engineIds[0]!, mean: 3, scored: 1, lost: 0, usdPerImage: 0.058, exact: false },
-    ], "a flat price is exact; a token price shows its typical figure, marked approximate");
+      { rank: 1, family: FAMILIES.flux, engineId: engineIds[2]!, mean: 5, scored: 1, lost: 0, usdPerImage: 0.048, exact: true, medianSeconds: 10, slowestSeconds: 10, timed: 1 },
+      { rank: 2, family: FAMILIES.gpt, engineId: engineIds[0]!, mean: 3, scored: 1, lost: 0, usdPerImage: 0.058, exact: false, medianSeconds: 120, slowestSeconds: 120, timed: 1 },
+    ], "a flat price is exact; a token price shows its typical figure, marked approximate; each engine's render time beside it");
+    assert.ok(r.ranking.i2i.every((row: { medianSeconds: number | null; timed: number }) => row.medianSeconds === null && row.timed === 0), "an untimed engine shows no time");
     assert.deepEqual(r.ranking.i2i.map((row: { rank: number; usdPerImage: number; exact: boolean }) => [row.rank, row.usdPerImage, row.exact]).sort(), [
       [1, 0.048, true],
       [1, 0.066, false],
@@ -371,5 +377,13 @@ describe("results", () => {
     assert.equal(unknown.status, 404);
     const bad = await request(app()).get(`/api/admin/comparison/results?setIds=x`);
     assert.equal(bad.status, 400);
+  });
+});
+
+describe("median", () => {
+  it("is the middle value, or the mean of the two middle values", () => {
+    assert.equal(median([30, 10, 20]), 20);
+    assert.equal(median([40, 10, 30, 20]), 25);
+    assert.equal(median([7]), 7);
   });
 });

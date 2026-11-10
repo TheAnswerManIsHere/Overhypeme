@@ -87,6 +87,10 @@ export const comparisonCellsTable = pgTable("comparison_cells", {
   imageObjectPath: text("image_object_path"),
   /** The endpoint settings this cell sent. */
   requestSettings: jsonb("request_settings"),
+  /** When this cell's request was sent to fal (migration 0128). */
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  /** When fal returned the image; minus `submittedAt`, the wait a caller sees (fal's queue plus drawing). */
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

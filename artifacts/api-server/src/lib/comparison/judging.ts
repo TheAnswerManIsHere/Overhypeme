@@ -310,6 +310,22 @@ export interface RankRow {
   lost: number;
   usdPerImage: number | null;
   exact: boolean;
+  /**
+   * How long this engine took per picture in this mode, from sending the
+   * request to fal to getting the image back (fal's queue plus drawing), in
+   * seconds: the median and the slowest, over `timed` pictures. Null when none
+   * was timed (David, 2026-11-10: render time is part of the choice).
+   */
+  medianSeconds: number | null;
+  slowestSeconds: number | null;
+  timed: number;
+}
+
+/** The middle value of a non-empty list (the mean of the two middle values for an even count). */
+export function median(values: number[]): number {
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
 export interface ComparisonResults {
@@ -365,6 +381,10 @@ const toScores = (t: Record<string, Tally>): Scores => Object.fromEntries(Object
 const toGroupedScores = (g: Record<string, Record<string, Tally>>): Record<string, Scores> => Object.fromEntries(Object.entries(g).map(([k, v]) => [k, toScores(v)]));
 const bump = (w: Record<string, number>, k: string) => { w[k] = (w[k] ?? 0) + 1; };
 
+const timing = (secs: number[]) => secs.length
+  ? { medianSeconds: Math.round(median(secs) * 10) / 10, slowestSeconds: Math.round(Math.max(...secs) * 10) / 10, timed: secs.length }
+  : { medianSeconds: null, slowestSeconds: null, timed: 0 };
+
 /** Rank rows by average score, best first; equal averages share a rank, unscored rows last. */
 export function rankByMean<T extends { mean: number | null; family: string }>(rows: T[]): Array<T & { rank: number }> {
   const sorted = [...rows].sort((a, b) => (b.mean ?? -1) - (a.mean ?? -1) || a.family.localeCompare(b.family));
@@ -397,6 +417,8 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const byEngineMode: Record<string, Tally> = {};
   const lostByEngineMode: Record<string, number> = {};
   const enginesByMode = new Map<string, Set<string>>();
+  /** Keyed `${mode}|${engineId}`: seconds from submission to the image coming back. */
+  const secondsByEngineMode: Record<string, number[]> = {};
   const judgedByMode: Record<string, number> = {};
   const faceMismatches: Record<string, number> = {};
   let humanJudged = 0;
@@ -406,7 +428,12 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
     const cells = cellsByPanel.get(panel.id) ?? [];
     const engines = enginesByMode.get(panel.imageMode) ?? new Set<string>();
     enginesByMode.set(panel.imageMode, engines);
-    for (const c of cells) engines.add(c.engineId);
+    for (const c of cells) {
+      engines.add(c.engineId);
+      if (c.submittedAt && c.completedAt) {
+        (secondsByEngineMode[`${panel.imageMode}|${c.engineId}`] ??= []).push((c.completedAt.getTime() - c.submittedAt.getTime()) / 1000);
+      }
+    }
     const pick = picks.get(panel.id);
     const scores = pick ? ratingsOf(pick.ratings) : new Map<number, number>();
     const ratings = [...scores].map(([cellId, score]) => ({ ...familyOfCell(cellId), score }));
@@ -449,6 +476,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
         lost: lostByEngineMode[`${mode}|${engineId}`] ?? 0,
         usdPerImage: price?.usd ?? null,
         exact: price?.exact ?? false,
+        ...timing(secondsByEngineMode[`${mode}|${engineId}`] ?? []),
       };
     }));
   }
