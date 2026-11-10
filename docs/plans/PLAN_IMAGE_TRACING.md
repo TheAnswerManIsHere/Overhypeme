@@ -24,7 +24,8 @@ which release and meme-generator version — and which lookup matched.
 
 ## Must not change
 - The engine comparison under Issue #887 (Phase 8): its rounds, judging and
-  adoption. Nothing here builds until #887 round 1 is judged.
+  adoption. (Amended 2026-11-10: the build no longer waits for #887 round 1;
+  see Amendment 1.)
 - What a meme looks like to the eye. (David saw no difference in the
   watermarked sample.)
 - What visitors and members can see or do. Tracing is admin-only.
@@ -132,8 +133,8 @@ The oracle's three, plus what they imply here:
 
 - **The engine comparison (#887).** Comparison pictures keep their pixels
   exactly; the blind judging route serves no engine name, in headers or in
-  bytes. Nothing here builds until #887 round 1 is judged, and the comparison
-  writer's change lands only between rounds.
+  bytes. A change to the comparison's code reaches dev only while no
+  comparison run is in progress (Amendment 1).
 - **What a meme looks like.** The watermark is the measured TrustMark Q
   configuration (PSNR 42 dB; David saw no difference). The meme generator's
   drawing is untouched.
@@ -419,8 +420,8 @@ Properties to hold, not assertions:
 
 ## Implementation Steps
 
-Two increments, each with a screen David can use. Neither starts before #887
-round 1 is judged.
+Two increments, each with a screen David can use. They start now
+(Amendment 1).
 
 1. **Increment 1 — the record, AI renders, and the trace screen by id and
    link.** The provenance table and retention setting; the finishing step;
@@ -481,3 +482,16 @@ round 1 is judged.
 - The blind comparison and every member- and visitor-facing surface are
   unchanged.
 - `decisions.md` records Settled Decision 2 and David's answers.
+
+## Amendment 1 — the build does not wait for the engine comparison (David, 2026-11-10)
+
+David, after approval: *"Why are you talking about engine comparisons? That
+is not relevant to building the image tracing functionality."* The hold came
+from the Phase 8 session's handoff, which David accepted; it existed so this
+work could not delay or change the comparison. He has lifted it.
+
+What still protects the comparison, unchanged: comparison pictures keep their
+pixels exactly, and the blind judging route serves no engine name (Must Not
+Change). What replaces the hold: a merge that changes the comparison's code is
+synced to dev only after a check that no comparison run is in progress, since
+the sync restarts the server a run is using.
