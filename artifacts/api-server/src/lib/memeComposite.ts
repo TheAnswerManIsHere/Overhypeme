@@ -22,7 +22,7 @@ import { Buffer } from "node:buffer";
 import { generateMemeBuffer, type BackgroundSource, type FramingTransform, type TextOptions } from "./memeGenerator";
 import { renderPersonalized, CANONICAL_NAME } from "./renderCanonical";
 import { ObjectStorageService } from "./objectStorage";
-import { finishMeme } from "./provenance/meme";
+import { backgroundPathOf, finishMeme, memeSnapshot } from "./provenance/meme";
 import type { ProvenanceActor } from "./provenance/records";
 import type { ImageSource } from "./validators/memeBuilder";
 import { memeCaption, type MemeAspectRatio, type MemeCaption } from "@workspace/api-zod";
@@ -260,6 +260,14 @@ export async function composeMeme(
  * has no profile photo on file. Routes catch this and return a 400 with a
  * specific error code.
  */
+export class IdentityProfileMissingError extends Error {
+  constructor() {
+    super("Add a profile photo to create an identity meme.");
+    this.name = "IdentityProfileMissingError";
+    Object.setPrototypeOf(this, IdentityProfileMissingError.prototype);
+  }
+}
+
 /**
  * Compose a meme for the builder's preview or download as a traced picture (image tracing, #912): watermarked with
  * its provenance record id, stamped, and recorded — chained to the photo's record — before it is sent.
@@ -267,32 +275,24 @@ export async function composeMeme(
 export async function composeTracedMeme(
   input: ComposeMemeInput,
   opts: ComposeMemeOptions,
-  trace: { kind: "preview" | "download"; actor: ProvenanceActor; factId: number },
+  trace: { kind: "preview" | "download"; actor: ProvenanceActor | Promise<ProvenanceActor>; factId: number },
 ): Promise<ComposeMemeResult> {
   const finished = await finishMeme(
     {
       kind: trace.kind,
       actor: trace.actor,
       factId: trace.factId,
-      backgroundObjectPath: input.imageSource.type === "upload" ? input.imageSource.uploadKey : opts.profileImageObjectPath ?? null,
-      snapshot: {
+      backgroundObjectPath: backgroundPathOf(input.imageSource, opts.profileImageObjectPath),
+      snapshot: memeSnapshot({
         caption: renderPersonalized(input.factTextTemplate, input.name, input.pronouns),
+        textOptions: personalizeMemeTextOptions(input.textOptions, input.name, input.pronouns),
         identity: { name: input.name, pronouns: input.pronouns },
-        textOptions: personalizeMemeTextOptions(input.textOptions, input.name, input.pronouns) ?? null,
         imageSource: input.imageSource,
-        aspectRatio: input.aspectRatio ?? "landscape",
-        framingTransform: input.framingTransform ?? null,
-      },
+        aspectRatio: input.aspectRatio,
+        framingTransform: input.framingTransform,
+      }),
     },
     async (watermarkId) => (await composeMeme(input, { ...opts, watermarkId })).buffer,
   );
   return { buffer: finished.bytes, mime: "image/jpeg" };
-}
-
-export class IdentityProfileMissingError extends Error {
-  constructor() {
-    super("Add a profile photo to create an identity meme.");
-    this.name = "IdentityProfileMissingError";
-    Object.setPrototypeOf(this, IdentityProfileMissingError.prototype);
-  }
 }

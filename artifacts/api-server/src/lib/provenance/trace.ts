@@ -207,25 +207,26 @@ export async function traceImageFile(file: Buffer): Promise<TraceResult> {
     take("metadata", rows);
   }
 
+  // The hash lookup and the watermark reading are independent; the reading is the slow one.
   const sha256 = createHash("sha256").update(file).digest("hex");
-  const byHash = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.sha256, sha256));
+  const [byHash, reading] = await Promise.all([
+    db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.sha256, sha256)),
+    readWatermark(file).then((r) => ({ ok: true as const, r }), (err: unknown) => ({ ok: false as const, err })),
+  ]);
   tried.push(`exact bytes: ${byHash.length ? `${byHash.length} record${byHash.length === 1 ? "" : "s"}` : "no record of these exact bytes (the file has been re-saved, resized or edited)"}`);
   take("hash", byHash);
 
-  let reading: Awaited<ReturnType<typeof readWatermark>> = null;
-  try {
-    reading = await readWatermark(file);
-  } catch (err) {
-    tried.push(`watermark: could not be read (${err instanceof Error ? err.message : String(err)})`);
-  }
-  if (reading) {
-    const rows = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.id, reading.id));
-    const how = [reading.trimmed ? "after cutting away bars round the picture" : null, reading.corrected ? `${reading.corrected} damaged bit${reading.corrected === 1 ? "" : "s"} repaired` : null].filter(Boolean).join(", ");
-    tried.push(`watermark: id ${reading.id}${how ? ` (${how})` : ""}, ${rows.length ? "found" : "no record with that id"}`);
-    if (stamped != null && stamped !== reading.id) tried.push(`the metadata and the watermark name different records (${stamped} and ${reading.id}): the file's metadata may have been copied from another picture`);
-    take("watermark", rows);
-  } else if (!tried.some((t) => t.startsWith("watermark:"))) {
+  if (!reading.ok) {
+    tried.push(`watermark: could not be read (${reading.err instanceof Error ? reading.err.message : String(reading.err)})`);
+  } else if (!reading.r) {
     tried.push("watermark: none found (a picture made before memes were watermarked, one cropped too hard, or not ours)");
+  } else {
+    const { id, trimmed, corrected } = reading.r;
+    const rows = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.id, id));
+    const how = [trimmed ? "after cutting away bars round the picture" : null, corrected ? `${corrected} damaged bit${corrected === 1 ? "" : "s"} repaired` : null].filter(Boolean).join(", ");
+    tried.push(`watermark: id ${id}${how ? ` (${how})` : ""}, ${rows.length ? "found" : "no record with that id"}`);
+    if (stamped != null && stamped !== id) tried.push(`the metadata and the watermark name different records (${stamped} and ${id}): the file's metadata may have been copied from another picture`);
+    take("watermark", rows);
   }
 
   return { method, matches: await expand([...found.values()].sort(NEWEST_FIRST)), tried, note: null };

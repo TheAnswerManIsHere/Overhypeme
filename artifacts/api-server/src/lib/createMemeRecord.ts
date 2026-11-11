@@ -326,7 +326,7 @@ export async function createMemeRecord(
         aspectRatio,
         framingTransform: framingTransform ?? null,
       },
-      { kind: "meme_bake", actor: await actorForUser(userId, "member"), slug, factId, stored: true, memeCreatorId: userId },
+      { kind: "meme_bake", actor: actorForUser(userId, "member"), slug, factId, memeCreatorId: userId },
     );
   } catch (err) {
     if (err instanceof MemeRenderError) {

@@ -28,12 +28,7 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import { setNoStore } from "../lib/cacheHeaders";
 import { composeTracedMeme, IdentityProfileMissingError } from "../lib/memeComposite";
-import { actorForUser, type ProvenanceActor } from "../lib/provenance/records";
-
-/** Who a builder render is recorded as made by: the signed-in member, or an anonymous visitor. */
-function renderActor(userId: string | null): Promise<ProvenanceActor> {
-  return userId ? actorForUser(userId, "member") : Promise.resolve({ kind: "anonymous", userId: null, email: null });
-}
+import { ANONYMOUS_ACTOR, actorForUser } from "../lib/provenance/records";
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import {
   RenderRequestBody,
@@ -199,7 +194,7 @@ router.post("/render-preview", async (req: Request, res: Response) => {
         aspectRatio: ctx.parsed.aspectRatio ?? "landscape",
       },
       { profileImageObjectPath: ctx.profileImageObjectPath },
-      { kind: "preview", actor: await renderActor(ctx.userId), factId: fact.id },
+      { kind: "preview", actor: ctx.userId ? actorForUser(ctx.userId, "member") : ANONYMOUS_ACTOR, factId: fact.id },
     );
 
     res.setHeader("Content-Type", result.mime);
@@ -248,7 +243,7 @@ router.post("/render-download", async (req: Request, res: Response) => {
         aspectRatio: ctx.parsed.aspectRatio ?? "landscape",
       },
       { profileImageObjectPath: ctx.profileImageObjectPath },
-      { kind: "download", actor: await renderActor(ctx.userId), factId: fact.id },
+      { kind: "download", actor: ctx.userId ? actorForUser(ctx.userId, "member") : ANONYMOUS_ACTOR, factId: fact.id },
     );
 
     const filename = `overhype-${factSlug(fact.text ?? fact.canonicalText, fact.id)}.jpg`;

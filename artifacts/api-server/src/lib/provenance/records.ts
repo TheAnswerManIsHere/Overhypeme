@@ -31,6 +31,7 @@ export interface ProvenanceActor {
 }
 
 export const SYSTEM_ACTOR: ProvenanceActor = { kind: "system", userId: null, email: null };
+export const ANONYMOUS_ACTOR: ProvenanceActor = { kind: "anonymous", userId: null, email: null };
 
 /**
  * The account as it is now, frozen into the record (David, 2026-11-10,

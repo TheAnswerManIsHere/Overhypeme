@@ -10,7 +10,8 @@
  * hashes when loaded: a model that does not match is refused rather than producing marks nothing can read.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
@@ -37,6 +38,9 @@ const MODELS = {
 
 type Ort = typeof import("onnxruntime-node");
 let ortPromise: Promise<Ort> | null = null;
+/** The native runtime, imported on first use (its CommonJS default export, or the module itself). */
+const loadOrt = (): Promise<Ort> =>
+  (ortPromise ??= import("onnxruntime-node").then((m) => (m as unknown as { default?: Ort }).default ?? (m as Ort)));
 const sessions = new Map<keyof typeof MODELS, Promise<InferenceSession>>();
 
 /** src/assets in development and tests; the copy next to dist/ in a built server (build.mjs copies both). */
@@ -52,10 +56,9 @@ function session(which: keyof typeof MODELS): Promise<InferenceSession> {
   let s = sessions.get(which);
   if (!s) {
     s = (async () => {
-      ortPromise ??= import("onnxruntime-node").then((m) => (m as unknown as { default?: Ort }).default ?? (m as Ort));
-      const ort = await ortPromise;
+      const ort = await loadOrt();
       const { file, sha256 } = MODELS[which];
-      const bytes = readFileSync(path.join(modelDir(), file));
+      const bytes = await readFile(path.join(modelDir(), file));
       const got = createHash("sha256").update(bytes).digest("hex");
       if (got !== sha256) throw new Error(`TrustMark ${file} does not match its pinned hash (got ${got})`);
       // The arena off: measured for #912, it saves about 40% of each model's resident memory at no measurable cost in speed.
@@ -98,9 +101,7 @@ async function modelInput(raw: Buffer, w: number, h: number, channels: 3 | 4, r:
 }
 
 async function tensor(data: Float32Array, dims: number[]): Promise<Tensor> {
-  ortPromise ??= import("onnxruntime-node").then((m) => (m as unknown as { default?: Ort }).default ?? (m as Ort));
-  const ort = await ortPromise;
-  return new ort.Tensor("float32", data, dims);
+  return new (await loadOrt()).Tensor("float32", data, dims);
 }
 
 /**
@@ -111,7 +112,7 @@ export async function watermarkPixels(pixels: Buffer | Uint8ClampedArray, width:
   try {
     await mark(pixels, width, height, channels, id);
   } catch (err) {
-    throw err instanceof WatermarkError ? err : new WatermarkError(err);
+    throw new WatermarkError(err);
   }
 }
 
