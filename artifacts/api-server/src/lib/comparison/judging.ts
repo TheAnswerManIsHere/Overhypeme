@@ -52,10 +52,8 @@ import { perImagePrice, type PriceModel } from "../engines";
 import { groupCellsByPanel } from "./sets";
 import { promptTextOf } from "./runs";
 
-/** The opaque, engine-free name of a cell in the blind view. */
-export function blindToken(panel: Pick<ComparisonPanel, "shuffleSeed">, cellId: number): string {
-  return createHash("sha256").update(`comparison-blind:${panel.shuffleSeed}:${cellId}`).digest("hex").slice(0, 16);
-}
+export { blindToken } from "./blindToken";
+import { blindToken } from "./blindToken";
 
 /** A panel's cells in their blind order, each with its token. */
 function blindOrder(panel: ComparisonPanel, cells: ComparisonCell[]): Array<{ cell: ComparisonCell; token: string }> {

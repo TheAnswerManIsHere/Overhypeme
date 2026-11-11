@@ -1143,7 +1143,7 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
 
   let renderPrepareJobId: number | undefined;
   try {
-    const enq = await enqueueForceReviewRenderPrepare(id);
+    const enq = await enqueueForceReviewRenderPrepare(id, req.user.id);
     renderPrepareJobId = enq.jobId;
   } catch (err) {
     logger.error({ err, reviewId: id }, "[moderation] failed to enqueue force render prepare (stage advance kept)");

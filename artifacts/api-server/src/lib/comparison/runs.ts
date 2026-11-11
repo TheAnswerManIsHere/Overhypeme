@@ -32,6 +32,7 @@ import {
   comparisonPanelsTable,
   comparisonReservationsTable,
   comparisonRunsTable,
+  comparisonSetsTable,
   enginesTable,
   factsTable,
   type ComparisonCell,
@@ -58,6 +59,17 @@ import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
 import { buildEngineInput } from "../engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "../imageEngineRequest";
+import {
+  actorForUser,
+  actorOf,
+  finishAndStore,
+  latestCellGenerationRequest,
+  recordGenerationRequest,
+  setVendorRequestId,
+  SYSTEM_ACTOR,
+  type ProvenanceActor,
+} from "../provenance/records";
+import { blindToken } from "./blindToken";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
@@ -318,10 +330,48 @@ export function __setComparisonImageStoreForTest(impl: ((cell: ComparisonCell, u
   storeImageOverride = impl;
 }
 
+/** The token blind judging serves this cell's picture under, so its judging link traces. */
+async function cellBlindToken(cell: ComparisonCell): Promise<string | null> {
+  const [panel] = await db.select({ shuffleSeed: comparisonPanelsTable.shuffleSeed }).from(comparisonPanelsTable)
+    .where(eq(comparisonPanelsTable.id, cell.panelId)).limit(1);
+  return panel ? blindToken(panel, cell.id) : null;
+}
+
+/** The admin who created the cell's set: the initiator when no request was captured. */
+async function setCreatorActor(cell: ComparisonCell): Promise<ProvenanceActor> {
+  const [row] = await db.select({ createdBy: comparisonSetsTable.createdBy })
+    .from(comparisonPanelsTable)
+    .innerJoin(comparisonSetsTable, eq(comparisonSetsTable.id, comparisonPanelsTable.setId))
+    .where(eq(comparisonPanelsTable.id, cell.panelId)).limit(1);
+  return row?.createdBy ? actorForUser(row.createdBy, "admin") : SYSTEM_ACTOR;
+}
+
 async function storeVendorImage(cell: ComparisonCell, url: string): Promise<string> {
   if (storeImageOverride) return storeImageOverride(cell, url);
   const buffer = await downloadToBuffer(url);
-  return objectStorage.uploadObjectBuffer({ subPath: `comparison/panel-${cell.panelId}/cell-${cell.id}-${Date.now()}.png`, buffer, contentType: "image/png" });
+  // Image tracing: the record is written from the request frozen at
+  // submission (a storage-only retry included), and stamped with the opaque
+  // id only — never the engine, so blind judging stays blind. The stamp is
+  // spliced into the container; the judged pixels are unchanged.
+  const request = await latestCellGenerationRequest(cell.id);
+  const actor: ProvenanceActor = request ? actorOf(request) : await setCreatorActor(cell);
+  const stamp = Date.now();
+  const finished = await finishAndStore({
+    store: objectStorage,
+    subPathFor: (ext) => `comparison/panel-${cell.panelId}/cell-${cell.id}-${stamp}.${ext}`,
+    bytes: buffer,
+    kind: "comparison_cell",
+    actor,
+    stamp: true,
+    stampEngine: null,
+    generationRequestId: request?.id ?? null,
+    comparisonCellId: cell.id,
+    attemptId: cell.attemptId ?? null,
+    factId: request?.factId ?? null,
+    engineId: cell.engineId,
+    snapshot: { panelId: cell.panelId, blindToken: await cellBlindToken(cell), requestCaptured: request != null },
+  });
+  return finished.objectPath;
 }
 
 async function failCell(cellId: number, error: string): Promise<void> {
@@ -395,8 +445,23 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   if (!requestId) {
     // The submission's clock starts here, with the marker (David, 2026-11-10: render time matters).
     await db.update(comparisonCellsTable).set({ requestSettings, submittedAt: new Date(), completedAt: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    // Image tracing: the exact input and the admin who started the run,
+    // persisted before the vendor is called; a recovery reads this row.
+    const [run] = await db.select({ createdBy: comparisonRunsTable.createdBy }).from(comparisonRunsTable)
+      .where(eq(comparisonRunsTable.id, p.runId)).limit(1);
+    const generationRequestId = await recordGenerationRequest({
+      producer: "comparison_cell",
+      engineId: cell.engineId,
+      endpointId: engine!.endpointId,
+      request: input,
+      actor: run?.createdBy ? await actorForUser(run.createdBy, "admin") : SYSTEM_ACTOR,
+      comparisonCellId: cell.id,
+      attemptId: cell.attemptId ?? null,
+      factId: panel!.factId,
+    });
     try {
       requestId = await comparisonFal().submit(engine!.endpointId, input);
+      await setVendorRequestId(generationRequestId, requestId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await failCell(cell.id, `submit failed: ${msg}`);

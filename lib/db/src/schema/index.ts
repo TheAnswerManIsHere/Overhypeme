@@ -32,3 +32,4 @@ export * from "./engineRevisionBumps";
 export * from "./evalRuns";
 export * from "./comparisons";
 export * from "./accountDeletion";
+export * from "./imageProvenance";

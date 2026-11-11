@@ -65,6 +65,8 @@ const WORKBENCH_TEST_PRONOUNS = RUNTIME_PREVIEW_DEFAULT_PRONOUNS;
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
 import { ALL_ENGINES } from "../lib/engines/catalogue.js";
 import { logger } from "../lib/logger.js";
+import { actorForUser, recordGenerationRequest, setVendorRequestId, SYSTEM_ACTOR } from "../lib/provenance/records.js";
+import { finishWorkbenchResult } from "../lib/provenance/workbench.js";
 
 const router: IRouter = Router();
 
@@ -1110,7 +1112,21 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
         return { request_id: result.request_id };
       });
 
+    // Image tracing: an image generation's exact input and the admin who
+    // asked for it are persisted before the vendor is called. A classifier
+    // returns no image and is not recorded.
+    const generationRequestId = benchType === "image-classifier"
+      ? null
+      : await recordGenerationRequest({
+          producer: "engine_workbench",
+          engineId: engine.id,
+          endpointId: engine.endpointId,
+          request: falInput,
+          actor: req.user?.id ? await actorForUser(req.user.id, "admin") : SYSTEM_ACTOR,
+        });
+
     const submitted = await submit(engine.endpointId, { input: falInput });
+    if (generationRequestId !== null) await setVendorRequestId(generationRequestId, submitted.request_id);
 
     // Stash submit timestamp so the poll endpoint can compute the real
     // job runtime (submit → done) rather than just the result-fetch
@@ -1201,10 +1217,13 @@ router.get(
           // Test overrides may already carry a durationMs (the override
           // owns the whole shape). When they don't, fill it in from the
           // submit-timestamp map. Either way, clean up on terminal state.
+          const finishedResult = result.ok
+            ? { ...result, falResult: await finishWorkbenchResult(engine, requestId, result.falResult) }
+            : result;
           const enriched =
-            result.durationMs === undefined
-              ? { ...result, durationMs: computeDurationMs() }
-              : result;
+            finishedResult.durationMs === undefined
+              ? { ...finishedResult, durationMs: computeDurationMs() }
+              : finishedResult;
           submitTimestamps.delete(requestId);
           res.json(enriched);
         } else {
@@ -1232,12 +1251,15 @@ router.get(
           endpoint: string,
           opts: { requestId: string },
         ) => Promise<unknown>)(engine.endpointId, { requestId });
+        // Image tracing: what the admin opens is our recorded, stamped copy,
+        // never the vendor's URL.
+        const finishedResult = await finishWorkbenchResult(engine, requestId, result);
         const durationMs = computeDurationMs();
         submitTimestamps.delete(requestId);
         res.json({
           done: true,
           ok: true,
-          falResult: result,
+          falResult: finishedResult,
           durationMs,
           requestId,
         });

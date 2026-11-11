@@ -51,6 +51,8 @@ import {
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
+import { finishAndStore, recordGenerationRequest, setVendorRequestId } from "./provenance/records";
+import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, resolveImageEngine } from "./imageEngineRouting";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
@@ -370,10 +372,25 @@ export const imageGenerationHandler: JobHandler = {
       return { ok: false, error: `buildEngineInput failed: ${msg}` };
     }
 
+    // Image tracing: the exact request, its producer and who started it are
+    // persisted BEFORE the vendor is called, so the record never has to be
+    // rebuilt from later configuration (plan PLAN_IMAGE_TRACING.md).
+    const provenance = await attemptProvenanceContext(attempt);
+    const generationRequestId = await recordGenerationRequest({
+      producer: provenance.producer,
+      engineId: engine.id,
+      endpointId: engine.endpointId,
+      request: falInput,
+      actor: provenance.actor,
+      attemptId: p.attemptId,
+      factId: attempt.factId,
+    });
+
     ensureFalConfigured();
     let resultUrl: string;
     try {
       const response = await fal.subscribe(engine.endpointId, { input: falInput, logs: false });
+      await setVendorRequestId(generationRequestId, (response as { requestId?: string }).requestId);
       const data = (response as { data?: unknown }).data ?? response;
       resultUrl = extractFirstImageUrl(data);
       if (!resultUrl) {
@@ -389,12 +406,24 @@ export const imageGenerationHandler: JobHandler = {
     let storedPath: string;
     try {
       const buf = await downloadToBuffer(resultUrl);
-      const subPath = `ai-bg-v2/${attempt.factId}/${attempt.id}-${Date.now()}.png`;
-      storedPath = await objectStorage.uploadObjectBuffer({
-        subPath,
-        buffer: buf,
-        contentType: "image/png",
+      // Saved under the format the engine actually returned, and recorded,
+      // stamped and hashed before it is stored (image tracing).
+      const stamp = Date.now();
+      const finished = await finishAndStore({
+        store: objectStorage,
+        subPathFor: (ext) => `ai-bg-v2/${attempt.factId}/${attempt.id}-${stamp}.${ext}`,
+        bytes: buf,
+        kind: "ai_render",
+        actor: provenance.actor,
+        stamp: true,
+        stampEngine: engine.label,
+        generationRequestId,
+        attemptId: p.attemptId,
+        factId: attempt.factId,
+        engineId: engine.id,
+        snapshot: { producer: provenance.producer, generationMode, prompt: promptText, renderControls, renderJobId: attempt.renderJobId },
       });
+      storedPath = finished.objectPath;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await markAttemptError(p.attemptId, `image store failed: ${msg}`);

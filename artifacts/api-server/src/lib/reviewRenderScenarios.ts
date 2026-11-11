@@ -379,7 +379,7 @@ export async function loadReviewRenderContext(
  */
 export async function ensureDefaultReviewRenders(
   reviewId: number,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; adminUserId?: string },
 ): Promise<{ enqueued: EnqueueScenarioResult[] }> {
   const force = opts?.force === true;
   const loaded = await loadReviewRenderContext(reviewId);
@@ -416,7 +416,10 @@ export async function ensureDefaultReviewRenders(
       factText: ctx.factText,
       enrichment: ctx.enrichment,
       scenarioKey,
-      adminUserId: "system",
+      // The admin whose approval started this batch, carried through the
+      // prepare job; "system" only for the unattended enrichment transition
+      // (image tracing, plan PLAN_IMAGE_TRACING.md, "Who made it").
+      adminUserId: opts?.adminUserId ?? "system",
       batchId,
       imageEngines: ctx.imageEngines,
     }));
@@ -636,12 +639,15 @@ export async function getScenarioAttemptDiagnostics(
 
 export const reviewRenderScenariosPrepareHandler: JobHandler = {
   async run(payload: unknown): Promise<HandlerResult> {
-    const p = payload as { reviewId?: number; force?: boolean };
+    const p = payload as { reviewId?: number; force?: boolean; adminUserId?: string };
     if (typeof p.reviewId !== "number") {
       return { ok: false, error: `${REVIEW_RENDER_PREPARE_QUEUE}: payload missing reviewId` };
     }
     try {
-      const { enqueued } = await ensureDefaultReviewRenders(p.reviewId, { force: p.force === true });
+      const { enqueued } = await ensureDefaultReviewRenders(p.reviewId, {
+        force: p.force === true,
+        ...(typeof p.adminUserId === "string" && p.adminUserId ? { adminUserId: p.adminUserId } : {}),
+      });
       return { ok: true, result: { enqueued: enqueued.length } };
     } catch (err) {
       return { ok: false, error: `${REVIEW_RENDER_PREPARE_QUEUE}: ${err instanceof Error ? err.message : String(err)}` };
@@ -672,10 +678,12 @@ export async function enqueueReviewRenderPrepare(reviewId: number): Promise<void
  * concurrent approvals produce exactly one force batch. Returns the job result so
  * the caller can surface the concrete render-prepare job id.
  */
-export async function enqueueForceReviewRenderPrepare(reviewId: number): Promise<EnqueueJobResult> {
+export async function enqueueForceReviewRenderPrepare(reviewId: number, adminUserId: string): Promise<EnqueueJobResult> {
   return enqueueJob({
     queue: REVIEW_RENDER_PREPARE_QUEUE,
-    payload: { reviewId, force: true },
+    // The approving admin rides in the payload so each render records who
+    // started it (image tracing); without it the batch was written as "system".
+    payload: { reviewId, force: true, adminUserId },
     // NO dedupeKey — see docstring.
   });
 }
