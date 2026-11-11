@@ -7,14 +7,19 @@
 A personalized impossible-facts platform: a community-driven catalogue of
 exaggerated, Chuck-Norris-style boasts, each authored once as a tokenized
 template and rendered on demand with the visitor's own name and pronouns, then
-turned into shareable image memes starring them (video and AI images of the
-visitor were cut for launch, to be rebuilt after it:
-[`docs/retired/README.md`](docs/retired/README.md)). David is the product
+turned into shareable image memes starring them, or a friend they send it to
+(AI pictures of a real person return before launch on credits, and video after
+it: [`product-strategy.md`](docs/ai-context/product-strategy.md); the cut
+record is [`docs/retired/README.md`](docs/retired/README.md)). David is the product
 owner; the loop is personalize → submit → moderate and enrich → render → share.
 The brief below is the current truth and wins over anything remembered.
 
 ## Product truth lives here
 
+- **Product strategy** — [`product-strategy.md`](docs/ai-context/product-strategy.md),
+  approved 2026-11-11: made about a friend; credits, packs and membership;
+  the engines; up to three gags per fact; the post-launch order. It wins over
+  the documents below where they disagree.
 - **Brief / direction / roadmap** —
   [`product-brief.md`](docs/ai-context/product-brief.md),
   [`product-direction.md`](docs/ai-context/product-direction.md),

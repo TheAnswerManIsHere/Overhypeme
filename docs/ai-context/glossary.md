@@ -358,10 +358,12 @@ re-approval always renders **fresh** — no prior batch is ever reused.
 ### Hero render
 
 A fact's moderation-approved renders, published as the fact's own image assets
-and offered to free users as the base of their memes (launch definition, *What
-ships → Image memes*). Decided 2026-10-06 as a **hard gate on going live**: a
-fact cannot be active without approved hero renders, and there is no
-"no-hero fallback". **Not a [render scenario](#render-scenario) in the code
+to show its visual gag. Since the [product strategy](./product-strategy.md#gags-and-examples)
+of 2026-11-11 they are **examples**: one unstyled example per approved gag is
+required (a fact may have up to three gags), styled ones are optional, and they
+are never offered as meme backgrounds or re-rendered across the catalogue.
+Decided 2026-10-06 as a **hard gate on going live**: a fact cannot be active
+without its required examples, and there is no "no-hero fallback". **Not a [render scenario](#render-scenario) in the code
 today** — which scenarios' renders become a fact's heroes, and the approval
 minimum, are #628 Phase 7's decisions. Distinct from the home-page billboard
 fact (`GET /api/facts/hero`), the one other live use of "hero". (The meme
@@ -381,10 +383,12 @@ no test render has run yet at the moment of the decision.
 An auditable record that a moderator approved despite missing or stale test
 renders. Today every required render scenario is waivable: test renders are
 review *aids*, not hard gates, so approving anyway is allowed but recorded
-rather than silently skipped. **Decided, not yet shipped:** a fact's
-[hero renders](#hero-render) become a hard gate on going live (David,
-2026-10-06) when the launch programme's image phase (#628 Phase 7) lands the
-publication model; the waiver will not cover them. See
+rather than silently skipped. **Decided, not yet shipped:** a fact's required
+[hero renders](#hero-render), one example per approved gag, become a hard gate
+on going live (David, 2026-10-06; reshaped by the
+[product strategy](./product-strategy.md#gags-and-examples), 2026-11-11) when
+the launch programme's image phase (#628 Phase 7) lands the publication model;
+the waiver will not cover them. See
 [launch-definition](./launch-definition.md).
 → [moderation-workflow](./moderation-workflow.md)
 
@@ -935,7 +939,8 @@ same thing as being signed out or having skipped [onboarding](#onboarding).
 
 The paid tier, unlocking private memes, no CAPTCHAs, higher rate limits, a
 photo avatar and no ads. ([AI image memes](#ai-image-meme) went with PuLID in
-launch Phase 4; Phase 7 brings face-in-scene back.)
+launch Phase 4; Phase 7 brings AI pictures back on credits, which anyone can
+buy and membership adds monthly: [product strategy](./product-strategy.md#what-is-paid).)
 Bought as a subscription or as [Legendary for Life](#legendary-for-life), or
 comped by an admin.
 → [membership-entitlements](./membership-entitlements.md)

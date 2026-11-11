@@ -2,7 +2,10 @@
 
 > Current direction and settled decisions, so agents stop re-litigating them.
 > Strategic items here were set by David; factual "current direction" items are
-> confirmed against the repo. When this conflicts with an older note, this wins.
+> confirmed against the repo. When this conflicts with an older note, this wins,
+> except the approved [product strategy](./product-strategy.md) (2026-11-11),
+> which this file follows: who the product is for, what is free and paid, the
+> engines, the gags and the post-launch order are stated there.
 
 ## Current product bet
 
@@ -44,23 +47,28 @@ by every modality) — see *Launch-critical vs deferrable work* below.
   [`docs/retired/README.md`](../retired/README.md)) and video is rebuilt post-launch on top
   of the image pipeline. **PuLID is removed everywhere**: *"We're going to be
   using a much stronger model."*
-- **Free-tier image memes are the fact's moderation-approved hero renders**,
-  captioned by the user; templates, stock photos and user-facing
-  text-to-image are gone. Legendary is *your face in the scene* (from launch
-  Phase 7; PuLID, its first form, went in Phase 4). The default
-  image engine is chosen by an evaluation of the latest models on the same
-  facts (the planner/compiler split stays; the engine behind the compiler may
-  change).
+- **The product is made about a friend and sent to them**; every AI picture is
+  of a real person or thing from the user's life, never a generic person.
+  Free: text facts personalised to anyone, your own photo behind a fact, and
+  one AI picture per verified account. AI pictures cost credits; membership
+  adds credits and carries the perks. Templates, stock photos and user-facing
+  text-to-image stay gone. The engine follows the look: GPT Image 2.6 for
+  photoreal, Nano Banana 2.1 for styles, provisional until the three-factor
+  check (the planner/compiler split stays). All of this is the
+  [product strategy](./product-strategy.md).
 
 ## Moderation direction
 
 - **Staged moderation**: no paid enrichment/render work runs at submission —
   explicit cheap human triage comes first, then paid prep against a **staging
   fact**, then production review, then approval flips the fact live.
-- **Approved hero images are a hard gate: a fact cannot go live without
-  them** (David, 2026-10-06). There is no "no-hero fallback"; the
-  render-approval waiver is retired for the hero scenario and remains an
-  auditable override for any other render scenario. Pexels is deleted
+- **An approved example picture for every approved gag is a hard gate: a
+  fact cannot go live without them** (David, 2026-10-06, reshaped by the
+  [product strategy](./product-strategy.md#gags-and-examples) on 2026-11-11:
+  a fact has up to three approved gags, and one unstyled example per gag is
+  required). There is no "no-example fallback"; the render-approval waiver is
+  retired for the required examples and remains an auditable override for
+  any other render scenario. Pexels is deleted
   entirely (it was a review aid and the source of user-facing stock
   backgrounds; both are cut).
 - Near-term focus: **reduce manual moderation toil** (faster approve, better queue
@@ -180,10 +188,12 @@ loop are launch-critical** (sharing polish was deferrable).
 - The loop, rebuilt properly: personalisation, sharing by every modality,
   "make this about you" on every shared meme page, Open Graph previews for
   meme and fact pages, public creator pages, reactions and heat.
-- Moderation speed & tooling (cut reviewer toil), with the hero-render hard
-  gate and finished speech bubbles.
+- Moderation speed & tooling (cut reviewer toil), with the required
+  example-per-gag gate, up to three gags per fact, and finished speech
+  bubbles.
 - Render/enrichment quality (memes that land the joke; robust versioned
-  refresh; clean stale-render handling); the engine evaluation.
+  refresh; clean stale-render handling); the engine evaluation, finished as
+  the [product strategy](./product-strategy.md#pictures-and-engines) sets out.
 - The safety, legal and compliance package; spend controls; security
   hardening with every key rotated — all gates for Seed.
 - Pipeline stability / regression reduction across the board.
@@ -191,9 +201,12 @@ loop are launch-critical** (sharing polish was deferrable).
 **Deferrable (post-launch, by decision):**
 
 - Video, rebuilt on the image pipeline.
-- Public-growth surfaces beyond the loop; free→Legendary conversion
-  optimization; Legendary Pro; NSFW mode; the beta overlay.
-- Annual and lifetime membership as new sales.
+- Public-growth surfaces beyond the loop; conversion optimization; Legendary
+  Pro; NSFW mode; the beta overlay.
+- Lifetime membership as a new sale (annual membership and credit packs
+  launch: [product strategy](./product-strategy.md#what-is-paid)).
+- After launch, in order: video, several people in one picture, printed
+  cards and merch ([product strategy](./product-strategy.md#after-launch-in-order-of-intent)).
 - R2 storage consolidation.
 - New content formats beyond "facts."
 - Data export (lands with GDPR readiness at the Global stage).
@@ -214,7 +227,9 @@ before proposing to reverse one.)*
 - The **two permission rails** — entitlements in the grid, privileges in code
   — and the union (never override) semantics of overlays. See *Permissions
   direction* above.
-- **Approved hero images as a hard gate** on going live (2026-10-06).
+- **An approved example per approved gag as a hard gate** on going live
+  (2026-10-06, reshaped 2026-11-11 by the [product strategy](./product-strategy.md)).
+- **The [product strategy](./product-strategy.md)** of 2026-11-11.
 - **The four launch stages and the full readiness bar before Seed**; the
   Stripe evidence split; the geography rule (everyone except GDPR territories
   and OFAC countries at the US launch). See
@@ -225,6 +240,8 @@ before proposing to reverse one.)*
 *(None blocking as of this writing. Add here when a direction is genuinely
 ambiguous rather than guessing.)*
 
-- *(Answered 2026-10-06: the hero scenario is a hard gate; every other render
-  scenario stays waivable. Decisions David makes at each launch phase
+- *(Answered 2026-10-06: the hero scenario is a hard gate, since reshaped to
+  one required example per approved gag by the
+  [product strategy](./product-strategy.md#gags-and-examples); every other
+  render scenario stays waivable. Decisions David makes at each launch phase
   boundary are listed on #628, not here.)*

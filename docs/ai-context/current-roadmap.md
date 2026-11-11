@@ -11,7 +11,8 @@
 
 ## Active area of focus
 
-**Getting to launch.** Launch is defined in
+**Getting to launch.** The direction it serves is the approved
+[product strategy](./product-strategy.md) (2026-11-11). Launch is defined in
 [`launch-definition.md`](./launch-definition.md) and the phased programme that
 makes it true is **#628** (21 phases: define; the scripted-verification build
 as a prerequisite to everything product; data and environments; cut and
@@ -795,9 +796,13 @@ KITT work a launch phase needs and a second app would need identically;
 - **Video**, rebuilt post-launch on top of the image pipeline (the current
   pipeline is deleted, with a `pre-cut/` tag, a ledger row and a lessons
   page in [`docs/retired/`](../retired/README.md)).
-- Public-growth surfaces beyond the share loop and free→Legendary conversion
-  optimization; Legendary Pro; NSFW mode; the beta opt-in overlay; annual and
-  lifetime membership as new sales; data export (lands at the Global stage).
+- Public-growth surfaces beyond the share loop and conversion optimization;
+  Legendary Pro; NSFW mode; the beta opt-in overlay; lifetime membership as a
+  new sale (annual membership and credit packs launch, per the
+  [product strategy](./product-strategy.md#what-is-paid)); data export (lands
+  at the Global stage).
+- After launch, in order: video, several people in one picture, printed cards
+  and merch ([product strategy](./product-strategy.md#after-launch-in-order-of-intent)).
 - R2 storage consolidation (images currently on Google Cloud Storage).
 - New content formats beyond "facts."
 - A multi-role admin permission model.
@@ -830,7 +835,9 @@ KITT work a launch phase needs and a second app would need identically;
   send the member to the billing portal.** He can reverse it there.
 - ~~Should any render scenario become a **hard** approval gate (today all waivable)?~~
   Answered 2026-10-06: approved hero images are a hard gate; other scenarios
-  stay waivable. See [`decisions.md`](./decisions.md).
+  stay waivable. See [`decisions.md`](./decisions.md). Reshaped 2026-11-11 to
+  one required example per approved gag, up to three gags per fact
+  ([product strategy](./product-strategy.md#gags-and-examples)).
 - Should any subset of a refresh (e.g. one where only non-render-affecting
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk
   send-back only initiates; see the PR #168/#205 entry in

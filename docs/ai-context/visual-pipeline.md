@@ -63,7 +63,9 @@ model receives.** Enrichment is an input, not the prompt (see
 
 ## The engine comparison (launch Phase 8)
 
-The comparison that chooses the launch engine per mode is its own small model,
+The comparison that informs the launch engines is its own small model (its
+outcome, GPT Image 2.6 for photoreal and Nano Banana 2.1 for styles,
+provisional, is the [product strategy](./product-strategy.md#pictures-and-engines)),
 beside the eval run rather than inside it (plan
 `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`, *Proposed Design* C and D).
 
@@ -469,7 +471,7 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
   Each carries a `priceModel`, a complete per-call bound at the comparison
   settings with each component's source, and nothing routes to one until an
   admin sets it as a mode's default. The compiler is still Nano Banana 2's for
-  every engine; adapting it to the winner is increment 4's.
+  every engine; adapting it to the two chosen engines is increment 4's.
 
 ## Visual Concept
 
@@ -744,7 +746,8 @@ only the AI background backfill). Making outputs identical needs temp 0 or resul
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
   path is the **frontier planner (`gpt-5.5`) + the configured image engine per mode**
   (`image_engine_t2i` / `image_engine_i2i`; Nano Banana 2 and its edit engine until
-  launch Phase 8 adopts its winners). (The utility LLM — `gpt-6-luna` since it
+  launch Phase 8 adopts GPT Image 2.6 and Nano Banana 2.1, per the
+  [product strategy](./product-strategy.md#pictures-and-engines)). (The utility LLM — `gpt-6-luna` since it
   replaced `gpt-4o-mini` on 2026-10-13 — serves utility calls only; FLUX Pro only
   on the AI background backfill.)
 - **Choosing a render engine by string in the worker, or deriving a stored

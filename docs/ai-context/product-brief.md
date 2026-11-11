@@ -2,11 +2,13 @@
 
 > Current, concise product truth **as built today**. If this conflicts with an
 > older note or an agent's memory, **this file wins** (and if it's wrong, fix
-> it here). For what *launches* — the feature set, the cuts (video, merch,
-> templates, stock photos, annual and lifetime plans among them) and the
-> readiness bar — [`launch-definition.md`](./launch-definition.md) wins where
-> the two differ; this brief is swept to match as each cut phase of #628
-> lands. For the
+> it here). For where the product is going — who it is for, what is free and
+> paid, which engines draw — the approved
+> [product strategy](./product-strategy.md) (2026-11-11) wins. For what
+> *launches* — the feature set, the cuts (video, merch, templates, stock
+> photos and lifetime plans among them) and the readiness bar —
+> [`launch-definition.md`](./launch-definition.md) wins where the two differ;
+> this brief is swept to match as each phase of #628 lands. For the
 > *why/priorities* see [`product-direction.md`](./product-direction.md) and
 > [`current-roadmap.md`](./current-roadmap.md); for *how it's built* see
 > [`architecture-map.md`](./architecture-map.md); for term definitions see the
@@ -81,7 +83,11 @@ See [`visual-pipeline.md`](./visual-pipeline.md). AI **classification**
 
 ## Paid / free model (currently relevant)
 
-Two user-facing tiers gate on **per-use cost**, not a credit balance:
+**As built today**, two user-facing tiers gate on **per-use cost**, not a
+credit balance. The approved [product strategy](./product-strategy.md#what-is-paid)
+replaces this before launch with one credit balance (a pack anyone can buy, or
+monthly or annual membership that adds credits) and one free AI picture per
+verified account; this section describes the code until that ships.
 
 - **Free** — everything that doesn't cost per-render money: browse, personalize,
   submit facts, comment, vote, and **photo** memes (your own photo behind the
@@ -89,8 +95,8 @@ Two user-facing tiers gate on **per-use cost**, not a credit balance:
 - **Legendary** — private memes, no CAPTCHAs, higher limits, a photo avatar
   and no ads; the paid per-render surface (**AI image memes**) returns in
   launch Phase 7. Plans are monthly, annual, and a one-time lifetime ("Legendary for
-  Life"), fetched live from Stripe. There are **no consumer "credits"**; server-side
-  budget/spend caps gate generation cost.
+  Life"), fetched live from Stripe. There are no consumer credits
+  in the code yet; server-side budget/spend caps gate generation cost.
 
 Membership tiers in code: `unregistered | registered | legendary` (separate from
 the `is_admin` flag). There is no merch: the Zazzle affiliate flow was
