@@ -5,7 +5,9 @@ Phase 4, removal 3 (#744). Its ledger row is in [`README.md`](README.md); the
 product definition and the architecture as they stood are at the tag
 `pre-cut/pulid`, in `docs/ai-context/meme-and-video-studio.md` (*AI image
 memes*, *Tier gates*) and `docs/manual/6-meme-and-video-studio.md`. Face-in-scene
-comes back in launch Phase 7 on a newer model, so this page holds only what a
+comes back in launch Phase 7 on a newer model, paid for in credits with one
+free picture per verified account
+([product strategy](../ai-context/product-strategy.md#what-is-paid)), so this page holds only what a
 rebuild would otherwise rediscover: the vendor contract, the shapes that
 held, and what failed. Read the tag's code for everything else.
 

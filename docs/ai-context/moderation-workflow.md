@@ -207,10 +207,11 @@ silent skip). No render scenario is designated "hero" in the code.
 [hero renders](./glossary.md#hero-render) — its moderation-approved renders,
 published as its own image assets — are a **hard gate on going live**. A
 successful moderation is one that ends with confirmed, approved hero renders;
-there is no "no-hero fallback", and the waiver will not cover them. Which
-scenarios' renders become a fact's heroes, and the approval minimum, are
-decided in #628 Phase 7, whose PR replaces this paragraph with the shipped
-behaviour. Every other render scenario stays waivable.
+there is no "no-hero fallback", and the waiver will not cover them. The
+[product strategy](./product-strategy.md#gags-and-examples) (2026-11-11) sets
+the minimum: a fact may have up to three approved gags, and one unstyled
+example per approved gag is required; styled examples are optional. The PR
+that builds it replaces this paragraph with the shipped behaviour. Every other render scenario stays waivable.
 
 Pexels stock images were a second review aid and the source of user-facing
 stock backgrounds; Pexels was deleted entirely in launch Phase 4, removal 6

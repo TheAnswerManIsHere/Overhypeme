@@ -32,6 +32,16 @@ granted it, *when*, and *why*.
   came up before you start — there's no point clicking around if either
   failed.
 
+> **Superseded premise (2026-11-11).** Deferrals below that rest on a
+> monthly-only launch (annual removed, the annual switch or annual card states
+> going away, a monthly-only pricing page) rest on a premise the approved
+> [product strategy](../../ai-context/product-strategy.md#what-is-paid)
+> reversed: membership launches monthly **and annual**, beside a credit pack;
+> lifetime stays cut as a new sale. Each such step stays deferred as written
+> until the paid-layer plan says what happens to it; the plan, not this note,
+> decides. Independent blockers named in a deferral (such as the Stripe fake's
+> event channel) are unaffected.
+
 ## Steps
 
 ### 1. Buying a subscription membership still works

@@ -23,9 +23,11 @@ Upload a photo, or pick one you uploaded before. This is available to anyone
 signed in — no paid plan required — and it needs an account, so a visitor
 who isn't signed in is asked to sign up first. The built-in gradient
 backgrounds and the [stock images](../ai-context/glossary.md#stock-image) from Pexels were deleted
-before launch (the record is in [`docs/retired/`](../retired/README.md));
-until a free background the site supplies comes back, there is nothing a
-signed-out visitor can build on.
+before launch (the record is in [`docs/retired/`](../retired/README.md)),
+so there is nothing a signed-out visitor can build on, and the plan is to
+keep it that way: a fact's example pictures show its gag but are never meme
+backgrounds, and the one free AI picture needs a verified account
+([product strategy](../ai-context/product-strategy.md#what-is-free)).
 
 There are no AI-generated memes and no video memes. Both were deleted before
 launch, to be rebuilt later on stronger models: the AI image of you in the
@@ -65,10 +67,10 @@ content on Overhype.me is stored, and the recipe points at it.
 
 ## Boundaries & known limitations
 
-- **Uploading your own photo to build a meme isn't currently paywalled**,
-  even though the product has machinery elsewhere that suggests it might
-  once have been intended to be. **Needs David confirmation** on whether
-  that's the intended, permanent behavior.
+- **Uploading your own photo to build a meme isn't paywalled, on purpose.**
+  The product has machinery elsewhere that suggests it once might have been;
+  the approved [product strategy](../ai-context/product-strategy.md#what-is-free)
+  (2026-11-11) settles it as free.
 
 ## Going deeper
 

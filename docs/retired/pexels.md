@@ -75,4 +75,7 @@ rediscover: the vendor contract, the shapes that held, and what failed.
   ever held defaults written by nobody who read them.
 - **The anonymous path rested on it.** Stock was the only background a
   signed-out visitor could render, so the cut left anonymous visitors with
-  the sign-up panel until launch Phase 7 rebuilds a free hero render.
+  the sign-up panel. No free signed-out render returns: a fact's hero
+  renders become examples, never meme backgrounds, and the free AI picture
+  needs a verified account
+  ([product strategy](../ai-context/product-strategy.md#what-is-free), 2026-11-11).

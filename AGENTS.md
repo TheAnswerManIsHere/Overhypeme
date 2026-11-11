@@ -16,6 +16,7 @@ AI-generation, or product-direction work, read the relevant files in
 
 Start with:
 
+- [`docs/ai-context/product-strategy.md`](docs/ai-context/product-strategy.md) — the approved strategy (2026-11-11): who it is for, what is free and paid, the engines, the gags; wins over the older documents where they disagree
 - [`docs/ai-context/product-brief.md`](docs/ai-context/product-brief.md)
 - [`docs/ai-context/architecture-map.md`](docs/ai-context/architecture-map.md)
 - [`docs/ai-context/current-roadmap.md`](docs/ai-context/current-roadmap.md)

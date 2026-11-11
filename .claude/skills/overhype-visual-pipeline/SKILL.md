@@ -17,7 +17,9 @@ For work on the render-time image pipeline.
 ## Preserve
 
 - **The moderator-authored/-picked Visual Concept is the authoritative scene.** The
-  frontier planner realizes it; the human concept wins.
+  frontier planner realizes it; the human concept wins. (Today a fact has one;
+  the approved [product strategy](../../../docs/ai-context/product-strategy.md#gags-and-examples)
+  allows up to three approved gags per fact, each its own authoritative scene.)
 - **Single prompt channel.** The compiler owns TASK/BINDING/STRICT-CONSTRAINTS/
   identity/reference/text-policy language. Do **not** add a duplicate prompt-building
   channel or let planner prose re-author compiler-owned clauses.
@@ -36,7 +38,9 @@ For work on the render-time image pipeline.
 ## Do NOT reintroduce
 
 Blanket text bans · `gpt-4o-mini`/`gpt-image-1`/FLUX as the render path (it's the
-`gpt-5.5` planner + Nano Banana 2) · enrichment-time visual preview as source of
+`gpt-5.5` planner + Nano Banana 2 today; launch Phase 8 adopts GPT Image 2.6 for
+photoreal and Nano Banana 2.1 for styles, per the
+[product strategy](../../../docs/ai-context/product-strategy.md#pictures-and-engines)) · enrichment-time visual preview as source of
 truth · violence auto-softeners · per-route preview identities · choosing the
 render engine by string, or deriving a stored attempt's engine from its mode (it
 is the per-mode config keys and the attempt's own column; `imageEngineRouting.ts`,

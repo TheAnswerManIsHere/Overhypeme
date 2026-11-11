@@ -25,8 +25,8 @@ built-in gradient backgrounds went in launch Phase 4, removal 5), share them pub
 membership via Stripe. No user path generates an AI image since launch Phase 4
 deleted PuLID (ledger `docs/retired/README.md`); paid AI calls are the
 moderation, enrichment and admin machinery's. There are **no consumer credits
-today**; a separate purchasable-credits product is future scope only (see
-`product-brief.md`).
+today**; credits sold as packs and with membership are approved for launch and
+not yet built (see `docs/ai-context/product-strategy.md`).
 
 | Component | What it is |
 |---|---|

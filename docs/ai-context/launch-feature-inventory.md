@@ -9,6 +9,23 @@
 > *Recommendation* column is what was proposed before David decided; the
 > **Decisions** block under each journey is what he decided.
 >
+> **Superseded in part by the approved [product strategy](./product-strategy.md)
+> (2026-11-11)**, which wins where they differ. The items it changes:
+> **F2/F6/F10** (monthly only at launch — membership is now monthly or annual,
+> with a credit pack; lifetime stays cut); **F21** and the *Legendary perks for
+> launch* (face-in-scene as a Legendary-only perk with a monthly face-render
+> allowance — AI pictures now cost credits, anyone can buy them, and each
+> verified account gets one free); **D3** and the hero-option notes in the
+> moderation journey (hero renders as the free tier's meme backgrounds and
+> "how many options per fact" — examples are shown per approved gag, up to
+> three gags per fact, never used as backgrounds); **D16/K4** (the evaluation
+> winner as one default engine — GPT Image 2.6 photoreal and Nano Banana 2.1
+> styled, no text-only winner); **D21**, **D9** and **K2** where they treat
+> hero renders as the backgrounds that replace stock (heroes are examples
+> only, and a signed-out visitor renders nothing); and the "AI stock photo"
+> line. The
+> rows below are kept as the record of what was decided on 2026-10-05.
+>
 > Source: a read-only sweep of the product docs, the Manual, every route and
 > page, and the UAT record. 222 items across 11 journeys.
 

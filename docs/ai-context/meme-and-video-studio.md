@@ -35,8 +35,8 @@
   A signed-out viewer gets a "Make this meme about you" sign-up card
   (`CTABarAnonOther`) that returns to the meme, since an upload needs an
   account. The "See it with your name" form it replaced (name and pronouns
-  into the builder) is at the tag `pre-cut/stock-pexels`, for Phase 7's free
-  preview. The deleted remix builder's
+  into the builder) is at the tag `pre-cut/stock-pexels`, if Phase 7's
+  personalisation flow wants it. The deleted remix builder's
   Legendary stylise toggle and "Try AI mode" upsell went with PuLID (see *AI
   image memes*).
 
@@ -172,8 +172,8 @@ a canvas the browser sent, was removed when baking at save arrived (plan S16).
 stylising (the wizard's "AI you" source through `/memes/pulid-jobs`, and the
 remix builder's stylise toggle through `POST /memes/ai/:factId/generate`), was
 deleted in launch Phase 4, removal 3, with the `meme_pulid_stylize` and
-`meme_ai_background` features (migration 0104). Launch Phase 7 rebuilds
-face-in-scene on a newer model. The record is the ledger row and
+`meme_ai_background` features (migration 0104). Launch Phase 7 rebuilds AI pictures of a real person on credits
+([product strategy](./product-strategy.md#what-is-paid)). The record is the ledger row and
 [`docs/retired/pulid.md`](../retired/pulid.md); the code is at the
 `pre-cut/pulid` tag.
 
@@ -214,8 +214,10 @@ authenticated user, not Legendary-only. The upload and identity
 `imageSource` types carry no tier check in `createMemeRecord`. An
 unauthenticated caller can no longer preview or download a meme: the render
 routes answer 403 `mode_requires_auth` for every source, since the only
-source a signed-out visitor could render (stock) went with Pexels. A free
-signed-out render comes back with launch Phase 7's hero renders.
+source a signed-out visitor could render (stock) went with Pexels. No
+signed-out render returns: a fact's hero renders become examples, never meme
+backgrounds, and the free AI picture needs a verified account
+([product strategy](./product-strategy.md#what-is-free)).
 
 **Vestigial gate — flag before touching this area:** a `meme_upload_photo`
 tier feature flag exists in `tier_feature_permissions` (seeded and later

@@ -10,7 +10,9 @@
 > it true, and each phase's own issue carries its progress. When this conflicts
 > with an older note, this wins; when a phase changes a decision here, the
 > change is recorded in [`decisions.md`](./decisions.md) and this file is
-> updated in the same PR.
+> updated in the same PR. The one document above it is the approved
+> [product strategy](./product-strategy.md) (2026-11-11), which this file now
+> follows.
 
 ## Why it exists
 
@@ -94,21 +96,32 @@ litigation is that I'm the platform. Takedown is part of that"*); author
 notifications; library tabs.
 
 **Image memes:** the builder wizard (legacy builders deleted). Free tier =
-**the fact's moderation-approved hero renders**, captioned by the user; no
-templates, no stock photos, no user-facing text-to-image. Legendary = **your
-face in the scene**. Photo upload accepts PNG and HEIC; caption and split
+**text facts personalised to anyone, your own uploaded photo behind a fact,
+and one AI picture per verified account**; no templates, no stock photos, no
+user-facing text-to-image, and no pictures of generic people as meme
+backgrounds. **AI pictures of a real person** (yourself or a friend) cost
+credits, from the engine matched to the look
+([product strategy](./product-strategy.md#pictures-and-engines)). Each
+fact shows **one example picture per approved gag**, and a fact may carry up to
+three approved gags ([product strategy](./product-strategy.md#gags-and-examples)).
+A friend's photo in an AI picture is designed for and switched off until
+counsel answers ([product strategy](./product-strategy.md#a-friends-photo)). Photo upload accepts PNG and HEIC; caption and split
 caption; speech bubbles **finished** on the moderation side; style presets
-reviewed against the winning engine; private memes read from the entitlement
+reviewed against the engines chosen by look; private memes read from the entitlement
 grid (#395 fixed); hearts respect visibility (#375 fixed); only a user's own
-uploads or creations are offered to them as personal media, alongside the
-fact's shared, approved hero renders (generic, no faces by construction — the
-inventory's D9 boundary); anonymous visitors preview only, and
-download, save and share need a verified account; budget-reached states.
+uploads or creations are offered to them as personal media; a fact's example
+pictures are shown, not offered as backgrounds (generic, no faces by
+construction — the inventory's D9 boundary); anonymous visitors browse,
+personalise text and see examples but render nothing, and download, save and
+share need a verified account; budget-reached states.
 
-**Membership (monthly only at launch; no existing purchases to honour):**
-Legendary = face-in-scene AI memes, private memes, custom avatar, the branded
-watermark removed (free downloads carry one), a monthly face-render allowance
-with a visible meter, multiple saved reference photos. Early access, ad-free
+**Paying (no existing purchases to honour):** one **credit** balance that never
+expires; a **credit pack** anyone can buy; and **membership**, monthly or
+annual, which adds credits every month and carries the perks: private memes,
+custom avatar, the branded watermark removed (free downloads carry one) and
+multiple saved reference photos. The balance is shown wherever credits are
+spent. Prices are placeholders until real bills at screen size are read
+([product strategy](./product-strategy.md#what-is-paid)). Early access, ad-free
 and priority rendering are grid rows with nothing to gate yet; the beta
 opt-in overlay that would give "early access" something to show is
 post-launch (see the cut list). **The entitlement grid is the definition.** Checkout, confirm,
@@ -171,7 +184,8 @@ to throw the baby out with the bathwater"*; the record's shape, David,
 2026-10-21: [decision](./decisions.md#2026-10-21--a-cut-features-record-is-a-ledger-row-plus-a-lessons-page-only-where-a-rebuild-needs-one)).
 
 Video (pipeline, legacy path, PuLID stage, video engines); PuLID everywhere;
-annual and lifetime as new sales; Zazzle/merch and the Affiliate screen; Video
+lifetime as a new sale (annual returns at launch, with credits —
+[product strategy](./product-strategy.md#what-is-paid)); Zazzle/merch and the Affiliate screen; Video
 Styles; templates; stock photos and **Pexels entirely**; the standalone
 hashtags page; dead admin files; Debug mode; route-visit counters; the tester
 role (gone from the docs; the invite gate is the Seed gate, and a beta
@@ -188,12 +202,16 @@ a safe, easy admin entry (David, 2026-10-21;
 
 ## Hard gates that used to be waivable
 
-**Approved hero images are a hard gate: a fact cannot go live without them.**
-There is no "no-hero fallback" (David, 2026-10-06: *"I don't think there's any
-concept of a no-hero fallback on a fact. We should define a successful fact
-moderation as having confirmed, approved hero images. Without them, the fact
-cannot go live"*). The render-approval waiver is retired for the hero
-scenario; it remains an auditable override for any other render scenario.
+**An approved example picture for every approved gag is a hard gate: a fact
+cannot go live without them.** There is no "no-example fallback" (David,
+2026-10-06: *"I don't think there's any concept of a no-hero fallback on a
+fact. We should define a successful fact moderation as having confirmed,
+approved hero images. Without them, the fact cannot go live"*; reshaped by the
+[product strategy](./product-strategy.md#gags-and-examples), 2026-11-11: one
+unstyled example per approved gag is required, styled ones are optional, and
+examples are not re-rendered across the catalogue or used as meme
+backgrounds). The render-approval waiver is retired for the required
+examples; it remains an auditable override for any other render scenario.
 
 ## Verification is a prerequisite
 
@@ -225,7 +243,7 @@ outstanding and never becomes an earlier stage's pass.
 |---|---|---|---|---|---|---|
 | 1 | Scope approved; every route and admin screen in it or removed | must | — | — | — | — |
 | 2 | Production database built from code alone; backup **and media** restore rehearsed with recovery time recorded | must | — | re-verified | — | — |
-| 3 | Stripe monthly lifecycle and every adverse event (failed payment, cancel, refund, dispute, duplicate/out-of-order webhook, interrupted processing) proven **in test mode** with the reconciliation runbook demonstrated; retained test purchases shown unable to grant live benefits after the mode switch; live account, price, credentials, webhook and boot guard verified on the deployed site; genuine live payments observed under the launch watch; `livemode` recorded; unused CI Stripe secrets removed | test-mode proof complete | friends' test-mode use | live configuration verified; genuine payments watched | per-region configuration | per column |
+| 3 | Stripe membership lifecycle (monthly and annual) and credit-pack purchase, and every adverse event (failed payment, cancel, refund, dispute, duplicate/out-of-order webhook, interrupted processing) proven **in test mode** with the reconciliation runbook demonstrated; retained test purchases shown unable to grant live benefits after the mode switch; live account, price, credentials, webhook and boot guard verified on the deployed site; genuine live payments observed under the launch watch; `livemode` recorded; unused CI Stripe secrets removed | test-mode proof complete | friends' test-mode use | live configuration verified; genuine payments watched | per-region configuration | per column |
 | 4 | Spend controls demonstrated under concurrency, pricing failure, restart and ledger-write failure; a launch capacity and an emergency stop exercised | must | — | re-verified live | — | — |
 | 5 | `/security-review` on the launch scope with no open highs; `ADMIN_API_KEY` scoped (no password reset through it) or gone; `sharp` upgraded or mitigated; CSP enforced on the API and on the web app (after a report-only period); HSTS sent once, by Cloudflare; `pnpm audit --prod` shows no High or Critical; the old production dump's exposure closed by rotation (sessions revoked by the fresh database, that account's password changed), not a history purge; **every credential rotated and the old one revoked**; **every Cloudflare setting audited** against a committed record of what it should be, account-level settings (Turnstile, the OG worker) included, each setting the product depends on measured from outside or on the origin, never read off the dashboard (David, 2026-11-04) | must | — | green on the current head; Cloudflare re-audited | — | — |
 | 6 | Every in-scope UAT step has a disposition; the manual residue fits an afternoon; the real-data pass has run on the Repl | dispositions | real-data pass done | — | — | — |
@@ -261,6 +279,8 @@ application is deployed does not satisfy row 3.
   under `docs/plans/` on `claude/phase2-ai-doubles` and
   reaches `main` with that branch's next pull request; #628 records each
   amendment's digest.
+- The approved direction this file follows:
+  [`product-strategy.md`](./product-strategy.md) (2026-11-11).
 - Every per-item decision from the feature walk:
   [`launch-feature-inventory.md`](./launch-feature-inventory.md).
 - The rationale for each reversal and hard gate: [`decisions.md`](./decisions.md),
