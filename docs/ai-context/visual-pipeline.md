@@ -192,7 +192,7 @@ beside the eval run rather than inside it (plan
 ## Image provenance: every picture traceable to how it was made
 
 Image tracing (plan `docs/plans/PLAN_IMAGE_TRACING.md`; #905, increment 1
-#907). Any picture that leaves the system leads back to a record of how it
+#907, increment 2 #912). Any picture that leaves the system leads back to a record of how it
 came to exist. The rules a change here must keep:
 
 - **One finishing step.** Every producer calls
@@ -212,9 +212,31 @@ came to exist. The rules a change here must keep:
   the engine workbench (`routes/adminEngines.ts` via
   `artifacts/api-server/src/lib/provenance/workbench.ts`, whose completed result names our stored
   copy, never the vendor URL), and member uploads (`userImageUpload.ts`,
-  recorded unstamped). Meme images join in increment 2. A new producer
-  joins by calling `finishImage`; the inventory oracles are in the plan's
-  Settled Decision 10.
+  recorded unstamped), and every composed meme — the bake on save and the
+  backfill bake (`memeBake.ts` `renderTracedMeme`), the live render of an
+  unbaked meme, and the builder's preview and download (`memeComposite.ts`
+  `composeTracedMeme`) — through `artifacts/api-server/src/lib/provenance/meme.ts` `finishMeme`, which
+  chains the meme's record to the record of the photo it was drawn on. A new
+  producer joins by calling `finishImage`; the inventory oracles are in the
+  plan's Settled Decision 10, and `imageProvenance.test.ts` fails a file that
+  stores or calls the vendor without recording, or that calls one of the
+  untraced meme-drawing functions (`generateMemeBuffer`, `composeMeme`,
+  `renderMemeRecipe`) outside the two traced wrappers.
+- **Every meme carries an invisible watermark of its record id**
+  (`artifacts/api-server/src/lib/provenance/watermark.ts`): Adobe's TrustMark Q, run in the API process with
+  `onnxruntime-node` from Adobe's own ONNX exports, committed under
+  `artifacts/api-server/src/assets/trustmark/` and refused unless they match their pinned hashes. The
+  100-bit payload (`watermarkPayload.ts`) is TrustMark's BCH_5 packet bit for bit — a 9-bit tag and the
+  52-bit id — so Adobe's reference decoder reads our marks too. The id is drawn before the meme
+  (`finishImage` takes it), marked into the canvas pixels before the JPEG is encoded, and then stamped
+  in the metadata like any other picture. Two renders of one recipe are therefore the same drawing
+  with different marks; the live render of an unbaked meme reuses its earlier record when the bytes
+  come out identical, so a meme viewed a thousand times has one record. Measured for #912: the mark
+  is invisible (43.7 dB PSNR, largest change 20 of 255), costs about 0.2–0.5 s per meme, and survives
+  recompression, resizing to a thumbnail, WebP, repeated forwarding, an 8% trim, losing a quarter of
+  one side, a blur, and a screenshot (bars are cut away); it does not survive losing the bottom third.
+  The marker loads at start-up (about 140 MB of memory); the reader loads on the first trace (about
+  200 MB more), since only admins trace.
 - **What a file carries:** one XMP packet with `ovh:ProvenanceId` and, for an
   AI render, `ovh:Engine` — never settings or prompts. It is spliced into
   the container (PNG iTXt, JPEG APP1, WebP XMP chunk), so decoded pixels
@@ -237,10 +259,13 @@ came to exist. The rules a change here must keep:
   `ai-bg-v2/` and `comparison/` keys take the sniffed extension, and
   `/memes/ai-user/image` serves the stored content type.
 - **The trace:** admin **Trace an image** (`/admin/trace`, API
-  `/api/admin/provenance/trace` and `/images/:id`, admin-only) reads only
+  `/api/admin/provenance/trace`, `/trace-image` and `/images/:id`, admin-only) reads only
   records (a live row only finds a record), resolves the image links the admin
   and member screens show, returns every match, and labels legacy FLUX backfill images
-  "legacy path, settings not recorded".
+  "legacy path, settings not recorded". Given the picture itself (a file, dropped or pasted),
+  it tries all three of the id stamped in the metadata, the exact hash of the bytes, and the
+  watermark, and shows every record any of them found and what each said — so a stamp and a
+  watermark that disagree are both on screen.
 
 ## Frozen render inputs: identity + style (reproducibility)
 

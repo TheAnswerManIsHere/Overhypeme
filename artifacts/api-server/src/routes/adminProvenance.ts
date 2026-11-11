@@ -1,16 +1,17 @@
 /**
  * @purpose Admin-only image tracing endpoints (plan docs/plans/PLAN_IMAGE_TRACING.md): trace an id or a link to its provenance records, and serve a record's stored picture to an admin. Records hold prompts, request parameters and account identity, so nothing here is reachable by a non-admin.
  *
- *   GET /api/admin/provenance/trace?q=<id or link>   every matching record, its chain, the method that matched
- *   GET /api/admin/provenance/images/:id             the stored picture a record names
+ *   GET  /api/admin/provenance/trace?q=<id or link>  every matching record, its chain, the method that matched
+ *   POST /api/admin/provenance/trace-image           the same, from a picture file (its stamp, its bytes, its watermark)
+ *   GET  /api/admin/provenance/images/:id            the stored picture a record names
  */
-import { Router, type IRouter, type Request, type Response } from "express";
+import express, { Router, type IRouter, type Request, type Response } from "express";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { eq } from "drizzle-orm";
 import { db, imageProvenanceTable } from "@workspace/db";
 import { requireAdmin } from "./admin";
-import { traceIdOrLink } from "../lib/provenance/trace";
+import { traceIdOrLink, traceImageFile } from "../lib/provenance/trace";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 
@@ -23,6 +24,26 @@ router.get("/admin/provenance/trace", requireAdmin, async (req: Request, res: Re
   res.setHeader("Cache-Control", "private, no-store");
   res.json(await traceIdOrLink(q));
 });
+
+/** A screenshot or a downloaded meme: generous, since the file is only read, never stored. */
+const MAX_TRACE_IMAGE_MB = 30;
+
+router.post(
+  "/admin/provenance/trace-image",
+  requireAdmin,
+  express.raw({ type: () => true, limit: `${MAX_TRACE_IMAGE_MB}mb` }),
+  async (req: Request, res: Response) => {
+    const file = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!file || file.length === 0) { res.status(400).json({ error: "Choose a picture file." }); return; }
+    res.setHeader("Cache-Control", "private, no-store");
+    try {
+      res.json(await traceImageFile(file));
+    } catch (err) {
+      logger.warn({ err }, "[provenance] trace-image could not read the file");
+      res.status(422).json({ error: "That file could not be read as a picture." });
+    }
+  },
+);
 
 router.get("/admin/provenance/images/:id", requireAdmin, async (req: Request, res: Response) => {
   const raw = String(req.params["id"] ?? "");

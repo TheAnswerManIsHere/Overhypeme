@@ -114,6 +114,12 @@ export async function latestCellGenerationRequest(comparisonCellId: number): Pro
 
 export interface FinishImageInput {
   bytes: Buffer;
+  /** The record id, when the picture already carries it in its pixels (a watermarked meme); otherwise one is drawn here. */
+  id?: number;
+  /** The invisible-watermark scheme the pixels carry `id` in, when they do. */
+  watermarkScheme?: string | null;
+  /** false: prepare the bytes and their hash but write no record (the caller is reusing an existing one). */
+  commit?: boolean;
   kind: ProvenanceKind;
   actor: ProvenanceActor;
   /** Stamp the id into the file (every kind but a member's upload, which is theirs). */
@@ -136,6 +142,7 @@ export interface FinishedImage {
   mime: string;
   ext: string;
   provenanceId: number;
+  sha256: string;
 }
 
 let insertOverride: ((row: typeof imageProvenanceTable.$inferInsert) => Promise<void>) | null = null;
@@ -151,7 +158,7 @@ export function __setProvenanceInsertForTest(impl: typeof insertOverride): void 
  * (plan, Runtime Behavior).
  */
 export async function finishImage(input: FinishImageInput): Promise<FinishedImage> {
-  const id = newProvenanceId();
+  const id = input.id ?? newProvenanceId();
   const stamped = input.stamp
     ? stampImage(input.bytes, { id, engine: input.stampEngine ?? null }) ?? input.bytes
     : input.bytes;
@@ -178,6 +185,7 @@ export async function finishImage(input: FinishImageInput): Promise<FinishedImag
     factId: input.factId ?? null,
     engineId: input.engineId ?? null,
     snapshot: input.snapshot ?? {},
+    watermarkScheme: input.watermarkScheme ?? null,
     sha256: createHash("sha256").update(stamped).digest("hex"),
     mime,
     byteSize: stamped.length,
@@ -185,9 +193,11 @@ export async function finishImage(input: FinishImageInput): Promise<FinishedImag
     height,
     ...codeVersionColumns(),
   };
-  if (insertOverride) await insertOverride(row);
-  else await db.insert(imageProvenanceTable).values(row);
-  return { bytes: stamped, mime, ext, provenanceId: id };
+  if (input.commit !== false) {
+    if (insertOverride) await insertOverride(row);
+    else await db.insert(imageProvenanceTable).values(row);
+  }
+  return { bytes: stamped, mime, ext, provenanceId: id, sha256: row.sha256 };
 }
 
 /** The store a finished picture goes to: `ObjectStorageService`, or a test fake. */

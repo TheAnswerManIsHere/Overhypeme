@@ -64,7 +64,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 function trace(input: string) {
   fireEvent.change(screen.getByLabelText("Record id or link"), { target: { value: input } });
-  fireEvent.click(screen.getByRole("button", { name: /trace/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^trace$/i }));
 }
 
 describe("AdminTrace", () => {
@@ -108,5 +108,37 @@ describe("AdminTrace", () => {
     render(<AdminTrace />);
     trace("x");
     expect(await screen.findByText("Give an id or a link.")).toBeTruthy();
+  });
+
+  it("traces a picture file by its stamp, bytes and watermark, sending the file itself, and says how it matched", async () => {
+    const meme = record({
+      kind: "meme_bake", memeSlug: "abc123", engineId: null, generationRequestId: null, attemptId: null,
+      watermarkScheme: "trustmark-q/bch5/v1", mime: "image/jpeg",
+      snapshot: { caption: "Alex pushes the limit.", identity: { name: "Alex", pronouns: "they/them" } },
+    });
+    const body = {
+      method: "watermark",
+      matches: [{ record: meme, generationRequest: null, source: null, stillExists: { account: true, meme: true } }],
+      tried: [
+        "metadata: no Overhype.me id in the file (stripped, or never stamped)",
+        "exact bytes: no record of these exact bytes (the file has been re-saved, resized or edited)",
+        "watermark: id 1234567890123 (after cutting away bars round the picture, 2 damaged bits repaired), found",
+      ],
+      note: null,
+    };
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AdminTrace />);
+    const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], "screenshot.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByLabelText("Picture to trace"), { target: { files: [file] } });
+    expect(await screen.findByText(/Found by the invisible watermark/)).toBeTruthy();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/admin/provenance/trace-image");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(file);
+    expect(screen.getByText("Saved meme")).toBeTruthy();
+    expect(screen.getByText("Alex pushes the limit.")).toBeTruthy();
+    expect(screen.getByText(/carries record 1234567890123/)).toBeTruthy();
+    expect(screen.getByText(/after cutting away bars/)).toBeTruthy();
   });
 });

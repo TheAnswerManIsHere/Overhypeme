@@ -352,13 +352,12 @@ describe("the producer inventory", () => {
   const EXEMPT: Record<string, string> = {
     "lib/objectStorage.ts": "the store itself, and the restricted (quarantine) wrapper, which moves existing bytes",
     "lib/aiMemePipeline.ts": "the legacy FLUX path, labelled not instrumented; retired by #887 increment 4",
-    "lib/memeBake.ts": "meme images: increment 2 of the plan",
     "lib/sourceImageAnalysis/tier1FalDetector.ts": "a classifier: returns no image",
     "lib/comparison/transport.ts": "the comparison's fal transport, behind comparison/runs.ts, which records",
     "testing/legacyFixture/load.ts": "test fixture data",
   };
   const PRODUCES = /uploadObjectBuffer\(|fal\.subscribe\(|fal\.queue\.submit|fal\.queue\.result/;
-  const RECORDS = /finishAndStore\(|finishImage\(|recordGenerationRequest\(|finishWorkbenchResult\(/;
+  const RECORDS = /finishAndStore\(|finishImage\(|recordGenerationRequest\(|finishWorkbenchResult\(|finishMeme\(/;
 
   it("every file that stores a picture or calls the image vendor records provenance, or is named as exempt", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
@@ -370,5 +369,30 @@ describe("the producer inventory", () => {
       if (PRODUCES.test(text) && !RECORDS.test(text) && !(f in EXEMPT) && f !== "lib/provenance/records.ts") unrecorded.push(f);
     }
     assert.deepEqual(unrecorded, [], "a new producer must call the finishing step (lib/provenance/records.ts) or be exempted here with a reason");
+  });
+
+  // Increment 2: a meme is drawn by three functions that return an unmarked,
+  // unrecorded picture. Each may be called only by the traced wrapper beside
+  // it (composeTracedMeme, renderTracedMeme, which go through finishMeme), so
+  // a new route that draws a meme cannot send one without its record. Unlike
+  // the file-level check above, this one is per function: a file that already
+  // records cannot quietly gain an untraced call.
+  it("the untraced meme-drawing functions are called only by the traced wrappers", async () => {
+    const { readdir, readFile } = await import("node:fs/promises");
+    const ALLOWED: Record<string, string[]> = {
+      generateMemeBuffer: ["lib/memeGenerator.ts", "lib/memeComposite.ts", "lib/memeBake.ts"],
+      composeMeme: ["lib/memeComposite.ts"],
+      renderMemeRecipe: ["lib/memeBake.ts"],
+    };
+    const files = (await readdir(SRC, { recursive: true }))
+      .filter((f) => f.endsWith(".ts") && !f.includes("__tests__") && !f.endsWith(".test.ts"));
+    const strays: string[] = [];
+    for (const f of files) {
+      const text = await readFile(SRC + f, "utf8");
+      for (const [fn, allowed] of Object.entries(ALLOWED)) {
+        if (new RegExp(`\\b${fn}\\(`).test(text) && !allowed.includes(f)) strays.push(`${f} calls ${fn}`);
+      }
+    }
+    assert.deepEqual(strays, [], "draw a meme through composeTracedMeme or renderTracedMeme, which record and watermark it");
   });
 });

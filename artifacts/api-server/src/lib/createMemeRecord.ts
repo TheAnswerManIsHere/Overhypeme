@@ -28,7 +28,9 @@ import { getConfigInt } from "./adminConfig";
 import { userOwnsUpload } from "./uploadOwnership";
 import { can, type Principal } from "./featureAccess";
 import { getUploadImageMetadata } from "./userImageUpload";
-import { renderMemeRecipe, storeMemeFile } from "./memeBake";
+import { renderTracedMeme, storeMemeFile } from "./memeBake";
+import { MemeRenderError } from "./provenance/meme";
+import { actorForUser } from "./provenance/records";
 import { logger } from "./logger";
 import { liveContent } from "./contentVisibility";
 import { effectiveTierExpr } from "./membershipState";
@@ -314,17 +316,25 @@ export async function createMemeRecord(
   // same one `renderedFactText` records.
   let baked: Buffer;
   try {
-    baked = await renderMemeRecipe({
-      fact,
-      creator: effectiveName ? { displayName: effectiveName, pronouns: effectivePronouns } : undefined,
-      textOptions: textOptions ?? null,
-      imageSource,
-      aspectRatio,
-      framingTransform: framingTransform ?? null,
-    });
+    // Watermarked with its provenance record id, stamped and recorded before it is stored (image tracing, #912).
+    baked = await renderTracedMeme(
+      {
+        fact,
+        creator: effectiveName ? { displayName: effectiveName, pronouns: effectivePronouns } : undefined,
+        textOptions: textOptions ?? null,
+        imageSource,
+        aspectRatio,
+        framingTransform: framingTransform ?? null,
+      },
+      { kind: "meme_bake", actor: await actorForUser(userId, "member"), slug, factId, stored: true, memeCreatorId: userId },
+    );
   } catch (err) {
-    logger.warn({ err, userId }, "[createMemeRecord] could not render the meme from its photo");
-    throw new CreateMemeError(422, { error: "render_failed", message: "That photo could not be used for a meme." });
+    if (err instanceof MemeRenderError) {
+      logger.warn({ err: err.cause, userId }, "[createMemeRecord] could not render the meme from its photo");
+      throw new CreateMemeError(422, { error: "render_failed", message: "That photo could not be used for a meme." });
+    }
+    logger.error({ err, slug }, "[createMemeRecord] could not record the baked meme");
+    throw new CreateMemeError(503, { error: "storage_unavailable", message: "The meme could not be saved. Try again." });
   }
   try {
     await storeMemeFile(slug, baked);

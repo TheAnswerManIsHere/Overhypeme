@@ -15,6 +15,8 @@ import { generateMemeBuffer } from "./memeGenerator";
 import { resolveBackground, resolveStoredMemeCaption, storedMemeCaption } from "./memeComposite";
 import { ObjectStorageService } from "./objectStorage";
 import { memeKey } from "./storageKeys";
+import { finishMeme } from "./provenance/meme";
+import { SYSTEM_ACTOR, type ProvenanceActor } from "./provenance/records";
 import type { ImageSourceSchema } from "./validators/memeBuilder";
 
 type StoredImageSource = z.infer<typeof ImageSourceSchema>;
@@ -31,7 +33,7 @@ export interface MemeRecipe {
 }
 
 /** Renders a recipe to the JPEG the meme is, resolving its photo through the composer's source table. Throws when the photo cannot be read. */
-export async function renderMemeRecipe(recipe: MemeRecipe): Promise<Buffer> {
+export async function renderMemeRecipe(recipe: MemeRecipe, watermarkId?: number): Promise<Buffer> {
   const { factText, textOptions } = resolveStoredMemeCaption(recipe.fact, recipe.creator, recipe.textOptions);
   return generateMemeBuffer(
     await resolveBackground(recipe.imageSource, {}),
@@ -40,7 +42,50 @@ export async function renderMemeRecipe(recipe: MemeRecipe): Promise<Buffer> {
     recipe.aspectRatio ?? "landscape",
     recipe.framingTransform ?? undefined,
     storedMemeCaption(recipe.fact, recipe.creator, recipe.textOptions),
+    watermarkId,
   );
+}
+
+/** What a meme's provenance record keeps of its recipe: the words drawn, the identity, and how it was laid out. */
+function recipeSnapshot(recipe: MemeRecipe): Record<string, unknown> {
+  const { factText, textOptions } = resolveStoredMemeCaption(recipe.fact, recipe.creator, recipe.textOptions);
+  return {
+    caption: factText,
+    textOptions: textOptions ?? null,
+    identity: recipe.creator ? { name: recipe.creator.displayName, pronouns: recipe.creator.pronouns } : null,
+    imageSource: recipe.imageSource,
+    aspectRatio: recipe.aspectRatio ?? "landscape",
+    framingTransform: recipe.framingTransform ?? null,
+  };
+}
+
+/**
+ * Renders a recipe as a traced meme (lib/provenance/meme.ts): watermarked with its record id, stamped, and
+ * recorded before it is returned. The record names the meme and where its file is stored.
+ */
+export async function renderTracedMeme(
+  recipe: MemeRecipe,
+  trace: { kind: "meme_bake" | "meme_live"; actor: ProvenanceActor; slug: string; factId: number | null; stored: boolean; memeCreatorId?: string | null },
+): Promise<Buffer> {
+  const finished = await finishMeme(
+    {
+      kind: trace.kind,
+      actor: trace.actor,
+      factId: trace.factId,
+      memeSlug: trace.slug,
+      objectPath: trace.stored ? `/objects/${memeKey(trace.slug, "jpg")}` : null,
+      backgroundObjectPath: backgroundObjectPath(recipe.imageSource),
+      snapshot: { ...recipeSnapshot(recipe), memeCreatorId: trace.memeCreatorId ?? null },
+      reuseIdentical: trace.kind === "meme_live",
+    },
+    (id) => renderMemeRecipe(recipe, id),
+  );
+  return finished.bytes;
+}
+
+/** The stored photo a stored recipe was drawn on. An identity meme's profile photo is not part of the recipe, so it has none. */
+function backgroundObjectPath(source: StoredImageSource): string | null {
+  return source.type === "upload" ? source.uploadKey : null;
 }
 
 /** Stores a meme's JPEG. A file already there is the meme's file (write-once storage refuses a second), so it counts as stored. */
@@ -81,9 +126,11 @@ async function recipeOf(meme: Meme): Promise<MemeRecipe> {
   };
 }
 
-/** Renders a stored recipe meme as it reads today, without storing it: the fallback for a meme not yet baked. */
+/** Renders a stored recipe meme as it reads today, without storing it: the fallback for a meme not yet baked. Traced as a live render. */
 export async function renderStoredMeme(meme: Meme): Promise<Buffer> {
-  return renderMemeRecipe(await recipeOf(meme));
+  return renderTracedMeme(await recipeOf(meme), {
+    kind: "meme_live", actor: SYSTEM_ACTOR, slug: meme.permalinkSlug, factId: meme.factId, stored: false, memeCreatorId: meme.createdById,
+  });
 }
 
 const BACKFILL_BATCH = 50;
@@ -131,7 +178,12 @@ export async function backfillMemeBakes(opts: { ids?: number[] } = {}): Promise<
         // A file already stored (another instance, or a run that stopped before
         // setting baked_at) is the meme's file: record it without re-rendering.
         const stored = await storage.getObjectEntityFile(`/objects/${memeKey(meme.permalinkSlug, "jpg")}`).then(() => true, () => false);
-        if (!stored) await storeMemeFile(meme.permalinkSlug, await renderStoredMeme(meme), storage);
+        if (!stored) {
+          const bytes = await renderTracedMeme(await recipeOf(meme), {
+            kind: "meme_bake", actor: SYSTEM_ACTOR, slug: meme.permalinkSlug, factId: meme.factId, stored: true, memeCreatorId: meme.createdById,
+          });
+          await storeMemeFile(meme.permalinkSlug, bytes, storage);
+        }
         await db
           .update(memesTable)
           .set({ bakedAt: new Date() })

@@ -10,8 +10,9 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { factsTable, memesTable, usersTable } from "@workspace/db/schema";
-import { eq, inArray, like } from "drizzle-orm";
+import { factsTable, imageProvenanceTable, memesTable, usersTable } from "@workspace/db/schema";
+import { and, eq, inArray, like } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
@@ -19,6 +20,7 @@ import { createMemeRecord, type MemeAuthorizationDecisions } from "../lib/create
 import { backfillMemeBakes, renderMemeRecipe, renderStoredMeme } from "../lib/memeBake.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { memeKey } from "../lib/storageKeys.js";
+import { stampImage } from "../lib/provenance/imageFile.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { photoBackgrounds } from "./helpers/photoBackground.js";
 
@@ -43,9 +45,25 @@ async function createFact(): Promise<number> {
 
 async function cleanup(): Promise<void> {
   await db.delete(memesTable).where(like(memesTable.createdById, `${PREFIX}%`));
+  await db.delete(imageProvenanceTable).where(like(imageProvenanceTable.memeSlug, `${PREFIX.slice(2, 8)}%`));
   if (factIds.length > 0) await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
 }
+
+/** The provenance record of a meme's picture of one kind (image tracing, #912). */
+async function memeRecord(slug: string, kind: "meme_bake" | "meme_live") {
+  const rows = await db.select().from(imageProvenanceTable)
+    .where(and(eq(imageProvenanceTable.memeSlug, slug), eq(imageProvenanceTable.kind, kind)));
+  assert.equal(rows.length, 1, `one ${kind} record for the meme`);
+  return rows[0]!;
+}
+
+/** What the renderer draws for a recipe when it is marked with record `id`, stamped as the finishing step stamps it. */
+async function tracedRender(recipe: Parameters<typeof renderMemeRecipe>[0], id: number): Promise<Buffer> {
+  return stampImage(await renderMemeRecipe(recipe, id), { id, engine: null })!;
+}
+
+const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 async function storedBytes(slug: string): Promise<Buffer> {
   const storage = new ObjectStorageService();
@@ -91,11 +109,15 @@ describe("a meme is a file from the moment it is saved (S16)", () => {
 
     const stored = await storedBytes(saved.permalinkSlug);
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
-    const expected = await renderMemeRecipe({
+    const record = await memeRecord(saved.permalinkSlug, "meme_bake");
+    const expected = await tracedRender({
       fact, creator: { displayName: "Bakey", pronouns: "they/them" }, textOptions,
       imageSource: { type: "upload", uploadKey }, aspectRatio: "landscape", framingTransform: null,
-    });
-    assert.ok(stored.equals(expected), "the stored file is the renderer's output for the recipe and the saver's identity");
+    }, record.id);
+    assert.ok(stored.equals(expected), "the stored file is the renderer's output for the recipe and the saver's identity, marked with its record id");
+    assert.equal(record.sha256, sha(stored), "the record is of exactly the stored bytes");
+    assert.equal(record.objectPath, `/objects/${memeKey(saved.permalinkSlug, "jpg")}`);
+    assert.equal(record.actorUserId, userId);
 
     const first = await getImage(saved.permalinkSlug);
     assert.equal(first.status, 200);
@@ -121,11 +143,12 @@ describe("a meme is a file from the moment it is saved (S16)", () => {
       .returning();
     const ids = [live!.id, deleted!.id, quarantined!.id];
 
-    // Before the backfill the meme is served by the live render.
-    const expected = await renderStoredMeme(live!);
+    // Before the backfill the meme is served by the live render, which keeps one record for one picture.
+    const liveRender = await renderStoredMeme(live!);
     const before = await getImage(live!.permalinkSlug);
     assert.equal(before.status, 200);
-    assert.ok(Buffer.from(before.body).equals(expected), "an unbaked recipe meme is rendered live");
+    assert.ok(Buffer.from(before.body).equals(liveRender), "an unbaked recipe meme is rendered live, the same bytes each view");
+    assert.equal((await memeRecord(live!.permalinkSlug, "meme_live")).sha256, sha(liveRender), "and both views share one record");
 
     assert.deepEqual(await backfillMemeBakes({ ids }), { selected: 1, baked: 1, failed: 0 });
     const rows = await db.select().from(memesTable).where(inArray(memesTable.id, ids));
@@ -134,7 +157,14 @@ describe("a meme is a file from the moment it is saved (S16)", () => {
     assert.equal(byId.get(deleted!.id)!.bakedAt, null, "a deleted meme is not baked");
     assert.equal(byId.get(quarantined!.id)!.bakedAt, null, "a quarantined meme is not baked");
 
-    assert.ok((await storedBytes(live!.permalinkSlug)).equals(expected), "the baked file is the renderer's output for the recipe");
+    const bake = await memeRecord(live!.permalinkSlug, "meme_bake");
+    assert.equal(bake.actorKind, "system", "the backfill is unattended work");
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
+    const expected = await tracedRender({
+      fact, creator: { displayName: "Bakey", pronouns: "they/them" }, textOptions: recipe.textOptions,
+      imageSource: { type: "upload", uploadKey }, aspectRatio: "square", framingTransform: null,
+    }, bake.id);
+    assert.ok((await storedBytes(live!.permalinkSlug)).equals(expected), "the baked file is the renderer's output for the recipe, marked with its record id");
     const served = await getImage(live!.permalinkSlug);
     assert.ok(Buffer.from(served.body).equals(expected), "and the route now serves it");
 
