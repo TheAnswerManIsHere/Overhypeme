@@ -85,7 +85,9 @@ same rule for every other agent.
   refuses `drizzle-kit push` in every spelling and any `.env*` read. Test
   isolation and the production guard: [`TESTING.md`](docs/tests/TESTING.md).
 - **CI** requires `Build`, `Test`, `Frontend Test` and `E2E Smoke` on every PR
-  to `main` (the last two since 2026-10-21). `E2E Smoke` is one job standing
+  to `main` (the last two since 2026-10-21), and the `main` ruleset also
+  requires the `Review gate` status (since 2026-11-11; `claude-core.md`,
+  *Shared judgement on a review round*). `E2E Smoke` is one job standing
   for four parallel browser-suite shards (#730). The workflow runs
   on `pull_request: [opened, synchronize, reopened, edited]` with
   `cancel-in-progress`, so editing a PR body while a run is in flight cancels
