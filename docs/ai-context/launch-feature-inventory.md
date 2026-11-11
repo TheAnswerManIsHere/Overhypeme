@@ -20,7 +20,10 @@
 > "how many options per fact" — examples are shown per approved gag, up to
 > three gags per fact, never used as backgrounds); **D16/K4** (the evaluation
 > winner as one default engine — GPT Image 2.6 photoreal and Nano Banana 2.1
-> styled, no text-only winner); and the closing "AI stock photo" line. The
+> styled, no text-only winner); **D21**, **D9** and **K2** where they treat
+> hero renders as the backgrounds that replace stock (heroes are examples
+> only, and a signed-out visitor renders nothing); and the "AI stock photo"
+> line. The
 > rows below are kept as the record of what was decided on 2026-10-05.
 >
 > Source: a read-only sweep of the product docs, the Manual, every route and

@@ -172,8 +172,8 @@ a canvas the browser sent, was removed when baking at save arrived (plan S16).
 stylising (the wizard's "AI you" source through `/memes/pulid-jobs`, and the
 remix builder's stylise toggle through `POST /memes/ai/:factId/generate`), was
 deleted in launch Phase 4, removal 3, with the `meme_pulid_stylize` and
-`meme_ai_background` features (migration 0104). Launch Phase 7 rebuilds
-face-in-scene on a newer model. The record is the ledger row and
+`meme_ai_background` features (migration 0104). Launch Phase 7 rebuilds AI pictures of a real person on credits
+([product strategy](./product-strategy.md#what-is-paid)). The record is the ledger row and
 [`docs/retired/pulid.md`](../retired/pulid.md); the code is at the
 `pre-cut/pulid` tag.
 

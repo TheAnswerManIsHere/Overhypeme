@@ -364,8 +364,8 @@ required (a fact may have up to three gags), styled ones are optional, and they
 are never offered as meme backgrounds or re-rendered across the catalogue.
 Decided 2026-10-06 as a **hard gate on going live**: a fact cannot be active
 without its required examples, and there is no "no-hero fallback". **Not a [render scenario](#render-scenario) in the code
-today** — which scenarios' renders become a fact's heroes, and the approval
-minimum, are #628 Phase 7's decisions. Distinct from the home-page billboard
+today** — which scenarios' renders become a fact's examples is #628 Phase 7's
+decision; the approval minimum is set by the strategy above. Distinct from the home-page billboard
 fact (`GET /api/facts/hero`), the one other live use of "hero". (The meme
 builder's example media, `hero_examples`, went in launch Phase 4.)
 → [launch-definition](./launch-definition.md)
@@ -787,8 +787,8 @@ in launch Phase 4 — the legacy studio's picker, `/generate-v2` and no-photo
 `/generate` in removal 1, the wizard's "AI you" source, the remix builder's
 stylise toggle and the rest of `/generate` with PuLID in removal 3 (ledger
 [`docs/retired/README.md`](../retired/README.md); lessons
-[`docs/retired/pulid.md`](../retired/pulid.md)). Launch Phase 7 rebuilds
-face-in-scene on a newer model.
+[`docs/retired/pulid.md`](../retired/pulid.md)). Launch Phase 7 rebuilds AI pictures of a real person on credits
+([product strategy](./product-strategy.md#what-is-paid)).
 → [meme-and-video-studio](./meme-and-video-studio.md)
 
 ---
