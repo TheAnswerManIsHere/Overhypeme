@@ -107,7 +107,7 @@ three approved gags ([product strategy](./product-strategy.md#gags-and-examples)
 A friend's photo in an AI picture is designed for and switched off until
 counsel answers ([product strategy](./product-strategy.md#a-friends-photo)). Photo upload accepts PNG and HEIC; caption and split
 caption; speech bubbles **finished** on the moderation side; style presets
-reviewed against the winning engine; private memes read from the entitlement
+reviewed against the engines chosen by look; private memes read from the entitlement
 grid (#395 fixed); hearts respect visibility (#375 fixed); only a user's own
 uploads or creations are offered to them as personal media; a fact's example
 pictures are shown, not offered as backgrounds (generic, no faces by
@@ -278,6 +278,8 @@ application is deployed does not satisfy row 3.
   under `docs/plans/` on `claude/phase2-ai-doubles` and
   reaches `main` with that branch's next pull request; #628 records each
   amendment's digest.
+- The approved direction this file follows:
+  [`product-strategy.md`](./product-strategy.md) (2026-11-11).
 - Every per-item decision from the feature walk:
   [`launch-feature-inventory.md`](./launch-feature-inventory.md).
 - The rationale for each reversal and hard gate: [`decisions.md`](./decisions.md),

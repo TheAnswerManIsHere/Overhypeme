@@ -62,8 +62,10 @@ Facts become media through a multi-stage, human-supervised pipeline:
   deterministic compiler produces the engine prompt for the current image engine.
   Every user gets **photo memes** (their own photo under the caption; the
   built-in gradient backgrounds went in launch Phase 4, removal 5). **AI image memes** (their face in impossible scenes) went
-  with PuLID in launch Phase 4 and return in launch Phase 7 on a newer model
-  (ledger [`docs/retired/README.md`](../retired/README.md)).
+  with PuLID in launch Phase 4 and return in launch Phase 7 on credits, with up
+  to three approved gags per fact and the engine matched to the look
+  ([product strategy](./product-strategy.md); ledger
+  [`docs/retired/README.md`](../retired/README.md)).
 - **Video memes** were deleted in launch Phase 4, to be rebuilt after launch on
   the image pipeline (ledger [`docs/retired/README.md`](../retired/README.md)).
 
@@ -123,4 +125,6 @@ deleted in launch Phase 4 (ledger [`docs/retired/README.md`](../retired/README.m
 - A multi-role admin permission system — *not needed yet; one `is_admin` role.*
 - R2 storage consolidation (images currently persist to Google Cloud Storage) —
   *Future / not current scope.*
-- Net-new monetization mechanics — *Future / not current scope.*
+- Monetization beyond credits, packs and membership (which launch, per the
+  [product strategy](./product-strategy.md#what-is-paid)); printed cards and
+  merch come after launch — *Future / not current scope.*
