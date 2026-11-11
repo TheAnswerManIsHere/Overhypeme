@@ -20,7 +20,7 @@ import { COMPARISON_SCORE_MAX } from "@workspace/api-zod";
 interface Score { mean: number | null; count: number }
 type Scores = Record<string, Score>;
 interface Results {
-  sets: Array<{ id: number; label: string; round: number }>;
+  sets: Array<{ id: number; label: string; round: number; imageSize?: string }>;
   families: string[];
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost?: number };
   scores: { overall: Scores; byMode: Record<string, Scores>; byStyle: Record<string, Scores>; byScenario: Record<string, Scores> };
@@ -190,7 +190,7 @@ export default function ComparisonResults() {
         {data && (
           <div className="space-y-4">
             <p className="text-sm text-foreground" data-testid="results-summary">
-              {data.sets.map((s) => `#${s.id} ${s.label} (round ${s.round})`).join(" + ")} — {data.panels.judged} of {data.panels.total} panels judged
+              {data.sets.map((s) => `#${s.id} ${s.label} (round ${s.round}${s.imageSize === "final" ? ", member size" : ""})`).join(" + ")} — {data.panels.judged} of {data.panels.total} panels judged
               {data.panels.judged < data.panels.total ? ` (${data.panels.judgeable} ready to judge)` : ""}.
               {(data.panels.lost ?? 0) > 0 && <strong> {data.panels.lost} panel{data.panels.lost === 1 ? " lost" : "s lost"} every image for good and will never be judged.</strong>}
               {data.panels.skipped > 0 && <strong> {data.panels.skipped} panel{data.panels.skipped === 1 ? " was" : "s were"} skipped at preparation and will never be judged: this comparison is smaller than planned.</strong>}

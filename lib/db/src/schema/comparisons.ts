@@ -33,6 +33,8 @@ export const comparisonSetsTable = pgTable("comparison_sets", {
   lookStyleIds: jsonb("look_style_ids").notNull(),
   /** string[] — engine families (engines.family), each a text-to-image + edit pair. */
   engineFamilies: jsonb("engine_families").notNull(),
+  /** "comparison" (about 1 MP) or "final" (about 4 MP, a member's size); migration 0131. */
+  imageSize: varchar("image_size", { length: 16 }).notNull().default("comparison"),
   createdBy: varchar("created_by").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

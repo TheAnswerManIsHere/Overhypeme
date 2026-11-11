@@ -918,6 +918,13 @@
       "when": 1786300000000,
       "tag": "0130_comparison_cell_billed_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1786400000000,
+      "tag": "0131_comparison_set_image_size",
+      "breakpoints": true
     }
   ]
 }
