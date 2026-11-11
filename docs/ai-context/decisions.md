@@ -65,6 +65,12 @@
 - **Reference:** #887 (pre-run checks, 2026-11-10); `artifacts/api-server/src/lib/engines/gpt-image-2-6.ts`.
 - **Revisit if:** 2.6 wins a mode and its real bills, read in fal's dashboard, run well above the measured figure (higher reasoning spent than "low" suggests).
 
+### 2026-11-11 · The engine comparison shows what fal actually billed, read with a billing-only key
+- **Decision:** David, 2026-11-11: *"Please backfill all the generations with the actual costs. I want to know for real what GPT Image is costing."* Every comparison cell carries `billed_usd` (migration 0130), the `cost_total` of its fal request from fal's Billing Events API, matched by `fal_request_id`. The results page shows it as "Billed per image" (mean, cheapest and dearest over the pictures drawn) beside the list price.
+- **How it is read:** with a second fal key on the BILLING preset in `FAL_BILLING_API_KEY`, which can read usage and invoices and cannot run a model. The rendering key is refused on that API (403). Without the billing key nothing is read and the page shows list prices only. Bills are read when the results page loads, because fal records one a little after the picture returns, and by `scripts/comparison-backfill-cost.ts`.
+- **What it corrected:** the 2026-11-10 entry below treated list figures as good enough and put GPT Image 2.6 at about $0.066 per edit. Round 1's bills were $0.040 per edit and $0.034 text-only; Nano Banana 2.1 ran $0.049 to $0.067, above its listed typical. A token-billed engine's `typicalUsdPerImage` is an estimate until a bill replaces it.
+- **Scope:** comparison cells only. Product renders are not billed-cost tracked.
+
 ### 2026-11-10 · The engine comparison is judged in two stages: quality blind, then price
 - **Decision:** David judges value, not looks alone. In his words (2026-11-10): *"I'm not just judging absolute quality, I'm judging quality/dollar. If there's an image that looks 80% as good as another one but cost 20% as much to generate, I may choose that."* And on the shape: *"We'll do two rounds of judging. The first one hides the price and I'm simply choosing based on quality. Then, once we have the quality ranked, I'll look at the associated prices and see how they stack up."* So:
   - **Stage 1** is the blind judging page as built: no engine name and no price.

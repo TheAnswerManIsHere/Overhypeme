@@ -375,8 +375,8 @@ describe("results", () => {
     assert.equal(r.preparationBoundUsd, 0.768);
     // Stage 2: each mode's engines in score order, with what one image costs.
     assert.deepEqual(r.ranking.t2i, [
-      { rank: 1, family: FAMILIES.flux, engineId: engineIds[2]!, mean: 5, scored: 1, lost: 0, usdPerImage: 0.048, exact: true, medianSeconds: 10, slowestSeconds: 10, timed: 1 },
-      { rank: 2, family: FAMILIES.gpt, engineId: engineIds[0]!, mean: 3, scored: 1, lost: 0, usdPerImage: 0.058, exact: false, medianSeconds: 120, slowestSeconds: 120, timed: 1 },
+      { rank: 1, family: FAMILIES.flux, engineId: engineIds[2]!, mean: 5, scored: 1, lost: 0, usdPerImage: 0.048, exact: true, billedUsdPerImage: null, billedMinUsd: null, billedMaxUsd: null, billedTotalUsd: null, billed: 0, medianSeconds: 10, slowestSeconds: 10, timed: 1 },
+      { rank: 2, family: FAMILIES.gpt, engineId: engineIds[0]!, mean: 3, scored: 1, lost: 0, usdPerImage: 0.058, exact: false, billedUsdPerImage: null, billedMinUsd: null, billedMaxUsd: null, billedTotalUsd: null, billed: 0, medianSeconds: 120, slowestSeconds: 120, timed: 1 },
     ], "a flat price is exact; a token price shows its typical figure, marked approximate; each engine's render time beside it");
     assert.ok(r.ranking.i2i.every((row: { medianSeconds: number | null; timed: number }) => row.medianSeconds === null && row.timed === 0), "an untimed engine shows no time");
     assert.deepEqual(r.ranking.i2i.map((row: { rank: number; usdPerImage: number; exact: boolean }) => [row.rank, row.usdPerImage, row.exact]).sort(), [

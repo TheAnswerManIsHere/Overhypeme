@@ -326,6 +326,17 @@ export interface RankRow {
   usdPerImage: number | null;
   exact: boolean;
   /**
+   * What fal actually charged per picture for this engine in this mode: the
+   * mean, cheapest and dearest over the `billed` pictures whose bill has been
+   * read (migration 0130), and their total. Null when none has (David,
+   * 2026-11-11: "I want to know for real what GPT Image is costing").
+   */
+  billedUsdPerImage: number | null;
+  billedMinUsd: number | null;
+  billedMaxUsd: number | null;
+  billedTotalUsd: number | null;
+  billed: number;
+  /**
    * How long this engine took per picture in this mode, from sending the
    * request to fal to getting the image back (fal's queue plus drawing), in
    * seconds: the median and the slowest, over `timed` pictures. Null when none
@@ -400,6 +411,10 @@ const timing = (secs: number[]) => secs.length
   ? { medianSeconds: Math.round(median(secs) * 10) / 10, slowestSeconds: Math.round(Math.max(...secs) * 10) / 10, timed: secs.length }
   : { medianSeconds: null, slowestSeconds: null, timed: 0 };
 
+const billing = (usd: number[]) => usd.length
+  ? { billedUsdPerImage: round4(usd.reduce((a, b) => a + b, 0) / usd.length), billedMinUsd: round4(Math.min(...usd)), billedMaxUsd: round4(Math.max(...usd)), billedTotalUsd: round4(usd.reduce((a, b) => a + b, 0)), billed: usd.length }
+  : { billedUsdPerImage: null, billedMinUsd: null, billedMaxUsd: null, billedTotalUsd: null, billed: 0 };
+
 /** Rank rows by average score, best first; equal averages share a rank, unscored rows last. */
 export function rankByMean<T extends { mean: number | null; family: string }>(rows: T[]): Array<T & { rank: number }> {
   const sorted = [...rows].sort((a, b) => (b.mean ?? -1) - (a.mean ?? -1) || a.family.localeCompare(b.family));
@@ -434,6 +449,8 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const enginesByMode = new Map<string, Set<string>>();
   /** Keyed `${mode}|${engineId}`: seconds from submission to the image coming back. */
   const secondsByEngineMode: Record<string, number[]> = {};
+  /** Keyed `${mode}|${engineId}`: what fal charged for each picture it drew. */
+  const billedByEngineMode: Record<string, number[]> = {};
   const judgedByMode: Record<string, number> = {};
   const faceMismatches: Record<string, number> = {};
   let humanJudged = 0;
@@ -447,6 +464,10 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
       engines.add(c.engineId);
       if (c.submittedAt && c.completedAt) {
         (secondsByEngineMode[`${panel.imageMode}|${c.engineId}`] ??= []).push((c.completedAt.getTime() - c.submittedAt.getTime()) / 1000);
+      }
+      // The average is per picture drawn: a refusal fal did not charge for is not a cheap picture.
+      if (c.billedUsd != null && c.state === "rendered") {
+        (billedByEngineMode[`${panel.imageMode}|${c.engineId}`] ??= []).push(Number(c.billedUsd));
       }
     }
     const pick = picks.get(panel.id);
@@ -491,6 +512,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
         lost: lostByEngineMode[`${mode}|${engineId}`] ?? 0,
         usdPerImage: price?.usd ?? null,
         exact: price?.exact ?? false,
+        ...billing(billedByEngineMode[`${mode}|${engineId}`] ?? []),
         ...timing(secondsByEngineMode[`${mode}|${engineId}`] ?? []),
       };
     }));
