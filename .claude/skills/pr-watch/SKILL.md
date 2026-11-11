@@ -8,13 +8,16 @@ description: Use after opening or being re-engaged on any PR, and whenever a git
 # Watching the PRs I open
 
 **Not a prototype-phase PR.** It merges in the same turn it opens (or, on a
-`prototype/<feature>` branch, there is no PR), so nothing here fires for it:
+`prototype/<feature>` branch, there is no PR; on `main` its body carries
+`Review class: prototype` for the review gate, `claude-core.md`, *Shared
+judgement on a review round*), so nothing here fires for it:
 no subscription, no labels, no rounds — save step 7's build report, which
 the `prototype` skill dispatches at each version's close-out, whichever
 regime the version ships under. **Nor one of the phase's one-line
 registry PRs** — at a prototype's start under the branch regime, at its flip
 and at its abandonment — which are Trivial by David's phase declaration,
-carry `Refs #N` rather than `Workstream: #N`, and own no lifecycle: no
+carry `Refs #N` rather than `Workstream: #N`, carry `Review class: registry`
+for the review gate, and own no lifecycle: no
 subscription, no labels (Codex, #168 round 7). The rule is working-modes.md,
 *The prototype phase, per feature*.
 
@@ -57,8 +60,10 @@ requires it.
   P1s included (David, 2026-10-20; `working-modes.md`, *The prototype phase,
   per feature*). A sync PR delivering KITT's payload is Trivial by his
   standing declaration (`working-modes.md`, *Trivial*; the `sync-fleet`
-  skill). Resolve each thread with one line citing his ruling, then merge on
-  green CI.
+  skill). Its body carries `Review class: trivial` or `Review class: sync`
+  on a line of its own, or the review gate fails it (`claude-core.md`,
+  *Shared judgement on a review round*). Resolve each thread with one line
+  citing his ruling, then merge on green CI.
 - **Documentation**: one pass, `review-proxy.mjs --documentation --round 1`,
   with the Fable assessor dispatched on the same package (`--prompt-only
   --source fable`). Wait for Codex's automatic pass first — its review-summary
@@ -115,6 +120,16 @@ requires it.
    ([`working-modes.md`](../../../docs/ai-context/working-modes.md#the-write-gate-rule-code-written-is-code-reviewed-david-2026-08-22))
    answers the other question — which heads must be reviewed, so that no
    commit merges unreviewed — and every step below serves both.
+
+   **The review gate checks this from GitHub's record** (KITT #293): its
+   `Review gate` status fails while a findings round lacks either assessment
+   of the reviewed commit, and stays failed if any push landed between the
+   review and them. So both assessments are posted before the first push of
+   anything — a fix, a base merge, an unrelated commit. A failed gate is read
+   on its run's summary: a missing assessment is posted, which re-runs it; a
+   push that came first cannot be repaired by a late assessment, so both are
+   posted anyway and David's waiver is asked for as a 🛑 (`claude-core.md`,
+   *Shared judgement on a review round*).
 
    **The oracle comes first, and it is agreed with David before round 1.** It
    is the outcome he agreed the work should achieve — an approved plan, an
@@ -373,7 +388,8 @@ requires it.
    violates an agreed requirement or fails a required check does not merge:
    I fix it or cut it, and report. What goes to David is only what step 3.5
    names — intended behaviour, an accepted user-facing shortfall, where no
-   settled decision already covers them — and a
+   settled decision already covers them — and the review gate's waiver
+   (step 3, above), and a
    change to the review loop is judged like any other. The usual outcome is
    **recorded gaps and follow-up issues**, and the pull request goes to
    close-out like any other. **A follow-up issue is filed with its labels**:
@@ -689,14 +705,16 @@ payload, which delivers fleet machinery rather than a workstream (the
 - **Intended behaviour or an accepted user-facing shortfall goes to David**
   (step 3.5 above — a purely technical fork is settled in the loop, never
   escalated) → `waiting:david`; `stage:code-review` stays put — the stage
-  hasn't moved, but the turn has.
+  hasn't moved, but the turn has. **The review gate's waiver is asked** (step
+  3: a push came before a round's assessments) → `waiting:david` the same way.
 - **The close-out bar is met** (CLAUDE.md's *Close-out*, all three items) →
   the ready bar is met and **I merge it myself per CLAUDE.md's close-out
   contract (David, 2026-08-15)** — re-verify live state, squash-merge, check and sync the Repl, verify, report — so `stage:merge` is normally a moment, not a resting
   state. There is no carve-out exception any more (David, 2026-09-14): a
   guardrail- or authority-widening PR merges the same way, with the latitude
   it grants named in the report. The PRs that do not are the ones whose shortfall is a product decision
-  (step 3.5); no count and no class sends one to him (David, 2026-10-21).
+  (step 3.5), and one whose review gate waits on his waiver (step 3); no
+  count and no class sends one to him (David, 2026-10-21).
 - **The PR merges with a Post-merge verification section that has real
   content** → `stage:test-run`, `waiting:replit` — or `waiting:david` while
   a step in it that would start a paid AI run above his budget waits for his

@@ -1,0 +1,72 @@
+# SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead.
+#
+# The review gate ("Devon", KITT #293). Posts the commit status `Review gate`
+# on a pull request's head: failure while a Codex findings round lacks its
+# Astra and Fable assessments, or a push landed between such a review and
+# them. The decision and its limits are in scripts/review-gate.mjs.
+#
+# ONE TRIGGER PER INPUT THE DECISION READS: pushes, body and labels
+# (pull_request_target); reviews (pull_request_review); finding membership
+# (pull_request_review_comment); assessments and the waiver reason
+# (issue_comment); and a manual re-run per PR (workflow_dispatch).
+#
+# pull_request_target, NOT pull_request: it runs the workflow file from the
+# default branch, so a PR that edits this file cannot change how its own
+# pushes are graded. Safe here because nothing from the PR is checked out or
+# executed: the job checks out the default branch and reads the PR through
+# the API only.
+#
+# NO paths: FILTER: a required check whose workflow never triggers waits
+# forever. The job's success is not the signal; the commit status is.
+name: Review gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to re-evaluate
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  statuses: write
+
+# Serialized per PR and never cancelled: each run reads current state, and a
+# newer run supersedes an older one only by posting after it.
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # NOT "Review gate": that name belongs to the commit status alone. A job check of
+    # the same name would also be required, and an assessment comment or a manual
+    # re-run cannot replace a red one (KITT #294 round 1).
+    name: Evaluate assessments
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Evaluate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          script=core/scripts/review-gate.mjs
+          [ -f "$script" ] || script=scripts/review-gate.mjs
+          node "$script"
