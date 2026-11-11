@@ -11,7 +11,7 @@ import type { MemeAspectRatio } from "@workspace/api-zod";
 import { liveContent } from "./contentVisibility";
 import { logger } from "./logger";
 import { errorCode } from "./mediaBackup/preserve";
-import { generateMemeBuffer } from "./memeGenerator";
+import { drawnCaption, generateMemeBuffer } from "./memeGenerator";
 import { resolveBackground, resolveStoredMemeCaption, storedMemeCaption } from "./memeComposite";
 import { ObjectStorageService } from "./objectStorage";
 import { memeKey } from "./storageKeys";
@@ -67,8 +67,7 @@ export async function renderTracedMeme(
       backgroundObjectPath: backgroundPathOf(recipe.imageSource),
       snapshot: {
         ...memeSnapshot({
-          caption: factText,
-          captionRuns: storedMemeCaption(recipe.fact, recipe.creator, recipe.textOptions),
+          drawn: drawnCaption(factText, textOptions, storedMemeCaption(recipe.fact, recipe.creator, recipe.textOptions)),
           factTemplate: recipe.fact?.text ?? recipe.fact?.canonicalText,
           textOptions,
           identity: recipe.creator ? { name: recipe.creator.displayName, pronouns: recipe.creator.pronouns } : null,

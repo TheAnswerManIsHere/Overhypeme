@@ -340,6 +340,25 @@ describe("POST /api/render-download", () => {
 describe("Phase 4 — composite identity across endpoints", () => {
   withOwnerPhoto();
 
+  // Codex, PR #915: the traced render must not change what a rejected request answers.
+  it("an identity render without a profile photo still answers 400 identity_profile_missing", async () => {
+    const factId = await insertFact("{NAME} {pushes|push} the limit.");
+    const res = await request(makeApp()).post("/render-preview").set("Authorization", `Bearer ${ownerSid}`)
+      .send({ factId, imageSource: { type: "identity" }, name: "Alex", pronouns: "they/them" });
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.deepEqual(res.body, { error: "identity_profile_missing" });
+  });
+
+  // Codex, PR #915: the record's caption is the words on the picture, a split caption's own halves included.
+  it("a split caption is recorded as drawn, not as the fact sentence", async () => {
+    const factId = await insertFact("{NAME} {pushes|push} the limit.");
+    await request(makeApp()).post("/render-preview").set("Authorization", `Bearer ${ownerSid}`)
+      .send({ factId, imageSource: photo, name: "Alex", pronouns: "they/them", textOptions: { topText: "{NAME} pushes", bottomText: "nothing at all" } })
+      .expect(200);
+    const [rec] = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.factId, factId));
+    assert.equal((rec!.snapshot as { caption: string }).caption, "Alex pushes\nnothing at all");
+  });
+
   // Until image tracing (#912) the property was that preview and download are byte-identical. Each is now
   // watermarked with its own provenance record id, so the property is what that equality stood for: the download
   // is the drawing the preview showed — the same composition, differing only in the invisible mark and stamp.

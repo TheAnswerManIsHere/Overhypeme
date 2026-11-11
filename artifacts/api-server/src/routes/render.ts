@@ -29,6 +29,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { setNoStore } from "../lib/cacheHeaders";
 import { composeTracedMeme, IdentityProfileMissingError } from "../lib/memeComposite";
 import { ANONYMOUS_ACTOR, actorForUser } from "../lib/provenance/records";
+import { MemeRenderError } from "../lib/provenance/meme";
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import {
   RenderRequestBody,
@@ -282,7 +283,9 @@ interface ErrorContext {
   startedAt: number;
 }
 
-function handleRenderError(req: Request, res: Response, err: unknown, ctx: ErrorContext): void {
+function handleRenderError(req: Request, res: Response, thrown: unknown, ctx: ErrorContext): void {
+  // The traced render wraps a failure of the drawing itself; its expected causes keep their own answers.
+  const err = thrown instanceof MemeRenderError ? thrown.cause : thrown;
   if (err instanceof IdentityProfileMissingError) {
     res.status(400).json({ error: "identity_profile_missing" });
     void logTransientRender({

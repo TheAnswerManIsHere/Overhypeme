@@ -19,7 +19,7 @@
  */
 
 import { Buffer } from "node:buffer";
-import { generateMemeBuffer, type BackgroundSource, type FramingTransform, type TextOptions } from "./memeGenerator";
+import { drawnCaption, generateMemeBuffer, type BackgroundSource, type FramingTransform, type TextOptions } from "./memeGenerator";
 import { renderPersonalized, CANONICAL_NAME } from "./renderCanonical";
 import { ObjectStorageService } from "./objectStorage";
 import { backgroundPathOf, finishMeme, memeSnapshot } from "./provenance/meme";
@@ -277,6 +277,7 @@ export async function composeTracedMeme(
   opts: ComposeMemeOptions,
   trace: { kind: "preview" | "download"; actor: ProvenanceActor | Promise<ProvenanceActor>; factId: number },
 ): Promise<ComposeMemeResult> {
+  const textOptions = personalizeMemeTextOptions(input.textOptions, input.name, input.pronouns);
   const finished = await finishMeme(
     {
       kind: trace.kind,
@@ -284,10 +285,13 @@ export async function composeTracedMeme(
       factId: trace.factId,
       backgroundObjectPath: backgroundPathOf(input.imageSource, opts.profileImageObjectPath),
       snapshot: memeSnapshot({
-        caption: renderPersonalized(input.factTextTemplate, input.name, input.pronouns),
-        captionRuns: memeCaption(input.factTextTemplate, input.textOptions, input.name, input.pronouns),
+        drawn: drawnCaption(
+          renderPersonalized(input.factTextTemplate, input.name, input.pronouns),
+          textOptions,
+          memeCaption(input.factTextTemplate, input.textOptions, input.name, input.pronouns),
+        ),
         factTemplate: input.factTextTemplate,
-        textOptions: personalizeMemeTextOptions(input.textOptions, input.name, input.pronouns),
+        textOptions,
         identity: { name: input.name, pronouns: input.pronouns },
         imageSource: input.imageSource,
         aspectRatio: input.aspectRatio,

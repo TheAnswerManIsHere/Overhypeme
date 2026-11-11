@@ -5,6 +5,8 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { db, imageProvenanceTable, type ProvenanceKind } from "@workspace/db";
 import { stableStringify } from "../factRenderScenarios";
+import { captionPlainText } from "../memeGenerator";
+import type { MemeCaption } from "@workspace/api-zod";
 import { finishImage, newProvenanceId, type FinishedImage, type ProvenanceActor } from "./records";
 import { WATERMARK_SCHEME, WatermarkError } from "./watermark";
 
@@ -32,9 +34,8 @@ export interface MemeProvenance {
 
 /** What a meme's record keeps of what was drawn: the words, the identity, and how it was laid out. One shape for every traced path, so one recipe has one recipe key whichever route drew it. */
 export function memeSnapshot(m: {
-  caption: string;
-  /** The caption exactly as drawn: its runs, each marked when it is drawn in the name's colour. */
-  captionRuns: unknown;
+  /** The caption exactly as drawn (`drawnCaption`): its runs, each marked when it is drawn in the name's colour. */
+  drawn: MemeCaption;
   /** The fact's template the caption was personalised from, as it read when the meme was drawn. */
   factTemplate: string | null | undefined;
   textOptions: unknown;
@@ -44,8 +45,9 @@ export function memeSnapshot(m: {
   framingTransform: unknown;
 }): Record<string, unknown> {
   return {
-    caption: m.caption,
-    captionRuns: m.captionRuns ?? null,
+    // The words on the picture, read from what was drawn: a split caption's own halves, never the fact sentence.
+    caption: captionPlainText(m.drawn),
+    captionRuns: m.drawn,
     factTemplate: m.factTemplate ?? null,
     textOptions: m.textOptions ?? null,
     identity: m.identity,

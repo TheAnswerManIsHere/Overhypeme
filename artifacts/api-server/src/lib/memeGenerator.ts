@@ -233,6 +233,21 @@ function captionFromText(factText: string, options?: TextOptions): MemeCaption {
 }
 
 /**
+ * The caption a render with these inputs draws, in runs: `caption` when the
+ * caller passed one, otherwise the runs `generateMemeBuffer` builds from the
+ * words and options. A provenance record keeps exactly this (image tracing).
+ */
+export function drawnCaption(factText: string, options?: TextOptions, caption?: MemeCaption): MemeCaption {
+  return caption ?? captionFromText(factText, options);
+}
+
+/** The words a caption draws, as plain text: one line, or the top and bottom lines. */
+export function captionPlainText(caption: MemeCaption): string {
+  const words = (runs: { text: string }[]) => runs.map((r) => r.text).join("");
+  return caption.mode === "split" ? `${words(caption.top)}\n${words(caption.bottom)}` : words(caption.text);
+}
+
+/**
  * Renders a meme to a JPEG with the shared drawing (`drawMeme`, #870), the
  * one the builder's preview uses, in the same logical canvas, so the file is
  * what the preview showed. The output is drawn at the photo's own resolution
@@ -289,7 +304,7 @@ export async function generateMemeBuffer(
     drawImage: (image, x, y, w, h) => ctx.drawImage(image, x, y, w, h),
     aspectRatio,
     framingOffset,
-    caption: caption ?? captionFromText(factText, options),
+    caption: drawnCaption(factText, options, caption),
     style: options ?? {},
     captionFont: (size) => captionCanvasFont(options, size),
     watermarkFont: (size) => `${WATERMARK_FONT.weight} ${size}px ${captionFontStack(WATERMARK_FONT)}`,
