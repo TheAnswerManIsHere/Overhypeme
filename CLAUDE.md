@@ -12,7 +12,7 @@ turned into shareable image memes starring them, or a friend they send it to
 it: [`product-strategy.md`](docs/ai-context/product-strategy.md); the cut
 record is [`docs/retired/README.md`](docs/retired/README.md)). David is the product
 owner; the loop is personalize → submit → moderate and enrich → render → share.
-The brief below is the current truth and wins over anything remembered.
+The documents below are the current truth, the product strategy first, and win over anything remembered.
 
 ## Product truth lives here
 
