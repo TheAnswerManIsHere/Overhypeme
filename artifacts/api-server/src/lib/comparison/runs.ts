@@ -69,6 +69,7 @@ import {
   SYSTEM_ACTOR,
   type ProvenanceActor,
 } from "../provenance/records";
+import { vendorContext } from "../provenance/vendorContext";
 import { blindToken } from "./blindToken";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
@@ -346,7 +347,7 @@ async function setCreatorActor(cell: ComparisonCell): Promise<ProvenanceActor> {
   return row?.createdBy ? actorForUser(row.createdBy, "admin") : SYSTEM_ACTOR;
 }
 
-async function storeVendorImage(cell: ComparisonCell, url: string): Promise<string> {
+async function storeVendorImage(cell: ComparisonCell, url: string, vendorResult?: unknown): Promise<string> {
   if (storeImageOverride) return storeImageOverride(cell, url);
   const buffer = await downloadToBuffer(url);
   // Image tracing: the record is written from the request frozen at
@@ -369,9 +370,26 @@ async function storeVendorImage(cell: ComparisonCell, url: string): Promise<stri
     attemptId: cell.attemptId ?? null,
     factId: request?.factId ?? null,
     engineId: cell.engineId,
-    snapshot: { panelId: cell.panelId, blindToken: await cellBlindToken(cell), requestCaptured: request != null },
+    // The panel's planning lineage is frozen in too (the panel row is deleted with its set or fact), with what the
+    // vendor returned — absent on a storage-only retry, which has only the link — and a fingerprint of each
+    // reference picture the request named (image tracing, completeness audit).
+    snapshot: {
+      panelId: cell.panelId,
+      blindToken: await cellBlindToken(cell),
+      requestCaptured: request != null,
+      panel: await panelLineage(cell.panelId),
+      ...(await vendorContext(request?.request ?? null, vendorResult)),
+    },
   });
   return finished.objectPath;
+}
+
+/** A panel as its pictures' records keep it: what the prompt and reference were planned from. */
+async function panelLineage(panelId: number): Promise<Record<string, unknown> | null> {
+  const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, panelId)).limit(1);
+  if (!panel) return null;
+  const { error: _error, state: _state, createdAt: _c, updatedAt: _u, ...lineage } = panel;
+  return lineage;
 }
 
 async function failCell(cellId: number, error: string): Promise<void> {
@@ -379,9 +397,9 @@ async function failCell(cellId: number, error: string): Promise<void> {
 }
 
 /** Store a rendered cell's vendor image; a failure keeps the URL for a storage-only retry. */
-async function storeCell(cell: ComparisonCell, url: string): Promise<boolean> {
+async function storeCell(cell: ComparisonCell, url: string, vendorResult?: unknown): Promise<boolean> {
   try {
-    const path = await storeVendorImage(cell, url);
+    const path = await storeVendorImage(cell, url, vendorResult);
     await db.update(comparisonCellsTable).set({ state: "rendered", imageObjectPath: path, error: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
     return true;
   } catch (err) {
@@ -474,8 +492,10 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     });
   }
   let url: string | null;
+  let vendorResult: unknown;
   try {
-    url = extractFirstImageUrl(await awaitResult(engine!.endpointId, requestId, CELL_POLL)) || null;
+    vendorResult = await awaitResult(engine!.endpointId, requestId, CELL_POLL);
+    url = extractFirstImageUrl(vendorResult) || null;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await failCell(cell.id, `render failed: ${msg}`);
@@ -489,7 +509,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     return terminalFailure("comparison_render_failed", "no image url");
   }
   await db.update(comparisonCellsTable).set({ vendorResultUrl: url, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
-  await storeCell({ ...cell, vendorResultUrl: url }, url);
+  await storeCell({ ...cell, vendorResultUrl: url }, url, vendorResult);
   return { ok: true, result: "rendered" };
 }
 

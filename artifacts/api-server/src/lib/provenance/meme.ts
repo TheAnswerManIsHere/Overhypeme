@@ -33,6 +33,10 @@ export interface MemeProvenance {
 /** What a meme's record keeps of what was drawn: the words, the identity, and how it was laid out. One shape for every traced path, so one recipe has one recipe key whichever route drew it. */
 export function memeSnapshot(m: {
   caption: string;
+  /** The caption exactly as drawn: its runs, each marked when it is drawn in the name's colour. */
+  captionRuns: unknown;
+  /** The fact's template the caption was personalised from, as it read when the meme was drawn. */
+  factTemplate: string | null | undefined;
   textOptions: unknown;
   identity: { name: string | null; pronouns: string | null } | null;
   imageSource: unknown;
@@ -41,6 +45,8 @@ export function memeSnapshot(m: {
 }): Record<string, unknown> {
   return {
     caption: m.caption,
+    captionRuns: m.captionRuns ?? null,
+    factTemplate: m.factTemplate ?? null,
     textOptions: m.textOptions ?? null,
     identity: m.identity,
     imageSource: m.imageSource,

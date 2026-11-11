@@ -285,6 +285,8 @@ export async function composeTracedMeme(
       backgroundObjectPath: backgroundPathOf(input.imageSource, opts.profileImageObjectPath),
       snapshot: memeSnapshot({
         caption: renderPersonalized(input.factTextTemplate, input.name, input.pronouns),
+        captionRuns: memeCaption(input.factTextTemplate, input.textOptions, input.name, input.pronouns),
+        factTemplate: input.factTextTemplate,
         textOptions: personalizeMemeTextOptions(input.textOptions, input.name, input.pronouns),
         identity: { name: input.name, pronouns: input.pronouns },
         imageSource: input.imageSource,

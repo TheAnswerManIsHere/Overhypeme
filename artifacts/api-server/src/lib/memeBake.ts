@@ -68,6 +68,8 @@ export async function renderTracedMeme(
       snapshot: {
         ...memeSnapshot({
           caption: factText,
+          captionRuns: storedMemeCaption(recipe.fact, recipe.creator, recipe.textOptions),
+          factTemplate: recipe.fact?.text ?? recipe.fact?.canonicalText,
           textOptions,
           identity: recipe.creator ? { name: recipe.creator.displayName, pronouns: recipe.creator.pronouns } : null,
           imageSource: recipe.imageSource,

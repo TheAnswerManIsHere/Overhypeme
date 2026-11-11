@@ -242,6 +242,21 @@ came to exist. The rules a change here must keep:
   the container (PNG iTXt, JPEG APP1, WebP XMP chunk), so decoded pixels
   are byte-identical. Comparison pictures carry the id only, so blind
   judging stays blind.
+- **A record holds everything that shaped its picture, frozen in** (the completeness audit, #912),
+  so the id a picture carries leads to its whole configuration after every live row it came from is
+  gone. An AI picture: the vendor input exactly as sent (`image_generation_requests.request`); the
+  whole planning attempt — visual plan, compiled prompt with the planner's model and engine, source
+  analysis and its hash, enrichment, identity policy, render controls, the size settings computed for
+  the run (`snapshot.attempt`; a comparison picture's panel in `snapshot.panel`); what the vendor
+  returned, its seed and safety flags (`snapshot.vendorResponse`); and a content fingerprint of every
+  reference picture the request named, since the request names one only by a link that expires
+  (`snapshot.referenceImages`, `artifacts/api-server/src/lib/provenance/vendorContext.ts`; one that could not be read says why).
+  A meme: the words drawn and which of them in the name's colour (`captionRuns`), the fact template
+  they came from, the identity, the style options, the layout, and its photo as the source record.
+  Everything else that shapes a picture is code at the recorded commit — fonts, the drawing, the
+  JPEG quality, the watermark models (pinned by hash), the library versions (the lockfile). What no
+  record can hold: a change a vendor makes behind an unchanged endpoint; the vendor request id and
+  reply are the trail there.
 - **Who made it** comes from named sources (`artifacts/api-server/src/lib/provenance/attemptActor.ts`):
   a moderation render's admin from its review audit — the approving admin
   rides the render-preparation job's payload — an eval render's from its

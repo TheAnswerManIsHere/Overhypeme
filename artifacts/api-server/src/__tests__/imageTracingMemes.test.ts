@@ -94,6 +94,15 @@ describe("a meme traces back to how it was made, from its link or from the pictu
     assert.equal(rec!.sourceProvenanceId, uploadRecord, "chained to the photo it was drawn on");
     assert.equal(rec!.watermarkScheme, "trustmark-q/bch5/v1");
     assert.equal(rec!.actorEmail, `${memberId}@test.local`);
+    // Everything the drawing came from (the completeness audit): the words, which of them were drawn in the
+    // name's colour, the template they came from, the identity, the layout; the photo is the source record.
+    const snap = rec!.snapshot as Record<string, unknown>;
+    assert.match(String(snap["caption"]), /Alex outrun the sunrise\./);
+    assert.equal(snap["factTemplate"], `${P} {NAME} {outruns|outrun} the sunrise.`);
+    assert.ok(JSON.stringify(snap["captionRuns"]).includes('"isName":true'), "the runs drawn in the name's colour");
+    assert.deepEqual(snap["identity"], { name: "Alex", pronouns: "they/them" });
+    assert.equal(snap["aspectRatio"], "landscape");
+    assert.deepEqual(snap["imageSource"], { type: "upload", uploadKey });
     memeRecord = rec!.id;
     const storage = new ObjectStorageService();
     memeFile = Buffer.from(await (await storage.downloadObject(await storage.getObjectEntityFile(`/objects/${memeKey(slug, "jpg")}`))).arrayBuffer());

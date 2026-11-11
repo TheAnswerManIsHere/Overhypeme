@@ -365,7 +365,7 @@ run_files() {
   local common=(--import tsx/esm)
   [ -n "$iso" ] && common+=("$iso")
   common+=(--test-concurrency=1 --test)
-  exec env DATABASE_URL="$url" TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 \
+  exec env DATABASE_URL="$url" TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 TEST_SKIP_REFERENCE_FETCH=1 \
     RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
     CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
     node "${common[@]}" "$@"
