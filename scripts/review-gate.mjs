@@ -46,8 +46,11 @@ const ASSESSORS = ["Astra", "Fable"];
 // "## Astra — round 1: **dispatch failed**".
 const HEADER = /^##\s+(Astra|Fable)\s+—\s+round\s+(\d+)(?:,\s*follow-up\s+(\d+))?(:\s*\*\*dispatch failed\*\*)?\s*$/;
 // Events in the activity API that move the branch. A branch's first push is
-// recorded as `branch_creation`, not `push` (probe, KITT #293 step 1).
-const MOVES = new Set(["push", "branch_creation", "force_push"]);
+// recorded as `branch_creation`, not `push` (probe, KITT #293 step 1), and a
+// pull request merged into the head branch as `pr_merge` or
+// `merge_queue_merge` (Codex, Overhype.me PR #918). Only `branch_deletion`
+// moves nothing that can carry a fix.
+const MOVES = new Set(["push", "branch_creation", "force_push", "pr_merge", "merge_queue_merge"]);
 
 const t = (iso) => Date.parse(iso);
 const short = (sha) => String(sha).slice(0, 7);
