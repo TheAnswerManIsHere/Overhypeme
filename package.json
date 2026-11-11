@@ -32,6 +32,7 @@
   },
   "pnpm": {
     "overrides": {
+      "onnxruntime-node>adm-zip": "^0.6.1",
       "esbuild>@esbuild/darwin-arm64": "-",
       "esbuild>@esbuild/darwin-x64": "-",
       "esbuild>@esbuild/freebsd-arm64": "-",

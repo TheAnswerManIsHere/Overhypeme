@@ -52,6 +52,7 @@ import {
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
 import { finishAndStore, recordGenerationRequest, setVendorRequestId } from "./provenance/records";
+import { vendorContext } from "./provenance/vendorContext";
 import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, resolveImageEngine } from "./imageEngineRouting";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
@@ -297,6 +298,16 @@ export async function persistImagePromptPlanAndEnqueueGeneration(args: {
   });
 }
 
+/**
+ * An attempt as its picture's record keeps it: every column that shaped the render, with the settings computed for
+ * this run. Only bookkeeping that came after it (its error, its stored path, timestamps) is left out.
+ */
+function attemptLineage(attempt: ImagePromptAttempt, requestSettings: ImageRequestSettings): Record<string, unknown> {
+  const { error: _error, errorCode: _errorCode, generatedImageObjectPath: _path, createdAt: _c, updatedAt: _u, ...lineage } =
+    attempt as ImagePromptAttempt & Record<string, unknown>;
+  return { ...lineage, requestSettings };
+}
+
 // ─── image_generation handler ─────────────────────────────────────────────
 
 export const imageGenerationHandler: JobHandler = {
@@ -388,10 +399,12 @@ export const imageGenerationHandler: JobHandler = {
 
     ensureFalConfigured();
     let resultUrl: string;
+    let vendorData: unknown;
     try {
       const response = await fal.subscribe(engine.endpointId, { input: falInput, logs: false });
       await setVendorRequestId(generationRequestId, (response as { requestId?: string }).requestId);
       const data = (response as { data?: unknown }).data ?? response;
+      vendorData = data;
       resultUrl = extractFirstImageUrl(data);
       if (!resultUrl) {
         throw new Error("fal response missing image url");
@@ -421,7 +434,19 @@ export const imageGenerationHandler: JobHandler = {
         attemptId: p.attemptId,
         factId: attempt.factId,
         engineId: engine.id,
-        snapshot: { producer: provenance.producer, generationMode, prompt: promptText, renderControls, renderJobId: attempt.renderJobId },
+        // Everything that shaped the picture, frozen into the record: the attempt's whole planning lineage (the
+        // visual plan, the compiled prompt, the source analysis and its hash, the enrichment, the identity policy),
+        // which lives otherwise on a row deleted with its fact; and what the vendor returned (its seed and flags)
+        // with a fingerprint of every reference picture the request named (image tracing, completeness audit).
+        snapshot: {
+          producer: provenance.producer,
+          generationMode,
+          prompt: promptText,
+          renderControls,
+          renderJobId: attempt.renderJobId,
+          attempt: attemptLineage(attempt, requestSettings),
+          ...(await vendorContext(falInput, vendorData)),
+        },
       });
       storedPath = finished.objectPath;
     } catch (err) {

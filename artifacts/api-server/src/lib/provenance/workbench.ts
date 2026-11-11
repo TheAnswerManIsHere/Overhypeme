@@ -2,6 +2,7 @@
  * @purpose The engine workbench's generated images, routed through the finishing step and our storage before an admin sees them (plan PLAN_IMAGE_TRACING.md, "The engine workbench"): every image URL in a completed fal result is downloaded, recorded, stamped and stored, and the result handed back names our stamped copy (an admin-only provenance image URL) in place of the vendor's. Idempotent per vendor request, so a repeated poll reuses the records it made.
  */
 import { and, eq } from "drizzle-orm";
+import { vendorContext } from "./vendorContext";
 import { db, imageProvenanceTable, imageGenerationRequestsTable, type Engine } from "@workspace/db";
 import { downloadToBuffer } from "../imageEngineRequest";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
@@ -83,6 +84,9 @@ export async function finishWorkbenchResult(
     if (typeof index === "number" && r.objectPath && await exists(r.objectPath)) byIndex.set(index, r.id);
   }
 
+  // What the vendor returned and a fingerprint of each reference the request named, shared by the run's pictures.
+  // Read only when a picture still needs a record: a repeated poll whose pictures are all stored reads nothing.
+  const context = found.some((_f, i) => !byIndex.has(i)) ? await vendorContext(request?.request ?? null, falResult) : {};
   for (let i = 0; i < found.length; i++) {
     const f = found[i]!;
     let provenanceId = byIndex.get(i);
@@ -100,7 +104,7 @@ export async function finishWorkbenchResult(
         generationRequestId: request?.id ?? null,
         factId: request?.factId ?? null,
         engineId: engine.id,
-        snapshot: { index: i, vendorRequestId, requestCaptured: request != null },
+        snapshot: { index: i, vendorRequestId, requestCaptured: request != null, ...context },
       });
       provenanceId = finished.provenanceId;
     }

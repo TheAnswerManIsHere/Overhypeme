@@ -4,12 +4,13 @@
  *   POST /api/render-preview   signed-in only               | streams image bytes
  *   POST /api/render-download  same render | streams as Content-Disposition attachment
  *
- * Both endpoints share `composeMeme` from `lib/memeComposite.ts` and produce
- * byte-identical output for identical inputs (the property the verification
- * checklist's "byte-identity" test relies on).
+ * Both endpoints share `composeTracedMeme` from `lib/memeComposite.ts`: the
+ * same drawing for identical inputs, each picture watermarked with its own
+ * provenance record id and recorded before it is sent (image tracing, #912),
+ * so two renders of one recipe differ only in that invisible mark.
  *
  * Neither endpoint writes to GCS or the memes table — the bytes live only in
- * the response body. Every call (success, rejected, or errored) is recorded
+ * the response body, and their provenance record. Every call (success, rejected, or errored) is recorded
  * in `transient_renders` for abuse detection. Per-IP rate limiting is
  * enforced at the Cloudflare WAF edge layer; see docs/cloudflare-rate-limits.md.
  *
@@ -26,7 +27,9 @@ import { factsTable } from "@workspace/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { setNoStore } from "../lib/cacheHeaders";
-import { composeMeme, IdentityProfileMissingError } from "../lib/memeComposite";
+import { composeTracedMeme, IdentityProfileMissingError } from "../lib/memeComposite";
+import { ANONYMOUS_ACTOR, actorForUser } from "../lib/provenance/records";
+import { MemeRenderError } from "../lib/provenance/meme";
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import {
   RenderRequestBody,
@@ -181,7 +184,7 @@ router.post("/render-preview", async (req: Request, res: Response) => {
   const { ctx, fact, mode } = resolved;
 
   try {
-    const result = await composeMeme(
+    const result = await composeTracedMeme(
       {
         factTextTemplate: fact.text ?? fact.canonicalText ?? "",
         name: ctx.parsed.name,
@@ -192,6 +195,7 @@ router.post("/render-preview", async (req: Request, res: Response) => {
         aspectRatio: ctx.parsed.aspectRatio ?? "landscape",
       },
       { profileImageObjectPath: ctx.profileImageObjectPath },
+      { kind: "preview", actor: ctx.userId ? actorForUser(ctx.userId, "member") : ANONYMOUS_ACTOR, factId: fact.id },
     );
 
     res.setHeader("Content-Type", result.mime);
@@ -229,7 +233,7 @@ router.post("/render-download", async (req: Request, res: Response) => {
   const { ctx, fact, mode } = resolved;
 
   try {
-    const result = await composeMeme(
+    const result = await composeTracedMeme(
       {
         factTextTemplate: fact.text ?? fact.canonicalText ?? "",
         name: ctx.parsed.name,
@@ -240,6 +244,7 @@ router.post("/render-download", async (req: Request, res: Response) => {
         aspectRatio: ctx.parsed.aspectRatio ?? "landscape",
       },
       { profileImageObjectPath: ctx.profileImageObjectPath },
+      { kind: "download", actor: ctx.userId ? actorForUser(ctx.userId, "member") : ANONYMOUS_ACTOR, factId: fact.id },
     );
 
     const filename = `overhype-${factSlug(fact.text ?? fact.canonicalText, fact.id)}.jpg`;
@@ -278,7 +283,9 @@ interface ErrorContext {
   startedAt: number;
 }
 
-function handleRenderError(req: Request, res: Response, err: unknown, ctx: ErrorContext): void {
+function handleRenderError(req: Request, res: Response, thrown: unknown, ctx: ErrorContext): void {
+  // The traced render wraps a failure of the drawing itself; its expected causes keep their own answers.
+  const err = thrown instanceof MemeRenderError ? thrown.cause : thrown;
   if (err instanceof IdentityProfileMissingError) {
     res.status(400).json({ error: "identity_profile_missing" });
     void logTransientRender({

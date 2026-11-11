@@ -6,9 +6,11 @@
  *   POST /api/render-download  — same render, served as an attachment
  *   POST /api/memes            — authenticated save, persists to GCS + DB
  *
- * Identical inputs produce byte-identical outputs across all three endpoints,
- * which is the property the verification checklist's "byte-identity" test
- * relies on. To keep that property robust: this module owns the imageSource →
+ * Identical inputs produce the same drawing across all three endpoints, so
+ * what is downloaded or saved is what the preview showed. Each picture is then
+ * marked with its own provenance record id (image tracing, #912), so the
+ * bytes differ only by that invisible mark and the stamp; the composite
+ * identity test checks the drawing beneath. To keep that property robust: this module owns the imageSource →
  * BackgroundSource resolution and the personalised-text rendering, then
  * delegates the actual canvas work to the existing `generateMemeBuffer`
  * (the single node-canvas implementation in this codebase). Callers MUST NOT
@@ -17,9 +19,11 @@
  */
 
 import { Buffer } from "node:buffer";
-import { generateMemeBuffer, type BackgroundSource, type FramingTransform, type TextOptions } from "./memeGenerator";
+import { drawnCaption, generateMemeBuffer, type BackgroundSource, type FramingTransform, type TextOptions } from "./memeGenerator";
 import { renderPersonalized, CANONICAL_NAME } from "./renderCanonical";
 import { ObjectStorageService } from "./objectStorage";
+import { backgroundPathOf, finishMeme, memeSnapshot } from "./provenance/meme";
+import type { ProvenanceActor } from "./provenance/records";
 import type { ImageSource } from "./validators/memeBuilder";
 import { memeCaption, type MemeAspectRatio, type MemeCaption } from "@workspace/api-zod";
 
@@ -49,6 +53,8 @@ export interface ComposeMemeOptions {
   profileImageObjectPath?: string | null;
   /** Optional override for the storage service (test seam). */
   objectStorage?: ObjectStorageService;
+  /** The provenance record id to watermark into the pixels; only lib/provenance/meme.ts's caller passes it. */
+  watermarkId?: number;
 }
 
 export interface ComposeMemeResult {
@@ -244,6 +250,7 @@ export async function composeMeme(
     input.aspectRatio ?? "landscape",
     input.framingTransform ?? null,
     memeCaption(input.factTextTemplate, input.textOptions, input.name, input.pronouns),
+    opts.watermarkId,
   );
   return { buffer, mime: "image/jpeg" };
 }
@@ -259,4 +266,39 @@ export class IdentityProfileMissingError extends Error {
     this.name = "IdentityProfileMissingError";
     Object.setPrototypeOf(this, IdentityProfileMissingError.prototype);
   }
+}
+
+/**
+ * Compose a meme for the builder's preview or download as a traced picture (image tracing, #912): watermarked with
+ * its provenance record id, stamped, and recorded — chained to the photo's record — before it is sent.
+ */
+export async function composeTracedMeme(
+  input: ComposeMemeInput,
+  opts: ComposeMemeOptions,
+  trace: { kind: "preview" | "download"; actor: ProvenanceActor | Promise<ProvenanceActor>; factId: number },
+): Promise<ComposeMemeResult> {
+  const textOptions = personalizeMemeTextOptions(input.textOptions, input.name, input.pronouns);
+  const finished = await finishMeme(
+    {
+      kind: trace.kind,
+      actor: trace.actor,
+      factId: trace.factId,
+      backgroundObjectPath: backgroundPathOf(input.imageSource, opts.profileImageObjectPath),
+      snapshot: memeSnapshot({
+        drawn: drawnCaption(
+          renderPersonalized(input.factTextTemplate, input.name, input.pronouns),
+          textOptions,
+          memeCaption(input.factTextTemplate, input.textOptions, input.name, input.pronouns),
+        ),
+        factTemplate: input.factTextTemplate,
+        textOptions,
+        identity: { name: input.name, pronouns: input.pronouns },
+        imageSource: input.imageSource,
+        aspectRatio: input.aspectRatio,
+        framingTransform: input.framingTransform,
+      }),
+    },
+    async (watermarkId) => (await composeMeme(input, { ...opts, watermarkId })).buffer,
+  );
+  return { buffer: finished.bytes, mime: "image/jpeg" };
 }

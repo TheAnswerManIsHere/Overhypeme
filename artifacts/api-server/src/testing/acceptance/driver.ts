@@ -40,8 +40,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import sharp from "sharp";
 import { checkImage } from "./imageCheck";
 import { renderCoverageProblems, settledBaselineRenders } from "../aiBaselineCoverage";
+
+/**
+ * Two decoded pictures (raw pixels, same size) are the same drawing when no colour value differs by more than
+ * SAME_DRAWING_TOLERANCE: each saved meme carries its own invisible watermark (image tracing, #912), which moves
+ * values by at most 18 of 255 (measured), while any change of a single glyph moves thousands by far more.
+ */
+const SAME_DRAWING_TOLERANCE = 48;
+function sameDrawing(a: Buffer, b: Buffer): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (Math.abs(a[i]! - b[i]!) > SAME_DRAWING_TOLERANCE) return false;
+  return true;
+}
 
 /** The committed account definitions and fixture images live beside the scripts that seed and record them. */
 const SCRIPTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts");
@@ -393,34 +406,39 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     const unfurled = await readImage(anonymous, "4", "the unfurl page's og:image", ogPath, "landscape");
 
     // The served caption draws the creator's identity exactly as a hand-typed
-    // twin of the same split does (PR398 steps 1, 3–8; PR223 step 1). Equal
-    // bytes are the proof: a surviving token, a brace, a shortened name or a
-    // wrong conjugation could not render identically to the typed words.
+    // twin of the same split does (PR398 steps 1, 3–8; PR223 step 1). The same
+    // drawing is the proof: a surviving token, a brace, a shortened name or a
+    // wrong conjugation could not render identically to the typed words. Each
+    // saved meme carries its own invisible watermark (image tracing, #912), so
+    // two saves are never byte-identical; "the same drawing" is no colour value
+    // differing by more than SAME_DRAWING_TOLERANCE anywhere. Measured for #912:
+    // two marks of one drawing differ by at most 18 of 255, while changing one
+    // punctuation mark moves 4,106 pixels by more than 64.
     const me = await free.json<{ displayName: string | null }>("4", "GET", "/api/users/me");
     const name = me.displayName;
     if (!name) throw new JourneyError("4", "the creator's display name", "the free account has none");
-    const served = async (what: string, topText: string, bottomText: string) => {
+    const served = async (what: string, topText: string, bottomText: string): Promise<Buffer> => {
       const res = await free.request("POST", "/api/memes", { factId, imageSource: { type: "upload", uploadKey: objectPath }, textOptions: { topText, bottomText }, isPublic: true, aspectRatio: "landscape" });
       const saved = (await res.json().catch(() => ({}))) as { permalinkSlug?: string };
       if (res.status !== 201 || !saved.permalinkSlug) throw new JourneyError("4", `save ${what}`, `${res.status} ${JSON.stringify(saved).slice(0, 300)}`);
       const img = await readImage(anonymous, "4", what, `/api/memes/${saved.permalinkSlug}/image`, "landscape");
-      return createHash("sha256").update(img.bytes).digest("hex");
+      return sharp(img.bytes).removeAlpha().raw().toBuffer();
     };
     const twin = async (what: string, tokenised: [string, string], typed: [string, string]) => {
       const [a, b] = [await served(`${what}, tokenised`, ...tokenised), await served(`${what}, typed by hand`, ...typed)];
-      if (a !== b) throw new JourneyError("4", what, "the served image differs from its hand-typed twin");
+      if (!sameDrawing(a, b)) throw new JourneyError("4", what, "the served image differs from its hand-typed twin");
       return a;
     };
     const setPronouns = (pronouns: string) => free.json("4", "PATCH", "/api/users/me", { pronouns });
-    const captions: Record<string, string> = {};
+    const captions: Record<string, Buffer> = {};
     captions.nameInTop = await twin("the name in the top half", ["{NAME} counted to infinity", "twice."], [`${name} counted to infinity`, "twice."]);
     captions.nameInBottom = await twin("the name in the bottom half", ["Infinity was counted", "by {NAME}, twice."], ["Infinity was counted", `by ${name}, twice.`]);
     // The bottom line's guard: a different typed bottom line must change the picture, or the bottom twin proves nothing.
-    if ((await served("a different bottom line, typed by hand", "Infinity was counted", "by Someone Else, twice.")) === captions.nameInBottom) {
+    if (sameDrawing(await served("a different bottom line, typed by hand", "Infinity was counted", "by Someone Else, twice."), captions.nameInBottom!)) {
       throw new JourneyError("4", "the bottom-line guard", "a different bottom line served the same image");
     }
     // The guard: a different typed name must not match, or equality proves nothing.
-    if ((await served("a different name, typed by hand", "Someone Else counted to infinity", "twice.")) === captions.nameInTop) {
+    if (sameDrawing(await served("a different name, typed by hand", "Someone Else counted to infinity", "twice."), captions.nameInTop!)) {
       throw new JourneyError("4", "the caption guard", "a different name served the same image");
     }
     await setPronouns("they/them");
@@ -428,7 +446,7 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     // Its own bottom line: the save route treats a repeated body as the same meme.
     await setPronouns("he/him");
     captions.heKeeps = await twin("he/him agreement", ["{Subj} {keeps|keep} counting", "to infinity, twice."], ["He keeps counting", "to infinity, twice."]);
-    if ((await served("they/them wording, typed by hand", "They keep counting", "to infinity, twice.")) === captions.heKeeps) {
+    if (sameDrawing(await served("they/them wording, typed by hand", "They keep counting", "to infinity, twice."), captions.heKeeps!)) {
       throw new JourneyError("4", "the pronoun guard", "they/them wording served the he/him image");
     }
 

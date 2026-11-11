@@ -1,6 +1,7 @@
 /**
- * @purpose The trace behind the admin "Trace an image" screen (plan PLAN_IMAGE_TRACING.md, Product Intent): from an id or a link to every matching provenance record, with its generation request, the record of the picture it was made from, and whether the meme, the stored picture and the account still exist — reading what it shows only from records — a live row is used only to find a record or to say a pre-tracing picture has none, never to fill a gap. It says which lookup matched, and what it tried when nothing did.
+ * @purpose The trace behind the admin "Trace an image" screen (plan PLAN_IMAGE_TRACING.md, Product Intent): from an id, a link or a picture file to every matching provenance record, with its generation request, the record of the picture it was made from, and whether the meme, the stored picture and the account still exist — reading what it shows only from records — a live row is used only to find a record or to say a pre-tracing picture has none, never to fill a gap. It says which lookup matched, and what it tried when nothing did.
  */
+import { createHash } from "node:crypto";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   db,
@@ -13,9 +14,11 @@ import {
   type ImageGenerationRequest,
 } from "@workspace/db";
 import { blindImagePath } from "../comparison/judging";
+import { readStampedId } from "./imageFile";
+import { readWatermark } from "./watermark";
 
-/** Increment 2 adds the lookups from a picture itself (metadata, exact hash, watermark). */
-export type TraceMethod = "id" | "link";
+/** How a record was found: from a typed id or link, or from a picture itself (its stamp, its exact bytes, its watermark). */
+export type TraceMethod = "id" | "link" | "metadata" | "hash" | "watermark";
 
 export interface TracedRecord {
   record: ImageProvenance;
@@ -180,4 +183,51 @@ async function traceObjectPath(objectPath: string, tried: string[]): Promise<Tra
     tried,
     note: rows.length ? null : preTracingNote(objectPath),
   };
+}
+
+/**
+ * Trace a picture file (increment 2): by the id stamped in its metadata, by the exact hash of its bytes, and by the
+ * id in its invisible watermark — every one is tried, so a stamp and a watermark that disagree are both shown, and
+ * every record any of them finds is returned. `method` names the first that matched, in that order.
+ */
+export async function traceImageFile(file: Buffer): Promise<TraceResult> {
+  const tried: string[] = [];
+  const found = new Map<number, ImageProvenance>();
+  let method: TraceMethod | null = null;
+  const take = (m: TraceMethod, rows: ImageProvenance[]) => {
+    for (const r of rows) found.set(r.id, r);
+    if (rows.length && !method) method = m;
+  };
+
+  const stamped = readStampedId(file);
+  if (stamped == null) tried.push("metadata: no Overhype.me id in the file (stripped, or never stamped)");
+  else {
+    const rows = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.id, stamped));
+    tried.push(`metadata: id ${stamped}, ${rows.length ? "found" : "no record with that id"}`);
+    take("metadata", rows);
+  }
+
+  // The hash lookup and the watermark reading are independent; the reading is the slow one.
+  const sha256 = createHash("sha256").update(file).digest("hex");
+  const [byHash, reading] = await Promise.all([
+    db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.sha256, sha256)),
+    readWatermark(file).then((r) => ({ ok: true as const, r }), (err: unknown) => ({ ok: false as const, err })),
+  ]);
+  tried.push(`exact bytes: ${byHash.length ? `${byHash.length} record${byHash.length === 1 ? "" : "s"}` : "no record of these exact bytes (the file has been re-saved, resized or edited)"}`);
+  take("hash", byHash);
+
+  if (!reading.ok) {
+    tried.push(`watermark: could not be read (${reading.err instanceof Error ? reading.err.message : String(reading.err)})`);
+  } else if (!reading.r) {
+    tried.push("watermark: none found (a picture made before memes were watermarked, one cropped too hard, or not ours)");
+  } else {
+    const { id, trimmed, corrected } = reading.r;
+    const rows = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.id, id));
+    const how = [trimmed ? "after cutting away bars round the picture" : null, corrected ? `${corrected} damaged bit${corrected === 1 ? "" : "s"} repaired` : null].filter(Boolean).join(", ");
+    tried.push(`watermark: id ${id}${how ? ` (${how})` : ""}, ${rows.length ? "found" : "no record with that id"}`);
+    if (stamped != null && stamped !== id) tried.push(`the metadata and the watermark name different records (${stamped} and ${id}): the file's metadata may have been copied from another picture`);
+    take("watermark", rows);
+  }
+
+  return { method, matches: await expand([...found.values()].sort(NEWEST_FIRST)), tried, note: null };
 }

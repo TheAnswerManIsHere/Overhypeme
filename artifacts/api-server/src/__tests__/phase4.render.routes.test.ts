@@ -15,11 +15,13 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, transientRendersTable } from "@workspace/db/schema";
+import { usersTable, factsTable, transientRendersTable, imageProvenanceTable } from "@workspace/db/schema";
 import { eq, like, and, gt, inArray } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import renderRouter from "../routes/render.js";
+import { composeMeme } from "../lib/memeComposite.js";
+import { stampImage } from "../lib/provenance/imageFile.js";
 import memesRouter from "../routes/memes.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -79,6 +81,7 @@ async function cleanup() {
     .map((r) => r.id);
   if (orphanFactIds.length > 0) {
     await db.delete(transientRendersTable).where(inArray(transientRendersTable.factId, orphanFactIds));
+    await db.delete(imageProvenanceTable).where(inArray(imageProvenanceTable.factId, orphanFactIds));
     await db.delete(factsTable).where(inArray(factsTable.id, orphanFactIds));
   }
   insertedFactIds.length = 0;
@@ -334,37 +337,57 @@ describe("POST /api/render-download", () => {
   });
 });
 
-describe("Phase 4 — composite byte-identity across endpoints", () => {
+describe("Phase 4 — composite identity across endpoints", () => {
   withOwnerPhoto();
 
-  it("preview, download, and a direct compose call all return the same bytes", async () => {
+  // Codex, PR #915: the traced render must not change what a rejected request answers.
+  it("an identity render without a profile photo still answers 400 identity_profile_missing", async () => {
     const factId = await insertFact("{NAME} {pushes|push} the limit.");
+    const res = await request(makeApp()).post("/render-preview").set("Authorization", `Bearer ${ownerSid}`)
+      .send({ factId, imageSource: { type: "identity" }, name: "Alex", pronouns: "they/them" });
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.deepEqual(res.body, { error: "identity_profile_missing" });
+  });
 
-    const previewRes = await request(makeApp())
-      .post("/render-preview")
-      .set("Authorization", `Bearer ${ownerSid}`)
-      .send({
-        factId,
-        imageSource: photo,
-        name: "Alex",
-        pronouns: "they/them",
-      })
+  // Codex, PR #915: the record's caption is the words on the picture, a split caption's own halves included.
+  it("a split caption is recorded as drawn, not as the fact sentence", async () => {
+    const factId = await insertFact("{NAME} {pushes|push} the limit.");
+    await request(makeApp()).post("/render-preview").set("Authorization", `Bearer ${ownerSid}`)
+      .send({ factId, imageSource: photo, name: "Alex", pronouns: "they/them", textOptions: { topText: "{NAME} pushes", bottomText: "nothing at all" } })
       .expect(200);
+    const [rec] = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.factId, factId));
+    assert.equal((rec!.snapshot as { caption: string }).caption, "Alex pushes\nnothing at all");
+  });
 
-    const downloadRes = await request(makeApp())
-      .post("/render-download")
-      .set("Authorization", `Bearer ${ownerSid}`)
-      .send({
-        factId,
-        imageSource: photo,
-        name: "Alex",
-        pronouns: "they/them",
-      })
-      .expect(200);
+  // Until image tracing (#912) the property was that preview and download are byte-identical. Each is now
+  // watermarked with its own provenance record id, so the property is what that equality stood for: the download
+  // is the drawing the preview showed — the same composition, differing only in the invisible mark and stamp.
+  it("preview and download are the same drawing, each marked with its own record id", async () => {
+    const factId = await insertFact("{NAME} {pushes|push} the limit.");
+    const body = { factId, imageSource: photo, name: "Alex", pronouns: "they/them" };
+    const previewRes = await request(makeApp()).post("/render-preview").set("Authorization", `Bearer ${ownerSid}`).send(body).expect(200);
+    const downloadRes = await request(makeApp()).post("/render-download").set("Authorization", `Bearer ${ownerSid}`).send(body).expect(200);
 
-    const previewSha = sha256(previewRes.body as Buffer);
-    const downloadSha = sha256(downloadRes.body as Buffer);
-    assert.equal(previewSha, downloadSha, "preview and download bytes must match for identical inputs");
+    const records = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.factId, factId));
+    const preview = records.find((r) => r.kind === "preview")!;
+    const download = records.find((r) => r.kind === "download")!;
+    assert.ok(preview && download && preview.id !== download.id, "one record each");
+    assert.equal(sha256(previewRes.body as Buffer), preview.sha256, "the preview sent is the one recorded");
+    assert.equal(sha256(downloadRes.body as Buffer), download.sha256, "the download sent is the one recorded");
+    assert.equal(
+      (preview.snapshot as { recipeKey: string }).recipeKey,
+      (download.snapshot as { recipeKey: string }).recipeKey,
+      "both records name the same recipe",
+    );
+
+    const input = {
+      factTextTemplate: `${FACT_TEXT_PREFIX}{NAME} {pushes|push} the limit.`, name: "Alex", pronouns: "they/them",
+      imageSource: photo, aspectRatio: "landscape" as const, framingTransform: null,
+    };
+    for (const [res, rec] of [[previewRes, preview], [downloadRes, download]] as const) {
+      const drawn = await composeMeme(input, { watermarkId: rec.id });
+      assert.ok((res.body as Buffer).equals(stampImage(drawn.buffer, { id: rec.id, engine: null })!), `the ${rec.kind} is the composition marked with record ${rec.id}`);
+    }
   });
 });
 

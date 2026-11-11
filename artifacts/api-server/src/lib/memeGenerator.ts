@@ -19,6 +19,7 @@ import {
 } from "@workspace/api-zod";
 import { hasUnresolvedFactTokens } from "./renderCanonical";
 import { logger } from "./logger";
+import { watermarkPixels } from "./provenance/watermark";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -232,6 +233,21 @@ function captionFromText(factText: string, options?: TextOptions): MemeCaption {
 }
 
 /**
+ * The caption a render with these inputs draws, in runs: `caption` when the
+ * caller passed one, otherwise the runs `generateMemeBuffer` builds from the
+ * words and options. A provenance record keeps exactly this (image tracing).
+ */
+export function drawnCaption(factText: string, options?: TextOptions, caption?: MemeCaption): MemeCaption {
+  return caption ?? captionFromText(factText, options);
+}
+
+/** The words a caption draws, as plain text: one line, or the top and bottom lines. */
+export function captionPlainText(caption: MemeCaption): string {
+  const words = (runs: { text: string }[]) => runs.map((r) => r.text).join("");
+  return caption.mode === "split" ? `${words(caption.top)}\n${words(caption.bottom)}` : words(caption.text);
+}
+
+/**
  * Renders a meme to a JPEG with the shared drawing (`drawMeme`, #870), the
  * one the builder's preview uses, in the same logical canvas, so the file is
  * what the preview showed. The output is drawn at the photo's own resolution
@@ -242,6 +258,11 @@ function captionFromText(factText: string, options?: TextOptions): MemeCaption {
  * `caption` carries the name marked so it is drawn in its colour; callers
  * holding the template build it with `memeCaption`. Without it the caption is
  * `factText` (or the split halves of `options`) with no name marked.
+ *
+ * `watermarkId`, when given, is the provenance record id the pixels are marked
+ * with (lib/provenance/watermark.ts) before the JPEG is encoded; only the
+ * provenance layer passes it (lib/provenance/meme.ts), never a caller that
+ * would then send the picture without its record.
  */
 export async function generateMemeBuffer(
   background: BackgroundSource,
@@ -250,6 +271,7 @@ export async function generateMemeBuffer(
   aspectRatio: MemeAspectRatio = DEFAULT_MEME_ASPECT_RATIO,
   framingTransform?: FramingTransform | null,
   caption?: MemeCaption,
+  watermarkId?: number,
 ): Promise<Buffer> {
   ensureFontsRegistered();
   const { w: logicalW, h: logicalH } = MEME_CANVAS_DIMS[aspectRatio];
@@ -282,12 +304,21 @@ export async function generateMemeBuffer(
     drawImage: (image, x, y, w, h) => ctx.drawImage(image, x, y, w, h),
     aspectRatio,
     framingOffset,
-    caption: caption ?? captionFromText(factText, options),
+    caption: drawnCaption(factText, options, caption),
     style: options ?? {},
     captionFont: (size) => captionCanvasFont(options, size),
     watermarkFont: (size) => `${WATERMARK_FONT.weight} ${size}px ${captionFontStack(WATERMARK_FONT)}`,
     deviceScale: scale,
   });
+
+  if (watermarkId !== undefined) {
+    // Pixel reads and writes in device pixels: @napi-rs/canvas applies the
+    // drawing transform to getImageData/putImageData, so the scale goes first.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const pixels = ctx.getImageData(0, 0, renderW, renderH);
+    await watermarkPixels(pixels.data, renderW, renderH, 4, watermarkId);
+    ctx.putImageData(pixels, 0, 0);
+  }
 
   return canvas.toBuffer("image/jpeg", OUTPUT_JPEG_QUALITY);
 }

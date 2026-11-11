@@ -64,6 +64,7 @@ async function buildAll() {
       "stripe-replit-sync",
       "*.node",
       "sharp",
+      "onnxruntime-node",
       "better-sqlite3",
       "sqlite3",
       "canvas",

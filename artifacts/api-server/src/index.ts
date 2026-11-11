@@ -375,6 +375,12 @@ const server = app.listen(port, (err) => {
     process.exit(1);
   }
   logger.info({ port }, "Server listening");
+  // Load the watermark marker now (under half a second) rather than on the first meme; a failure here is logged and
+  // the first meme retries the load, refusing to send the meme if it still fails (image tracing, #912).
+  void import("./lib/provenance/watermark")
+    .then((m) => m.warmWatermarkMarker())
+    .then(() => logger.info("[provenance] watermark marker loaded"))
+    .catch((err) => logger.error({ err }, "[provenance] watermark marker failed to load"));
 });
 
 const shutdown = attachShutdownHandlers(server, {
