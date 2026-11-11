@@ -411,7 +411,6 @@ const timing = (secs: number[]) => secs.length
   ? { medianSeconds: Math.round(median(secs) * 10) / 10, slowestSeconds: Math.round(Math.max(...secs) * 10) / 10, timed: secs.length }
   : { medianSeconds: null, slowestSeconds: null, timed: 0 };
 
-const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const billing = (usd: number[]) => usd.length
   ? { billedUsdPerImage: round4(usd.reduce((a, b) => a + b, 0) / usd.length), billedMinUsd: round4(Math.min(...usd)), billedMaxUsd: round4(Math.max(...usd)), billedTotalUsd: round4(usd.reduce((a, b) => a + b, 0)), billed: usd.length }
   : { billedUsdPerImage: null, billedMinUsd: null, billedMaxUsd: null, billedTotalUsd: null, billed: 0 };
