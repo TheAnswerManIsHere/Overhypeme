@@ -557,7 +557,11 @@ rule 2 — a sentence or two, saying only what he must know or do).
   and [`planning-contract.md`](./planning-contract.md).
 - **Clear mechanical issue** (off-by-one, missing await, dead import, obvious lint,
   a clear logic bug) → fix it, push, mention briefly — on a PR in the
-  standard loop; on a prototype-phase PR Codex's automatic pass is read for one
+  standard loop, once both of the round's assessments are posted: "clear" is
+  the judgement they exist to check, and a push before them fails the
+  review gate for good, short of David's waiver
+  ([`claude-core.md`](../../.agents/core/claude-core.md), *Shared judgement
+  on a review round*); on a prototype-phase PR Codex's automatic pass is read for one
   thing — a finding that reports a defect stopping the built feature running
   and producing reasonable output, which is fixed — and no other finding
   starts a fix

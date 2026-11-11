@@ -517,7 +517,11 @@ David-gate definition above):
   on a prototype-phase feature at `stage:coding` — a usable version delivered
   and waiting on his feedback through the rail) with no open question — say
   so plainly, and **match the example to the gate actually held**, since none
-  of the four is a merge gate any more:
+  of the four is a merge gate any more. The one merge gate he holds is the
+  review gate's waiver, when a push came before a round's assessments
+  (`claude-core.md`, *Shared judgement on a review round*): say "the review
+  gate failed because fixes were pushed before both reviews; only your
+  waiver releases it". The structural examples:
   "scope agreed in outline, waiting on your go-ahead before the plan is
   drafted" / "plan v3 delivered in chat, waiting on your approval" /
   "merged — UAT section on PR #<N> — <title>, not yet run". Read the PR body for

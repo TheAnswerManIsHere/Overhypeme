@@ -47,7 +47,10 @@ and the **scope-of-work gate** was added
 the same day at the front of Planning (see
 [`working-modes.md`](./working-modes.md#the-scope-of-work-gate-david-2026-08-15)).
 The last exception — a PR that widens the agent's own guardrails or
-authority — was retired on 2026-09-14; nothing holds Merge as a David-gate.
+authority — was retired on 2026-09-14; nothing holds Merge as a David-gate
+save the review gate's waiver, when a push came before a round's assessments
+(`claude-core.md`, *Shared judgement on a review round*), and that waits
+under `waiting:david` like any 🛑.
 **Known interim mismatch:** the Project board's verbatim Status option is
 still named `🛑 Merge` (the sync script maps labels onto the board's exact
 option names, and renaming an option is a board-config edit only David can
@@ -173,7 +176,7 @@ exists, carries `Workstream: #N` like any other; no `stage:code-review` ever
 follows, because no code-review loop runs on any version. **The flip is a relabel of the same issue,
 performed by the `prototype` skill before `plan-review-loop` starts**: it
 first lands the registry change on `main` (the entry reads production, by a
-one-line `Refs #N` PR that moves no label), then
+one-line `Refs #N` PR carrying `Review class: registry`, that moves no label), then
 locates the feature's issue by its `Workstream:` line or title, moves it to
 `stage:planning` / `waiting:david`, and records the declaration in the
 State of Play — so the planning loop finds an issue already at
@@ -460,7 +463,9 @@ decision (*Promotion is a real operation*, above; the rule is
 The one-line registry PRs the phase uses — at the start under the branch
 regime, at the flip, at abandonment — say `Refs #N` and own no lifecycle,
 and so does a sync PR delivering KITT's payload, which carries no
-`Workstream:` line (the `sync-fleet` skill). Where none is owed, nothing remains for anyone to
+`Workstream:` line (the `sync-fleet` skill); each carries its `Review class:`
+line instead (`working-modes.md`, *Trivial*; the gate's rule is `claude-core.md`,
+*Shared judgement on a review round*). Where none is owed, nothing remains for anyone to
 verify after the close-out sync, so the issue closes then. (David, 2026-09-25. Before this,
 the only step that closed an issue was an accepted `/uat` run. Every
 workstream with no UAT — every docs, devops and Tier A bugfix PR, and in

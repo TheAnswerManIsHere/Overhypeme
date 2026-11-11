@@ -207,7 +207,10 @@ does not apply. The tool, its contract and its back-out:
   agent's influence over its own tooling**, where the agent that runs a
   script is the only actor who could subvert its inputs and could equally
   just not run it. The controls against deliberate action are the
-  server-side ruleset and the human working alongside, who reads the one
+  server-side ruleset — whose required checks include, once David enrols
+  it, the review gate that fails a findings round missing either
+  assessment or pushed to before both ([`claude-core.md`](claude-core.md), *Shared judgement on a
+  review round*) — and the human working alongside, who reads the one
   line every authority-widening PR carries naming what latitude it grants
   (2026-09-14, when the human-merge gate was retired). Neither class is
   fixed because the diff would be small: each fix costs a review round, and the aggregate is never

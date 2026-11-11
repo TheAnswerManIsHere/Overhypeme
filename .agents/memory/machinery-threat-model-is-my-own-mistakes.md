@@ -30,7 +30,9 @@ this environment there is exactly one actor: the agent that edits the
 working tree, commits to the branch, captures the snapshot, runs the gate
 and posts the review request. Whatever it can "attack" it can also simply
 not run. The controls that exist against deliberate action are outside the
-scripts entirely — the server-side ruleset on `main`, and the human working
+scripts entirely — the server-side ruleset on `main` (its required checks
+include the review gate, which runs from `main`'s copy and so is outside a
+PR's reach: `claude-core.md`, *Shared judgement on a review round*), and the human working
 alongside, who reads the one line every authority-widening PR carries naming
 what latitude it grants — and no local hook can add to them, because the
 hook's operator is the party being controlled. (That second control was a

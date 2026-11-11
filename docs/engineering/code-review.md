@@ -225,7 +225,9 @@ ship gate (the two-review limit that stood here from 2026-09-19 to
 2026-10-21 is retired;
 [`working-modes.md`](../ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19)
 keeps the record): a clean automatic pass is the whole ceremony, and when
-the pass finds a real defect the pushed fixes are re-reviewed, as many times
+the pass finds a real defect the fixes — pushed only after the round's two
+assessments, which the review gate enforces (`claude-core.md`, *Shared
+judgement on a review round*) — are re-reviewed, as many times
 as the judgement says is worth it — a docs change to a contract governing approvals or
 publication is weighed like any other change, below. The internal tier (David, 2026-08-21,
 superseding the 2026-08-20 no-rounds carve-out) says what is downstream rather

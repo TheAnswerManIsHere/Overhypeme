@@ -657,7 +657,13 @@ that delivers KITT's payload to a consumer and carries nothing else but the
 memory-index lines the delivery needs — is Trivial, since its content was
 reviewed in KITT where it was written (David, 2026-11-04, KITT's
 `sync-fleet` skill). A consumer-owned change the sync needs, an overlay
-answer or a settings entry, is its own PR under its own class. No
+answer or a settings entry, is its own PR under its own class. Each such PR
+says which declaration it rides on, on a line of its own in its body —
+`Review class: trivial`, `Review class: sync` or `Review class: registry`
+(a prototype-phase PR: `Review class: prototype`) — the one thing the review
+gate reads to exempt it, so no agent infers a class (David, 2026-11-11,
+KITT #293; the gate's rule is `claude-core.md`, *Shared judgement on a
+review round*). No
 review of any kind is requested: no Codex round, no assessment, and no
 build report at close-out — a stalled automatic pass gets one bare
 re-request, which restarts it rather than requesting a round (`claude-core.md`,
@@ -778,7 +784,9 @@ it covered one.) His "etc." covers the product-design principles too
 (legible async status, no raw identifiers on a surface, and their kin): a
 prototype follows them where they cost nothing, and a miss is a ledger line
 for the flip, never a finding that starts a fix. The PR is opened and merged
-by the same agent in the same turn, on green CI. Codex's automatic pass on PR-open still runs and is
+by the same agent in the same turn, on green CI, its body carrying
+`Review class: prototype` (*Trivial*, above; `claude-core.md`, *Shared
+judgement on a review round*). Codex's automatic pass on PR-open still runs and is
 **read for one thing**: a finding that reports the built feature failing to
 run or produce reasonable output, which is fixed at prototype depth as a
 further commit of the version — or, since the PR merges on green CI without
@@ -909,7 +917,8 @@ words, for that change, so the PR quotes it and merges on green CI with no
 review of any kind, Codex's automatic pass on it read for nothing, P1s included (David, 2026-10-20: *"We're in prototype
 mode. We don't fix any issues that don't prevent us from moving
 forward."*) — and `pr-watch` never subscribes to it: it carries
-`Refs #N`, owns no lifecycle and moves no label (Codex, #168 round 7). At the
+`Refs #N` and `Review class: registry` (the review gate's exemption,
+*Trivial*, above), owns no lifecycle and moves no label (Codex, #168 round 7). At the
 flip under the branch regime the hardening PR's
 close-out also **retires the prototype environment**: the deployment is
 stopped and its database dropped once the owner's answers and the port are
@@ -998,7 +1007,8 @@ feature is in:
   learn a feature's phase, and an entry only the unmerged branch carries
   reads from `main` as no entry, which is production phase. That PR is
   Trivial by his phase declaration (the flip paragraph above), quoted in its
-  body, and merges on green CI. It says `Refs #N` for the
+  body beside `Review class: registry` (*Trivial*, above), and merges on
+  green CI. It says `Refs #N` for the
   feature's issue, never `Workstream: #N`, so it owns no lifecycle and moves
   no label (`workstream-tracking.md`, *Closing an issue*); the same holds for
   the one-line registry PRs at the flip and at abandonment. The branch takes `main` in
@@ -1038,7 +1048,9 @@ pushed:
 
 1. A round returns findings.
 2. The judgement is made per finding: on a code loop from two independent
-   assessments and the builder's own reading of them. (A planning loop is not
+   assessments and the builder's own reading of them — both posted before
+   anything is pushed, which the review gate enforces (`claude-core.md`,
+   *Shared judgement on a review round*). (A planning loop is not
    a review loop and this write gate does not govern it — see *Who judges*
    below.)
 3. **Anything written** → the fixes are pushed, and another review round is
@@ -1104,8 +1116,10 @@ why. No round number brings findings to David. A corrected head that still
 violates an agreed requirement or fails a required check is still not
 mergeable: the builder fixes it or cuts it, and reports. What still goes to
 David is what always did — a product decision (what the product should do,
-an accepted user-facing consequence), a plan, and the irreversible list
-(`agent-working-rules.md`, *A reversible choice proceeds on the
+an accepted user-facing consequence), a plan, the irreversible list, and —
+new with the review gate (2026-11-11) — the waiver for a push made before a
+round's assessments (`claude-core.md`, *Shared judgement on a review round*;
+`agent-working-rules.md`, *A reversible choice proceeds on the
 recommendation*).
 
 **The measurement that built the limit stands, as a reason to stop early
@@ -1378,7 +1392,9 @@ shortfall, where no settled decision already covers it — on a code round a
 there is no readout to carry it (the Claude core's *Shared judgement on a
 review round*, rule 5; [`agent-working-rules.md`](agent-working-rules.md#a-reversible-choice-proceeds-on-the-recommendation-david-2026-10-10)); a consequence a settled
 decision reaches is settled with it, and the reply names the decision; a
-disclosure question is his; a scope addition is taken as *next* and reported,
+disclosure question is his; so is the review gate's waiver, the one release
+for a push made before a round's assessments (the Claude core's *Shared
+judgement on a review round*); a scope addition is taken as *next* and reported,
 and a split is proposed in the plan (David, 2026-10-21). **A purely technical design fork is not among them** — it is
 settled in the loop, with the Fable assessor holding the tie-break on a code
 round. This list read "a product or design fork" until 2026-09-20, which a
@@ -1402,7 +1418,9 @@ reasoned decline is what the assessments *produce*, so reading one's own guess
 that the findings will all be declined as grounds for skipping the assessments
 ends the round on the builder's judgement alone. That is the exact behaviour
 the shared judgement replaces. Note one status line either way, so the
-discipline stays visible.
+discipline stays visible; the review gate also fails a findings round
+missing either assessment, or pushed to before both (`claude-core.md`,
+*Shared judgement on a review round*).
 
 **Trivial nits do not skip the judgement** (David, 2026-08-22, the write-gate
 rule). Writing for them is exactly the decision it exists to make: under this

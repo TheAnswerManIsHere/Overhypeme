@@ -26,7 +26,12 @@ as its scope. Two upstream
 habits are therefore wrong here: fixing findings one at a time as they arrive
 rather than batching them, and applying fixes without a review of what was
 written. A cap on further editing is never an exemption from reviewing what
-was edited.
+was edited. **A third, on a pull-request round that returned findings:
+fixing anything — "Critical" included — before the round's Astra and Fable
+assessments are posted.** A missing assessment, or a push before both, fails
+the review gate, and a push before them only David's waiver releases
+([`claude-core.md`](../../../.agents/core/claude-core.md), *Shared judgement on a
+review round*).
 
 ## When to Request Review
 
@@ -124,7 +129,7 @@ reaches a pull request; it does not cap the per-task reviews here.*
   required check does not merge: the builder fixes or cuts it. Only a product
   decision (intended behaviour, an accepted user-facing shortfall or a harm
   David has not accepted, where no settled decision already covers it —
-  `agent-working-rules.md`, *A reversible choice proceeds on the recommendation*) goes to him*
+  `agent-working-rules.md`, *A reversible choice proceeds on the recommendation*) goes to him, and the review gate's waiver for a push made before a round's assessments (`claude-core.md`, *Shared judgement on a review round*)*
 - Argue with valid technical feedback
 
 **If reviewer wrong:**

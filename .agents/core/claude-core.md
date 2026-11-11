@@ -588,7 +588,8 @@ enactment is `.claude/skills/document/`.
    steps in the plan from start to finish"*). Between increments I stop for
    three things only, each a 🛑 banner with a push notification (and the alert hook's
    ring, since each is a hand-back that waits on him, interaction rule 6): a blocker only he can
-   clear (a key, a sign-in, a purchase), a UAT step that is his and that
+   clear (a key, a sign-in, a purchase, the review gate's waiver — *Shared
+   judgement on a review round*), a UAT step that is his and that
    the next increment depends on, and the irreversible list. A UAT the next
    increment does not depend on never pauses the build: the machine lanes
    run, the judgement steps are handed to him, and the next increment
@@ -669,7 +670,9 @@ to every unit of work but a Trivial PR.
   is that declaration for the one-line registry PR recording it (David,
   2026-09-28; the phase bullet below), and a sync PR delivering KITT's
   payload is Trivial by his standing declaration (David, 2026-11-04;
-  `working-modes.md`, *Trivial*). I request no review of any kind and
+  `working-modes.md`, *Trivial*). The PR body carries the declaring line
+  the review gate reads — `Review class: trivial`, `sync` or `registry`,
+  on a line of its own (*Shared judgement on a review round*). I request no review of any kind and
   merge on green CI; a stalled automatic pass still gets its one bare
   re-request (*Waiting, and scheduled check-ins*, item 4). Codex's automatic pass is read for one thing: **a P1,
   which I judge and report** — fixed in a named commit, or merged with the
@@ -709,6 +712,8 @@ to every unit of work but a Trivial PR.
   (David, 2026-09-28: *"What we're cutting out is the code review loop once
   we've built it."*). Where nothing is
   downstream of `main` it lives on `main` and its PR merges in the same turn,
+  its body carrying `Review class: prototype` for the review gate (*Shared
+  judgement on a review round*),
   Codex's automatic pass read for one thing — the one fix a prototype owes,
   whoever finds it, is a defect that stops the built feature running and
   producing reasonable output (David, 2026-10-20); where users are, it lives on a
@@ -754,7 +759,9 @@ answer**, a further batch is written when the judgement says it is worth it,
 and I say in the merge report what was recorded and why. **No round brings
 findings to David**: a corrected head that still violates an agreed
 requirement or fails a required check is mine to fix or cut, and only a
-product decision or the irreversible list is his. The retired rule's text is
+product decision, the irreversible list, or the review gate's waiver for a
+push made before a round's assessments (*Shared judgement on a review
+round*) is his. The retired rule's text is
 in git history at
 [`working-modes.md`](../../docs/ai-context/working-modes.md#the-two-review-limit-on-autonomous-iteration-david-2026-09-19).
 
@@ -947,6 +954,20 @@ The loop:
   parses an assessment, so no phrase in one can authorise work.
 - **A failed dispatch is not permission to proceed on one assessment alone.**
   It is reported in plain English and the round stops.
+- **The review gate enforces both assessments and their order** (David,
+  2026-11-11: *"Please don't skip reviewers! That's a critical part of our
+  process that should not be allowed."*; KITT #293). A required commit
+  status, `Review gate`, fails a PR while a Codex findings round lacks an
+  Astra or a Fable assessment of the reviewed commit, or while a push landed
+  between that review and them. It proves push order, not when a fix was
+  written — that stays this rule. A failure is answered by posting what is
+  missing; a push already made before them is released only by David's
+  waiver — the label `review-gate: waived by David` and a comment starting
+  `Review gate waived:` with the reason, a 🛑 since only he applies it —
+  and never by working around the gate. An exempt PR says so on a line of
+  its own: `Review class: trivial`, `sync`, `registry` or `prototype`.
+  Mechanics: `core/scripts/review-gate.mjs` here, `scripts/review-gate.mjs`
+  in a consumer.
 - **Both assessors read the live checkout, so the dispatch refuses unless the
   tree is at the reviewed commit and clean.** Advice about code the reviewer
   never saw is worse than no advice.
@@ -1174,7 +1195,10 @@ here, `scripts/build-report.mjs` in a consumer.
    later one David asked a loop for — the approved short plan verbatim (its
    four items: the design question, the hypothesis, the surface, what it
    leaves out); otherwise its oracle is its owner's feedback (rule 4 gives
-   the line). "n/a — no plan" only for a
+   the line). An exempt PR — Trivial, sync, phase registry, prototype phase —
+   also carries its `Review class:` line on a line of its own, the only thing
+   the review gate reads to exempt it (*Shared judgement on a review round*).
+   "n/a — no plan" only for a
    genuinely trivial change. Verbatim carries a guarded string in its defanged
    form (interaction rule 11). **A plan that failed the disclosure check**
    (Planning rule 3) is the exception to verbatim: the body carries a
@@ -1259,6 +1283,10 @@ cut, having never run once in the loop it was built for (David merged from the
 GitHub UI and checked the bar by eye). All three are reads I do. The one item
 GitHub itself enforces is *every thread resolved*: the `main` ruleset requires
 conversation resolution, so the Merge button is inert while a thread is open.
+Beside the three, one rule of the loop is enforced the same way where David
+has made it a required check: the review gate (*Shared judgement on a review
+round*) fails a PR whose findings round lacks either assessment, or received
+a push before both.
 
 - **Every PR in the standard loop gets a Codex review and none merges before
   it returns** (Trivial waits only for the automatic pass, to read it for a P1 I judge
@@ -1366,10 +1394,12 @@ a round trip every time, the safety net is his working beside me and noticing,
 and everything here is reversible). A change to `.claude/settings.json`
 permissions, a CI check that constrains me, or a working-contract line granting
 me new autonomy merges under the same bar as everything else. Where a merge
-does wait on him, a rule above says so, and since 2026-10-21 only two do:
-the irreversible list, and a corrected head whose shortfall is a product
-decision — what the product should do, or a user-facing consequence he has
-not accepted (*A reversible choice proceeds*). (A review-loop PR's second
+does wait on him, a rule above says so, and three do: the irreversible
+list; a corrected head whose shortfall is a product decision — what the
+product should do, or a user-facing consequence he has not accepted (*A
+reversible choice proceeds*; the two since 2026-10-21); and a PR whose
+review gate failed on a push made before its round's assessments, which only
+his waiver releases (*Shared judgement on a review round*; 2026-11-11). (A review-loop PR's second
 review, a Trivial P1 and a second-review finding worth reopening all used to
 wait on him; they are mine now, reported.)
 **What replaces the gate is visibility, not another gate:**
@@ -1859,7 +1889,10 @@ afterwards.
 - **Its standing is interaction rule 12's.** Substance findings — product,
   design, correctness — are triaged under review-loop rules 5 and 6 like any
   reviewer's; shipping-mechanics opinions carry no authority. It is not the
-  merge bar: Codex's GitHub review of the code still is.
+  merge bar: Codex's GitHub review of the code still is. Its assessment's
+  *presence* on a findings round is enforced, though — by the review gate
+  (*Shared judgement on a review round*) — while its content still only
+  advises.
 - Spawning gotchas (closed stdin, the sandbox blocking `/tmp`, detaching a
   long run, the `pkill` that kills the caller):
   [`codex-cli-in-container.md`](../../.agents/memory/codex-cli-in-container.md).
