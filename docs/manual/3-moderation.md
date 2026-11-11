@@ -290,9 +290,11 @@ or by anyone downstream, as if it did.
   which records an [auditable waiver](../ai-context/glossary.md#waiver) — not
   a silent skip. **Decided for launch, not yet built:** a fact's
   [hero renders](../ai-context/glossary.md#hero-render) will be a hard gate —
-  a fact will not go live without confirmed, approved hero renders, and there
-  is no "no-hero fallback" (decided 2026-10-06; see the
-  [launch definition](../ai-context/launch-definition.md)). Until the launch
+  a fact will not go live without an approved example for every approved gag
+  (a fact may have up to three gags; one unstyled example per gag is
+  required), and there is no "no-hero fallback" (decided 2026-10-06, reshaped
+  by the [product strategy](../ai-context/product-strategy.md#gags-and-examples)
+  on 2026-11-11; see the [launch definition](../ai-context/launch-definition.md)). Until the launch
   programme's image phase ships that gate, approval works as the first
   sentence says. ([Stock images](../ai-context/glossary.md#stock-image) were a
   further review aid until Pexels was deleted in the launch programme's cut

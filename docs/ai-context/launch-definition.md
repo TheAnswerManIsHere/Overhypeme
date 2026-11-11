@@ -111,8 +111,9 @@ reviewed against the engines chosen by look; private memes read from the entitle
 grid (#395 fixed); hearts respect visibility (#375 fixed); only a user's own
 uploads or creations are offered to them as personal media; a fact's example
 pictures are shown, not offered as backgrounds (generic, no faces by
-construction — the inventory's D9 boundary); anonymous visitors preview only, and
-download, save and share need a verified account; budget-reached states.
+construction — the inventory's D9 boundary); anonymous visitors browse,
+personalise text and see examples but render nothing, and download, save and
+share need a verified account; budget-reached states.
 
 **Paying (no existing purchases to honour):** one **credit** balance that never
 expires; a **credit pack** anyone can buy; and **membership**, monthly or
