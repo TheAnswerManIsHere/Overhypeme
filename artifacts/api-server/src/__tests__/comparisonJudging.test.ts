@@ -19,6 +19,7 @@ import {
   comparisonSetsTable,
   enginesTable,
   factsTable,
+  lookStylesTable,
   usersTable,
 } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
@@ -270,7 +271,12 @@ describe("a blind image whose storage fails mid-body", () => {
   });
 });
 
+const STYLE = `${P}-look`;
+
 describe("captured the style", () => {
+  before(async () => { await db.insert(lookStylesTable).values({ id: STYLE, label: "Judging test look", promptSuffix: "test look" }); });
+  after(async () => { await db.delete(lookStylesTable).where(eq(lookStylesTable.id, STYLE)); });
+
   // David, 2026-11-11: "I need a check box that says 'Captured the Style' ... next to each image".
   it("is offered only on styled panels, stored against the hidden cell, kept in history, and tallied per style and family", async () => {
     const plain = await renderedSet("style-plain");
@@ -281,7 +287,7 @@ describe("captured the style", () => {
     assert.equal(refused.status, 409);
     assert.match(refused.body.refusal, /look style/);
 
-    const styled = await renderedSet("style-anime", { lookStyleIds: ["anime"] });
+    const styled = await renderedSet("style-anime", { lookStyleIds: [STYLE] });
     const blind = await request(app()).get(`/api/admin/comparison/sets/${styled.setId}/judging`);
     assert.ok(blind.body.panels.every((p: { styleMarkable: boolean }) => p.styleMarkable), "every styled panel offers the mark");
     const panel = blind.body.panels[0];
@@ -303,7 +309,7 @@ describe("captured the style", () => {
     const capturedCell = styled.cells.find((c) => c.id === (row!.styleCapturedCellIds as number[])[0]);
     const capturedFamily = capturedCell!.engineId.startsWith(FAMILIES.gpt) ? FAMILIES.gpt : FAMILIES.flux;
     const otherFamily = capturedFamily === FAMILIES.gpt ? FAMILIES.flux : FAMILIES.gpt;
-    assert.deepEqual(results!.styleCaptured.anime, { [capturedFamily]: { captured: 1, pictures: 1 }, [otherFamily]: { captured: 0, pictures: 1 } });
+    assert.deepEqual(results!.styleCaptured[STYLE], { [capturedFamily]: { captured: 1, pictures: 1 }, [otherFamily]: { captured: 0, pictures: 1 } });
 
     const changed = await request(app()).post(pickPath(panel.panelId)).send({ ratings: [{ token: a, score: 2 }, { token: b, score: 4 }], styleCapturedTokens: [] });
     assert.equal(changed.status, 200);
