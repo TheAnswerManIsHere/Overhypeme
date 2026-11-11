@@ -26,8 +26,8 @@ const RESULTS = {
   faceMismatches: { "gpt-image-2-5": 3 },
   ranking: {
     t2i: [
-      { rank: 1, family: "flux-3", engineId: "flux-3", mean: 4.2, scored: 15, lost: 0, usdPerImage: 0.048, exact: true, medianSeconds: 9.4, slowestSeconds: 21.3, timed: 15 },
-      { rank: 2, family: "gpt-image-2-5", engineId: "gpt-image-2-5", mean: 3.1, scored: 14, lost: 1, usdPerImage: 0.058, exact: false, medianSeconds: 118, slowestSeconds: 240, timed: 14 },
+      { rank: 1, family: "flux-3", engineId: "flux-3", mean: 4.2, scored: 15, lost: 0, usdPerImage: 0.048, exact: true, billedUsdPerImage: 0.048, billedMinUsd: 0.048, billedMaxUsd: 0.048, billed: 15, medianSeconds: 9.4, slowestSeconds: 21.3, timed: 15 },
+      { rank: 2, family: "gpt-image-2-5", engineId: "gpt-image-2-5", mean: 3.1, scored: 14, lost: 1, usdPerImage: 0.058, exact: false, billedUsdPerImage: 0.0339, billedMinUsd: 0.0336, billedMaxUsd: 0.0412, billed: 3, medianSeconds: 118, slowestSeconds: 240, timed: 14 },
     ],
     i2i: [
       { rank: 1, family: "flux-3", engineId: "flux-3-edit", mean: 3.75, scored: 18, lost: 0, usdPerImage: 0.048, exact: true },
@@ -55,8 +55,8 @@ describe("ComparisonResults", () => {
     const ranking = screen.getByTestId("results-ranking");
     const t2iRows = [...ranking.querySelectorAll("table")[0]!.querySelectorAll("tbody tr")].map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent));
     expect(t2iRows).toEqual([
-      ["1", "flux-3", "4.20", "15", "0", "$0.048", "9.4s (slowest 21s)"],
-      ["2", "gpt-image-2-5", "3.10", "14", "1", "about $0.058", "118s (slowest 240s)"],
+      ["1", "flux-3", "4.20", "15", "0", "$0.048 (15 billed)", "$0.048", "9.4s (slowest 21s)"],
+      ["2", "gpt-image-2-5", "3.10", "14", "1", "$0.034 ($0.034–$0.041, 3 billed)", "about $0.058", "118s (slowest 240s)"],
     ]);
     const i2iRanks = [...ranking.querySelectorAll("table")[1]!.querySelectorAll("tbody tr")].map((tr) => tr.querySelector("td")!.textContent);
     expect(i2iRanks).toEqual(["1", "1"]); // an equal average shares a rank

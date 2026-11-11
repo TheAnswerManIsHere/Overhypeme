@@ -41,6 +41,10 @@ interface RankRow {
   lost: number;
   usdPerImage: number | null;
   exact: boolean;
+  billedUsdPerImage?: number | null;
+  billedMinUsd?: number | null;
+  billedMaxUsd?: number | null;
+  billed?: number;
   medianSeconds?: number | null;
   slowestSeconds?: number | null;
   timed?: number;
@@ -54,6 +58,16 @@ function timeText(row: RankRow): string {
 }
 
 const meanText = (mean: number | null) => (mean == null ? "—" : mean.toFixed(2));
+
+/** "$0.040 ($0.040–$0.041, 12 billed)": what fal charged per picture, or a dash before any bill is read. */
+function billedText(row: RankRow): string {
+  if (row.billedUsdPerImage == null) return "—";
+  const usd = (n: number) => "$" + n.toFixed(3);
+  const lo = row.billedMinUsd ?? row.billedUsdPerImage;
+  const hi = row.billedMaxUsd ?? row.billedUsdPerImage;
+  const range = usd(lo) === usd(hi) ? "" : `${usd(lo)}–${usd(hi)}, `;
+  return `${usd(row.billedUsdPerImage)} (${range}${row.billed ?? 0} billed)`;
+}
 
 function priceText(row: RankRow): string {
   if (row.usdPerImage == null) return "—";
@@ -76,7 +90,8 @@ function RankingTable({ label, rows }: { label: string; rows: RankRow[] }) {
             <th className="text-right font-semibold">Average (1–5)</th>
             <th className="text-right font-semibold">Scored</th>
             <th className="text-right font-semibold">Couldn't draw (as 1)</th>
-            <th className="text-right font-semibold">Per image</th>
+            <th className="text-right font-semibold">Billed per image</th>
+            <th className="text-right font-semibold">List price</th>
             <th className="text-right font-semibold">Time per image</th>
           </tr>
         </thead>
@@ -88,7 +103,8 @@ function RankingTable({ label, rows }: { label: string; rows: RankRow[] }) {
               <td className="text-right font-bold text-foreground">{meanText(row.mean)}</td>
               <td className="text-right text-foreground">{row.scored}</td>
               <td className={`text-right ${row.lost > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-muted-foreground"}`}>{row.lost}</td>
-              <td className="text-right font-mono text-foreground">{priceText(row)}</td>
+              <td className="text-right font-mono font-bold text-foreground" data-testid={`results-billed-${row.engineId}`}>{billedText(row)}</td>
+              <td className="text-right font-mono text-muted-foreground">{priceText(row)}</td>
               <td className="text-right font-mono text-foreground" title={row.timed ? `median of ${row.timed} timed` : undefined}>{timeText(row)}</td>
             </tr>
           ))}
@@ -203,7 +219,7 @@ export default function ComparisonResults() {
                     <RankingTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.ranking![mode]!} />
                   ))}
                 </div>
-                <p className="text-[11px] text-muted-foreground">Ranked by average score; equal averages share a rank. "Couldn't draw" counts this engine's pictures lost for good on judged panels; each counts as a 1 in its average. Time per image is the median from sending the request to fal to getting the picture back (fal's queue plus drawing), with the slowest beside it. Per-image prices are fal's list prices at the comparison's size (about 1 megapixel). "About" marks a token-billed engine: a typical cost, within about 10%.</p>
+                <p className="text-[11px] text-muted-foreground">Ranked by average score; equal averages share a rank. "Couldn't draw" counts this engine's pictures lost for good on judged panels; each counts as a 1 in its average. Time per image is the median from sending the request to fal to getting the picture back (fal's queue plus drawing), with the slowest beside it. "Billed per image" is what fal actually charged, averaged over the pictures this engine drew, with the cheapest and dearest beside it; a dash means fal has not billed them yet. List prices are fal's published prices at the comparison's size (about 1 megapixel); "about" marks a token-billed engine, whose list figure is an estimate.</p>
               </div>
             )}
 

@@ -517,7 +517,7 @@ export async function rerunCell(cellId: number): Promise<ComparisonCell> {
   if (cell.vendorResultUrl) throw new ComparisonCellActionRefused("this cell's image exists at the vendor; retry its storage instead");
   if (cell.rerunCount >= 1) throw new ComparisonCellActionRefused("this cell has had its one re-run");
   const [after] = await db.update(comparisonCellsTable)
-    .set({ state: "expected", rerunCount: cell.rerunCount + 1, error: null, falRequestId: null, requestSettings: null, submittedAt: null, completedAt: null, updatedAt: new Date() })
+    .set({ state: "expected", rerunCount: cell.rerunCount + 1, error: null, falRequestId: null, requestSettings: null, submittedAt: null, completedAt: null, billedUsd: null, updatedAt: new Date() })
     .where(and(eq(comparisonCellsTable.id, cellId), eq(comparisonCellsTable.state, "failed"), isNull(comparisonCellsTable.vendorResultUrl)))
     .returning();
   if (!after) throw new ComparisonCellActionRefused("the cell changed while re-running it");

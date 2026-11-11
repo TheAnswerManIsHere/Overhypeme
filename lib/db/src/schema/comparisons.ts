@@ -91,6 +91,8 @@ export const comparisonCellsTable = pgTable("comparison_cells", {
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
   /** When fal returned the image; minus `submittedAt`, the wait a caller sees (fal's queue plus drawing). */
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  /** What fal charged for this cell's request, from its Billing Events API (migration 0130); null until read. */
+  billedUsd: numeric("billed_usd", { precision: 12, scale: 6 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

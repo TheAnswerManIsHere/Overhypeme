@@ -38,6 +38,7 @@ import {
   retryCellStorage,
   startComparisonRun,
 } from "../lib/comparison/runs";
+import { refreshBilledCosts } from "../lib/comparison/billedCost";
 import { blindImagePath, ComparisonPickRefused, getBlindSet, getComparisonResults, recordPick } from "../lib/comparison/judging";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
@@ -193,6 +194,8 @@ router.post("/admin/comparison/panels/:id/pick", requireAdmin, async (req: Authe
 router.get("/admin/comparison/results", requireAdmin, async (req: Request, res: Response) => {
   const parsed = comparisonResultsQuerySchema.safeParse(req.query ?? {});
   if (!parsed.success) { res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() }); return; }
+  // fal records a bill a little after a picture comes back, so missing ones are read here.
+  await refreshBilledCosts(parsed.data.setIds);
   const results = await getComparisonResults(parsed.data.setIds);
   if (!results) { res.status(404).json({ error: "set_not_found" }); return; }
   res.json(results);
