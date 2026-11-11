@@ -734,7 +734,8 @@ workspace package.
 
 > Repository settings currently require PRs and require the `Build`, `Test`,
 > `Frontend Test` and `E2E Smoke` checks to pass before merging to `main`
-> (the last two added by David on 2026-10-21). This is configured in **GitHub
+> (the last two added by David on 2026-10-21), plus the `Review gate` status
+> (added 2026-11-11; it is posted by `scripts/review-gate.mjs`, not a test job). This is configured in **GitHub
 > repository settings (a ruleset), not in the workflow file** — don't go hunting
 > for it in the tree. If that policy ever changes, update this document and
 > `AGENTS.md` together.
