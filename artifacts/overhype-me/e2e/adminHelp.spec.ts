@@ -90,7 +90,7 @@ async function searchResultRows(page: Page): Promise<ResultRow[]> {
 /** The sidebar labels, top to bottom: every item kept from before PR472, then Help. */
 const KEPT_SIDEBAR = [
   "Dashboard", "Facts", "Users", "Moderation", "Eval", "Billing", "Refunds & Disputes",
-  "Engines", "Taxonomy Health", "Email Queue", "Queue Health", "Features", "Configuration",
+  "Engines", "Trace an image", "Taxonomy Health", "Email Queue", "Queue Health", "Features", "Configuration",
 ];
 
 test.describe("Admin · Help", () => {

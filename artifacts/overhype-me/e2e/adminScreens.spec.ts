@@ -25,7 +25,7 @@ const DESKTOP = { width: 1280, height: 900 };
 /** The sidebar's entries, in order (`components/admin/AdminLayout.tsx`, NAV_ITEMS). */
 const SIDEBAR = [
   "Dashboard", "Facts", "Users", "Moderation", "Eval", "Billing", "Refunds & Disputes",
-  "Engines", "Taxonomy Health", "Email Queue", "Queue Health", "Features", "Configuration", "Help",
+  "Engines", "Trace an image", "Taxonomy Health", "Email Queue", "Queue Health", "Features", "Configuration", "Help",
 ];
 
 /** 1,500 characters dense with {NAME}: fits the box, but past the 2,000-character budget once names are filled in. */
