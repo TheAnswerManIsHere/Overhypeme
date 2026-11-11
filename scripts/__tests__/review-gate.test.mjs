@@ -221,6 +221,17 @@ test("a branch deletion is not a push", () => {
   assert.equal(decide(f).state, "failure");
 });
 
+test("a pull request merged into the head branch counts as a push (Overhype.me PR #918)", () => {
+  const done = [assessment("Astra", 1, "aaaaaaaaaa", ["11", "12"], "2026-01-01T01:10:00Z"), assessment("Fable", 1, "aaaaaaaaaa", ["11", "12"], "2026-01-01T01:11:00Z")];
+  for (const type of ["pr_merge", "merge_queue_merge"]) {
+    const f = oneRound(done);
+    f.pushes.events.push({ type, at: "2026-01-01T01:05:00Z", after: "eeeeeee" });
+    const r = decide(f);
+    assert.equal(r.state, "failure", type);
+    assert.match(r.description, /push `eeeeeee` .* preceded the Astra and Fable assessments/);
+  }
+});
+
 test("an unrecognised connector findings review fails loudly", () => {
   const f = oneRound([], { pushes: undefined });
   f.reviews = [{ id: 1, user: CODEX, submitted_at: "2026-01-01T01:00:00Z", body: "### Codex Review\n\nReviewed at abcdef1 (new format)" }];
