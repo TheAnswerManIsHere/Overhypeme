@@ -135,6 +135,8 @@ export interface BlindPanel {
   lookStyleId: string;
   imageMode: string;
   faceMarkable: boolean;
+  /** A styled panel: each picture can be marked "captured the style". */
+  styleMarkable: boolean;
   /**
    * The source photo every engine of a reference panel was given (the same
    * resized default reference), shown beside the pictures so a likeness can be
@@ -162,7 +164,7 @@ export interface BlindPanel {
   /** Empty until the panel is judgeable; only the images that exist. */
   images: BlindImage[];
   /** The saved scores, by blind token. */
-  pick: { ratings: Record<string, number>; faceMismatchTokens: string[]; judgedAt: string } | null;
+  pick: { ratings: Record<string, number>; faceMismatchTokens: string[]; styleCapturedTokens: string[]; judgedAt: string } | null;
 }
 export interface BlindSet {
   set: { id: number; label: string; round: number };
@@ -214,6 +216,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
       lookStyleId: panel.lookStyleId,
       imageMode: panel.imageMode,
       faceMarkable: isHumanReference(panel.scenarioKey),
+      styleMarkable: isStyled(panel.lookStyleId),
       reference: panel.referenceImageUrl ? { src: panel.referenceImageUrl, identityType: panel.referenceIdentityType } : null,
       prompt: promptTextOf(panel.compiledPrompt),
       judgeable,
@@ -230,6 +233,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
         ? {
           ratings: savedRatings,
           faceMismatchTokens: asIds(pick.faceMismatchCellIds).map((id) => tokenOf.get(id)).filter((t): t is string => !!t),
+          styleCapturedTokens: asIds(pick.styleCapturedCellIds).map((id) => tokenOf.get(id)).filter((t): t is string => !!t),
           judgedAt: pick.judgedAt.toISOString(),
         }
         : null,
@@ -263,7 +267,10 @@ export class ComparisonPickRefused extends Error {}
  * Record (or replace) David's scores for a panel: exactly one score for each
  * image the panel shows, none for a missing one.
  */
-export async function recordPick(panelId: number, req: ComparisonPickRequest, adminUserId: string | null): Promise<{ ratings: Record<string, number>; faceMismatchTokens: string[] }> {
+/** A panel with a look style, on which "captured the style" can be marked. */
+export const isStyled = (lookStyleId: string): boolean => lookStyleId !== "none";
+
+export async function recordPick(panelId: number, req: ComparisonPickRequest, adminUserId: string | null): Promise<{ ratings: Record<string, number>; faceMismatchTokens: string[]; styleCapturedTokens: string[] }> {
   return db.transaction(async (tx) => {
     const [panel] = await tx.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, panelId)).for("update");
     if (!panel) throw new ComparisonPickRefused("no such panel");
@@ -284,23 +291,28 @@ export async function recordPick(panelId: number, req: ComparisonPickRequest, ad
     if (marks.length && !isHumanReference(panel.scenarioKey)) throw new ComparisonPickRefused("faces are marked only on panels with a person's reference photo");
     const markIds = marks.map((t) => byToken.get(t));
     if (markIds.some((id) => id == null) || marks.some((t) => !shown.has(t))) throw new ComparisonPickRefused("a face mark names an image that is not this panel's");
+    const styleMarks = [...new Set(req.styleCapturedTokens ?? [])];
+    if (styleMarks.length && !isStyled(panel.lookStyleId)) throw new ComparisonPickRefused("\"captured the style\" is marked only on panels with a look style");
+    if (styleMarks.some((t) => !shown.has(t))) throw new ComparisonPickRefused("a style mark names an image that is not this panel's");
+    const styleIds = styleMarks.map((t) => byToken.get(t)!);
 
     const [existing] = await tx.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, panelId));
     const now = new Date();
     if (!existing) {
-      await tx.insert(comparisonPicksTable).values({ panelId, ratings, faceMismatchCellIds: markIds, judgedBy: adminUserId, judgedAt: now });
+      await tx.insert(comparisonPicksTable).values({ panelId, ratings, faceMismatchCellIds: markIds, styleCapturedCellIds: styleIds, judgedBy: adminUserId, judgedAt: now });
     } else {
       const history = [...(Array.isArray(existing.history) ? existing.history : []), {
         ratings: existing.ratings,
         faceMismatchCellIds: existing.faceMismatchCellIds,
+        styleCapturedCellIds: existing.styleCapturedCellIds,
         judgedBy: existing.judgedBy,
         judgedAt: existing.judgedAt.toISOString(),
       }];
       await tx.update(comparisonPicksTable)
-        .set({ ratings, faceMismatchCellIds: markIds, judgedBy: adminUserId, judgedAt: now, history })
+        .set({ ratings, faceMismatchCellIds: markIds, styleCapturedCellIds: styleIds, judgedBy: adminUserId, judgedAt: now, history })
         .where(and(eq(comparisonPicksTable.id, existing.id), eq(comparisonPicksTable.panelId, panelId)));
     }
-    return { ratings: Object.fromEntries(scored), faceMismatchTokens: marks };
+    return { ratings: Object.fromEntries(scored), faceMismatchTokens: marks, styleCapturedTokens: styleMarks };
   });
 }
 
@@ -381,6 +393,12 @@ export interface ComparisonResults {
   /** "Not the person" marks per family, against the human-reference panels judged. */
   faceMismatches: Record<string, number>;
   humanReferencePanelsJudged: number;
+  /**
+   * "Captured the style" per look style and family, on judged styled panels:
+   * how many of the family's pictures David marked, of how many it drew
+   * (David, 2026-11-11: some engines may suit some styles).
+   */
+  styleCaptured: Record<string, Record<string, { captured: number; pictures: number }>>;
   /** Per engine: calls made and what they could have cost (each recorded at its bound). */
   costs: Record<string, { family: string; calls: number; boundUsd: number }>;
   preparationBoundUsd: number;
@@ -393,6 +411,7 @@ export interface ComparisonResults {
     imageMode: string;
     ratings: Array<{ engineId: string; family: string; score: number }>;
     faceMismatches: Array<{ engineId: string; family: string }>;
+    styleCaptured: Array<{ engineId: string; family: string }>;
   }>;
 }
 
@@ -453,6 +472,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const billedByEngineMode: Record<string, number[]> = {};
   const judgedByMode: Record<string, number> = {};
   const faceMismatches: Record<string, number> = {};
+  const styleCaptured: ComparisonResults["styleCaptured"] = {};
   let humanJudged = 0;
   let judged = 0;
   const perPanel: ComparisonResults["perPanel"] = [];
@@ -474,6 +494,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
     const scores = pick ? ratingsOf(pick.ratings) : new Map<number, number>();
     const ratings = [...scores].map(([cellId, score]) => ({ ...familyOfCell(cellId), score }));
     const marks = pick ? asIds(pick.faceMismatchCellIds).map(familyOfCell) : [];
+    const styleMarks = pick ? asIds(pick.styleCapturedCellIds).map(familyOfCell) : [];
     if (ratings.length > 0) {
       judged += 1;
       judgedByMode[panel.imageMode] = (judgedByMode[panel.imageMode] ?? 0) + 1;
@@ -490,10 +511,15 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
       }
       if (isHumanReference(panel.scenarioKey)) humanJudged += 1;
       for (const m of marks) bump(faceMismatches, m.family);
+      if (isStyled(panel.lookStyleId)) {
+        const byFamily = (styleCaptured[panel.lookStyleId] ??= {});
+        for (const r of ratings) (byFamily[r.family] ??= { captured: 0, pictures: 0 }).pictures += 1;
+        for (const m of styleMarks) (byFamily[m.family] ??= { captured: 0, pictures: 0 }).captured += 1;
+      }
     }
     perPanel.push({
       panelId: panel.id, setId: panel.setId, factId: panel.factId, scenarioKey: panel.scenarioKey,
-      lookStyleId: panel.lookStyleId, imageMode: panel.imageMode, ratings, faceMismatches: marks,
+      lookStyleId: panel.lookStyleId, imageMode: panel.imageMode, ratings, faceMismatches: marks, styleCaptured: styleMarks,
     });
   }
 
@@ -568,6 +594,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
     leaders,
     faceMismatches,
     humanReferencePanelsJudged: humanJudged,
+    styleCaptured,
     costs,
     preparationBoundUsd: round4(preparation),
     perPanel,

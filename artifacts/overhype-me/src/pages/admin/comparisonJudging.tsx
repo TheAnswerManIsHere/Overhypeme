@@ -33,6 +33,8 @@ interface BlindPanel {
   lookStyleId: string;
   imageMode: string;
   faceMarkable: boolean;
+  /** A styled panel: each picture can be marked "captured the style". */
+  styleMarkable?: boolean;
   /** The source photo every engine was given (reference panels only). */
   reference?: { src: string; identityType: string | null } | null;
   /** The prompt every engine was sent, word for word. */
@@ -48,13 +50,15 @@ interface BlindPanel {
   imagesMissing?: number;
   images: BlindImage[];
   /** The saved scores, by blind token. */
-  pick: { ratings: Record<string, number>; faceMismatchTokens: string[]; judgedAt: string } | null;
+  pick: { ratings: Record<string, number>; faceMismatchTokens: string[]; styleCapturedTokens?: string[]; judgedAt: string } | null;
 }
 interface BlindSet {
   set: { id: number; label: string; round: number };
   progress: { panels: number; judgeable: number; judged: number; skipped: number; lost?: number };
   panels: BlindPanel[];
 }
+
+const sameSet = (saved: string[], current: Set<string>) => saved.length === current.size && saved.every((t) => current.has(t));
 
 const letter = (i: number) => String.fromCharCode(65 + i);
 
@@ -83,6 +87,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
   const [index, setIndex] = useState(0);
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [faceMarks, setFaceMarks] = useState<Set<string>>(new Set());
+  const [styleMarks, setStyleMarks] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -122,6 +127,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
   useLayoutEffect(() => {
     setRatings({ ...(panel?.pick?.ratings ?? {}) });
     setFaceMarks(new Set(panel?.pick?.faceMismatchTokens ?? []));
+    setStyleMarks(new Set(panel?.pick?.styleCapturedTokens ?? []));
     setNotice("");
   }, [panel?.panelId, panel?.pick?.judgedAt]);
 
@@ -132,19 +138,20 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
     if (!panel) return false;
     const saved = panel.pick;
     if (!saved) return Object.keys(ratings).length > 0;
-    const savedMarks = new Set(saved.faceMismatchTokens);
-    return !sameRatings(saved.ratings, ratings) || savedMarks.size !== faceMarks.size || [...faceMarks].some((t) => !savedMarks.has(t));
-  }, [panel, ratings, faceMarks]);
+    return !sameRatings(saved.ratings, ratings) || !sameSet(saved.faceMismatchTokens, faceMarks) || !sameSet(saved.styleCapturedTokens ?? [], styleMarks);
+  }, [panel, ratings, faceMarks, styleMarks]);
 
   const rate = (token: string, score: number) => setRatings((prev) => ({ ...prev, [token]: score }));
 
-  const toggleFace = (token: string) => {
-    setFaceMarks((prev) => {
+  const toggleIn = (set: typeof setFaceMarks) => (token: string) => {
+    set((prev) => {
       const next = new Set(prev);
       if (next.has(token)) next.delete(token); else next.add(token);
       return next;
     });
   };
+  const toggleFace = toggleIn(setFaceMarks);
+  const toggleStyle = toggleIn(setStyleMarks);
 
   const save = async () => {
     if (!panel || !complete) return;
@@ -157,6 +164,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
       body: JSON.stringify({
         ratings: panel.images.map((img) => ({ token: img.token, score: ratings[img.token]! })),
         faceMismatchTokens: panel.faceMarkable ? [...faceMarks] : [],
+        styleCapturedTokens: panel.styleMarkable ? [...styleMarks] : [],
       }),
     }).catch(() => null);
     setSaving(false);
@@ -278,6 +286,12 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                                 ))}
                               </div>
                             </div>
+                            {panel.styleMarkable && (
+                              <label className="flex items-center gap-1 text-xs text-foreground">
+                                <input type="checkbox" checked={styleMarks.has(img.token)} onChange={() => toggleStyle(img.token)} data-testid={`judging-style-${letter(i)}`} />
+                                Captured the style
+                              </label>
+                            )}
                             {panel.faceMarkable && (
                               <label className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                                 <input type="checkbox" checked={marked} onChange={() => toggleFace(img.token)} data-testid={`judging-face-${letter(i)}`} />

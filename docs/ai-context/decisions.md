@@ -65,6 +65,10 @@
 - **Reference:** #887 (pre-run checks, 2026-11-10); `artifacts/api-server/src/lib/engines/gpt-image-2-6.ts`.
 - **Revisit if:** 2.6 wins a mode and its real bills, read in fal's dashboard, run well above the measured figure (higher reasoning spent than "low" suggests).
 
+### 2026-11-11 · Judging marks whether each picture captured the style
+- **Decision:** David, 2026-11-11: *"I need a check box that says 'Captured the Style' that I can click next to each image to identify when the AI really understood the style. Some images are not rendered as well, but are very much representative of the style and that's important to know. It may be that for certain styles, we use certain engines."* On every styled panel each picture has a "Captured the style" checkbox, separate from its 1–5 score; marks are stored per cell (`comparison_picks.style_captured_cell_ids`, migration 0132), kept in a re-judgement's history, and the results page shows, per style and engine, how many pictures were marked of how many were judged.
+- **Scope:** styled panels only; an unstyled panel has no style to capture and refuses the mark. Declared Trivial by David.
+
 ### 2026-11-11 · A comparison set can draw its pictures at member size
 - **Decision:** David, 2026-11-11: *"Let's do the next round with GPT Image 2.5 and 2.6 and let's render images at the same resolution that users get so we get accurate pricing."* A comparison set carries `image_size` (migration 0131): `comparison` (about 1 megapixel, the default and every earlier set's) or `final` (about 4 megapixels, the size the request builder gives a member's render). Each cell's request is built at its set's size, so a member-size set's billed column is what a member's picture costs.
 - **Why it was needed:** GPT Image is token-billed, so its bill grows with the picture; round 1's $0.040 per edit was for a 1-megapixel picture and said nothing about a member's. Muse Image is flat-priced at its own fixed size, so its figure holds at any size.

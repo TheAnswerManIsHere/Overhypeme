@@ -27,6 +27,7 @@ interface Results {
   leaders: Record<string, { families: string[]; pictures?: number[]; mean: number; judged: number }>;
   ranking?: Record<string, RankRow[]>;
   faceMismatches: Record<string, number>;
+  styleCaptured?: Record<string, Record<string, { captured: number; pictures: number }>>;
   humanReferencePanelsJudged: number;
   costs: Record<string, { family: string; calls: number; boundUsd: number }>;
   preparationBoundUsd: number;
@@ -233,6 +234,31 @@ export default function ComparisonResults() {
                 {data.families.map((f) => `${f} ${data.faceMismatches[f] ?? 0}`).join(" · ")}
               </p>
             </div>
+
+            {data.styleCaptured && Object.keys(data.styleCaptured).length > 0 && (
+              <div className="space-y-1" data-testid="results-style-captured">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">"Captured the style", by style: pictures marked of pictures judged</h3>
+                <table className="text-xs font-mono text-foreground">
+                  <thead>
+                    <tr>
+                      <th className="text-left pr-3 font-semibold">Style</th>
+                      {data.families.map((f) => <th key={f} className="text-right pr-3 font-semibold">{f}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(data.styleCaptured).sort(([a], [b]) => a.localeCompare(b)).map(([style, byFamily]) => (
+                      <tr key={style}>
+                        <td className="pr-3">{style}</td>
+                        {data.families.map((f) => {
+                          const c = byFamily[f];
+                          return <td key={f} className="text-right pr-3">{c ? `${c.captured} of ${c.pictures}` : "—"}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div className="space-y-1" data-testid="results-costs">
               <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Calls made, at most</h3>
