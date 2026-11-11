@@ -79,6 +79,8 @@ export const comparisonPickSchema = z.object({
   }).strict()).min(1).max(12),
   /** Images whose face is not the person; human-reference panels only. */
   faceMismatchTokens: z.array(blindTokenSchema).max(12).default([]),
+  /** Images that captured the panel's look style; styled panels only (David, 2026-11-11). */
+  styleCapturedTokens: z.array(blindTokenSchema).max(12).default([]),
 }).strict();
 export type ComparisonPickRequest = z.infer<typeof comparisonPickSchema>;
 

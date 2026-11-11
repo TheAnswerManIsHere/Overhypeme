@@ -19,6 +19,7 @@ import {
   comparisonSetsTable,
   enginesTable,
   factsTable,
+  lookStylesTable,
   usersTable,
 } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
@@ -29,7 +30,7 @@ import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
-import { blindImagePath, median } from "../lib/comparison/judging.js";
+import { blindImagePath, getComparisonResults, median } from "../lib/comparison/judging.js";
 
 const P = `t-cj-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -66,10 +67,10 @@ after(async () => {
 const app = () => buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
 
 /** A set whose cells all have a stored image, except `missing` ones. */
-async function renderedSet(label: string, opts: { missingT2i?: boolean } = {}): Promise<{ setId: number; panels: Array<{ id: number; imageMode: string }>; cells: Array<{ id: number; panelId: number; engineId: string }> }> {
+async function renderedSet(label: string, opts: { missingT2i?: boolean; lookStyleIds?: string[] } = {}): Promise<{ setId: number; panels: Array<{ id: number; imageMode: string }>; cells: Array<{ id: number; panelId: number; engineId: string }> }> {
   const { setId } = await createComparisonSet({
     label: `${P} ${label}`, round: 1, factIds: [factId],
-    scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: ["none"],
+    scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: opts.lookStyleIds ?? ["none"],
     engineFamilies: [FAMILIES.gpt, FAMILIES.flux],
   }, adminId);
   const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
@@ -267,6 +268,54 @@ describe("a blind image whose storage fails mid-body", () => {
       __setBlindImageStorageForTest(null);
       process.off("uncaughtException", onUncaught);
     }
+  });
+});
+
+const STYLE = `${P}-look`;
+
+describe("captured the style", () => {
+  before(async () => { await db.insert(lookStylesTable).values({ id: STYLE, label: "Judging test look", promptSuffix: "test look" }); });
+  after(async () => { await db.delete(lookStylesTable).where(eq(lookStylesTable.id, STYLE)); });
+
+  // David, 2026-11-11: "I need a check box that says 'Captured the Style' ... next to each image".
+  it("is offered only on styled panels, stored against the hidden cell, kept in history, and tallied per style and family", async () => {
+    const plain = await renderedSet("style-plain");
+    const plainBlind = await request(app()).get(`/api/admin/comparison/sets/${plain.setId}/judging`);
+    const plainPanel = plainBlind.body.panels[0];
+    assert.equal(plainPanel.styleMarkable, false, "an unstyled panel offers no style mark");
+    const refused = await request(app()).post(pickPath(plainPanel.panelId)).send({ ratings: rateAll(plainPanel, 3), styleCapturedTokens: [plainPanel.images[0].token] });
+    assert.equal(refused.status, 409);
+    assert.match(refused.body.refusal, /look style/);
+
+    const styled = await renderedSet("style-anime", { lookStyleIds: [STYLE] });
+    const blind = await request(app()).get(`/api/admin/comparison/sets/${styled.setId}/judging`);
+    assert.ok(blind.body.panels.every((p: { styleMarkable: boolean }) => p.styleMarkable), "every styled panel offers the mark");
+    const panel = blind.body.panels[0];
+    const [a, b] = panel.images.map((i: { token: string }) => i.token);
+    const foreign = await request(app()).post(pickPath(panel.panelId)).send({ ratings: rateAll(panel, 3), styleCapturedTokens: [blind.body.panels[1].images[0].token] });
+    assert.equal(foreign.status, 409, "a mark naming another panel's picture is refused");
+
+    const saved = await request(app()).post(pickPath(panel.panelId)).send({ ratings: [{ token: a, score: 2 }, { token: b, score: 4 }], styleCapturedTokens: [a] });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.deepEqual(saved.body.pick.styleCapturedTokens, [a]);
+    const cellOf = async (token: string) => Number((await blindImagePath(panel.panelId, token))!.match(/cell-(\d+)-/)![1]);
+    const [row] = await db.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, panel.panelId));
+    assert.deepEqual(row!.styleCapturedCellIds, [await cellOf(a)], "a low score can still have captured the style");
+
+    const reread = await request(app()).get(`/api/admin/comparison/sets/${styled.setId}/judging`);
+    assert.deepEqual(reread.body.panels.find((p: { panelId: number }) => p.panelId === panel.panelId).pick.styleCapturedTokens, [a], "the mark survives a reload");
+
+    const results = await getComparisonResults([styled.setId]);
+    const capturedCell = styled.cells.find((c) => c.id === (row!.styleCapturedCellIds as number[])[0]);
+    const capturedFamily = capturedCell!.engineId.startsWith(FAMILIES.gpt) ? FAMILIES.gpt : FAMILIES.flux;
+    const otherFamily = capturedFamily === FAMILIES.gpt ? FAMILIES.flux : FAMILIES.gpt;
+    assert.deepEqual(results!.styleCaptured[STYLE], { [capturedFamily]: { captured: 1, pictures: 1 }, [otherFamily]: { captured: 0, pictures: 1 } });
+
+    const changed = await request(app()).post(pickPath(panel.panelId)).send({ ratings: [{ token: a, score: 2 }, { token: b, score: 4 }], styleCapturedTokens: [] });
+    assert.equal(changed.status, 200);
+    const [after] = await db.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, panel.panelId));
+    assert.deepEqual(after!.styleCapturedCellIds, []);
+    assert.deepEqual((after!.history as Array<{ styleCapturedCellIds: unknown }>)[0]!.styleCapturedCellIds, [await cellOf(a)], "the earlier marks are kept in history");
   });
 });
 

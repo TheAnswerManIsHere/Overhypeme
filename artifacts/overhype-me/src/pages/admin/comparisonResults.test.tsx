@@ -24,6 +24,7 @@ const RESULTS = {
   },
   leaders: { t2i: { families: ["flux-3"], pictures: [15], mean: 4.2, judged: 15 }, i2i: { families: ["flux-3", "gpt-image-2-5"], pictures: [18, 17], mean: 3.75, judged: 18 } },
   faceMismatches: { "gpt-image-2-5": 3 },
+  styleCaptured: { anime: { "flux-3": { captured: 4, pictures: 6 } } },
   ranking: {
     t2i: [
       { rank: 1, family: "flux-3", engineId: "flux-3", mean: 4.2, scored: 15, lost: 0, usdPerImage: 0.048, exact: true, billedUsdPerImage: 0.048, billedMinUsd: 0.048, billedMaxUsd: 0.048, billed: 15, medianSeconds: 9.4, slowestSeconds: 21.3, timed: 15 },
@@ -64,6 +65,7 @@ describe("ComparisonResults", () => {
     expect(ranking.textContent).toMatch(/at the comparison's size/);
     expect(screen.getByTestId("results-by-style").textContent).toMatch(/anime.*4\.50/);
     expect(screen.getByTestId("results-faces").textContent).toMatch(/of 12 judged.*gpt-image-2-5 3/);
+    expect(screen.getByTestId("results-style-captured").textContent).toMatch(/anime.*4 of 6.*—/); // an engine with no styled pictures reads as a dash
     expect(screen.getByTestId("results-costs").textContent).toMatch(/flux-3 \(flux-3\) · 15 calls · \$0\.72.*total, at most · \$3\.22/);
   });
 

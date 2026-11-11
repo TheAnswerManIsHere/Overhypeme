@@ -19,12 +19,15 @@ const panel = (over: Record<string, unknown>): Record<string, unknown> => ({
   factId: 11, factText: "Alex lifts a mountain", lookStyleId: "none", imagesReady: 2, imagesExpected: 2, judgeable: true, pick: null, ...over,
 });
 
+/** When set, panel 1 is a styled panel, offering "captured the style". */
+let styled = false;
+
 function blindSet(picks: Record<number, unknown> = {}) {
   return {
     set: { id: 7, label: "Round 1", round: 1 },
     progress: { panels: 3, judgeable: 2, judged: Object.keys(picks).length },
     panels: [
-      panel({ panelId: 1, position: 1, scenarioKey: "generic_t2i", scenarioLabel: "Generic (text-to-image)", imageMode: "t2i", faceMarkable: false, images: [img(1, "aaaaaaaaaaaaaaaa"), img(1, "bbbbbbbbbbbbbbbb")], pick: picks[1] ?? null }),
+      panel({ panelId: 1, position: 1, scenarioKey: "generic_t2i", scenarioLabel: "Generic (text-to-image)", imageMode: "t2i", faceMarkable: false, ...(styled ? { lookStyleId: "anime", styleMarkable: true } : {}), images: [img(1, "aaaaaaaaaaaaaaaa"), img(1, "bbbbbbbbbbbbbbbb")], pick: picks[1] ?? null }),
       panel({ panelId: 2, position: 2, scenarioKey: "i2i_male_default", scenarioLabel: "Male subject (image-to-image)", imageMode: "i2i", faceMarkable: true, reference: { src: "https://fal.test/ref-male.jpg", identityType: "male" }, prompt: "A man lifts a mountain at dawn, photographed from below.", images: [img(2, "cccccccccccccccc"), img(2, "dddddddddddddddd")], pick: picks[2] ?? null }),
       panel({ panelId: 3, position: 3, scenarioKey: "i2i_female_default", scenarioLabel: "Female subject (image-to-image)", imageMode: "i2i", faceMarkable: true, judgeable: false, imagesReady: 1, images: [] }),
     ],
@@ -37,10 +40,10 @@ let picks: Record<number, unknown> = {};
 function routeFetch() {
   return vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as { ratings: Array<{ token: string; score: number }>; faceMismatchTokens: string[] };
+      const body = JSON.parse(String(init.body)) as { ratings: Array<{ token: string; score: number }>; faceMismatchTokens: string[]; styleCapturedTokens: string[] };
       posts.push({ url, body });
       const panelId = Number(url.match(/panels\/(\d+)\/pick/)![1]);
-      picks[panelId] = { ratings: Object.fromEntries(body.ratings.map((r) => [r.token, r.score])), faceMismatchTokens: body.faceMismatchTokens, judgedAt: new Date().toISOString() };
+      picks[panelId] = { ratings: Object.fromEntries(body.ratings.map((r) => [r.token, r.score])), faceMismatchTokens: body.faceMismatchTokens, styleCapturedTokens: body.styleCapturedTokens, judgedAt: new Date().toISOString() };
       return { ok: true, json: async () => ({ pick: body }) } as unknown as Response;
     }
     if (url.endsWith("/comparison/sets/7/judging")) return { ok: true, json: async () => blindSet(picks) } as unknown as Response;
@@ -52,6 +55,28 @@ beforeEach(() => { posts = []; picks = {}; });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("ComparisonJudging", () => {
+  it("offers \"Captured the style\" on a styled panel only, loads saved marks and saves a change", async () => {
+    styled = true;
+    try {
+      picks = { 1: { ratings: { aaaaaaaaaaaaaaaa: 2, bbbbbbbbbbbbbbbb: 4 }, faceMismatchTokens: [], styleCapturedTokens: ["aaaaaaaaaaaaaaaa"], judgedAt: "2026-11-07T00:00:00Z" } };
+      vi.stubGlobal("fetch", routeFetch());
+      render(<ComparisonJudging params={{ setId: "7" }} />);
+      await screen.findByTestId("judging-images");
+      fireEvent.click(screen.getByTestId("judging-prev")); // back to the judged styled panel
+      await waitFor(() => expect(screen.getByTestId("judging-panel").textContent).toMatch(/Panel 1 of 3/));
+      expect((screen.getByTestId("judging-style-A") as HTMLInputElement).checked).toBe(true); // the saved mark is shown
+      expect((screen.getByTestId("judging-style-B") as HTMLInputElement).checked).toBe(false);
+      expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(true); // nothing changed yet
+      fireEvent.click(screen.getByTestId("judging-style-B"));
+      expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(false); // a mark alone is a change
+      fireEvent.click(screen.getByTestId("judging-save"));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]!.body).toMatchObject({ styleCapturedTokens: ["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"] });
+    } finally {
+      styled = false;
+    }
+  });
+
   it("shows a panel's images lettered, naming no engine, and saves a score for each by token", async () => {
     vi.stubGlobal("fetch", routeFetch());
     render(<ComparisonJudging params={{ setId: "7" }} />);
@@ -61,6 +86,7 @@ describe("ComparisonJudging", () => {
     expect(images.querySelectorAll("img")).toHaveLength(2);
     expect(images.textContent).toMatch(/^A.*B/);
     expect(screen.queryByTestId("judging-face-A")).toBeNull(); // text-to-image: no face to mark
+    expect(screen.queryByTestId("judging-style-A")).toBeNull(); // no look style: no style to mark
     expect(screen.queryByTestId("judging-reference")).toBeNull(); // and no source photo
     expect((screen.getByTestId("judging-save") as HTMLButtonElement).disabled).toBe(true);
 
@@ -75,7 +101,7 @@ describe("ComparisonJudging", () => {
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toEqual({
       url: "/api/admin/comparison/panels/1/pick",
-      body: { ratings: [{ token: "aaaaaaaaaaaaaaaa", score: 2 }, { token: "bbbbbbbbbbbbbbbb", score: 5 }], faceMismatchTokens: [] },
+      body: { ratings: [{ token: "aaaaaaaaaaaaaaaa", score: 2 }, { token: "bbbbbbbbbbbbbbbb", score: 5 }], faceMismatchTokens: [], styleCapturedTokens: [] },
     });
     // Saving moves to the next panel still to judge.
     await waitFor(() => expect(screen.getByTestId("judging-panel").textContent).toMatch(/Panel 2 of 3/));
@@ -99,7 +125,7 @@ describe("ComparisonJudging", () => {
     fireEvent.click(screen.getByTestId("judging-face-B"));
     fireEvent.click(screen.getByTestId("judging-save"));
     await waitFor(() => expect(posts).toHaveLength(1));
-    expect(posts[0]!.body).toEqual({ ratings: [{ token: "cccccccccccccccc", score: 5 }, { token: "dddddddddddddddd", score: 1 }], faceMismatchTokens: ["dddddddddddddddd"] });
+    expect(posts[0]!.body).toEqual({ ratings: [{ token: "cccccccccccccccc", score: 5 }, { token: "dddddddddddddddd", score: 1 }], faceMismatchTokens: ["dddddddddddddddd"], styleCapturedTokens: [] });
   });
 
   it("shows how many images are in for a panel that is not ready, and no images", async () => {
@@ -220,6 +246,6 @@ describe("ComparisonJudging", () => {
     fireEvent.click(screen.getByTestId("judging-score-A-4"));
     fireEvent.click(screen.getByTestId("judging-save"));
     await waitFor(() => expect(posts).toHaveLength(1));
-    expect(posts[0]!.body).toEqual({ ratings: [{ token: "aaaaaaaaaaaaaaaa", score: 4 }], faceMismatchTokens: [] });
+    expect(posts[0]!.body).toEqual({ ratings: [{ token: "aaaaaaaaaaaaaaaa", score: 4 }], faceMismatchTokens: [], styleCapturedTokens: [] });
   });
 });

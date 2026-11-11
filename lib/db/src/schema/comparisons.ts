@@ -162,7 +162,9 @@ export const comparisonPicksTable = pgTable("comparison_picks", {
   ratings: jsonb("ratings").notNull().default([]),
   /** number[] — cells of this panel marked "not the person". */
   faceMismatchCellIds: jsonb("face_mismatch_cell_ids").notNull().default([]),
-  /** Previous judgements, oldest first: { ratings, faceMismatchCellIds, judgedBy, judgedAt }[]. */
+  /** number[] — cells of this panel marked "captured the style"; styled panels only (migration 0132). */
+  styleCapturedCellIds: jsonb("style_captured_cell_ids").notNull().default([]),
+  /** Previous judgements, oldest first: { ratings, faceMismatchCellIds, styleCapturedCellIds, judgedBy, judgedAt }[]. */
   history: jsonb("history").notNull().default([]),
   judgedBy: varchar("judged_by").references(() => usersTable.id, { onDelete: "set null" }),
   judgedAt: timestamp("judged_at", { withTimezone: true }).notNull().defaultNow(),

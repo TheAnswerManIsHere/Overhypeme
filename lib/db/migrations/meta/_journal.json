@@ -925,6 +925,13 @@
       "when": 1786400000000,
       "tag": "0131_comparison_set_image_size",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1786500000000,
+      "tag": "0132_comparison_style_captured",
+      "breakpoints": true
     }
   ]
 }
