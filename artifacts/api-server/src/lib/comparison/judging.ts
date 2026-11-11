@@ -355,7 +355,7 @@ export function median(values: number[]): number {
 }
 
 export interface ComparisonResults {
-  sets: Array<{ id: number; label: string; round: number }>;
+  sets: Array<{ id: number; label: string; round: number; imageSize: string }>;
   families: string[];
   /** Every panel of the sets counts in `total`; `skipped` will never be judged. */
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost: number };
@@ -549,7 +549,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
 
   const families = [...new Set(allCells.map((c) => familyOfEngine.get(c.engineId) ?? c.engineId))].sort();
   return {
-    sets: sets.map((s) => ({ id: s.id, label: s.label, round: s.round })),
+    sets: sets.map((s) => ({ id: s.id, label: s.label, round: s.round, imageSize: s.imageSize })),
     families,
     panels: {
       total: panels.length,

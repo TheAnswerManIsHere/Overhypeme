@@ -425,7 +425,9 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   try {
     if (!promptText) throw new Error("the panel's compiled prompt has no text");
     if (panel!.imageMode === "i2i" && !panel!.referenceImageUrl) throw new Error("the panel has no reference image");
-    requestSettings = buildImageRequestSettings(engine!, "comparison", aspectRatio);
+    // A set drawn at member size asks for a member's picture (David, 2026-11-11: accurate pricing).
+    const [set] = await db.select({ imageSize: comparisonSetsTable.imageSize }).from(comparisonSetsTable).where(eq(comparisonSetsTable.id, panel!.setId));
+    requestSettings = buildImageRequestSettings(engine!, set?.imageSize === "final" ? "final" : "comparison", aspectRatio);
     input = buildEngineInput(engine!, imageEngineParams(requestSettings, {
       generationMode: panel!.imageMode as GenerationMode,
       promptText,

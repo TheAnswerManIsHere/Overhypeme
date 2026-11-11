@@ -71,6 +71,7 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
       scenarioKeys: input.scenarioKeys,
       lookStyleIds: input.lookStyleIds,
       engineFamilies: input.engineFamilies,
+      imageSize: input.imageSize ?? "comparison",
       createdBy: adminUserId,
     }).returning({ id: comparisonSetsTable.id });
     // Postgres returns a multi-row insert's rows in the order given.
@@ -92,6 +93,7 @@ export interface ComparisonSetSummary {
   id: number;
   label: string;
   round: number;
+  imageSize: string;
   createdAt: string;
   panels: number;
   cells: number;
@@ -108,7 +110,7 @@ export async function listComparisonSets(): Promise<ComparisonSetSummary[]> {
   ]);
   const bySet = new Map(counts.map((c) => [c.setId, c]));
   return sets.map((s) => ({
-    id: s.id, label: s.label, round: s.round, createdAt: s.createdAt.toISOString(),
+    id: s.id, label: s.label, round: s.round, imageSize: s.imageSize, createdAt: s.createdAt.toISOString(),
     panels: bySet.get(s.id)?.panels ?? 0, cells: bySet.get(s.id)?.cells ?? 0,
   }));
 }

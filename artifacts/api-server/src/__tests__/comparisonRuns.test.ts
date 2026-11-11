@@ -141,11 +141,12 @@ function installFakes(): void {
 
 beforeEach(() => { submissions = []; statusScript = []; failStore = false; failNextGptEdit = false; plannerRetries = []; installFakes(); });
 
-async function newSet(label: string): Promise<number> {
+async function newSet(label: string, imageSize?: "comparison" | "final"): Promise<number> {
   const { setId } = await createComparisonSet({
     label: `${P} ${label}`, round: 1, factIds: [factId],
     scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: ["none"],
     engineFamilies: [FAMILIES.gpt, FAMILIES.flux],
+    ...(imageSize ? { imageSize } : {}),
   }, adminId);
   return setId;
 }
@@ -286,6 +287,21 @@ describe("a comparison run end to end, with fakes", () => {
     const again = await start(setId, "render");
     assert.equal(again.status, 409);
     assert.equal(again.body.refusal, "nothing left to do");
+  });
+
+  it("draws a member-size set's pictures at a member's size, and an ordinary set's at the comparison size", async () => {
+    // David, 2026-11-11: "let's render images at the same resolution that users get so we get accurate pricing".
+    const sizesOf = async (setId: number) => {
+      await drain((await start(setId, "prepare")).body.run.id);
+      await drain((await start(setId, "render")).body.run.id);
+      const cells = await cellsOf(setId);
+      assert.ok(cells.every((c) => c.state === "rendered"), JSON.stringify(cells.map((c) => [c.state, c.error])));
+      return cells.map((c) => c.requestSettings as { purpose: string; megapixels: number });
+    };
+    const member = await sizesOf(await newSet("member size", "final"));
+    assert.ok(member.every((r) => r.purpose === "final" && r.megapixels >= 3), JSON.stringify(member));
+    const ordinary = await sizesOf(await newSet("comparison size"));
+    assert.ok(ordinary.every((r) => r.purpose === "comparison" && r.megapixels < 2), JSON.stringify(ordinary));
   });
 
   it("keeps a failed call's reservation, and a resumed cell never resubmits", async () => {

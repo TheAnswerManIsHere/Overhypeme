@@ -13,7 +13,7 @@ import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, Circle, Loader2, MinusCircle, Plus } from "lucide-react";
 import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspace/api-zod";
 
-interface SetSummary { id: number; label: string; round: number; createdAt: string; panels: number; cells: number }
+interface SetSummary { id: number; label: string; round: number; imageSize?: string; createdAt: string; panels: number; cells: number }
 interface CellView { id: number; engineId: string; state: string; skipReason: string | null; error: string | null; vendorResultUrl?: string | null; rerunCount?: number }
 interface PanelView { id: number; factId: number; scenarioKey: string; lookStyleId: string; imageMode: string; state: string; skipReason: string | null; error: string | null; cells: CellView[] }
 interface SetDetail {
@@ -61,6 +61,7 @@ export function EngineComparison() {
   const [creating, setCreating] = useState(false);
   const [label, setLabel] = useState("");
   const [round, setRound] = useState<1 | 2>(1);
+  const [imageSize, setImageSize] = useState<"comparison" | "final">("comparison");
   const [factIds, setFactIds] = useState("");
   const [starting, setStarting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -126,6 +127,7 @@ export function EngineComparison() {
         scenarioKeys: preset.scenarioKeys,
         lookStyleIds: preset.lookStyleIds,
         engineFamilies: COMPARISON_DEFAULT_FAMILIES,
+        imageSize,
       }),
     }).catch(() => null);
     setCreating(false);
@@ -221,6 +223,13 @@ export function EngineComparison() {
             </select>
           </label>
           <label className="text-xs text-muted-foreground space-y-1">
+            <span className="block">Picture size</span>
+            <select value={imageSize} onChange={(e) => setImageSize(e.target.value as "comparison" | "final")} data-testid="comparison-image-size" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground">
+              <option value="comparison">Comparison size (about 1 megapixel)</option>
+              <option value="final">Member size (about 4 megapixels)</option>
+            </select>
+          </label>
+          <label className="text-xs text-muted-foreground space-y-1">
             <span className="block">Fact ids</span>
             <input value={factIds} onChange={(e) => setFactIds(e.target.value)} placeholder="e.g. 12, 40, 77" data-testid="comparison-fact-ids" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground w-40" />
           </label>
@@ -233,7 +242,7 @@ export function EngineComparison() {
           </button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          {preset.scenarioKeys.length} scenario{preset.scenarioKeys.length === 1 ? "" : "s"} × {preset.lookStyleIds.join(", ")} × {COMPARISON_DEFAULT_FAMILIES.length} engines ({COMPARISON_DEFAULT_FAMILIES.join(", ")}). Creating a set spends nothing.
+          {preset.scenarioKeys.length} scenario{preset.scenarioKeys.length === 1 ? "" : "s"} × {preset.lookStyleIds.join(", ")} × {COMPARISON_DEFAULT_FAMILIES.length} engines ({COMPARISON_DEFAULT_FAMILIES.join(", ")}). {imageSize === "final" ? "Drawn at member size, so each picture's bill is what a member's costs; the \"at most\" figure before a run is priced at comparison size and can be lower than the bill. " : ""}Creating a set spends nothing.
         </p>
       </div>
 
@@ -244,7 +253,7 @@ export function EngineComparison() {
           {sets.map((s) => (
             <li key={s.id}>
               <button type="button" onClick={() => setSelected(s.id)} className={`text-xs px-2 py-1 rounded-sm border ${selected === s.id ? "border-primary bg-primary/10" : "border-border"}`}>
-                #{s.id} {s.label} · round {s.round} · {s.panels} panels · {s.cells} cells
+                #{s.id} {s.label} · round {s.round}{s.imageSize === "final" ? " · member size" : ""} · {s.panels} panels · {s.cells} cells
               </button>
             </li>
           ))}

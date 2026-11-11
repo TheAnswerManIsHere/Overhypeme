@@ -25,6 +25,14 @@ export const COMPARISON_ROUND_PRESETS: Record<1 | 2, { scenarioKeys: readonly Re
   2: { scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: ["anime", "3d-cartoon", "caricature"] },
 };
 
+/**
+ * The size a set's pictures are drawn at: the evaluation's own (about 1
+ * megapixel) or a member's (about 4), so a set can measure what members'
+ * pictures really cost (David, 2026-11-11).
+ */
+export const COMPARISON_IMAGE_SIZES = ["comparison", "final"] as const;
+export type ComparisonImageSize = (typeof COMPARISON_IMAGE_SIZES)[number];
+
 export const comparisonSetCreateSchema = z.object({
   label: z.string().trim().min(1).max(200),
   round: z.union([z.literal(1), z.literal(2), z.literal(3)]),
@@ -32,6 +40,8 @@ export const comparisonSetCreateSchema = z.object({
   scenarioKeys: z.array(renderScenarioKeySchema).min(1),
   lookStyleIds: z.array(z.string().trim().min(1).max(64)).min(1),
   engineFamilies: z.array(z.string().trim().min(1).max(64)).min(1),
+  /** Omitted means "comparison". */
+  imageSize: z.enum(COMPARISON_IMAGE_SIZES).optional(),
 }).strict();
 export type ComparisonSetCreate = z.infer<typeof comparisonSetCreateSchema>;
 

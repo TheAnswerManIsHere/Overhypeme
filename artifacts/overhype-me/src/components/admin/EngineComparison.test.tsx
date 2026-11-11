@@ -49,10 +49,21 @@ describe("EngineComparison", () => {
       scenarioKeys: [...COMPARISON_ROUND_PRESETS[1].scenarioKeys],
       lookStyleIds: ["none"],
       engineFamilies: [...COMPARISON_DEFAULT_FAMILIES],
+      imageSize: "comparison",
     });
     expect(screen.getByTestId("comparison-aggregate").textContent).toMatch(/1 pending.*2 expected/);
     expect(screen.getByTestId("comparison-estimate").textContent).toMatch(/preparing \$0\.73 · rendering \$0\.06/);
     expect(screen.getByTestId("comparison-grid").textContent).toMatch(/flux-3.*muse-image/);
+  });
+
+  it("asks for a member-size set when member size is picked", async () => {
+    vi.stubGlobal("fetch", routeFetch(null));
+    render(<EngineComparison />);
+    fireEvent.change(screen.getByTestId("comparison-image-size"), { target: { value: "final" } });
+    fireEvent.change(screen.getByTestId("comparison-fact-ids"), { target: { value: "11" } });
+    fireEvent.click(screen.getByTestId("comparison-create-submit"));
+    await waitFor(() => expect(posts.length).toBe(1));
+    expect(posts[0]!.body).toMatchObject({ factIds: [11], imageSize: "final" });
   });
 
   it("refuses fact ids that are not whole numbers without calling the server", async () => {
