@@ -93,6 +93,10 @@ report/takedown on facts, memes and comments (*"my defense against any type of
 litigation is that I'm the platform. Takedown is part of that"*); author
 notifications; library tabs.
 
+> **Superseded in part on 2026-11-11** by [`product-strategy.md`](./product-strategy.md):
+> the free tier, membership and AI-picture paragraphs below are being rewritten
+> to it; where they disagree, the strategy record wins.
+
 **Image memes:** the builder wizard (legacy builders deleted). Free tier =
 **the fact's moderation-approved hero renders**, captioned by the user; no
 templates, no stock photos, no user-facing text-to-image. Legendary = **your
