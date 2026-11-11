@@ -783,7 +783,9 @@ KITT work a launch phase needs and a second app would need identically;
 > post-launch, named in the plan's *Cut, deleted or deferred* and *Out of
 > scope* sections, except data export, which is launch Phase 21 (Full
 > Global). The speech-bubble moderation-side finish is Phase 7; the
-> follow-ups listed here are what remains after it.
+> follow-ups listed here are what remains after it. Updated 2026-11-11 to the
+> [product strategy](./product-strategy.md), which moved annual membership
+> and credit packs to launch and set the post-launch order.
 
 - **Speech/thought bubble follow-ups.** The runtime image-prompt planner
   proposing bubbles (only the candidate Visual-concept generator does today);

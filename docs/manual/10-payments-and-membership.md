@@ -206,7 +206,8 @@ down.
 - **No member generates anything that costs per render today**, so nothing new
   reaches a member's spend record: the last such path went with PuLID in
   launch Phase 4 (ledger [`docs/retired/README.md`](../retired/README.md)),
-  and paid generation returns in Phase 7. The two spend limitations below
+  and paid generation returns in Phase 7, on credits sold as packs and with
+  membership ([product strategy](../ai-context/product-strategy.md#what-is-paid)). The two spend limitations below
   describe the record as it stands and the gate as it will run again.
 - **Spend recorded during a past pricing outage is permanently missing, and
   is not reconstructed.** This used to be a live gap: a generation priced from
