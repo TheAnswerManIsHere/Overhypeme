@@ -10,16 +10,50 @@
  * for a flat price, "about" for a token price — so quality can be weighed
  * against price after it was judged blind.
  * Several sets read together, so round 1 and round 2 give one winner per mode.
+ *
+ * A set judged on the second edition (the prompt tuner; plan
+ * `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed Design* C) reads differently:
+ * per mode, each engine's share of the panels on which its picture was the one
+ * to send (the headline), its average on each category, how many of its
+ * pictures were marked broken or could not be drawn, and what each picture
+ * cost and how long it took. No single blended score is computed. Sets judged
+ * on the two editions are never read together; the server refuses the mix.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { COMPARISON_SCORE_MAX } from "@workspace/api-zod";
+import { COMPARISON_SCORE_MAX, JUDGING_CATEGORIES, type JudgingCategoryKey } from "@workspace/api-zod";
+
+interface JudgedRow {
+  family: string;
+  engineId: string;
+  panels: number;
+  picked: number;
+  pickShare: number | null;
+  categories: Record<JudgingCategoryKey, Score>;
+  scored: number;
+  lost: number;
+  broken: number;
+  billedUsdPerImage: number | null;
+  billedMinUsd: number | null;
+  billedMaxUsd: number | null;
+  billed: number;
+  medianSeconds: number | null;
+  slowestSeconds: number | null;
+  timed: number;
+}
+interface JudgedResults {
+  edition: 2;
+  sets: Array<{ id: number; label: string; round: number; imageSize?: string }>;
+  panels: { total: number; judged: number; judgeable: number; skipped: number; lost: number };
+  rows: Record<string, JudgedRow[]>;
+}
 
 interface Score { mean: number | null; count: number }
 type Scores = Record<string, Score>;
 interface Results {
+  edition?: 1;
   sets: Array<{ id: number; label: string; round: number; imageSize?: string }>;
   families: string[];
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost?: number };
@@ -52,7 +86,7 @@ interface RankRow {
 }
 
 /** "14s (slowest 41s)", or a dash when nothing was timed. */
-function timeText(row: RankRow): string {
+function timeText(row: Pick<RankRow, "medianSeconds" | "slowestSeconds">): string {
   if (row.medianSeconds == null) return "—";
   const s = (n: number) => (n >= 100 ? `${Math.round(n)}s` : `${n.toFixed(n < 10 ? 1 : 0)}s`);
   return `${s(row.medianSeconds)} (slowest ${s(row.slowestSeconds ?? row.medianSeconds)})`;
@@ -61,7 +95,7 @@ function timeText(row: RankRow): string {
 const meanText = (mean: number | null) => (mean == null ? "—" : mean.toFixed(2));
 
 /** "$0.040 ($0.040–$0.041, 12 billed)": what fal charged per picture, or a dash before any bill is read. */
-function billedText(row: RankRow): string {
+function billedText(row: Pick<RankRow, "billedUsdPerImage" | "billedMinUsd" | "billedMaxUsd" | "billed">): string {
   if (row.billedUsdPerImage == null) return "—";
   const usd = (n: number) => "$" + n.toFixed(3);
   const lo = row.billedMinUsd ?? row.billedUsdPerImage;
@@ -151,9 +185,69 @@ function ScoresTable({ title, groups, families, testId }: { title: string; group
   );
 }
 
+/** One mode's engines by pick share, each with its category averages, marks, cost and time. */
+function JudgedTable({ label, rows }: { label: string; rows: JudgedRow[] }) {
+  const asked = JUDGING_CATEGORIES.filter((c) => rows.some((r) => r.categories[c.key]?.count > 0));
+  return (
+    <div className="rounded-sm border border-border bg-background p-3 space-y-1 overflow-x-auto" data-testid={`results-judged-${label}`}>
+      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <table className="text-xs w-full">
+        <thead>
+          <tr className="text-muted-foreground">
+            <th className="text-left font-semibold py-0.5">Engine</th>
+            <th className="text-right font-semibold">Picked to send</th>
+            {asked.map((c) => <th key={c.key} className="text-right font-semibold" title={c.help}>{c.label}</th>)}
+            <th className="text-right font-semibold">Broken</th>
+            <th className="text-right font-semibold">Couldn't draw (as 1)</th>
+            <th className="text-right font-semibold">Billed per image</th>
+            <th className="text-right font-semibold">Time per image</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.engineId} className="border-t border-border" data-testid={`results-row-${row.engineId}`}>
+              <td className="py-0.5 font-mono text-foreground">{row.family}</td>
+              <td className="text-right font-bold text-foreground">{row.pickShare == null ? "—" : `${Math.round(row.pickShare * 100)}% (${row.picked} of ${row.panels})`}</td>
+              {asked.map((c) => <td key={c.key} className="text-right text-foreground" title={`${row.categories[c.key]?.count ?? 0} pictures`}>{meanText(row.categories[c.key]?.mean ?? null)}</td>)}
+              <td className={`text-right ${row.broken > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-muted-foreground"}`}>{row.broken}</td>
+              <td className={`text-right ${row.lost > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-muted-foreground"}`}>{row.lost}</td>
+              <td className="text-right font-mono text-foreground">{billedText(row)}</td>
+              <td className="text-right font-mono text-foreground">{timeText(row)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function JudgedResultsView({ data }: { data: JudgedResults }) {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-foreground" data-testid="results-summary">
+        {data.sets.map((s) => `#${s.id} ${s.label}${s.imageSize === "final" ? " (member size)" : ""}`).join(" + ")} — {data.panels.judged} of {data.panels.total} panels judged
+        {data.panels.judged < data.panels.total ? ` (${data.panels.judgeable} ready to judge)` : ""}.
+        {data.panels.lost > 0 && <strong> {data.panels.lost} panel{data.panels.lost === 1 ? " lost" : "s lost"} every picture for good and will never be judged.</strong>}
+        {data.panels.skipped > 0 && <strong> {data.panels.skipped} panel{data.panels.skipped === 1 ? " was" : "s were"} skipped at preparation and will never be judged.</strong>}
+      </p>
+      {Object.keys(data.rows).length === 0 ? (
+        <p className="text-sm text-muted-foreground">No pictures yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {["t2i", "i2i"].filter((m) => data.rows[m]).map((mode) => <JudgedTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.rows[mode]!} />)}
+          <p className="text-[11px] text-muted-foreground">
+            "Picked to send" is the share of judged panels on which this engine's picture was the one you would send; a picture that could not be drawn stays in the count and can never be picked. Each category is averaged over the pictures it was asked on (1 to {COMPARISON_SCORE_MAX}); a picture that could not be drawn counts as a 1 in each. Results rest on the number of panels shown beside the share.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ComparisonResults() {
   const [setsText, setSetsText] = useState(setsFromUrl);
   const [data, setData] = useState<Results | null>(null);
+  const [judged, setJudged] = useState<JudgedResults | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -164,8 +258,14 @@ export default function ComparisonResults() {
     setError("");
     const r = await fetch(`/api/admin/comparison/results?setIds=${ids.join(",")}`, { credentials: "include" }).catch(() => null);
     setLoading(false);
-    if (!r || !r.ok) { setData(null); setError(r ? (r.status === 404 ? "One of those sets does not exist." : `Failed to load the results (${r.status}).`) : "Failed to load the results."); return; }
-    setData((await r.json()) as Results);
+    if (!r || !r.ok) {
+      setData(null);
+      setJudged(null);
+      setError(r ? (r.status === 404 ? "One of those sets does not exist." : r.status === 409 ? "Those sets were judged in different ways, so they can't be read together. Read the older and the newer sets separately." : `Failed to load the results (${r.status}).`) : "Failed to load the results.");
+      return;
+    }
+    const body = (await r.json()) as Results | JudgedResults;
+    if (body.edition === 2) { setJudged(body); setData(null); } else { setData(body); setJudged(null); }
   }, []);
 
   useEffect(() => { if (setsText.trim()) void load(setsText); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -187,6 +287,8 @@ export default function ComparisonResults() {
         </div>
 
         {error && <p className="text-sm text-destructive flex items-center gap-1.5" data-testid="results-error"><AlertTriangle className="w-4 h-4" /> {error}</p>}
+
+        {judged && <JudgedResultsView data={judged} />}
 
         {data && (
           <div className="space-y-4">

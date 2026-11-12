@@ -31,6 +31,7 @@ import { ALL_ENGINES } from "../lib/engines/index.js";
 import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
 import { blindImagePath, getComparisonResults, median } from "../lib/comparison/judging.js";
+import { frozenJudgingReference } from "../lib/comparison/runs.js";
 
 const P = `t-cj-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -67,12 +68,14 @@ after(async () => {
 const app = () => buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
 
 /** A set whose cells all have a stored image, except `missing` ones. */
-async function renderedSet(label: string, opts: { missingT2i?: boolean; lookStyleIds?: string[] } = {}): Promise<{ setId: number; panels: Array<{ id: number; imageMode: string }>; cells: Array<{ id: number; panelId: number; engineId: string }> }> {
+async function renderedSet(label: string, opts: { missingT2i?: boolean; lookStyleIds?: string[]; edition?: 1 | 2 } = {}): Promise<{ setId: number; panels: Array<{ id: number; imageMode: string }>; cells: Array<{ id: number; panelId: number; engineId: string }> }> {
   const { setId } = await createComparisonSet({
     label: `${P} ${label}`, round: 1, factIds: [factId],
     scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: opts.lookStyleIds ?? ["none"],
     engineFamilies: [FAMILIES.gpt, FAMILIES.flux],
   }, adminId);
+  // A new set is judged on the second edition; the tests written for the first say so.
+  if ((opts.edition ?? 1) === 1) await db.update(comparisonSetsTable).set({ judgingEdition: 1 }).where(eq(comparisonSetsTable.id, setId));
   const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
   await db.update(comparisonPanelsTable).set({ state: "prepared" }).where(eq(comparisonPanelsTable.setId, setId));
   const cells = await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id)));
@@ -440,6 +443,170 @@ describe("results", () => {
     assert.equal(unknown.status, 404);
     const bad = await request(app()).get(`/api/admin/comparison/results?setIds=x`);
     assert.equal(bad.status, 400);
+  });
+});
+
+// ─── The second judging edition (plan PLAN_PROMPT_TUNER.md, *Proposed Design* B and C) ───
+
+type V2Panel = { panelId: number; scenarioKey: string; categories: string[]; images: Array<{ token: string }>; gag: string | null; factText: string; prompt: string | null; judgement: unknown };
+
+/** Every picture of a blind panel scored `score` on each category the panel asks. */
+function scoreAll(panel: V2Panel, score: number | ((token: string) => number)) {
+  return panel.images.map((i) => ({ token: i.token, ...Object.fromEntries(panel.categories.map((k) => [k, typeof score === "number" ? score : score(i.token)])) }));
+}
+
+async function v2Blind(setId: number): Promise<{ body: { set: { judgingEdition: number }; progress: { judged: number }; panels: V2Panel[] }; t2i: V2Panel; i2i: V2Panel }> {
+  const res = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return {
+    body: res.body,
+    t2i: res.body.panels.find((p: V2Panel) => p.scenarioKey === "generic_t2i"),
+    i2i: res.body.panels.find((p: V2Panel) => p.scenarioKey === "i2i_male_default"),
+  };
+}
+
+describe("second edition: what a panel is judged against", () => {
+  it("a new set is judged on the second edition; its panels show the frozen fact and gag, never the prompt, and a later edit to the fact changes nothing", async () => {
+    const { setId, panels } = await renderedSet("v2-frozen", { edition: 2 });
+    const [set] = await db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId));
+    assert.equal(set!.judgingEdition, 2, "every set made from now on");
+    for (const p of panels) {
+      await db.update(comparisonPanelsTable).set({ frozenFactText: "Alex lifts a mountain", frozenGag: "Alex holds a mountain overhead like a barbell", compiledPrompt: { imagePrompt: "SECRET PROMPT TEXT" } }).where(eq(comparisonPanelsTable.id, p.id));
+    }
+    await db.update(factsTable).set({ text: `${P} {NAME} was edited after preparation` }).where(eq(factsTable.id, factId));
+    try {
+      const { body, t2i, i2i } = await v2Blind(setId);
+      assert.equal(body.set.judgingEdition, 2);
+      for (const p of [t2i, i2i]) {
+        assert.equal(p.factText, "Alex lifts a mountain", "the wording frozen at preparation, not the live row");
+        assert.equal(p.gag, "Alex holds a mountain overhead like a barbell");
+        assert.equal(p.prompt, null, "a second-edition panel never shows the prompt");
+      }
+      assert.ok(!JSON.stringify(body).includes("SECRET PROMPT TEXT"), "no prompt text anywhere in the payload");
+      assert.deepEqual(t2i.categories, ["visualQuality", "gagFidelity", "realism"], "no photo, no style: three categories");
+      assert.deepEqual(i2i.categories, ["visualQuality", "gagFidelity", "realism", "likeness"], "a supplied photo asks Likeness");
+    } finally {
+      await db.update(factsTable).set({ text: `${P} {NAME} lifts a mountain` }).where(eq(factsTable.id, factId));
+    }
+  });
+
+  it("freezes the fact's wording and its approved gag, rendered for the panel's subject", () => {
+    const subject = { name: "Alex Franklin", pronouns: "they/them" };
+    assert.deepEqual(
+      frozenJudgingReference("Alex Franklin lifts a mountain", { visualPromptStrategyOverride: { coreSceneOverride: "  {NAME} holds a mountain overhead  " } }, subject),
+      { frozenFactText: "Alex Franklin lifts a mountain", frozenGag: "Alex Franklin holds a mountain overhead" },
+    );
+    assert.deepEqual(frozenJudgingReference("x", {}, subject), { frozenFactText: "x", frozenGag: null }, "no approved gag freezes null");
+  });
+
+  it("a styled panel asks Style interpretation", async () => {
+    await db.insert(lookStylesTable).values({ id: `${STYLE}-v2`, label: "Judging test look v2", promptSuffix: "test look" });
+    try {
+      const { setId } = await renderedSet("v2-styled", { edition: 2, lookStyleIds: [`${STYLE}-v2`] });
+      const { t2i, i2i } = await v2Blind(setId);
+      assert.deepEqual(t2i.categories, ["visualQuality", "gagFidelity", "realism", "styleInterpretation"]);
+      assert.deepEqual(i2i.categories, ["visualQuality", "gagFidelity", "realism", "styleInterpretation", "likeness"]);
+    } finally {
+      await db.delete(lookStylesTable).where(eq(lookStylesTable.id, `${STYLE}-v2`));
+    }
+  });
+});
+
+describe("second edition: a judgement", () => {
+  it("needs every picture scored on exactly the panel's categories, one pick from the pictures shown, and broken marks only on them", async () => {
+    const { setId } = await renderedSet("v2-validate", { edition: 2 });
+    const { i2i, t2i } = await v2Blind(setId);
+    const send = (panelId: number, body: object) => request(app()).post(pickPath(panelId)).send(body);
+    const best = i2i.images[0]!.token;
+
+    const noLikeness = await send(i2i.panelId, { scores: scoreAll(t2i, 4).map((s, n) => ({ ...s, token: i2i.images[n]!.token })), bestToken: best });
+    assert.equal(noLikeness.status, 409);
+    assert.match(noLikeness.body.refusal, /likeness/);
+    const extraLikeness = await send(t2i.panelId, { scores: scoreAll(t2i, 4).map((s) => ({ ...s, likeness: 3 })), bestToken: t2i.images[0]!.token });
+    assert.equal(extraLikeness.status, 409, "Likeness is not asked without a photo");
+    const partial = await send(i2i.panelId, { scores: scoreAll(i2i, 4).slice(0, 1), bestToken: best });
+    assert.equal(partial.status, 409);
+    assert.match(partial.body.refusal, /1 of 2/);
+    const foreignPick = await send(i2i.panelId, { scores: scoreAll(i2i, 4), bestToken: t2i.images[0]!.token });
+    assert.equal(foreignPick.status, 409, "the pick must be one of this panel's pictures");
+    const noPick = await send(i2i.panelId, { scores: scoreAll(i2i, 4) });
+    assert.equal(noPick.status, 400, "a judgement without a pick is incomplete");
+    const firstEditionBody = await send(i2i.panelId, { ratings: i2i.images.map((i) => ({ token: i.token, score: 3 })) });
+    assert.equal(firstEditionBody.status, 409, "a one-score judgement is refused on a second-edition set");
+    const outOfRange = await send(i2i.panelId, { scores: scoreAll(i2i, 6), bestToken: best });
+    assert.equal(outOfRange.status, 400);
+
+    const ok = await send(i2i.panelId, { scores: scoreAll(i2i, 4), bestToken: best, brokenTokens: [i2i.images[1]!.token] });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    const again = await send(i2i.panelId, { scores: scoreAll(i2i, 2), bestToken: i2i.images[1]!.token });
+    assert.equal(again.status, 200);
+    const [row] = await db.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, i2i.panelId));
+    const history = row!.history as Array<{ categoryScores: unknown[]; pickedCellId: number; brokenCellIds: number[] }>;
+    assert.equal(history.length, 1, "re-judging keeps the earlier judgement");
+    assert.equal(history[0]!.brokenCellIds.length, 1);
+    assert.equal((row!.categoryScores as unknown[]).length, 2);
+    assert.deepEqual(row!.brokenCellIds, []);
+    assert.deepEqual(row!.ratings, [], "no first-edition score is written");
+
+    const reread = await v2Blind(setId);
+    const saved = reread.i2i.judgement as { scores: Record<string, Record<string, number>>; bestToken: string; brokenTokens: string[] };
+    assert.equal(saved.bestToken, i2i.images[1]!.token);
+    assert.deepEqual(saved.scores[best], { visualQuality: 2, gagFidelity: 2, realism: 2, likeness: 2 });
+    assert.equal(reread.body.progress.judged, 1);
+    assert.equal(reread.i2i && (reread.body.panels.find((p) => p.panelId === i2i.panelId) as unknown as { pick: unknown }).pick, null, "no first-edition pick on a second-edition panel");
+  });
+
+  it("a first-edition set refuses a second-edition judgement", async () => {
+    const { setId } = await renderedSet("v1-refuses-v2");
+    const res = await request(app()).get(`/api/admin/comparison/sets/${setId}/judging`);
+    const panel = res.body.panels[0];
+    assert.deepEqual(panel.categories, []);
+    const refused = await request(app()).post(pickPath(panel.panelId)).send({ scores: panel.images.map((i: { token: string }) => ({ token: i.token, visualQuality: 3, gagFidelity: 3, realism: 3 })), bestToken: panel.images[0].token });
+    assert.equal(refused.status, 409);
+  });
+});
+
+describe("second edition: results", () => {
+  it("per engine and mode: pick share over every judged panel it was on, each category's average with a lost picture as 1, broken and lost counts", async () => {
+    const { setId, cells } = await renderedSet("v2-results", { edition: 2, missingT2i: true });
+    const lostCell = cells.find((c) => c.engineId.startsWith(FAMILIES.flux) && c.engineId.endsWith("-t2i"))!;
+    await db.update(comparisonCellsTable).set({ state: "failed", rerunCount: 1 }).where(eq(comparisonCellsTable.id, lostCell.id));
+    const { t2i, i2i } = await v2Blind(setId);
+    assert.equal(t2i.images.length, 1, "the lost picture is not shown, so it can never be the pick");
+
+    // t2i: gpt's picture alone, scored 4, picked. i2i: both scored; flux picked and gpt marked broken.
+    const tokenOfFamily = async (panelId: number, family: string) => {
+      const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, panelId));
+      const { blindToken } = await import("../lib/comparison/blindToken.js");
+      return blindToken(panel!, cells.find((c) => c.panelId === panelId && c.engineId.startsWith(family))!.id);
+    };
+    const gptI2i = await tokenOfFamily(i2i.panelId, FAMILIES.gpt);
+    const fluxI2i = await tokenOfFamily(i2i.panelId, FAMILIES.flux);
+    assert.equal((await request(app()).post(pickPath(t2i.panelId)).send({ scores: scoreAll(t2i, 4), bestToken: t2i.images[0]!.token })).status, 200);
+    assert.equal((await request(app()).post(pickPath(i2i.panelId)).send({ scores: scoreAll(i2i, (tok) => (tok === fluxI2i ? 5 : 2)), bestToken: fluxI2i, brokenTokens: [gptI2i] })).status, 200);
+
+    const res = await request(app()).get(`/api/admin/comparison/results?setIds=${setId}`);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.edition, 2);
+    assert.deepEqual(res.body.panels, { total: 2, judged: 2, judgeable: 2, skipped: 0, lost: 0 });
+    const row = (mode: string, family: string) => (res.body.rows[mode] as Array<Record<string, unknown> & { family: string }>).find((r) => r.family === family)!;
+    const fluxT2i = row("t2i", FAMILIES.flux);
+    assert.deepEqual([fluxT2i.panels, fluxT2i.picked, fluxT2i.pickShare, fluxT2i.scored, fluxT2i.lost], [1, 0, 0, 0, 1], "a lost picture stays in the pick share's denominator");
+    assert.deepEqual((fluxT2i.categories as Record<string, unknown>).gagFidelity, { mean: 1, count: 1 }, "and counts as 1 in every category asked (David, 2026-11-10)");
+    assert.deepEqual((fluxT2i.categories as Record<string, unknown>).likeness, { mean: null, count: 0 }, "never asked without a photo");
+    const gptT2i = row("t2i", FAMILIES.gpt);
+    assert.deepEqual([gptT2i.panels, gptT2i.picked, gptT2i.pickShare], [1, 1, 1]);
+    assert.equal((res.body.rows.t2i as Array<{ family: string }>)[0]!.family, FAMILIES.gpt, "ordered by pick share");
+    const gptI2iRow = row("i2i", FAMILIES.gpt);
+    assert.deepEqual([gptI2iRow.picked, gptI2iRow.broken], [0, 1]);
+    assert.deepEqual((gptI2iRow.categories as Record<string, unknown>).likeness, { mean: 2, count: 1 });
+    assert.deepEqual((row("i2i", FAMILIES.flux).categories as Record<string, unknown>).visualQuality, { mean: 5, count: 1 });
+
+    const old = await renderedSet("v2-results-old");
+    const mixed = await request(app()).get(`/api/admin/comparison/results?setIds=${setId},${old.setId}`);
+    assert.equal(mixed.status, 409, "the two editions are never averaged together");
+    const oldOnly = await request(app()).get(`/api/admin/comparison/results?setIds=${old.setId}`);
+    assert.equal(oldOnly.body.edition, 1, "a first-edition set still reads its own results");
   });
 });
 

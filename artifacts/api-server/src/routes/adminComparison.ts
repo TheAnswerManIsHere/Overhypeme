@@ -12,7 +12,7 @@
  *   POST /api/admin/comparison/panels/:id/reprepare   a failed panel back to pending, admitted by the next preparation run
  *   GET  /api/admin/comparison/sets/:id/judging   the blind view: panels, images by opaque token, saved scores (increment 3)
  *   GET  /api/admin/comparison/panels/:id/images/:token   one blind image, with nothing that names its engine
- *   POST /api/admin/comparison/panels/:id/pick    record or replace David's 1-to-5 scores and face marks for a panel
+ *   POST /api/admin/comparison/panels/:id/pick    record or replace a panel's judgement: a first-edition set's 1-to-5 scores and marks, or a second-edition set's five category scores, pick and broken marks
  *   GET  /api/admin/comparison/results?setIds=1,2 the engines revealed: average scores per mode, style and scenario, face marks, costs
  *
  * Planning spends nothing and writes nothing; a run is the one action that spends.
@@ -20,7 +20,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { comparisonPickSchema, comparisonResultsQuerySchema, comparisonRunPlanSchema, comparisonSetCreateSchema } from "@workspace/api-zod";
+import { comparisonJudgementSchema, comparisonPickSchema, comparisonResultsQuerySchema, comparisonRunPlanSchema, comparisonSetCreateSchema } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { requireAdmin } from "./admin";
 import {
@@ -39,7 +39,7 @@ import {
   startComparisonRun,
 } from "../lib/comparison/runs";
 import { refreshBilledCosts } from "../lib/comparison/billedCost";
-import { blindImagePath, ComparisonPickRefused, getBlindSet, getComparisonResults, recordPick } from "../lib/comparison/judging";
+import { blindImagePath, ComparisonPickRefused, editionOfSets, getBlindSet, getComparisonResults, getJudgedResults, recordJudgement, recordPick } from "../lib/comparison/judging";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 
@@ -181,9 +181,16 @@ router.get("/admin/comparison/panels/:id/images/:token", requireAdmin, async (re
 router.post("/admin/comparison/panels/:id/pick", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = idParam(req);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
-  const parsed = comparisonPickSchema.safeParse(req.body ?? {});
-  if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
   try {
+    // The body's shape says which edition it judges; the server checks it is the set's.
+    if (req.body && typeof req.body === "object" && "scores" in req.body) {
+      const parsed = comparisonJudgementSchema.safeParse(req.body);
+      if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
+      res.json({ judgement: await recordJudgement(id, parsed.data, req.user.id) });
+      return;
+    }
+    const parsed = comparisonPickSchema.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
     res.json({ pick: await recordPick(id, parsed.data, req.user.id) });
   } catch (err) {
     if (err instanceof ComparisonPickRefused) { res.status(409).json({ error: "pick_refused", refusal: err.message }); return; }
@@ -195,8 +202,15 @@ router.get("/admin/comparison/results", requireAdmin, async (req: Request, res: 
   const parsed = comparisonResultsQuerySchema.safeParse(req.query ?? {});
   if (!parsed.success) { res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() }); return; }
   // fal records a bill a little after a picture comes back, so missing ones are read here.
+  const edition = await editionOfSets(parsed.data.setIds);
+  if (edition === null) { res.status(404).json({ error: "set_not_found" }); return; }
+  // Scores from the two judging editions mean different things, so they are never averaged together.
+  if (edition === "mixed") {
+    res.status(409).json({ error: "mixed_editions", refusal: "these sets were judged in different ways; read the older and the newer sets separately" });
+    return;
+  }
   await refreshBilledCosts(parsed.data.setIds);
-  const results = await getComparisonResults(parsed.data.setIds);
+  const results = edition === 2 ? await getJudgedResults(parsed.data.setIds) : await getComparisonResults(parsed.data.setIds);
   if (!results) { res.status(404).json({ error: "set_not_found" }); return; }
   res.json(results);
 });

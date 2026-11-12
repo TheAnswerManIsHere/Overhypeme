@@ -84,6 +84,90 @@ export const comparisonPickSchema = z.object({
 }).strict();
 export type ComparisonPickRequest = z.infer<typeof comparisonPickSchema>;
 
+/**
+ * How a set is judged. Edition 1 is the single 1-to-5 score per picture with
+ * face and style marks (every set made before the prompt tuner); edition 2,
+ * every set made since, scores each picture on five categories, picks one
+ * picture per panel and can mark pictures broken (David, 2026-11-11 and
+ * 2026-11-12; plan `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed Design* C).
+ */
+export const COMPARISON_JUDGING_EDITIONS = [1, 2] as const;
+export type ComparisonJudgingEdition = (typeof COMPARISON_JUDGING_EDITIONS)[number];
+
+/**
+ * When a category is asked: on every picture, only on a panel with a look
+ * style, or only on a panel whose engines were given a photo (a person, a pet
+ * or an object).
+ */
+export type JudgingCategoryScope = "always" | "styled" | "photo";
+
+/** The five categories, in the order the judging page asks them, with the words David agreed. */
+export const JUDGING_CATEGORIES = [
+  {
+    key: "visualQuality",
+    label: "Visual quality",
+    help: "Craft: clean hands, faces, textures and lighting, with no smears or artifacts. Photoreal: does it look natural? Styled: are the details drawn the way the style means them to look?",
+    scope: "always",
+  },
+  {
+    key: "gagFidelity",
+    label: "Gag fidelity",
+    help: "Does the picture show the gag above, with the details, framing and placement it calls for? Judged against the gag, not the prompt.",
+    scope: "always",
+  },
+  {
+    key: "realism",
+    label: "Realism",
+    help: "Physics and plausibility only: weight, contact, motion and objects staying consistent, even in a supernatural scene. On a styled picture, judged within the style's own rules.",
+    scope: "always",
+  },
+  {
+    key: "styleInterpretation",
+    label: "Style interpretation",
+    help: "How well the requested style comes through.",
+    scope: "styled",
+  },
+  {
+    key: "likeness",
+    label: "Likeness",
+    help: "How well the picture keeps the likeness of the supplied photo.",
+    scope: "photo",
+  },
+] as const satisfies ReadonlyArray<{ key: string; label: string; help: string; scope: JudgingCategoryScope }>;
+export type JudgingCategoryKey = (typeof JUDGING_CATEGORIES)[number]["key"];
+export const JUDGING_CATEGORY_KEYS = JUDGING_CATEGORIES.map((c) => c.key) as JudgingCategoryKey[];
+
+/** The categories asked on a panel, from whether it is styled and whether it has a photo. */
+export function judgingCategoriesFor(panel: { styled: boolean; hasPhoto: boolean }): JudgingCategoryKey[] {
+  return JUDGING_CATEGORIES
+    .filter((c) => c.scope === "always" || (c.scope === "styled" && panel.styled) || (c.scope === "photo" && panel.hasPhoto))
+    .map((c) => c.key);
+}
+
+const scoreSchema = z.number().int().min(COMPARISON_SCORE_MIN).max(COMPARISON_SCORE_MAX);
+
+/**
+ * A second-edition judgement of one panel: every picture shown scored on each
+ * category that applies to the panel (the server checks which), one picture
+ * picked as the one to send, and any pictures marked broken. Pictures are
+ * named by blind token, never by id or engine.
+ */
+export const comparisonJudgementSchema = z.object({
+  scores: z.array(z.object({
+    token: blindTokenSchema,
+    visualQuality: scoreSchema,
+    gagFidelity: scoreSchema,
+    realism: scoreSchema,
+    styleInterpretation: scoreSchema.optional(),
+    likeness: scoreSchema.optional(),
+  }).strict()).min(1).max(12),
+  /** "Which would you send to a friend?" */
+  bestToken: blindTokenSchema,
+  /** Hard failures: the wrong person, extra limbs, stray text or a watermark. */
+  brokenTokens: z.array(blindTokenSchema).max(12).default([]),
+}).strict();
+export type ComparisonJudgementRequest = z.infer<typeof comparisonJudgementSchema>;
+
 /** Results across one or more sets, e.g. round 1 and round 2 together. */
 export const comparisonResultsQuerySchema = z.object({
   setIds: z.string().regex(/^\d+(,\d+)*$/).transform((s) => [...new Set(s.split(",").map(Number))]).pipe(z.array(z.number().int().positive()).min(1).max(10)),

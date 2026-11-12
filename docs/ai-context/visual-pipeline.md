@@ -184,6 +184,30 @@ beside the eval run rather than inside it (plan
   "about" for a token price (`typicalUsdPerImage` on the definition, within
   about 10%), both at the comparison's size of about 1 megapixel. The judging
   page itself shows no price.
+- **The second judging edition** (the prompt tuner, part 1; plan
+  `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed Design* B and C; migration
+  0133). The two bullets above describe **edition 1**, which every set made
+  before 2026-11-12 keeps (`comparison_sets.judging_edition` = 1); every set
+  made since is edition 2. An edition-2 panel shows the fact's wording and its
+  approved visual gag as they were **frozen at preparation**
+  (`comparison_panels.frozen_fact_text`, `frozen_gag`), never the live fact row
+  and **never the prompt**: it is judged against the gag, not the wording
+  being tuned. Each picture is scored 1 to 5 on the categories the panel asks
+  (`JUDGING_CATEGORIES` in `lib/api-zod/src/engineComparison.ts`, with David's
+  words as help text): Visual quality, Gag fidelity and Realism always; Style
+  interpretation on a styled panel; **Likeness** on any panel whose engines were
+  given a photo, person, pet or object (David, 2026-11-12). Each panel also
+  gets one overall pick ("which would you send to a friend?",
+  `comparison_picks.picked_cell_id`) and any picture can be marked **broken**
+  (`broken_cell_ids`), replacing the face mark. The server refuses a partial
+  judgement, a category the panel does not ask, a pick or mark naming a picture
+  it did not show, and a judgement of the other edition's shape. Results
+  (`getJudgedResults`) are per mode and engine: the **pick share** (judged
+  panels on which its picture was the one to send, a picture lost for good
+  staying in the denominator) as the headline, each category's average with a
+  lost picture counting 1 (David, 2026-11-10), broken and lost counts, billed
+  cost and time. No blended score is computed, and the results route refuses
+  to read sets of the two editions together.
 - **Read-only dry run**: `artifacts/api-server/scripts/comparison-dry-run.ts`
   derives rounds 1 and 2 against a database's real catalogue and checks 33
   panels and 198 cells, reporting the worst case.

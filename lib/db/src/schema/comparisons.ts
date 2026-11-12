@@ -35,6 +35,12 @@ export const comparisonSetsTable = pgTable("comparison_sets", {
   engineFamilies: jsonb("engine_families").notNull(),
   /** "comparison" (about 1 MP) or "final" (about 4 MP, a member's size); migration 0131. */
   imageSize: varchar("image_size", { length: 16 }).notNull().default("comparison"),
+  /**
+   * How the set is judged (migration 0133): 1, one 1-to-5 score per picture
+   * with face and style marks (every set made before the prompt tuner); 2,
+   * five category scores, an overall pick and a broken flag.
+   */
+  judgingEdition: smallint("judging_edition").notNull().default(2),
   createdBy: varchar("created_by").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -60,6 +66,14 @@ export const comparisonPanelsTable = pgTable("comparison_panels", {
   referenceImageUrl: text("reference_image_url"),
   styleSnapshot: jsonb("style_snapshot"),
   renderControls: jsonb("render_controls"),
+  /**
+   * The fact's wording and its approved visual gag, rendered for the panel's
+   * subject, as they stood at preparation (migration 0133): what a
+   * second-edition panel is judged against. Null before preparation and on
+   * panels prepared earlier.
+   */
+  frozenFactText: text("frozen_fact_text"),
+  frozenGag: text("frozen_gag"),
   error: text("error"),
   /** Seeds the blind view's stable shuffle (increment 3). */
   shuffleSeed: integer("shuffle_seed").notNull(),
@@ -156,7 +170,7 @@ export const comparisonReservationsTable = pgTable("comparison_reservations", {
 export const comparisonPicksTable = pgTable("comparison_picks", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
   panelId: bigint("panel_id", { mode: "number" }).notNull().references(() => comparisonPanelsTable.id, { onDelete: "cascade" }),
-  /** The single-pick judging's "best" cell; written null since judging rates every image. */
+  /** The second edition's overall pick ("which would you send to a friend?"); null on first-edition judgements. */
   pickedCellId: bigint("picked_cell_id", { mode: "number" }).references(() => comparisonCellsTable.id, { onDelete: "cascade" }),
   /** { cellId: number; score: 1..5 }[] — one per image the panel showed. */
   ratings: jsonb("ratings").notNull().default([]),
@@ -164,7 +178,14 @@ export const comparisonPicksTable = pgTable("comparison_picks", {
   faceMismatchCellIds: jsonb("face_mismatch_cell_ids").notNull().default([]),
   /** number[] — cells of this panel marked "captured the style"; styled panels only (migration 0132). */
   styleCapturedCellIds: jsonb("style_captured_cell_ids").notNull().default([]),
-  /** Previous judgements, oldest first: { ratings, faceMismatchCellIds, styleCapturedCellIds, judgedBy, judgedAt }[]. */
+  /**
+   * Second edition (migration 0133): { cellId, visualQuality, gagFidelity,
+   * realism, styleInterpretation?, likeness? }[], one per picture shown.
+   */
+  categoryScores: jsonb("category_scores").notNull().default([]),
+  /** number[] — second edition: pictures marked broken. */
+  brokenCellIds: jsonb("broken_cell_ids").notNull().default([]),
+  /** Previous judgements, oldest first: each a copy of the row's judgement fields with judgedBy and judgedAt. */
   history: jsonb("history").notNull().default([]),
   judgedBy: varchar("judged_by").references(() => usersTable.id, { onDelete: "set null" }),
   judgedAt: timestamp("judged_at", { withTimezone: true }).notNull().defaultNow(),
