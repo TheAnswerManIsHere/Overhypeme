@@ -29,6 +29,10 @@ function routeFetch(plan: unknown) {
     if (url.endsWith("/comparison/sets")) return { ok: true, json: async () => ({ sets: [{ id: 7, label: "Round 1", round: 1, createdAt: new Date().toISOString(), panels: 1, cells: 2 }] }) } as unknown as Response;
     if (url.endsWith("/comparison/sets/7")) return { ok: true, json: async () => DETAIL } as unknown as Response;
     if (url.endsWith("/comparison/sets/7/plan")) return { ok: true, json: async () => plan } as unknown as Response;
+    if (url.endsWith("/prompt-recipes")) return { ok: true, json: async () => ({ families: [
+      { family: "flux-3", liveVersionId: null, versions: [] },
+      { family: "gpt-image-2-6", liveVersionId: 3, versions: [{ id: 5, number: 2, note: "tighter likeness" }, { id: 3, number: 1, note: "first" }] },
+    ] }) } as unknown as Response;
     return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
   });
 }
@@ -54,6 +58,24 @@ describe("EngineComparison", () => {
     expect(screen.getByTestId("comparison-aggregate").textContent).toMatch(/1 pending.*2 expected/);
     expect(screen.getByTestId("comparison-estimate").textContent).toMatch(/preparing \$0\.73 · rendering \$0\.06/);
     expect(screen.getByTestId("comparison-grid").textContent).toMatch(/flux-3.*muse-image/);
+  });
+
+  it("creates a prompt comparison on one engine: its live version against its newest, person photos, about 1 megapixel", async () => {
+    vi.stubGlobal("fetch", routeFetch(null));
+    render(<EngineComparison />);
+    fireEvent.change(screen.getByTestId("comparison-kind"), { target: { value: "prompt" } });
+    await screen.findByTestId("comparison-tune-versions");
+    expect((screen.getByTestId("comparison-tune-family") as HTMLSelectElement).value).toBe("gpt-image-2-6");
+    expect((screen.getByTestId("comparison-tune-version-3") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId("comparison-tune-version-5") as HTMLInputElement).checked).toBe(true);
+    fireEvent.change(screen.getByTestId("comparison-fact-ids"), { target: { value: "11" } });
+    fireEvent.click(screen.getByTestId("comparison-create-submit"));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]!.body).toMatchObject({
+      kind: "prompt", engineFamilies: ["gpt-image-2-6"], scenarioKeys: ["i2i_male_default", "i2i_female_default"],
+      lookStyleIds: ["none"], imageSize: "comparison", factIds: [11],
+    });
+    expect([...(posts[0]!.body as { recipeVersionIds: number[] }).recipeVersionIds].sort()).toEqual([3, 5]);
   });
 
   it("asks for a member-size set when member size is picked", async () => {

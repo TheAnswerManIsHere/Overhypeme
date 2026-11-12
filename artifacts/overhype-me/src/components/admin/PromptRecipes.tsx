@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { readError } from "@/components/admin/EngineComparison";
+import { promoteRecipeVersion } from "@/components/admin/promoteRecipeVersion";
 
 export interface PieceDef { key: string; label: string; group: string; when: string; slots: string[]; policy: boolean; baseline: string }
 export interface FamilyVersion { id: number; number: number; note: string; createdBy: string | null; createdAt: string; pieces: Record<string, string> }
@@ -97,20 +98,22 @@ export function PromptRecipes() {
 
   const save = async () => {
     if (!fam || changed.length === 0 || !note.trim()) return;
+    // The editor stays locked until the saved version and the refreshed list are
+    // applied, so nothing typed or chosen meanwhile is overwritten (Codex, PR #926).
     setBusy("save"); setProblems([]); setNotice("");
     const r = await fetch(`/api/admin/prompt-recipes/${fam.family}/versions`, {
       method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pieces: edits(), note: note.trim(), basedOnVersionId: baseId }),
     }).catch(() => null);
-    setBusy("");
-    if (!r) { setProblems(["The request failed."]); return; }
+    if (!r) { setBusy(""); setProblems(["The request failed."]); return; }
     const body = await r.json().catch(() => ({})) as { version?: { id: number; number: number }; problems?: string[]; refusal?: string };
-    if (!r.ok) { setProblems(body.problems?.length ? body.problems : [body.refusal ?? `Not saved (${r.status}).`]); return; }
-    setNotice(`Saved as version ${body.version!.number}. Nothing live has changed.`);
-    setNote("");
+    if (!r.ok) { setBusy(""); setProblems(body.problems?.length ? body.problems : [body.refusal ?? `Not saved (${r.status}).`]); return; }
     await load();
     setBaseId(body.version!.id);
     setDraft({});
+    setNote("");
+    setNotice(`Saved as version ${body.version!.number}. Nothing live has changed.`);
+    setBusy("");
   };
 
   const runPreview = async () => {
@@ -131,24 +134,15 @@ export function PromptRecipes() {
   const promote = async (versionId: number | null) => {
     if (!fam) return;
     const name = versionName(fam.versions.find((v) => v.id === versionId));
-    if (!window.confirm(`Make ${name} live for ${fam.family}? Renders on its engines use this wording from now on.`)) return;
-    const send = (confirmPolicy: boolean) => fetch(`/api/admin/prompt-recipes/${fam.family}/promote`, {
-      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ versionId, ...(confirmPolicy ? { confirmPolicy: true } : {}) }),
-    }).catch(() => null);
     setBusy("promote"); setProblems([]); setNotice("");
-    let r = await send(false);
-    if (r && r.status === 409) {
-      const body = await r.clone().json().catch(() => ({})) as { needsPolicyConfirmation?: boolean; changedPolicy?: string[] };
-      if (body.needsPolicyConfirmation) {
-        const lines = (body.changedPolicy ?? []).map((k) => data?.pieces.find((p) => p.key === k)?.label ?? k).join(", ");
-        if (!window.confirm(`${name} changes policy wording: ${lines}. Promote it anyway?`)) { setBusy(""); return; }
-        r = await send(true);
-      }
-    }
+    const result = await promoteRecipeVersion({
+      family: fam.family, versionId, name,
+      labelFor: (k) => data?.pieces.find((p) => p.key === k)?.label ?? k,
+    });
     setBusy("");
-    if (!r || !r.ok) { setProblems([r ? await readError(r) : "The request failed."]); return; }
-    setNotice(`${name} is now live for ${fam.family}.`);
+    if (!result) return;
+    if (!result.ok) { setProblems([result.message]); return; }
+    setNotice(result.message);
     await load();
   };
 
@@ -173,7 +167,7 @@ export function PromptRecipes() {
         </div>
         <label className="text-xs text-muted-foreground space-y-1">
           <span className="block">Engine</span>
-          <select value={family} onChange={(e) => pickFamily(e.target.value)} data-testid="recipes-family" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground">
+          <select value={family} disabled={busy !== ""} onChange={(e) => pickFamily(e.target.value)} data-testid="recipes-family" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground">
             {data.families.map((f) => <option key={f.family} value={f.family}>{f.family}</option>)}
           </select>
         </label>
@@ -192,7 +186,7 @@ export function PromptRecipes() {
                   <span className="font-mono text-foreground">{versionName(v)}</span>
                   {v && <span className="text-muted-foreground">— {v.note} · {new Date(v.createdAt).toLocaleString()}</span>}
                   {isLive && <span className="inline-flex items-center gap-1 text-green-600"><CheckCircle2 className="w-3 h-3" /> live</span>}
-                  <button type="button" onClick={() => pickBase(id)} className="underline text-primary" data-testid={`recipes-edit-${id ?? "baseline"}`}>edit from this</button>
+                  <button type="button" disabled={busy !== ""} onClick={() => pickBase(id)} className="underline text-primary disabled:opacity-40" data-testid={`recipes-edit-${id ?? "baseline"}`}>edit from this</button>
                   {!isLive && (
                     <button type="button" disabled={busy !== ""} onClick={() => void promote(id)} className="px-2 py-0.5 rounded-sm border border-border hover:bg-muted disabled:opacity-40" data-testid={`recipes-promote-${id ?? "baseline"}`}>
                       {id == null ? "Restore baseline" : "Promote"}
@@ -225,6 +219,7 @@ export function PromptRecipes() {
                       <span className="block text-[11px] text-muted-foreground">{d.when}</span>
                       <textarea
                         value={value}
+                        readOnly={busy === "save"}
                         onChange={(e) => setDraft((prev) => ({ ...prev, [d.key]: e.target.value }))}
                         rows={d.group === "labels" ? 1 : Math.min(6, Math.max(2, Math.ceil(value.length / 90)))}
                         data-testid={`recipes-piece-${d.key}`}
@@ -240,7 +235,7 @@ export function PromptRecipes() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs text-muted-foreground space-y-1 grow">
               <span className="block">What changed, and why</span>
-              <input value={note} onChange={(e) => setNote(e.target.value)} data-testid="recipes-note" className="w-full rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground" />
+              <input value={note} readOnly={busy === "save"} onChange={(e) => setNote(e.target.value)} data-testid="recipes-note" className="w-full rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground" />
             </label>
             <button type="button" onClick={() => void save()} disabled={busy !== "" || changed.length === 0 || !note.trim()} data-testid="recipes-save" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40">
               {busy === "save" && <Loader2 className="w-4 h-4 animate-spin" />} Save as a new version

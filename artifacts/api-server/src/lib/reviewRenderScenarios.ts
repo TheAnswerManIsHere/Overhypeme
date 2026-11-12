@@ -304,6 +304,8 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
     renderControls: controls,
     requestId: `admin-review-scenario:${args.reviewId}:${args.scenarioKey}:${randomUUID()}`,
     imageEngineId: args.imageEngines[generationModeForSubjectRenderMode(mode)],
+    // The wording the hash above froze, so a promotion in between cannot split them.
+    ...(args.imageEngines.recipeVersions ? { recipeVersionId: args.imageEngines.recipeVersions[generationModeForSubjectRenderMode(mode)] ?? null } : {}),
     scenario: {
       reviewId: args.reviewId,
       scenarioKey: args.scenarioKey,

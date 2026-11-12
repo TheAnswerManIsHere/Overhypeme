@@ -288,6 +288,12 @@ export function recipeFrom(versionId: number | null, stored: unknown): ResolvedR
 
 const SLOT_RE = /\{([A-Za-z]+)\}/g;
 
+/** Slots that carry a fact's own words into the prompt. */
+const CONTENT_SLOTS = new Set(["text", "guidance", "items", "elements"]);
+
+/** Slots measured at their longest by the budget check, so repeating them is charged in full. */
+const UNBOUNDED_SLOTS = new Set(["subject", "gender"]);
+
 /**
  * A piece's text with its slots filled. A slot's value is inserted once and
  * never re-read, so a value containing braces (a moderator's balloon text, a
@@ -314,10 +320,26 @@ export function recipeProblems(pieces: Record<string, unknown>): string[] {
     if (typeof value !== "string") { out.push(`${def.label}: must be text`); continue; }
     if (value.length > RECIPE_PIECE_MAX_CHARS) out.push(`${def.label}: ${value.length} characters, over the ${RECIPE_PIECE_MAX_CHARS} allowed`);
     if (def.policy && !value.trim()) out.push(`${def.label}: a policy line can be reworded but not emptied`);
+    // A piece that carries the fact's own text (balloon words, required-text
+    // guidance, in-scene words) cannot be emptied: that would drop moderator or
+    // planner content from the prompt, which a recipe may never do.
+    if (!value.trim() && def.slots.some((s) => CONTENT_SLOTS.has(s))) out.push(`${def.label}: carries the fact's own text, so it can be reworded but not emptied`);
     if (def.group === "labels" && !value.trim()) out.push(`${def.label}: a section label cannot be empty`);
     if (def.group === "labels" && /[\r\n:]/.test(value)) out.push(`${def.label}: a section label is one line with no colon`);
-    const named = new Set([...value.matchAll(SLOT_RE)].map((m) => m[1]!));
+    const uses = [...value.matchAll(SLOT_RE)].map((m) => m[1]!);
+    const named = new Set(uses);
     for (const slot of def.slots) if (value.trim() && !named.has(slot)) out.push(`${def.label}: must contain {${slot}}`);
+    // A slot the compiler fills with a fact's own text (guidance, balloon text,
+    // in-scene words…) may not be used more often than today's wording uses it:
+    // the budget check measures each use at its shortest, so extra uses would
+    // let a fact that fits today overflow (Codex, PR #926 round 2). The name
+    // ({subject}) and the gender are measured at their longest, so they may repeat.
+    for (const slot of named) {
+      if (UNBOUNDED_SLOTS.has(slot)) continue;
+      const count = uses.filter((u) => u === slot).length;
+      const allowed = Math.max(1, (def.text.match(new RegExp(`\\{${slot}\\}`, "g")) ?? []).length);
+      if (count > allowed) out.push(`${def.label}: {${slot}} may appear ${allowed === 1 ? "once" : `${allowed} times`}; it is filled with the fact's own text`);
+    }
     for (const slot of named) if (!def.slots.includes(slot)) out.push(`${def.label}: {${slot}} is not something this piece can name${def.slots.length ? ` (it can name ${def.slots.map((s) => `{${s}}`).join(", ")})` : ""}`);
   }
   return out;

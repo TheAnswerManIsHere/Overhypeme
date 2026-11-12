@@ -1,9 +1,11 @@
 import {
   pgTable, bigserial, bigint, integer, smallint, varchar, text, jsonb, numeric, timestamp, index, uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { usersTable } from "./auth";
 import { factsTable } from "./facts";
 import { imagePromptAttemptsTable } from "./imagePromptAttempts";
+import { promptRecipeVersionsTable } from "./promptRecipes";
 
 /**
  * Launch Phase 8 — the engine comparison (plan
@@ -41,6 +43,14 @@ export const comparisonSetsTable = pgTable("comparison_sets", {
    * five category scores, an overall pick and a broken flag.
    */
   judgingEdition: smallint("judging_edition").notNull().default(2),
+  /**
+   * "engine": several engine families, each with its family's live prompt
+   * wording; "prompt": one engine family and several prompt recipe versions
+   * (the prompt tuner; migration 0135).
+   */
+  kind: varchar("kind", { length: 16 }).notNull().default("engine"),
+  /** A prompt set's recipe versions, 0 for the baseline; null on an engine set. */
+  recipeVersionIds: jsonb("recipe_version_ids"),
   createdBy: varchar("created_by").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -74,6 +84,13 @@ export const comparisonPanelsTable = pgTable("comparison_panels", {
    */
   frozenFactText: text("frozen_fact_text"),
   frozenGag: text("frozen_gag"),
+  /**
+   * The planner's output and the compiler's inputs, frozen at preparation
+   * (migration 0135), so each cell compiles this same scene with its own prompt
+   * wording: { visualPlan, plannerPrompt, input, renderedSubject }. Null on
+   * panels prepared earlier, which draw `compiled_prompt` as before.
+   */
+  compileArgs: jsonb("compile_args"),
   error: text("error"),
   /** Seeds the blind view's stable shuffle (increment 3). */
   shuffleSeed: integer("shuffle_seed").notNull(),
@@ -109,10 +126,15 @@ export const comparisonCellsTable = pgTable("comparison_cells", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   /** What fal charged for this cell's request, from its Billing Events API (migration 0130); null until read. */
   billedUsd: numeric("billed_usd", { precision: 12, scale: 6 }),
+  /** The prompt recipe version this cell is drawn with; null is the baseline (migration 0135). */
+  recipeVersionId: bigint("recipe_version_id", { mode: "number" }).references(() => promptRecipeVersionsTable.id, { onDelete: "restrict" }),
+  /** The exact prompt text this cell sent, written before the request (migration 0135). */
+  promptText: text("prompt_text"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex("UQ_comparison_cells_panel_engine").on(t.panelId, t.engineId),
+  // One cell per engine and prompt version (migration 0135).
+  uniqueIndex("UQ_comparison_cells_panel_engine_recipe").on(t.panelId, t.engineId, sql`(coalesce(${t.recipeVersionId}, 0))`),
 ]);
 
 export const comparisonRunsTable = pgTable("comparison_runs", {

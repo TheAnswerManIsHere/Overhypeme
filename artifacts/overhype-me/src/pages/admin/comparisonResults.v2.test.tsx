@@ -6,7 +6,7 @@
  * column; the server's refusal to mix editions is explained.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
 
 vi.mock("@/components/admin/AdminLayout", () => ({
   AdminLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -53,6 +53,24 @@ describe("ComparisonResults, second edition", () => {
     const gpt = screen.getByTestId("results-row-gpt-image-2-6-edit").textContent!;
     expect(gpt).toMatch(/25% \(1 of 4\)/);
     expect(screen.queryByTestId("results-leaders")).toBeNull(); // the first edition's views are not shown
+  });
+
+  it("on a prompt comparison, lists each wording and promotes one from its results", async () => {
+    window.history.replaceState(null, "", "/admin/eval/results?sets=12");
+    const tuned = { ...row("gpt-image-2-6-edit", 3, 4, cats(4, 4, 4, 4.5)), recipeVersionId: 5, recipeLabel: "Version 2", recipeNote: "tighter likeness" };
+    const base = { ...row("gpt-image-2-6-edit", 1, 4, cats(3, 3, 3, 3)), recipeVersionId: null, recipeLabel: "Baseline", recipeNote: null };
+    const body = { ...JUDGED, kind: "prompt", family: "gpt-image-2-6", rows: { i2i: [tuned, base] }, byLook: {}, pictures: [] };
+    const posts: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") { posts.push(JSON.parse(String(init.body))); return { ok: true, status: 200, json: async () => ({}), clone() { return this; } } as unknown as Response; }
+      return { ok: true, json: async () => body } as unknown as Response;
+    }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<ComparisonResults />);
+    expect((await screen.findByTestId("results-row-gpt-image-2-6-edit-5")).textContent).toMatch(/Version 2.*tighter likeness/);
+    fireEvent.click(screen.getByTestId("results-promote-5"));
+    await waitFor(() => expect(posts).toEqual([{ versionId: 5 }]));
+    expect((await screen.findByTestId("results-notice")).textContent).toMatch(/Version 2 is now live for gpt-image-2-6/);
   });
 
   it("explains a refusal to read the two editions together", async () => {

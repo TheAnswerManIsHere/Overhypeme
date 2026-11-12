@@ -208,6 +208,25 @@ beside the eval run rather than inside it (plan
   lost picture counting 1 (David, 2026-11-10), broken and lost counts, billed
   cost and time. No blended score is computed, and the results route refuses
   to read sets of the two editions together.
+- **Prompt comparisons** (the prompt tuner, part 2; plan
+  `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed Design* B and D; migration
+  0135). A set's `kind` is `engine` (every set before this) or `prompt`: one
+  engine family and two to four recipe versions (`recipe_version_ids`, 0 for
+  the baseline). Its cells are panel × engine × version, unique on
+  `(panel, engine, coalesce(recipe_version_id, 0))`. Preparation freezes the
+  scene once per panel (`comparison_panels.compile_args`: the planner's output
+  and the compiler's inputs), and each cell compiles that same scene with its
+  own wording at render (`cellPromptText`), storing the exact prompt it sent
+  (`comparison_cells.prompt_text`), so only the wording differs between a
+  panel's pictures. An engine set's cells take each family's live version,
+  frozen when the set is made. Panels prepared before 0135 keep drawing their
+  one `compiled_prompt`. The admin creates a prompt set from *Compare: prompt
+  wording on one engine* (person photos, about 1 megapixel by default, the
+  live version against the newest preselected). Second-edition results group
+  rows by engine **and version** (`recipeLabel`), add the same rows **by look**
+  (`byLook`) and every picture with its exact prompt (`pictures`); on a prompt
+  set each version has a **Promote** button, with the same confirmations as the
+  editor.
 - **Read-only dry run**: `artifacts/api-server/scripts/comparison-dry-run.ts`
   derives rounds 1 and 2 against a database's real catalogue and checks 33
   panels and 198 cells, reporting the worst case.
@@ -702,8 +721,12 @@ emptied.
   together), fits `FIXED_REQUIRED_RESERVE_BUDGET`. Groups that can appear
   together are summed; alternatives within a group take the largest. Growth,
   not absolute length, is charged, so the baseline keeps its measured 1,704
-  and its own conditional lines stay in the outer margin as before. Every
-  Concept, addition and balloon already valid to save therefore still fits. A
+  and its own conditional lines stay in the outer margin as before. The
+  probes fill each slot with one character, so `recipeProblems` also refuses a
+  slot filled with a fact's own text (`{guidance}`, `{text}`, `{items}`…) used
+  more often than today's wording uses it; `{subject}` and `{gender}` are
+  measured at their longest and may repeat (Codex, PR #926 round 2). With both,
+  every Concept, addition and balloon already valid to save still fits. A
   per-piece sweep test (`promptRecipeBaseline.test.ts`) refuses a 1,000-character
   growth in every piece outside the trimmable sections, so a new piece no probe
   reaches fails CI (Codex, PR #926). The render-time overflow refusal stays.

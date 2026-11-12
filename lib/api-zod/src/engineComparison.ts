@@ -33,6 +33,10 @@ export const COMPARISON_ROUND_PRESETS: Record<1 | 2, { scenarioKeys: readonly Re
 export const COMPARISON_IMAGE_SIZES = ["comparison", "final"] as const;
 export type ComparisonImageSize = (typeof COMPARISON_IMAGE_SIZES)[number];
 
+/** What a set compares: engines, each with its live wording, or prompt versions on one engine. */
+export const COMPARISON_SET_KINDS = ["engine", "prompt"] as const;
+export type ComparisonSetKind = (typeof COMPARISON_SET_KINDS)[number];
+
 export const comparisonSetCreateSchema = z.object({
   label: z.string().trim().min(1).max(200),
   round: z.union([z.literal(1), z.literal(2), z.literal(3)]),
@@ -42,7 +46,22 @@ export const comparisonSetCreateSchema = z.object({
   engineFamilies: z.array(z.string().trim().min(1).max(64)).min(1),
   /** Omitted means "comparison". */
   imageSize: z.enum(COMPARISON_IMAGE_SIZES).optional(),
-}).strict();
+  /**
+   * "engine" (the default): each family draws with its live prompt wording.
+   * "prompt": one family, and each of `recipeVersionIds` (null for the
+   * baseline) draws the same scene (the prompt tuner).
+   */
+  kind: z.enum(COMPARISON_SET_KINDS).optional(),
+  recipeVersionIds: z.array(z.number().int().positive().nullable()).min(2).max(4).optional(),
+}).strict().superRefine((v, ctx) => {
+  if (v.kind === "prompt") {
+    if (v.engineFamilies.length !== 1) ctx.addIssue({ code: "custom", path: ["engineFamilies"], message: "a prompt comparison names exactly one engine family" });
+    if (!v.recipeVersionIds) ctx.addIssue({ code: "custom", path: ["recipeVersionIds"], message: "a prompt comparison names two or more versions" });
+    else if (new Set(v.recipeVersionIds.map((id) => id ?? 0)).size !== v.recipeVersionIds.length) ctx.addIssue({ code: "custom", path: ["recipeVersionIds"], message: "each version once" });
+  } else if (v.recipeVersionIds) {
+    ctx.addIssue({ code: "custom", path: ["recipeVersionIds"], message: "versions are named only on a prompt comparison" });
+  }
+});
 export type ComparisonSetCreate = z.infer<typeof comparisonSetCreateSchema>;
 
 export const comparisonRunPlanSchema = z.object({
