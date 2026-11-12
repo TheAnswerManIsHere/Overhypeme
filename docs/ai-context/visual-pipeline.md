@@ -366,11 +366,12 @@ the worker quietly resolving `stylePrompt = ""`.
 
 ## Render-time prompt budget
 
-**The engine prompt ceiling is 6900 chars** (`MAX_PROMPT_CHARS`,
-`compilers/nanoBanana2.ts`; raised from 4000 — PR #224 — and again from 6000
-to fund the dedicated bubble pool, David-approved. NB2's real context window
-is ~131K tokens, so the ceiling is editorial discipline against
-bloated/redundant authoring, not an engine capacity limit). The budget is
+**The prompt ceiling is 10150 chars** (`MAX_PROMPT_CHARS`,
+`compilers/nanoBanana2.ts`; raised from 4000 — PR #224 — to 6000, to 6900 to
+fund the dedicated bubble pool, and to 10150 on 2026-11-12 so the prompt
+tuner's editable wording has room, all David-approved). It is our own
+ceiling, not the engines': GPT Image 2.6 accepts 32,000 characters and Nano
+Banana 2.1 50,000 (fal schemas, read 2026-11-12). The budget is
 split into five reserves, derived from a **measurement of the real
 compiler**, not invented numbers — `measureRequiredPromptBudget()`,
 `measureModeratorAdditionsEmission()`, and `measureBubbleDirectivesEmission()`
@@ -378,7 +379,8 @@ compiler**, not invented numbers — `measureRequiredPromptBudget()`,
 the actual compiler and a proof test asserts the split still fits:
 
 ```
-6900 = FIXED_REQUIRED_RESERVE_BUDGET (1750, measured compiler overhead)
+10150 = FIXED_REQUIRED_RESERVE_BUDGET (5000: today's wording measures 1704;
+                                      the rest is room for tuner versions)
      + CORE_SCENE_RENDERED_MAX       (2000, the moderator Concept)
      + MODERATOR_ADDITIONS_RENDERED_MAX (1500, other moderator content, excl. bubbles)
      + BUBBLE_DIRECTIVES_RENDERED_MAX (900, the SPEECH & THOUGHT BUBBLES section)

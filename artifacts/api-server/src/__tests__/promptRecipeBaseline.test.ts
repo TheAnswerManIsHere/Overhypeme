@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 
 import { compileForSubjectRenderMode } from "../lib/imagePrompt/compilers/nanoBanana2.js";
 import { BASELINE_RECIPE, recipeFrom, recipeProblems, changedPolicyPieces, fillPiece, BASELINE_PIECES, RECIPE_PIECES } from "../lib/imagePrompt/recipe.js";
-import { measureRequiredPromptBudget, recipeBudgetProblems } from "../lib/imagePrompt/promptBudget.js";
+import { measureRequiredPromptBudget, recipeBudgetNeed, recipeBudgetProblems } from "../lib/imagePrompt/promptBudget.js";
+import { FIXED_REQUIRED_RESERVE_BUDGET } from "@workspace/api-zod";
 
 type Case = { args: Parameters<typeof compileForSubjectRenderMode>[0]; prompt: string; engineNotes: string | null };
 const corpus = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
@@ -113,26 +114,37 @@ describe("the save-time budget check covers every piece (Codex, PR #926 round 1)
     return key.startsWith("label.") ? base + "X".repeat(by) : `${base} ${"x".repeat(by)}`.trim();
   };
 
+  /**
+   * The class oracle, run against the tight reserve the check was built under
+   * (1,750, today's wording needing 1,704), so a 1,000-character growth must be
+   * refused wherever it is measured at all. The live reserve is roomier (David,
+   * 2026-11-12), which leaves this property unchanged.
+   */
   it("refuses every piece that reaches a section never trimmed, when it alone grows by 1,000 characters", () => {
     const accepted: string[] = [];
     for (const p of RECIPE_PIECES) {
       if (TRIMMABLE.has(p.key)) continue;
       const r = recipeFrom(1, { [p.key]: pad(p.key, 1000) });
-      if (recipeBudgetProblems(r).length === 0) accepted.push(p.key);
+      if (recipeBudgetProblems(r, 1750).length === 0) accepted.push(p.key);
     }
     assert.deepEqual(accepted, [], "each of these grew by 1,000 characters unmeasured");
   });
 
-  it("refuses the reviewer's example and lines that appear together on their sum, and keeps today's number", () => {
-    assert.equal(recipeBudgetProblems(recipeFrom(1, { "text.forbid": "x".repeat(1500), "violence.suppress": "x".repeat(1500) })).length, 1);
-    const together = recipeFrom(1, { "constraints.crowd": pad("constraints.crowd", 300), "constraints.causal": pad("constraints.causal", 300), "constraints.reversal": pad("constraints.reversal", 300) });
-    for (const k of ["constraints.crowd", "constraints.causal", "constraints.reversal"]) {
-      assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { [k]: pad(k, 15) })), [], `${k} a little longer still saves`);
+  it("refuses lines that appear together on their sum, lets each alone through, and keeps today's number", () => {
+    const keys = ["constraints.crowd", "constraints.causal", "constraints.reversal"];
+    for (const k of keys) {
+      assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { [k]: pad(k, 1200) })), [], `${k} 1,200 characters longer saves on its own`);
     }
+    const together = recipeFrom(1, Object.fromEntries(keys.map((k) => [k, pad(k, 1200)])));
     assert.equal(recipeBudgetProblems(together).length, 1, "three lines that can appear together are charged on their sum");
     assert.equal(measureRequiredPromptBudget().worstCase, 1704, "the baseline's measured reserve is unchanged");
+    assert.equal(recipeBudgetNeed(BASELINE_RECIPE), 1704);
     assert.deepEqual(recipeBudgetProblems(BASELINE_RECIPE), []);
-    assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { "text.forbid": pad("text.forbid", 20) })), [], "a small edit to a newly covered line still saves");
+  });
+
+  it("leaves real room for tuning: a version can add well over a thousand characters (David, 2026-11-12)", () => {
+    assert.ok(FIXED_REQUIRED_RESERVE_BUDGET - recipeBudgetNeed(BASELINE_RECIPE) >= 3000);
+    assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { "identity.person": pad("identity.person", 1200), "notes.engine": "x".repeat(1200) })), []);
   });
 });
 
