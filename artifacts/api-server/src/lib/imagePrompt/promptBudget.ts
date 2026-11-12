@@ -360,6 +360,17 @@ function recipeGrowth(probe: RecipeProbe, recipe: ResolvedRecipe): number {
 }
 
 /**
+ * The characters of fixed wording a recipe needs at its longest: its fixed
+ * sections measured at maximum shape, plus, for every probe group, the most
+ * its lines grow beyond the baseline. The baseline needs 1704.
+ */
+export function recipeBudgetNeed(recipe: ResolvedRecipe): number {
+  const fixed = measureRequiredPromptBudget(recipe).worstCase;
+  const growth = RECIPE_PROBE_GROUPS.reduce((sum, group) => sum + Math.max(0, ...group.map((p) => recipeGrowth(p, recipe))), 0);
+  return fixed + growth;
+}
+
+/**
  * Whether a prompt recipe keeps the prompt-budget guarantee (plan
  * `docs/plans/PLAN_PROMPT_TUNER.md`, *Security, permissions, validation*:
  * "across every mode and conditional clause"). Charged: the recipe's fixed
@@ -372,13 +383,11 @@ function recipeGrowth(probe: RecipeProbe, recipe: ResolvedRecipe): number {
  * binding and failure-mode lines. A one-fact preview is never the gate. Empty
  * means it fits.
  */
-export function recipeBudgetProblems(recipe: ResolvedRecipe): string[] {
-  const fixed = measureRequiredPromptBudget(recipe).worstCase;
-  const growth = RECIPE_PROBE_GROUPS.reduce((sum, group) => sum + Math.max(0, ...group.map((p) => recipeGrowth(p, recipe))), 0);
-  const total = fixed + growth;
-  if (total <= FIXED_REQUIRED_RESERVE_BUDGET) return [];
+export function recipeBudgetProblems(recipe: ResolvedRecipe, reserve: number = FIXED_REQUIRED_RESERVE_BUDGET): string[] {
+  const total = recipeBudgetNeed(recipe);
+  if (total <= reserve) return [];
   const baseline = measureRequiredPromptBudget().worstCase;
   return [
-    `This wording is too long for the prompt: at its longest it needs ${total} characters of fixed wording, and ${FIXED_REQUIRED_RESERVE_BUDGET} are set aside (today's wording needs ${baseline}). Shorten it by at least ${total - FIXED_REQUIRED_RESERVE_BUDGET} characters.`,
+    `This wording is too long for the prompt: at its longest it needs ${total} characters of fixed wording, and ${reserve} are set aside (today's wording needs ${baseline}). Shorten it by at least ${total - reserve} characters.`,
   ];
 }

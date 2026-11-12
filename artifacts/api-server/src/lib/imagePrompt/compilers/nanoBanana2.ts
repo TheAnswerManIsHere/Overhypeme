@@ -56,8 +56,10 @@ import { BASELINE_PIECES, BASELINE_RECIPE, fillPiece, type ResolvedRecipe } from
 // constraint (NB2's context window is ~131K tokens). Raised from 4000 to 6000
 // (David, 2026-07-21) to give the moderator authoring pools real headroom, and
 // 6000 → 6900 (David, 2026-07-22) to fund the dedicated SPEECH & THOUGHT
-// BUBBLES reserve (BUBBLE_DIRECTIVES_RENDERED_MAX).
-const MAX_PROMPT_CHARS = 6900;
+// BUBBLES reserve (BUBBLE_DIRECTIVES_RENDERED_MAX), and 6900 → 10150 (David,
+// 2026-11-12) for the prompt tuner's editable wording. GPT Image 2.6 accepts
+// 32,000 characters and Nano Banana 2.1 50,000.
+const MAX_PROMPT_CHARS = 10150;
 
 // ROLE DETAILS becomes required + non-compressible whenever moderator
 // roleBindings are present (so a casting correction can't be silently

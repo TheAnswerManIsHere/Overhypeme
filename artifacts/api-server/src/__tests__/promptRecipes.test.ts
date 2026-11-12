@@ -64,11 +64,11 @@ describe("prompt recipe versions", () => {
     assert.equal(bad.status, 409);
     assert.ok(bad.body.problems.some((p: string) => /must contain \{subject\}/.test(p)));
 
-    const long = await save({ "identity.person": "x".repeat(1400) });
+    const long = await save({ "identity.person": "x".repeat(1400), "constraints.crowd": `{subject} ${"x".repeat(1400)}`, "constraints.causal": "x".repeat(1400) });
     assert.equal(long.status, 409, "a recipe that cannot leave room for every valid moderator scene is refused");
     assert.ok(long.body.problems.some((p: string) => /too long for the prompt/.test(p)), JSON.stringify(long.body));
 
-    const balloons = await save({ "bubbles.speech": `${"y".repeat(330)} {who} {text}` });
+    const balloons = await save({ "bubbles.speech": `${"y".repeat(1000)} {who} {text}` });
     assert.equal(balloons.status, 409, "balloon wording is counted once per balloon, at the most balloons a fact may have");
 
     const v1 = await save({ "identity.person": "Use the photo as the person's face." }, "shorter identity");

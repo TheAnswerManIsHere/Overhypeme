@@ -1523,7 +1523,7 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
   });
 
   it("signals required_budget_overflow instead of silently truncating required content (§10.5)", () => {
-    const hugeRequired = Array.from({ length: 120 }, (_, i) => `a mandatory prop number ${i} rendered in full detail`);
+    const hugeRequired = Array.from({ length: 220 }, (_, i) => `a mandatory prop number ${i} rendered in full detail`);
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "fallback",

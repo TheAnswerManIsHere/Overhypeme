@@ -1,11 +1,11 @@
 /**
  * Rendered-text prompt budget (rev-7 plan §10) — the save-time contract that
- * guarantees moderator-authored content can never overflow the engine's 6000-char
- * prompt at compile.
+ * guarantees moderator-authored content can never overflow the prompt ceiling at
+ * compile.
  *
  * The budget is enforced on RENDERED text (after token expansion), split into:
  *
- *   PROMPT_TOTAL_BUDGET (6900, = the compiler's MAX_PROMPT_CHARS)
+ *   PROMPT_TOTAL_BUDGET (10150, = the compiler's MAX_PROMPT_CHARS)
  *     = FIXED_REQUIRED_RESERVE_BUDGET   (compiler-owned fixed sections, MEASURED)
  *     + CORE_SCENE_RENDERED_MAX          (the moderator Concept reserve)
  *     + MODERATOR_ADDITIONS_RENDERED_MAX (all OTHER moderator content, aggregate)
@@ -35,7 +35,7 @@ import { projectWorstCaseRenderedLength } from "./promptIdentityBudget";
 import { collectRenderedTextEntries, type VisualPromptStrategyOverride } from "./visualStrategyOverride";
 
 /** Bump when any reserve below changes, so budget fixtures/tests re-derive. */
-export const PROMPT_BUDGET_VERSION = 2 as const;
+export const PROMPT_BUDGET_VERSION = 3 as const;
 
 /**
  * The engine's hard prompt ceiling (mirrors the compiler's MAX_PROMPT_CHARS).
@@ -46,17 +46,26 @@ export const PROMPT_BUDGET_VERSION = 2 as const;
  * Raised again 6000 → 6900 (David, 2026-07-22) to fund the dedicated
  * SPEECH & THOUGHT BUBBLES reserve below without shrinking any existing
  * moderator pool or the safety margin.
+ * Raised again 6900 → 10150 (David, 2026-11-12: "There's no good reason we
+ * have such a strict length limit … increase the length limit to
+ * accommodate") to give the prompt tuner's editable wording room: the whole
+ * rise goes to FIXED_REQUIRED_RESERVE_BUDGET. The engines' own limits, read
+ * from fal's schemas the same day: GPT Image 2.6 32,000 characters, Nano
+ * Banana 2.1 50,000.
  */
-export const PROMPT_TOTAL_BUDGET = 6900;
+export const PROMPT_TOTAL_BUDGET = 10150;
 
 /**
  * The compiler-owned fixed required overhead reserved out of the budget.
  * DERIVED from `measureRequiredPromptBudget()`: the measured worst case across
  * modes was 1704 chars (human i2i + age-transform binding + 20-char identity +
- * 180-char style + longest fixed policy branches); reserved with cushion.
- * §21-gated.
+ * 180-char style + longest fixed policy branches). Reserved at 1750 until
+ * 2026-11-12, when it rose to 5000 so a prompt-tuner version
+ * (`recipeBudgetProblems`) can add about 3,300 characters of wording rather
+ * than about 46; today's wording still measures 1704. §21-gated (David asked
+ * for the rise, 2026-11-12).
  */
-export const FIXED_REQUIRED_RESERVE_BUDGET = 1750;
+export const FIXED_REQUIRED_RESERVE_BUDGET = 5000;
 
 /** Outer safety margin (plan §10.4 requires ≥ 100). */
 export const PROMPT_OUTER_MARGIN = 750;
