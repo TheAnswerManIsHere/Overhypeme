@@ -49,6 +49,7 @@ import type {
 } from "../types";
 import { failureModeConstraints, isActiveActionFrame } from "./failureModeConstraints";
 import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonical";
+import { BASELINE_PIECES, BASELINE_RECIPE, fillPiece, type ResolvedRecipe } from "../recipe";
 
 // Mirrors PROMPT_TOTAL_BUDGET (api-zod promptBudget.ts) — an editorial forcing
 // function against bloated/redundant authoring, NOT an engine capacity
@@ -80,6 +81,11 @@ interface CompileArgs {
    * When omitted (some unit tests), no token rendering is applied.
    */
   renderedSubject?: { name: string; pronouns: string | null };
+  /**
+   * The global wording to compile with (the prompt tuner; `../recipe.ts`).
+   * Omitted means the baseline, today's wording.
+   */
+  recipe?: ResolvedRecipe;
 }
 
 /**
@@ -91,20 +97,15 @@ function renderIdentityTokens(text: string, subject?: CompileArgs["renderedSubje
   return renderPersonalized(text, subject.name, subject.pronouns);
 }
 
-const HUMAN_I2I_PREAMBLE =
-  "Image-to-image edit using the reference image as the person's identity source. Preserve the reference person's recognizable identity and likeness — facial features and distinctive characteristics. Allow apparent age, body proportions, hair, clothing, and life stage to transform when the scene requires it, while keeping the same recognizable person.";
-const NONHUMAN_I2I_PREAMBLE =
-  "Image-to-image edit using the reference image as the visual identity source for the uploaded subject. The uploaded subject visually represents the named subject in the fact. Preserve the uploaded subject's recognizable visual identity. Do not replace the subject with a human.";
-const T2I_PREAMBLE =
-  "Text-to-image generation: render an original protagonist that fits the scene.";
+// The identity preambles are recipe pieces (`identity.person`, `identity.object`,
+// `identity.none`; `../recipe.ts`).
 
 // The compiler-owned RENDER STYLE default when no visual style is selected
 // (styleId absent or "none"). Medium-only, no lighting instruction — so it can
 // never override a scene's deliberate lighting (David's decision, plan §11.4).
 // Exported so the shared style resolver (styleResolution.ts) freezes the SAME
 // line into a snapshot rather than redefining it.
-export const DEFAULT_PHOTOREALISTIC_STYLE =
-  "Photorealistic rendering: true-to-life materials and textures, realistic optical detail, and the clarity of a high-quality photograph.";
+export const DEFAULT_PHOTOREALISTIC_STYLE = BASELINE_PIECES["style.photoreal"];
 
 // ─── Text utilities ───────────────────────────────────────────────────────
 
@@ -294,7 +295,7 @@ interface DirectiveResult {
   dropped: DroppedCandidate[];
 }
 
-function composeKeyElementsDirective(vp: VisualPlan, haystack: string): DirectiveResult {
+function composeKeyElementsDirective(vp: VisualPlan, haystack: string, r: ResolvedRecipe): DirectiveResult {
   const candidates: Array<{ value: string; source: DroppedCandidate["source"] }> = [
     ...vp.keyVisualElements.map((v) => ({ value: v, source: "keyVisualElements" as const })),
     ...(vp.culturalReferencesUsed ?? []).map((r) => ({ value: r.visualImplicationUsed, source: "culturalReferenceVisual" as const })),
@@ -325,19 +326,19 @@ function composeKeyElementsDirective(vp: VisualPlan, haystack: string): Directiv
     missing.push(value.replace(/[.!?]+$/, ""));
     localHaystack = `${localHaystack} ${value}`;
   }
-  const text = missing.length ? `Ensure these elements are clearly visible: ${missing.join("; ")}.` : "";
+  const text = missing.length ? fillPiece(r, "composition.keyElements", { elements: missing.join("; ") }) : "";
   return { text, dropped };
 }
 
 /** Framing + camera (each if absent) + caption-overlay negative space. */
-function composeCompositionDirective(vp: VisualPlan, haystack: string): string {
+function composeCompositionDirective(vp: VisualPlan, haystack: string, r: ResolvedRecipe): string {
   const c = vp.composition;
   const parts: string[] = [];
   if (c.subjectFraming && !containsMeaningfulPhrase(haystack, c.subjectFraming)) parts.push(c.subjectFraming.trim());
   if (c.cameraStyle && !containsMeaningfulPhrase(haystack, c.cameraStyle)) parts.push(c.cameraStyle.trim());
-  let out = parts.length ? `Composition: ${parts.join("; ")}.` : "";
+  let out = parts.length ? fillPiece(r, "composition.framing", { framing: parts.join("; ") }) : "";
   if (["top", "bottom", "left", "right"].includes(c.negativeSpace)) {
-    const ns = `Leave clean negative space at the ${c.negativeSpace} of the frame for the caption overlay.`;
+    const ns = fillPiece(r, "composition.captionSpace", { side: c.negativeSpace });
     if (!containsMeaningfulPhrase(haystack, "negative space")) out = out ? `${out} ${ns}` : ns;
   }
   return out.trim();
@@ -351,7 +352,7 @@ function composeCompositionDirective(vp: VisualPlan, haystack: string): string {
  * scene text is governed by the render policy below and is fully compatible with
  * this line.
  */
-const OVERLAY_TEXT_EXCLUSION = `Do not bake overlay or caption text into the image: no ${MANDATORY_FORBIDDEN_TEXT_TYPES.join(", ")}.`;
+const overlayTextExclusion = (r: ResolvedRecipe) => fillPiece(r, "text.overlay", { forbidden: MANDATORY_FORBIDDEN_TEXT_TYPES.join(", ") });
 
 /**
  * Always-on anti-gibberish guard for INCIDENTAL text. Image models love to
@@ -363,8 +364,7 @@ const OVERLAY_TEXT_EXCLUSION = `Do not bake overlay or caption text into the ima
  * deliberately clear of the planner-prose scrubber patterns (no "readable text"
  * / "free of … text" bigram).
  */
-const INCIDENTAL_TEXT_GUARD =
-  "Keep incidental background text non-readable; render only the specific in-scene text requested by these instructions.";
+const incidentalTextGuard = (r: ResolvedRecipe) => fillPiece(r, "text.incidental");
 
 /**
  * The supporting-text directive. Always emits the narrow overlay-text exclusion
@@ -379,8 +379,8 @@ const INCIDENTAL_TEXT_GUARD =
  * "require"/"forbid" always emit their line. The incidental-text guard is
  * appended last in every path and yields to whatever text those lines request.
  */
-function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["supportingText"]): string {
-  const lines: string[] = [OVERLAY_TEXT_EXCLUSION];
+function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["supportingText"], r: ResolvedRecipe): string {
+  const lines: string[] = [overlayTextExclusion(r)];
   const pol = vp.supportingTextPolicy;
   const guidance = policy.guidance?.trim() ?? "";
 
@@ -401,29 +401,27 @@ function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["su
       const items = literals
         .map((e) => `${serializeLiteralPromptString(e.content)}${e.placement.trim() ? ` (${e.placement.trim()})` : ""}`)
         .join("; ");
-      lines.push(`Render this in-scene text clearly: ${items}.`);
+      lines.push(fillPiece(r, "text.literal", { items }));
     }
     if (graphics.length > 0) {
-      lines.push(`Depict these as visuals, not as written words: ${graphics.map(fmt).join("; ")}.`);
+      lines.push(fillPiece(r, "text.graphic", { items: graphics.map(fmt).join("; ") }));
     }
-    lines.push(INCIDENTAL_TEXT_GUARD);
+    lines.push(incidentalTextGuard(r));
     return lines.join(" ");
   }
 
   if (policy.mode === "require") {
     lines.push(
-      guidance
-        ? `SUPPORTING TEXT: Readable in-scene text is required in this scene. Show it clearly: ${guidance}.`
-        : "SUPPORTING TEXT: Readable in-scene text is required in this scene; show it clearly.",
+      guidance ? fillPiece(r, "text.requireGuided", { guidance }) : fillPiece(r, "text.require"),
     );
   } else if (policy.mode === "forbid") {
-    lines.push("Avoid readable in-scene text unless required by a higher-priority instruction.");
+    lines.push(fillPiece(r, "text.forbid"));
   } else if (guidance) {
     // "allow" with intentional guidance → emit it; otherwise stay silent (R1).
     lines.push(guidance);
   }
 
-  lines.push(INCIDENTAL_TEXT_GUARD);
+  lines.push(incidentalTextGuard(r));
   return lines.join(" ");
 }
 
@@ -457,8 +455,6 @@ function isViolenceRelevant(input: ImagePromptGenerationInput, vp: VisualPlan): 
   return VIOLENCE_LEXICON_RE.test(haystack);
 }
 
-const VIOLENCE_ALLOW_LINE =
-  "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore.";
 
 /**
  * The violence directive. Precedence: an explicit moderator "soften"/"suppress"
@@ -470,17 +466,18 @@ const VIOLENCE_ALLOW_LINE =
 function composeViolenceDirective(
   policy: RenderPolicy["violence"],
   opts: { relevant: boolean },
+  r: ResolvedRecipe,
 ): string {
   const guidance = policy.guidance?.trim() ?? "";
   if (policy.mode === "suppress") {
-    return "Do not depict violence, injury, or death directly; represent consequences symbolically or through environmental damage.";
+    return fillPiece(r, "violence.suppress");
   }
   if (policy.mode === "soften") {
-    return "Soften violent consequences; avoid graphic injury and visible death unless explicitly required by a higher-priority instruction.";
+    return fillPiece(r, "violence.soften");
   }
   // mode === "allow"
   if (guidance) return guidance;
-  return opts.relevant ? VIOLENCE_ALLOW_LINE : "";
+  return opts.relevant ? fillPiece(r, "violence.allow") : "";
 }
 
 // ─── Moderator visual-strategy override (Phase 2) ───────────────────────────
@@ -545,6 +542,7 @@ function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
 export function composeBubbleDirective(
   bubble: Pick<VisualStrategyBubble, "type" | "text">,
   who: string,
+  r: ResolvedRecipe = BASELINE_RECIPE,
 ): string {
   // Wording is deliberately COMPACT: each directive is billed to the finite
   // BUBBLE_DIRECTIVES_RENDERED_MAX pool, so every fixed word here directly
@@ -553,18 +551,13 @@ export function composeBubbleDirective(
   // legibility — and nothing else (in-scene-ness is stated once by the
   // carveout line).
   const literal = serializeLiteralPromptString(bubble.text);
-  if (bubble.type === "speech") {
-    return `One clean comic-style speech balloon with its tail pointing to ${who}, containing exactly the text ${literal} in clear, legible lettering.`;
-  }
-  return `One cloud-shaped thought balloon with a trail of small circles leading to the head of ${who}, containing exactly the text ${literal} in clear, legible lettering.`;
+  return fillPiece(r, bubble.type === "speech" ? "bubbles.speech" : "bubbles.thought", { who, text: literal });
 }
 
 /** Trailing carveout emitted once after the directives: makes the precedence
  *  over the overlay-caption exclusion and any forbid-mode text policy explicit
  *  IN the compiled language (a balloon is in-scene graphic text, not an
  *  overlay caption). */
-const BUBBLE_CARVEOUT_LINE =
-  "These balloons are intentional in-scene graphic elements requested by these instructions, not overlay captions.";
 
 export interface BubbleDirectivesResult {
   text: string;
@@ -588,7 +581,10 @@ export function composeBubbleDirectives(opts: {
   /** Effective non-subject character labels in the scene (post-precedence). */
   effectiveCharacterLabels: readonly string[];
   renderText: (text: string) => string;
+  /** The global wording; omitted means the baseline. */
+  recipe?: ResolvedRecipe;
 }): BubbleDirectivesResult {
+  const r = opts.recipe ?? BASELINE_RECIPE;
   const warnings: PromptWarning[] = [];
   const directives: string[] = [];
   const normalizedLabels = opts.effectiveCharacterLabels
@@ -619,11 +615,11 @@ export function composeBubbleDirectives(opts: {
         });
       }
     }
-    directives.push(composeBubbleDirective({ type: bubble.type, text: opts.renderText(text) }, who));
+    directives.push(composeBubbleDirective({ type: bubble.type, text: opts.renderText(text) }, who, r));
   });
 
   if (directives.length === 0) return { text: "", warnings: [] };
-  return { text: `${directives.join(" ")} ${BUBBLE_CARVEOUT_LINE}`, warnings };
+  return { text: `${directives.join(" ")} ${fillPiece(r, "bubbles.carveout")}`, warnings };
 }
 
 /**
@@ -798,34 +794,17 @@ interface BindingArgs {
  * sole compiled owner of age transforms now that the modifier prose channel is
  * gone.
  */
-function composeSubjectBinding(opts: BindingArgs): string {
+function composeSubjectBinding(opts: BindingArgs, r: ResolvedRecipe): string {
   const subject = bindingSubjectNoun(opts.name, opts.bindingMode);
   const lines: string[] = [];
   if (opts.applies && opts.targetState.trim()) {
     const ts = opts.targetState.trim();
     const bare = bareNoun(ts);
-    if (opts.bindingMode === "human_i2i") {
-      lines.push(
-        `The reference person is ${subject}.`,
-        `${subject} is ${ts} in this scene.`,
-        `Render exactly one ${subject}.`,
-        `The transformed ${bare} IS ${subject} — the same person de-aged or aged, not a second person.`,
-      );
-    } else {
-      lines.push(
-        `${subject} is ${ts} in this scene — the same subject rendered at that life stage, not a different individual.`,
-        `Render exactly one ${subject}.`,
-      );
-    }
+    lines.push(opts.bindingMode === "human_i2i"
+      ? fillPiece(r, "binding.agePerson", { subject, targetState: ts, noun: bare })
+      : fillPiece(r, "binding.ageOther", { subject, targetState: ts }));
   } else if (opts.avoidDuplicate) {
-    if (opts.bindingMode === "human_i2i") {
-      lines.push(
-        `The reference person is ${subject}.`,
-        `Render exactly one ${subject} — a single instance.`,
-      );
-    } else {
-      lines.push(`Render exactly one ${subject} — a single instance.`);
-    }
+    lines.push(fillPiece(r, opts.bindingMode === "human_i2i" ? "binding.singlePerson" : "binding.singleOther", { subject }));
   }
   return lines.join(" ");
 }
@@ -835,25 +814,16 @@ function composeSubjectBinding(opts: BindingArgs): string {
  * STRICT CONSTRAINTS so the positive binding and the "do not" guards don't
  * duplicate each other. Returns "" when no transform/dup case applies.
  */
-function composeAntiSplitConstraints(opts: BindingArgs): string {
+function composeAntiSplitConstraints(opts: BindingArgs, r: ResolvedRecipe): string {
   const subject = bindingSubjectNoun(opts.name, opts.bindingMode);
   const lines: string[] = [];
   if (opts.applies && opts.targetState.trim()) {
     const bare = bareNoun(opts.targetState);
-    if (opts.bindingMode === "human_i2i") {
-      lines.push(
-        `Do not render the adult reference person separately.`,
-        `Do not add a second, generic ${bare}.`,
-        `Do not show both an adult ${subject} and a ${bare} in the same frame.`,
-      );
-    } else {
-      lines.push(
-        `Do not add a separate, generic ${bare}.`,
-        `Do not show the subject at two ages or life stages in the same frame.`,
-      );
-    }
+    lines.push(opts.bindingMode === "human_i2i"
+      ? fillPiece(r, "constraints.agePerson", { subject, noun: bare })
+      : fillPiece(r, "constraints.ageOther", { noun: bare }));
   } else if (opts.avoidDuplicate) {
-    lines.push(`Do not duplicate, clone, or mirror ${subject} anywhere in the frame.`);
+    lines.push(fillPiece(r, "constraints.duplicate", { subject }));
   }
   return lines.join(" ");
 }
@@ -1231,22 +1201,25 @@ function assembleSections(
   return { prompt, breakdown, overflowBy };
 }
 
+type LabelKey = "coreScene" | "identityReference" | "renderTask" | "subjectBinding" | "subjectRealization" | "roleDetails" | "subjectDetails" | "requiredVisualDetails" | "environment" | "additionalDetails" | "bubbles" | "composition" | "lighting" | "engineNotes" | "renderStyle" | "strictConstraints";
+
 interface ModeContext {
   /** Operational mode/identity clause. Emitted right AFTER CORE SCENE — the
    *  Visual Concept leads; identity/reference (i2i) or the render task (t2i)
    *  follows it prominently. */
-  preamble: string;
+  preamble: "identity.person" | "identity.object" | "identity.none";
   /** Section label + id for that clause. Mode-aware because "IMAGE-TO-IMAGE
    *  TASK" is wrong for the t2i (text-to-image) path. */
-  sectionLabel: string;
+  sectionLabel: "identityReference" | "renderTask";
   sectionId: string;
-  /** Extra required clauses for this mode (fallback gender). */
-  requiredClauses: string[];
+  /** The fallback protagonist gender (text-to-image only), emitted through `identity.gender`. */
+  gender?: string;
   withReferenceUrl: boolean;
 }
 
 function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const { visualPlan: vp, input } = args;
+  const r = args.recipe ?? BASELINE_RECIPE;
   const notes: string[] = [];
 
   const modifierSet = new Set(input.enrichment.modifiers ?? []);
@@ -1341,12 +1314,12 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 
   // Identity / render-task clause — emitted right AFTER the scene. Operational:
   // mode + identity/reference (i2i) or fallback-gender (t2i). Mode-aware label.
-  const clauses = mode.requiredClauses.filter(Boolean).join(" ");
-  const taskBody = [mode.preamble, clauses].filter(Boolean).join(" ");
+  const clauses = mode.gender ? fillPiece(r, "identity.gender", { gender: mode.gender }) : "";
+  const taskBody = [fillPiece(r, mode.preamble), clauses].filter(Boolean).join(" ");
   if (taskBody) haystack = `${haystack} ${taskBody}`;
 
   // SUBJECT BINDING (deterministic identity↔life-stage fusion; when applicable).
-  const binding = composeSubjectBinding(bindingArgs);
+  const binding = composeSubjectBinding(bindingArgs, r);
   if (binding) haystack = `${haystack} ${binding}`;
 
   // Role/action inputs. secondaryCharacters defaults to [] for back-compat with
@@ -1415,7 +1388,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const vpForKeyElements = hasBubbles
     ? { ...vp, keyVisualElements: stripBubbleDirectiveEntries(vp.keyVisualElements ?? [], true, removedProse) }
     : vp;
-  const keyElements = composeKeyElementsDirective(vpForKeyElements, `${haystack} ${subjectListBody}`);
+  const keyElements = composeKeyElementsDirective(vpForKeyElements, `${haystack} ${subjectListBody}`, r);
   const subjectDetails = [
     subjectListBody,
     expressionPose && !coveredWithContiguity(haystack, expressionPose) ? `${expressionPose.replace(/[.!?]+$/, "")}.` : "",
@@ -1449,12 +1422,13 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     subjectNoun: bindingSubjectNoun(subjectName, bindingMode),
     effectiveCharacterLabels: secondaryCharacters.map((c) => c.label),
     renderText: (t) => renderIdentityTokens(t, args.renderedSubject),
+    recipe: r,
   });
 
   // COMPOSITION — framing + camera + caption negative space, plus moderator
   // composition guidance.
   const composition = [
-    composeCompositionDirective(vp, haystack),
+    composeCompositionDirective(vp, haystack, r),
     ov ? composeOverrideList(ov.compositionGuidance) : "",
   ].filter(Boolean).join(" ");
   if (composition) haystack = `${haystack} ${composition}`;
@@ -1469,18 +1443,22 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // 7b. RENDER STYLE — the compiler-owned SINGLE style channel: the resolved
   // style suffix (input.stylePrompt), or the photorealistic default when no
   // style is selected. Required so a chosen style always survives the budget.
-  const renderStyle = input.stylePrompt?.trim() || DEFAULT_PHOTOREALISTIC_STYLE;
+  // A look-less render arrives either with no style or with the photoreal
+  // default already resolved (styleResolution.ts); both read the recipe's line.
+  const stylePrompt = input.stylePrompt?.trim() ?? "";
+  const renderStyle = !stylePrompt || stylePrompt === DEFAULT_PHOTOREALISTIC_STYLE ? fillPiece(r, "style.photoreal") : stylePrompt;
+  const engineNotesText = fillPiece(r, "notes.engine").trim();
 
   // 8. STRICT CONSTRAINTS — supporting-text rule, violence policy, and the
   // negative anti-entity-split guards. Cultural references AND semantic entities
   // are NOT emitted as interpretation meta; they inform the planner, and their
   // concrete visual reaches the engine via the visible-elements gap-fill above.
   const renderPolicy: RenderPolicy = input.renderPolicy ?? DEFAULT_RENDER_POLICY;
-  const supportingText = composeSupportingTextDirective(vp, renderPolicy.supportingText);
+  const supportingText = composeSupportingTextDirective(vp, renderPolicy.supportingText, r);
   const violence = composeViolenceDirective(renderPolicy.violence, {
     relevant: isViolenceRelevant(input, vp),
-  });
-  const antiSplit = composeAntiSplitConstraints(bindingArgs);
+  }, r);
+  const antiSplit = composeAntiSplitConstraints(bindingArgs, r);
   // Reusable failure-mode role/action constraints, keyed off normalized data
   // (frame + modifiers + whether secondary characters exist). Conservative:
   // strong sole-agent / active-action only on a reliable active-action frame.
@@ -1489,6 +1467,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     modifiers: input.enrichment.modifiers ?? [],
     hasSecondaryCharacters,
     subjectName,
+    recipe: r,
   }).join(" ");
   // Moderator forbidden visual details + negative-prompt additions, as "Do not …"
   // lines, appended after the compiler's own constraints.
@@ -1504,42 +1483,48 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // the core scene already restates them), so it must survive the char budget
   // like any other moderator override — required + non-compressible. Purely
   // AI-authored role details keep high/compressible.
+  const L = (key: LabelKey) => fillPiece(r, `label.${key}`);
   const rawSections: Section[] = [
     {
       id: "core_scene",
-      label: "CORE SCENE",
-      text: labeled("CORE SCENE", coreScene),
+      label: L("coreScene"),
+      text: labeled(L("coreScene"), coreScene),
       priority: coreSceneModeratorAuthored ? "required" : "high",
       compressible: !coreSceneModeratorAuthored,
       ...(coreSceneModeratorAuthored ? { moderatorAuthored: true } : {}),
     },
-    { id: mode.sectionId, label: mode.sectionLabel, text: labeled(mode.sectionLabel, taskBody), priority: "required" },
-    { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
-    { id: "subject_realization", label: "SUBJECT REALIZATION", text: labeled("SUBJECT REALIZATION", subjectRealization), priority: "required" },
+    { id: mode.sectionId, label: L(mode.sectionLabel), text: labeled(L(mode.sectionLabel), taskBody), priority: "required" },
+    { id: "subject_binding", label: L("subjectBinding"), text: labeled(L("subjectBinding"), binding), priority: "required" },
+    { id: "subject_realization", label: L("subjectRealization"), text: labeled(L("subjectRealization"), subjectRealization), priority: "required" },
     {
       id: "role_details",
-      label: "ROLE DETAILS",
-      text: labeled("ROLE DETAILS", roleDetails.text),
+      label: L("roleDetails"),
+      text: labeled(L("roleDetails"), roleDetails.text),
       priority: hasOverrideRoles ? "required" : "high",
       compressible: !hasOverrideRoles,
       ...(hasOverrideRoles ? { moderatorAuthored: true } : {}),
     },
-    { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
-    { id: "required_visual_details", label: "REQUIRED VISUAL DETAILS", text: labeled("REQUIRED VISUAL DETAILS", requiredVisualDetails), priority: "required" },
-    { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
-    { id: "additional_details", label: "ADDITIONAL DETAILS", text: labeled("ADDITIONAL DETAILS", additionalDetails), priority: "high", compressible: true },
+    { id: "subject_details", label: L("subjectDetails"), text: labeled(L("subjectDetails"), subjectDetails), priority: "high", compressible: true },
+    { id: "required_visual_details", label: L("requiredVisualDetails"), text: labeled(L("requiredVisualDetails"), requiredVisualDetails), priority: "required" },
+    { id: "environment", label: L("environment"), text: labeled(L("environment"), environment), priority: "high", compressible: true },
+    { id: "additional_details", label: L("additionalDetails"), text: labeled(L("additionalDetails"), additionalDetails), priority: "high", compressible: true },
     {
       id: "bubbles",
-      label: "SPEECH & THOUGHT BUBBLES",
-      text: labeled("SPEECH & THOUGHT BUBBLES", bubbleResult.text),
+      label: L("bubbles"),
+      text: labeled(L("bubbles"), bubbleResult.text),
       priority: "required",
       dedupe: "none",
       ...(hasBubbles ? { moderatorAuthored: true } : {}),
     },
-    { id: "composition", label: "COMPOSITION", text: labeled("COMPOSITION", composition), priority: "high" },
-    { id: "lighting", label: "LIGHTING", text: labeled("LIGHTING", lighting), priority: "medium", compressible: true },
-    { id: "render_style", label: "RENDER STYLE", text: labeled("RENDER STYLE", renderStyle), priority: "required" },
-    { id: "strict_constraints", label: "STRICT CONSTRAINTS", text: labeled("STRICT CONSTRAINTS", strictConstraints), priority: "required" },
+    { id: "composition", label: L("composition"), text: labeled(L("composition"), composition), priority: "high" },
+    { id: "lighting", label: L("lighting"), text: labeled(L("lighting"), lighting), priority: "medium", compressible: true },
+    // Engine notes: only when the recipe has some, so a recipe without them
+    // compiles exactly as the baseline does (breakdown included).
+    ...(engineNotesText
+      ? [{ id: "engine_notes", label: L("engineNotes"), text: labeled(L("engineNotes"), engineNotesText), priority: "required" as const }]
+      : []),
+    { id: "render_style", label: L("renderStyle"), text: labeled(L("renderStyle"), renderStyle), priority: "required" },
+    { id: "strict_constraints", label: L("strictConstraints"), text: labeled(L("strictConstraints"), strictConstraints), priority: "required" },
   ];
 
   // Final identity gate: resolve any residual {NAME}/{SUBJ}/… tokens the LLM
@@ -1614,10 +1599,9 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 
 export function compileNanoBanana2HumanI2I(args: CompileArgs): CompiledImagePrompt {
   return compile(args, {
-    preamble: HUMAN_I2I_PREAMBLE,
-    sectionLabel: "IDENTITY & REFERENCE",
+    preamble: "identity.person",
+    sectionLabel: "identityReference",
     sectionId: "identity_reference",
-    requiredClauses: [],
     withReferenceUrl: true,
   });
 }
@@ -1627,10 +1611,9 @@ export function compileNanoBanana2NonhumanI2I(args: CompileArgs): CompiledImageP
   // human." guard, so no extra clause is needed — and adding a paraphrase would
   // duplicate the instruction.
   return compile(args, {
-    preamble: NONHUMAN_I2I_PREAMBLE,
-    sectionLabel: "IDENTITY & REFERENCE",
+    preamble: "identity.object",
+    sectionLabel: "identityReference",
     sectionId: "identity_reference",
-    requiredClauses: [],
     withReferenceUrl: true,
   });
 }
@@ -1638,10 +1621,10 @@ export function compileNanoBanana2NonhumanI2I(args: CompileArgs): CompiledImageP
 export function compileNanoBanana2T2I(args: CompileArgs): CompiledImagePrompt {
   const gender = args.input.renderControls.fallbackSubjectGender;
   return compile(args, {
-    preamble: T2I_PREAMBLE,
-    sectionLabel: "RENDER TASK",
+    preamble: "identity.none",
+    sectionLabel: "renderTask",
     sectionId: "render_task",
-    requiredClauses: gender ? [`Render a ${gender} protagonist.`] : [],
+    ...(gender ? { gender } : {}),
     withReferenceUrl: false,
   });
 }

@@ -24,6 +24,8 @@
  * infer them from arbitrary prose. They are documented follow-up.
  */
 
+import { BASELINE_RECIPE, fillPiece, type ResolvedRecipe } from "../recipe";
+
 export interface FailureModeConstraintInput {
   /** Free-text frame name from the visual plan (e.g. "direct_action"). */
   selectedFrame?: string;
@@ -33,6 +35,8 @@ export interface FailureModeConstraintInput {
   hasSecondaryCharacters: boolean;
   /** Rendered subject name, already resolved ("" when unknown). */
   subjectName: string;
+  /** The global wording (the prompt tuner); omitted means the baseline. */
+  recipe?: ResolvedRecipe;
 }
 
 /**
@@ -60,44 +64,37 @@ export function failureModeConstraints(input: FailureModeConstraintInput): strin
   const modifiers = new Set(input.modifiers ?? []);
   const activeAction = isActiveActionFrame(input.selectedFrame);
   const lines: string[] = [];
+  const r = input.recipe ?? BASELINE_RECIPE;
 
   // ── Role binding for multi-character scenes ──────────────────────────────
   if (input.hasSecondaryCharacters) {
     // Soft, always-safe: everyone keeps their stated role.
-    lines.push(
-      `Keep each named character in their stated visual role; do not swap ${subject}'s role with a secondary character.`,
-    );
+    lines.push(fillPiece(r, "constraints.roles", { subject }));
     // Strong sole-agent — only when the frame reliably says the subject is the
     // active agent. Skipped for aftermath / symbolic / reaction frames so it
     // never fights an intended co-action or reaction scene.
     if (activeAction) {
-      lines.push(`Only ${subject} performs the central action; secondary characters do not take it over.`);
+      lines.push(fillPiece(r, "constraints.soleAgent", { subject }));
     }
   }
 
   // ── Active-action emphasis (covers solo active facts too) ────────────────
   // Show the subject doing it, not posing afterward. Reliable-signal-gated.
   if (activeAction) {
-    lines.push(`Show ${subject} actively performing the central action, not posing or passively present afterward.`);
+    lines.push(fillPiece(r, "constraints.activeAction", { subject }));
   }
 
   // ── Soft, reusable packs keyed off modifiers we already store ─────────────
   // These prevent the common "focus drifts / link is unclear / subject becomes
   // a bystander" mistakes WITHOUT asserting sole-agent behavior.
   if (modifiers.has("crowd_reaction")) {
-    lines.push(
-      `Keep ${subject} the visual focal point; the crowd reacts to and supports ${subject} rather than replacing ${subject} as the subject of the image.`,
-    );
+    lines.push(fillPiece(r, "constraints.crowd", { subject }));
   }
   if (modifiers.has("clear_causal_relationship")) {
-    lines.push(
-      `Show the cause and its effect together in the frame so the causal link is legible, not an unrelated aftermath.`,
-    );
+    lines.push(fillPiece(r, "constraints.causal"));
   }
   if (modifiers.has("subject_object_reversal")) {
-    lines.push(
-      `Realize ${subject} through the reversed role the scene requires; do not render ${subject} as a separate, uninvolved bystander beside the object.`,
-    );
+    lines.push(fillPiece(r, "constraints.reversal", { subject }));
   }
 
   return lines;
