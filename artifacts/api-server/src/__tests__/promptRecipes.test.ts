@@ -128,3 +128,35 @@ describe("the moderation freshness hash", () => {
     assert.equal(otherMode, plain, "a promotion for another mode's engine does not");
   });
 });
+
+describe("an attempt records the wording its caller froze (Codex, PR #926 round 2)", () => {
+  it("a caller's version wins over a promotion that landed since, null being the frozen baseline; omitted reads the live one", async () => {
+    const { buildAndEnqueueImagePromptAttempt } = await import("../lib/imagePromptAttempts.js");
+    const { syntheticAnalysisForReference, defaultScenarioRenderControls } = await import("../lib/reviewRenderScenarios.js");
+    const { defaultIdentityPolicyForRenderMode } = await import("@workspace/api-zod");
+    const { factsTable, imagePromptAttemptsTable, asyncJobsTable } = await import("@workspace/db/schema");
+    const [fact] = await db.insert(factsTable).values({ text: `${P} {NAME} lifts a car`, isActive: false, enrichment: VALID_ENRICHMENT as never }).returning({ id: factsTable.id });
+    const v = await save({ "identity.person": "Wording B for the person photo." }, "B");
+    await promote({ versionId: v.body.version.id });
+    const enqueue = (extra: Record<string, unknown>) => buildAndEnqueueImagePromptAttempt({
+      factId: fact!.id, userId: null, enrichment: VALID_ENRICHMENT as never, renderedFactText: "Alex lifts a car",
+      analysis: syntheticAnalysisForReference("male"), subjectRenderMode: "human_identity_i2i",
+      identityPolicy: defaultIdentityPolicyForRenderMode("human_identity_i2i"), renderControls: defaultScenarioRenderControls("i2i_male_default") as never,
+      imageEngineId: `${FAMILY}-i2i`, ...extra,
+    });
+    const ids: number[] = [];
+    try {
+      const frozen = await enqueue({ recipeVersionId: null });
+      const live = await enqueue({});
+      ids.push(frozen.attemptId, live.attemptId);
+      const rows = await db.select({ id: imagePromptAttemptsTable.id, v: imagePromptAttemptsTable.recipeVersionId }).from(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, ids));
+      assert.equal(rows.find((r) => r.id === frozen.attemptId)!.v, null, "the baseline its caller hashed, not the version promoted since");
+      assert.equal(rows.find((r) => r.id === live.attemptId)!.v, v.body.version.id, "no version given: the live one");
+    } finally {
+      await promote({ versionId: null, confirmPolicy: true });
+      for (const id of ids) await db.delete(asyncJobsTable).where(eq(asyncJobsTable.dedupeKey, `image_prompt_generation:attempt:${id}`));
+      await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, ids.length ? ids : [0]));
+      await db.delete(factsTable).where(eq(factsTable.id, fact!.id));
+    }
+  });
+});

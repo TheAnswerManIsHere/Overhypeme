@@ -87,6 +87,41 @@ describe("PromptRecipes", () => {
     expect(posts[1]!.body).toEqual({ versionId: null, confirmPolicy: true });
   });
 
+  it("locks the editor while a save is in flight, and releases it once the saved version is applied (Codex, PR #926)", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if ((init as RequestInit | undefined)?.method === "POST") await held;
+      return base(url as string, init as RequestInit);
+    });
+    render(<PromptRecipes />);
+    await screen.findByTestId("recipes-editor");
+    fireEvent.change(screen.getByTestId("recipes-piece-identity.person"), { target: { value: "Keep the face." } });
+    fireEvent.change(screen.getByTestId("recipes-note"), { target: { value: "n" } });
+    fireEvent.click(screen.getByTestId("recipes-save"));
+    await waitFor(() => expect((screen.getByTestId("recipes-family") as HTMLSelectElement).disabled).toBe(true));
+    expect((screen.getByTestId("recipes-piece-identity.person") as HTMLTextAreaElement).readOnly).toBe(true);
+    expect((screen.getByTestId("recipes-note") as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByTestId("recipes-edit-11") as HTMLButtonElement).disabled).toBe(true);
+    release();
+    await screen.findByTestId("recipes-notice");
+    expect((screen.getByTestId("recipes-family") as HTMLSelectElement).disabled).toBe(false);
+    expect((screen.getByTestId("recipes-piece-identity.person") as HTMLTextAreaElement).readOnly).toBe(false);
+  });
+
+  it("keeps the draft when a save is refused", async () => {
+    saveResponse = { status: 409, body: { refusal: "the wording does not fit the prompt", problems: ["too long"] } };
+    render(<PromptRecipes />);
+    await screen.findByTestId("recipes-editor");
+    fireEvent.change(screen.getByTestId("recipes-piece-identity.person"), { target: { value: "My long wording." } });
+    fireEvent.change(screen.getByTestId("recipes-note"), { target: { value: "n" } });
+    fireEvent.click(screen.getByTestId("recipes-save"));
+    await screen.findByTestId("recipes-problems");
+    expect((screen.getByTestId("recipes-piece-identity.person") as HTMLTextAreaElement).value).toBe("My long wording.");
+    expect((screen.getByTestId("recipes-family") as HTMLSelectElement).disabled).toBe(false);
+  });
+
   it("does nothing when the first confirmation is declined", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<PromptRecipes />);

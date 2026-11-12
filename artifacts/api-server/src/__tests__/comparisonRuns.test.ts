@@ -463,3 +463,106 @@ describe("a comparison run end to end, with fakes", () => {
     }
   });
 });
+
+// ─── The prompt tuner: comparing prompt wording on one engine (PLAN_PROMPT_TUNER.md, B) ───
+
+describe("a prompt comparison", () => {
+  it("draws one shared scene with each version's wording on one engine, records each picture's exact prompt, and reveals the versions in the results", async () => {
+    const { promptRecipeVersionsTable, promptRecipePromotionsTable } = await import("@workspace/db/schema");
+    const [v] = await db.insert(promptRecipeVersionsTable).values({
+      engineFamily: FAMILIES.gpt, number: 1, note: "shorter identity",
+      pieces: { "identity.person": "Use the photo as the person's face, exactly." },
+    }).returning({ id: promptRecipeVersionsTable.id });
+    try {
+      const refused = await createComparisonSet({
+        label: `${P} prompt-bad`, round: 1, factIds: [factId], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"],
+        engineFamilies: [FAMILIES.flux], kind: "prompt", recipeVersionIds: [null, v!.id],
+      }, adminId).then(() => null, (e: Error) => e);
+      assert.match(String(refused?.message), /belongs to/, "a version of another family is refused");
+
+      const { setId, cells } = await createComparisonSet({
+        label: `${P} prompt`, round: 1, factIds: [factId], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"],
+        engineFamilies: [FAMILIES.gpt], kind: "prompt", recipeVersionIds: [null, v!.id],
+      }, adminId);
+      assert.equal(cells, 2, "one cell per version on the family's one edit engine");
+      const plannerCalls = plannerRetries.length;
+      await drain((await start(setId, "prepare")).body.run.id);
+      assert.equal(plannerRetries.length - plannerCalls, 1, "the scene is written once for the panel");
+      const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
+      assert.ok(panel!.compileArgs, "the scene is frozen with the panel");
+      const sent = submissions.length;
+      await drain((await start(setId, "render")).body.run.id);
+      assert.equal(submissions.length - sent, 2);
+      const drawn = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panel!.id));
+      const baseline = drawn.find((c) => c.recipeVersionId == null)!;
+      const tuned = drawn.find((c) => c.recipeVersionId === v!.id)!;
+      assert.match(String(tuned.promptText), /IDENTITY & REFERENCE: Use the photo as the person's face, exactly\./);
+      assert.doesNotMatch(String(baseline.promptText), /face, exactly/);
+      assert.equal(String(baseline.promptText).replace(/IDENTITY & REFERENCE: .*? SUBJECT/, ""), String(tuned.promptText).replace(/IDENTITY & REFERENCE: .*? SUBJECT/, ""), "only the wording differs");
+      assert.ok(submissions.slice(sent).some((s) => String(s.input["prompt"]).includes("face, exactly")), "the tuned prompt is what was sent");
+
+      const { getJudgedResults } = await import("../lib/comparison/judging.js");
+      const results = await getJudgedResults([setId]);
+      assert.equal(results!.kind, "prompt");
+      assert.equal(results!.family, FAMILIES.gpt);
+      assert.deepEqual(results!.rows.i2i!.map((r) => r.recipeLabel).sort(), ["Baseline", "Version 1"]);
+      assert.ok(results!.byLook["none"], "the same rows within each look");
+      assert.equal(results!.pictures.length, 2);
+      assert.ok(results!.pictures.every((p) => p.promptText), "every picture is revealed with its exact prompt");
+    } finally {
+      await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P} prompt%`));
+      await db.delete(promptRecipePromotionsTable).where(eq(promptRecipePromotionsTable.engineFamily, FAMILIES.gpt));
+      await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, v!.id));
+    }
+  });
+
+  it("draws a no-photo and a pet panel with each version's wording for that kind of picture (PR #927)", async () => {
+    const { promptRecipeVersionsTable, promptRecipePromotionsTable } = await import("@workspace/db/schema");
+    const [v] = await db.insert(promptRecipeVersionsTable).values({
+      engineFamily: FAMILIES.gpt, number: 1, note: "other kinds of picture",
+      pieces: {
+        "identity.none": "Text-to-image generation: invent a protagonist suited to the scene.",
+        "identity.object": "Image-to-image edit: the reference image is the subject, kept recognisable. Never swap it for a human.",
+      },
+    }).returning({ id: promptRecipeVersionsTable.id });
+    try {
+      const { setId, cells } = await createComparisonSet({
+        label: `${P} prompt-other`, round: 1, factIds: [factId], scenarioKeys: ["generic_t2i", "i2i_nonhuman_animal"], lookStyleIds: ["none"],
+        engineFamilies: [FAMILIES.gpt], kind: "prompt", recipeVersionIds: [null, v!.id],
+      }, adminId);
+      assert.equal(cells, 4, "two kinds of picture, two versions each");
+      await drain((await start(setId, "prepare")).body.run.id);
+      await drain((await start(setId, "render")).body.run.id);
+      const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
+      for (const [scenario, mine] of [["generic_t2i", /invent a protagonist suited to the scene/], ["i2i_nonhuman_animal", /Never swap it for a human/]] as const) {
+        const panel = panels.find((p) => p.scenarioKey === scenario)!;
+        assert.ok(panel.compileArgs, `${scenario}: the scene is frozen`);
+        const drawn = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panel.id));
+        const tuned = drawn.find((c) => c.recipeVersionId === v!.id)!;
+        const baseline = drawn.find((c) => c.recipeVersionId == null)!;
+        assert.match(String(tuned.promptText), mine, `${scenario}: the version's wording is drawn`);
+        assert.doesNotMatch(String(baseline.promptText), mine, `${scenario}: the baseline keeps today's wording`);
+      }
+    } finally {
+      await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P} prompt%`));
+      await db.delete(promptRecipePromotionsTable).where(eq(promptRecipePromotionsTable.engineFamily, FAMILIES.gpt));
+      await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, v!.id));
+    }
+  });
+
+  it("an engine set draws each family with its live wording, frozen when the set is made", async () => {
+    const { promptRecipeVersionsTable, promptRecipePromotionsTable } = await import("@workspace/db/schema");
+    const [v] = await db.insert(promptRecipeVersionsTable).values({ engineFamily: FAMILIES.gpt, number: 2, note: "live", pieces: {} }).returning({ id: promptRecipeVersionsTable.id });
+    await db.insert(promptRecipePromotionsTable).values({ engineFamily: FAMILIES.gpt, versionId: v!.id });
+    try {
+      const setId = await newSet("live-wording");
+      const panels = await db.select({ id: comparisonPanelsTable.id }).from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
+      const cells = await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id)));
+      for (const c of cells) assert.equal(c.recipeVersionId, c.engineId.startsWith(FAMILIES.gpt) ? v!.id : null, c.engineId);
+    } finally {
+      await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P} live-wording%`));
+      await db.delete(promptRecipePromotionsTable).where(eq(promptRecipePromotionsTable.engineFamily, FAMILIES.gpt));
+      await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, v!.id));
+    }
+  });
+});

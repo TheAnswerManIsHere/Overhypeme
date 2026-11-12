@@ -55,7 +55,9 @@ import { resolveRenderReviewInput } from "../imagePrompt/resolveRenderReviewInpu
 import { assembleImagePromptForPreview } from "../imagePrompt/preview";
 import { withoutLlmRetries } from "../utilityLLM";
 import { renderPersonalized } from "../renderCanonical";
-import type { IdentityPolicy } from "@workspace/api-zod";
+import { compileForSubjectRenderMode } from "../imagePrompt/compilers/nanoBanana2";
+import { recipeById } from "../imagePrompt/recipeStore";
+import type { CompiledPrompt, IdentityPolicy, ImagePromptGenerationInput, VisualPlan } from "@workspace/api-zod";
 import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
 import { buildEngineInput } from "../engineInterpreter";
@@ -315,6 +317,8 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     styleSnapshot: { lookStyleId: panel.lookStyleId, stylePrompt: resolved.stylePrompt, styleSource: resolved.styleSource },
     renderControls: resolved.renderControls,
     ...frozenJudgingReference(resolved.renderedFactText, enrichment.data, resolved.renderedSubject),
+    // The scene, frozen once and shared: each cell compiles it with its own wording.
+    compileArgs: { visualPlan: assembled.output.visualPlan, plannerPrompt: assembled.output.compiledPrompt, input: assembled.input, renderedSubject: resolved.renderedSubject } satisfies PanelCompileArgs,
     error: null,
     updatedAt: new Date(),
   }).where(eq(comparisonPanelsTable.id, panel.id));
@@ -339,6 +343,27 @@ export function frozenJudgingReference(
     frozenFactText: renderedFactText,
     frozenGag: gag ? renderPersonalized(gag, subject.name, subject.pronouns) : null,
   };
+}
+
+/** What preparation freezes on a panel so each cell can compile the same scene with its own wording. */
+interface PanelCompileArgs { visualPlan: VisualPlan; plannerPrompt: CompiledPrompt; input: ImagePromptGenerationInput; renderedSubject: { name: string; pronouns: string | null } }
+
+/**
+ * The exact prompt a cell sends: the panel's frozen scene compiled with the
+ * cell's prompt wording (the prompt tuner), or, for a panel prepared before
+ * scenes were frozen, the panel's one compiled prompt.
+ */
+export async function cellPromptText(panel: ComparisonPanel, cell: Pick<ComparisonCell, "recipeVersionId">): Promise<string | null> {
+  const args = panel.compileArgs as PanelCompileArgs | null;
+  if (!args) return promptTextOf(panel.compiledPrompt);
+  const compiled = compileForSubjectRenderMode({
+    visualPlan: args.visualPlan,
+    compiledPrompt: args.plannerPrompt,
+    input: args.input,
+    renderedSubject: args.renderedSubject,
+    recipe: await recipeById(cell.recipeVersionId),
+  });
+  return compiled.prompt || null;
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
@@ -458,7 +483,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
     await release(p.reservationId);
     return { ok: true, result: "refused before dispatch" };
   }
-  const promptText = promptTextOf(panel!.compiledPrompt);
+  const promptText = await cellPromptText(panel!, cell);
   const aspectRatio = (panel!.renderControls as { aspectRatio?: string } | null)?.aspectRatio;
   let input: Record<string, unknown>;
   let requestSettings;
@@ -486,7 +511,7 @@ async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promi
   let requestId = cell.falRequestId;
   if (!requestId) {
     // The submission's clock starts here, with the marker (David, 2026-11-10: render time matters).
-    await db.update(comparisonCellsTable).set({ requestSettings, submittedAt: new Date(), completedAt: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
+    await db.update(comparisonCellsTable).set({ requestSettings, promptText, submittedAt: new Date(), completedAt: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cell.id));
     // Image tracing: the exact input and the admin who started the run,
     // persisted before the vendor is called; a recovery reads this row.
     const [run] = await db.select({ createdBy: comparisonRunsTable.createdBy }).from(comparisonRunsTable)

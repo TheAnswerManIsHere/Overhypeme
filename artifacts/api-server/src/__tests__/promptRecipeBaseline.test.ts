@@ -135,3 +135,34 @@ describe("the save-time budget check covers every piece (Codex, PR #926 round 1)
     assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { "text.forbid": pad("text.forbid", 20) })), [], "a small edit to a newly covered line still saves");
   });
 });
+
+describe("a slot filled with a fact's own text appears no more often than today's wording uses it (Codex, PR #926 round 2)", () => {
+  it("refuses the reviewer's eight-fold {guidance}, keeps the baseline, and lets the name repeat", () => {
+    const eight = Array.from({ length: 8 }, (_, i) => `${i}: {guidance}`).join(" ");
+    const problems = recipeProblems({ "text.requireGuided": eight });
+    assert.ok(problems.some((p) => /\{guidance\} may appear once/.test(p)), JSON.stringify(problems));
+    assert.deepEqual(recipeProblems(BASELINE_PIECES), []);
+    assert.deepEqual(recipeProblems({ "constraints.duplicate": "Do not clone {subject}; one {subject} only." }), [], "the name is measured at its longest");
+    assert.deepEqual(recipeProblems({ "constraints.agePerson": BASELINE_PIECES["constraints.agePerson"] }), [], "today's double {noun} stays allowed");
+  });
+
+  it("refuses one extra use of every fact-text slot in every piece", () => {
+    const missed: string[] = [];
+    for (const p of RECIPE_PIECES) {
+      for (const slot of p.slots) {
+        if (slot === "subject" || slot === "gender") continue;
+        if (recipeProblems({ [p.key]: `${p.text} {${slot}}` }).length === 0) missed.push(`${p.key} {${slot}}`);
+      }
+    }
+    assert.deepEqual(missed, []);
+  });
+});
+
+describe("a recipe cannot drop the fact's own text (build report, PR #926)", () => {
+  it("refuses an emptied balloon or guidance piece, and still allows emptying a do-not", () => {
+    for (const key of ["bubbles.speech", "bubbles.thought", "text.requireGuided", "text.literal", "text.graphic"]) {
+      assert.ok(recipeProblems({ [key]: "  " }).some((p) => /fact's own text/.test(p)), key);
+    }
+    assert.deepEqual(recipeProblems({ "constraints.causal": "" }), []);
+  });
+});

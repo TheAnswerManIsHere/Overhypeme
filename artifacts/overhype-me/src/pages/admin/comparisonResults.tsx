@@ -20,6 +20,7 @@
  * on the two editions are never read together; the server refuses the mix.
  */
 import { useCallback, useEffect, useState } from "react";
+import { promoteRecipeVersion } from "@/components/admin/promoteRecipeVersion";
 import { Link } from "wouter";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -28,6 +29,9 @@ import { COMPARISON_SCORE_MAX, JUDGING_CATEGORIES, type JudgingCategoryKey } fro
 interface JudgedRow {
   family: string;
   engineId: string;
+  recipeVersionId?: number | null;
+  recipeLabel?: string;
+  recipeNote?: string | null;
   panels: number;
   picked: number;
   pickShare: number | null;
@@ -43,11 +47,20 @@ interface JudgedRow {
   slowestSeconds: number | null;
   timed: number;
 }
+interface JudgedPicture {
+  panelId: number; factId: number; scenarioKey: string; lookStyleId: string; imageMode: string;
+  engineId: string; family: string; recipeVersionId: number | null; recipeLabel: string;
+  promptText: string | null; picked: boolean; broken: boolean; lost: boolean; scores: Partial<Record<JudgingCategoryKey, number>> | null;
+}
 interface JudgedResults {
   edition: 2;
+  kind?: "engine" | "prompt";
+  family?: string | null;
   sets: Array<{ id: number; label: string; round: number; imageSize?: string }>;
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost: number };
   rows: Record<string, JudgedRow[]>;
+  byLook?: Record<string, Record<string, JudgedRow[]>>;
+  pictures?: JudgedPicture[];
 }
 
 interface Score { mean: number | null; count: number }
@@ -186,7 +199,13 @@ function ScoresTable({ title, groups, families, testId }: { title: string; group
 }
 
 /** One mode's engines by pick share, each with its category averages, marks, cost and time. */
-function JudgedTable({ label, rows }: { label: string; rows: JudgedRow[] }) {
+/**
+ * A row's name comes from what distinguishes the rows, never from whether a
+ * Promote button is shown: a wording comparison names the version and its
+ * note in every table; an engine comparison names the engine and, under it,
+ * the wording it drew with (PR #927 round 1).
+ */
+function JudgedTable({ label, rows, wording, onPromote }: { label: string; rows: JudgedRow[]; wording: boolean; onPromote?: (row: JudgedRow) => void }) {
   const asked = JUDGING_CATEGORIES.filter((c) => rows.some((r) => r.categories[c.key]?.count > 0));
   return (
     <div className="rounded-sm border border-border bg-background p-3 space-y-1 overflow-x-auto" data-testid={`results-judged-${label}`}>
@@ -194,25 +213,35 @@ function JudgedTable({ label, rows }: { label: string; rows: JudgedRow[] }) {
       <table className="text-xs w-full">
         <thead>
           <tr className="text-muted-foreground">
-            <th className="text-left font-semibold py-0.5">Engine</th>
+            <th className="text-left font-semibold py-0.5">{wording ? "Wording" : "Engine"}</th>
             <th className="text-right font-semibold">Picked to send</th>
             {asked.map((c) => <th key={c.key} className="text-right font-semibold" title={c.help}>{c.label}</th>)}
             <th className="text-right font-semibold">Broken</th>
             <th className="text-right font-semibold">Couldn't draw (as 1)</th>
             <th className="text-right font-semibold">Billed per image</th>
             <th className="text-right font-semibold">Time per image</th>
+            {onPromote && <th />}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.engineId} className="border-t border-border" data-testid={`results-row-${row.engineId}`}>
-              <td className="py-0.5 font-mono text-foreground">{row.family}</td>
+            <tr key={`${row.engineId}|${row.recipeVersionId ?? 0}`} className="border-t border-border" data-testid={`results-row-${row.engineId}${wording ? `-${row.recipeVersionId ?? 0}` : row.recipeVersionId != null ? `-v${row.recipeVersionId}` : ""}`}>
+              <td className="py-0.5 font-mono text-foreground">
+                {wording ? (row.recipeLabel ?? "Baseline") : row.family}
+                {!wording && <span className="block text-[10px] text-muted-foreground font-sans">{row.recipeLabel ?? "Baseline"} wording</span>}
+                {wording && row.recipeNote ? <span className="block text-[10px] text-muted-foreground font-sans">{row.recipeNote}</span> : null}
+              </td>
               <td className="text-right font-bold text-foreground">{row.pickShare == null ? "—" : `${Math.round(row.pickShare * 100)}% (${row.picked} of ${row.panels})`}</td>
-              {asked.map((c) => <td key={c.key} className="text-right text-foreground" title={`${row.categories[c.key]?.count ?? 0} pictures`}>{meanText(row.categories[c.key]?.mean ?? null)}</td>)}
+              {asked.map((c) => <td key={c.key} className="text-right text-foreground">{meanText(row.categories[c.key]?.mean ?? null)}<span className="block text-[10px] text-muted-foreground">{row.categories[c.key]?.count ?? 0} pictures</span></td>)}
               <td className={`text-right ${row.broken > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-muted-foreground"}`}>{row.broken}</td>
               <td className={`text-right ${row.lost > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-muted-foreground"}`}>{row.lost}</td>
               <td className="text-right font-mono text-foreground">{billedText(row)}</td>
               <td className="text-right font-mono text-foreground">{timeText(row)}</td>
+              {onPromote && (
+                <td className="text-right">
+                  <button type="button" onClick={() => onPromote(row)} data-testid={`results-promote-${row.recipeVersionId ?? 0}`} className="px-2 py-0.5 rounded-sm border border-border hover:bg-muted">Promote</button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -222,6 +251,14 @@ function JudgedTable({ label, rows }: { label: string; rows: JudgedRow[] }) {
 }
 
 function JudgedResultsView({ data }: { data: JudgedResults }) {
+  const [notice, setNotice] = useState("");
+  const prompt = data.kind === "prompt" && !!data.family;
+  /** Promote a version from its results (plan PLAN_PROMPT_TUNER.md, D): a confirmation, and a second for a changed policy line. */
+  const promote = async (row: JudgedRow) => {
+    const result = await promoteRecipeVersion({ family: data.family!, versionId: row.recipeVersionId ?? null, name: row.recipeLabel ?? "Baseline" });
+    if (result) setNotice(result.ok ? result.message : `Not promoted: ${result.message}`);
+  };
+  const looks = Object.keys(data.byLook ?? {}).sort();
   return (
     <div className="space-y-4">
       <p className="text-sm text-foreground" data-testid="results-summary">
@@ -234,10 +271,35 @@ function JudgedResultsView({ data }: { data: JudgedResults }) {
         <p className="text-sm text-muted-foreground">No pictures yet.</p>
       ) : (
         <div className="space-y-3">
-          {["t2i", "i2i"].filter((m) => data.rows[m]).map((mode) => <JudgedTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.rows[mode]!} />)}
+          {["t2i", "i2i"].filter((m) => data.rows[m]).map((mode) => <JudgedTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.rows[mode]!} wording={prompt} {...(prompt ? { onPromote: (row: JudgedRow) => void promote(row) } : {})} />)}
+          {notice && <p className="text-sm text-foreground" data-testid="results-notice">{notice}</p>}
+          {looks.length > 1 && (
+            <div className="space-y-2" data-testid="results-by-look">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">By look</h3>
+              {looks.map((look) => ["t2i", "i2i"].filter((m) => data.byLook![look]![m]).map((mode) => (
+                <JudgedTable key={`${look}-${mode}`} label={`${look === "none" ? "No look" : look} · ${MODE_LABEL[mode] ?? mode}`} rows={data.byLook![look]![mode]!} wording={prompt} />
+              )))}
+            </div>
+          )}
           <p className="text-[11px] text-muted-foreground">
-            "Picked to send" is the share of judged panels on which this engine's picture was the one you would send; a picture that could not be drawn stays in the count and can never be picked. Each category is averaged over the pictures it was asked on (1 to {COMPARISON_SCORE_MAX}); a picture that could not be drawn counts as a 1 in each. Results rest on the number of panels shown beside the share.
+            "Picked to send" is the share of judged panels on which this {prompt ? "wording's" : "engine's"} picture was the one you would send; a picture that could not be drawn stays in the count and can never be picked. Each category is averaged over the pictures it was asked on (1 to {COMPARISON_SCORE_MAX}); a picture that could not be drawn counts as a 1 in each. Results rest on the number of panels shown beside the share.
           </p>
+          {(data.pictures ?? []).length > 0 && (
+            <details className="rounded-sm border border-dashed border-border p-2 text-xs" data-testid="results-pictures">
+              <summary className="cursor-pointer font-bold text-foreground">Every picture, with the exact prompt it was sent</summary>
+              <ul className="mt-2 space-y-2">
+                {data.pictures!.map((p, i) => (
+                  <li key={i} className="space-y-0.5">
+                    <p className="text-foreground">
+                      Fact #{p.factId} · {p.scenarioKey} · {p.lookStyleId} · <span className="font-mono">{p.family}</span> · {p.recipeLabel}
+                      {p.picked ? " · picked to send" : ""}{p.broken ? " · broken" : ""}{p.lost ? " · could not be drawn" : ""}
+                    </p>
+                    {p.promptText && <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground max-h-40 overflow-auto">{p.promptText}</pre>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
     </div>

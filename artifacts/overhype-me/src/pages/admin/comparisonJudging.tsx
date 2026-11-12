@@ -136,6 +136,14 @@ export function JudgementForm({ panel, onSave, saving }: { panel: BlindPanel; on
             <dd className="inline text-muted-foreground">{CATEGORY[k].help}</dd>
           </div>
         ))}
+        <div>
+          <dt className="inline font-bold text-foreground">Broken: </dt>
+          <dd className="inline text-muted-foreground">a hard failure: the wrong person, extra limbs, or stray text or a watermark in the picture.</dd>
+        </div>
+        <div>
+          <dt className="inline font-bold text-foreground">Send this one: </dt>
+          <dd className="inline text-muted-foreground">the one picture you would send to a friend.</dd>
+        </div>
       </dl>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="judging-images">
         {panel.images.map((img, i) => {

@@ -75,6 +75,14 @@ export interface BuildImagePromptAttemptArgs {
    */
   imageEngineId?: string;
   /**
+   * The prompt recipe version to compile with (the prompt tuner). Omitted
+   * (undefined): the live version for the engine's family, read now. A caller
+   * that folded a version into a hash passes the one it hashed — `null` then
+   * means the baseline, frozen — so the stored attempt and its hash name the
+   * same wording (Codex, PR #926 round 2).
+   */
+  recipeVersionId?: number | null;
+  /**
    * Moderation render-scenario metadata. Set ONLY for Step-2 visual-review
    * attempts; makes `image_prompt_attempts` the durable source of truth for the
    * scenario grid (see factRenderScenarios.ts / reviewRenderScenarios.ts).
@@ -113,7 +121,9 @@ export async function buildAndEnqueueImagePromptAttempt(
   // Routing is resolved once, here, and stored: history never re-derives it.
   const imageEngine = await resolveImageEngine(generationMode, args.imageEngineId);
   // The wording is chosen here too, so a promotion never changes queued work.
-  const recipeVersionId = await liveRecipeVersionIdForFamily(imageEngine.family ?? imageEngine.id);
+  const recipeVersionId = args.recipeVersionId !== undefined
+    ? args.recipeVersionId
+    : await liveRecipeVersionIdForFamily(imageEngine.family ?? imageEngine.id);
   const renderJobId = randomUUID();
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)

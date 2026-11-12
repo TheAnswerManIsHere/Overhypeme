@@ -11,8 +11,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, Circle, Loader2, MinusCircle, Plus } from "lucide-react";
-import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspace/api-zod";
+import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS, RENDER_SCENARIO_DESCRIPTORS, RENDER_SCENARIO_KEYS, type RenderScenarioKey } from "@workspace/api-zod";
+import { RECIPES_CHANGED_EVENT } from "@/components/admin/promoteRecipeVersion";
 
+/** An engine family whose prompt wording can be compared, with its versions, newest first. */
+interface TuneFamily { family: string; liveVersionId: number | null; versions: Array<{ id: number; number: number; note: string }> }
 interface SetSummary { id: number; label: string; round: number; imageSize?: string; createdAt: string; panels: number; cells: number }
 interface CellView { id: number; engineId: string; state: string; skipReason: string | null; error: string | null; vendorResultUrl?: string | null; rerunCount?: number }
 interface PanelView { id: number; factId: number; scenarioKey: string; lookStyleId: string; imageMode: string; state: string; skipReason: string | null; error: string | null; cells: CellView[] }
@@ -63,6 +66,15 @@ export function EngineComparison() {
   const [round, setRound] = useState<1 | 2>(1);
   const [imageSize, setImageSize] = useState<"comparison" | "final">("comparison");
   const [factIds, setFactIds] = useState("");
+  // The prompt tuner (PLAN_PROMPT_TUNER.md, B): compare prompt versions on one engine.
+  const [compare, setCompare] = useState<"engines" | "prompt">("engines");
+  const [recipeFamilies, setRecipeFamilies] = useState<TuneFamily[] | null>(null);
+  const [tuneFamily, setTuneFamily] = useState("");
+  /** Chosen versions, "0" being the baseline. */
+  const [tuneVersions, setTuneVersions] = useState<Set<string>>(new Set());
+  const [tuneLook, setTuneLook] = useState("none");
+  /** Person photos by default (the tuner is about the friend's picture); the other picture types stay selectable (plan, B). */
+  const [tuneScenarios, setTuneScenarios] = useState<Set<RenderScenarioKey>>(new Set(["i2i_male_default", "i2i_female_default"]));
   const [starting, setStarting] = useState(false);
   const [notice, setNotice] = useState("");
   const [plan, setPlan] = useState<{ kind: string; result: RunPlan } | null>(null);
@@ -110,9 +122,43 @@ export function EngineComparison() {
     return () => clearInterval(timer);
   }, [inFlight, selected, refreshDetail]);
 
+  // The engines whose wording can be tuned, with their versions: read once
+  // "prompt wording" is chosen, and again whenever a version is saved or
+  // promoted on this page, keeping the versions already ticked (PR #927).
+  const tuneFamilyRef = useRef("");
+  tuneFamilyRef.current = tuneFamily;
+  const loadRecipeFamilies = useCallback(async () => {
+    const r = await fetch("/api/admin/prompt-recipes", { credentials: "include" }).catch(() => null);
+    if (!r || !r.ok) { setError("Could not load the prompt versions."); return; }
+    const body = (await r.json()) as { families: TuneFamily[] };
+    setRecipeFamilies(body.families);
+    if (!body.families.some((f) => f.family === tuneFamilyRef.current)) {
+      const first = body.families.find((f) => f.family === "gpt-image-2-6") ?? body.families[0];
+      if (first) pickTuneFamily(first);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const wantsFamilies = compare === "prompt" || recipeFamilies != null;
+  useEffect(() => {
+    if (!wantsFamilies) return;
+    if (!recipeFamilies) void loadRecipeFamilies();
+    const onChanged = () => { void loadRecipeFamilies(); };
+    window.addEventListener(RECIPES_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(RECIPES_CHANGED_EVENT, onChanged);
+  }, [wantsFamilies, recipeFamilies == null, loadRecipeFamilies]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** A family's live version against its newest, the usual old-versus-new run. */
+  function pickTuneFamily(f: TuneFamily) {
+    setTuneFamily(f.family);
+    const live = String(f.liveVersionId ?? 0);
+    const newest = f.versions[0] ? String(f.versions[0].id) : null;
+    setTuneVersions(new Set(newest && newest !== live ? [live, newest] : [live]));
+  }
+
   const create = async () => {
     const ids = factIds.split(/[\s,]+/).filter(Boolean).map(Number);
     if (ids.length === 0 || ids.some((n) => !Number.isInteger(n) || n <= 0)) { setError("Fact ids must be positive whole numbers, comma-separated."); return; }
+    if (compare === "prompt" && (!tuneFamily || tuneVersions.size < 2)) { setError("Choose an engine and at least two versions to compare."); return; }
+    if (compare === "prompt" && tuneScenarios.size === 0) { setError("Choose at least one kind of picture to draw."); return; }
     const preset = COMPARISON_ROUND_PRESETS[round];
     setCreating(true);
     setError("");
@@ -121,13 +167,25 @@ export function EngineComparison() {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        label: label.trim() || `Round ${round}`,
-        round,
         factIds: ids,
-        scenarioKeys: preset.scenarioKeys,
-        lookStyleIds: preset.lookStyleIds,
-        engineFamilies: COMPARISON_DEFAULT_FAMILIES,
         imageSize,
+        ...(compare === "prompt"
+          ? {
+            label: label.trim() || `Wording, ${tuneFamily}`,
+            round: 1,
+            scenarioKeys: RENDER_SCENARIO_KEYS.filter((k) => tuneScenarios.has(k)),
+            lookStyleIds: [tuneLook.trim() || "none"],
+            engineFamilies: [tuneFamily],
+            kind: "prompt",
+            recipeVersionIds: [...tuneVersions].map((v) => (v === "0" ? null : Number(v))),
+          }
+          : {
+            label: label.trim() || `Round ${round}`,
+            round,
+            scenarioKeys: preset.scenarioKeys,
+            lookStyleIds: preset.lookStyleIds,
+            engineFamilies: COMPARISON_DEFAULT_FAMILIES,
+          }),
       }),
     }).catch(() => null);
     setCreating(false);
@@ -216,12 +274,35 @@ export function EngineComparison() {
       <div className="rounded-sm border border-border bg-background p-3 space-y-2" data-testid="comparison-create">
         <div className="flex flex-wrap gap-2 items-end">
           <label className="text-xs text-muted-foreground space-y-1">
+            <span className="block">Compare</span>
+            <select value={compare} onChange={(e) => setCompare(e.target.value as "engines" | "prompt")} data-testid="comparison-kind" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground">
+              <option value="engines">Engines</option>
+              <option value="prompt">Prompt wording on one engine</option>
+            </select>
+          </label>
+          {compare === "engines" && (
+          <label className="text-xs text-muted-foreground space-y-1">
             <span className="block">Round</span>
             <select value={round} onChange={(e) => setRound(Number(e.target.value) as 1 | 2)} className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground">
               <option value={1}>Round 1 — every scenario, no style</option>
               <option value={2}>Round 2 — stylisation</option>
             </select>
           </label>
+          )}
+          {compare === "prompt" && recipeFamilies && (
+            <>
+              <label className="text-xs text-muted-foreground space-y-1">
+                <span className="block">Engine</span>
+                <select value={tuneFamily} onChange={(e) => { const f = recipeFamilies.find((x) => x.family === e.target.value); if (f) pickTuneFamily(f); }} data-testid="comparison-tune-family" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground">
+                  {recipeFamilies.map((f) => <option key={f.family} value={f.family}>{f.family}</option>)}
+                </select>
+              </label>
+              <label className="text-xs text-muted-foreground space-y-1">
+                <span className="block">Look</span>
+                <input value={tuneLook} onChange={(e) => setTuneLook(e.target.value)} placeholder="none" data-testid="comparison-tune-look" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground w-28" />
+              </label>
+            </>
+          )}
           <label className="text-xs text-muted-foreground space-y-1">
             <span className="block">Picture size</span>
             <select value={imageSize} onChange={(e) => setImageSize(e.target.value as "comparison" | "final")} data-testid="comparison-image-size" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground">
@@ -241,9 +322,52 @@ export function EngineComparison() {
             {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Create set
           </button>
         </div>
+        {compare === "prompt" && recipeFamilies && (() => {
+          const fam = recipeFamilies.find((f) => f.family === tuneFamily);
+          if (!fam) return null;
+          const options = [...fam.versions.map((v) => ({ value: String(v.id), label: `Version ${v.number} — ${v.note}` })), { value: "0", label: "Baseline (today's wording)" }];
+          return (
+            <>
+            <fieldset className="text-xs space-y-1" data-testid="comparison-tune-scenarios">
+              <legend className="text-muted-foreground">Pictures to draw (person photos by default)</legend>
+              {RENDER_SCENARIO_KEYS.map((k) => (
+                <label key={k} className="flex items-center gap-1.5 text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={tuneScenarios.has(k)}
+                    onChange={() => setTuneScenarios((prev) => { const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k); return next; })}
+                    data-testid={`comparison-tune-scenario-${k}`}
+                  />
+                  {RENDER_SCENARIO_DESCRIPTORS[k].label}
+                </label>
+              ))}
+            </fieldset>
+            <fieldset className="text-xs space-y-1" data-testid="comparison-tune-versions">
+              <legend className="text-muted-foreground">Versions to compare (two to four)</legend>
+              {options.map((o) => (
+                <label key={o.value} className="flex items-center gap-1.5 text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={tuneVersions.has(o.value)}
+                    onChange={() => setTuneVersions((prev) => { const next = new Set(prev); if (next.has(o.value)) next.delete(o.value); else if (next.size < 4) next.add(o.value); return next; })}
+                    data-testid={`comparison-tune-version-${o.value}`}
+                  />
+                  {o.label}{String(fam.liveVersionId ?? 0) === o.value ? " · live" : ""}
+                </label>
+              ))}
+            </fieldset>
+            </>
+          );
+        })()}
+        {compare === "prompt" ? (
+          <p className="text-[11px] text-muted-foreground">
+            Each fact is drawn once for each kind of picture ticked ({RENDER_SCENARIO_KEYS.filter((k) => tuneScenarios.has(k)).map((k) => RENDER_SCENARIO_DESCRIPTORS[k].label).join(", ") || "none yet"}); the scene is written once and every chosen version draws that same scene, so only the wording differs. Judged blind. {imageSize === "final" ? "Drawn at member size." : "Drawn at about 1 megapixel."} Creating a set spends nothing.
+          </p>
+        ) : (
         <p className="text-[11px] text-muted-foreground">
           {preset.scenarioKeys.length} scenario{preset.scenarioKeys.length === 1 ? "" : "s"} × {preset.lookStyleIds.join(", ")} × {COMPARISON_DEFAULT_FAMILIES.length} engines ({COMPARISON_DEFAULT_FAMILIES.join(", ")}). {imageSize === "final" ? "Drawn at member size, so each picture's bill is what a member's costs; the \"at most\" figure before a run is priced at comparison size and can be lower than the bill. " : ""}Creating a set spends nothing.
         </p>
+        )}
       </div>
 
       {sets === null ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /> : sets.length === 0 ? (

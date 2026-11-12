@@ -365,8 +365,10 @@ function recipeGrowth(probe: RecipeProbe, recipe: ResolvedRecipe): number {
  * "across every mode and conditional clause"). Charged: the recipe's fixed
  * wording at its longest (with a chosen look and with none), plus, for every
  * probe group, the most its lines grow beyond the baseline. The total must
- * fit `FIXED_REQUIRED_RESERVE_BUDGET`, so every moderator Concept, addition
- * and balloon already valid to save still fits whatever the fact's policies,
+ * fit `FIXED_REQUIRED_RESERVE_BUDGET`. Together with the form rule that a
+ * slot filled with a fact's own text appears no more often than today's
+ * wording uses it (`recipeProblems`), every moderator Concept, addition and
+ * balloon already valid to save still fits whatever the fact's policies,
  * binding and failure-mode lines. A one-fact preview is never the gate. Empty
  * means it fits.
  */

@@ -42,6 +42,7 @@ import {
   comparisonSetsTable,
   enginesTable,
   factsTable,
+  promptRecipeVersionsTable,
   type ComparisonCell,
   type ComparisonPanel,
 } from "@workspace/db/schema";
@@ -759,6 +760,11 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
 export interface JudgedRow {
   family: string;
   engineId: string;
+  /** The prompt version this row's pictures were drawn with; null is the baseline (the prompt tuner). */
+  recipeVersionId: number | null;
+  /** "Baseline" or "Version N". */
+  recipeLabel: string;
+  recipeNote: string | null;
   /** Judged panels on which this engine had a picture, drawn or lost: the pick share's denominator. */
   panels: number;
   /** Panels on which its picture was the one to send. */
@@ -787,7 +793,10 @@ export interface JudgedRow {
 
 export interface JudgedResults {
   edition: 2;
-  sets: Array<{ id: number; label: string; round: number; imageSize: string }>;
+  /** "prompt" when every set is a prompt comparison on one family, whose versions can then be promoted here. */
+  kind: "engine" | "prompt";
+  family: string | null;
+  sets: Array<{ id: number; label: string; round: number; imageSize: string; kind: string }>;
   panels: { total: number; judged: number; judgeable: number; skipped: number; lost: number };
   /**
    * Per mode ("t2i", "i2i"), every engine that drew a panel, by pick share
@@ -796,6 +805,14 @@ export interface JudgedResults {
    * *Proposed Design* C).
    */
   rows: Record<string, JudgedRow[]>;
+  /** The same rows within each look (style id, or "none"): an engine can win photoreal and another a style. */
+  byLook: Record<string, Record<string, JudgedRow[]>>;
+  /** Every picture, revealed: its engine, prompt version, the exact prompt it sent, and how it was judged. */
+  pictures: Array<{
+    panelId: number; factId: number; scenarioKey: string; lookStyleId: string; imageMode: string;
+    engineId: string; family: string; recipeVersionId: number | null; recipeLabel: string;
+    promptText: string | null; picked: boolean; broken: boolean; lost: boolean; scores: CategoryScores | null;
+  }>;
 }
 
 /**
@@ -809,69 +826,99 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
   const { panels, cellsByPanel, picks } = await panelRows(setIds);
   const allCells = [...cellsByPanel.values()].flat();
   const engineIds = [...new Set(allCells.map((c) => c.engineId))];
-  const engines = engineIds.length ? await db.select({ id: enginesTable.id, family: enginesTable.family }).from(enginesTable).where(inArray(enginesTable.id, engineIds)) : [];
+  const versionIds = [...new Set(allCells.map((c) => c.recipeVersionId).filter((v): v is number => v != null))];
+  const [engines, versions] = await Promise.all([
+    engineIds.length ? db.select({ id: enginesTable.id, family: enginesTable.family }).from(enginesTable).where(inArray(enginesTable.id, engineIds)) : [],
+    versionIds.length ? db.select({ id: promptRecipeVersionsTable.id, number: promptRecipeVersionsTable.number, note: promptRecipeVersionsTable.note }).from(promptRecipeVersionsTable).where(inArray(promptRecipeVersionsTable.id, versionIds)) : [],
+  ]);
   const familyOf = new Map(engines.map((e) => [e.id, e.family ?? e.id]));
+  const versionOf = new Map(versions.map((v) => [v.id, v]));
+  const recipeLabel = (id: number | null) => (id == null ? "Baseline" : `Version ${versionOf.get(id)?.number ?? "?"}`);
 
+  // One accumulator per engine and prompt version, overall and per look.
   type Acc = { panels: number; picked: number; scored: number; lost: number; broken: number; cats: Record<string, Tally>; secs: number[]; usd: number[] };
-  const acc = new Map<string, Acc>();
-  const accFor = (mode: string, engineId: string): Acc => {
-    const k = `${mode}|${engineId}`;
-    let a = acc.get(k);
-    if (!a) { a = { panels: 0, picked: 0, scored: 0, lost: 0, broken: 0, cats: {}, secs: [], usd: [] }; acc.set(k, a); }
-    return a;
+  const newAcc = (): Acc => ({ panels: 0, picked: 0, scored: 0, lost: 0, broken: 0, cats: {}, secs: [], usd: [] });
+  const overall = new Map<string, Acc>();
+  const perLook = new Map<string, Map<string, Acc>>();
+  const keyOf = (mode: string, c: ComparisonCell) => `${mode}|${c.engineId}|${c.recipeVersionId ?? 0}`;
+  const accsFor = (look: string, key: string): Acc[] => {
+    const lookMap = perLook.get(look) ?? new Map<string, Acc>();
+    perLook.set(look, lookMap);
+    if (!overall.has(key)) overall.set(key, newAcc());
+    if (!lookMap.has(key)) lookMap.set(key, newAcc());
+    return [overall.get(key)!, lookMap.get(key)!];
   };
+  const pictures: JudgedResults["pictures"] = [];
   let judged = 0;
   for (const panel of panels) {
     const cells = cellsByPanel.get(panel.id) ?? [];
     for (const c of cells) {
-      const a = accFor(panel.imageMode, c.engineId);
-      if (c.submittedAt && c.completedAt) a.secs.push((c.completedAt.getTime() - c.submittedAt.getTime()) / 1000);
-      if (c.billedUsd != null && c.state === "rendered") a.usd.push(Number(c.billedUsd));
+      for (const a of accsFor(panel.lookStyleId, keyOf(panel.imageMode, c))) {
+        if (c.submittedAt && c.completedAt) a.secs.push((c.completedAt.getTime() - c.submittedAt.getTime()) / 1000);
+        if (c.billedUsd != null && c.state === "rendered") a.usd.push(Number(c.billedUsd));
+      }
     }
     const pick = picks.get(panel.id);
     const scores = pick ? categoryScoresOf(pick.categoryScores) : new Map<number, CategoryScores>();
+    const broken = new Set(pick ? asIds(pick.brokenCellIds) : []);
+    for (const c of cells) {
+      pictures.push({
+        panelId: panel.id, factId: panel.factId, scenarioKey: panel.scenarioKey, lookStyleId: panel.lookStyleId, imageMode: panel.imageMode,
+        engineId: c.engineId, family: familyOf.get(c.engineId) ?? c.engineId, recipeVersionId: c.recipeVersionId, recipeLabel: recipeLabel(c.recipeVersionId),
+        promptText: c.promptText, picked: !!pick && pick.pickedCellId === c.id, broken: broken.has(c.id), lost: cellLost(c), scores: scores.get(c.id) ?? null,
+      });
+    }
     if (scores.size === 0) continue;
     judged += 1;
     const asked = panelCategories(panel);
-    const broken = new Set(asIds(pick!.brokenCellIds));
     for (const c of cells) {
-      const a = accFor(panel.imageMode, c.engineId);
       const s = scores.get(c.id);
       const lost = !s && cellLost(c);
       if (!s && !lost) continue;
-      a.panels += 1;
-      if (pick!.pickedCellId === c.id) a.picked += 1;
-      if (broken.has(c.id)) a.broken += 1;
-      if (lost) a.lost += 1; else a.scored += 1;
-      for (const k of asked) tally(a.cats, k, lost ? LOST_IMAGE_SCORE : (s![k] ?? LOST_IMAGE_SCORE));
+      for (const a of accsFor(panel.lookStyleId, keyOf(panel.imageMode, c))) {
+        a.panels += 1;
+        if (pick!.pickedCellId === c.id) a.picked += 1;
+        if (broken.has(c.id)) a.broken += 1;
+        if (lost) a.lost += 1; else a.scored += 1;
+        for (const k of asked) tally(a.cats, k, lost ? LOST_IMAGE_SCORE : (s![k] ?? LOST_IMAGE_SCORE));
+      }
     }
   }
 
-  const rows: JudgedResults["rows"] = {};
-  for (const [key, a] of acc) {
-    const [mode, engineId] = key.split("|") as [string, string];
-    const categories = { ...Object.fromEntries(JUDGING_CATEGORY_KEYS.map((k) => [k, { mean: null, count: 0 }])), ...toScores(a.cats) } as Record<JudgingCategoryKey, Score>;
-    (rows[mode] ??= []).push({
-      family: familyOf.get(engineId) ?? engineId,
-      engineId,
-      panels: a.panels,
-      picked: a.picked,
-      pickShare: a.panels > 0 ? Math.round((a.picked / a.panels) * 100) / 100 : null,
-      categories,
-      scored: a.scored,
-      lost: a.lost,
-      broken: a.broken,
-      ...billing(a.usd),
-      ...timing(a.secs),
-    });
-  }
-  for (const list of Object.values(rows)) {
-    list.sort((x, y) => (y.pickShare ?? -1) - (x.pickShare ?? -1) || x.family.localeCompare(y.family));
-  }
+  const toRows = (accs: Map<string, Acc>): Record<string, JudgedRow[]> => {
+    const rows: Record<string, JudgedRow[]> = {};
+    for (const [key, a] of accs) {
+      const [mode, engineId, version] = key.split("|") as [string, string, string];
+      const recipeVersionId = Number(version) || null;
+      (rows[mode] ??= []).push({
+        family: familyOf.get(engineId) ?? engineId,
+        engineId,
+        recipeVersionId,
+        recipeLabel: recipeLabel(recipeVersionId),
+        recipeNote: recipeVersionId == null ? null : (versionOf.get(recipeVersionId)?.note ?? null),
+        panels: a.panels,
+        picked: a.picked,
+        pickShare: a.panels > 0 ? Math.round((a.picked / a.panels) * 100) / 100 : null,
+        categories: { ...Object.fromEntries(JUDGING_CATEGORY_KEYS.map((k) => [k, { mean: null, count: 0 }])), ...toScores(a.cats) } as Record<JudgingCategoryKey, Score>,
+        scored: a.scored,
+        lost: a.lost,
+        broken: a.broken,
+        ...billing(a.usd),
+        ...timing(a.secs),
+      });
+    }
+    for (const list of Object.values(rows)) {
+      list.sort((x, y) => (y.pickShare ?? -1) - (x.pickShare ?? -1) || x.family.localeCompare(y.family) || x.recipeLabel.localeCompare(y.recipeLabel));
+    }
+    return rows;
+  };
 
+  const prompt = sets.every((s) => s.kind === "prompt") && new Set(sets.map((s) => s.engineFamilies as string[]).flat()).size === 1;
   return {
     edition: 2,
-    sets: sets.map((s) => ({ id: s.id, label: s.label, round: s.round, imageSize: s.imageSize })),
+    kind: prompt ? "prompt" : "engine",
+    family: prompt ? (sets[0]!.engineFamilies as string[])[0]! : null,
+    sets: sets.map((s) => ({ id: s.id, label: s.label, round: s.round, imageSize: s.imageSize, kind: s.kind })),
     panels: {
       total: panels.length,
       judged,
@@ -879,6 +926,8 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
       skipped: panels.filter((p) => p.state === "skipped").length,
       lost: panels.filter((p) => panelWait(p, cellsByPanel.get(p.id) ?? []) === "lost").length,
     },
-    rows,
+    rows: toRows(overall),
+    byLook: Object.fromEntries([...perLook].map(([look, accs]) => [look, toRows(accs)])),
+    pictures,
   };
 }
