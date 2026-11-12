@@ -20,6 +20,7 @@ import { requireAdmin } from "./admin";
 import { RECIPE_PIECES, recipeProblems } from "../lib/imagePrompt/recipe";
 import { draftRecipe, listRecipeFamilies, promoteRecipe, RecipeRefused, saveRecipeVersion } from "../lib/imagePrompt/recipeStore";
 import { recipeBudgetProblems } from "../lib/imagePrompt/promptBudget";
+import { markRecipe, segmentsOf } from "../lib/imagePrompt/recipeHighlight";
 import { recompileStoredAttempt } from "../lib/imagePromptJobs";
 
 const router: IRouter = Router();
@@ -86,11 +87,18 @@ router.post("/admin/prompt-recipes/:family/preview", requireAdmin, async (req: R
     res.status(409).json({ error: "plan_unusable", refusal: "this fact's latest stored render plan can no longer be compiled", problems });
     return;
   }
+  // The same plan compiled with marked wording, read back into wording and the
+  // fact's own text so the editor can highlight what the recipe contributes.
+  const marked = await recompileStoredAttempt(attempt, markRecipe(recipe));
+  const markedById = new Map((marked?.promptBreakdown ?? []).map((s) => [s.id, s.text]));
   res.json({
     attemptId: attempt.id,
     prompt: compiled.prompt,
     length: compiled.prompt.length,
-    sections: (compiled.promptBreakdown ?? []).filter((s) => s.status !== "empty").map((s) => ({ id: s.id, label: s.label, status: s.status, text: s.text })),
+    sections: (compiled.promptBreakdown ?? []).filter((s) => s.status !== "empty").map((s) => {
+      const segs = segmentsOf(markedById.get(s.id) ?? "");
+      return { id: s.id, label: s.label, status: s.status, text: s.text, segments: segs.map((g) => g.text).join("") === s.text ? segs : [{ text: s.text, piece: null }] };
+    }),
     overflowBy: compiled.diagnostics?.requiredBudgetOverflow?.overBy ?? 0,
     problems,
   });

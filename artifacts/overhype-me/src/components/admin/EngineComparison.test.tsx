@@ -34,6 +34,7 @@ function routeFetch(plan: unknown) {
     if (url.endsWith("/comparison/sets")) return { ok: true, json: async () => ({ sets: [{ id: 7, label: "Round 1", round: 1, createdAt: new Date().toISOString(), panels: 1, cells: 2 }] }) } as unknown as Response;
     if (url.endsWith("/comparison/sets/7")) return { ok: true, json: async () => DETAIL } as unknown as Response;
     if (url.endsWith("/comparison/sets/7/plan")) return { ok: true, json: async () => plan } as unknown as Response;
+    if (url.endsWith("/look-styles")) return { ok: true, json: async () => [{ id: "anime", label: "Anime" }, { id: "3d-cartoon", label: "3D cartoon" }] } as unknown as Response;
     if (url.endsWith("/prompt-recipes")) return { ok: true, json: async () => ({ families: recipeFamilies }) } as unknown as Response;
     return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
   });
@@ -93,6 +94,18 @@ describe("EngineComparison", () => {
     fireEvent.click(screen.getByTestId("comparison-create-submit"));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect((posts[0]!.body as { scenarioKeys: string[] }).scenarioKeys).toEqual(["generic_t2i", "i2i_male_default", "i2i_nonhuman_animal"]);
+  });
+
+  it("offers the catalogue's looks to pick from, posting the one chosen", async () => {
+    vi.stubGlobal("fetch", routeFetch(null));
+    render(<EngineComparison />);
+    fireEvent.change(screen.getByTestId("comparison-kind"), { target: { value: "prompt" } });
+    await screen.findByRole("option", { name: "Anime" });
+    fireEvent.change(screen.getByTestId("comparison-tune-look"), { target: { value: "anime" } });
+    fireEvent.change(screen.getByTestId("comparison-fact-ids"), { target: { value: "11" } });
+    fireEvent.click(screen.getByTestId("comparison-create-submit"));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((posts[0]!.body as { lookStyleIds: string[] }).lookStyleIds).toEqual(["anime"]);
   });
 
   it("refuses a prompt comparison with no kind of picture ticked", async () => {

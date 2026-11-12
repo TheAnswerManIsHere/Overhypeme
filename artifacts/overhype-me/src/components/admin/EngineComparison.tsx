@@ -73,6 +73,8 @@ export function EngineComparison() {
   /** Chosen versions, "0" being the baseline. */
   const [tuneVersions, setTuneVersions] = useState<Set<string>>(new Set());
   const [tuneLook, setTuneLook] = useState("none");
+  /** The looks a wording comparison can draw in, from the public catalogue; "none" is always offered. */
+  const [looks, setLooks] = useState<Array<{ id: string; label: string }> | null>(null);
   /** Person photos by default (the tuner is about the friend's picture); the other picture types stay selectable (plan, B). */
   const [tuneScenarios, setTuneScenarios] = useState<Set<RenderScenarioKey>>(new Set(["i2i_male_default", "i2i_female_default"]));
   const [starting, setStarting] = useState(false);
@@ -141,6 +143,12 @@ export function EngineComparison() {
   useEffect(() => {
     if (!wantsFamilies) return;
     if (!recipeFamilies) void loadRecipeFamilies();
+    if (!looks) {
+      void fetch("/api/look-styles", { credentials: "include" }).then(async (r) => {
+        const body = r.ok ? ((await r.json()) as Array<{ id: string; label: string }>) : [];
+        setLooks(body.filter((l) => l.id !== "none"));
+      }).catch(() => setLooks([]));
+    }
     const onChanged = () => { void loadRecipeFamilies(); };
     window.addEventListener(RECIPES_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(RECIPES_CHANGED_EVENT, onChanged);
@@ -174,7 +182,7 @@ export function EngineComparison() {
             label: label.trim() || `Wording, ${tuneFamily}`,
             round: 1,
             scenarioKeys: RENDER_SCENARIO_KEYS.filter((k) => tuneScenarios.has(k)),
-            lookStyleIds: [tuneLook.trim() || "none"],
+            lookStyleIds: [tuneLook || "none"],
             engineFamilies: [tuneFamily],
             kind: "prompt",
             recipeVersionIds: [...tuneVersions].map((v) => (v === "0" ? null : Number(v))),
@@ -299,7 +307,10 @@ export function EngineComparison() {
               </label>
               <label className="text-xs text-muted-foreground space-y-1">
                 <span className="block">Look</span>
-                <input value={tuneLook} onChange={(e) => setTuneLook(e.target.value)} placeholder="none" data-testid="comparison-tune-look" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground w-28" />
+                <select value={tuneLook} onChange={(e) => setTuneLook(e.target.value)} data-testid="comparison-tune-look" className="rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground">
+                  <option value="none">No look (photoreal)</option>
+                  {(looks ?? []).map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+                </select>
               </label>
             </>
           )}

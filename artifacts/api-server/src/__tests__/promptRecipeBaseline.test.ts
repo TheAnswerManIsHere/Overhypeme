@@ -178,3 +178,29 @@ describe("a recipe cannot drop the fact's own text (build report, PR #926)", () 
     assert.deepEqual(recipeProblems({ "constraints.causal": "" }), []);
   });
 });
+
+describe("the preview's highlighting (plan, A: the recipe's pieces highlighted)", () => {
+  it("leaves every captured prompt unchanged once the marks are read out, and marks only wording", async () => {
+    const { markRecipe, segmentsOf } = await import("../lib/imagePrompt/recipeHighlight.js");
+    const marked = markRecipe(BASELINE_RECIPE);
+    let wordingSeen = 0;
+    for (const [i, c] of corpus.cases.entries()) {
+      const out = compileForSubjectRenderMode({ ...structuredClone(c.args), recipe: marked });
+      const segs = segmentsOf(out.prompt);
+      assert.equal(segs.map((s) => s.text).join(""), c.prompt, `case ${i}: highlighting changed the prompt`);
+      assert.ok(!/[-]/.test(segs.map((s) => s.text).join("")), `case ${i}: a marker leaked`);
+      wordingSeen += segs.filter((s) => s.piece).length;
+    }
+    assert.ok(wordingSeen > corpus.cases.length, "wording is marked in the prompts");
+  });
+
+  it("marks a slot's filled value as the fact's text, not as wording", async () => {
+    const { markRecipe, segmentsOf } = await import("../lib/imagePrompt/recipeHighlight.js");
+    const sample = corpus.cases.find((c) => c.args.input.subjectRenderMode === "human_identity_i2i")!;
+    const out = compileForSubjectRenderMode({ ...structuredClone(sample.args), recipe: markRecipe(BASELINE_RECIPE) });
+    const segs = segmentsOf(out.prompt);
+    const dup = segs.filter((s) => s.piece === "constraints.duplicate").map((s) => s.text).join("|");
+    if (dup) assert.ok(!dup.includes(String(sample.args.renderedSubject?.name ?? "\u0000")), "the subject's name is not inside the wording");
+    assert.ok(segs.some((s) => s.piece === null && s.text.trim().length > 0), "the fact's own text is unmarked");
+  });
+});
