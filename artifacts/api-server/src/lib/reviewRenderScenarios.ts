@@ -58,7 +58,7 @@ import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
-import { attemptImageEngineId, currentImageEngineIds, type ImageEngineIds } from "./imageEngineRouting";
+import { attemptImageEngineId, currentRenderRouting, type ImageEngineIds } from "./imageEngineRouting";
 
 export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
@@ -148,6 +148,7 @@ export function computeScenarioInputHash(
     // The engine a render would be routed to NOW: a changed default makes an
     // older attempt read stale, while its own stored engine stays as it was.
     actualImageEngineId: imageEngines[generationModeForSubjectRenderMode(mode)],
+    recipeVersionId: imageEngines.recipeVersions?.[generationModeForSubjectRenderMode(mode)] ?? null, // the same mode as the line above
   });
 }
 
@@ -357,7 +358,7 @@ export async function loadReviewRenderContext(
   const ev = validateEnrichment(cycle.rawEnrichment);
   if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
   const enrichment = ev.data;
-  const imageEngines = await currentImageEngineIds();
+  const imageEngines = await currentRenderRouting();
   return {
     ok: true,
     ctx: { reviewId, stagingFactId: review.stagingFactId, factText: cycle.text, enrichment, stage: review.workflowStage, imageEngines },

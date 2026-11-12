@@ -13,6 +13,7 @@ import { Loader2, AlertTriangle, Play, CheckCircle2, TrendingUp, TrendingDown } 
 import { FAILURE_TAG_VALUES, type FailureTag } from "@workspace/api-zod";
 import { AttemptEvalControl, FAILURE_TAG_LABELS, type EvalWriteBody } from "@/components/admin/AttemptEvalControl";
 import { EngineComparison } from "@/components/admin/EngineComparison";
+import { PromptRecipes } from "@/components/admin/PromptRecipes";
 
 // ─── API view types (mirror lib/eval/dashboard.ts + evalRunJobs.ts) ──────────
 
@@ -210,6 +211,9 @@ export default function EvalDashboard() {
             </div>
           </div>
         )}
+
+        {/* The prompt tuner's wording editor (PLAN_PROMPT_TUNER.md, part 2). */}
+        <PromptRecipes />
 
         {/* The launch Phase 8 engine comparison. */}
         <EngineComparison />

@@ -9,6 +9,7 @@
  * (the preview route's `persist` path), so merely assembling a test prompt has no
  * side effects.
  */
+import type { ResolvedRecipe } from "./recipe";
 import type {
   FactEnrichment,
   IdentityPolicy,
@@ -66,6 +67,8 @@ export interface AssembleImagePromptArgs {
   /** Identity used to resolve any residual token in the compiled prompt. */
   renderedSubject: { name: string; pronouns: string | null };
   requestId?: string;
+  /** The prompt recipe to compile with (the prompt tuner); omitted means the baseline. */
+  recipe?: ResolvedRecipe;
 }
 
 export interface AssembleImagePromptResult {
@@ -104,6 +107,7 @@ export async function assembleImagePromptForPreview(
     compiledPrompt: output.compiledPrompt,
     input,
     renderedSubject: args.renderedSubject,
+    ...(args.recipe ? { recipe: args.recipe } : {}),
   });
   // Surface which planner engine produced this plan (or that fallback fired)
   // in the preview diagnostics.

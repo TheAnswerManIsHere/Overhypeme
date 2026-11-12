@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, imagePromptAttemptsTable, asyncJobsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, imagePromptAttemptsTable, asyncJobsTable, promptRecipeVersionsTable } from "@workspace/db/schema";
 import { eq, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
@@ -363,6 +363,38 @@ describe("image_prompt_generation handler — stored bubble token", () => {
     assert.ok(compiled.imagePrompt.includes('containing exactly the text "David did it again!"'), compiled.imagePrompt);
     assert.doesNotMatch(compiled.imagePrompt, /\{NAME\}/);
     assert.ok(await generationJob(attemptId), "image_generation enqueued");
+  });
+});
+
+describe("image_prompt_generation handler — the prompt recipe it was queued with (the prompt tuner)", () => {
+  it("compiles with the attempt's recipe version, and recompiling its stored plan with other wording needs no planner call", async () => {
+    installPlannerDouble();
+    const family = `t-ipj-${randomUUID().slice(0, 6)}`;
+    const [version] = await db.insert(promptRecipeVersionsTable).values({
+      engineFamily: family, number: 1, note: "test", pieces: { "identity.person": "Use the photo as the person's face, exactly." },
+    }).returning({ id: promptRecipeVersionsTable.id });
+    try {
+      const attemptId = await seedHandlerAttempt({ snapshot: handlerEnrichment({ coreSceneOverride: "{NAME} lifts a library." }) });
+      await db.update(imagePromptAttemptsTable).set({ recipeVersionId: version!.id }).where(eq(imagePromptAttemptsTable.id, attemptId));
+      const res = await runHandler(attemptId);
+      assert.equal(res.ok, true, JSON.stringify(res));
+      const row = await attemptRow(attemptId);
+      const prompt = (row.compiledPrompt as { imagePrompt: string }).imagePrompt;
+      assert.match(prompt, /IDENTITY & REFERENCE: Use the photo as the person's face, exactly\./);
+      assert.doesNotMatch(prompt, /identity source/, "the baseline identity paragraph is replaced, not added to");
+
+      const calls = llmCalls;
+      const { recompileStoredAttempt } = await import("../lib/imagePromptJobs.js");
+      const { recipeFrom } = await import("../lib/imagePrompt/recipe.js");
+      const again = await recompileStoredAttempt(row, recipeFrom(null, { "identity.person": "Another wording." }));
+      assert.ok(again);
+      assert.match(again!.prompt, /IDENTITY & REFERENCE: Another wording\./);
+      assert.match(again!.prompt, /lifts a library/, "the same stored scene");
+      assert.equal(llmCalls, calls, "no planner call");
+    } finally {
+      await db.update(imagePromptAttemptsTable).set({ recipeVersionId: null }).where(eq(imagePromptAttemptsTable.recipeVersionId, version!.id));
+      await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, version!.id));
+    }
   });
 });
 

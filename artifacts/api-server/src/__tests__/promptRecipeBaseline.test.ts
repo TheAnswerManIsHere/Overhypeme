@@ -1,0 +1,137 @@
+// The prompt tuner, part 2 (plan PLAN_PROMPT_TUNER.md, *Testing*): the
+// baseline recipe reproduces, byte for byte, the prompt today's compiler made
+// for every input in the corpus captured BEFORE the recipe refactor
+// (fixtures/compilerBaseline.json, committed ahead of it). A recipe that
+// changes one piece changes only that piece's wording.
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { compileForSubjectRenderMode } from "../lib/imagePrompt/compilers/nanoBanana2.js";
+import { BASELINE_RECIPE, recipeFrom, recipeProblems, changedPolicyPieces, fillPiece, BASELINE_PIECES, RECIPE_PIECES } from "../lib/imagePrompt/recipe.js";
+import { measureRequiredPromptBudget, recipeBudgetProblems } from "../lib/imagePrompt/promptBudget.js";
+
+type Case = { args: Parameters<typeof compileForSubjectRenderMode>[0]; prompt: string; engineNotes: string | null };
+const corpus = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
+
+describe("the baseline recipe", () => {
+  it(`reproduces every captured prompt exactly (${corpus.cases.length} inputs, all three photo modes)`, () => {
+    assert.ok(corpus.cases.length >= 100);
+    for (const [i, c] of corpus.cases.entries()) {
+      const implicit = compileForSubjectRenderMode(structuredClone(c.args));
+      assert.equal(implicit.prompt, c.prompt, `case ${i} (${c.args.input.subjectRenderMode}) changed with no recipe given`);
+      assert.equal(implicit.engineNotes ?? null, c.engineNotes, `case ${i}: engine notes changed`);
+      const explicit = compileForSubjectRenderMode({ ...structuredClone(c.args), recipe: BASELINE_RECIPE });
+      assert.equal(explicit.prompt, c.prompt, `case ${i} changed under the explicit baseline`);
+    }
+  });
+
+  it("an unknown or missing stored piece reads its baseline text", () => {
+    assert.deepEqual(recipeFrom(7, { "nope": "x" }).pieces, BASELINE_PIECES);
+    assert.equal(recipeFrom(7, {}).versionId, 7);
+  });
+});
+
+describe("a recipe that changes pieces", () => {
+  const sample = corpus.cases.find((c) => c.args.input.subjectRenderMode === "human_identity_i2i")!;
+
+  it("changes only the wording it holds: the identity paragraph and a section label", () => {
+    const r = recipeFrom(1, { "identity.person": "Use the photo as the person's face.", "label.coreScene": "THE SCENE" });
+    const out = compileForSubjectRenderMode({ ...structuredClone(sample.args), recipe: r }).prompt;
+    assert.ok(out.includes("Use the photo as the person's face."));
+    assert.ok(!out.includes(BASELINE_PIECES["identity.person"]));
+    assert.ok(out.startsWith("THE SCENE: "));
+    assert.equal(
+      out.replace("Use the photo as the person's face.", BASELINE_PIECES["identity.person"]).replace(/^THE SCENE: /, "CORE SCENE: "),
+      sample.prompt,
+      "nothing else moves",
+    );
+  });
+
+  it("emits engine notes as their own section before RENDER STYLE, only when there are some", () => {
+    const r = recipeFrom(2, { "notes.engine": "Prefer natural skin texture." });
+    const out = compileForSubjectRenderMode({ ...structuredClone(sample.args), recipe: r });
+    assert.match(out.prompt, /ENGINE NOTES: Prefer natural skin texture\. RENDER STYLE: /);
+    assert.ok((out.promptBreakdown ?? []).some((s) => s.id === "engine_notes"));
+    const none = compileForSubjectRenderMode({ ...structuredClone(sample.args), recipe: recipeFrom(3, { "notes.engine": "   " }) });
+    assert.ok(!(none.promptBreakdown ?? []).some((s) => s.id === "engine_notes"));
+  });
+
+  it("the photoreal line applies whether the look-less style arrives empty or already resolved", () => {
+    const r = recipeFrom(4, { "style.photoreal": "Shot on a 35mm film camera." });
+    const resolved = compileForSubjectRenderMode({ ...structuredClone(sample.args), input: { ...structuredClone(sample.args.input), stylePrompt: BASELINE_PIECES["style.photoreal"] }, recipe: r }).prompt;
+    const empty = compileForSubjectRenderMode({ ...structuredClone(sample.args), input: { ...structuredClone(sample.args.input), stylePrompt: "" }, recipe: r }).prompt;
+    for (const p of [resolved, empty]) assert.match(p, /RENDER STYLE: Shot on a 35mm film camera\./);
+    const styled = compileForSubjectRenderMode({ ...structuredClone(sample.args), input: { ...structuredClone(sample.args.input), stylePrompt: "Anime illustration." }, recipe: r }).prompt;
+    assert.match(styled, /RENDER STYLE: Anime illustration\./, "a chosen look's own text is never replaced");
+  });
+});
+
+describe("recipe pieces", () => {
+  it("fill each slot once, never re-reading a value", () => {
+    const r = recipeFrom(1, { "constraints.duplicate": "No copies of {subject}." });
+    assert.equal(fillPiece(r, "constraints.duplicate", { subject: "{subject} Alex" }), "No copies of {subject} Alex.");
+  });
+
+  it("refuse a missing or unknown slot, an emptied policy line, an empty label and an unknown piece", () => {
+    assert.deepEqual(recipeProblems(BASELINE_PIECES), [], "the baseline is well formed");
+    const problems = recipeProblems({
+      "constraints.duplicate": "Never clone them.",
+      "identity.person": "Use {photo} as the face.",
+      "text.overlay": "  ",
+      "label.coreScene": "",
+      "made.up": "x",
+    });
+    assert.ok(problems.some((p) => /must contain \{subject\}/.test(p)));
+    assert.ok(problems.some((p) => /\{photo\} is not something/.test(p)));
+    assert.ok(problems.some((p) => /policy line can be reworded but not emptied/.test(p)));
+    assert.ok(problems.some((p) => /section label cannot be empty/.test(p)));
+    assert.ok(problems.some((p) => /"made\.up" is not a piece/.test(p)));
+    assert.deepEqual(recipeProblems({ "notes.engine": "", "constraints.causal": "" }), [], "a non-policy piece may be emptied");
+  });
+
+  it("name the policy pieces that differ", () => {
+    const changed = recipeFrom(1, { "violence.allow": "Show it, no gore.", "identity.none": "x" }).pieces;
+    assert.deepEqual(changedPolicyPieces(BASELINE_PIECES, changed), ["violence.allow"]);
+  });
+});
+
+describe("the save-time budget check covers every piece (Codex, PR #926 round 1)", () => {
+  /**
+   * Pieces that can only land in sections the compiler trims or drops when a
+   * prompt runs long, so a long one is shortened rather than breaking a render;
+   * and the engine-notes label, emitted only with notes, which are measured.
+   */
+  const TRIMMABLE = new Set([
+    "label.subjectDetails", "label.environment", "label.lighting",
+    "composition.framing", "composition.captionSpace", "composition.keyElements",
+    "label.engineNotes",
+  ]);
+  const pad = (key: string, by: number) => {
+    const base = BASELINE_PIECES[key as keyof typeof BASELINE_PIECES];
+    return key.startsWith("label.") ? base + "X".repeat(by) : `${base} ${"x".repeat(by)}`.trim();
+  };
+
+  it("refuses every piece that reaches a section never trimmed, when it alone grows by 1,000 characters", () => {
+    const accepted: string[] = [];
+    for (const p of RECIPE_PIECES) {
+      if (TRIMMABLE.has(p.key)) continue;
+      const r = recipeFrom(1, { [p.key]: pad(p.key, 1000) });
+      if (recipeBudgetProblems(r).length === 0) accepted.push(p.key);
+    }
+    assert.deepEqual(accepted, [], "each of these grew by 1,000 characters unmeasured");
+  });
+
+  it("refuses the reviewer's example and lines that appear together on their sum, and keeps today's number", () => {
+    assert.equal(recipeBudgetProblems(recipeFrom(1, { "text.forbid": "x".repeat(1500), "violence.suppress": "x".repeat(1500) })).length, 1);
+    const together = recipeFrom(1, { "constraints.crowd": pad("constraints.crowd", 300), "constraints.causal": pad("constraints.causal", 300), "constraints.reversal": pad("constraints.reversal", 300) });
+    for (const k of ["constraints.crowd", "constraints.causal", "constraints.reversal"]) {
+      assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { [k]: pad(k, 15) })), [], `${k} a little longer still saves`);
+    }
+    assert.equal(recipeBudgetProblems(together).length, 1, "three lines that can appear together are charged on their sum");
+    assert.equal(measureRequiredPromptBudget().worstCase, 1704, "the baseline's measured reserve is unchanged");
+    assert.deepEqual(recipeBudgetProblems(BASELINE_RECIPE), []);
+    assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { "text.forbid": pad("text.forbid", 20) })), [], "a small edit to a newly covered line still saves");
+  });
+});

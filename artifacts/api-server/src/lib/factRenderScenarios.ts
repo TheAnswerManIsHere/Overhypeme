@@ -90,6 +90,8 @@ export interface ScenarioHashInputs {
   identityPolicy: IdentityPolicy;
   /** Image engine the scenario routes to now (the configured engine for its mode). */
   actualImageEngineId: string;
+  /** The live prompt recipe version for that engine; null or absent is the baseline (and is left out of the hash). */
+  recipeVersionId?: number | null;
 }
 
 /**
@@ -165,6 +167,9 @@ export function buildScenarioInputHash(inputs: ScenarioHashInputs): string {
     styleSuffixVersion: inputs.styleSuffixVersion,
     identityPolicy: inputs.identityPolicy,
     actualImageEngineId: inputs.actualImageEngineId,
+    // A promoted prompt recipe for the routed engine (the prompt tuner); added
+    // only when set, so the baseline hashes exactly as before recipes existed.
+    ...(inputs.recipeVersionId != null ? { recipeVersionId: inputs.recipeVersionId } : {}),
   };
   return createHash("sha256").update(stableStringify(canonical)).digest("hex");
 }

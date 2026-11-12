@@ -195,6 +195,12 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   image_provenance: { class: "product" },
   memes: { class: "product" },
   pending_reviews: { class: "product" },
+  // The prompt tuner (PLAN_PROMPT_TUNER.md): admin-authored prompt wording and
+  // its promotions, product data like the comparison sets that test it. Not
+  // config: a version is never edited, and which one is live is a promotion's
+  // history, not a setting copied between environments.
+  prompt_recipe_promotions: { class: "product" },
+  prompt_recipe_versions: { class: "product" },
   reactions: { class: "product" },
   search_history: { class: "product" },
   share_intents: { class: "product" },

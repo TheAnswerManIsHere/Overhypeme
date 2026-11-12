@@ -25,6 +25,7 @@ import { db } from "@workspace/db";
 import { adminConfigTable, type Engine } from "@workspace/db/schema";
 import { bustConfigCache, getConfigString } from "./adminConfig";
 import { clearEngineCaches, loadEngine } from "./engineInterpreter";
+import { liveRecipeVersionIdsForEngines } from "./imagePrompt/recipeStore";
 
 export const IMAGE_ENGINE_CONFIG_KEYS: Readonly<Record<GenerationMode, string>> = {
   t2i: "image_engine_t2i",
@@ -38,7 +39,14 @@ const PRE_ROUTING_IMAGE_ENGINE_IDS: Readonly<Record<GenerationMode, string>> = {
 };
 
 /** The engine id per mode the product would route a new render to now. */
-export type ImageEngineIds = Readonly<Record<GenerationMode, string>>;
+export type ImageEngineIds = Readonly<Record<GenerationMode, string>> & {
+  /**
+   * The live prompt recipe version for each mode's engine (the prompt tuner;
+   * null or absent is the baseline). Folded into the moderation hash only
+   * when set, so recipe support alone leaves every existing render current.
+   */
+  readonly recipeVersions?: Readonly<Partial<Record<GenerationMode, number | null>>>;
+};
 
 /**
  * The engine that drew (or will draw) a stored attempt: its recorded column,
@@ -68,6 +76,17 @@ export async function currentImageEngineIds(): Promise<ImageEngineIds> {
     getConfigString(IMAGE_ENGINE_CONFIG_KEYS.i2i, PRE_ROUTING_IMAGE_ENGINE_IDS.i2i),
   ]);
   return { t2i: t2i.trim(), i2i: i2i.trim() };
+}
+
+/**
+ * What a moderation render would use now: the routed engine per mode and the
+ * live prompt recipe version for each (the prompt tuner). The moderation hash
+ * reads this, so a promotion for a mode's engine makes its renders stale.
+ */
+export async function currentRenderRouting(): Promise<ImageEngineIds> {
+  const ids = await currentImageEngineIds();
+  const live = await liveRecipeVersionIdsForEngines([ids.t2i, ids.i2i]);
+  return { ...ids, recipeVersions: { t2i: live.get(ids.t2i) ?? null, i2i: live.get(ids.i2i) ?? null } };
 }
 
 export class ImageEngineRoutingError extends Error {
