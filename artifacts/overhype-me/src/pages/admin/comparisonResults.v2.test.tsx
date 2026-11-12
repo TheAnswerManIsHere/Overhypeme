@@ -73,6 +73,33 @@ describe("ComparisonResults, second edition", () => {
     expect((await screen.findByTestId("results-notice")).textContent).toMatch(/Version 2 is now live for gpt-image-2-6/);
   });
 
+  it("names every row by its wording in the by-look tables, where Promote is not offered", async () => {
+    window.history.replaceState(null, "", "/admin/eval/results?sets=12,13");
+    const v = (picked: number) => ({ ...row("gpt-image-2-6-edit", picked, 4, cats(4, 4, 4, 4)), recipeVersionId: 5, recipeLabel: "Version 2", recipeNote: "tighter likeness" });
+    const b = (picked: number) => ({ ...row("gpt-image-2-6-edit", picked, 4, cats(3, 3, 3, 3)), recipeVersionId: null, recipeLabel: "Baseline", recipeNote: null });
+    const body = { ...JUDGED, kind: "prompt", family: "gpt-image-2-6", rows: { i2i: [v(4), b(4)] }, byLook: { none: { i2i: [v(3), b(1)] }, anime: { i2i: [b(3), v(1)] } }, pictures: [] };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response));
+    render(<ComparisonResults />);
+    const anime = await screen.findByTestId("results-judged-anime · Reference edit");
+    const firstRow = anime.querySelectorAll("tbody tr")[0]!.textContent!;
+    expect(firstRow).toMatch(/Baseline/);
+    expect(firstRow).toMatch(/75% \(3 of 4\)/);
+    expect(anime.querySelectorAll("tbody tr")[1]!.textContent).toMatch(/Version 2.*tighter likeness/);
+    expect(within(anime).queryByText("Promote")).toBeNull();
+  });
+
+  it("tells two wordings of one engine apart on engine results", async () => {
+    window.history.replaceState(null, "", "/admin/eval/results?sets=20,21");
+    const older = { ...row("nano-banana-2-1-edit", 1, 4, cats(3, 3, 3, 3)), recipeVersionId: null, recipeLabel: "Baseline", recipeNote: null };
+    const newer = { ...row("nano-banana-2-1-edit", 3, 4, cats(4, 4, 4, 4)), recipeVersionId: 7, recipeLabel: "Version 1", recipeNote: "brighter" };
+    const body = { ...JUDGED, kind: "engine", rows: { i2i: [newer, older] }, byLook: {}, pictures: [] };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response));
+    render(<ComparisonResults />);
+    expect((await screen.findByTestId("results-row-nano-banana-2-1-edit-v7")).textContent).toMatch(/nano-banana-2-1.*Version 1 wording/);
+    expect(screen.getByTestId("results-row-nano-banana-2-1-edit").textContent).toMatch(/Baseline wording/);
+    expect(screen.queryByText("Promote")).toBeNull();
+  });
+
   it("explains a refusal to read the two editions together", async () => {
     window.history.replaceState(null, "", "/admin/eval/results?sets=4,9");
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 409, json: async () => ({}) }) as unknown as Response));

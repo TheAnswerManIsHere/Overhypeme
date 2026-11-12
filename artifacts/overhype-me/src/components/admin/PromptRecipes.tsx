@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { readError } from "@/components/admin/EngineComparison";
-import { promoteRecipeVersion } from "@/components/admin/promoteRecipeVersion";
+import { announceRecipesChanged, promoteRecipeVersion } from "@/components/admin/promoteRecipeVersion";
 
 export interface PieceDef { key: string; label: string; group: string; when: string; slots: string[]; policy: boolean; baseline: string }
 export interface FamilyVersion { id: number; number: number; note: string; createdBy: string | null; createdAt: string; pieces: Record<string, string> }
@@ -109,6 +109,7 @@ export function PromptRecipes() {
     const body = await r.json().catch(() => ({})) as { version?: { id: number; number: number }; problems?: string[]; refusal?: string };
     if (!r.ok) { setBusy(""); setProblems(body.problems?.length ? body.problems : [body.refusal ?? `Not saved (${r.status}).`]); return; }
     await load();
+    announceRecipesChanged();
     setBaseId(body.version!.id);
     setDraft({});
     setNote("");

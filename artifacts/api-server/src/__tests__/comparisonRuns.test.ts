@@ -516,6 +516,40 @@ describe("a prompt comparison", () => {
     }
   });
 
+  it("draws a no-photo and a pet panel with each version's wording for that kind of picture (PR #927)", async () => {
+    const { promptRecipeVersionsTable, promptRecipePromotionsTable } = await import("@workspace/db/schema");
+    const [v] = await db.insert(promptRecipeVersionsTable).values({
+      engineFamily: FAMILIES.gpt, number: 1, note: "other kinds of picture",
+      pieces: {
+        "identity.none": "Text-to-image generation: invent a protagonist suited to the scene.",
+        "identity.object": "Image-to-image edit: the reference image is the subject, kept recognisable. Never swap it for a human.",
+      },
+    }).returning({ id: promptRecipeVersionsTable.id });
+    try {
+      const { setId, cells } = await createComparisonSet({
+        label: `${P} prompt-other`, round: 1, factIds: [factId], scenarioKeys: ["generic_t2i", "i2i_nonhuman_animal"], lookStyleIds: ["none"],
+        engineFamilies: [FAMILIES.gpt], kind: "prompt", recipeVersionIds: [null, v!.id],
+      }, adminId);
+      assert.equal(cells, 4, "two kinds of picture, two versions each");
+      await drain((await start(setId, "prepare")).body.run.id);
+      await drain((await start(setId, "render")).body.run.id);
+      const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
+      for (const [scenario, mine] of [["generic_t2i", /invent a protagonist suited to the scene/], ["i2i_nonhuman_animal", /Never swap it for a human/]] as const) {
+        const panel = panels.find((p) => p.scenarioKey === scenario)!;
+        assert.ok(panel.compileArgs, `${scenario}: the scene is frozen`);
+        const drawn = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panel.id));
+        const tuned = drawn.find((c) => c.recipeVersionId === v!.id)!;
+        const baseline = drawn.find((c) => c.recipeVersionId == null)!;
+        assert.match(String(tuned.promptText), mine, `${scenario}: the version's wording is drawn`);
+        assert.doesNotMatch(String(baseline.promptText), mine, `${scenario}: the baseline keeps today's wording`);
+      }
+    } finally {
+      await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P} prompt%`));
+      await db.delete(promptRecipePromotionsTable).where(eq(promptRecipePromotionsTable.engineFamily, FAMILIES.gpt));
+      await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, v!.id));
+    }
+  });
+
   it("an engine set draws each family with its live wording, frozen when the set is made", async () => {
     const { promptRecipeVersionsTable, promptRecipePromotionsTable } = await import("@workspace/db/schema");
     const [v] = await db.insert(promptRecipeVersionsTable).values({ engineFamily: FAMILIES.gpt, number: 2, note: "live", pieces: {} }).returning({ id: promptRecipeVersionsTable.id });

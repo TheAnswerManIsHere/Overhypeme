@@ -199,7 +199,13 @@ function ScoresTable({ title, groups, families, testId }: { title: string; group
 }
 
 /** One mode's engines by pick share, each with its category averages, marks, cost and time. */
-function JudgedTable({ label, rows, onPromote }: { label: string; rows: JudgedRow[]; onPromote?: (row: JudgedRow) => void }) {
+/**
+ * A row's name comes from what distinguishes the rows, never from whether a
+ * Promote button is shown: a wording comparison names the version and its
+ * note in every table; an engine comparison names the engine and, under it,
+ * the wording it drew with (PR #927 round 1).
+ */
+function JudgedTable({ label, rows, wording, onPromote }: { label: string; rows: JudgedRow[]; wording: boolean; onPromote?: (row: JudgedRow) => void }) {
   const asked = JUDGING_CATEGORIES.filter((c) => rows.some((r) => r.categories[c.key]?.count > 0));
   return (
     <div className="rounded-sm border border-border bg-background p-3 space-y-1 overflow-x-auto" data-testid={`results-judged-${label}`}>
@@ -207,7 +213,7 @@ function JudgedTable({ label, rows, onPromote }: { label: string; rows: JudgedRo
       <table className="text-xs w-full">
         <thead>
           <tr className="text-muted-foreground">
-            <th className="text-left font-semibold py-0.5">{onPromote ? "Wording" : "Engine"}</th>
+            <th className="text-left font-semibold py-0.5">{wording ? "Wording" : "Engine"}</th>
             <th className="text-right font-semibold">Picked to send</th>
             {asked.map((c) => <th key={c.key} className="text-right font-semibold" title={c.help}>{c.label}</th>)}
             <th className="text-right font-semibold">Broken</th>
@@ -219,8 +225,12 @@ function JudgedTable({ label, rows, onPromote }: { label: string; rows: JudgedRo
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={`${row.engineId}|${row.recipeVersionId ?? 0}`} className="border-t border-border" data-testid={`results-row-${row.engineId}${onPromote ? `-${row.recipeVersionId ?? 0}` : ""}`}>
-              <td className="py-0.5 font-mono text-foreground">{onPromote ? (row.recipeLabel ?? "Baseline") : row.family}{onPromote && row.recipeNote ? <span className="block text-[10px] text-muted-foreground font-sans">{row.recipeNote}</span> : null}</td>
+            <tr key={`${row.engineId}|${row.recipeVersionId ?? 0}`} className="border-t border-border" data-testid={`results-row-${row.engineId}${wording ? `-${row.recipeVersionId ?? 0}` : row.recipeVersionId != null ? `-v${row.recipeVersionId}` : ""}`}>
+              <td className="py-0.5 font-mono text-foreground">
+                {wording ? (row.recipeLabel ?? "Baseline") : row.family}
+                {!wording && <span className="block text-[10px] text-muted-foreground font-sans">{row.recipeLabel ?? "Baseline"} wording</span>}
+                {wording && row.recipeNote ? <span className="block text-[10px] text-muted-foreground font-sans">{row.recipeNote}</span> : null}
+              </td>
               <td className="text-right font-bold text-foreground">{row.pickShare == null ? "—" : `${Math.round(row.pickShare * 100)}% (${row.picked} of ${row.panels})`}</td>
               {asked.map((c) => <td key={c.key} className="text-right text-foreground">{meanText(row.categories[c.key]?.mean ?? null)}<span className="block text-[10px] text-muted-foreground">{row.categories[c.key]?.count ?? 0} pictures</span></td>)}
               <td className={`text-right ${row.broken > 0 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-muted-foreground"}`}>{row.broken}</td>
@@ -261,13 +271,13 @@ function JudgedResultsView({ data }: { data: JudgedResults }) {
         <p className="text-sm text-muted-foreground">No pictures yet.</p>
       ) : (
         <div className="space-y-3">
-          {["t2i", "i2i"].filter((m) => data.rows[m]).map((mode) => <JudgedTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.rows[mode]!} {...(prompt ? { onPromote: (row: JudgedRow) => void promote(row) } : {})} />)}
+          {["t2i", "i2i"].filter((m) => data.rows[m]).map((mode) => <JudgedTable key={mode} label={MODE_LABEL[mode] ?? mode} rows={data.rows[mode]!} wording={prompt} {...(prompt ? { onPromote: (row: JudgedRow) => void promote(row) } : {})} />)}
           {notice && <p className="text-sm text-foreground" data-testid="results-notice">{notice}</p>}
           {looks.length > 1 && (
             <div className="space-y-2" data-testid="results-by-look">
               <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">By look</h3>
               {looks.map((look) => ["t2i", "i2i"].filter((m) => data.byLook![look]![m]).map((mode) => (
-                <JudgedTable key={`${look}-${mode}`} label={`${look === "none" ? "No look" : look} · ${MODE_LABEL[mode] ?? mode}`} rows={data.byLook![look]![mode]!} />
+                <JudgedTable key={`${look}-${mode}`} label={`${look === "none" ? "No look" : look} · ${MODE_LABEL[mode] ?? mode}`} rows={data.byLook![look]![mode]!} wording={prompt} />
               )))}
             </div>
           )}

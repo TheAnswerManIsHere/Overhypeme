@@ -1,6 +1,16 @@
 import { readError } from "@/components/admin/EngineComparison";
 
 /**
+ * Fired on `window` after a version is saved or promoted, so every view of
+ * the recipe listing on the page re-reads it (the wording editor and the
+ * comparison panel are siblings on the Eval page; PR #927 round 1).
+ */
+export const RECIPES_CHANGED_EVENT = "prompt-recipes-changed";
+export function announceRecipesChanged(): void {
+  window.dispatchEvent(new Event(RECIPES_CHANGED_EVENT));
+}
+
+/**
  * Promote a prompt-recipe version (or the baseline, `versionId` null) to live
  * for its engine family — plan PLAN_PROMPT_TUNER.md, D. One confirmation, and a
  * second when the server answers that the version changes a policy line. Shared
@@ -34,5 +44,6 @@ export async function promoteRecipeVersion(args: {
   }
   if (!r) return { ok: false, message: "The request failed." };
   if (!r.ok) return { ok: false, message: await readError(r) };
+  announceRecipesChanged();
   return { ok: true, message: `${name} is now live for ${family}.` };
 }

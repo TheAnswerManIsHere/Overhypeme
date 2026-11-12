@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, Circle, Loader2, MinusCircle, Plus } from "lucide-react";
-import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspace/api-zod";
+import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS, RENDER_SCENARIO_DESCRIPTORS, RENDER_SCENARIO_KEYS, type RenderScenarioKey } from "@workspace/api-zod";
+import { RECIPES_CHANGED_EVENT } from "@/components/admin/promoteRecipeVersion";
 
 /** An engine family whose prompt wording can be compared, with its versions, newest first. */
 interface TuneFamily { family: string; liveVersionId: number | null; versions: Array<{ id: number; number: number; note: string }> }
@@ -72,6 +73,8 @@ export function EngineComparison() {
   /** Chosen versions, "0" being the baseline. */
   const [tuneVersions, setTuneVersions] = useState<Set<string>>(new Set());
   const [tuneLook, setTuneLook] = useState("none");
+  /** Person photos by default (the tuner is about the friend's picture); the other picture types stay selectable (plan, B). */
+  const [tuneScenarios, setTuneScenarios] = useState<Set<RenderScenarioKey>>(new Set(["i2i_male_default", "i2i_female_default"]));
   const [starting, setStarting] = useState(false);
   const [notice, setNotice] = useState("");
   const [plan, setPlan] = useState<{ kind: string; result: RunPlan } | null>(null);
@@ -119,17 +122,29 @@ export function EngineComparison() {
     return () => clearInterval(timer);
   }, [inFlight, selected, refreshDetail]);
 
-  // The engines whose wording can be tuned, with their versions, once "prompt wording" is chosen.
-  useEffect(() => {
-    if (compare !== "prompt" || recipeFamilies) return;
-    void fetch("/api/admin/prompt-recipes", { credentials: "include" }).then(async (r) => {
-      if (!r.ok) { setError("Could not load the prompt versions."); return; }
-      const body = (await r.json()) as { families: TuneFamily[] };
-      setRecipeFamilies(body.families);
+  // The engines whose wording can be tuned, with their versions: read once
+  // "prompt wording" is chosen, and again whenever a version is saved or
+  // promoted on this page, keeping the versions already ticked (PR #927).
+  const tuneFamilyRef = useRef("");
+  tuneFamilyRef.current = tuneFamily;
+  const loadRecipeFamilies = useCallback(async () => {
+    const r = await fetch("/api/admin/prompt-recipes", { credentials: "include" }).catch(() => null);
+    if (!r || !r.ok) { setError("Could not load the prompt versions."); return; }
+    const body = (await r.json()) as { families: TuneFamily[] };
+    setRecipeFamilies(body.families);
+    if (!body.families.some((f) => f.family === tuneFamilyRef.current)) {
       const first = body.families.find((f) => f.family === "gpt-image-2-6") ?? body.families[0];
       if (first) pickTuneFamily(first);
-    }).catch(() => setError("Could not load the prompt versions."));
-  }, [compare, recipeFamilies]); // eslint-disable-line react-hooks/exhaustive-deps
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const wantsFamilies = compare === "prompt" || recipeFamilies != null;
+  useEffect(() => {
+    if (!wantsFamilies) return;
+    if (!recipeFamilies) void loadRecipeFamilies();
+    const onChanged = () => { void loadRecipeFamilies(); };
+    window.addEventListener(RECIPES_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(RECIPES_CHANGED_EVENT, onChanged);
+  }, [wantsFamilies, recipeFamilies == null, loadRecipeFamilies]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** A family's live version against its newest, the usual old-versus-new run. */
   function pickTuneFamily(f: TuneFamily) {
@@ -143,6 +158,7 @@ export function EngineComparison() {
     const ids = factIds.split(/[\s,]+/).filter(Boolean).map(Number);
     if (ids.length === 0 || ids.some((n) => !Number.isInteger(n) || n <= 0)) { setError("Fact ids must be positive whole numbers, comma-separated."); return; }
     if (compare === "prompt" && (!tuneFamily || tuneVersions.size < 2)) { setError("Choose an engine and at least two versions to compare."); return; }
+    if (compare === "prompt" && tuneScenarios.size === 0) { setError("Choose at least one kind of picture to draw."); return; }
     const preset = COMPARISON_ROUND_PRESETS[round];
     setCreating(true);
     setError("");
@@ -157,8 +173,7 @@ export function EngineComparison() {
           ? {
             label: label.trim() || `Wording, ${tuneFamily}`,
             round: 1,
-            // Person photos by default: the tuner's runs are about the friend's picture.
-            scenarioKeys: ["i2i_male_default", "i2i_female_default"],
+            scenarioKeys: RENDER_SCENARIO_KEYS.filter((k) => tuneScenarios.has(k)),
             lookStyleIds: [tuneLook.trim() || "none"],
             engineFamilies: [tuneFamily],
             kind: "prompt",
@@ -312,6 +327,21 @@ export function EngineComparison() {
           if (!fam) return null;
           const options = [...fam.versions.map((v) => ({ value: String(v.id), label: `Version ${v.number} — ${v.note}` })), { value: "0", label: "Baseline (today's wording)" }];
           return (
+            <>
+            <fieldset className="text-xs space-y-1" data-testid="comparison-tune-scenarios">
+              <legend className="text-muted-foreground">Pictures to draw (person photos by default)</legend>
+              {RENDER_SCENARIO_KEYS.map((k) => (
+                <label key={k} className="flex items-center gap-1.5 text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={tuneScenarios.has(k)}
+                    onChange={() => setTuneScenarios((prev) => { const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k); return next; })}
+                    data-testid={`comparison-tune-scenario-${k}`}
+                  />
+                  {RENDER_SCENARIO_DESCRIPTORS[k].label}
+                </label>
+              ))}
+            </fieldset>
             <fieldset className="text-xs space-y-1" data-testid="comparison-tune-versions">
               <legend className="text-muted-foreground">Versions to compare (two to four)</legend>
               {options.map((o) => (
@@ -326,11 +356,12 @@ export function EngineComparison() {
                 </label>
               ))}
             </fieldset>
+            </>
           );
         })()}
         {compare === "prompt" ? (
           <p className="text-[11px] text-muted-foreground">
-            Each fact is drawn from a man's and a woman's photo; the scene is written once and every chosen version draws that same scene, so only the wording differs. Judged blind. {imageSize === "final" ? "Drawn at member size." : "Drawn at about 1 megapixel."} Creating a set spends nothing.
+            Each fact is drawn once for each kind of picture ticked ({RENDER_SCENARIO_KEYS.filter((k) => tuneScenarios.has(k)).map((k) => RENDER_SCENARIO_DESCRIPTORS[k].label).join(", ") || "none yet"}); the scene is written once and every chosen version draws that same scene, so only the wording differs. Judged blind. {imageSize === "final" ? "Drawn at member size." : "Drawn at about 1 megapixel."} Creating a set spends nothing.
           </p>
         ) : (
         <p className="text-[11px] text-muted-foreground">

@@ -21,6 +21,11 @@ const DETAIL = {
 };
 
 let posts: Array<{ url: string; body: unknown }> = [];
+const FAMILIES = [
+  { family: "flux-3", liveVersionId: null, versions: [] as Array<{ id: number; number: number; note: string }> },
+  { family: "gpt-image-2-6", liveVersionId: 3 as number | null, versions: [{ id: 5, number: 2, note: "tighter likeness" }, { id: 3, number: 1, note: "first" }] },
+];
+let recipeFamilies = FAMILIES;
 
 function routeFetch(plan: unknown) {
   return vi.fn(async (url: string, init?: RequestInit) => {
@@ -29,15 +34,12 @@ function routeFetch(plan: unknown) {
     if (url.endsWith("/comparison/sets")) return { ok: true, json: async () => ({ sets: [{ id: 7, label: "Round 1", round: 1, createdAt: new Date().toISOString(), panels: 1, cells: 2 }] }) } as unknown as Response;
     if (url.endsWith("/comparison/sets/7")) return { ok: true, json: async () => DETAIL } as unknown as Response;
     if (url.endsWith("/comparison/sets/7/plan")) return { ok: true, json: async () => plan } as unknown as Response;
-    if (url.endsWith("/prompt-recipes")) return { ok: true, json: async () => ({ families: [
-      { family: "flux-3", liveVersionId: null, versions: [] },
-      { family: "gpt-image-2-6", liveVersionId: 3, versions: [{ id: 5, number: 2, note: "tighter likeness" }, { id: 3, number: 1, note: "first" }] },
-    ] }) } as unknown as Response;
+    if (url.endsWith("/prompt-recipes")) return { ok: true, json: async () => ({ families: recipeFamilies }) } as unknown as Response;
     return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
   });
 }
 
-beforeEach(() => { posts = []; });
+beforeEach(() => { posts = []; recipeFamilies = FAMILIES; });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("EngineComparison", () => {
@@ -76,6 +78,48 @@ describe("EngineComparison", () => {
       lookStyleIds: ["none"], imageSize: "comparison", factIds: [11],
     });
     expect([...(posts[0]!.body as { recipeVersionIds: number[] }).recipeVersionIds].sort()).toEqual([3, 5]);
+  });
+
+  it("lets a prompt comparison draw other kinds of picture, posting exactly what is ticked", async () => {
+    vi.stubGlobal("fetch", routeFetch(null));
+    render(<EngineComparison />);
+    fireEvent.change(screen.getByTestId("comparison-kind"), { target: { value: "prompt" } });
+    await screen.findByTestId("comparison-tune-scenarios");
+    fireEvent.click(screen.getByTestId("comparison-tune-scenario-i2i_female_default"));
+    fireEvent.click(screen.getByTestId("comparison-tune-scenario-i2i_nonhuman_animal"));
+    fireEvent.click(screen.getByTestId("comparison-tune-scenario-generic_t2i"));
+    expect(screen.getByTestId("comparison-create").textContent).toMatch(/Generic \(text-to-image\), Male subject.*animal/);
+    fireEvent.change(screen.getByTestId("comparison-fact-ids"), { target: { value: "11" } });
+    fireEvent.click(screen.getByTestId("comparison-create-submit"));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((posts[0]!.body as { scenarioKeys: string[] }).scenarioKeys).toEqual(["generic_t2i", "i2i_male_default", "i2i_nonhuman_animal"]);
+  });
+
+  it("refuses a prompt comparison with no kind of picture ticked", async () => {
+    vi.stubGlobal("fetch", routeFetch(null));
+    render(<EngineComparison />);
+    fireEvent.change(screen.getByTestId("comparison-kind"), { target: { value: "prompt" } });
+    await screen.findByTestId("comparison-tune-scenarios");
+    fireEvent.click(screen.getByTestId("comparison-tune-scenario-i2i_male_default"));
+    fireEvent.click(screen.getByTestId("comparison-tune-scenario-i2i_female_default"));
+    fireEvent.change(screen.getByTestId("comparison-fact-ids"), { target: { value: "11" } });
+    fireEvent.click(screen.getByTestId("comparison-create-submit"));
+    expect((await screen.findByTestId("comparison-error")).textContent).toMatch(/at least one kind of picture/);
+    expect(posts).toHaveLength(0);
+  });
+
+  it("re-reads the versions when one is saved or promoted on the page, keeping what is ticked", async () => {
+    vi.stubGlobal("fetch", routeFetch(null));
+    render(<EngineComparison />);
+    fireEvent.change(screen.getByTestId("comparison-kind"), { target: { value: "prompt" } });
+    await screen.findByTestId("comparison-tune-version-5");
+    fireEvent.click(screen.getByTestId("comparison-tune-version-0")); // baseline ticked as a third
+    recipeFamilies = [FAMILIES[0]!, { ...FAMILIES[1]!, liveVersionId: 5, versions: [{ id: 8, number: 3, note: "shorter" }, ...FAMILIES[1]!.versions] }];
+    window.dispatchEvent(new Event("prompt-recipes-changed"));
+    const fresh = await screen.findByTestId("comparison-tune-version-8");
+    expect((fresh as HTMLInputElement).checked).toBe(false);
+    for (const id of ["0", "3", "5"]) expect((screen.getByTestId(`comparison-tune-version-${id}`) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByTestId("comparison-tune-versions").textContent).toMatch(/Version 2 — tighter likeness · live/);
   });
 
   it("asks for a member-size set when member size is picked", async () => {
