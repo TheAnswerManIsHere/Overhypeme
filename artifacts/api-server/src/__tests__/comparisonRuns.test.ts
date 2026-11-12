@@ -246,6 +246,8 @@ describe("a comparison run end to end, with fakes", () => {
     const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
     assert.ok(panels.every((p) => p.state === "prepared"), JSON.stringify(panels.map((p) => [p.state, p.error])));
     assert.deepEqual(plannerRetries, [0, 0], "every planner call runs with the SDK's retries off");
+    // What a second-edition panel is judged against is frozen with it (plan PLAN_PROMPT_TUNER.md, B).
+    assert.ok(panels.every((p) => typeof p.frozenFactText === "string" && p.frozenFactText.length > 0 && !p.frozenFactText.includes("{")), JSON.stringify(panels.map((p) => p.frozenFactText)));
     const edit = panels.find((p) => p.imageMode === "i2i")!;
     assert.match(String(edit.referenceImageUrl), /^https:\/\/fal\.test\/ref-\d+\.jpg$/);
     assert.deepEqual(uploadedTypes.slice(-1), ["image/jpeg"]); // the resized reference

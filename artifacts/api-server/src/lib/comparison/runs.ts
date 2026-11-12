@@ -54,6 +54,7 @@ import { ReferenceAssetUnavailableError, resolveDefaultReferenceUrl } from "../d
 import { resolveRenderReviewInput } from "../imagePrompt/resolveRenderReviewInput";
 import { assembleImagePromptForPreview } from "../imagePrompt/preview";
 import { withoutLlmRetries } from "../utilityLLM";
+import { renderPersonalized } from "../renderCanonical";
 import type { IdentityPolicy } from "@workspace/api-zod";
 import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
@@ -313,10 +314,31 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     referenceImageUrl: reference?.url ?? null,
     styleSnapshot: { lookStyleId: panel.lookStyleId, stylePrompt: resolved.stylePrompt, styleSource: resolved.styleSource },
     renderControls: resolved.renderControls,
+    ...frozenJudgingReference(resolved.renderedFactText, enrichment.data, resolved.renderedSubject),
     error: null,
     updatedAt: new Date(),
   }).where(eq(comparisonPanelsTable.id, panel.id));
   return { ok: true, result: "prepared" };
+}
+
+/**
+ * What a second-edition panel is judged against, frozen at preparation (plan
+ * `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed Design* B): the fact's wording
+ * and its approved visual gag (the Visual Concept,
+ * `visualPromptStrategyOverride.coreSceneOverride`), both rendered for the
+ * panel's subject. A fact with no approved gag freezes null, and the judging
+ * page says so.
+ */
+export function frozenJudgingReference(
+  renderedFactText: string,
+  enrichment: { visualPromptStrategyOverride?: { coreSceneOverride?: string | null } | null },
+  subject: { name: string; pronouns: string },
+): { frozenFactText: string; frozenGag: string | null } {
+  const gag = enrichment.visualPromptStrategyOverride?.coreSceneOverride?.trim() ?? "";
+  return {
+    frozenFactText: renderedFactText,
+    frozenGag: gag ? renderPersonalized(gag, subject.name, subject.pronouns) : null,
+  };
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────────

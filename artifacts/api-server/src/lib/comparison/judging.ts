@@ -45,7 +45,17 @@ import {
   type ComparisonCell,
   type ComparisonPanel,
 } from "@workspace/db/schema";
-import { COMPARISON_SCORE_MAX, COMPARISON_SCORE_MIN, RENDER_SCENARIO_DESCRIPTORS, type ComparisonPickRequest, type RenderScenarioKey } from "@workspace/api-zod";
+import {
+  COMPARISON_SCORE_MAX,
+  COMPARISON_SCORE_MIN,
+  JUDGING_CATEGORY_KEYS,
+  RENDER_SCENARIO_DESCRIPTORS,
+  judgingCategoriesFor,
+  type ComparisonJudgementRequest,
+  type ComparisonPickRequest,
+  type JudgingCategoryKey,
+  type RenderScenarioKey,
+} from "@workspace/api-zod";
 import { renderCanonical } from "../renderCanonical";
 import { round4 } from "./admission";
 import { perImagePrice, type PriceModel } from "../engines";
@@ -123,6 +133,39 @@ export function isHumanReference(scenarioKey: string): boolean {
   return type === "male" || type === "female";
 }
 
+/**
+ * Whether a panel's engines were given a photo — a person, a pet or an
+ * object — so Likeness is asked (David, 2026-11-12: "Likeness is what I'm
+ * going for").
+ */
+export function hasReferencePhoto(scenarioKey: string): boolean {
+  return !!RENDER_SCENARIO_DESCRIPTORS[scenarioKey as RenderScenarioKey]?.referenceIdentityType;
+}
+
+/** The second-edition categories asked on a panel. */
+export const panelCategories = (panel: Pick<ComparisonPanel, "lookStyleId" | "scenarioKey">): JudgingCategoryKey[] =>
+  judgingCategoriesFor({ styled: isStyled(panel.lookStyleId), hasPhoto: hasReferencePhoto(panel.scenarioKey) });
+
+/** One picture's second-edition scores, by category. */
+export type CategoryScores = Partial<Record<JudgingCategoryKey, number>>;
+
+/** A stored second-edition judgement's scores, by cell id; malformed entries and out-of-range scores are dropped. */
+export function categoryScoresOf(v: unknown): Map<number, CategoryScores> {
+  const out = new Map<number, CategoryScores>();
+  if (!Array.isArray(v)) return out;
+  for (const r of v) {
+    const row = (r ?? {}) as Record<string, unknown>;
+    if (typeof row["cellId"] !== "number") continue;
+    const scores: CategoryScores = {};
+    for (const k of JUDGING_CATEGORY_KEYS) {
+      const s = row[k];
+      if (Number.isInteger(s) && (s as number) >= COMPARISON_SCORE_MIN && (s as number) <= COMPARISON_SCORE_MAX) scores[k] = s as number;
+    }
+    out.set(row["cellId"] as number, scores);
+  }
+  return out;
+}
+
 export interface BlindImage { token: string; src: string }
 export interface BlindPanel {
   panelId: number;
@@ -138,6 +181,14 @@ export interface BlindPanel {
   /** A styled panel: each picture can be marked "captured the style". */
   styleMarkable: boolean;
   /**
+   * Second edition: the approved visual gag the panel is judged against,
+   * frozen at preparation; null on the first edition, before preparation, or
+   * for a fact with no approved gag.
+   */
+  gag: string | null;
+  /** Second edition: the categories each picture is scored on; empty on the first edition. */
+  categories: JudgingCategoryKey[];
+  /**
    * The source photo every engine of a reference panel was given (the same
    * resized default reference), shown beside the pictures so a likeness can be
    * judged against it (David, 2026-11-10). Identical for every engine, so it
@@ -148,7 +199,9 @@ export interface BlindPanel {
    * The prompt every engine of this panel was sent, word for word (the
    * panel's frozen compiled prompt), so how faithfully each picture follows
    * it can be judged (David, 2026-11-10). The same for every engine, so it
-   * names none. Null before the panel is prepared.
+   * names none. Null before the panel is prepared, and always null on the
+   * second edition, which is judged against the gag and never the prompt
+   * (plan `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed Design* B).
    */
   prompt: string | null;
   judgeable: boolean;
@@ -163,11 +216,13 @@ export interface BlindPanel {
   imagesMissing: number;
   /** Empty until the panel is judgeable; only the images that exist. */
   images: BlindImage[];
-  /** The saved scores, by blind token. */
+  /** First edition: the saved scores, by blind token. */
   pick: { ratings: Record<string, number>; faceMismatchTokens: string[]; styleCapturedTokens: string[]; judgedAt: string } | null;
+  /** Second edition: the saved judgement, by blind token. */
+  judgement: { scores: Record<string, CategoryScores>; bestToken: string | null; brokenTokens: string[]; judgedAt: string } | null;
 }
 export interface BlindSet {
-  set: { id: number; label: string; round: number };
+  set: { id: number; label: string; round: number; judgingEdition: number };
   progress: { panels: number; judgeable: number; judged: number; skipped: number; lost: number };
   panels: BlindPanel[];
 }
@@ -193,7 +248,9 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
     panelRows([setId]),
   ]);
   if (!set) return null;
-  const factIds = [...new Set(panels.map((p) => p.factId))];
+  const second = set.judgingEdition >= 2;
+  // The second edition reads only what was frozen at preparation; the live fact row is the first edition's.
+  const factIds = second ? [] : [...new Set(panels.map((p) => p.factId))];
   const facts = factIds.length ? await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(inArray(factsTable.id, factIds)) : [];
   const factText = new Map(facts.map((f) => [f.id, renderCanonical(f.text)]));
 
@@ -206,19 +263,23 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
     const pick = picks.get(panel.id);
     const scores = pick ? ratingsOf(pick.ratings) : new Map<number, number>();
     const savedRatings = Object.fromEntries([...scores].filter(([id]) => tokenOf.has(id)).map(([id, score]) => [tokenOf.get(id)!, score]));
+    const categoryScores = second && pick ? categoryScoresOf(pick.categoryScores) : new Map<number, CategoryScores>();
+    const savedScores = Object.fromEntries([...categoryScores].filter(([id]) => tokenOf.has(id)).map(([id, s]) => [tokenOf.get(id)!, s]));
     out.push({
       panelId: panel.id,
       position: out.length + 1,
       factId: panel.factId,
-      factText: factText.get(panel.factId) ?? "",
+      factText: second ? (panel.frozenFactText ?? "") : (factText.get(panel.factId) ?? ""),
       scenarioKey: panel.scenarioKey,
       scenarioLabel: RENDER_SCENARIO_DESCRIPTORS[panel.scenarioKey as RenderScenarioKey]?.label ?? panel.scenarioKey,
       lookStyleId: panel.lookStyleId,
       imageMode: panel.imageMode,
       faceMarkable: isHumanReference(panel.scenarioKey),
       styleMarkable: isStyled(panel.lookStyleId),
+      gag: second ? panel.frozenGag : null,
+      categories: second ? panelCategories(panel) : [],
       reference: panel.referenceImageUrl ? { src: panel.referenceImageUrl, identityType: panel.referenceIdentityType } : null,
-      prompt: promptTextOf(panel.compiledPrompt),
+      prompt: second ? null : promptTextOf(panel.compiledPrompt),
       judgeable,
       skipped: panel.state === "skipped",
       skipReason: panel.state === "skipped" ? panel.skipReason : null,
@@ -229,7 +290,7 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
       images: judgeable
         ? ordered.filter((o) => hasImage(o.cell)).map((o) => ({ token: o.token, src: `/api/admin/comparison/panels/${panel.id}/images/${o.token}` }))
         : [],
-      pick: pick && Object.keys(savedRatings).length > 0
+      pick: !second && pick && Object.keys(savedRatings).length > 0
         ? {
           ratings: savedRatings,
           faceMismatchTokens: asIds(pick.faceMismatchCellIds).map((id) => tokenOf.get(id)).filter((t): t is string => !!t),
@@ -237,14 +298,22 @@ export async function getBlindSet(setId: number): Promise<BlindSet | null> {
           judgedAt: pick.judgedAt.toISOString(),
         }
         : null,
+      judgement: second && pick && Object.keys(savedScores).length > 0
+        ? {
+          scores: savedScores,
+          bestToken: pick.pickedCellId != null ? (tokenOf.get(pick.pickedCellId) ?? null) : null,
+          brokenTokens: asIds(pick.brokenCellIds).map((id) => tokenOf.get(id)).filter((t): t is string => !!t),
+          judgedAt: pick.judgedAt.toISOString(),
+        }
+        : null,
     });
   }
   return {
-    set: { id: set.id, label: set.label, round: set.round },
+    set: { id: set.id, label: set.label, round: set.round, judgingEdition: set.judgingEdition },
     progress: {
       panels: out.length,
       judgeable: out.filter((p) => p.judgeable).length,
-      judged: out.filter((p) => p.pick).length,
+      judged: out.filter((p) => p.pick || p.judgement).length,
       skipped: out.filter((p) => p.skipped).length,
       lost: out.filter((p) => p.waiting === "lost").length,
     },
@@ -274,6 +343,7 @@ export async function recordPick(panelId: number, req: ComparisonPickRequest, ad
   return db.transaction(async (tx) => {
     const [panel] = await tx.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, panelId)).for("update");
     if (!panel) throw new ComparisonPickRefused("no such panel");
+    if ((await editionOfSet(tx, panel.setId)) !== 1) throw new ComparisonPickRefused("this set is judged on the five categories, with a pick");
     const cells = await tx.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panelId));
     if (!isJudgeable(cells)) throw new ComparisonPickRefused("this panel cannot be judged until every image is ready or lost for good");
     const tokens = cellsByToken(panel, cells);
@@ -296,23 +366,102 @@ export async function recordPick(panelId: number, req: ComparisonPickRequest, ad
     if (styleMarks.some((t) => !shown.has(t))) throw new ComparisonPickRefused("a style mark names an image that is not this panel's");
     const styleIds = styleMarks.map((t) => byToken.get(t)!);
 
-    const [existing] = await tx.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, panelId));
-    const now = new Date();
-    if (!existing) {
-      await tx.insert(comparisonPicksTable).values({ panelId, ratings, faceMismatchCellIds: markIds, styleCapturedCellIds: styleIds, judgedBy: adminUserId, judgedAt: now });
-    } else {
-      const history = [...(Array.isArray(existing.history) ? existing.history : []), {
-        ratings: existing.ratings,
-        faceMismatchCellIds: existing.faceMismatchCellIds,
-        styleCapturedCellIds: existing.styleCapturedCellIds,
-        judgedBy: existing.judgedBy,
-        judgedAt: existing.judgedAt.toISOString(),
-      }];
-      await tx.update(comparisonPicksTable)
-        .set({ ratings, faceMismatchCellIds: markIds, styleCapturedCellIds: styleIds, judgedBy: adminUserId, judgedAt: now, history })
-        .where(and(eq(comparisonPicksTable.id, existing.id), eq(comparisonPicksTable.panelId, panelId)));
-    }
+    await saveJudgement(tx, panelId, { ratings, faceMismatchCellIds: markIds, styleCapturedCellIds: styleIds, judgedBy: adminUserId, judgedAt: new Date() });
     return { ratings: Object.fromEntries(scored), faceMismatchTokens: marks, styleCapturedTokens: styleMarks };
+  });
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function editionOfSet(tx: Tx, setId: number): Promise<number> {
+  const [set] = await tx.select({ e: comparisonSetsTable.judgingEdition }).from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId));
+  return set?.e ?? 1;
+}
+
+/** A judgement's history entry: every judgement field as it stood, with who and when. */
+function historyEntry(existing: typeof comparisonPicksTable.$inferSelect) {
+  return {
+    ratings: existing.ratings,
+    faceMismatchCellIds: existing.faceMismatchCellIds,
+    styleCapturedCellIds: existing.styleCapturedCellIds,
+    categoryScores: existing.categoryScores,
+    pickedCellId: existing.pickedCellId,
+    brokenCellIds: existing.brokenCellIds,
+    judgedBy: existing.judgedBy,
+    judgedAt: existing.judgedAt.toISOString(),
+  };
+}
+
+/** Write a panel's judgement, moving any earlier one into the row's history. */
+async function saveJudgement(tx: Tx, panelId: number, values: Omit<typeof comparisonPicksTable.$inferInsert, "panelId" | "history">): Promise<void> {
+  const [existing] = await tx.select().from(comparisonPicksTable).where(eq(comparisonPicksTable.panelId, panelId));
+  if (!existing) {
+    await tx.insert(comparisonPicksTable).values({ panelId, ...values });
+    return;
+  }
+  const history = [...(Array.isArray(existing.history) ? existing.history : []), historyEntry(existing)];
+  await tx.update(comparisonPicksTable).set({ ...values, history })
+    .where(and(eq(comparisonPicksTable.id, existing.id), eq(comparisonPicksTable.panelId, panelId)));
+}
+
+/**
+ * Which judging edition a group of sets was judged on: 1, 2, "mixed" (sets
+ * of both, never read together), or null when any of them does not exist.
+ */
+export async function editionOfSets(setIds: number[]): Promise<1 | 2 | "mixed" | null> {
+  const rows = await db.select({ e: comparisonSetsTable.judgingEdition }).from(comparisonSetsTable).where(inArray(comparisonSetsTable.id, setIds));
+  if (rows.length !== setIds.length) return null;
+  const editions = new Set(rows.map((r) => (r.e >= 2 ? 2 : 1)));
+  return editions.size > 1 ? "mixed" : ([...editions][0] as 1 | 2);
+}
+
+/**
+ * Record (or replace) a second-edition judgement of a panel (plan
+ * `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed Design* C): every picture
+ * shown scored on exactly the categories that apply to the panel, one of
+ * them picked, any of them marked broken. A partial judgement is refused.
+ */
+export async function recordJudgement(panelId: number, req: ComparisonJudgementRequest, adminUserId: string | null): Promise<{ scores: Record<string, CategoryScores>; bestToken: string; brokenTokens: string[] }> {
+  return db.transaction(async (tx) => {
+    const [panel] = await tx.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, panelId)).for("update");
+    if (!panel) throw new ComparisonPickRefused("no such panel");
+    if ((await editionOfSet(tx, panel.setId)) < 2) throw new ComparisonPickRefused("this set is judged with one score per picture");
+    const cells = await tx.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panelId));
+    if (!isJudgeable(cells)) throw new ComparisonPickRefused("this panel cannot be judged until every image is ready or lost for good");
+    const tokens = cellsByToken(panel, cells);
+    const shown = new Set([...tokens].filter(([, c]) => hasImage(c)).map(([t]) => t));
+    const asked = new Set(panelCategories(panel));
+    const scored = new Map<string, CategoryScores>();
+    for (const s of req.scores) {
+      if (scored.has(s.token)) throw new ComparisonPickRefused("a picture is scored twice");
+      if (!shown.has(s.token)) throw new ComparisonPickRefused("a score names a picture that is not one of this panel's");
+      const scores: CategoryScores = {};
+      for (const k of JUDGING_CATEGORY_KEYS) {
+        const v = s[k];
+        if (asked.has(k) && v == null) throw new ComparisonPickRefused(`every picture needs a ${k} score on this panel`);
+        if (!asked.has(k) && v != null) throw new ComparisonPickRefused(`${k} is not asked on this panel`);
+        if (v != null) scores[k] = v;
+      }
+      scored.set(s.token, scores);
+    }
+    if (scored.size !== shown.size) throw new ComparisonPickRefused(`score every picture: ${scored.size} of ${shown.size} scored`);
+    if (!shown.has(req.bestToken)) throw new ComparisonPickRefused("the pick names a picture that is not one of this panel's");
+    const broken = [...new Set(req.brokenTokens ?? [])];
+    if (broken.some((t) => !shown.has(t))) throw new ComparisonPickRefused("a broken mark names a picture that is not this panel's");
+    const idOf = (t: string) => tokens.get(t)!.id;
+    const categoryScores = [...scored].map(([t, s]) => ({ cellId: idOf(t), ...s }));
+    const values = {
+      ratings: [],
+      faceMismatchCellIds: [],
+      styleCapturedCellIds: [],
+      categoryScores,
+      pickedCellId: idOf(req.bestToken),
+      brokenCellIds: broken.map(idOf),
+      judgedBy: adminUserId,
+      judgedAt: new Date(),
+    };
+    await saveJudgement(tx, panelId, values);
+    return { scores: Object.fromEntries(scored), bestToken: req.bestToken, brokenTokens: broken };
   });
 }
 
@@ -367,6 +516,8 @@ export function median(values: number[]): number {
 }
 
 export interface ComparisonResults {
+  /** First-edition results; second-edition sets read `getJudgedResults`. */
+  edition: 1;
   sets: Array<{ id: number; label: string; round: number; imageSize: string }>;
   families: string[];
   /** Every panel of the sets counts in `total`; `skipped` will never be judged. */
@@ -575,6 +726,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
 
   const families = [...new Set(allCells.map((c) => familyOfEngine.get(c.engineId) ?? c.engineId))].sort();
   return {
+    edition: 1,
     sets: sets.map((s) => ({ id: s.id, label: s.label, round: s.round, imageSize: s.imageSize })),
     families,
     panels: {
@@ -598,5 +750,135 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
     costs,
     preparationBoundUsd: round4(preparation),
     perPanel,
+  };
+}
+
+// ─── Second-edition results ───────────────────────────────────────────────────
+
+/** One engine's second-edition results in one mode. */
+export interface JudgedRow {
+  family: string;
+  engineId: string;
+  /** Judged panels on which this engine had a picture, drawn or lost: the pick share's denominator. */
+  panels: number;
+  /** Panels on which its picture was the one to send. */
+  picked: number;
+  /** `picked / panels`, or null when it was on no judged panel. */
+  pickShare: number | null;
+  /**
+   * Each category's average over the pictures it was asked on, a picture
+   * lost for good counting 1 (David, 2026-11-10: "Count it as 1"); a
+   * category never asked has `count` 0.
+   */
+  categories: Record<JudgingCategoryKey, Score>;
+  /** Pictures scored, lost for good (each a 1 in every category asked), and marked broken. */
+  scored: number;
+  lost: number;
+  broken: number;
+  billedUsdPerImage: number | null;
+  billedMinUsd: number | null;
+  billedMaxUsd: number | null;
+  billedTotalUsd: number | null;
+  billed: number;
+  medianSeconds: number | null;
+  slowestSeconds: number | null;
+  timed: number;
+}
+
+export interface JudgedResults {
+  edition: 2;
+  sets: Array<{ id: number; label: string; round: number; imageSize: string }>;
+  panels: { total: number; judged: number; judgeable: number; skipped: number; lost: number };
+  /**
+   * Per mode ("t2i", "i2i"), every engine that drew a panel, by pick share
+   * then name. No blended score is computed from the five categories: the
+   * pick share is the headline (plan `docs/plans/PLAN_PROMPT_TUNER.md`,
+   * *Proposed Design* C).
+   */
+  rows: Record<string, JudgedRow[]>;
+}
+
+/**
+ * Results for second-edition sets: per engine and mode, how often its
+ * picture was the one to send, each category's average, and what it cost
+ * and how long it took.
+ */
+export async function getJudgedResults(setIds: number[]): Promise<JudgedResults | null> {
+  const sets = await db.select().from(comparisonSetsTable).where(inArray(comparisonSetsTable.id, setIds)).orderBy(asc(comparisonSetsTable.id));
+  if (sets.length !== setIds.length) return null;
+  const { panels, cellsByPanel, picks } = await panelRows(setIds);
+  const allCells = [...cellsByPanel.values()].flat();
+  const engineIds = [...new Set(allCells.map((c) => c.engineId))];
+  const engines = engineIds.length ? await db.select({ id: enginesTable.id, family: enginesTable.family }).from(enginesTable).where(inArray(enginesTable.id, engineIds)) : [];
+  const familyOf = new Map(engines.map((e) => [e.id, e.family ?? e.id]));
+
+  type Acc = { panels: number; picked: number; scored: number; lost: number; broken: number; cats: Record<string, Tally>; secs: number[]; usd: number[] };
+  const acc = new Map<string, Acc>();
+  const accFor = (mode: string, engineId: string): Acc => {
+    const k = `${mode}|${engineId}`;
+    let a = acc.get(k);
+    if (!a) { a = { panels: 0, picked: 0, scored: 0, lost: 0, broken: 0, cats: {}, secs: [], usd: [] }; acc.set(k, a); }
+    return a;
+  };
+  let judged = 0;
+  for (const panel of panels) {
+    const cells = cellsByPanel.get(panel.id) ?? [];
+    for (const c of cells) {
+      const a = accFor(panel.imageMode, c.engineId);
+      if (c.submittedAt && c.completedAt) a.secs.push((c.completedAt.getTime() - c.submittedAt.getTime()) / 1000);
+      if (c.billedUsd != null && c.state === "rendered") a.usd.push(Number(c.billedUsd));
+    }
+    const pick = picks.get(panel.id);
+    const scores = pick ? categoryScoresOf(pick.categoryScores) : new Map<number, CategoryScores>();
+    if (scores.size === 0) continue;
+    judged += 1;
+    const asked = panelCategories(panel);
+    const broken = new Set(asIds(pick!.brokenCellIds));
+    for (const c of cells) {
+      const a = accFor(panel.imageMode, c.engineId);
+      const s = scores.get(c.id);
+      const lost = !s && cellLost(c);
+      if (!s && !lost) continue;
+      a.panels += 1;
+      if (pick!.pickedCellId === c.id) a.picked += 1;
+      if (broken.has(c.id)) a.broken += 1;
+      if (lost) a.lost += 1; else a.scored += 1;
+      for (const k of asked) tally(a.cats, k, lost ? LOST_IMAGE_SCORE : (s![k] ?? LOST_IMAGE_SCORE));
+    }
+  }
+
+  const rows: JudgedResults["rows"] = {};
+  for (const [key, a] of acc) {
+    const [mode, engineId] = key.split("|") as [string, string];
+    const categories = { ...Object.fromEntries(JUDGING_CATEGORY_KEYS.map((k) => [k, { mean: null, count: 0 }])), ...toScores(a.cats) } as Record<JudgingCategoryKey, Score>;
+    (rows[mode] ??= []).push({
+      family: familyOf.get(engineId) ?? engineId,
+      engineId,
+      panels: a.panels,
+      picked: a.picked,
+      pickShare: a.panels > 0 ? Math.round((a.picked / a.panels) * 100) / 100 : null,
+      categories,
+      scored: a.scored,
+      lost: a.lost,
+      broken: a.broken,
+      ...billing(a.usd),
+      ...timing(a.secs),
+    });
+  }
+  for (const list of Object.values(rows)) {
+    list.sort((x, y) => (y.pickShare ?? -1) - (x.pickShare ?? -1) || x.family.localeCompare(y.family));
+  }
+
+  return {
+    edition: 2,
+    sets: sets.map((s) => ({ id: s.id, label: s.label, round: s.round, imageSize: s.imageSize })),
+    panels: {
+      total: panels.length,
+      judged,
+      judgeable: panels.filter((p) => isJudgeable(cellsByPanel.get(p.id) ?? [])).length,
+      skipped: panels.filter((p) => p.state === "skipped").length,
+      lost: panels.filter((p) => panelWait(p, cellsByPanel.get(p.id) ?? []) === "lost").length,
+    },
+    rows,
   };
 }
