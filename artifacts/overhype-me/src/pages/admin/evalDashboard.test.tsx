@@ -7,6 +7,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 
+// The prompt tuner's wording editor has its own tests (PromptRecipes.test.tsx).
+vi.mock("@/components/admin/PromptRecipes", () => ({ PromptRecipes: () => null }));
 vi.mock("@/components/admin/AdminLayout", () => ({
   AdminLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));

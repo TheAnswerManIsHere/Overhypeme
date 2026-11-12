@@ -23,6 +23,7 @@ import type {
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { enqueueJob } from "./asyncJobs";
 import { resolveImageEngine } from "./imageEngineRouting";
+import { liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
 
 /** RenderControls plus the route-attached fields `imagePromptJobs` reads. */
 export type RenderControlsWithRefs = RenderControls & {
@@ -111,6 +112,8 @@ export async function buildAndEnqueueImagePromptAttempt(
   const generationMode = generationModeFromSubjectRenderMode(args.subjectRenderMode);
   // Routing is resolved once, here, and stored: history never re-derives it.
   const imageEngine = await resolveImageEngine(generationMode, args.imageEngineId);
+  // The wording is chosen here too, so a promotion never changes queued work.
+  const recipeVersionId = await liveRecipeVersionIdForFamily(imageEngine.family ?? imageEngine.id);
   const renderJobId = randomUUID();
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)
@@ -124,6 +127,7 @@ export async function buildAndEnqueueImagePromptAttempt(
       userSelectedSubjectRenderMode: args.userSelectedSubjectRenderMode ?? null,
       targetEngine: "nano_banana_2",
       actualImageEngineId: imageEngine.id,
+      recipeVersionId,
       sourceImageAnalysis: args.analysis,
       sourceImageSha256: args.analysis.sourceImageSha256 ?? null,
       identityPolicy: args.identityPolicy,

@@ -35,6 +35,8 @@ import {
   projectWorstCaseRenderedText,
   resolveRenderPolicy,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  FIXED_REQUIRED_RESERVE_BUDGET,
+  MAX_BUBBLES,
   validateVisualStrategyOverrideForSave,
   type VsoBudgetResult,
 } from "@workspace/api-zod";
@@ -45,6 +47,7 @@ import {
   compileNanoBanana2T2I,
 } from "./compilers/nanoBanana2";
 import { RENDER_STYLE_COPY_MAX_CHARS } from "./styleResolution";
+import { BASELINE_RECIPE, type ResolvedRecipe } from "./recipe";
 
 export type SubjectRenderModeKey = "human_identity_i2i" | "nonhuman_subject_i2i" | "t2i_fallback";
 
@@ -92,10 +95,10 @@ const MAX_FIXED_POLICY: RenderPolicy = {
   violence: { mode: "allow", intensity: "strong" },
 };
 
-function fixedShapeArgs(mode: SubjectRenderModeKey, gender?: "male" | "female" | "neutral") {
+function fixedShapeArgs(mode: SubjectRenderModeKey, gender?: "male" | "female" | "neutral", recipe: ResolvedRecipe = BASELINE_RECIPE, stylePrompt = "S".repeat(RENDER_STYLE_COPY_MAX_CHARS)) {
   const input = {
     subjectRenderMode: mode,
-    stylePrompt: "S".repeat(RENDER_STYLE_COPY_MAX_CHARS),
+    stylePrompt,
     referenceImageUrl: mode === "t2i_fallback" ? null : "https://example.com/ref.png",
     // A violence-relevant fact so the fixed violence-allow line emits.
     factText: "Subject destroys a tank.",
@@ -108,13 +111,25 @@ function fixedShapeArgs(mode: SubjectRenderModeKey, gender?: "male" | "female" |
     compiledPrompt: { prompt: "", negativePrompt: "", engineNotes: "" },
     input,
     renderedSubject: { name: "N".repeat(RENDERED_IDENTITY_NAME_MAX), pronouns: "they/them" },
+    recipe,
   };
 }
 
-export function measureRequiredPromptBudget(): RequiredPromptBudgetMeasurement {
-  const human = compileNanoBanana2HumanI2I(fixedShapeArgs("human_identity_i2i")).imagePrompt.length;
-  const nonhuman = compileNanoBanana2NonhumanI2I(fixedShapeArgs("nonhuman_subject_i2i")).imagePrompt.length;
-  const t2i = compileNanoBanana2T2I(fixedShapeArgs("t2i_fallback", "neutral")).imagePrompt.length;
+/**
+ * The compiler's worst-case fixed reserve, per mode. With a prompt recipe
+ * (the prompt tuner), each mode is measured both with a chosen look at its
+ * longest and with no look (the recipe's own photoreal line), and the longer
+ * counts.
+ */
+export function measureRequiredPromptBudget(recipe: ResolvedRecipe = BASELINE_RECIPE): RequiredPromptBudgetMeasurement {
+  // The baseline keeps the one measurement its pinned number was derived from
+  // (deliberately by identity); any other recipe is also measured with no look.
+  const styles = recipe === BASELINE_RECIPE ? ["S".repeat(RENDER_STYLE_COPY_MAX_CHARS)] : ["S".repeat(RENDER_STYLE_COPY_MAX_CHARS), ""];
+  const longest = (compile: (a: ReturnType<typeof fixedShapeArgs>) => { imagePrompt: string }, mode: SubjectRenderModeKey, gender?: "neutral") =>
+    Math.max(...styles.map((s) => compile(fixedShapeArgs(mode, gender, recipe, s)).imagePrompt.length));
+  const human = longest(compileNanoBanana2HumanI2I, "human_identity_i2i");
+  const nonhuman = longest(compileNanoBanana2NonhumanI2I, "nonhuman_subject_i2i");
+  const t2i = longest(compileNanoBanana2T2I, "t2i_fallback", "neutral");
   const perMode = { human_identity_i2i: human, nonhuman_subject_i2i: nonhuman, t2i_fallback: t2i };
   return { perMode, worstCase: Math.max(human, nonhuman, t2i) };
 }
@@ -149,6 +164,7 @@ function projectAdditionsOverride(ov: VisualPromptStrategyOverride): VisualPromp
 function compileWithOverride(
   entry: { mode: SubjectRenderModeKey; gender?: "male" | "female" | "neutral" },
   ov: VisualPromptStrategyOverride,
+  recipe: ResolvedRecipe = BASELINE_RECIPE,
 ): number {
   const enrichment = { modifiers: [] as string[], visualPromptStrategyOverride: ov };
   const input = {
@@ -171,6 +187,7 @@ function compileWithOverride(
     compiledPrompt: { prompt: "", negativePrompt: "", engineNotes: "" },
     input,
     renderedSubject: { name: "N".repeat(RENDERED_IDENTITY_NAME_MAX), pronouns: "they/them" },
+    recipe,
   }).imagePrompt.length;
 }
 
@@ -266,3 +283,58 @@ export function validateVisualStrategyOverridePersistence(
     measureBubbleDirectivesEmission(ov),
   );
 }
+
+// ─── Prompt recipes (the prompt tuner) ───────────────────────────────────────
+
+/**
+ * A moderator override with every additions field and the most balloons
+ * populated once, short: what a recipe's labels and balloon wording add on
+ * top of the moderator's own text. The wording a recipe controls is per
+ * field and per balloon, so one short entry each measures it.
+ */
+const RECIPE_PROBE_ADDITIONS: VisualPromptStrategyOverride = {
+  ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  subjectRealizationOverride: { mode: "normal_human", description: "x" },
+  requiredVisualDetails: ["x"],
+  forbiddenVisualDetails: ["x"],
+  roleBindings: [{ entity: "subject", visualRole: "x" }, { entity: "y", visualRole: "x" }],
+  compositionGuidance: ["x"],
+  styleAgnosticPromptAdditions: ["x"],
+  negativePromptAdditions: ["x"],
+} as VisualPromptStrategyOverride;
+const RECIPE_PROBE_BUBBLES: VisualPromptStrategyOverride = {
+  ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  bubbles: Array.from({ length: MAX_BUBBLES }, (_, i) => ({ entity: "subject", text: "x", type: i % 2 ? "thought" : "speech" })),
+} as VisualPromptStrategyOverride;
+
+/** How many more characters a probe override emits under `recipe` than under the baseline, at worst across modes. */
+function recipeGrowth(probe: VisualPromptStrategyOverride, recipe: ResolvedRecipe): number {
+  let worst = 0;
+  for (const entry of ADDITIONS_MODES) {
+    const under = compileWithOverride(entry, probe, recipe) - compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE, recipe);
+    const baseline = compileWithOverride(entry, probe) - compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE);
+    worst = Math.max(worst, under - baseline);
+  }
+  return worst;
+}
+
+/**
+ * Whether a prompt recipe keeps the prompt-budget guarantee (plan
+ * `docs/plans/PLAN_PROMPT_TUNER.md`, *Security, permissions, validation*):
+ * the recipe's fixed wording at its longest, plus whatever its labels and
+ * balloon wording add to the moderator's own content beyond the baseline,
+ * must fit the fixed reserve, so every moderator Concept, addition and
+ * balloon already valid to save still fits. A one-fact preview is never the
+ * gate. Empty means it fits.
+ */
+export function recipeBudgetProblems(recipe: ResolvedRecipe): string[] {
+  const fixed = measureRequiredPromptBudget(recipe).worstCase;
+  const growth = Math.max(0, recipeGrowth(RECIPE_PROBE_ADDITIONS, recipe)) + Math.max(0, recipeGrowth(RECIPE_PROBE_BUBBLES, recipe));
+  const total = fixed + growth;
+  if (total <= FIXED_REQUIRED_RESERVE_BUDGET) return [];
+  const baseline = measureRequiredPromptBudget().worstCase;
+  return [
+    `This wording is too long for the prompt: at its longest it needs ${total} characters of fixed wording, and ${FIXED_REQUIRED_RESERVE_BUDGET} are set aside (today's wording needs ${baseline}). Shorten it by at least ${total - FIXED_REQUIRED_RESERVE_BUDGET} characters.`,
+  ];
+}
+

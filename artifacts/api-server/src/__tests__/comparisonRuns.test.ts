@@ -259,6 +259,25 @@ describe("a comparison run end to end, with fakes", () => {
     assert.equal(prepRun!.state, "done");
   });
 
+  it("freezes the fact's approved gag, rendered for the panel's subject, so a later edit changes nothing", async () => {
+    const { EMPTY_VISUAL_STRATEGY_OVERRIDE } = await import("@workspace/api-zod");
+    const withGag = { ...VALID_ENRICHMENT, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} hoists a mountain overhead like a barbell." } };
+    await db.update(factsTable).set({ enrichment: withGag as never }).where(eq(factsTable.id, factId));
+    try {
+      const setId = await newSet("gag");
+      await drain((await start(setId, "prepare")).body.run.id);
+      await db.update(factsTable).set({ enrichment: VALID_ENRICHMENT as never }).where(eq(factsTable.id, factId));
+      const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
+      assert.ok(panels.length > 0 && panels.every((p) => p.state === "prepared"), JSON.stringify(panels.map((p) => [p.state, p.error])));
+      for (const p of panels) {
+        assert.match(String(p.frozenGag), /hoists a mountain overhead like a barbell\./);
+        assert.doesNotMatch(String(p.frozenGag), /\{NAME\}/, "rendered for the panel's subject");
+      }
+    } finally {
+      await db.update(factsTable).set({ enrichment: VALID_ENRICHMENT as never }).where(eq(factsTable.id, factId));
+    }
+  });
+
   it("renders every cell in one run, one submission each, each recorded at its bound with no bill read", async () => {
     const setId = await newSet("all");
     await drain((await start(setId, "prepare")).body.run.id);

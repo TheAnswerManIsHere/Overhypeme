@@ -52,9 +52,9 @@ describe("a recipe that changes pieces", () => {
     const r = recipeFrom(2, { "notes.engine": "Prefer natural skin texture." });
     const out = compileForSubjectRenderMode({ ...structuredClone(sample.args), recipe: r });
     assert.match(out.prompt, /ENGINE NOTES: Prefer natural skin texture\. RENDER STYLE: /);
-    assert.ok(out.promptBreakdown.some((s) => s.id === "engine_notes"));
+    assert.ok((out.promptBreakdown ?? []).some((s) => s.id === "engine_notes"));
     const none = compileForSubjectRenderMode({ ...structuredClone(sample.args), recipe: recipeFrom(3, { "notes.engine": "   " }) });
-    assert.ok(!none.promptBreakdown.some((s) => s.id === "engine_notes"));
+    assert.ok(!(none.promptBreakdown ?? []).some((s) => s.id === "engine_notes"));
   });
 
   it("the photoreal line applies whether the look-less style arrives empty or already resolved", () => {

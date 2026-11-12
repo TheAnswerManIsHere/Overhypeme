@@ -25,7 +25,7 @@ import type { FactEnrichment } from "@workspace/api-zod";
 
 import {
   attemptImageEngineId,
-  currentImageEngineIds,
+  currentImageEngineIds, currentRenderRouting,
   IMAGE_ENGINE_CONFIG_KEYS,
   ImageEngineRoutingError,
   resolveImageEngine,
@@ -129,9 +129,12 @@ after(async () => {
   await restoreKeys();
 });
 
+
+
 describe("resolveImageEngine", () => {
   it("the seeded keys route each mode to the engines the worker always used", async () => {
     assert.deepEqual(await currentImageEngineIds(), { t2i: "nano-banana-2", i2i: "nano-banana-2-edit" });
+    assert.deepEqual((await currentRenderRouting()).recipeVersions, { t2i: null, i2i: null }, "no prompt recipe is promoted: both modes read the baseline");
     assert.equal((await resolveImageEngine("t2i")).id, "nano-banana-2");
     assert.equal((await resolveImageEngine("i2i")).id, "nano-banana-2-edit");
   });

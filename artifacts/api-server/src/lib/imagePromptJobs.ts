@@ -48,6 +48,8 @@ import {
   type RenderControls,
   type SourceImageAnalysis,
   type GenerationMode,
+  type FactEnrichment,
+  type VisualPlan,
 } from "@workspace/api-zod";
 import { registerJobHandler, enqueueJob, terminalFailure, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
@@ -57,6 +59,9 @@ import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, resolveImageEngine } from "./imageEngineRouting";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
+import { recipeById } from "./imagePrompt/recipeStore";
+import type { ResolvedRecipe } from "./imagePrompt/recipe";
+import type { CompiledImagePrompt } from "./imagePrompt/types";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { renderPersonalized, hasUnresolvedFactTokens } from "./renderCanonical";
 import { isValidPromptIdentitySnapshot } from "./imagePrompt/promptIdentity";
@@ -139,33 +144,7 @@ export const imagePromptGenerationHandler: JobHandler = {
       return recordTerminalAttemptFailure(p.attemptId, "rendered_fact_unresolved_token", msg);
     }
 
-    // Resolve style suffix per generation mode.
-    const generationMode = generationModeFromSubjectRenderMode(
-      attempt.subjectRenderMode as SubjectRenderMode,
-    );
-    const renderControls = attempt.renderControls as RenderControls;
-    const identityPolicy = attempt.identityPolicy as IdentityPolicy;
-    const stylePrompt = await resolveStylePrompt(renderControls, generationMode);
-
-    const input: ImagePromptGenerationInput = {
-      factText,
-      enrichment,
-      sourceImageAnalysis: attempt.sourceImageAnalysis as SourceImageAnalysis,
-      subjectRenderMode: attempt.subjectRenderMode as SubjectRenderMode,
-      userSelectedSubjectRenderMode:
-        (attempt.userSelectedSubjectRenderMode as SubjectRenderMode | null) ?? null,
-      identityPolicy,
-      renderControls,
-      // Effective render policy = Phase-1 default ← moderator override (Phase 2).
-      renderPolicy: resolveRenderPolicy(enrichment),
-      stylePrompt,
-      referenceImageUrl: extractReferenceImageUrl(attempt),
-      targetEngine: "nano_banana_2",
-      requestId: attempt.requestId ?? undefined,
-      // Token-renders moderator-authored override text (visual concept) before
-      // the planner sees it — the planner never receives raw {NAME} tokens.
-      renderedSubject,
-    };
+    const input = await buildGenerationInput(attempt, enrichment, factText, renderedSubject);
 
     let output;
     try {
@@ -189,6 +168,9 @@ export const imagePromptGenerationHandler: JobHandler = {
       return { ok: false, error: fullMsg };
     }
 
+    // The wording chosen when the attempt was queued; none is the baseline. Read
+    // outside the compile's try, so a database error stays retryable.
+    const recipe = await recipeById(attempt.recipeVersionId);
     let compiled;
     try {
       compiled = compileForSubjectRenderMode({
@@ -196,6 +178,7 @@ export const imagePromptGenerationHandler: JobHandler = {
         compiledPrompt: output.compiledPrompt,
         input,
         renderedSubject,
+        recipe,
       });
     } catch (err) {
       // A compiler throw (e.g. an unhandled subjectRenderMode) is deterministic
@@ -714,3 +697,69 @@ export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedP
     logger.warn({ err, attemptId: attempt.id }, "[imagePromptJobs] mirror-to-legacy-storage failed (non-fatal)");
   }
 }
+
+/**
+ * The planner and compiler input a stored attempt renders from: its frozen
+ * enrichment, fact text, photo, controls and style, with the effective render
+ * policy. Shared by the render worker and the prompt tuner's preview, so a
+ * preview compiles exactly what a render would.
+ */
+async function buildGenerationInput(
+  attempt: ImagePromptAttempt,
+  enrichment: FactEnrichment,
+  factText: string,
+  renderedSubject: { name: string; pronouns: string | null },
+): Promise<ImagePromptGenerationInput> {
+  const generationMode = generationModeFromSubjectRenderMode(attempt.subjectRenderMode as SubjectRenderMode);
+  const renderControls = attempt.renderControls as RenderControls;
+  const stylePrompt = await resolveStylePrompt(renderControls, generationMode);
+  return {
+    factText,
+    enrichment,
+    sourceImageAnalysis: attempt.sourceImageAnalysis as SourceImageAnalysis,
+    subjectRenderMode: attempt.subjectRenderMode as SubjectRenderMode,
+    userSelectedSubjectRenderMode: (attempt.userSelectedSubjectRenderMode as SubjectRenderMode | null) ?? null,
+    identityPolicy: attempt.identityPolicy as IdentityPolicy,
+    renderControls,
+    // Effective render policy = Phase-1 default ← moderator override (Phase 2).
+    renderPolicy: resolveRenderPolicy(enrichment),
+    stylePrompt,
+    referenceImageUrl: extractReferenceImageUrl(attempt),
+    targetEngine: "nano_banana_2",
+    requestId: attempt.requestId ?? undefined,
+    // Token-renders moderator-authored override text (visual concept) before
+    // the planner sees it — the planner never receives raw {NAME} tokens.
+    renderedSubject,
+  };
+}
+
+/**
+ * Compile a stored attempt's own scene plan again with another prompt recipe,
+ * without a planner call (the prompt tuner's preview). Null when the attempt
+ * stored no plan or its frozen inputs no longer resolve.
+ */
+export async function recompileStoredAttempt(
+  attempt: ImagePromptAttempt,
+  recipe: ResolvedRecipe,
+): Promise<CompiledImagePrompt | null> {
+  if (!attempt.visualPlan) return null;
+  const enrichment = validateEnrichment(attempt.factEnrichmentSnapshot);
+  if (!enrichment.ok) return null;
+  const renderedSubject = await resolveAttemptIdentity(attempt);
+  let factText: string;
+  try {
+    factText = await resolveRenderedFactText(attempt, renderedSubject);
+  } catch {
+    return null;
+  }
+  const input = await buildGenerationInput(attempt, enrichment.data, factText, renderedSubject);
+  return compileForSubjectRenderMode({
+    visualPlan: attempt.visualPlan as VisualPlan,
+    // The planner's own prose is not stored; it is read only when a plan has no core scene.
+    compiledPrompt: { prompt: "", negativePrompt: "", engineNotes: "" },
+    input,
+    renderedSubject,
+    recipe,
+  });
+}
+

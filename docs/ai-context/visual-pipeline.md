@@ -654,6 +654,56 @@ Dropped role/key-element candidates are recorded in
 `diagnostics.droppedCandidates`. Nano Banana 2 has **no negative-prompt
 parameter** — exclusions are positive scene language.
 
+### Prompt recipes: the compiler's global wording, versioned per engine
+
+(The prompt tuner, part 2; plan `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed
+Design* A and D; migration 0134.) Every piece of wording the compiler owns that
+is **the same for every fact** is a named template in
+`artifacts/api-server/src/lib/imagePrompt/recipe.ts`: the section labels, the
+identity paragraphs (person photo, pet or object photo, no photo, and the
+gender clause), the binding sentences, the do-nots and failure-mode lines, the
+composition and caption-space sentences, the photoreal style line, the text and
+violence policy lines, the balloon wording, and an **engine notes** piece,
+empty by default, emitted as its own ENGINE NOTES section before RENDER STYLE
+only when it has text. Fact-specific content — the Concept, the moderator's
+sections, the planner's scene, a look's own text — is never a recipe's. A
+recipe changes a line's wording, never when the compiler emits it, nor the
+section order. Slots (`{subject}`, `{side}`…) are filled once; a version that
+drops a required slot or names an unknown one is refused. **Policy pieces**
+(`text.overlay`, `text.incidental`, `violence.*`) can be reworded but not
+emptied.
+
+- **The baseline is today's wording, byte for byte**: compiling with no recipe
+  or `BASELINE_RECIPE` reproduces the 121-input corpus captured before the
+  refactor (`__tests__/fixtures/compilerBaseline.json`; never regenerate it from
+  the refactored compiler).
+- **Versions** (`prompt_recipe_versions`) are per engine family, numbered,
+  saved once and never edited; **promotions** (`prompt_recipe_promotions`) make
+  one live, the newest per family winning, a null version restoring the
+  baseline. A promotion that changes a policy line against the live wording is
+  refused without `confirmPolicy`.
+- **One resolver** (`recipeStore.ts`) serves every path: a render attempt
+  records the live version for its routed engine **when it is queued**
+  (`image_prompt_attempts.recipe_version_id`, null = baseline) and the worker
+  compiles with that version, so a promotion never changes queued work; the
+  admin prompt preview compiles with the routed engine's live version.
+  Promotion changes wording only, never routing.
+- **Moderation freshness**: `currentImageEngineIds()` carries each mode's live
+  version, folded into the scenario hash **only when set** — recipe support alone
+  leaves every existing moderation render current; a promotion for the engine a
+  mode renders with makes that mode's renders read out of date (nothing
+  re-renders on its own).
+- **Budget**: a version is saved only if `recipeBudgetProblems` passes — its
+  fixed wording at its longest (with a chosen look and with none), plus what its
+  labels and balloon wording add to the moderator's own content beyond the
+  baseline (every additions field once, the most balloons), fits
+  `FIXED_REQUIRED_RESERVE_BUDGET`, so every Concept, addition and balloon already
+  valid to save still fits. The render-time overflow refusal stays.
+- **Editor**: Admin → Eval → *Prompt wording* (`PromptRecipes.tsx`;
+  `routes/adminPromptRecipes.ts`): per family, every piece editable, save with a
+  note, preview the whole prompt on a fact's latest stored render plan without
+  a planner call (`recompileStoredAttempt`), promote or restore the baseline.
+
 ## Speech & thought bubbles (moderator control, compiler-owned language)
 
 Explicit `bubbles` on the VSO (`{type: speech|thought, entity, text}`, max 4;

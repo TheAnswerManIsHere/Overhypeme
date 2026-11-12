@@ -529,6 +529,9 @@ describe("second edition: a judgement", () => {
     assert.match(partial.body.refusal, /1 of 2/);
     const foreignPick = await send(i2i.panelId, { scores: scoreAll(i2i, 4), bestToken: t2i.images[0]!.token });
     assert.equal(foreignPick.status, 409, "the pick must be one of this panel's pictures");
+    const foreignBroken = await send(i2i.panelId, { scores: scoreAll(i2i, 4), bestToken: best, brokenTokens: [t2i.images[0]!.token] });
+    assert.equal(foreignBroken.status, 409, "a broken mark must name one of this panel's pictures");
+    assert.match(foreignBroken.body.refusal, /broken mark/);
     const noPick = await send(i2i.panelId, { scores: scoreAll(i2i, 4) });
     assert.equal(noPick.status, 400, "a judgement without a pick is incomplete");
     const firstEditionBody = await send(i2i.panelId, { ratings: i2i.images.map((i) => ({ token: i.token, score: 3 })) });

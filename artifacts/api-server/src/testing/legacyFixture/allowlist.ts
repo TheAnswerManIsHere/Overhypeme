@@ -336,6 +336,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // builder's settings are dropped (the fixture predates them).
     actualImageEngineId: "keep",
     requestSettings: "drop",
+    // 0134: the prompt recipe version it compiled with; the recipe tables are
+    // not copied, so it reads as the baseline.
+    recipeVersionId: "null",
     sourceImageAnalysis: "shape:sourceImageAnalysis",
     sourceImageSha256: "rekey",
     identityPolicy: "shape:identityPolicy",
@@ -555,6 +558,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.comparisonRunsTable, "not-catalogue", "the Phase 8 engine comparison, an admin evaluation lane"),
   exclude(s.comparisonReservationsTable, "not-catalogue", "the Phase 8 engine comparison's spend records"),
   exclude(s.comparisonPicksTable, "not-catalogue", "the Phase 8 engine comparison's blind picks, an admin evaluation lane"),
+  exclude(s.promptRecipeVersionsTable, "not-catalogue", "the prompt tuner's wording versions, an admin evaluation lane"),
+  exclude(s.promptRecipePromotionsTable, "not-catalogue", "the prompt tuner's promotions, an admin evaluation lane"),
   exclude(s.tierFeaturePermissionAuditTable, "not-catalogue", "admin audit history"),
   exclude(s.featurePermissionsMigrationLogTable, "not-catalogue", "one-off migration bookkeeping"),
   exclude(s.engineRevisionBumpsTable, "not-catalogue", "admin audit history"),

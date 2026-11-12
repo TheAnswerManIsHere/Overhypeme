@@ -263,7 +263,6 @@ export type RecipePieces = Record<RecipePieceKey, string>;
 
 export const RECIPE_PIECE_KEYS = RECIPE_PIECES.map((p) => p.key) as RecipePieceKey[];
 const DEF = new Map<string, RecipePieceDef>(RECIPE_PIECES.map((p) => [p.key, p]));
-export const recipePieceDef = (key: RecipePieceKey): RecipePieceDef => DEF.get(key)!;
 
 /** A recipe as the compiler uses it: every piece's text, and the version it came from (null for the baseline). */
 export interface ResolvedRecipe {

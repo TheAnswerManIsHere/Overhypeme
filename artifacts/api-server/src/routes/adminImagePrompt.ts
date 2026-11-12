@@ -24,6 +24,7 @@ import { requireAdmin } from "./admin";
 import { analyzeSourceImage } from "../lib/sourceImageAnalysis";
 import { ImagePromptError } from "../lib/imagePrompt/generator";
 import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
+import { liveRecipeForEngine } from "../lib/imagePrompt/recipeStore";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
 import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
 import { currentImageEngineIds } from "../lib/imageEngineRouting.js";
@@ -179,6 +180,11 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   } = resolved;
 
   const requestId = `admin-preview-${crypto.randomUUID()}`;
+  // The wording a render of this fact would use now: the live recipe for the
+  // engine its mode is routed to (the prompt tuner), so the preview shows what
+  // a render sends.
+  const routedEngineId = (await currentImageEngineIds())[generationMode];
+  const { versionId: recipeVersionId, recipe } = await liveRecipeForEngine(routedEngineId);
   let output;
   let compiled;
   try {
@@ -196,6 +202,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       // render the fact text, so {NAME} never reaches the engine prompt.
       renderedSubject: { name: previewName, pronouns: previewPronouns },
       requestId,
+      recipe,
     });
     output = assembled.output;
     compiled = assembled.compiled;
@@ -220,7 +227,8 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
         targetEngine: "nano_banana_2",
         // A persisted preview is never rendered; it records the engine a render
         // of it would be routed to at the time it was made.
-        actualImageEngineId: (await currentImageEngineIds())[generationMode],
+        actualImageEngineId: routedEngineId,
+        recipeVersionId,
         sourceImageAnalysis: analysis,
         sourceImageSha256: analysis.sourceImageSha256 ?? null,
         identityPolicy,

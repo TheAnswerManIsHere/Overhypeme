@@ -5,6 +5,7 @@ import { factsTable } from "./facts";
 import { usersTable } from "./auth";
 import { pendingReviewsTable } from "./reviews";
 import { evalRunsTable } from "./evalRuns";
+import { promptRecipeVersionsTable } from "./promptRecipes";
 
 /**
  * Phase 2 — per-attempt image prompt generation metadata.
@@ -125,6 +126,12 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
    * contract migration makes it NOT NULL once 0123's release is published.
    */
   actualImageEngineId: varchar("actual_image_engine_id", { length: 64 }),
+  /**
+   * The prompt recipe version this attempt compiles with (the prompt tuner;
+   * migration 0134), chosen when it was queued so a later promotion never
+   * changes queued work. Null is the baseline, today's wording.
+   */
+  recipeVersionId: bigint("recipe_version_id", { mode: "number" }).references(() => promptRecipeVersionsTable.id, { onDelete: "restrict" }),
   /** The endpoint settings the request builder chose (purpose, size, aspect), as sent. */
   requestSettings: jsonb("request_settings"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
