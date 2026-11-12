@@ -24,7 +24,8 @@ export interface RecipeFamily {
   promotions: Array<{ id: number; versionId: number | null; promotedBy: string | null; promotedAt: string }>;
 }
 interface Listing { pieces: PieceDef[]; families: RecipeFamily[] }
-interface Preview { prompt: string; length: number; overflowBy: number; problems: string[]; sections: Array<{ id: string; label: string; status: string; text: string }> }
+interface Segment { text: string; piece: string | null }
+interface Preview { prompt: string; length: number; overflowBy: number; problems: string[]; sections: Array<{ id: string; label: string; status: string; text: string; segments?: Segment[] }> }
 
 const GROUP_LABEL: Record<string, string> = {
   labels: "Section labels", identity: "Identity", binding: "Subject binding", constraints: "Do-nots and failure guards",
@@ -82,6 +83,8 @@ export function PromptRecipes() {
     return out;
   }, [data, baseVersion]);
   const changed = useMemo(() => Object.keys(draft).filter((k) => draft[k] !== basePieces[k]), [draft, basePieces]);
+  const changedSet = useMemo(() => new Set(changed), [changed]);
+  const pieceLabel = (key: string) => data?.pieces.find((p) => p.key === key)?.label ?? key;
   const changedPolicy = changed.filter((k) => data?.pieces.find((p) => p.key === k)?.policy);
 
   const pickFamily = (f: string) => {
@@ -270,8 +273,22 @@ export function PromptRecipes() {
           {preview && (
             <div className="space-y-1" data-testid="recipes-preview-result">
               <p className="text-xs text-muted-foreground">{preview.length.toLocaleString()} characters{preview.overflowBy > 0 ? `, ${preview.overflowBy} over the limit` : ""}</p>
+              <p className="text-xs text-muted-foreground" data-testid="recipes-preview-legend">
+                <mark className="bg-amber-200 dark:bg-amber-700 text-foreground px-0.5 rounded-sm">Your changes</mark>{" "}
+                <span className="text-sky-700 dark:text-sky-300 underline decoration-dotted">Shared wording</span>{" "}
+                · plain text is written for this fact.
+              </p>
               <div className="rounded-sm border border-border p-2 space-y-1 text-xs font-mono text-foreground whitespace-pre-wrap break-words">
-                {preview.sections.filter((s) => s.text).map((s) => <p key={s.id} className={s.status === "compressed" ? "text-amber-600 dark:text-amber-400" : ""} title={s.status === "compressed" ? "Shortened to fit the prompt" : undefined}>{s.text}</p>)}
+                {preview.sections.filter((s) => s.text).map((s) => (
+                  <p key={s.id} className={s.status === "compressed" ? "opacity-80" : ""} title={s.status === "compressed" ? "Shortened to fit the prompt" : undefined}>
+                    {(s.segments ?? [{ text: s.text, piece: null }]).map((g, i) => g.piece == null
+                      ? <span key={i}>{g.text}</span>
+                      : changedSet.has(g.piece)
+                        ? <mark key={i} data-piece={g.piece} data-changed="true" title={pieceLabel(g.piece)} className="bg-amber-200 dark:bg-amber-700 text-foreground rounded-sm">{g.text}</mark>
+                        : <span key={i} data-piece={g.piece} title={pieceLabel(g.piece)} className="text-sky-700 dark:text-sky-300 underline decoration-dotted">{g.text}</span>)}
+                    {s.status === "compressed" && <span className="text-amber-600 dark:text-amber-400"> (shortened to fit)</span>}
+                  </p>
+                ))}
               </div>
             </div>
           )}

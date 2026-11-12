@@ -391,6 +391,18 @@ describe("image_prompt_generation handler — the prompt recipe it was queued wi
       assert.match(again!.prompt, /IDENTITY & REFERENCE: Another wording\./);
       assert.match(again!.prompt, /lifts a library/, "the same stored scene");
       assert.equal(llmCalls, calls, "no planner call");
+
+      // The preview's highlighting reads the same stored scene, marked: the
+      // wording comes back as its piece and the text is otherwise unchanged.
+      const { markRecipe, segmentsOf } = await import("../lib/imagePrompt/recipeHighlight.js");
+      const marked = await recompileStoredAttempt(row, markRecipe(recipeFrom(null, { "identity.person": "Another wording." })));
+      const plain = new Map((again!.promptBreakdown ?? []).map((sec) => [sec.id, sec.text]));
+      for (const sec of marked!.promptBreakdown ?? []) {
+        assert.equal(segmentsOf(sec.text).map((g) => g.text).join(""), plain.get(sec.id), `section ${sec.id} reads back unchanged`);
+      }
+      const all = (marked!.promptBreakdown ?? []).flatMap((sec) => segmentsOf(sec.text));
+      assert.ok(all.some((g) => g.piece === "identity.person" && g.text === "Another wording."), "the edited piece is marked as itself");
+      assert.equal(llmCalls, calls, "still no planner call");
     } finally {
       await db.update(imagePromptAttemptsTable).set({ recipeVersionId: null }).where(eq(imagePromptAttemptsTable.recipeVersionId, version!.id));
       await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, version!.id));

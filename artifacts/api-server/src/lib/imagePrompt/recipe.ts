@@ -286,7 +286,7 @@ export function recipeFrom(versionId: number | null, stored: unknown): ResolvedR
   return { versionId, pieces };
 }
 
-const SLOT_RE = /\{([A-Za-z]+)\}/g;
+export const SLOT_RE = /\{([A-Za-z]+)\}/g;
 
 /** Slots that carry a fact's own words into the prompt. */
 const CONTENT_SLOTS = new Set(["text", "guidance", "items", "elements"]);
