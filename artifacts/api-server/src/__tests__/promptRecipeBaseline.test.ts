@@ -9,7 +9,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { compileForSubjectRenderMode } from "../lib/imagePrompt/compilers/nanoBanana2.js";
-import { BASELINE_RECIPE, recipeFrom, recipeProblems, changedPolicyPieces, fillPiece, BASELINE_PIECES } from "../lib/imagePrompt/recipe.js";
+import { BASELINE_RECIPE, recipeFrom, recipeProblems, changedPolicyPieces, fillPiece, BASELINE_PIECES, RECIPE_PIECES } from "../lib/imagePrompt/recipe.js";
+import { measureRequiredPromptBudget, recipeBudgetProblems } from "../lib/imagePrompt/promptBudget.js";
 
 type Case = { args: Parameters<typeof compileForSubjectRenderMode>[0]; prompt: string; engineNotes: string | null };
 const corpus = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
@@ -93,5 +94,44 @@ describe("recipe pieces", () => {
   it("name the policy pieces that differ", () => {
     const changed = recipeFrom(1, { "violence.allow": "Show it, no gore.", "identity.none": "x" }).pieces;
     assert.deepEqual(changedPolicyPieces(BASELINE_PIECES, changed), ["violence.allow"]);
+  });
+});
+
+describe("the save-time budget check covers every piece (Codex, PR #926 round 1)", () => {
+  /**
+   * Pieces that can only land in sections the compiler trims or drops when a
+   * prompt runs long, so a long one is shortened rather than breaking a render;
+   * and the engine-notes label, emitted only with notes, which are measured.
+   */
+  const TRIMMABLE = new Set([
+    "label.subjectDetails", "label.environment", "label.lighting",
+    "composition.framing", "composition.captionSpace", "composition.keyElements",
+    "label.engineNotes",
+  ]);
+  const pad = (key: string, by: number) => {
+    const base = BASELINE_PIECES[key as keyof typeof BASELINE_PIECES];
+    return key.startsWith("label.") ? base + "X".repeat(by) : `${base} ${"x".repeat(by)}`.trim();
+  };
+
+  it("refuses every piece that reaches a section never trimmed, when it alone grows by 1,000 characters", () => {
+    const accepted: string[] = [];
+    for (const p of RECIPE_PIECES) {
+      if (TRIMMABLE.has(p.key)) continue;
+      const r = recipeFrom(1, { [p.key]: pad(p.key, 1000) });
+      if (recipeBudgetProblems(r).length === 0) accepted.push(p.key);
+    }
+    assert.deepEqual(accepted, [], "each of these grew by 1,000 characters unmeasured");
+  });
+
+  it("refuses the reviewer's example and lines that appear together on their sum, and keeps today's number", () => {
+    assert.equal(recipeBudgetProblems(recipeFrom(1, { "text.forbid": "x".repeat(1500), "violence.suppress": "x".repeat(1500) })).length, 1);
+    const together = recipeFrom(1, { "constraints.crowd": pad("constraints.crowd", 300), "constraints.causal": pad("constraints.causal", 300), "constraints.reversal": pad("constraints.reversal", 300) });
+    for (const k of ["constraints.crowd", "constraints.causal", "constraints.reversal"]) {
+      assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { [k]: pad(k, 15) })), [], `${k} a little longer still saves`);
+    }
+    assert.equal(recipeBudgetProblems(together).length, 1, "three lines that can appear together are charged on their sum");
+    assert.equal(measureRequiredPromptBudget().worstCase, 1704, "the baseline's measured reserve is unchanged");
+    assert.deepEqual(recipeBudgetProblems(BASELINE_RECIPE), []);
+    assert.deepEqual(recipeBudgetProblems(recipeFrom(1, { "text.forbid": pad("text.forbid", 20) })), [], "a small edit to a newly covered line still saves");
   });
 });

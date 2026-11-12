@@ -165,8 +165,9 @@ function compileWithOverride(
   entry: { mode: SubjectRenderModeKey; gender?: "male" | "female" | "neutral" },
   ov: VisualPromptStrategyOverride,
   recipe: ResolvedRecipe = BASELINE_RECIPE,
+  shape: { modifiers?: string[]; plan?: (vp: VisualPlan) => VisualPlan } = {},
 ): number {
-  const enrichment = { modifiers: [] as string[], visualPromptStrategyOverride: ov };
+  const enrichment = { modifiers: shape.modifiers ?? ([] as string[]), visualPromptStrategyOverride: ov };
   const input = {
     subjectRenderMode: entry.mode,
     stylePrompt: "", // identical across the two runs → cancels out of the delta
@@ -182,8 +183,9 @@ function compileWithOverride(
     // line is emitted (and thus measured) exactly as it will render.
     renderPolicy: resolveRenderPolicy(enrichment),
   } as unknown as ImagePromptGenerationInput;
+  const plan = fixedShapeVisualPlan();
   return compileForSubjectRenderMode({
-    visualPlan: fixedShapeVisualPlan(),
+    visualPlan: shape.plan ? shape.plan(plan) : plan,
     compiledPrompt: { prompt: "", negativePrompt: "", engineNotes: "" },
     input,
     renderedSubject: { name: "N".repeat(RENDERED_IDENTITY_NAME_MAX), pronouns: "they/them" },
@@ -287,32 +289,71 @@ export function validateVisualStrategyOverridePersistence(
 // ─── Prompt recipes (the prompt tuner) ───────────────────────────────────────
 
 /**
- * A moderator override with every additions field and the most balloons
- * populated once, short: what a recipe's labels and balloon wording add on
- * top of the moderator's own text. The wording a recipe controls is per
- * field and per balloon, so one short entry each measures it.
+ * A probe: a fact shape that makes the compiler emit some recipe pieces the
+ * fixed shape above does not. What a recipe is charged for a probe is its
+ * GROWTH: how much longer the probe's lines are under the recipe than under
+ * the baseline. The baseline's own conditional lines are absorbed by the
+ * outer margin, as they always were; only what a recipe adds to them must fit.
  */
-const RECIPE_PROBE_ADDITIONS: VisualPromptStrategyOverride = {
-  ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-  subjectRealizationOverride: { mode: "normal_human", description: "x" },
-  requiredVisualDetails: ["x"],
-  forbiddenVisualDetails: ["x"],
-  roleBindings: [{ entity: "subject", visualRole: "x" }, { entity: "y", visualRole: "x" }],
-  compositionGuidance: ["x"],
-  styleAgnosticPromptAdditions: ["x"],
-  negativePromptAdditions: ["x"],
-} as VisualPromptStrategyOverride;
-const RECIPE_PROBE_BUBBLES: VisualPromptStrategyOverride = {
-  ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-  bubbles: Array.from({ length: MAX_BUBBLES }, (_, i) => ({ entity: "subject", text: "x", type: i % 2 ? "thought" : "speech" })),
-} as VisualPromptStrategyOverride;
+interface RecipeProbe { ov?: VisualPromptStrategyOverride; modifiers?: string[]; plan?: (vp: VisualPlan) => VisualPlan }
 
-/** How many more characters a probe override emits under `recipe` than under the baseline, at worst across modes. */
-function recipeGrowth(probe: VisualPromptStrategyOverride, recipe: ResolvedRecipe): number {
+const withOverride = (fields: Partial<VisualPromptStrategyOverride>): VisualPromptStrategyOverride =>
+  ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, ...fields }) as VisualPromptStrategyOverride;
+const noAgeChange = (vp: VisualPlan): VisualPlan => ({ ...vp, subjectTreatment: { ...vp.subjectTreatment, ageLifeStageTransform: { applies: false, targetState: "" } } });
+const balloons = (type: "speech" | "thought") => withOverride({ bubbles: Array.from({ length: MAX_BUBBLES }, () => ({ entity: "subject", text: "x", type })) } as Partial<VisualPromptStrategyOverride>);
+
+/**
+ * The probes, in groups. Lines in different groups can appear together, so
+ * their growth is summed; the probes within a group are alternatives that
+ * never appear together (one text policy, one violence policy, one balloon
+ * type at its most), so the group is charged its largest. Every recipe piece
+ * that can land in a section the compiler never trims is emitted by the fixed
+ * shape or by one of these (the per-piece sweep in promptRecipes.test.ts
+ * holds that true as pieces are added).
+ */
+const RECIPE_PROBE_GROUPS: ReadonlyArray<ReadonlyArray<RecipeProbe>> = [
+  // Every moderator addition field once: their section labels and wrappers.
+  [{ ov: withOverride({
+    subjectRealizationOverride: { mode: "normal_human", description: "x" },
+    requiredVisualDetails: ["x"],
+    forbiddenVisualDetails: ["x"],
+    roleBindings: [{ entity: "subject", visualRole: "x" }, { entity: "y", visualRole: "x" }],
+    compositionGuidance: ["x"],
+    styleAgnosticPromptAdditions: ["x"],
+    negativePromptAdditions: ["x"],
+  } as Partial<VisualPromptStrategyOverride>) }],
+  // The most balloons a fact can have, all of one kind (either template can grow alone).
+  [{ ov: balloons("speech") }, { ov: balloons("thought") }],
+  // A moderator-written Concept: the CORE SCENE label in a section never trimmed.
+  [{ ov: withOverride({ coreSceneOverride: "x" }) }],
+  // The text policy: forbid, require with guidance, or the planner's own in-scene words and graphics.
+  [
+    { ov: withOverride({ supportingTextPolicyOverride: { mode: "forbid" } } as Partial<VisualPromptStrategyOverride>) },
+    { ov: withOverride({ supportingTextPolicyOverride: { mode: "require", guidance: "x" } } as Partial<VisualPromptStrategyOverride>) },
+    { plan: (vp) => ({ ...vp, supportingTextPolicy: { ...vp.supportingTextPolicy, allowSupportingText: true, supportingTextElements: [
+      { kind: "literal_text", content: "x", placement: "" },
+      { kind: "visual_graphic", content: "y", placement: "" },
+    ] } as VisualPlan["supportingTextPolicy"] }) },
+  ],
+  // The violence policy: softened or suppressed (allowed is in the fixed shape).
+  [
+    { ov: withOverride({ violencePolicyOverride: { mode: "soften", intensity: "strong" } } as Partial<VisualPromptStrategyOverride>) },
+    { ov: withOverride({ violencePolicyOverride: { mode: "suppress", intensity: "strong" } } as Partial<VisualPromptStrategyOverride>) },
+  ],
+  // One of the subject, with its do-not (the fixed shape takes the age-change path).
+  [{ modifiers: ["avoid_duplicate_subject"], plan: noAgeChange }],
+  // The failure-mode lines that can appear together.
+  [{ modifiers: ["crowd_reaction", "clear_causal_relationship", "subject_object_reversal"] }],
+];
+
+/** How much longer a probe's lines are under `recipe` than under the baseline, at worst across modes. */
+function recipeGrowth(probe: RecipeProbe, recipe: ResolvedRecipe): number {
+  const shape = { modifiers: probe.modifiers, plan: probe.plan };
+  const ov = probe.ov ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
   let worst = 0;
   for (const entry of ADDITIONS_MODES) {
-    const under = compileWithOverride(entry, probe, recipe) - compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE, recipe);
-    const baseline = compileWithOverride(entry, probe) - compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE);
+    const under = compileWithOverride(entry, ov, recipe, shape) - compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE, recipe);
+    const baseline = compileWithOverride(entry, ov, BASELINE_RECIPE, shape) - compileWithOverride(entry, EMPTY_VISUAL_STRATEGY_OVERRIDE);
     worst = Math.max(worst, under - baseline);
   }
   return worst;
@@ -320,16 +361,18 @@ function recipeGrowth(probe: VisualPromptStrategyOverride, recipe: ResolvedRecip
 
 /**
  * Whether a prompt recipe keeps the prompt-budget guarantee (plan
- * `docs/plans/PLAN_PROMPT_TUNER.md`, *Security, permissions, validation*):
- * the recipe's fixed wording at its longest, plus whatever its labels and
- * balloon wording add to the moderator's own content beyond the baseline,
- * must fit the fixed reserve, so every moderator Concept, addition and
- * balloon already valid to save still fits. A one-fact preview is never the
- * gate. Empty means it fits.
+ * `docs/plans/PLAN_PROMPT_TUNER.md`, *Security, permissions, validation*:
+ * "across every mode and conditional clause"). Charged: the recipe's fixed
+ * wording at its longest (with a chosen look and with none), plus, for every
+ * probe group, the most its lines grow beyond the baseline. The total must
+ * fit `FIXED_REQUIRED_RESERVE_BUDGET`, so every moderator Concept, addition
+ * and balloon already valid to save still fits whatever the fact's policies,
+ * binding and failure-mode lines. A one-fact preview is never the gate. Empty
+ * means it fits.
  */
 export function recipeBudgetProblems(recipe: ResolvedRecipe): string[] {
   const fixed = measureRequiredPromptBudget(recipe).worstCase;
-  const growth = Math.max(0, recipeGrowth(RECIPE_PROBE_ADDITIONS, recipe)) + Math.max(0, recipeGrowth(RECIPE_PROBE_BUBBLES, recipe));
+  const growth = RECIPE_PROBE_GROUPS.reduce((sum, group) => sum + Math.max(0, ...group.map((p) => recipeGrowth(p, recipe))), 0);
   const total = fixed + growth;
   if (total <= FIXED_REQUIRED_RESERVE_BUDGET) return [];
   const baseline = measureRequiredPromptBudget().worstCase;
@@ -337,4 +380,3 @@ export function recipeBudgetProblems(recipe: ResolvedRecipe): string[] {
     `This wording is too long for the prompt: at its longest it needs ${total} characters of fixed wording, and ${FIXED_REQUIRED_RESERVE_BUDGET} are set aside (today's wording needs ${baseline}). Shorten it by at least ${total - FIXED_REQUIRED_RESERVE_BUDGET} characters.`,
   ];
 }
-

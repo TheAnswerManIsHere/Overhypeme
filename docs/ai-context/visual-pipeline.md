@@ -694,11 +694,19 @@ emptied.
   mode renders with makes that mode's renders read out of date (nothing
   re-renders on its own).
 - **Budget**: a version is saved only if `recipeBudgetProblems` passes — its
-  fixed wording at its longest (with a chosen look and with none), plus what its
-  labels and balloon wording add to the moderator's own content beyond the
-  baseline (every additions field once, the most balloons), fits
-  `FIXED_REQUIRED_RESERVE_BUDGET`, so every Concept, addition and balloon already
-  valid to save still fits. The render-time overflow refusal stays.
+  fixed wording at its longest (with a chosen look and with none), plus, for
+  each group of conditional lines, the most they grow beyond the baseline
+  (`RECIPE_PROBE_GROUPS`: every additions field once; the most balloons of one
+  kind; a moderator Concept's label; each text policy; each violence policy;
+  one-of-the-subject binding; the crowd, cause-and-effect and reversal lines
+  together), fits `FIXED_REQUIRED_RESERVE_BUDGET`. Groups that can appear
+  together are summed; alternatives within a group take the largest. Growth,
+  not absolute length, is charged, so the baseline keeps its measured 1,704
+  and its own conditional lines stay in the outer margin as before. Every
+  Concept, addition and balloon already valid to save therefore still fits. A
+  per-piece sweep test (`promptRecipeBaseline.test.ts`) refuses a 1,000-character
+  growth in every piece outside the trimmable sections, so a new piece no probe
+  reaches fails CI (Codex, PR #926). The render-time overflow refusal stays.
 - **Editor**: Admin → Eval → *Prompt wording* (`PromptRecipes.tsx`;
   `routes/adminPromptRecipes.ts`): per family, every piece editable, save with a
   note, preview the whole prompt on a fact's latest stored render plan without
