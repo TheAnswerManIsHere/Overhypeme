@@ -69,12 +69,11 @@ export default function EvalDashboard() {
               <EvaluationsList kind={t.kind} active={tab === t.id} refreshKey={refresh} />
             </div>
           ))}
-          {tab === "prompts" && (
-            <details className="rounded-sm border border-border p-3" data-testid="eval-wording-editor">
-              <summary className="cursor-pointer text-sm font-bold text-foreground">Edit prompt wording</summary>
-              <div className="pt-3"><PromptRecipes /></div>
-            </details>
-          )}
+          {/* Kept mounted like the wizards, so unsaved wording survives a tab switch. */}
+          <details hidden={tab !== "prompts"} className="rounded-sm border border-border p-3" data-testid="eval-wording-editor">
+            <summary className="cursor-pointer text-sm font-bold text-foreground">Edit prompt wording</summary>
+            <div className="pt-3"><PromptRecipes /></div>
+          </details>
         </div>
       </div>
     </AdminLayout>

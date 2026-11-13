@@ -250,11 +250,21 @@ function cellItem(rows: SetRows, c: ComparisonCell): WorkItem {
  * expected cell whose panel is pending or prepared. A cell of a pending panel
  * is reserved now and queued when its panel is prepared.
  */
-export function fullItems(rows: SetRows, planner: PlannerRequestSettings | null): WorkItem[] {
+export function fullItems(rows: SetRows, planner: PlannerRequestSettings | null, scope?: RunScope): WorkItem[] {
   const live = new Set(rows.panels.filter((p) => p.state === "pending" || p.state === "prepared").map((p) => p.id));
   const prepare = planner ? prepareItems(rows, planner) : [];
-  return [...prepare, ...rows.cells.filter((c) => c.state === "expected" && live.has(c.panelId)).map((c) => cellItem(rows, c))];
+  const items = [...prepare, ...rows.cells.filter((c) => c.state === "expected" && live.has(c.panelId)).map((c) => cellItem(rows, c))];
+  if (!scope) return items;
+  // A retry starts only its own work (plan PLAN_EVAL_PAGE.md: "Retry scene /
+  // Retry picture / Retry storage each do exactly their one thing"): Retry
+  // scene its scene and that scene's pictures, Retry picture its one picture.
+  // Other unstarted work stays under Resume generation at its own figure.
+  const scopeCells = new Set(rows.cells.filter((c) => ("cellId" in scope ? c.id === scope.cellId : c.panelId === scope.panelId)).map((c) => `cell:${c.id}`));
+  return items.filter((i) => scopeCells.has(i.ref) || ("panelId" in scope && i.ref === `panel:${scope.panelId}`));
 }
+
+/** One retry's own work: a scene and its pictures, or one picture. */
+export type RunScope = { panelId: number } | { cellId: number };
 
 /** The bounds of a set's remaining work, shared by the status view and the dry run. */
 export function estimateOf(prepare: WorkItem[], render: WorkItem[]): Omit<ComparisonSetDetail["estimate"], "preparationRefusal"> & { preparationBoundUsd: number } {
@@ -309,9 +319,12 @@ export async function getComparisonSet(setId: number): Promise<ComparisonSetDeta
 }
 
 /** The work a run of `kind` would take; the planner is resolved only for preparation. */
-export async function runItems(kind: "prepare" | "render" | "full", rows: SetRows): Promise<WorkItem[]> {
+export async function runItems(kind: "prepare" | "render" | "full", rows: SetRows, scope?: RunScope): Promise<WorkItem[]> {
   if (kind === "prepare") return prepareItems(rows, await plannerSettings());
-  if (kind === "full") return fullItems(rows, rows.panels.some((p) => p.state === "pending") ? await plannerSettings() : null);
+  if (kind === "full") {
+    const needsPlanner = rows.panels.some((p) => p.state === "pending" && (!scope || ("panelId" in scope && p.id === scope.panelId)));
+    return fullItems(rows, needsPlanner ? await plannerSettings() : null, scope);
+  }
   return renderItems(rows, { preparedOnly: true });
 }
 

@@ -47,6 +47,7 @@ import {
   listEvaluations,
   resumeEvaluation,
   searchEligibleFacts,
+  startRetry,
 } from "../lib/comparison/evaluations";
 import { db } from "@workspace/db";
 import { comparisonCellsTable, comparisonPanelsTable } from "@workspace/db/schema";
@@ -148,7 +149,7 @@ for (const [path, key, action] of [
       let startError: string | null = null;
       if (action !== retryCellStorage) {
         try {
-          await resumeEvaluation(await setIdOf(key, id), req.user.id);
+          await startRetry(await setIdOf(key, id), key === "panel" ? { panelId: id } : { cellId: id }, req.user.id);
         } catch (err) {
           startError = err instanceof ComparisonRunRefused ? err.refusal : err instanceof ComparisonLayoutError ? err.reasons.join("; ") : "it could not be started; use Resume generation";
           logger.warn({ err, key, id }, "[comparison] retry reset, start failed");

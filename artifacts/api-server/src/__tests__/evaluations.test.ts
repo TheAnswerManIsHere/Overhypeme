@@ -41,7 +41,9 @@ import {
   preparePanel,
   renderCell,
 } from "../lib/comparison/runs.js";
-import { createEvaluation, finishEvaluation, listEvaluations, progressOf, searchEligibleFacts } from "../lib/comparison/evaluations.js";
+import { createEvaluation, estimateEvaluation, finishEvaluation, listEvaluations, progressOf, searchEligibleFacts } from "../lib/comparison/evaluations.js";
+import { panelPreparationTypicalUsd } from "../lib/comparison/admission.js";
+import { plannerSettings } from "../lib/comparison/sets.js";
 import type { EvaluationCreate } from "@workspace/api-zod";
 
 const P = `t-ev-${randomUUID().slice(0, 6)}`;
@@ -275,6 +277,39 @@ describe("statuses and Finish", () => {
     assert.deepEqual(mixed.needsAction.map((a) => a.action), ["resume"], "and the unstarted work still offers Resume");
   });
 
+  it("every paid action carries the most it could cost; a free one carries none (PR #931 build report)", () => {
+    const panel = (id: number, state: string) => ({ id, state, error: null }) as never;
+    const cell = (panelId: number, state: string, engineId: string, extra: Record<string, unknown> = {}) => ({ id: Math.random(), panelId, state, engineId, rerunCount: 0, vendorResultUrl: null, imageObjectPath: state === "rendered" ? "/x" : null, ...extra }) as never;
+    const by = (cells: Array<{ panelId: number }>) => { const m = new Map<number, never[]>(); for (const c of cells) m.set(c.panelId, [...(m.get(c.panelId) ?? []), c as never]); return m; };
+    const pricing = { prepUsd: 0.5, cellUsd: (id: string) => (id === "a" ? 0.1 : 0.2) };
+    const none = new Set<number>();
+    // Resume: a pending scene (its preparation and both pictures) plus a prepared scene's one unstarted picture.
+    const resume = progressOf({ finishedAt: null }, [panel(1, "pending"), panel(2, "prepared")], by([cell(1, "expected", "a"), cell(1, "expected", "b"), cell(2, "expected", "a"), cell(2, "rendered", "b")]), none, pricing);
+    assert.equal(resume.needsAction[0]!.action, "resume");
+    assert.equal(resume.needsAction[0]!.boundUsd, 0.9);
+    // Retry scene: its preparation plus every picture it will still draw.
+    const scene = progressOf({ finishedAt: null }, [panel(1, "failed")], by([cell(1, "expected", "a"), cell(1, "expected", "b")]), none, pricing);
+    assert.deepEqual(scene.needsAction.map((a) => [a.action, a.boundUsd]), [["retry_scene", 0.8]]);
+    // Retry picture costs its engine's bound; Retry storage is free.
+    const pics = progressOf({ finishedAt: null }, [panel(1, "prepared")], by([cell(1, "rendered", "a"), cell(1, "failed", "b"), cell(1, "failed", "a", { vendorResultUrl: "https://v/x" })]), none, pricing);
+    assert.deepEqual(pics.needsAction.map((a) => [a.action, a.boundUsd]).sort(), [["retry_picture", 0.2], ["retry_storage", null]]);
+    // An engine that cannot be priced leaves the amount unknown rather than understated.
+    const unpriced = progressOf({ finishedAt: null }, [panel(1, "prepared")], by([cell(1, "expected", "a")]), none, { prepUsd: 0.5, cellUsd: () => null });
+    assert.equal(unpriced.needsAction[0]!.boundUsd, null);
+  });
+
+  it("the estimate shows a typical cost below the ceiling, from what fal billed for each engine", async () => {
+    const out = await createEvaluation(generate("typical"), adminId);
+    await drainAll();
+    const r = await rows(out.setId);
+    await db.update(comparisonCellsTable).set({ billedUsd: "0.010000" }).where(inArray(comparisonCellsTable.id, r.cells.map((c) => c.id)));
+    const est = await estimateEvaluation(generate("typical-estimate").selection);
+    assert.ok(est.typicalUsd != null && est.totalBoundUsd != null);
+    assert.ok(est.typicalUsd! < est.totalBoundUsd!, `typical ${est.typicalUsd} is below the ceiling ${est.totalBoundUsd}`);
+    const prepTypical = est.panels * panelPreparationTypicalUsd(await plannerSettings());
+    assert.equal(est.typicalUsd, Math.round((prepTypical + est.images * 0.01) * 10_000) / 10_000, "pictures are priced at the billed average");
+  });
+
   it("Resume starts an interrupted evaluation's work once and spends no retry allowance", async () => {
     const out = await createEvaluation(generate("resume"), adminId);
     // Simulate an interruption before admission: undo the run's admission.
@@ -300,6 +335,46 @@ describe("statuses and Finish", () => {
     assert.ok(r.cells.every((c) => c.state === "rendered" && c.rerunCount === 0), "drawn, with no retry allowance spent");
     s = await summary(out.setId);
     assert.equal(s.status, "ready");
+  });
+
+  it("a retry starts only its own work, within the figure its button showed; Resume still holds the rest (PR #932 round 1)", async () => {
+    failPlanner = true;
+    const out = await createEvaluation(generate("retry-scope"), adminId);
+    await drainAll();
+    let r = await rows(out.setId);
+    const [failed, other] = r.panels;
+    assert.ok(failed && other && r.panels.every((p) => p.state === "failed"));
+    // The other scene becomes work no run holds: pending, its pictures expected.
+    await db.update(comparisonPanelsTable).set({ state: "pending", error: null }).where(eq(comparisonPanelsTable.id, other.id));
+    failPlanner = false;
+
+    let s = await summary(out.setId);
+    const retry = s.needsAction.find((a) => a.action === "retry_scene" && a.panelId === failed.id)!;
+    const resume = s.needsAction.find((a) => a.action === "resume")!;
+    assert.ok(retry.boundUsd != null && resume.boundUsd != null);
+
+    const res = await request(app()).post(`/api/admin/comparison/panels/${failed.id}/reprepare`).send({});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.startError, null);
+    r = await rows(out.setId);
+    assert.equal(r.panels.find((p) => p.id === other.id)!.state, "pending", "the other scene was not started");
+    assert.ok(r.cells.filter((c) => c.panelId === other.id).every((c) => c.state === "expected"), "nor its pictures");
+    const runs = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.setId, out.setId));
+    const latest = runs.sort((a, b) => b.id - a.id)[0]!;
+    assert.ok(Number(latest.boundUsd) <= retry.boundUsd! + 1e-9, `run bound ${latest.boundUsd} is within the shown ${retry.boundUsd}`);
+    const held = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.runId, latest.id));
+    const otherCells = new Set(r.cells.filter((c) => c.panelId === other.id).map((c) => c.id));
+    assert.ok(held.every((h) => h.panelId !== other.id && !otherCells.has(h.cellId ?? -1)), "no reservation for the other scene's work");
+
+    await drainAll();
+    s = await summary(out.setId);
+    const after = s.needsAction.find((a) => a.action === "resume")!;
+    assert.equal(after.boundUsd, resume.boundUsd, "Resume shows the same figure for the work it still holds");
+    const go = await request(app()).post(`/api/admin/comparison/evaluations/${out.setId}/resume`).send({});
+    assert.equal(go.body.started, true);
+    await drainAll();
+    r = await rows(out.setId);
+    assert.ok(r.cells.every((c) => c.state === "rendered"), "Resume drew the rest, once");
   });
 
   it("two overlapping Generate requests with one token make one evaluation and both succeed", async () => {

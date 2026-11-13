@@ -14,7 +14,7 @@ import { AlertTriangle, CheckCircle2, Gavel, Loader2, RotateCcw, BarChart3, Wifi
 import { readError } from "@/components/admin/readError";
 import { engineLabel, type EvaluationKind } from "@/components/admin/EvaluationWizard";
 
-interface NeedsAction { panelId: number; cellId: number | null; action: "retry_scene" | "retry_picture" | "retry_storage" | "resume"; costs: boolean; reason: string }
+interface NeedsAction { panelId: number; cellId: number | null; action: "retry_scene" | "retry_picture" | "retry_storage" | "resume"; costs: boolean; boundUsd: number | null; reason: string }
 export interface EvaluationSummary {
   id: number;
   description: string;
@@ -48,6 +48,12 @@ const ACTION_LABEL: Record<NeedsAction["action"], string> = {
   retry_storage: "Retry storage",
   resume: "Resume generation",
 };
+
+/** What pressing an action can spend, on the button itself (PR #931's build report). */
+function costLabel(a: NeedsAction): string {
+  if (!a.costs) return "free";
+  return a.boundUsd == null ? "costs money, amount unknown" : `at most $${a.boundUsd.toFixed(2)}`;
+}
 
 function StatusLine({ e }: { e: EvaluationSummary }) {
   switch (e.status) {
@@ -170,7 +176,7 @@ export function EvaluationsList({ kind, active = true, refreshKey }: { kind: Eva
                     <li key={key} className="flex flex-wrap items-center gap-2 text-xs">
                       <span className="text-muted-foreground flex-1 min-w-0 break-words">{a.reason}</span>
                       <button type="button" onClick={() => void retry(e.id, a)} disabled={busy !== ""} data-testid={`evaluation-retry-${key}`} className="inline-flex items-center gap-1 px-2 py-1 rounded-sm border border-border hover:bg-muted disabled:opacity-40">
-                        {busy === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} {ACTION_LABEL[a.action]}{a.costs ? "" : " (free)"}
+                        {busy === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} {ACTION_LABEL[a.action]} · {costLabel(a)}
                       </button>
                     </li>
                   );

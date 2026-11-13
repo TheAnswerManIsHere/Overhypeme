@@ -31,8 +31,8 @@ import {
   type EvaluationStatus,
 } from "@workspace/api-zod";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
-import { cellBoundUsd, panelPreparationBoundUsd, round4 } from "./admission";
-import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings } from "./sets";
+import { cellBoundUsd, panelPreparationBoundUsd, panelPreparationTypicalUsd, round4 } from "./admission";
+import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings, type RunScope } from "./sets";
 import { ComparisonRunRefused, startComparisonRun } from "./runs";
 import { cellLost, isJudgeable, panelWait } from "./judging";
 
@@ -80,8 +80,55 @@ export interface EvaluationEstimate {
   preparationBoundUsd: number | null;
   renderBoundUsd: number;
   totalBoundUsd: number | null;
+  /**
+   * What it usually costs: scenes at the recorded planner token counts,
+   * pictures at the average fal actually billed for each engine (its bound
+   * where nothing is billed yet). Null when the planner cannot be priced.
+   */
+  typicalUsd: number | null;
   warning: boolean;
   refusal: string | null;
+}
+
+/** The average fal billed per picture for each engine, over its last 50 billed comparison pictures. */
+async function typicalPictureUsd(engineIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!engineIds.length) return out;
+  const rows = await db.execute<{ engine_id: string; avg: string }>(sql`
+    select engine_id, avg(billed_usd)::text as avg from (
+      select engine_id, billed_usd, row_number() over (partition by engine_id order by id desc) as n
+      from comparison_cells
+      where billed_usd is not null and state = 'rendered' and engine_id in (${sql.join(engineIds.map((id) => sql`${id}`), sql`, `)})
+    ) recent where n <= 50 group by engine_id`);
+  for (const r of rows.rows) out.set(r.engine_id, Number(r.avg));
+  return out;
+}
+
+/**
+ * The most each paid action could cost, so a retry or Resume shows its
+ * amount before it is pressed (PR #931's build report). Built once per read.
+ */
+export interface ActionPricing {
+  /** One scene's preparation at its bound; null when the planner cannot be priced. */
+  prepUsd: number | null;
+  cellUsd: (engineId: string) => number | null;
+}
+
+export async function actionPricing(): Promise<ActionPricing> {
+  const engines = await db.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable);
+  const price = new Map(engines.map((e) => [e.id, e.priceModel]));
+  let prepUsd: number | null = null;
+  try {
+    prepUsd = panelPreparationBoundUsd(await plannerSettings());
+  } catch {
+    prepUsd = null;
+  }
+  return {
+    prepUsd,
+    cellUsd: (id) => {
+      try { return cellBoundUsd(price.get(id)); } catch { return null; }
+    },
+  };
 }
 
 /**
@@ -96,19 +143,25 @@ export async function estimateEvaluation(sel: EvaluationSelection): Promise<Eval
   const renderBoundUsd = round4(layout.reduce((s, p) => s + p.engineIds.reduce((t, id) => t + cellBoundUsd(price.get(id)) * perCell, 0), 0));
   const images = layout.reduce((s, p) => s + p.engineIds.length * perCell, 0);
   let preparationBoundUsd: number | null = null;
+  let preparationTypicalUsd: number | null = null;
   let refusal: string | null = null;
   try {
-    preparationBoundUsd = round4(layout.length * panelPreparationBoundUsd(await plannerSettings()));
+    const settings = await plannerSettings();
+    preparationBoundUsd = round4(layout.length * panelPreparationBoundUsd(settings));
+    preparationTypicalUsd = layout.length * panelPreparationTypicalUsd(settings);
   } catch (err) {
     if (!(err instanceof ComparisonLayoutError)) throw err;
     refusal = err.reasons.join("; ");
   }
+  const billed = await typicalPictureUsd([...new Set(layout.flatMap((p) => p.engineIds))]);
+  const renderTypicalUsd = layout.reduce((s, p) => s + p.engineIds.reduce((t, id) => t + (billed.get(id) ?? cellBoundUsd(price.get(id))) * perCell, 0), 0);
   return {
     panels: layout.length,
     images,
     preparationBoundUsd,
     renderBoundUsd,
     totalBoundUsd: preparationBoundUsd == null ? null : round4(preparationBoundUsd + renderBoundUsd),
+    typicalUsd: preparationTypicalUsd == null ? null : round4(preparationTypicalUsd + renderTypicalUsd),
     warning: images > EVALUATION_IMAGE_WARNING,
     refusal,
   };
@@ -230,18 +283,33 @@ export interface NeedsAction {
   action: "retry_scene" | "retry_picture" | "retry_storage" | "resume";
   /** False only for Retry storage, which re-stores an image the vendor already drew. */
   costs: boolean;
+  /** The most it could cost, shown on its button; null when free or when it cannot be priced. */
+  boundUsd: number | null;
   reason: string;
 }
 
 const IN_FLIGHT_CELL = new Set(["waiting", "enqueued"]);
 const PANEL_IN_FLIGHT = new Set(["preparing", "planning"]);
 
+/** A sum of bounds that is null as soon as any part cannot be priced. */
+function sumUsd(parts: Array<number | null>): number | null {
+  return parts.some((x) => x == null) ? null : round4((parts as number[]).reduce((a, b) => a + b, 0));
+}
+
+/** The pictures a panel will still draw: everything not drawn and not lost for good. */
+const undrawn = (cells: ComparisonCell[]) => cells.filter((c) => c.state !== "rendered" && !cellLost(c));
+
 /** The retries that move a panel needing action on: its scene, or each failed picture that can still be recovered. */
-function actionsFor(p: ComparisonPanel, cells: ComparisonCell[]): NeedsAction[] {
-  if (p.state === "failed") return [{ panelId: p.id, cellId: null, action: "retry_scene", costs: true, reason: p.error ?? "the scene could not be prepared" }];
+function actionsFor(p: ComparisonPanel, cells: ComparisonCell[], pricing: ActionPricing | null): NeedsAction[] {
+  const cellUsd = (c: ComparisonCell) => pricing?.cellUsd(c.engineId) ?? null;
+  if (p.state === "failed") {
+    // Retry scene prepares the scene again and then draws its pictures.
+    const boundUsd = pricing ? sumUsd([pricing.prepUsd, ...undrawn(cells).map(cellUsd)]) : null;
+    return [{ panelId: p.id, cellId: null, action: "retry_scene", costs: true, boundUsd, reason: p.error ?? "the scene could not be prepared" }];
+  }
   return cells.filter((c) => c.state === "failed" && !cellLost(c)).map((c) => c.vendorResultUrl
-    ? { panelId: p.id, cellId: c.id, action: "retry_storage" as const, costs: false, reason: c.error ?? "the picture could not be stored" }
-    : { panelId: p.id, cellId: c.id, action: "retry_picture" as const, costs: true, reason: c.error ?? "the picture failed" });
+    ? { panelId: p.id, cellId: c.id, action: "retry_storage" as const, costs: false, boundUsd: null, reason: c.error ?? "the picture could not be stored" }
+    : { panelId: p.id, cellId: c.id, action: "retry_picture" as const, costs: true, boundUsd: cellUsd(c), reason: c.error ?? "the picture failed" });
 }
 
 /** Where an evaluation stands, from its rows alone. */
@@ -250,8 +318,10 @@ export function progressOf(
   panels: ComparisonPanel[],
   cellsByPanel: Map<number, ComparisonCell[]>,
   judged: Set<number>,
+  pricing: ActionPricing | null = null,
 ): EvaluationProgress {
   let images = 0, drawn = 0, inFlight = 0, failed = 0, lost = 0, skippedPanels = 0, judgeablePanels = 0, judgedPanels = 0, moving = 0, unstarted = 0;
+  const resumeParts: Array<number | null> = [];
   const needsAction: EvaluationProgress["needsAction"] = [];
   for (const p of panels) {
     const cells = cellsByPanel.get(p.id) ?? [];
@@ -268,14 +338,20 @@ export function progressOf(
     // Only work a run holds is "generating"; work no run holds (a scene never
     // started, a picture left expected) waits for the Resume action.
     if (PANEL_IN_FLIGHT.has(p.state) || cells.some((c) => IN_FLIGHT_CELL.has(c.state))) moving++;
-    if (p.state === "pending") unstarted++;
-    else if (p.state === "prepared") unstarted += cells.filter((c) => c.state === "expected").length;
+    if (p.state === "pending") {
+      unstarted++;
+      resumeParts.push(pricing?.prepUsd ?? null, ...cells.filter((c) => c.state === "expected").map((c) => pricing?.cellUsd(c.engineId) ?? null));
+    } else if (p.state === "prepared") {
+      const expected = cells.filter((c) => c.state === "expected");
+      unstarted += expected.length;
+      resumeParts.push(...expected.map((c) => pricing?.cellUsd(c.engineId) ?? null));
+    }
     const wait = panelWait(p, cells);
     if (wait === "lost") lost += cells.length;
-    else if (wait === "needs_action") needsAction.push(...actionsFor(p, cells));
+    else if (wait === "needs_action") needsAction.push(...actionsFor(p, cells, pricing));
   }
   if (unstarted > 0) {
-    needsAction.unshift({ panelId: 0, cellId: null, action: "resume", costs: true, reason: `${unstarted} scene${unstarted === 1 ? "" : "s"} or picture${unstarted === 1 ? "" : "s"} not started` });
+    needsAction.unshift({ panelId: 0, cellId: null, action: "resume", costs: true, boundUsd: sumUsd(resumeParts), reason: `${unstarted} scene${unstarted === 1 ? "" : "s"} or picture${unstarted === 1 ? "" : "s"} not started` });
   }
   let status: EvaluationStatus;
   if (moving > 0) status = "generating";
@@ -315,6 +391,7 @@ export async function listEvaluations(kind: "engine" | "prompt"): Promise<Evalua
   const cells = panels.length ? await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id))) : [];
   const cellsByPanel = groupCellsByPanel(cells);
   const judged = await judgedPanelIds(panels.map((p) => p.id));
+  const pricing = await actionPricing();
   const panelsBySet = new Map<number, ComparisonPanel[]>();
   for (const p of panels) panelsBySet.set(p.setId, [...(panelsBySet.get(p.setId) ?? []), p]);
   return sets.map((s) => {
@@ -331,7 +408,7 @@ export async function listEvaluations(kind: "engine" | "prompt"): Promise<Evalua
       factCount: (s.factIds as number[]).length,
       round: s.round,
       imageSize: s.imageSize,
-      ...progressOf(s, own, cellsByPanel, judged),
+      ...progressOf(s, own, cellsByPanel, judged, pricing),
     };
   });
 }
@@ -365,5 +442,20 @@ export async function finishEvaluation(setId: number): Promise<EvaluationProgres
  */
 export async function resumeEvaluation(setId: number, adminUserId: string | null): Promise<{ started: boolean }> {
   return { started: await startOutstanding(setId, adminUserId) };
+}
+
+/**
+ * The second half of Retry scene / Retry picture: start exactly that retry's
+ * work, the amount its button showed (PR #932 round 1). Other unstarted work
+ * in the set is left for Resume generation.
+ */
+export async function startRetry(setId: number, scope: RunScope, adminUserId: string | null): Promise<{ started: boolean }> {
+  try {
+    await startComparisonRun(setId, { kind: "full" }, adminUserId, scope);
+    return { started: true };
+  } catch (err) {
+    if (err instanceof ComparisonRunRefused && err.refusal === "nothing left to do") return { started: false };
+    throw err;
+  }
 }
 
