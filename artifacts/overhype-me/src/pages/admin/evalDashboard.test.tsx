@@ -173,6 +173,93 @@ describe("the Eval page", () => {
     expect(listCalls.filter((u) => u.includes("kind=engine")).length).toBeGreaterThan(before);
   });
 
+  it("after an unanswered Generate, locks to what was sent: retry repeats it with the same token, changing choices takes a new one", async () => {
+    let failGenerate = true;
+    const base = (globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>);
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/comparison/evaluations") && failGenerate) {
+        posts.push({ url, body: JSON.parse(String(init.body)) as Json });
+        throw new Error("network down");
+      }
+      return base(url, init);
+    }));
+    render(<EvalDashboard />);
+    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    next();
+    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
+    next(); next(); next();
+    fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "First" } });
+    await waitFor(() => expect(screen.getByTestId("wizard-count").textContent).toMatch(/= 4 images/));
+    fireEvent.click(screen.getByTestId("wizard-generate"));
+    expect((await screen.findByTestId("wizard-uncertain")).textContent).toMatch(/may or may not have started/);
+    expect(screen.queryByTestId("wizard-back")).toBeNull(); // the choices cannot be edited under that token
+    const first = posts.filter((p) => p.url.endsWith("/comparison/evaluations"))[0]!.body;
+    failGenerate = false;
+    fireEvent.click(screen.getByTestId("wizard-retry-same"));
+    await waitFor(() => expect(posts.filter((p) => p.url.endsWith("/comparison/evaluations")).length).toBe(2));
+    const retried = posts.filter((p) => p.url.endsWith("/comparison/evaluations"))[1]!.body;
+    expect(retried).toEqual(first); // same token, same selection, same description
+  });
+
+  it("changing the choices after an unanswered Generate starts a new evaluation under a new token", async () => {
+    const base = (globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>);
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/comparison/evaluations")) {
+        posts.push({ url, body: JSON.parse(String(init.body)) as Json });
+        if (calls++ === 0) return respond({ error: "boom" }, 502);
+        return respond({ setId: 9, created: true }, 201);
+      }
+      return base(url, init);
+    }));
+    render(<EvalDashboard />);
+    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    next();
+    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
+    next(); next(); next();
+    fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "First" } });
+    await waitFor(() => expect(screen.getByTestId("wizard-count").textContent).toMatch(/= 4 images/));
+    fireEvent.click(screen.getByTestId("wizard-generate"));
+    fireEvent.click(await screen.findByTestId("wizard-start-over"));
+    fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "Second" } });
+    fireEvent.click(screen.getByTestId("wizard-generate"));
+    await waitFor(() => expect(posts.filter((p) => p.url.endsWith("/comparison/evaluations")).length).toBe(2));
+    const [a, b] = posts.filter((p) => p.url.endsWith("/comparison/evaluations")).map((p) => p.body);
+    expect(a!.requestToken).not.toBe(b!.requestToken);
+    expect(b!.description).toBe("Second");
+  });
+
+  it("never lets an older list answer replace a newer one or stop polling", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const base = (globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>);
+    const held: Array<() => void> = [];
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/comparison/evaluations?kind=engine")) {
+        const k = n++;
+        if (k === 0) return new Promise<Response>((res) => held.push(() => res(respond({ evaluations: [] })))); // the stale first load
+        return respond({ evaluations: [EVAL({ status: "generating", drawn: 1 })] });
+      }
+      return base(url, init);
+    }));
+    render(<EvalDashboard />);
+    // Generate Images refreshes the list; that later load lands first.
+    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    next();
+    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
+    next(); next(); next();
+    fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "Run" } });
+    await waitFor(() => expect(screen.getByTestId("wizard-count").textContent).toMatch(/= 4 images/));
+    fireEvent.click(screen.getByTestId("wizard-generate"));
+    expect((await screen.findByTestId("evaluation-status-7")).textContent).toMatch(/Generating/);
+    // The stale first answer (no evaluations) arrives late and is ignored.
+    await act(async () => { held.forEach((h) => h()); });
+    expect(screen.getByTestId("evaluation-status-7").textContent).toMatch(/Generating/);
+    const before = n;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+    expect(n).toBeGreaterThan(before); // still polling
+  });
+
   it("polls while generating and says the connection is lost rather than that the server stopped", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     evaluations = [EVAL({ status: "generating", drawn: 1 })];

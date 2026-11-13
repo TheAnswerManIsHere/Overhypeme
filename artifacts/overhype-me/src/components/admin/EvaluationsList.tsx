@@ -8,7 +8,7 @@
  * the last known status and keeps trying — it never claims the server
  * stopped.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, Gavel, Loader2, RotateCcw, BarChart3, WifiOff } from "lucide-react";
 import { readError } from "@/components/admin/readError";
@@ -77,11 +77,20 @@ export function EvaluationsList({ kind, active = true, refreshKey }: { kind: Eva
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState("");
 
+  // An answer is applied only if its request started after the one last
+  // applied, so an older answer arriving late never replaces a newer list or
+  // stops polling (PR #931 round 2). Answers slower than the poll still land.
+  const sent = useRef(0);
+  const applied = useRef(0);
   const load = useCallback(async (): Promise<boolean> => {
+    const seq = ++sent.current;
     const r = await fetch(`/api/admin/comparison/evaluations?kind=${kind}`, { credentials: "include" }).catch(() => null);
-    if (!r || !r.ok) { setLost(true); return false; }
+    const body = r && r.ok ? ((await r.json().catch(() => null)) as { evaluations: EvaluationSummary[] } | null) : null;
+    if (seq < applied.current) return false;
+    applied.current = seq;
+    if (!body) { setLost(true); return false; }
     setLost(false);
-    setItems(((await r.json()) as { evaluations: EvaluationSummary[] }).evaluations);
+    setItems(body.evaluations);
     return true;
   }, [kind]);
   useEffect(() => { void load(); }, [load, refreshKey]);

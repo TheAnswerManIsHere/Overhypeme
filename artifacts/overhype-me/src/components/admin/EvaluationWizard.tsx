@@ -131,17 +131,27 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
     return () => { cancelled = true; };
   }, [active, step, selection, steps.length]);
 
-  const generate = async () => {
-    if (!selection) return;
+  /**
+   * A Generate whose outcome is unknown (no answer, or a server error): the
+   * evaluation may exist under this token. Until the admin chooses, the
+   * wizard is locked to what was submitted, so a retry can only repeat that
+   * request, and changing the choices means deliberately starting a new
+   * evaluation under a new token (PR #931 round 2).
+   */
+  const [uncertain, setUncertain] = useState<{ selection: EvaluationSelection; description: string } | null>(null);
+
+  const submit = async (sel: EvaluationSelection, desc: string) => {
     setGenerating(true);
     setError("");
     const r = await fetch("/api/admin/comparison/evaluations", {
       method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestToken: token.current, description: description.trim(), selection }),
+      body: JSON.stringify({ requestToken: token.current, description: desc, selection: sel }),
     }).catch(() => null);
     setGenerating(false);
-    if (!r) { setError("The request did not reach the server. Pressing Generate Images again is safe: it cannot create a second evaluation."); return; }
+    if (!r || r.status >= 500) { setUncertain({ selection: sel, description: desc }); return; }
+    // A refusal (4xx) created nothing: the choices can be corrected and sent again.
     if (!r.ok) { setError(await readError(r)); return; }
+    setUncertain(null);
     const body = (await r.json()) as { setId: number };
     // A fresh wizard: a new token, the same choices kept for a similar evaluation.
     token.current = newToken();
@@ -149,6 +159,8 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
     setDescription("");
     onGenerated(body.setId);
   };
+  const generate = async () => { if (selection) await submit(selection, description.trim()); };
+  const startOver = () => { token.current = newToken(); setUncertain(null); setError(""); };
 
   const toggle = (set: Set<string>, value: string, max = Infinity) => {
     const next = new Set(set);
@@ -157,6 +169,23 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
   };
 
   if (!active) return null;
+  if (uncertain) {
+    return (
+      <div className="rounded-sm border border-amber-500 bg-background p-3 space-y-3" data-testid={`wizard-${kind}`}>
+        <p className="text-sm font-bold text-foreground flex items-center gap-1.5" data-testid="wizard-uncertain"><AlertTriangle className="w-4 h-4 text-amber-600" /> The last Generate Images did not get an answer, so it may or may not have started.</p>
+        <p className="text-sm text-foreground">It was: <strong>{uncertain.description}</strong> — {uncertain.selection.factIds.length} fact{uncertain.selection.factIds.length === 1 ? "" : "s"}. Retrying it is safe: if it went through, you get that same evaluation, never a second one.</p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => void submit(uncertain.selection, uncertain.description)} disabled={generating} data-testid="wizard-retry-same" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40">
+            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Retry that evaluation
+          </button>
+          <button type="button" onClick={startOver} disabled={generating} data-testid="wizard-start-over" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted disabled:opacity-40">
+            Change the choices instead
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">Changing the choices starts a new evaluation. If the first one did go through, it will appear in the list below as well.</p>
+      </div>
+    );
+  }
   return (
     <div className="rounded-sm border border-border bg-background p-3 space-y-3" data-testid={`wizard-${kind}`}>
       <ol className="flex flex-wrap gap-1 text-xs" aria-label="Steps">
