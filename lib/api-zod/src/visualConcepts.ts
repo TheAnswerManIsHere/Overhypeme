@@ -370,7 +370,7 @@ export interface VisualConceptsResponse {
   /** The joke read generated with these gags (absent on pre-v3 blobs). */
   jokeRead?: string;
   /** The fact's approved humor note, or null when none is saved. */
-  humorNote: { text: string; approvedBy: string | null; approvedAt: string } | null;
+  humorNote?: { text: string; approvedBy: string | null; approvedAt: string } | null;
   /** Why the last generation failed, when it failed for a reason the moderator can act on. */
   failureReason?: string;
 }

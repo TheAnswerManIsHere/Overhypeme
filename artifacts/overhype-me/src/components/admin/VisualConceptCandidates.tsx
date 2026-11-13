@@ -18,7 +18,7 @@
  * failed/absent concept job never blocks anything.
  */
 import { useState } from "react";
-import { Lightbulb, Loader2, AlertTriangle, Sparkles, ChevronDown, ChevronRight, MessageCircle, Cloud } from "lucide-react";
+import { Lightbulb, Loader2, AlertTriangle, Sparkles, ChevronDown, ChevronRight, MessageCircle, Cloud, Check, Pencil, Laugh } from "lucide-react";
 import { isCandidateConceptPickable } from "@workspace/api-zod";
 import type {
   VisualConceptsResponse,
@@ -29,8 +29,93 @@ import type {
 const STALE_COPY: Record<VisualConceptStaleReason, string> = {
   review_mismatch: "These ideas were drafted for a different review.",
   candidate_version_mismatch: "These ideas were drafted for a different candidate version.",
-  input_hash_mismatch: "The fact or its enrichment changed since these ideas were drafted.",
+  input_hash_mismatch: "The fact, its enrichment or the gag writer changed since these ideas were drafted.",
+  humor_note_changed: "These ideas were drafted for a different reading of the joke than the humor note now says.",
 };
+
+/**
+ * The joke read and the fact's approved humor note (plan
+ * docs/plans/PLAN_GAG_GENERATOR.md, E). The latest generation's read is always
+ * shown, labelled as the AI's. With no saved note it can be confirmed with one
+ * press or corrected; a saved note shows who approved it and when, and can be
+ * edited. A correction being typed survives polling, because this card keeps
+ * its own edit state while the panel re-renders with new server data.
+ */
+function HumorNoteCard({
+  jokeRead,
+  humorNote,
+  disabled,
+  onSave,
+}: {
+  jokeRead?: string;
+  humorNote: NonNullable<VisualConceptsResponse["humorNote"]> | null;
+  disabled?: boolean;
+  onSave: (text: string) => Promise<string | null>;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const save = async (text: string) => {
+    setSaving(true);
+    setError("");
+    const failure = await onSave(text);
+    setSaving(false);
+    if (failure) setError(failure);
+    else setEditing(null);
+  };
+  if (!jokeRead && !humorNote && editing == null) {
+    return (
+      <div className="text-xs" data-testid="humor-note-empty">
+        <button type="button" disabled={disabled} onClick={() => setEditing("")} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-40" data-testid="humor-note-write">
+          <Pencil className="w-3 h-3" /> Write a humor note
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-sm border border-border bg-muted/30 p-3 space-y-2" data-testid="humor-note-card">
+      {humorNote && editing == null && (
+        <div className="space-y-1" data-testid="humor-note-approved">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1"><Laugh className="w-3.5 h-3.5" /> Humor note (approved)</p>
+          <p className="text-sm text-foreground whitespace-pre-wrap" data-testid="humor-note-text">{humorNote.text}</p>
+          <p className="text-[11px] text-muted-foreground">
+            Approved {new Date(humorNote.approvedAt).toLocaleString()}. The gag writer uses it on every regeneration.{" "}
+            <button type="button" disabled={disabled} onClick={() => setEditing(humorNote.text)} className="text-primary hover:underline disabled:opacity-40" data-testid="humor-note-edit">Edit</button>
+          </p>
+        </div>
+      )}
+      {jokeRead && editing == null && (humorNote?.text ?? "") !== jokeRead && (
+        <div className="space-y-1" data-testid="joke-read">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">The AI's read of the joke</p>
+          <p className="text-sm text-foreground/90 whitespace-pre-wrap" data-testid="joke-read-text">{jokeRead}</p>
+          {!humorNote && (
+            <div className="flex gap-2">
+              <button type="button" disabled={disabled || saving} onClick={() => void save(jokeRead)} data-testid="joke-read-confirm" className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-sm border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-40">
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} That's right
+              </button>
+              <button type="button" disabled={disabled || saving} onClick={() => setEditing(jokeRead)} data-testid="joke-read-edit" className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-sm border border-border hover:bg-muted disabled:opacity-40">
+                <Pencil className="w-3 h-3" /> Edit
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {editing != null && (
+        <div className="space-y-1.5" data-testid="humor-note-editor">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Humor note: why this is funny, and what a picture must keep</p>
+          <textarea value={editing} onChange={(e) => setEditing(e.target.value)} maxLength={1500} rows={3} data-testid="humor-note-input" className="w-full rounded-sm border border-border bg-background px-2 py-1 text-sm" />
+          <div className="flex gap-2">
+            <button type="button" disabled={disabled || saving || !editing.trim()} onClick={() => void save(editing)} data-testid="humor-note-save" className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40">
+              {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} {saving ? "Saving…" : "Save note"}
+            </button>
+            <button type="button" disabled={saving} onClick={() => { setEditing(null); setError(""); }} data-testid="humor-note-cancel" className="text-xs px-2 py-1 rounded-sm border border-border hover:bg-muted">Cancel</button>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-xs text-destructive" data-testid="humor-note-error">{error}</p>}
+    </div>
+  );
+}
 
 function ConceptCard({
   concept,
@@ -136,6 +221,7 @@ export function VisualConceptCandidates({
   pickBlockedReason,
   onPick,
   onGenerate,
+  onSaveNote,
 }: {
   visualConcepts: VisualConceptsResponse | undefined;
   /** Disable picking / generating (e.g. while the enrichment draft is committing). */
@@ -148,6 +234,8 @@ export function VisualConceptCandidates({
   onPick: (concept: StoredCandidateConcept) => void;
   /** POST regenerate — the server uses the current unsaved draft as context. */
   onGenerate: () => Promise<void>;
+  /** PUT the fact's humor note; resolves to an error message, or null on success. */
+  onSaveNote?: (text: string) => Promise<string | null>;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const status = visualConcepts?.status ?? null;
@@ -211,8 +299,18 @@ export function VisualConceptCandidates({
       {status === "failed" && (
         <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="visual-concepts-failed">
           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-          Couldn't draft ideas this time — no problem, write the Visual concept above yourself or Regenerate.
+          {visualConcepts?.failureReason
+            ?? "Couldn't draft ideas this time. Press Regenerate to try again; the gag can't be approved until ideas are drafted."}
         </p>
+      )}
+
+      {onSaveNote && (status === "ok" || visualConcepts?.humorNote) && (
+        <HumorNoteCard
+          jokeRead={status === "ok" ? visualConcepts?.jokeRead : undefined}
+          humorNote={visualConcepts?.humorNote ?? null}
+          disabled={disabled}
+          onSave={onSaveNote}
+        />
       )}
 
       {status === "ok" && !current && (

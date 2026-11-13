@@ -513,17 +513,20 @@ function ReviewModal({
   // "working" immediately, then let polling reconcile.
   const onGenerateConcepts = useCallback(async (): Promise<void> => {
     const coreSceneDraft = enrichment?.visualPromptStrategyOverride?.coreSceneOverride?.trim() || null;
+    const bubblesDraft = coreSceneDraft
+      ? (enrichment?.visualPromptStrategyOverride?.bubbles ?? []).map(({ type, entity, text }) => ({ type, entity, text }))
+      : null;
     setError("");
     // Optimistic "pending" for instant feedback; loadDetail() in finally
     // reconciles against the real server state, so a rejected POST (409 stale
     // stage, 400, 5xx) reverts the pending rather than sticking on "Drafting…".
-    setDetail((d) => (d ? { ...d, visualConcepts: { status: "pending", candidates: [], current: false } } : d));
+    setDetail((d) => (d ? { ...d, visualConcepts: { status: "pending", candidates: [], current: false, humorNote: d.visualConcepts?.humorNote ?? null } } : d));
     try {
       const r = await fetch(`/api/admin/reviews/${review.id}/visual-concepts/regenerate`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coreSceneDraft }),
+        body: JSON.stringify({ coreSceneDraft, bubblesDraft }),
       });
       if (!r.ok) {
         const d = (await r.json().catch(() => ({}))) as { error?: string };
@@ -535,6 +538,27 @@ function ReviewModal({
       void loadDetail();
     }
   }, [review.id, enrichment, loadDetail]);
+
+  // PUT the humor note (confirm or correction). Returns an error message, or
+  // null when saved; the panel shows "Saving…" and keeps the text on failure.
+  const onSaveHumorNote = useCallback(async (text: string): Promise<string | null> => {
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/humor-note`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        return d.error ?? `Could not save the humor note (${r.status}).`;
+      }
+      void loadDetail();
+      return null;
+    } catch {
+      return "Network error: the humor note was not saved.";
+    }
+  }, [review.id, loadDetail]);
 
   const onPickConcept = useCallback((concept: StoredCandidateConcept) => {
     if (!enrichment) return;
@@ -1072,6 +1096,7 @@ function ReviewModal({
                 pickBlockedReason={pickBlockedReason}
                 onPick={onPickConcept}
                 onGenerate={onGenerateConcepts}
+                onSaveNote={onSaveHumorNote}
               />
 
               {/* Blocking-gate status for the Visual Ideas prep artifact. */}

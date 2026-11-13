@@ -72,7 +72,7 @@ describe("VisualConceptCandidates", () => {
       />,
     );
     expect(screen.queryByTestId("visual-concepts-cards")).toBeNull();
-    expect(screen.getByTestId("visual-concepts-stale").textContent).toMatch(/enrichment changed/i);
+    expect(screen.getByTestId("visual-concepts-stale").textContent).toMatch(/enrichment or the gag writer changed/i);
   });
 
   it("ok + current → renders the three cards with title + whyItWorks; scene is collapsed until expanded", () => {
@@ -177,5 +177,57 @@ describe("candidate bubble proposals", () => {
     expect((screen.getByTestId("candidate-use") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("pick-blocked-note").textContent).toContain("Save or discard");
     expect(screen.getByTestId("candidate-title")).toBeTruthy();
+  });
+});
+
+describe("the joke read and the humor note (PLAN_GAG_GENERATOR.md E)", () => {
+  const withRead = (over: Partial<VisualConceptsResponse> = {}): VisualConceptsResponse => ({
+    ...okCurrent([candidate(), candidate(), candidate()]),
+    jokeRead: "A revolving door cannot be slammed; Alex slams one anyway.",
+    humorNote: null,
+    ...over,
+  });
+
+  it("shows the AI's read and confirms it with one press", async () => {
+    const onSaveNote = vi.fn(async () => null);
+    render(<VisualConceptCandidates visualConcepts={withRead()} onPick={vi.fn()} onGenerate={noop} onSaveNote={onSaveNote} />);
+    expect(screen.getByTestId("joke-read-text").textContent).toMatch(/revolving door/);
+    await act(async () => { fireEvent.click(screen.getByTestId("joke-read-confirm")); });
+    expect(onSaveNote).toHaveBeenCalledWith("A revolving door cannot be slammed; Alex slams one anyway.");
+  });
+
+  it("corrects the read and saves the correction; a failed save says so and keeps the text", async () => {
+    const onSaveNote = vi.fn(async () => "Could not save the humor note (500).");
+    render(<VisualConceptCandidates visualConcepts={withRead()} onPick={vi.fn()} onGenerate={noop} onSaveNote={onSaveNote} />);
+    fireEvent.click(screen.getByTestId("joke-read-edit"));
+    fireEvent.change(screen.getByTestId("humor-note-input"), { target: { value: "The door is the victim." } });
+    await act(async () => { fireEvent.click(screen.getByTestId("humor-note-save")); });
+    expect(onSaveNote).toHaveBeenCalledWith("The door is the victim.");
+    expect(screen.getByTestId("humor-note-error").textContent).toMatch(/Could not save/);
+    expect((screen.getByTestId("humor-note-input") as HTMLTextAreaElement).value).toBe("The door is the victim.");
+  });
+
+  it("a typed correction survives a poll that brings a new generation", () => {
+    const { rerender } = render(<VisualConceptCandidates visualConcepts={withRead()} onPick={vi.fn()} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
+    fireEvent.click(screen.getByTestId("joke-read-edit"));
+    fireEvent.change(screen.getByTestId("humor-note-input"), { target: { value: "Half-typed correction" } });
+    rerender(<VisualConceptCandidates visualConcepts={withRead({ jokeRead: "A newer read." })} onPick={vi.fn()} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
+    expect((screen.getByTestId("humor-note-input") as HTMLTextAreaElement).value).toBe("Half-typed correction");
+  });
+
+  it("an approved note shows as approved, with the latest read beside it when it differs", () => {
+    render(<VisualConceptCandidates
+      visualConcepts={withRead({ humorNote: { text: "The approved reading.", approvedBy: "u1", approvedAt: new Date().toISOString() }, jokeRead: "The approved reading, but note the second sentence." })}
+      onPick={vi.fn()} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
+    expect(screen.getByTestId("humor-note-approved").textContent).toMatch(/The approved reading\./);
+    expect(screen.getByTestId("joke-read-text").textContent).toMatch(/second sentence/);
+    expect(screen.queryByTestId("joke-read-confirm")).toBeNull();
+  });
+
+  it("a failed generation shows its reason", () => {
+    render(<VisualConceptCandidates
+      visualConcepts={{ status: "failed", candidates: [], current: false, humorNote: null, failureReason: 'The gag writer engine "x" cannot be used (engine_inactive).' }}
+      onPick={vi.fn()} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
+    expect(screen.getByTestId("visual-concepts-failed").textContent).toMatch(/cannot be used/);
   });
 });
