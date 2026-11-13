@@ -48,7 +48,17 @@ describe("a meme traces back to how it was made, from its link or from the pictu
   const traceFile = async (file: Buffer): Promise<TraceBody> =>
     (await request(admin()).post("/api/admin/provenance/trace-image").set("Content-Type", "image/jpeg").send(file).expect(200)).body as TraceBody;
 
+  // The upload route skips the fal NSFW classifier when no fal key is set,
+  // which is what this test relies on. With test isolation off, another file's
+  // dummy key (adminEngines.test.ts sets one at import) can still be set here,
+  // and the route then calls the real classifier and fails closed with a 503
+  // (PR #936: a new test file moved this one into that file's shard).
+  const falKey = process.env["FAL_AI_API_KEY"];
+  const falKeyAlt = process.env["FAL_KEY"];
+
   before(async () => {
+    delete process.env["FAL_AI_API_KEY"];
+    delete process.env["FAL_KEY"];
     photos.setUp();
     await db.insert(usersTable).values([
       { id: memberId, email: `${memberId}@test.local`, displayName: "Alex", pronouns: "they/them", membershipTier: "legendary" },
@@ -66,6 +76,8 @@ describe("a meme traces back to how it was made, from its link or from the pictu
     await db.delete(factsTable).where(eq(factsTable.id, factId));
     await db.delete(usersTable).where(inArray(usersTable.id, [memberId, adminId]));
     await photos.tearDown();
+    if (falKey === undefined) delete process.env["FAL_AI_API_KEY"]; else process.env["FAL_AI_API_KEY"] = falKey;
+    if (falKeyAlt === undefined) delete process.env["FAL_KEY"]; else process.env["FAL_KEY"] = falKeyAlt;
   });
 
   it("the member's upload, through the real route, is recorded", async () => {

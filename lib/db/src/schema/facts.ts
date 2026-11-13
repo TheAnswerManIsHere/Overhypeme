@@ -71,6 +71,18 @@ export const factsTable = pgTable("facts", {
    * gen through the queue. Mirrors `enrichment_status`.
    */
   visualConceptStatus: varchar("visual_concept_status", { length: 16 }),
+  /**
+   * The approved humor note (migration 0137, plan PLAN_GAG_GENERATOR.md): why
+   * this fact is funny and what a picture must preserve, in plain prose that
+   * names the subject "Alex". Written only by a moderator's confirm or
+   * correction of a generated joke read; generation, enrichment and refresh
+   * never write it. Read by the gag writer on every later generation. Never
+   * shown to end users. Null until a moderator approves one.
+   */
+  humorNote: text("humor_note"),
+  /** Who approved the humor note; null when the account is deleted. */
+  humorNoteApprovedBy: varchar("humor_note_approved_by").references(() => usersTable.id, { onDelete: "set null" }),
+  humorNoteApprovedAt: timestamp("humor_note_approved_at", { withTimezone: true }),
   /** LLM-generated scene prompts for AI meme backgrounds (3 gender variants). */
   aiScenePrompts: jsonb("ai_scene_prompts"),
   /** Object storage paths for generated AI meme background images (9 total: 3 genders × 3 each). */

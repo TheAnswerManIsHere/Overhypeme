@@ -611,6 +611,44 @@ without one.
 
 ## Candidate Visual Concepts
 
+**The gag writer (prompt version 3, plan `docs/plans/PLAN_GAG_GENERATOR.md`,
+approved by David 2026-11-13).**
+- **Engine and prompt.** The candidates are drafted by the `openai-gag-writer`
+  engine row (GPT-6 Astra, high effort), selected by
+  `fact_visual_concepts_engine_id`; migration 0137 pointed that setting there
+  and kept the previous value as `fact_visual_concepts_engine_id_before_0137`.
+  The render planner keeps its own row. The system prompt is the text David
+  locked (`docs/plans/gag-prompt-LOCKED.md`); `gagWriter.test.ts` pins its
+  sha256.
+- **No fallback model.** An unusable engine fails the job at once
+  (`gag_writer_engine_unusable`). The review screen still loads and shows the
+  reason. Approving the gag still needs a successful generation.
+- **The request** is built by
+  `artifacts/api-server/src/lib/visualConcepts/generator.ts`
+  (`buildVisualConceptsUserMessage`), not from the render planner's context
+  blocks. It carries:
+  - the caption rendered with the stand-in name "Alex" and they/them;
+  - the approved humor note;
+  - what references mean, in plain lines;
+  - the joke mechanism;
+  - the violence and text limits from `resolveRenderPolicy`;
+  - the live fact's saved gag (during a refresh too, never the candidate's);
+  - the moderator's draft with its bubbles.
+- **The stand-in name.** The model writes "Alex". Every scene and bubble line
+  is then converted by `tokenizePlainTextToTemplate` (`visual_strategy`,
+  subject "Alex") before the validation below. A conversion that leaves
+  "Alex", or a scene without the subject token, stores the gag unpickable,
+  never naming "Alex".
+- **The joke read and the humor note.** Each generation also returns a
+  `jokeRead`, stored in the blob with the note it was written under.
+  `facts.humor_note` (with who approved it and when) is written only by a
+  moderator, through `PUT /admin/reviews/:id/humor-note`: That's right, or a
+  correction.
+- **Freshness.** The note is kept out of the input hash. A saved note that
+  matches neither the note the gags were written under nor their own read
+  marks them `humor_note_changed`. So confirming a read keeps its gags
+  usable, and a correction asks for Regenerate.
+
 AI-drafted picks to avoid blank-page authoring (`lib/api-zod/src/visualConcepts.ts`,
 Slice 2A / PRs #163, #166). The planner drafts exactly **3**
 `{title, whyItWorks, sceneDescription, bubbles}` concepts during moderation prep,

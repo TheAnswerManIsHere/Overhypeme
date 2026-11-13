@@ -13,9 +13,10 @@
  * Reuses the render-scenario projection so "what stales candidates" tracks "what
  * stales renders". That projection includes the ENTIRE visualPromptStrategyOverride
  * — so saved bubble edits conservatively stale candidate ideas exactly as saved
- * core-scene edits do (deliberate, Option A of the bubble plan §E6). Candidate
- * PROMPT CONTEXT still excludes existing bubbles (CANDIDATE_CONTEXT_OPTS gate);
- * only the freshness hash is conservative.
+ * core-scene edits do (deliberate, Option A of the bubble plan §E6). Since the
+ * gag writer (prompt v3) the request carries the saved gag and its bubbles as
+ * context, and the approved humor note is kept out of this hash on purpose
+ * (visualConceptJobs.ts, buildVisualConceptsResponse).
  */
 
 import { createHash } from "node:crypto";

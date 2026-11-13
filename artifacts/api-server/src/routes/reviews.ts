@@ -37,6 +37,8 @@ import {
   type ProblematicScenarioStatus,
   type VisualRenderApprovalWaiver,
   sanitizeCandidateSceneText,
+  humorNoteSaveSchema,
+  isUnresolvedSubmissionStage,
   CANDIDATE_SCENE_MAX_CHARS,
 } from "@workspace/api-zod";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
@@ -347,6 +349,9 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
           enrichmentStatus: factsTable.enrichmentStatus,
           visualConceptStatus: factsTable.visualConceptStatus,
           visualConceptCandidates: factsTable.visualConceptCandidates,
+          humorNote: factsTable.humorNote,
+          humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
+          humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
         })
           .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1)
           .then((r) => r[0] ?? null)
@@ -362,6 +367,9 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
         candidateVersionId: review.candidateVersionId ?? null,
         visualConceptStatus: stagingFact.visualConceptStatus ?? null,
         visualConceptCandidates: stagingFact.visualConceptCandidates,
+        humorNote: stagingFact.humorNote,
+        humorNoteApprovedBy: stagingFact.humorNoteApprovedBy,
+        humorNoteApprovedAt: stagingFact.humorNoteApprovedAt,
       })
     : { status: null, candidates: [], current: false };
 
@@ -1739,6 +1747,8 @@ router.post("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: Aut
 // persisted by regeneration; a blank/invalid draft → fresh ideas.
 const RegenerateVisualConceptsBody = z.object({
   coreSceneDraft: z.string().max(CANDIDATE_SCENE_MAX_CHARS).nullish(),
+  /** The draft's bubbles (plan PLAN_GAG_GENERATOR.md: a draft's payoff can be in its bubble). */
+  bubblesDraft: z.array(z.object({ type: z.enum(["speech", "thought"]), entity: z.string().max(60), text: z.string().max(200) })).max(4).nullish(),
 });
 
 router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -1788,15 +1798,51 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
     const sanitized = sanitizeCandidateSceneText(rawDraft);
     if (sanitized.tokenValid) draft = sanitized.text;
   }
+  const draftBubbles = draft
+    ? (parsed.data.bubblesDraft ?? []).filter((b) => b.text.trim() && b.entity.trim()).map((b) => ({ type: b.type, entity: b.entity.trim(), text: b.text.trim() }))
+    : null;
 
   await enqueueVisualConceptsForReview({
     reviewId: id,
     factId: review.stagingFactId,
     candidateVersionId: review.candidateVersionId ?? null,
     moderatorDraftScene: draft,
+    moderatorDraftBubbles: draftBubbles,
   });
   logger.info({ reviewId: id, hasDraft: draft != null, adminId: req.user.id }, "[moderation] visual concepts regenerate");
   res.status(202).json({ success: true, visualConceptStatus: "pending" });
+});
+
+// PUT /admin/reviews/:id/humor-note — a moderator confirms or corrects the
+// fact's humor note (plan docs/plans/PLAN_GAG_GENERATOR.md, E). The only
+// writer of facts.humor_note: generation, enrichment and refresh never write
+// it. Confirm sends the joke read's text unchanged; a correction sends the
+// edited text. Either way the moderator and the time are recorded.
+router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const parsed = humorNoteSaveSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid humor note" }); return; }
+
+  const [review] = await db
+    .select({ workflowStage: pendingReviewsTable.workflowStage, stagingFactId: pendingReviewsTable.stagingFactId })
+    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+  if (!isUnresolvedSubmissionStage(review.workflowStage as ReviewWorkflowStage)) {
+    res.status(409).json({ error: `This review is ${review.workflowStage}; its humor note can no longer be changed here.` });
+    return;
+  }
+  if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
+
+  const approvedAt = new Date();
+  const [saved] = await db
+    .update(factsTable)
+    .set({ humorNote: parsed.data.text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt })
+    .where(eq(factsTable.id, review.stagingFactId))
+    .returning({ humorNote: factsTable.humorNote });
+  if (!saved) { res.status(404).json({ error: "Fact not found" }); return; }
+  logger.info({ reviewId: id, factId: review.stagingFactId, adminId: req.user.id }, "[moderation] humor note saved");
+  res.json({ humorNote: { text: saved.humorNote, approvedBy: req.user.id, approvedAt: approvedAt.toISOString() } });
 });
 
 // GET frozen diagnostics for ONE attempt (the prompt/plan that produced THIS

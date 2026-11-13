@@ -253,7 +253,7 @@ export function expectationsFromInput(input: ImagePromptGenerationInput): PlanEx
 // extraction; the planner passes PLANNER_CONTEXT_OPTS (all-true) so its message is
 // byte-identical to before.
 
-export type ModeratorCoreSceneMode = false | "authoritative" | "existing_draft_context";
+export type ModeratorCoreSceneMode = false | "authoritative";
 
 export interface ImagePromptContextOpts {
   includeFactText: boolean;
@@ -276,8 +276,6 @@ export interface ImagePromptContextOpts {
    */
   includeVisualPlanEchoDirectives: boolean;
   includeModeratorCoreScene: ModeratorCoreSceneMode;
-  /** For includeModeratorCoreScene="existing_draft_context": the unsaved draft. */
-  moderatorDraftScene?: string;
   /**
    * Emit the moderator-bubble staging block (runtime planner ONLY). The
    * compiler owns bubble prompt language; the planner just stages the scene to
@@ -305,30 +303,6 @@ export const PLANNER_CONTEXT_OPTS: ImagePromptContextOpts = {
   includeVisualPlanEchoDirectives: true,
   includeModeratorCoreScene: "authoritative",
   includeModeratorBubbles: true,
-};
-
-/**
- * The render-mode-AGNOSTIC subset used by candidate Visual-concept generation:
- * fact text + taxonomy + render policy + authored strategy + examples + cultural
- * refs + semantic entities ON; every runtime/mode-specific block OFF.
- * `includeModeratorCoreScene` is set per call site (false = fresh ideas from a
- * blank field; "existing_draft_context" = regenerate distinct alternatives).
- */
-export const CANDIDATE_CONTEXT_OPTS: Omit<ImagePromptContextOpts, "includeModeratorCoreScene" | "moderatorDraftScene"> = {
-  includeFactText: true,
-  includeTaxonomy: true,
-  includeRenderPolicy: true,
-  includeAuthoredStrategy: true,
-  includeExamples: true,
-  includeCulturalReferences: true,
-  includeSemanticEntities: true,
-  includeSourceImageAnalysis: false,
-  includeSubjectRenderMode: false,
-  includeIdentityPolicy: false,
-  includeRenderControls: false,
-  includeTargetEngine: false,
-  includeVisualPlanEchoDirectives: false,
-  includeModeratorBubbles: false,
 };
 
 /**
@@ -368,8 +342,6 @@ function resolveModeratorContextScene(input: ImagePromptContextInput, opts: Imag
   if (opts.includeModeratorCoreScene === "authoritative") {
     const ovb = input.enrichment.visualPromptStrategyOverride;
     raw = ovb?.coreSceneOverride?.trim() ?? "";
-  } else if (opts.includeModeratorCoreScene === "existing_draft_context") {
-    raw = opts.moderatorDraftScene?.trim() ?? "";
   }
   if (!raw) return "";
   return input.renderedSubject
@@ -382,23 +354,14 @@ function moderatorSceneLines(input: ImagePromptContextInput, opts: ImagePromptCo
   if (opts.includeModeratorCoreScene === false) return [];
   const scene = resolveModeratorContextScene(input, opts);
   if (!scene) return [];
-  if (opts.includeModeratorCoreScene === "authoritative") {
-    return [
-      "",
-      "MODERATOR-AUTHORED CORE SCENE (AUTHORITATIVE — hard directive):",
-      `"${scene}"`,
-      "A human moderator has specified the exact visual concept for this fact. This scene is authoritative:",
-      "- Do NOT invent a different concept, staging, or gag. Plan everything to REALIZE this exact scene.",
-      "- Set visualPlan.coreScene to a faithful (optionally tightened) version of this scene — same subject, action, and key objects.",
-      "- Fill subjectDetails / environment / lightingAndStyle / keyVisualElements with concrete detail that supports THIS scene.",
-    ];
-  }
-  // existing_draft_context — offer the draft as direction, ask for DISTINCT alternatives.
   return [
     "",
-    "CURRENT MODERATOR DRAFT (context only — do NOT simply repeat or reword it):",
+    "MODERATOR-AUTHORED CORE SCENE (AUTHORITATIVE — hard directive):",
     `"${scene}"`,
-    "The moderator has a working draft of the visual concept. Propose concepts that explore genuinely DIFFERENT stagings/gags — this draft shows the direction they're leaning, it is NOT an instruction to obey or echo.",
+    "A human moderator has specified the exact visual concept for this fact. This scene is authoritative:",
+    "- Do NOT invent a different concept, staging, or gag. Plan everything to REALIZE this exact scene.",
+    "- Set visualPlan.coreScene to a faithful (optionally tightened) version of this scene — same subject, action, and key objects.",
+    "- Fill subjectDetails / environment / lightingAndStyle / keyVisualElements with concrete detail that supports THIS scene.",
   ];
 }
 

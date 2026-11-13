@@ -14,7 +14,9 @@
  * Lifecycle of `facts.visual_concept_status`:
  *   "pending"  — set by the enqueuer; the job is queued or retrying ("working").
  *   "ok"       — set by the handler when candidates land.
- *   "failed"   — set ONLY by onAbandon after the queue exhausts retries.
+ *   "failed"   — set by onAbandon after the queue exhausts retries, and by the
+ *                handler itself on a terminal failure (an unusable gag-writer
+ *                engine), which the worker never passes to onAbandon.
  *
  * COST GUARD: concepts are only useful while the review is unresolved. If the
  * review is missing / resolved (approved/rejected) by the time the job runs, the
@@ -35,6 +37,7 @@ import { db } from "@workspace/db";
 import { factsTable, pendingReviewsTable, type AsyncJobRow } from "@workspace/db/schema";
 import {
   isUnresolvedSubmissionStage,
+  resolveRenderPolicy,
   validateEnrichment,
   visualConceptCandidatesBlobSchema,
   type FactEnrichment,
@@ -43,9 +46,10 @@ import {
   type VisualConceptSource,
   type VisualConceptsResponse,
   type VisualConceptStaleReason,
+  type VisualStrategyBubble,
 } from "@workspace/api-zod";
 import { resolveReviewCycleEnrichment } from "./moderationStaging";
-import { generateVisualConcepts, resolveVisualConceptsLLMSettings } from "./visualConcepts/generator";
+import { generateVisualConcepts, resolveVisualConceptsLLMSettings, VisualConceptsEngineUnusable, type ContextGag } from "./visualConcepts/generator";
 import { buildVisualConceptInputHash, hashText } from "./visualConcepts/inputHash";
 import { getVisualConceptsSystem } from "./visualConceptsConfig";
 import {
@@ -54,6 +58,7 @@ import {
   type JobHandler,
   type HandlerResult,
   type EnqueueJobResult,
+  terminalFailure,
 } from "./asyncJobs";
 import { logger } from "./logger";
 
@@ -65,6 +70,8 @@ export interface FactVisualConceptsJobPayload {
   candidateVersionId?: number | null;
   /** Regenerate: the moderator's unsaved draft, offered as distinct-alt context. */
   moderatorDraftScene?: string | null;
+  /** Regenerate: the bubbles of that draft. */
+  moderatorDraftBubbles?: Array<Pick<VisualStrategyBubble, "type" | "entity" | "text">> | null;
 }
 
 /** Review-scoped dedupe: an in-flight concept job for a review coalesces; a
@@ -84,6 +91,7 @@ export async function enqueueVisualConceptsForReview(args: {
   factId: number;
   candidateVersionId?: number | null;
   moderatorDraftScene?: string | null;
+  moderatorDraftBubbles?: Array<Pick<VisualStrategyBubble, "type" | "entity" | "text">> | null;
 }): Promise<EnqueueJobResult> {
   await db
     .update(factsTable)
@@ -96,6 +104,7 @@ export async function enqueueVisualConceptsForReview(args: {
       factId: args.factId,
       candidateVersionId: args.candidateVersionId ?? null,
       moderatorDraftScene: args.moderatorDraftScene ?? null,
+      moderatorDraftBubbles: args.moderatorDraftBubbles ?? null,
     },
     dedupeKey: visualConceptsDedupeKey(args.reviewId),
   });
@@ -209,17 +218,44 @@ export async function runVisualConceptsJob(
     return { ok: true };
   }
 
-  const draft = payload.moderatorDraftScene?.trim() || undefined;
+  const draftScene = payload.moderatorDraftScene?.trim() ?? "";
+  const draft: ContextGag | null = draftScene ? { scene: draftScene, bubbles: payload.moderatorDraftBubbles ?? [] } : null;
+
+  // The fact row holds the approved humor note and the live, approved gag.
+  // During a refresh the cycle's enrichment is the candidate version's, so the
+  // saved gag is read from the fact itself, never from the candidate.
+  const [fact] = await db
+    .select({ humorNote: factsTable.humorNote, enrichment: factsTable.enrichment })
+    .from(factsTable)
+    .where(eq(factsTable.id, cycle.stagingFactId))
+    .limit(1);
+  const liveOverride = validateEnrichment(fact?.enrichment).ok
+    ? (fact!.enrichment as FactEnrichment).visualPromptStrategyOverride
+    : undefined;
+  const savedScene = liveOverride?.coreSceneOverride?.trim() ?? "";
+  const savedGag: ContextGag | null = savedScene ? { scene: savedScene, bubbles: liveOverride?.bubbles ?? [] } : null;
+  const humorNote = fact?.humorNote?.trim() || null;
 
   let result;
   try {
     result = await deps.generate({
       factText: cycle.factText,
       enrichment: cycle.enrichment,
-      moderatorDraftScene: draft,
+      renderPolicy: resolveRenderPolicy(cycle.enrichment),
+      humorNote,
+      savedGag,
+      draft,
     });
   } catch (err) {
-    // Retryable: leave status "pending" (still running); "failed" is onAbandon-only.
+    // An unusable engine is a configuration fault: fail at once (no fallback
+    // model, no ten hours of retries). The worker does not call onAbandon for a
+    // terminal failure, so the handler writes "failed" itself; otherwise the
+    // fact would stay "pending" with Regenerate and approval refusing it.
+    // Anything else keeps the queue's retries with status "pending".
+    if (err instanceof VisualConceptsEngineUnusable) {
+      await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(eq(factsTable.id, factId));
+      return terminalFailure("gag_writer_engine_unusable", err.message);
+    }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
@@ -232,6 +268,8 @@ export async function runVisualConceptsJob(
     candidateVersionId: cycle.candidateVersionId,
     source: cycle.source,
     inputHash,
+    jokeRead: result.jokeRead,
+    humorNoteUsed: humorNote,
   };
 
   await db
@@ -278,13 +316,29 @@ export async function buildVisualConceptsResponse(review: {
   candidateVersionId: number | null;
   visualConceptStatus: string | null;
   visualConceptCandidates: unknown;
+  humorNote?: string | null;
+  humorNoteApprovedBy?: string | null;
+  humorNoteApprovedAt?: Date | null;
 }): Promise<VisualConceptsResponse> {
   const status = (review.visualConceptStatus as VisualConceptsResponse["status"]) ?? null;
+  const savedNote = review.humorNote?.trim() || null;
+  const humorNote = savedNote
+    ? { text: savedNote, approvedBy: review.humorNoteApprovedBy ?? null, approvedAt: (review.humorNoteApprovedAt ?? new Date(0)).toISOString() }
+    : null;
+  // A failure the moderator can act on: the gag writer's engine is unusable.
+  // Resolving it is a read that never throws, so this screen keeps loading.
+  let failureReason: string | undefined;
+  if (status === "failed") {
+    const settings = await resolveVisualConceptsLLMSettings();
+    if (settings.unusableReason) {
+      failureReason = new VisualConceptsEngineUnusable(settings.unusableReason, settings.provenance.engineId).message;
+    }
+  }
 
   const parsed = visualConceptCandidatesBlobSchema.safeParse(review.visualConceptCandidates);
   if (!parsed.success) {
     // No usable blob (never generated, or shape drift). Report status only.
-    return { status, candidates: [], current: false };
+    return { status, candidates: [], current: false, humorNote, ...(failureReason ? { failureReason } : {}) };
   }
   const blob = parsed.data;
 
@@ -299,6 +353,15 @@ export async function buildVisualConceptsResponse(review: {
       staleReason = "input_hash_mismatch";
     }
   }
+  // The approved note is kept out of the input hash, so confirming a correct
+  // read does not stale the gags it was confirmed beside. A saved note that
+  // differs from both the note these gags were written under and their own
+  // joke read means they were written for another reading of the joke.
+  if (staleReason === undefined && savedNote) {
+    const under = blob.humorNoteUsed?.trim() ?? "";
+    const read = blob.jokeRead?.trim() ?? "";
+    if (savedNote !== under && savedNote !== read) staleReason = "humor_note_changed";
+  }
 
   return {
     status,
@@ -306,5 +369,8 @@ export async function buildVisualConceptsResponse(review: {
     current: staleReason === undefined,
     ...(staleReason ? { staleReason } : {}),
     generatedAt: blob.generatedAt,
+    ...(blob.jokeRead ? { jokeRead: blob.jokeRead } : {}),
+    humorNote,
+    ...(failureReason ? { failureReason } : {}),
   };
 }

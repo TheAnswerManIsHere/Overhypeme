@@ -56,8 +56,20 @@ export const CANDIDATE_SCENE_MAX_CHARS = 1500;
  * generated under an older contract read as stale.
  * v2: concepts carry a REQUIRED structured `bubbles` array (speech/thought
  * proposals) + single-channel scene rules.
+ * v3: the gag writer (plan docs/plans/PLAN_GAG_GENERATOR.md): the locked
+ * prompt on GPT-6 Astra, a REQUIRED `jokeRead`, and scenes written with the
+ * stand-in name "Alex" that the server tokenizes before validation.
  */
-export const VISUAL_CONCEPTS_PROMPT_VERSION = 2 as const;
+export const VISUAL_CONCEPTS_PROMPT_VERSION = 3 as const;
+
+/** The approved humor note's length cap (plain prose, never shown to end users). */
+export const HUMOR_NOTE_MAX_CHARS = 1500;
+
+/** The body a moderator sends to confirm or correct a fact's humor note. */
+export const humorNoteSaveSchema = z.object({
+  text: z.string().trim().min(1, "The humor note is empty").max(HUMOR_NOTE_MAX_CHARS, `The humor note is over ${HUMOR_NOTE_MAX_CHARS} characters`),
+}).strict();
+export type HumorNoteSave = z.infer<typeof humorNoteSaveSchema>;
 
 // ─── Wire schema (LLM structured output) ─────────────────────────────────────
 
@@ -90,6 +102,8 @@ export const candidateConceptWireSchema = z.object({
 export type CandidateConceptWire = z.infer<typeof candidateConceptWireSchema>;
 
 export const candidateConceptsWireSchema = z.object({
+  /** Why the boast is funny and what a picture must preserve (moderator-facing). */
+  jokeRead: z.string(),
   concepts: z.array(candidateConceptWireSchema),
 });
 export type CandidateConceptsWire = z.infer<typeof candidateConceptsWireSchema>;
@@ -117,6 +131,7 @@ export function validateCandidateConcepts(
     return { ok: false, error: res.error.issues[0]?.message ?? "invalid candidate concepts payload" };
   }
   const { concepts } = res.data;
+  if (!res.data.jokeRead.trim()) return { ok: false, error: "jokeRead is empty" };
   if (concepts.length !== CANDIDATE_VISUAL_CONCEPT_COUNT) {
     return {
       ok: false,
@@ -326,6 +341,10 @@ export const visualConceptCandidatesBlobSchema = z.object({
   source: z.enum(VISUAL_CONCEPT_SOURCE_VALUES),
   /** Hash over the render-affecting inputs — see buildVisualConceptInputHash. */
   inputHash: z.string(),
+  /** v3: the model's joke read for these gags. Absent on older blobs. */
+  jokeRead: z.string().optional(),
+  /** v3: the approved humor note the gags were generated under; null when none. */
+  humorNoteUsed: z.string().nullable().optional(),
 });
 export type VisualConceptCandidatesBlob = z.infer<typeof visualConceptCandidatesBlobSchema>;
 
@@ -336,7 +355,9 @@ export type VisualConceptStatus = "pending" | "ok" | "failed";
 export type VisualConceptStaleReason =
   | "review_mismatch"
   | "candidate_version_mismatch"
-  | "input_hash_mismatch";
+  | "input_hash_mismatch"
+  /** A saved humor note differs from the one these gags were written under. */
+  | "humor_note_changed";
 
 export interface VisualConceptsResponse {
   /** Null = concept gen never ran for this fact (pre-feature / not enqueued). */
@@ -346,4 +367,10 @@ export interface VisualConceptsResponse {
   current: boolean;
   staleReason?: VisualConceptStaleReason;
   generatedAt?: string;
+  /** The joke read generated with these gags (absent on pre-v3 blobs). */
+  jokeRead?: string;
+  /** The fact's approved humor note, or null when none is saved. */
+  humorNote?: { text: string; approvedBy: string | null; approvedAt: string } | null;
+  /** Why the last generation failed, when it failed for a reason the moderator can act on. */
+  failureReason?: string;
 }

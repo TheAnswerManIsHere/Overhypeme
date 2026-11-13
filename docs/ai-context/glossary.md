@@ -378,6 +378,24 @@ gate is deliberately free: approving the gag is what unlocks render spend, so
 no test render has run yet at the moment of the decision.
 → [moderation-workflow](./moderation-workflow.md)
 
+### Joke read
+
+The gag writer's one-to-three-sentence reading of a fact's joke: the normal
+expectation, what the boast reverses or makes impossible, what a picture must
+keep, and the tempting wrong reading. Generated with every set of
+[candidate gags](#visual-gag) and shown to the moderator above them; becomes
+the fact's [humor note](#humor-note) when a moderator confirms or corrects it.
+→ [visual-pipeline](./visual-pipeline.md#candidate-visual-concepts)
+
+### Humor note
+
+The moderator-approved explanation of why a fact is funny and what its
+picture must preserve, stored on the fact (`facts.humor_note`). Written only
+by a moderator's confirm or correction of a [joke read](#joke-read); the gag
+writer reads it on every later generation and never overwrites it. Never
+shown to end users.
+→ [visual-pipeline](./visual-pipeline.md#candidate-visual-concepts)
+
 ### Waiver
 
 An auditable record that a moderator approved despite missing or stale test

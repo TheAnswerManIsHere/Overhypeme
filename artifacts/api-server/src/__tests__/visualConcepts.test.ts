@@ -1,14 +1,10 @@
 /**
- * Unit tests (pure, no DB / no LLM) for candidate Visual-concept generation
- * (Slice 2A):
- *   - api-zod schema/sanitize: exactly-3 validation, ≤1500 cap, {NAME}
- *     canonicalization, unknown-token → tokenValid:false.
- *   - the mode-agnostic candidate user message: OMITS the runtime blocks
- *     (source-image / subjectRenderMode / generationMode / identity / render
- *     controls / target engine) and INCLUDES fact text / taxonomy / render
- *     policy / authored strategy / cultural refs / semantic entities.
- *   - existing_draft_context vs. blank-field wording (distinct alternatives, NOT
- *     the authoritative directive).
+ * Unit tests (pure, no DB / no LLM) for candidate Visual-concept generation:
+ *   - api-zod schema/sanitize: exactly-3 validation (with a jokeRead), the
+ *     scene cap, {NAME} canonicalization, unknown-token → tokenValid:false.
+ *   - the gag-writer request (PLAN_GAG_GENERATOR.md C): the caption with the
+ *     stand-in name, meanings, mechanism, limits, note, saved gag and draft.
+ *   - the stand-in name converted by the tokenizer, and failed conversions.
  *   - generateVisualConceptsWithModel: sanitizes + validates count + retries once.
  */
 
@@ -73,6 +69,13 @@ const ENRICHMENT: FactEnrichment = {
   ],
 } as unknown as FactEnrichment;
 
+const keepTokens = async (t: string) => ({ template: t });
+
+const POLICY = { supportingText: { mode: "allow" }, violence: { mode: "allow", intensity: "strong" } } as const;
+function input(over: Partial<GenerateVisualConceptsInput> = {}): GenerateVisualConceptsInput {
+  return { factText: "{NAME} bench-presses the Earth.", enrichment: ENRICHMENT, renderPolicy: POLICY as never, humorNote: null, savedGag: null, draft: null, ...over };
+}
+
 function conceptWire(
   overrides: Partial<{ title: string; whyItWorks: string; sceneDescription: string; bubbles: unknown[] }> = {},
 ) {
@@ -86,18 +89,18 @@ function conceptWire(
 
 describe("validateCandidateConcepts", () => {
   it("accepts exactly three non-empty concepts", () => {
-    const res = validateCandidateConcepts({ concepts: [conceptWire(), conceptWire(), conceptWire()] });
+    const res = validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire()] });
     assert.equal(res.ok, true);
   });
 
   it("rejects a count other than three", () => {
-    assert.equal(validateCandidateConcepts({ concepts: [conceptWire(), conceptWire()] }).ok, false);
-    assert.equal(validateCandidateConcepts({ concepts: [conceptWire(), conceptWire(), conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire(), conceptWire()] }).ok, false);
   });
 
   it("rejects an empty title or sceneDescription", () => {
-    assert.equal(validateCandidateConcepts({ concepts: [conceptWire({ title: "  " }), conceptWire(), conceptWire()] }).ok, false);
-    assert.equal(validateCandidateConcepts({ concepts: [conceptWire(), conceptWire({ sceneDescription: "" }), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire({ title: "  " }), conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [conceptWire(), conceptWire({ sceneDescription: "" }), conceptWire()] }).ok, false);
   });
 });
 
@@ -128,72 +131,52 @@ describe("sanitizeCandidateSceneText", () => {
   });
 });
 
-describe("buildVisualConceptsUserMessage — mode-agnostic context", () => {
-  const base: GenerateVisualConceptsInput = { factText: "{NAME} bench-presses the Earth.", enrichment: ENRICHMENT };
-
-  it("INCLUDES the mode-agnostic context blocks", () => {
-    const msg = buildVisualConceptsUserMessage(base);
-    assert.match(msg, /factTextExact: \{NAME\} bench-presses the Earth\./);
-    assert.match(msg, /TAXONOMY \(FIXED — DO NOT reclassify\)/);
-    assert.match(msg, /RENDER POLICY/);
-    assert.match(msg, /AUTHORED VISUAL STRATEGY/);
-    assert.match(msg, /PER-FACT CULTURAL REFERENCES/);
-    assert.match(msg, /SEMANTIC ENTITY INTERPRETATION/);
-    assert.match(msg, /surfaceText="Earth"/);
+describe("buildVisualConceptsUserMessage — the gag-writer request (PLAN_GAG_GENERATOR.md C)", () => {
+  it("writes the caption with the stand-in name and no curly-brace token anywhere", () => {
+    const msg = buildVisualConceptsUserMessage(input({ factText: "{NAME} lifts {POSS} car while {SUBJ} {sleeps|sleep}." }));
+    assert.match(msg, /FACT \(the caption\):\nAlex lifts their car while they sleep\./);
+    assert.ok(!/\{[A-Za-z_|]+\}/.test(msg), "no token reaches the gag writer");
   });
 
-  it("OMITS every runtime / mode-specific block", () => {
-    const msg = buildVisualConceptsUserMessage(base);
-    assert.doesNotMatch(msg, /SOURCE-IMAGE ANALYSIS/);
-    assert.doesNotMatch(msg, /RESOLVED subjectRenderMode/);
-    assert.doesNotMatch(msg, /RESOLVED generationMode/);
-    assert.doesNotMatch(msg, /IDENTITY POLICY/);
-    assert.doesNotMatch(msg, /RENDER CONTROLS/);
-    assert.doesNotMatch(msg, /TARGET ENGINE/);
+  it("carries meanings, the mechanism and the limits; never a strategy example or a taxonomy score", () => {
+    const msg = buildVisualConceptsUserMessage(input());
+    assert.match(msg, /WHAT THE REFERENCES MEAN:/);
+    assert.match(msg, /"Shark Week" refers to Discovery's Shark Week: annual shark programming/);
+    assert.match(msg, /"Earth" means the planet Earth\./);
+    assert.match(msg, /JOKE MECHANISM:\nsuperhuman physical feat, force scaled action/);
+    assert.match(msg, /LIMITS:\nViolence: Allowed \(strong\)/);
+    for (const banned of ["visualizationExamples", "Visualization examples", "taxonomyConfidence", "overhypeFit", "i2i default", "t2i fallback", "OUTPUT CONTRACT"]) {
+      assert.ok(!msg.includes(banned), `no ${banned}`);
+    }
   });
 
-  it("OMITS the planner-only visualPlan/compiledPrompt echo-back directives (schema-incompatible with concept output)", () => {
-    const msg = buildVisualConceptsUserMessage(base);
-    // Data blocks stay (they carry the fact's locked interpretation)...
-    assert.match(msg, /surfaceText="Earth"/);
-    assert.match(msg, /sourcePhrase="Shark Week"/);
-    // ...but the "populate visualPlan.*/compiledPrompt.*" directives must not.
-    assert.doesNotMatch(msg, /visualPlan\.semanticEntitiesUsed/);
-    assert.doesNotMatch(msg, /visualPlan\.culturalReferencesUsed/);
-    assert.doesNotMatch(msg, /compiledPrompt\.prompt/);
+  it("passes a moderator's soften and no-text policy through", () => {
+    const msg = buildVisualConceptsUserMessage(input({ renderPolicy: { supportingText: { mode: "forbid" }, violence: { mode: "soften", intensity: "strong" } } as never }));
+    assert.match(msg, /Violence: Reduce explicit violent consequences/);
+    assert.match(msg, /Text in the picture: No signs, labels or other words/);
   });
 
-  it("blank field → fresh ideas: no moderator scene block at all", () => {
-    const msg = buildVisualConceptsUserMessage(base);
-    assert.doesNotMatch(msg, /MODERATOR-AUTHORED CORE SCENE/);
-    assert.doesNotMatch(msg, /CURRENT MODERATOR DRAFT/);
-  });
-
-  it("a draft → existing_draft_context asks for DISTINCT alternatives, not an authoritative directive", () => {
-    const msg = buildVisualConceptsUserMessage({ ...base, moderatorDraftScene: "{NAME} lifts a globe in a library." });
-    assert.match(msg, /CURRENT MODERATOR DRAFT/);
-    assert.match(msg, /\{NAME\} lifts a globe in a library\./);
-    assert.match(msg.toLowerCase(), /distinct|different/);
-    // Never the authoritative "realize this exact scene" directive.
-    assert.doesNotMatch(msg, /MODERATOR-AUTHORED CORE SCENE \(AUTHORITATIVE/);
-  });
-
-  it("does NOT echo the moderator draft into an authoritative block three times", () => {
-    const draft = "UNIQUEDRAFTMARKER duck stadium";
-    const msg = buildVisualConceptsUserMessage({ ...base, moderatorDraftScene: draft });
-    const occurrences = msg.split("UNIQUEDRAFTMARKER").length - 1;
-    assert.equal(occurrences, 1, "draft appears once as context, not repeated as a directive");
+  it("omits absent blocks; carries the note, the saved gag and the draft (with bubbles) when present", () => {
+    const bare = buildVisualConceptsUserMessage(input());
+    assert.ok(!bare.includes("APPROVED HUMOR NOTE") && !bare.includes("ALREADY HAS") && !bare.includes("WORKING DRAFT"));
+    const msg = buildVisualConceptsUserMessage(input({
+      humorNote: "Alex's strength is the joke; the planet stays round.",
+      savedGag: { scene: "{NAME} presses the Earth on a bench.", bubbles: [] },
+      draft: { scene: "{NAME} spots for Atlas.", bubbles: [{ type: "speech", entity: "subject", text: "One more rep, {Subj}." }] },
+    }));
+    assert.match(msg, /APPROVED HUMOR NOTE[^\n]*\nAlex's strength is the joke/);
+    assert.match(msg, /GAG THIS FACT ALREADY HAS[^\n]*\nAlex presses the Earth on a bench\./);
+    assert.match(msg, /MODERATOR'S WORKING DRAFT[^\n]*\nAlex spots for Atlas\.\n- speech bubble, Alex: "One more rep, They\."/);
   });
 });
 
 describe("generateVisualConceptsWithModel", () => {
-  const input: GenerateVisualConceptsInput = { factText: "{NAME} bench-presses the Earth.", enrichment: ENRICHMENT };
-
   it("returns 3 sanitized candidates from a valid model response", async () => {
-    const model = async () => JSON.stringify({ concepts: [conceptWire(), conceptWire(), conceptWire()] });
-    const out = await generateVisualConceptsWithModel(input, model);
-    assert.equal(out.length, 3);
-    assert.equal(out[0]!.tokenValid, true);
+    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire()] });
+    const out = await generateVisualConceptsWithModel(input(), model, keepTokens);
+    assert.equal(out.candidates.length, 3);
+    assert.equal(out.jokeRead, "R");
+    assert.equal(out.candidates[0]!.tokenValid, true);
   });
 
   it("retries once on an invalid count, then succeeds", async () => {
@@ -201,38 +184,17 @@ describe("generateVisualConceptsWithModel", () => {
     const model = async () => {
       call += 1;
       return call === 1
-        ? JSON.stringify({ concepts: [conceptWire()] })
-        : JSON.stringify({ concepts: [conceptWire(), conceptWire(), conceptWire()] });
+        ? JSON.stringify({ jokeRead: "R", concepts: [conceptWire()] })
+        : JSON.stringify({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire()] });
     };
-    const out = await generateVisualConceptsWithModel(input, model);
+    const out = await generateVisualConceptsWithModel(input(), model, keepTokens);
     assert.equal(call, 2);
-    assert.equal(out.length, 3);
+    assert.equal(out.candidates.length, 3);
   });
 
   it("throws after a second invalid response", async () => {
-    const model = async () => JSON.stringify({ concepts: [conceptWire()] });
-    await assert.rejects(() => generateVisualConceptsWithModel(input, model), /concepts/);
-  });
-});
-
-describe("buildVisualConceptsUserMessage — no runtime bubble leakage", () => {
-  it("existing moderator bubbles never reach candidate-concept context", () => {
-    const base: GenerateVisualConceptsInput = { factText: "{NAME} bench-presses the Earth.", enrichment: ENRICHMENT };
-    const withBubbles = {
-      ...base,
-      enrichment: {
-        ...base.enrichment,
-        visualPromptStrategyOverride: {
-          version: 1,
-          requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
-          compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
-          bubbles: [{ type: "speech", entity: "subject", text: "RUNTIME BUBBLE STRING" }],
-        },
-      },
-    } as typeof base;
-    const msg = buildVisualConceptsUserMessage(withBubbles);
-    assert.ok(!msg.includes("RUNTIME BUBBLE STRING"), "bubble text must not leak");
-    assert.ok(!msg.includes("MODERATOR BUBBLE DIRECTIVES"), "no bubble staging block in candidate context");
+    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [conceptWire()] });
+    await assert.rejects(() => generateVisualConceptsWithModel(input(), model, keepTokens), /concepts/);
   });
 });
 
@@ -244,12 +206,13 @@ describe("candidate bubbles — wire + business validation (retryable contract e
   });
 
   it("a response missing the required bubbles array fails validation (→ corrective retry)", () => {
-    const noBubbles = { concepts: [conceptWire(), conceptWire(), { title: "T", whyItWorks: "W", sceneDescription: "{NAME} waves." }] };
+    const noBubbles = { jokeRead: "R", concepts: [conceptWire(), conceptWire(), { title: "T", whyItWorks: "W", sceneDescription: "{NAME} waves." }] };
     assert.equal(validateCandidateConcepts(noBubbles).ok, false);
   });
 
   it("bubbles: [] is the normal valid case; a valid quote proposal passes", () => {
     const ok = validateCandidateConcepts({
+      jokeRead: "R",
       concepts: [conceptWire({ bubbles: [bubble()] }), conceptWire(), conceptWire()],
     });
     assert.equal(ok.ok, true);
@@ -257,11 +220,11 @@ describe("candidate bubbles — wire + business validation (retryable contract e
 
   it("rejects >4 bubbles, empty entity/text, over-cap entity/text (never truncates)", () => {
     const five = conceptWire({ bubbles: [bubble(), bubble(), bubble(), bubble(), bubble()] });
-    assert.equal(validateCandidateConcepts({ concepts: [five, conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [five, conceptWire(), conceptWire()] }).ok, false);
     const emptyEntity = conceptWire({ bubbles: [bubble({ entity: " " })] });
-    assert.equal(validateCandidateConcepts({ concepts: [emptyEntity, conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [emptyEntity, conceptWire(), conceptWire()] }).ok, false);
     const overText = conceptWire({ bubbles: [bubble({ text: "x".repeat(81) })] });
-    const overRes = validateCandidateConcepts({ concepts: [overText, conceptWire(), conceptWire()] });
+    const overRes = validateCandidateConcepts({ jokeRead: "R", concepts: [overText, conceptWire(), conceptWire()] });
     assert.equal(overRes.ok, false);
     if (!overRes.ok) assert.match(overRes.error, /exceeds 80 characters.*exact/i);
   });
@@ -271,18 +234,18 @@ describe("candidate bubbles — wire + business validation (retryable contract e
       sceneDescription: '{NAME} hugs his father; a speech bubble reading "goodbye" floats above.',
       bubbles: [bubble()],
     });
-    assert.equal(validateCandidateConcepts({ concepts: [balloonScene, conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [balloonScene, conceptWire(), conceptWire()] }).ok, false);
     const restatedScene = conceptWire({
       sceneDescription: "{NAME} says You're the man of the house now. while hugging his father.",
       bubbles: [bubble()],
     });
-    assert.equal(validateCandidateConcepts({ concepts: [restatedScene, conceptWire(), conceptWire()] }).ok, false);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [restatedScene, conceptWire(), conceptWire()] }).ok, false);
     // Ordinary dialogue-context staging language stays legal.
     const stagingScene = conceptWire({
       sceneDescription: "{NAME} hugs his father in a doorway; the father looks moved by what {NAME} just said, clear space above their heads.",
       bubbles: [bubble()],
     });
-    assert.equal(validateCandidateConcepts({ concepts: [stagingScene, conceptWire(), conceptWire()] }).ok, true);
+    assert.equal(validateCandidateConcepts({ jokeRead: "R", concepts: [stagingScene, conceptWire(), conceptWire()] }).ok, true);
   });
 });
 
@@ -356,6 +319,7 @@ describe("candidate bubbles — sanitize + pickability + pick helper", () => {
 describe("validateAndSanitizeCandidateConcepts — deterministic matrix", () => {
   it("a valid response with a quote bubble passes and keeps the quote ONLY in bubbles[].text", () => {
     const res = validateAndSanitizeCandidateConcepts({
+      jokeRead: "R",
       concepts: [
         conceptWire({
           sceneDescription: "{NAME} hugs his father in a doorway, both smiling, clear space overhead.",
@@ -376,14 +340,16 @@ describe("validateAndSanitizeCandidateConcepts — deterministic matrix", () => 
   it("an all-unpickable response is a retryable failure, never stored as ok", () => {
     const bad = conceptWire({ bubbles: [{ type: "speech", entity: "{NAME}", text: "Hi." }] });
     const res = validateAndSanitizeCandidateConcepts({
+      jokeRead: "R",
       concepts: [bad, { ...conceptWire(), sceneDescription: "{BOGUS} waves." }, { ...conceptWire(), sceneDescription: "{ALSO_BOGUS} waves." }],
     });
     assert.equal(res.ok, false);
-    if (!res.ok) assert.match(res.error, /invalid personalization token|invalid token/i);
+    if (!res.ok) assert.match(res.error, /no concept could be used/i);
   });
 
   it("a partially-unpickable response stores ok with the invalid concept flagged", () => {
     const res = validateAndSanitizeCandidateConcepts({
+      jokeRead: "R",
       concepts: [
         conceptWire({ bubbles: [{ type: "speech", entity: "{NAME}", text: "Hi." }] }),
         conceptWire(), conceptWire(),
@@ -401,12 +367,96 @@ describe("validateAndSanitizeCandidateConcepts — deterministic matrix", () => 
     const model = async () => {
       call++;
       return call === 1
-        ? JSON.stringify({ concepts: [{ title: "T", whyItWorks: "W", sceneDescription: "{NAME} waves." }, conceptWire(), conceptWire()] })
-        : JSON.stringify({ concepts: [conceptWire(), conceptWire(), conceptWire()] });
+        ? JSON.stringify({ jokeRead: "R", concepts: [{ title: "T", whyItWorks: "W", sceneDescription: "{NAME} waves." }, conceptWire(), conceptWire()] })
+        : JSON.stringify({ jokeRead: "R", concepts: [conceptWire(), conceptWire(), conceptWire()] });
     };
-    const input: GenerateVisualConceptsInput = { factText: "{NAME} waves.", enrichment: ENRICHMENT };
-    const out = await generateVisualConceptsWithModel(input, model);
+    const out = await generateVisualConceptsWithModel(input({ factText: "{NAME} waves." }), model, keepTokens);
     assert.equal(call, 2);
-    assert.equal(out.length, 3);
+    assert.equal(out.candidates.length, 3);
+  });
+});
+
+describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md D)", () => {
+  const alex = (scene: string, bubbles: unknown[] = []) => ({ title: "T", whyItWorks: "W", sceneDescription: scene, bubbles });
+
+  it("a scene and a bubble line come back as tokens; another character's pronoun is left alone", async () => {
+    const tokenize = async (t: string) => ({
+      template: t.replace(/\bAlex's\b/g, "{NAME_POSSESSIVE}").replace(/\bAlex\b/g, "{NAME}"),
+    });
+    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [
+      alex("Alex hands Dad the car keys. Dad nods; he takes it seriously.", [{ type: "speech", entity: "subject", text: "You're the man of the house now." }]),
+      alex("Alex's suitcase sits by the door."), alex("Alex waves from the car."),
+    ] });
+    const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+    assert.equal(out.candidates[0]!.sceneDescription, "{NAME} hands Dad the car keys. Dad nods; he takes it seriously.");
+    assert.equal(out.candidates[1]!.sceneDescription, "{NAME_POSSESSIVE} suitcase sits by the door.");
+    assert.equal(out.candidates[0]!.bubbles[0]!.text, "You're the man of the house now.");
+    assert.ok(out.candidates.every(isCandidateConceptPickable));
+  });
+
+  it("a tokenizer that returns its input unchanged yields an unpickable gag, never a stored \"Alex\"", async () => {
+    let tokenizerCalls = 0;
+    const tokenize = async (t: string) => { tokenizerCalls++; return { template: t.includes("Alex waves") ? t : t.replace(/\bAlex\b/g, "{NAME}") }; };
+    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex("Alex waves."), alex("Alex lifts a bus."), alex("Alex reads.")] });
+    const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+    assert.ok(tokenizerCalls >= 3);
+    const failed = out.candidates[0]!;
+    assert.equal(isCandidateConceptPickable(failed), false);
+    assert.match(failed.tokenError ?? "", /CONVERSION_FAILED|token/i);
+    assert.ok(out.candidates.slice(1).every(isCandidateConceptPickable));
+  });
+
+  it("a bubble line that fails conversion leaves the other gags usable, whatever the failure and however long the line", async () => {
+    // Codex, PR #936 round 2: the failure text used to carry its diagnostic,
+    // so a 45-character line grew past the 80-character bubble cap and the
+    // whole response was refused. Each failure kind, at the longest legal line.
+    const long = "Alex just lifted the whole bus with one hand, and they barely noticed!".slice(0, 80);
+    const kinds: Array<(t: string) => Promise<{ template: string }>> = [
+      async (t) => ({ template: t }), // unchanged
+      async () => ({ template: "" }), // empty
+      async () => { throw new Error("grammar engine unavailable: ".repeat(10)); }, // thrown
+    ];
+    for (const fail of kinds) {
+      const tokenize = async (t: string) => (t === long ? fail(t) : { template: t.replace(/\bAlex\b/g, "{NAME}") });
+      const withBubble = { ...alex("Alex waves."), bubbles: [{ type: "speech", entity: "a bystander", text: long }] };
+      const model = async () => JSON.stringify({ jokeRead: "R", concepts: [withBubble, alex("Alex lifts a bus."), alex("Alex reads.")] });
+      const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+      assert.equal(out.candidates.length, 3);
+      assert.equal(isCandidateConceptPickable(out.candidates[0]!), false);
+      assert.equal(out.candidates[0]!.bubbles[0]!.text.includes("Alex"), false, "never stored naming Alex");
+      assert.ok(out.candidates.slice(1).every(isCandidateConceptPickable));
+    }
+  });
+
+  it("a scene that never names the subject is not pickable", async () => {
+    const tokenize = async (t: string) => ({ template: t });
+    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex("A bus floats."), alex("Alex lifts a bus."), alex("Alex reads.")] });
+    const out = await generateVisualConceptsWithModel(input(), model, async (t) => (t.includes("Alex") ? { template: t.replace(/\bAlex\b/g, "{NAME}") } : tokenize(t)));
+    assert.equal(isCandidateConceptPickable(out.candidates[0]!), false);
+  });
+});
+
+describe("bubble lines convert when they refer to the subject (PR #936 round 1)", () => {
+  const scene = (bubbles: unknown[]) => ({ title: "T", whyItWorks: "W", sceneDescription: "Alex stands in the square.", bubbles });
+
+  it("a supporting character's pronoun-only line about the subject is converted; unrelated and hero-spoken lines stay exact", async () => {
+    const calls: string[] = [];
+    const tokenize = async (t: string) => {
+      calls.push(t);
+      return { template: t.replace(/\bAlex\b/g, "{NAME}").replace(/^Their\b/, "{Poss}") };
+    };
+    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [
+      scene([{ type: "speech", entity: "the coach", text: "Their strength is impossible!" }]),
+      scene([{ type: "speech", entity: "the coach", text: "Nobody lifts a bus." }]),
+      scene([{ type: "speech", entity: "subject", text: "I heard that, and yes, they're real." }]),
+    ] });
+    const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+    assert.equal(out.candidates[0]!.bubbles[0]!.text, "{Poss} strength is impossible!");
+    assert.equal(out.candidates[1]!.bubbles[0]!.text, "Nobody lifts a bus.");
+    assert.equal(out.candidates[2]!.bubbles[0]!.text, "I heard that, and yes, they're real.");
+    assert.ok(calls.includes("Their strength is impossible!"));
+    assert.ok(!calls.includes("Nobody lifts a bus."), "no tokenizer call for a line with no subject reference");
+    assert.ok(!calls.includes("I heard that, and yes, they're real."), "no tokenizer call for the hero's own line without the name");
+    assert.ok(out.candidates.every(isCandidateConceptPickable));
   });
 });
