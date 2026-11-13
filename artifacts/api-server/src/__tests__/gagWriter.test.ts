@@ -39,6 +39,7 @@ describe("migration 0137 points the gag generator at GPT-6 Astra", () => {
 
   after(async () => {
     if (original !== undefined) await db.update(adminConfigTable).set({ value: original }).where(eq(adminConfigTable.key, KEY));
+    else await db.update(adminConfigTable).set({ value: "openai-gag-writer" }).where(eq(adminConfigTable.key, KEY));
     bustConfigCache();
   });
 
@@ -48,7 +49,8 @@ describe("migration 0137 points the gag generator at GPT-6 Astra", () => {
       const [row] = await db.select({ value: adminConfigTable.value }).from(adminConfigTable).where(eq(adminConfigTable.key, KEY));
       original ??= row?.value;
       await db.execute(sql`DELETE FROM admin_config WHERE key = ${BEFORE}`);
-      await db.execute(sql`UPDATE admin_config SET value = ${previous} WHERE key = ${KEY}`);
+      // Upsert: another test in the same database may have cleared admin_config.
+      await db.execute(sql`INSERT INTO admin_config (key, value, data_type, label, description, is_public) VALUES (${KEY}, ${previous}, 'string', 'Visual Concepts — Engine', 'x', false) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
       await db.execute(sql.raw(repoint));
       const rows = await db.select().from(adminConfigTable).where(sql`key in (${KEY}, ${BEFORE})`);
       const by = new Map(rows.map((r) => [r.key, r.value]));
