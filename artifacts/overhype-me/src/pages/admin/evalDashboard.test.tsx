@@ -20,7 +20,7 @@ let posts: Array<{ url: string; body: Json }> = [];
 let evaluations: Json[] = [];
 let promptEvaluations: Json[] = [];
 let listCalls: string[] = [];
-let estimate: Json = { panels: 2, images: 4, totalBoundUsd: 1.23, preparationBoundUsd: 0.5, renderBoundUsd: 0.73, warning: false, refusal: null };
+let estimate: Json = { panels: 2, images: 4, totalBoundUsd: 1.23, typicalUsd: 0.41, preparationBoundUsd: 0.5, renderBoundUsd: 0.73, warning: false, refusal: null };
 let listFails = false;
 
 const EVAL = (over: Json = {}): Json => ({
@@ -40,7 +40,7 @@ beforeEach(() => {
   promptEvaluations = [];
   listCalls = [];
   listFails = false;
-  estimate = { panels: 2, images: 4, totalBoundUsd: 1.23, preparationBoundUsd: 0.5, renderBoundUsd: 0.73, warning: false, refusal: null };
+  estimate = { panels: 2, images: 4, totalBoundUsd: 1.23, typicalUsd: 0.41, preparationBoundUsd: 0.5, renderBoundUsd: 0.73, warning: false, refusal: null };
   window.history.replaceState(null, "", "/admin/eval");
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
@@ -73,11 +73,14 @@ describe("the Eval page", () => {
   it("shows two tabs, kept in the URL, with the wording editor only under Evaluate Prompts", async () => {
     render(<EvalDashboard />);
     expect(screen.getByTestId("eval-tab-models").getAttribute("aria-selected")).toBe("true");
-    expect(screen.queryByTestId("eval-wording-editor")).toBeNull();
+    expect((screen.getByTestId("eval-wording-editor") as HTMLElement).hidden).toBe(true);
     fireEvent.click(screen.getByTestId("eval-tab-prompts"));
     expect(window.location.search).toBe("?tab=prompts");
-    expect(screen.getByTestId("eval-wording-editor")).toBeTruthy();
+    expect((screen.getByTestId("eval-wording-editor") as HTMLElement).hidden).toBe(false);
     expect(screen.getByTestId("wizard-prompt")).toBeTruthy();
+    // Kept mounted on the other tab, so unsaved wording survives a switch (PR #931's build report).
+    fireEvent.click(screen.getByTestId("eval-tab-models"));
+    expect((screen.getByTestId("eval-wording-editor") as HTMLElement).hidden).toBe(true);
   });
 
   it("walks the models wizard: search and add facts, tick engines, photo types and looks, see the count and cost, generate once", async () => {
@@ -98,7 +101,7 @@ describe("the Eval page", () => {
     fireEvent.click(await screen.findByTestId("wizard-look-anime"));
     next();
     fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "GPT vs Nano" } });
-    expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/1 fact × 2 engines × 1 photo type × 2 looks = 4 images, at most \$1\.23/);
+    expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/1 fact × 2 engines × 1 photo type × 2 looks = 4 images, usually about \$0\.41, at most \$1\.23/);
     const est = posts.find((p) => p.url.endsWith("/estimate"))!;
     expect(est.body).toEqual({ kind: "engine", factIds: [11], engineFamilies: ["gpt-image-2-6", "nano-banana-2-1"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none", "anime"] });
     fireEvent.click(screen.getByTestId("wizard-generate"));
@@ -123,15 +126,16 @@ describe("the Eval page", () => {
     evaluations = [
       EVAL({ id: 7, status: "ready" }),
       EVAL({ id: 8, description: "With a failure", status: "needs_action", needsAction: [
-        { panelId: 3, cellId: null, action: "retry_scene", costs: true, reason: "planner failed: down" },
-        { panelId: 4, cellId: 40, action: "retry_storage", costs: false, reason: "storage failed" },
+        { panelId: 3, cellId: null, action: "retry_scene", costs: true, boundUsd: 0.92, reason: "planner failed: down" },
+        { panelId: 4, cellId: 40, action: "retry_storage", costs: false, boundUsd: null, reason: "storage failed" },
       ] }),
       EVAL({ id: 9, status: "finished", finishedAt: new Date().toISOString(), judgedPanels: 2 }),
     ];
     render(<EvalDashboard />);
     expect((await screen.findByTestId("evaluation-judge-7")).getAttribute("href")).toBe("/admin/eval/judge/7");
     expect(screen.getByTestId("evaluation-status-8").textContent).toMatch(/Needs action: 2 to retry/);
-    expect(screen.getByTestId("evaluation-retry-retry_storage:40").textContent).toMatch(/Retry storage \(free\)/);
+    expect(screen.getByTestId("evaluation-retry-retry_storage:40").textContent).toMatch(/Retry storage · free/);
+    expect(screen.getByTestId("evaluation-retry-retry_scene:3").textContent).toMatch(/Retry scene · at most \$0\.92/);
     expect(screen.queryByTestId("evaluation-results-8")).toBeNull(); // nothing judged yet
     fireEvent.click(screen.getByTestId("evaluation-retry-retry_scene:3"));
     await waitFor(() => expect(posts.some((p) => p.url.endsWith("/panels/3/reprepare"))).toBe(true));
@@ -161,10 +165,10 @@ describe("the Eval page", () => {
 
   it("offers Resume generation for work never started, and a generating evaluation on the hidden tab keeps being polled", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    evaluations = [EVAL({ id: 7, status: "generating", drawn: 0, needsAction: [{ panelId: 0, cellId: null, action: "resume", costs: true, reason: "2 scenes or pictures not started" }] })];
+    evaluations = [EVAL({ id: 7, status: "generating", drawn: 0, needsAction: [{ panelId: 0, cellId: null, action: "resume", costs: true, boundUsd: 1.5, reason: "2 scenes or pictures not started" }] })];
     render(<EvalDashboard />);
     const resume = await screen.findByTestId("evaluation-retry-resume:7");
-    expect(resume.textContent).toMatch(/Resume generation/);
+    expect(resume.textContent).toMatch(/Resume generation · at most \$1\.50/);
     fireEvent.click(resume);
     await waitFor(() => expect(posts.some((p) => p.url.endsWith("/evaluations/7/resume"))).toBe(true));
     fireEvent.click(screen.getByTestId("eval-tab-prompts"));

@@ -27,7 +27,7 @@ const ENGINE_LABELS: Record<string, string> = {
 export const engineLabel = (family: string) => ENGINE_LABELS[family] ?? family;
 
 interface FactHit { id: number; text: string }
-interface Estimate { panels: number; images: number; totalBoundUsd: number | null; preparationBoundUsd: number | null; renderBoundUsd: number; warning: boolean; refusal: string | null }
+interface Estimate { panels: number; images: number; totalBoundUsd: number | null; typicalUsd: number | null; preparationBoundUsd: number | null; renderBoundUsd: number; warning: boolean; refusal: string | null }
 interface RecipeFamily { family: string; liveVersionId: number | null; versions: Array<{ id: number; number: number; note: string }> }
 
 const STEPS = ["Facts", "Engines", "Photo types", "Looks", "Describe and generate"] as const;
@@ -270,7 +270,7 @@ export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: E
           {selection && (
             <p className="text-sm text-foreground" data-testid="wizard-count">
               {facts.length} fact{facts.length === 1 ? "" : "s"} × {kind === "prompt" ? `${versions.size} wordings` : `${engines.size} engine${engines.size === 1 ? "" : "s"}`} × {photoTypes.size} photo type{photoTypes.size === 1 ? "" : "s"} × {looks.size} look{looks.size === 1 ? "" : "s"}
-              {estimate ? <> = <strong>{estimate.images} images</strong>, at most <strong>{usd(estimate.totalBoundUsd)}</strong> (scenes {usd(estimate.preparationBoundUsd)}, pictures {usd(estimate.renderBoundUsd)})</> : <> = <Loader2 className="inline w-3 h-3 animate-spin" /></>}
+              {estimate ? <> = <strong>{estimate.images} images</strong>, <span data-testid="wizard-typical">usually about <strong>{usd(estimate.typicalUsd)}</strong></span>, at most <strong>{usd(estimate.totalBoundUsd)}</strong> (scenes {usd(estimate.preparationBoundUsd)}, pictures {usd(estimate.renderBoundUsd)})</> : <> = <Loader2 className="inline w-3 h-3 animate-spin" /></>}
             </p>
           )}
           {estimate?.warning && (

@@ -51,6 +51,23 @@ export function panelPreparationBoundUsd(settings: PlannerRequestSettings): numb
   return PLANNER_CALLS_PER_PANEL * plannerCallBoundUsd(settings);
 }
 
+/**
+ * What one scene's preparation usually costs: one planner call (a corrective
+ * second call is rare) at the token counts the recorded planner calls show
+ * — 7,333 to 7,501 prompt tokens and 2,972 to 4,221 completion tokens,
+ * reasoning included (`aiDouble/recordings/openai.chat--*`). A typical
+ * figure shown beside the bound (David, 2026-11-13: "How is it possible that
+ * it costs $1.54 in inference to generate the prompt?"); never a limit.
+ */
+const TYPICAL_PLANNER_INPUT_TOKENS = 7_500;
+const TYPICAL_PLANNER_OUTPUT_TOKENS = 3_500;
+
+export function panelPreparationTypicalUsd(settings: PlannerRequestSettings): number {
+  const price = OPENAI_PRICES[settings.model];
+  if (!price) throw new Error(`no price for the planner model "${settings.model}"`);
+  return (TYPICAL_PLANNER_OUTPUT_TOKENS * price.output + TYPICAL_PLANNER_INPUT_TOKENS * price.input) / 1_000_000;
+}
+
 export function cellBoundUsd(priceModel: unknown): number {
   if (!priceModel) throw new Error("an engine without a price model is never admitted");
   return perCallBoundUsd(priceModel as PriceModel);

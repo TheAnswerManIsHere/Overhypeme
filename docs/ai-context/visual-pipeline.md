@@ -139,8 +139,13 @@ beside the eval run rather than inside it (plan
   candidate engines (`EVALUATION_CANDIDATE_FAMILIES`: GPT Image 2.6, Nano
   Banana 2.1, Muse) or one engine's wording versions, photo types (male, pet,
   vehicle — `EVALUATION_PHOTO_TYPES`), looks, a description, then the image
-  count and worst case (`estimateEvaluation`, read-only) and one **Generate
-  Images**. `createEvaluation` (`artifacts/api-server/src/lib/comparison/evaluations.ts`) makes the
+  count, a typical cost beside the worst case (`estimateEvaluation`,
+  read-only: scenes at the recorded planner token counts,
+  `panelPreparationTypicalUsd`; pictures at the average fal billed per
+  engine over its last 50 comparison pictures, its bound where none is
+  billed), and one **Generate Images**. Every paid retry and Resume shows
+  the most it could cost on its button (`NeedsAction.boundUsd`); Retry
+  storage reads "free". `createEvaluation` (`artifacts/api-server/src/lib/comparison/evaluations.ts`) makes the
   set at comparison size and starts one `full` run; the wizard's request
   token makes a repeated press return the same evaluation. In a `full` run a
   picture is admitted and reserved with its scene and waits (cell state
