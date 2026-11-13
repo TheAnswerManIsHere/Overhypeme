@@ -140,7 +140,7 @@ beside the eval run rather than inside it (plan
   Banana 2.1, Muse) or one engine's wording versions, photo types (male, pet,
   vehicle — `EVALUATION_PHOTO_TYPES`), looks, a description, then the image
   count and worst case (`estimateEvaluation`, read-only) and one **Generate
-  Images**. `createEvaluation` (`lib/comparison/evaluations.ts`) makes the
+  Images**. `createEvaluation` (`artifacts/api-server/src/lib/comparison/evaluations.ts`) makes the
   set at comparison size and starts one `full` run; the wizard's request
   token makes a repeated press return the same evaluation. In a `full` run a
   picture is admitted and reserved with its scene and waits (cell state
