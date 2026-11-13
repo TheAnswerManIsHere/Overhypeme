@@ -659,7 +659,11 @@ requires it.
 
 8. **Merge, sync, report**, per `claude-core.md`'s *Close-out is mine, end to
    end*: re-verify live state with a fresh `pull_request_read` — not cached
-   green — then squash-merge, check the Repl for its own commits and then sync and verify it (close-out step 3), execute the
+   green — then, for each `scripted` step in the body's `## UAT` section,
+   make sure its output is recorded on the PR at this head, running and
+   posting any that is missing in the shape `pr-docs` gives (a proof that
+   fails here is a defect found before the merge, handled like any other),
+   then squash-merge, check the Repl for its own commits and then sync and verify it (close-out step 3), execute the
    Post-merge verification section (a step that would start a paid AI run
    within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it (`uat-doc-format.md`, *Lanes*)), post the harvest-notes comment, and send
    the merge report with both SHAs, the latitude line, the PR's **Decisions
