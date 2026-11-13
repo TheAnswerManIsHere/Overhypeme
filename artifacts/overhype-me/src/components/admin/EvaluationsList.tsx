@@ -14,7 +14,7 @@ import { AlertTriangle, CheckCircle2, Gavel, Loader2, RotateCcw, BarChart3, Wifi
 import { readError } from "@/components/admin/readError";
 import { engineLabel, type EvaluationKind } from "@/components/admin/EvaluationWizard";
 
-interface NeedsAction { panelId: number; cellId: number | null; action: "retry_scene" | "retry_picture" | "retry_storage"; costs: boolean; reason: string }
+interface NeedsAction { panelId: number; cellId: number | null; action: "retry_scene" | "retry_picture" | "retry_storage" | "resume"; costs: boolean; reason: string }
 export interface EvaluationSummary {
   id: number;
   description: string;
@@ -40,10 +40,13 @@ export interface EvaluationSummary {
 
 export const POLL_MS = 5_000;
 
+const keyOf = (evaluationId: number, a: NeedsAction) => a.action === "resume" ? `resume:${evaluationId}` : `${a.action}:${a.cellId ?? a.panelId}`;
+
 const ACTION_LABEL: Record<NeedsAction["action"], string> = {
   retry_scene: "Retry scene",
   retry_picture: "Retry picture",
   retry_storage: "Retry storage",
+  resume: "Resume generation",
 };
 
 function StatusLine({ e }: { e: EvaluationSummary }) {
@@ -63,7 +66,12 @@ function StatusLine({ e }: { e: EvaluationSummary }) {
   }
 }
 
-export function EvaluationsList({ kind, refreshKey }: { kind: EvaluationKind; refreshKey: number }) {
+/**
+ * One list per tab, mounted for the page visit (PR #931 round 1): it only ever
+ * asks for its own kind, and it keeps polling its generating evaluations
+ * while the other tab is shown. An inactive list renders nothing.
+ */
+export function EvaluationsList({ kind, active = true, refreshKey }: { kind: EvaluationKind; active?: boolean; refreshKey: number }) {
   const [items, setItems] = useState<EvaluationSummary[] | null>(null);
   const [lost, setLost] = useState(false);
   const [busy, setBusy] = useState<string>("");
@@ -79,23 +87,32 @@ export function EvaluationsList({ kind, refreshKey }: { kind: EvaluationKind; re
   useEffect(() => { void load(); }, [load, refreshKey]);
 
   // Poll while anything is in flight, or while the connection is lost.
-  const active = lost || (items ?? []).some((e) => e.status === "generating");
+  const polling = lost || (items ?? []).some((e) => e.status === "generating");
   useEffect(() => {
-    if (!active) return;
+    if (!polling) return;
     const timer = setInterval(() => { void load(); }, POLL_MS);
     return () => clearInterval(timer);
-  }, [active, load]);
+  }, [polling, load]);
 
-  const retry = async (a: NeedsAction) => {
-    const path = a.action === "retry_scene" ? `panels/${a.panelId}/reprepare` : a.action === "retry_picture" ? `cells/${a.cellId}/rerun` : `cells/${a.cellId}/retry-storage`;
-    const key = `${a.action}:${a.cellId ?? a.panelId}`;
+  const retry = async (evaluationId: number, a: NeedsAction) => {
+    const path = a.action === "resume" ? `evaluations/${evaluationId}/resume`
+      : a.action === "retry_scene" ? `panels/${a.panelId}/reprepare`
+      : a.action === "retry_picture" ? `cells/${a.cellId}/rerun`
+      : `cells/${a.cellId}/retry-storage`;
+    const key = keyOf(evaluationId, a);
     setBusy(key);
     setError("");
     const r = await fetch(`/api/admin/comparison/${path}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
     setBusy("");
-    if (!r || !r.ok) setError(r ? await readError(r) : "The retry did not reach the server.");
+    if (!r || !r.ok) setError(r ? await readError(r) : "The request did not reach the server.");
+    else {
+      const body = (await r.json().catch(() => ({}))) as { startError?: string | null };
+      if (body.startError) setError(`Reset, but not started: ${body.startError}. Press Resume generation to start it.`);
+    }
     await load();
   };
+
+  if (!active) return null;
 
   return (
     <section className="space-y-2" data-testid={`evaluations-${kind}`}>
@@ -129,21 +146,21 @@ export function EvaluationsList({ kind, refreshKey }: { kind: EvaluationKind; re
                     <Gavel className="w-4 h-4" /> Judge results
                   </Link>
                 )}
-                {(e.status === "judging" || e.status === "finished") && (
+                {e.judgedPanels > 0 && (
                   <Link href={`/admin/eval/results?sets=${e.id}`} data-testid={`evaluation-results-${e.id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border border-border hover:bg-muted">
                     <BarChart3 className="w-4 h-4" /> Results
                   </Link>
                 )}
               </div>
             </div>
-            {e.status === "needs_action" && (
+            {e.needsAction.length > 0 && (
               <ul className="space-y-1" data-testid={`evaluation-actions-${e.id}`}>
                 {e.needsAction.map((a) => {
-                  const key = `${a.action}:${a.cellId ?? a.panelId}`;
+                  const key = keyOf(e.id, a);
                   return (
                     <li key={key} className="flex flex-wrap items-center gap-2 text-xs">
                       <span className="text-muted-foreground flex-1 min-w-0 break-words">{a.reason}</span>
-                      <button type="button" onClick={() => void retry(a)} disabled={busy !== ""} data-testid={`evaluation-retry-${key}`} className="inline-flex items-center gap-1 px-2 py-1 rounded-sm border border-border hover:bg-muted disabled:opacity-40">
+                      <button type="button" onClick={() => void retry(e.id, a)} disabled={busy !== ""} data-testid={`evaluation-retry-${key}`} className="inline-flex items-center gap-1 px-2 py-1 rounded-sm border border-border hover:bg-muted disabled:opacity-40">
                         {busy === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} {ACTION_LABEL[a.action]}{a.costs ? "" : " (free)"}
                       </button>
                     </li>

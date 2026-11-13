@@ -36,7 +36,12 @@ const PROMPT_STEPS = ["Facts", "Wording", "Photo types", "Look", "Describe and g
 const usd = (n: number | null) => (n == null ? "unknown" : `$${n.toFixed(2)}`);
 const newToken = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-export function EvaluationWizard({ kind, onGenerated }: { kind: EvaluationKind; onGenerated: (setId: number) => void }) {
+/**
+ * Each tab keeps its own wizard mounted for the page visit (PR #931 round 1),
+ * so its draft, step and request token survive a tab switch; an inactive
+ * wizard renders nothing.
+ */
+export function EvaluationWizard({ kind, active = true, onGenerated }: { kind: EvaluationKind; active?: boolean; onGenerated: (setId: number) => void }) {
   const steps = kind === "prompt" ? PROMPT_STEPS : STEPS;
   const [step, setStep] = useState(0);
   const [facts, setFacts] = useState<FactHit[]>([]);
@@ -113,7 +118,7 @@ export function EvaluationWizard({ kind, onGenerated }: { kind: EvaluationKind; 
 
   // The count and worst case, read-only, whenever the last step shows.
   useEffect(() => {
-    if (step !== steps.length - 1 || !selection) return;
+    if (!active || step !== steps.length - 1 || !selection) return;
     let cancelled = false;
     setEstimate(null);
     void fetch("/api/admin/comparison/evaluations/estimate", {
@@ -124,7 +129,7 @@ export function EvaluationWizard({ kind, onGenerated }: { kind: EvaluationKind; 
       setEstimate((await r.json()) as Estimate);
     }).catch(() => { if (!cancelled) setError("Could not work out the cost."); });
     return () => { cancelled = true; };
-  }, [step, selection, steps.length]);
+  }, [active, step, selection, steps.length]);
 
   const generate = async () => {
     if (!selection) return;
@@ -151,6 +156,7 @@ export function EvaluationWizard({ kind, onGenerated }: { kind: EvaluationKind; 
     return next;
   };
 
+  if (!active) return null;
   return (
     <div className="rounded-sm border border-border bg-background p-3 space-y-3" data-testid={`wizard-${kind}`}>
       <ol className="flex flex-wrap gap-1 text-xs" aria-label="Steps">

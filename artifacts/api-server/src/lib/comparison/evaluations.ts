@@ -33,7 +33,7 @@ import {
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
 import { cellBoundUsd, panelPreparationBoundUsd, round4 } from "./admission";
 import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings } from "./sets";
-import { startComparisonRun } from "./runs";
+import { ComparisonRunRefused, startComparisonRun } from "./runs";
 import { cellLost, isJudgeable, panelWait } from "./judging";
 
 // ─── Eligible facts ───────────────────────────────────────────────────────────
@@ -128,11 +128,32 @@ async function setByToken(token: string): Promise<number | null> {
   return row?.id ?? null;
 }
 
-/** Start the set's outstanding work in one run, when there is any; a set with nothing left records no run. */
-async function startOutstanding(setId: number, adminUserId: string | null): Promise<void> {
+/**
+ * Start the set's outstanding work in one run, when there is any. Work another
+ * request has just admitted counts as started: the admission lock decides who
+ * admits each item, and the loser's "nothing left to do" is success here.
+ */
+async function startOutstanding(setId: number, adminUserId: string | null): Promise<boolean> {
   const plan = await planComparisonRun(setId, { kind: "full" });
-  if (!plan?.admitted) return;
-  await startComparisonRun(setId, { kind: "full" }, adminUserId);
+  if (!plan?.admitted) return false;
+  try {
+    await startComparisonRun(setId, { kind: "full" }, adminUserId);
+    return true;
+  } catch (err) {
+    if (err instanceof ComparisonRunRefused && err.refusal === "nothing left to do") return false;
+    throw err;
+  }
+}
+
+/** The unique violation of the request-token index, wherever the driver put it in the cause chain. */
+function isRequestTokenConflict(err: unknown): boolean {
+  let e: unknown = err;
+  for (let depth = 0; e != null && depth < 5; depth++) {
+    const o = e as { code?: unknown; constraint?: unknown; cause?: unknown };
+    if (o.code === "23505" && o.constraint === "UQ_comparison_sets_request_token") return true;
+    e = o.cause;
+  }
+  return false;
 }
 
 /**
@@ -170,10 +191,14 @@ export async function createEvaluation(req: EvaluationCreate, adminUserId: strin
       ...(sel.kind === "prompt" ? { recipeVersionIds: sel.recipeVersionIds } : {}),
     }, adminUserId, { requestToken: req.requestToken }));
   } catch (err) {
-    // Two requests with one token racing: the loser reads the winner's set.
-    if (/UQ_comparison_sets_request_token|duplicate key/i.test(String((err as { message?: string })?.message ?? err))) {
+    // Two requests with one token racing: the loser reads the winner's set
+    // and makes sure its work is started, as a repeated request does.
+    if (isRequestTokenConflict(err)) {
       const raced = await setByToken(req.requestToken);
-      if (raced != null) return { setId: raced, created: false };
+      if (raced != null) {
+        await startOutstanding(raced, adminUserId);
+        return { setId: raced, created: false };
+      }
     }
     if (err instanceof ComparisonLayoutError) throw new EvaluationRefused("the selection cannot be drawn", err.reasons);
     throw err;
@@ -201,13 +226,15 @@ export interface EvaluationProgress {
 export interface NeedsAction {
   panelId: number;
   cellId: number | null;
-  action: "retry_scene" | "retry_picture" | "retry_storage";
+  /** "resume": scenes or pictures that were never started (or whose start was interrupted); one action starts them all. */
+  action: "retry_scene" | "retry_picture" | "retry_storage" | "resume";
   /** False only for Retry storage, which re-stores an image the vendor already drew. */
   costs: boolean;
   reason: string;
 }
 
 const IN_FLIGHT_CELL = new Set(["waiting", "enqueued"]);
+const PANEL_IN_FLIGHT = new Set(["preparing", "planning"]);
 
 /** The retries that move a panel needing action on: its scene, or each failed picture that can still be recovered. */
 function actionsFor(p: ComparisonPanel, cells: ComparisonCell[]): NeedsAction[] {
@@ -224,7 +251,7 @@ export function progressOf(
   cellsByPanel: Map<number, ComparisonCell[]>,
   judged: Set<number>,
 ): EvaluationProgress {
-  let images = 0, drawn = 0, inFlight = 0, failed = 0, lost = 0, skippedPanels = 0, judgeablePanels = 0, judgedPanels = 0, generating = 0;
+  let images = 0, drawn = 0, inFlight = 0, failed = 0, lost = 0, skippedPanels = 0, judgeablePanels = 0, judgedPanels = 0, moving = 0, unstarted = 0;
   const needsAction: EvaluationProgress["needsAction"] = [];
   for (const p of panels) {
     const cells = cellsByPanel.get(p.id) ?? [];
@@ -238,13 +265,20 @@ export function progressOf(
       if (judged.has(p.id)) judgedPanels++;
       continue;
     }
+    // Only work a run holds is "generating"; work no run holds (a scene never
+    // started, a picture left expected) waits for the Resume action.
+    if (PANEL_IN_FLIGHT.has(p.state) || cells.some((c) => IN_FLIGHT_CELL.has(c.state))) moving++;
+    if (p.state === "pending") unstarted++;
+    else if (p.state === "prepared") unstarted += cells.filter((c) => c.state === "expected").length;
     const wait = panelWait(p, cells);
     if (wait === "lost") lost += cells.length;
     else if (wait === "needs_action") needsAction.push(...actionsFor(p, cells));
-    else generating++;
+  }
+  if (unstarted > 0) {
+    needsAction.unshift({ panelId: 0, cellId: null, action: "resume", costs: true, reason: `${unstarted} scene${unstarted === 1 ? "" : "s"} or picture${unstarted === 1 ? "" : "s"} not started` });
   }
   let status: EvaluationStatus;
-  if (generating > 0) status = "generating";
+  if (moving > 0) status = "generating";
   else if (needsAction.length > 0) status = "needs_action";
   else if (judgeablePanels === 0) status = "nothing_to_judge";
   else if (set.finishedAt) status = "finished";
@@ -317,15 +351,19 @@ export async function finishEvaluation(setId: number): Promise<EvaluationProgres
   const cells = panels.length ? await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id))) : [];
   const progress = progressOf({ finishedAt: null }, panels, groupCellsByPanel(cells), await judgedPanelIds(panels.map((p) => p.id)));
   if (progress.status === "generating") throw new EvaluationRefused("pictures are still being generated");
-  if (progress.status === "needs_action") throw new EvaluationRefused("some scenes or pictures failed and can still be retried");
+  if (progress.needsAction.length > 0) throw new EvaluationRefused("some scenes or pictures are not drawn yet and can still be started or retried");
   if (progress.status === "nothing_to_judge") throw new EvaluationRefused("there are no images to judge");
   if (progress.judgedPanels < progress.judgeablePanels) throw new EvaluationRefused(`judge every panel first: ${progress.judgedPanels} of ${progress.judgeablePanels} judged`);
   await db.update(comparisonSetsTable).set({ finishedAt: new Date() }).where(and(eq(comparisonSetsTable.id, setId), sql`${comparisonSetsTable.finishedAt} is null`));
   return { ...progress, status: "finished" };
 }
 
-/** Restart the outstanding work of an evaluation after a retry reset something. */
-export async function resumeEvaluation(setId: number, adminUserId: string | null): Promise<void> {
-  await startOutstanding(setId, adminUserId);
+/**
+ * Start whatever an evaluation has not started: the list's Resume action, and
+ * the second half of Retry scene / Retry picture. Admits nothing twice and
+ * spends no retry allowance; reading the list never calls it.
+ */
+export async function resumeEvaluation(setId: number, adminUserId: string | null): Promise<{ started: boolean }> {
+  return { started: await startOutstanding(setId, adminUserId) };
 }
 

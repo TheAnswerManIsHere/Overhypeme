@@ -62,8 +62,13 @@ export default function EvalDashboard() {
 
         <div role="tabpanel" className="space-y-4" data-testid={`eval-panel-${tab}`}>
           <p className="text-sm text-muted-foreground">{current.blurb}</p>
-          <EvaluationWizard key={current.kind} kind={current.kind} onGenerated={() => setRefresh((n) => n + 1)} />
-          <EvaluationsList kind={current.kind} refreshKey={refresh} />
+          {/* Both tabs stay mounted for the page visit: each keeps its own draft and request token, and each list keeps polling its own kind. */}
+          {TABS.map((t) => (
+            <div key={t.id} className="space-y-4">
+              <EvaluationWizard kind={t.kind} active={tab === t.id} onGenerated={() => setRefresh((n) => n + 1)} />
+              <EvaluationsList kind={t.kind} active={tab === t.id} refreshKey={refresh} />
+            </div>
+          ))}
           {tab === "prompts" && (
             <details className="rounded-sm border border-border p-3" data-testid="eval-wording-editor">
               <summary className="cursor-pointer text-sm font-bold text-foreground">Edit prompt wording</summary>

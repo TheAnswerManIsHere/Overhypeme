@@ -143,9 +143,18 @@ for (const [path, key, action] of [
       // A paid retry starts its work at once (plan PLAN_EVAL_PAGE.md, C):
       // Retry scene prepares the panel and then draws its pictures, Retry
       // picture draws the cell's one rerun. Retry storage spends nothing and
-      // has nothing to start.
-      if (action !== retryCellStorage) await resumeEvaluation(await setIdOf(key, id), req.user.id);
-      res.json({ [key]: after });
+      // has nothing to start. The reset is already committed, so a start that
+      // fails is reported in words, and the list's Resume action picks it up.
+      let startError: string | null = null;
+      if (action !== retryCellStorage) {
+        try {
+          await resumeEvaluation(await setIdOf(key, id), req.user.id);
+        } catch (err) {
+          startError = err instanceof ComparisonRunRefused ? err.refusal : err instanceof ComparisonLayoutError ? err.reasons.join("; ") : "it could not be started; use Resume generation";
+          logger.warn({ err, key, id }, "[comparison] retry reset, start failed");
+        }
+      }
+      res.json({ [key]: after, startError });
     } catch (err) {
       if (err instanceof ComparisonCellActionRefused) { res.status(409).json({ error: "cell_action_refused", refusal: err.message }); return; }
       throw err;
@@ -203,6 +212,16 @@ router.post("/admin/comparison/evaluations", requireAdmin, async (req: Authentic
 router.get("/admin/comparison/evaluations", requireAdmin, async (req: Request, res: Response) => {
   const kind = req.query["kind"] === "prompt" ? "prompt" : "engine";
   res.json({ evaluations: await listEvaluations(kind) });
+});
+
+router.post("/admin/comparison/evaluations/:id/resume", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = idParam(req);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  try {
+    res.json(await resumeEvaluation(id, req.user.id));
+  } catch (err) {
+    sendEvaluationRefusal(res, err);
+  }
 });
 
 router.post("/admin/comparison/evaluations/:id/finish", requireAdmin, async (req: Request, res: Response) => {

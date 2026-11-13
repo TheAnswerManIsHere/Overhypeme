@@ -18,6 +18,8 @@ import EvalDashboard from "./evalDashboard";
 type Json = Record<string, unknown>;
 let posts: Array<{ url: string; body: Json }> = [];
 let evaluations: Json[] = [];
+let promptEvaluations: Json[] = [];
+let listCalls: string[] = [];
 let estimate: Json = { panels: 2, images: 4, totalBoundUsd: 1.23, preparationBoundUsd: 0.5, renderBoundUsd: 0.73, warning: false, refusal: null };
 let listFails = false;
 
@@ -35,6 +37,8 @@ function respond(body: unknown, status = 200) {
 beforeEach(() => {
   posts = [];
   evaluations = [];
+  promptEvaluations = [];
+  listCalls = [];
   listFails = false;
   estimate = { panels: 2, images: 4, totalBoundUsd: 1.23, preparationBoundUsd: 0.5, renderBoundUsd: 0.73, warning: false, refusal: null };
   window.history.replaceState(null, "", "/admin/eval");
@@ -51,7 +55,11 @@ beforeEach(() => {
       const facts = [{ id: 11, text: "{NAME} lifts a mountain" }, { id: 12, text: "{NAME} outruns light" }].filter((f) => f.text.includes(q));
       return respond({ facts, eligibleTotal: 2 });
     }
-    if (url.includes("/comparison/evaluations")) return listFails ? respond({}, 503) : respond({ evaluations });
+    if (url.includes("/comparison/evaluations")) {
+      listCalls.push(url);
+      if (listFails) return respond({}, 503);
+      return respond({ evaluations: url.includes("kind=prompt") ? promptEvaluations : evaluations });
+    }
     if (url.endsWith("/look-styles")) return respond([{ id: "anime", label: "Anime" }]);
     if (url.endsWith("/prompt-recipes")) return respond({ families: [] });
     return respond({}, 404);
@@ -124,10 +132,45 @@ describe("the Eval page", () => {
     expect((await screen.findByTestId("evaluation-judge-7")).getAttribute("href")).toBe("/admin/eval/judge/7");
     expect(screen.getByTestId("evaluation-status-8").textContent).toMatch(/Needs action: 2 to retry/);
     expect(screen.getByTestId("evaluation-retry-retry_storage:40").textContent).toMatch(/Retry storage \(free\)/);
+    expect(screen.queryByTestId("evaluation-results-8")).toBeNull(); // nothing judged yet
     fireEvent.click(screen.getByTestId("evaluation-retry-retry_scene:3"));
     await waitFor(() => expect(posts.some((p) => p.url.endsWith("/panels/3/reprepare"))).toBe(true));
     expect(screen.getByTestId("evaluation-results-9").getAttribute("href")).toBe("/admin/eval/results?sets=9");
     expect(screen.queryByTestId("evaluation-judge-9")).toBeNull();
+  });
+
+  it("keeps each tab's draft across a tab switch and the browser's back button, and shows each tab only its own evaluations", async () => {
+    evaluations = [EVAL({ id: 7, description: "A models evaluation" })];
+    promptEvaluations = [EVAL({ id: 20, description: "A wording evaluation", engineFamilies: ["gpt-image-2-6"] })];
+    render(<EvalDashboard />);
+    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    next();
+    expect(screen.getByTestId("wizard-engines")).toBeTruthy();
+    expect(await screen.findByTestId("evaluation-7")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("eval-tab-prompts"));
+    expect(screen.getByTestId("wizard-facts")).toBeTruthy(); // the prompts wizard starts at its own first step
+    expect(await screen.findByTestId("evaluation-20")).toBeTruthy();
+    expect(screen.queryByTestId("evaluation-7")).toBeNull();
+    act(() => { window.history.back(); });
+    await waitFor(() => expect(screen.getByTestId("eval-tab-models").getAttribute("aria-selected")).toBe("true"));
+    expect(screen.getByTestId("wizard-engines")).toBeTruthy(); // the models draft is where it was left
+    fireEvent.click(screen.getByTestId("wizard-back"));
+    expect(screen.getByTestId("wizard-chosen-facts").textContent).toMatch(/#11/);
+    expect(screen.queryByTestId("evaluation-20")).toBeNull();
+  });
+
+  it("offers Resume generation for work never started, and a generating evaluation on the hidden tab keeps being polled", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    evaluations = [EVAL({ id: 7, status: "generating", drawn: 0, needsAction: [{ panelId: 0, cellId: null, action: "resume", costs: true, reason: "2 scenes or pictures not started" }] })];
+    render(<EvalDashboard />);
+    const resume = await screen.findByTestId("evaluation-retry-resume:7");
+    expect(resume.textContent).toMatch(/Resume generation/);
+    fireEvent.click(resume);
+    await waitFor(() => expect(posts.some((p) => p.url.endsWith("/evaluations/7/resume"))).toBe(true));
+    fireEvent.click(screen.getByTestId("eval-tab-prompts"));
+    const before = listCalls.filter((u) => u.includes("kind=engine")).length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+    expect(listCalls.filter((u) => u.includes("kind=engine")).length).toBeGreaterThan(before);
   });
 
   it("polls while generating and says the connection is lost rather than that the server stopped", async () => {

@@ -231,7 +231,7 @@ describe("Generate Images", () => {
     const s = await summary(out.setId);
     assert.equal(s.status, "needs_action");
     assert.equal(s.needsAction.length, r.panels.length);
-    await assert.rejects(finishEvaluation(out.setId), /can still be retried/);
+    await assert.rejects(finishEvaluation(out.setId), /can still be started or retried/);
 
     failPlanner = false;
     const panel = r.panels[0]!;
@@ -258,6 +258,59 @@ describe("statuses and Finish", () => {
     assert.equal(progressOf({ finishedAt: new Date() }, [panel(1, "prepared")], by([cell(1, "rendered")]), new Set([1])).status, "finished");
     const lost = progressOf({ finishedAt: null }, [panel(1, "prepared"), panel(2, "prepared")], by([cell(1, "rendered"), cell(2, "failed", { rerunCount: 1 })]), none);
     assert.equal(lost.status, "ready", "a panel whose pictures are lost for good needs no action and no judgement");
+  });
+
+  it("work no run holds is not generating: it carries one Resume action, and Finish refuses (PR #931 round 1)", () => {
+    const panel = (id: number, state: string) => ({ id, state, error: null }) as never;
+    const cell = (panelId: number, state: string) => ({ id: Math.random(), panelId, state, rerunCount: 0, vendorResultUrl: null, imageObjectPath: state === "rendered" ? "/x" : null }) as never;
+    const by = (cells: Array<{ panelId: number }>) => { const m = new Map<number, never[]>(); for (const c of cells) m.set(c.panelId, [...(m.get(c.panelId) ?? []), c as never]); return m; };
+    const none = new Set<number>();
+    const preparedUnrendered = progressOf({ finishedAt: null }, [panel(1, "prepared")], by([cell(1, "expected"), cell(1, "expected")]), none);
+    assert.equal(preparedUnrendered.status, "needs_action");
+    assert.deepEqual(preparedUnrendered.needsAction.map((a) => a.action), ["resume"]);
+    assert.equal(preparedUnrendered.needsAction[0]!.costs, true);
+    assert.equal(progressOf({ finishedAt: null }, [panel(1, "pending")], by([cell(1, "expected")]), none).status, "needs_action");
+    const mixed = progressOf({ finishedAt: null }, [panel(1, "pending"), panel(2, "preparing")], by([cell(1, "expected"), cell(2, "waiting")]), none);
+    assert.equal(mixed.status, "generating", "real motion still shows as generating");
+    assert.deepEqual(mixed.needsAction.map((a) => a.action), ["resume"], "and the unstarted work still offers Resume");
+  });
+
+  it("Resume starts an interrupted evaluation's work once and spends no retry allowance", async () => {
+    const out = await createEvaluation(generate("resume"), adminId);
+    // Simulate an interruption before admission: undo the run's admission.
+    const [run] = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.setId, out.setId));
+    await db.delete(comparisonReservationsTable).where(eq(comparisonReservationsTable.runId, run!.id));
+    await db.delete(comparisonRunsTable).where(eq(comparisonRunsTable.id, run!.id));
+    const r0 = await rows(out.setId);
+    await db.update(comparisonPanelsTable).set({ state: "pending" }).where(inArray(comparisonPanelsTable.id, r0.panels.map((p) => p.id)));
+    await db.update(comparisonCellsTable).set({ state: "expected" }).where(inArray(comparisonCellsTable.id, r0.cells.map((c) => c.id)));
+    await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
+    let s = await summary(out.setId);
+    assert.equal(s.status, "needs_action");
+    assert.equal(s.needsAction[0]!.action, "resume");
+    await assert.rejects(finishEvaluation(out.setId), /not drawn yet/);
+
+    const res = await request(app()).post(`/api/admin/comparison/evaluations/${out.setId}/resume`).send({});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.started, true);
+    const again = await request(app()).post(`/api/admin/comparison/evaluations/${out.setId}/resume`).send({});
+    assert.equal(again.body.started, false, "nothing is admitted twice");
+    await drainAll();
+    const r = await rows(out.setId);
+    assert.ok(r.cells.every((c) => c.state === "rendered" && c.rerunCount === 0), "drawn, with no retry allowance spent");
+    s = await summary(out.setId);
+    assert.equal(s.status, "ready");
+  });
+
+  it("two overlapping Generate requests with one token make one evaluation and both succeed", async () => {
+    const token = randomUUID();
+    const [a, b] = await Promise.all([createEvaluation(generate("race", token), adminId), createEvaluation(generate("race", token), adminId)]);
+    assert.equal(a.setId, b.setId);
+    assert.deepEqual([a.created, b.created].sort(), [false, true]);
+    assert.equal((await db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.requestToken, token))).length, 1);
+    const reserved = await db.select().from(comparisonReservationsTable).innerJoin(comparisonRunsTable, eq(comparisonRunsTable.id, comparisonReservationsTable.runId)).where(eq(comparisonRunsTable.setId, a.setId));
+    const r = await rows(a.setId);
+    assert.equal(reserved.length, r.panels.length + r.cells.length, "every item admitted once");
   });
 
   it("refuses Finish until every judgeable panel is judged, then records it", async () => {
