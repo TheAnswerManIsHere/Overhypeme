@@ -80,13 +80,18 @@ David's (*An image an AI model generated*, below).
 | Lane | Who verifies it | When it runs | What a step in it must carry |
 |---|---|---|---|
 | `ci` | an automated test in the per-PR gate | every PR | `**Check:**` citing the test file (optionally `file:test name`) |
-| `scripted` | a scripted proof, re-runnable on demand — an acceptance journey, a script with recorded evidence | on demand, and before the run is accepted | `**Check:**` citing the spec, script or command |
-| `live` | a **read-only** check against the deployed environment or a real vendor, through the live-environment connector — one that would start a paid AI run is not read-only (below) | at run time | `**Check:**` citing the command or procedure; any state it needs is a Setup `[claude]` line with its `[restore]` |
+| `scripted` | a scripted proof, re-runnable on demand — an acceptance journey, a script with recorded evidence | before the merge, its output recorded on the PR at the merged head; `/uat` runs it only when no such record exists | `**Check:**` citing the spec, script or command |
+| `live` | a **read-only** check against the deployed environment or a real vendor, through the live-environment connector — one that would start a paid AI run is not read-only (below) | at close-out, as a step of the PR's Post-merge verification; `/uat` runs it again only when close-out did not, or the Repl has moved past the commit close-out verified | `**Check:**` citing the command or procedure; any state it needs is a Setup `[claude]` line with its `[restore]` |
 | `capture` | Claude, reading an image a script captured at the commit under test — the step's result is that reading, never the script's exit status | at run time, before David starts | `**Check:**` citing the capture script, optionally `file:shot name`; an `Expect` describing the screen so it can be answered yes or no from the image alone — for an AI render, only what anyone would verify the same way (below) |
 | `human` | David's judgement: taste, legibility, whether it reads right, what an image an AI model generated shows beyond what anyone would verify the same way (below), or something only his own account or device can do | in the `/uat` session | `**Judgement:**` saying what only he can judge or do, and why no machine can |
 
+**Each machine check runs once, where the "When it runs" column puts it,
+and `/uat` repeats none of them** (David, 2026-11-13): it cites what the
+lifecycle already ran and runs only what nothing ran — the `uat` skill,
+section 3, is the rule's home.
+
 **A machine-lane check is self-contained.** It never depends on state a
-human step produces, so every machine step can be resolved before David
+human step produces, so every machine step can be settled before David
 starts. A check that can only be answered after his own action belongs to
 that human step's record (read after his "yes", before recording Pass), or
 the step is `human`. The rule below about one step needing what an earlier
@@ -420,5 +425,6 @@ deleted on David's confirmation, so a surviving file meant a run still owed;
 the workstream's `stage:uat` label carries that state now, and `/uat`
 discovers runs from it. A legacy doc still in `docs/tests/UAT/` keeps the
 old rule — driven from the file, deleted by `/uat` when its run completes
-— and the guard no longer reads that directory: its citations are checked
-at run time, where a missing check Blocks the step.
+— and the guard no longer reads that directory. Its `ci` steps were
+guarded when their PR merged, so they are settled at merge like any other
+(the `uat` skill, section 3).

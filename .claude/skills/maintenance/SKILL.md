@@ -185,6 +185,12 @@ stored records. From the merged-PR list for the window:
   rounds-per-loop figure that silently omits it: understating review cost is
   the bias the old dual inventory existed to prevent, and it comes back the
   moment a source is quietly dropped.
+- **UAT lifecycle gaps.** From each UAT run record finalized in the window
+  (the workstream issue's run comment), the `Lifecycle gaps` line's entries
+  by kind — screen fact labelled `human`, `scripted` with no recoverable
+  output, `live` missing from Post-merge verification. A kind that recurs is
+  a `pr-docs` or `check-uat-format.mjs` change to propose, never a better
+  note (the `uat` skill, section 5).
 - **Counted from GitHub at pass time, never from a ledger** (#89 cut,
   2026-09-16). Merged PRs by `mode:` label for the meta-vs-product share, and
   review-trigger comments per PR for rounds per loop. Nothing stores these any

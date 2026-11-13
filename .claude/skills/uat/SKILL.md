@@ -1,6 +1,6 @@
 ---
 name: uat
-description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, resolve every machine-lane step myself first (a screen fact whose action I can perform is mine to check in a browser, whatever the script labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT script — that's `pr-docs`.
+description: Run a UAT session with David step by step, in chat, instead of handing him a markdown file to read alone. Use when he says /uat, "let's test PR N", "walk me through the UAT", "I'm ready to test this", or "resume the UAT". I do the setup, settle every machine-lane step first — citing what the lifecycle already ran (the PR gate's `ci` checks, the PR's `scripted` record, close-out's `live` checks) and running only what nothing ran (a screen fact whose action I can perform is mine to check in a browser, whatever the script labels it; one only his own account or device can perform stays his; what an AI-generated image shows, beyond what anyone would verify the same way, is always his), present only the judgement steps to him one at a time, record Pass/Fail/Blocked/Skipped per step, capture evidence on anything that isn't a clean pass, file the bug and the way back the moment something breaks, and leave a durable run record any session can resume from. NOT for writing a UAT script — that's `pr-docs`.
 ---
 
 <!-- SYNCED FROM KITT — do not edit in a consumer repo. Local edits are overwritten by the next sync and their reasoning is lost; change KITT instead. -->
@@ -69,7 +69,7 @@ An invocation may name a PR, an issue, or nothing.
    **None → say so** and don't invent a run.
 
 Then give him a **three-line preview before step 1**, never the whole script:
-how many machine-lane checks I resolved and how many steps are his, in
+how many machine-lane checks are settled and how many steps are his, in
 `### Steps` and in `### Regression` (section 3), what I'm setting up for him
 (section 2), and anything he needs on hand — an admin login, a phone, a fresh browser tab. The script's
 narrative preamble is mine to have read, not his to sit through.
@@ -146,7 +146,7 @@ this is true:
 
 So enumerate once at the start, say the counts in the preview ("7 steps,
 then 4 regression checks" — each count split by lane, below, since the
-machine-lane ones are resolved before he starts), and present them in order
+machine-lane ones are settled before he starts), and present them in order
 — the regression checks are steps in every sense that matters here:
 presented, recorded, and counted toward the verdict in section 6. There is nothing to infer and nothing to
 classify about *which headings are steps*; if a script doesn't parse this way
@@ -173,31 +173,64 @@ checked-out commit when the run starts** — the same SHA close-out's sync
 check reads — and it must **contain the PR's merge commit** (an ancestor
 check, `git merge-base --is-ancestor <merge> <deployed>`). Usually it is a
 later commit on `main`, because other PRs merge while a run waits; that is
-the build he clicks, so it is the build the machines check. If it does not
-contain the merge, the Repl is behind: the run is Blocked on the sync, never
-run against an older build. I record both SHAs in the run record before the
-first step, and **a machine-lane result is evidence only at the commit it
-ran at**. On resume I re-read the Repl's commit; if it has moved, I re-resolve
-the machine block at the new commit, and every earlier result keeps the
-commit it ran at rather than becoming evidence for the new one.
+the build he clicks. If it does not contain the merge, the Repl is behind:
+the run is Blocked on the sync, never run against an older build. I record
+both SHAs in the run record before the first step. On resume I re-read the
+Repl's commit; if it has moved, what ran here at run time — a `live`
+check, a capture, a screen fact — runs again at the new commit, and every
+earlier result keeps the commit it ran at rather than becoming evidence
+for the new one.
 
-Before the first human step, I resolve every machine-lane step myself, **in
-document order**, and show him the result in one block — never one per turn,
-and never as a question. Machine-lane checks are self-contained by the
-format's rule; a script whose machine step depends on a human step's state
-is the script-wrong case below, never a check to run early:
+**`/uat` runs a machine check only when nothing earlier in the lifecycle
+has run it** (David, 2026-11-13: *"All the other tests that it runs should
+have already been run as part of the standard development lifecycle."*). A
+check is worth running again only when something it depends on changed
+since it last ran, and by the time a workstream reaches `stage:uat` the
+lifecycle has already run nearly all of them: the PR's required gate ran
+every `ci` check on the merged head, the PR recorded its `scripted`
+proofs before the merge (`pr-docs`), and close-out ran the `live` checks
+in its Post-merge verification before the label moved (`pr-watch`, which
+holds a workstream at `stage:test-run` until they pass). Code merged since
+is `main`'s own CI's to check, not a UAT session's. So before the first
+human step I settle each machine-lane step **in document order**, show
+him the result in one block — never one per turn, and never as a
+question — and run only what nothing ran. Machine-lane checks are
+self-contained by the format's rule; a script whose machine step depends
+on a human step's state is the script-wrong case below, never a check to
+run early:
 
-- **`ci`** — I confirm the cited check ran and passed **on the commit under
-  test** (the check runs of that commit, or the test file run locally at that
-  commit). A green run on a different commit is not evidence.
-- **`scripted`** — I run the cited spec, script or command **in a checkout or
-  worktree at the commit under test** (or dispatch the on-demand workflow on
-  that commit), or read evidence recorded for that commit, and keep the
-  output with the commit it ran at. Output from any other checkout is not
-  evidence, however recent. One that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it, as a paid capture does (below).
-- **`live`** — I run the cited check through the live-environment connector,
-  **read-only, always**, after confirming the Repl's synced commit is the
-  commit under test, and quote what it printed. A check that would start a
+- **`ci`** — **settled at merge, never re-run or re-checked here, for a
+  check the PR carried when it merged.** The `main` ruleset requires the
+  gate, so the merge is the evidence: the row reads `settled at merge — PR
+  gate` and counts as a Pass. A `**Check:**` written into the body after
+  the merge, retiring a `Deferred:` line, was never seen by this PR's gate
+  or guard, so the merge is no evidence for it: the `Deferred:` bullet
+  below governs it. (Until
+  2026-11-13 this lane re-confirmed the check on the commit under test,
+  which repeated the gate and bought only what `main`'s CI already
+  watches.)
+- **`scripted`** — **cited, not re-run, when the PR recorded its output
+  at the merged head**: close-out posts that record before it merges
+  (`pr-watch` step 8; `pr-docs` gives its shape), and the row quotes it and
+  its commit. **A missing comment is missing evidence, not proof the proof
+  never ran**, so before running anything I look for the output the
+  lifecycle already holds — a PR comment or CI job log at the merged head,
+  or a commit the merged head contains that touched nothing the proof
+  reads — and cite that. Only when none exists does the step run here, **in
+  a checkout or worktree at the commit under test** (or the on-demand
+  workflow dispatched on that commit), with the output kept with the commit
+  it ran at; that is close-out's lapse, so it goes on the run record's
+  **Lifecycle gaps** line (section 5). One that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it, as a paid capture does (below).
+- **`live`** — **cited from close-out's Post-merge verification when that
+  section ran the step's check and the Repl's commit has not moved since**:
+  the workstream reaching `stage:uat` is that pass's evidence, and the row
+  names the merge report that carried it. Run here only when close-out did
+  not run that check — close-out's lapse, so a **Lifecycle gaps** entry —
+  or when the Repl now holds a later commit than the
+  one close-out verified — a deployed environment can drift in ways
+  `main`'s CI never sees. Then I run it through the live-environment
+  connector, **read-only, always**, after confirming the Repl's synced
+  commit is the commit under test, and quote what it printed. A check that would start a
   paid AI run is not read-only: it runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it, as a
   paid capture does (below). State a check needs is a
   Setup `[claude]` line with its `[restore]` (section 2); a probe whose
@@ -247,7 +280,8 @@ is the script-wrong case below, never a check to run early:
   this workstream, recorded as section 4 step 5 does for a bug, so the
   owner landing is what reopens it. The owner's PR replaces the line with
   its runnable **Check:** in the owning PR's body (`pr-docs`), so the
-  resumed run executes it; a script still carrying the line after #N closed
+  resumed run executes it — at the commit under test, whatever its lane,
+  since no gate of this PR ever ran it; a script still carrying the line after #N closed
   is the script-wrong case, and closing #N alone is never passing evidence.
 - **A `human` step whose `Expect` a screen can answer** — an element is
   there, a message reads a given sentence, a status or an error shows, a
@@ -293,8 +327,8 @@ record. A machine-lane step that fails is a failure like any other: section 4
 applies, and I file it before he sees the first human step. **He sees the
 machine block, then only the human steps that are judgement** — a `human`
 label over a screen fact went into the machine block, above — so the
-preview says both counts ("9 machine-lane checks, all passed; 3 steps for
-you").
+preview says both counts ("9 machine-lane checks — 7 settled at merge and
+close-out, 2 run now, all passed; 3 steps for you").
 
 **One step per turn.** What to do, what to expect, nothing else — not the
 next step, not the section after, not the reasoning behind the expectation
@@ -464,11 +498,11 @@ have no reliable way to tell which is current.
 
 | Step | Status | Note |
 | --- | --- | --- |
-| 1 · Manual renders (ci) | Pass | `adminHelp.spec.ts` green on the commit under test |
+| 1 · Manual renders (ci) | Pass | settled at merge — PR gate (`adminHelp.spec.ts`) |
 | 2 · Deep link (human, run in browser) | Fail | #903 — landed at chapter top, not the heading; a screen fact, read by me at 1440 px, so the lane is corrected in the PR body at close-out |
 | 3 · Search results read as the right answers (human) | Pass | |
 | 4 · Nothing feels missing from the chapter list (human) | — | not yet run |
-| R1 · Sidebar unchanged (ci) | Pass | `adminHelp.spec.ts` green on the commit under test |
+| R1 · Sidebar unchanged (ci) | Pass | settled at merge — PR gate (`adminHelp.spec.ts`) |
 | R2 · Chapter diagram drawn in the Manual (capture) | Pass | shot `manual-diagram` at the commit under test, evidence `<link at the evidence commit>`; read: every box labelled, arrows run left to right |
 | R3 · Readable on his own phone (human, his device) | — | not yet run |
 
@@ -476,8 +510,21 @@ have no reliable way to tell which is current.
 2500.00 captured, restored at pause)
 **Bugs filed:** #903 (major)
 **Product notes:** none
-**Resume at:** step 4 (2 judgement steps remaining, 4 and R3; step 2's screen fact was mine and is recorded; the 3 machine-lane checks are resolved at this commit)
+**Lifecycle gaps:** step 2 — screen fact labelled `human` (lane corrected in PR #472's body)
+**Resume at:** step 4 (2 judgement steps remaining, 4 and R3; step 2's screen fact was mine and is recorded; the 3 machine-lane checks are settled: 2 at merge, the capture at this commit)
 ```
+
+**The `Lifecycle gaps` line is how the scripts learn** (David, 2026-11-13:
+log each authoring error *"so pr-docs learns"*). It lists every check this
+run had to do because the script or the PR left it to the session — a
+screen fact labelled `human`, a `scripted` step with no recoverable
+output, a `live` step whose check was missing from Post-merge
+verification — one entry per step, by kind, or `none`. A `live` re-run
+because the Repl moved is not a gap, and nor is a missing record on a PR
+merged before 2026-11-13. Its reader is the `/maintenance` pass's process
+health (step 6b), which counts the kinds across the window; a kind that
+recurs becomes a `pr-docs` or `check-uat-format.mjs` change, per
+*Recurring failure patterns become CI guards*.
 
 **Write it on the moments that matter, not every turn:** once after setup
 (so the record exists before anything can be lost), on every non-pass, on
@@ -654,7 +701,7 @@ belongs in CI or in the PR's post-merge verification, where it runs on every
 change forever instead of once — unless it calls a paid AI vendor, which
 runs within David's paid-run budget — $5 a run, $25 a week across every product — and asks him only above it (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
 steps out of UAT into the layers that already exist — and scripting whatever
-live-app checks are left over.
+live-app checks are left over into the PR's post-merge verification.
 
 ## Model tier
 
