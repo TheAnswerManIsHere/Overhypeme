@@ -286,6 +286,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
 
   it("approves with 200 production_review after a Concept or bubble save leaves the stored ideas stale (GET reads current false)", async () => {
     const generate: VisualConceptsJobDeps["generate"] = async () => ({
+      jokeRead: "R",
       candidates: [1, 2, 3].map((n) => ({
         title: `Concept ${n}`, whyItWorks: "It lands.", sceneDescription: `{NAME} lifts the planet, variant ${n}.`,
         tokenValid: true, bubbles: [],
