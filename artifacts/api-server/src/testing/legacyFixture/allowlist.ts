@@ -245,6 +245,10 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     splitTokenIndex: "fact-derived",
     visualConceptCandidates: "shape:visualConceptCandidatesBlob",
     visualConceptStatus: "keep",
+    // 0137: the approved humor note is moderator prose about the joke; its approver maps like any user.
+    humorNote: "keep",
+    humorNoteApprovedBy: "map-user",
+    humorNoteApprovedAt: "keep",
     aiScenePrompts: "shape:aiScenePrompts",
     aiMemeImages: "shape:aiMemeImages",
     aiMemeBackfillStatus: "keep",
