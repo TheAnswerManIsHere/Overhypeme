@@ -1,14 +1,10 @@
 /**
- * Unit tests (pure, no DB / no LLM) for candidate Visual-concept generation
- * (Slice 2A):
- *   - api-zod schema/sanitize: exactly-3 validation, ≤1500 cap, {NAME}
- *     canonicalization, unknown-token → tokenValid:false.
- *   - the mode-agnostic candidate user message: OMITS the runtime blocks
- *     (source-image / subjectRenderMode / generationMode / identity / render
- *     controls / target engine) and INCLUDES fact text / taxonomy / render
- *     policy / authored strategy / cultural refs / semantic entities.
- *   - existing_draft_context vs. blank-field wording (distinct alternatives, NOT
- *     the authoritative directive).
+ * Unit tests (pure, no DB / no LLM) for candidate Visual-concept generation:
+ *   - api-zod schema/sanitize: exactly-3 validation (with a jokeRead), the
+ *     scene cap, {NAME} canonicalization, unknown-token → tokenValid:false.
+ *   - the gag-writer request (PLAN_GAG_GENERATOR.md C): the caption with the
+ *     stand-in name, meanings, mechanism, limits, note, saved gag and draft.
+ *   - the stand-in name converted by the tokenizer, and failed conversions.
  *   - generateVisualConceptsWithModel: sanitizes + validates count + retries once.
  */
 

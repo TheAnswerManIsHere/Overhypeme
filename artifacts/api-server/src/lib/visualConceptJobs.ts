@@ -248,7 +248,7 @@ export async function runVisualConceptsJob(
     // An unusable engine is a configuration fault: fail at once (no fallback
     // model, no ten hours of retries). Anything else keeps the queue's retries;
     // status stays "pending" (still running) and "failed" is onAbandon-only.
-    if (err instanceof Error && err.name === "VisualConceptsEngineUnusable") return terminalFailure("gag_writer_engine_unusable", err.message);
+    if (err instanceof VisualConceptsEngineUnusable) return terminalFailure("gag_writer_engine_unusable", err.message);
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 

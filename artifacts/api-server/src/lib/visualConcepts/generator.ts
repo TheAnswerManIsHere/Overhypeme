@@ -183,7 +183,7 @@ function gagLines(label: string, gag: ContextGag): string[] {
   const lines = [label, withStandIn(gag.scene.trim())];
   for (const b of gag.bubbles) {
     if (!b.text.trim()) continue;
-    lines.push(`- ${b.type} bubble, ${b.entity === "subject" ? "Alex" : b.entity}: "${withStandIn(b.text.trim())}"`);
+    lines.push(`- ${b.type} bubble, ${b.entity === "subject" ? STAND_IN_NAME : b.entity}: "${withStandIn(b.text.trim())}"`);
   }
   return lines;
 }
