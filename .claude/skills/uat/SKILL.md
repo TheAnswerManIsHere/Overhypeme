@@ -214,9 +214,10 @@ run early:
   (`pr-watch` step 8; `pr-docs` gives its shape), and the row quotes it and
   its commit. **A missing comment is missing evidence, not proof the proof
   never ran**, so before running anything I look for the output the
-  lifecycle already holds — a PR comment or CI job log at the merged head,
-  or a commit the merged head contains that touched nothing the proof
-  reads — and cite that. Only when none exists does the step run here, **in
+  lifecycle already holds — a PR comment or CI job log **at the merged
+  head**, and nothing older: output from any other commit is not evidence
+  however recent, and judging that nothing the proof reads has changed is
+  the call this rule exists not to make — and cite that. Only when none exists does the step run here, **in
   a checkout or worktree at the commit under test** (or the on-demand
   workflow dispatched on that commit), with the output kept with the commit
   it ran at; that is close-out's lapse, so it goes on the run record's
@@ -514,8 +515,9 @@ have no reliable way to tell which is current.
 **Resume at:** step 4 (2 judgement steps remaining, 4 and R3; step 2's screen fact was mine and is recorded; the 3 machine-lane checks are settled: 2 at merge, the capture at this commit)
 ```
 
-**The `Lifecycle gaps` line is how the scripts learn** (David, 2026-11-13:
-log each authoring error *"so pr-docs learns"*). It lists every check this
+**The `Lifecycle gaps` line is how the scripts learn** (my recommendation,
+which David approved on 2026-11-13: log each authoring error so `pr-docs`
+learns). It lists every check this
 run had to do because the script or the PR left it to the session — a
 screen fact labelled `human`, a `scripted` step with no recoverable
 output, a `live` step whose check was missing from Post-merge
