@@ -76,8 +76,6 @@ export interface AdminFactRow {
   hasEnrichment?: boolean;
   hasEnrichmentOverrides?: boolean;
   enrichmentBaselineChanged?: boolean;
-  evalGolden?: boolean;
-  evalGoldenReason?: string | null;
   variants?: AdminFactRow[];
 }
 
@@ -103,8 +101,6 @@ export function adminFactRow(overrides: Partial<AdminFactRow> & Pick<AdminFactRo
     hasEnrichment: true,
     hasEnrichmentOverrides: false,
     enrichmentBaselineChanged: false,
-    evalGolden: false,
-    evalGoldenReason: null,
     variants: [],
     ...overrides,
   };

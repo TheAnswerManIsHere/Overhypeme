@@ -37,7 +37,7 @@ import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type PlannerRe
 
 export { ComparisonLayoutError };
 
-export async function createComparisonSet(input: ComparisonSetCreate, adminUserId: string | null): Promise<{ setId: number; panels: number; cells: number }> {
+export async function createComparisonSet(input: ComparisonSetCreate, adminUserId: string | null, opts: { requestToken?: string } = {}): Promise<{ setId: number; panels: number; cells: number }> {
   const styleIds = input.lookStyleIds.filter((s) => s !== "none");
   const [facts, styles, engines] = await Promise.all([
     db.select({ id: factsTable.id }).from(factsTable).where(inArray(factsTable.id, input.factIds)),
@@ -102,6 +102,7 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
       kind,
       recipeVersionIds: kind === "prompt" ? (input.recipeVersionIds ?? []).map((id) => id ?? 0) : null,
       createdBy: adminUserId,
+      requestToken: opts.requestToken ?? null,
     }).returning({ id: comparisonSetsTable.id });
     // Postgres returns a multi-row insert's rows in the order given.
     const panels = await tx.insert(comparisonPanelsTable).values(layout.map((p) => ({
@@ -231,12 +232,28 @@ export function prepareItems(rows: SetRows, planner: PlannerRequestSettings): Wo
  */
 export function renderItems(rows: SetRows, opts: { preparedOnly: boolean }): WorkItem[] {
   const prepared = new Set(rows.panels.filter((p) => p.state === "prepared").map((p) => p.id));
-  return rows.cells.filter((c) => c.state === "expected" && (!opts.preparedOnly || prepared.has(c.panelId))).map((c) => ({
+  return rows.cells.filter((c) => c.state === "expected" && (!opts.preparedOnly || prepared.has(c.panelId))).map((c) => cellItem(rows, c));
+}
+
+function cellItem(rows: SetRows, c: ComparisonCell): WorkItem {
+  return {
     ref: `cell:${c.id}`,
     label: `rendering cell ${c.id} (${c.engineId})`,
     boundUsd: cellBoundUsd(rows.prices.get(c.engineId)),
     engineId: c.engineId,
-  }));
+  };
+}
+
+/**
+ * Everything still to do in one run (the Eval page's Generate Images, plan
+ * `PLAN_EVAL_PAGE.md` C): every pending panel's preparation and every
+ * expected cell whose panel is pending or prepared. A cell of a pending panel
+ * is reserved now and queued when its panel is prepared.
+ */
+export function fullItems(rows: SetRows, planner: PlannerRequestSettings | null): WorkItem[] {
+  const live = new Set(rows.panels.filter((p) => p.state === "pending" || p.state === "prepared").map((p) => p.id));
+  const prepare = planner ? prepareItems(rows, planner) : [];
+  return [...prepare, ...rows.cells.filter((c) => c.state === "expected" && live.has(c.panelId)).map((c) => cellItem(rows, c))];
 }
 
 /** The bounds of a set's remaining work, shared by the status view and the dry run. */
@@ -292,8 +309,9 @@ export async function getComparisonSet(setId: number): Promise<ComparisonSetDeta
 }
 
 /** The work a run of `kind` would take; the planner is resolved only for preparation. */
-export async function runItems(kind: "prepare" | "render", rows: SetRows): Promise<WorkItem[]> {
+export async function runItems(kind: "prepare" | "render" | "full", rows: SetRows): Promise<WorkItem[]> {
   if (kind === "prepare") return prepareItems(rows, await plannerSettings());
+  if (kind === "full") return fullItems(rows, rows.panels.some((p) => p.state === "pending") ? await plannerSettings() : null);
   return renderItems(rows, { preparedOnly: true });
 }
 

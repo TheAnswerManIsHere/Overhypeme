@@ -25,7 +25,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   comparisonCellsTable,
@@ -167,8 +167,31 @@ async function admitItem(tx: Tx, run: ComparisonRun, item: WorkItem): Promise<vo
   const [reservation] = await tx.insert(comparisonReservationsTable).values({
     runId: run.id, kind: "image", target: item.engineId ?? "?", cellId: id, boundUsd: String(item.boundUsd),
   }).returning({ id: comparisonReservationsTable.id });
-  await tx.update(comparisonCellsTable).set({ state: "enqueued", error: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, id));
-  await enqueueJob({ queue: COMPARISON_RENDER_QUEUE, payload: { runId: run.id, cellId: id, reservationId: reservation!.id }, dedupeKey: `comparison:render:${run.id}:${id}`, maxAttempts: 1 }, tx);
+  // A cell whose panel is still being prepared (a "full" run) waits, reserved;
+  // the transaction that records its panel prepared queues it.
+  const [owner] = await tx.select({ state: comparisonPanelsTable.state }).from(comparisonPanelsTable)
+    .innerJoin(comparisonCellsTable, eq(comparisonCellsTable.panelId, comparisonPanelsTable.id))
+    .where(eq(comparisonCellsTable.id, id));
+  if (owner?.state !== "prepared") {
+    await tx.update(comparisonCellsTable).set({ state: "waiting", error: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, id));
+    return;
+  }
+  await queueCell(tx, run.id, id, reservation!.id);
+}
+
+async function queueCell(tx: Tx, runId: number, cellId: number, reservationId: number): Promise<void> {
+  await tx.update(comparisonCellsTable).set({ state: "enqueued", error: null, updatedAt: new Date() }).where(eq(comparisonCellsTable.id, cellId));
+  await enqueueJob({ queue: COMPARISON_RENDER_QUEUE, payload: { runId, cellId, reservationId }, dedupeKey: `comparison:render:${runId}:${cellId}`, maxAttempts: 1 }, tx);
+}
+
+/** The reserved, unsettled image reservations of a panel's waiting cells. */
+async function waitingReservations(tx: Tx, panelId: number): Promise<Array<{ cellId: number; reservationId: number; runId: number }>> {
+  const rows = await tx.select({ cellId: comparisonCellsTable.id, reservationId: comparisonReservationsTable.id, runId: comparisonReservationsTable.runId })
+    .from(comparisonCellsTable)
+    .innerJoin(comparisonReservationsTable, and(eq(comparisonReservationsTable.cellId, comparisonCellsTable.id), eq(comparisonReservationsTable.state, "reserved")))
+    .where(and(eq(comparisonCellsTable.panelId, panelId), eq(comparisonCellsTable.state, "waiting")))
+    .orderBy(asc(comparisonCellsTable.id));
+  return rows;
 }
 
 // ─── Settlement ───────────────────────────────────────────────────────────────
@@ -198,7 +221,7 @@ async function finishRunIfDone(runId: number): Promise<void> {
     .leftJoin(comparisonCellsTable, eq(comparisonCellsTable.id, comparisonReservationsTable.cellId))
     .where(and(
       eq(comparisonReservationsTable.runId, runId),
-      sql`(${comparisonPanelsTable.state} in ('preparing', 'planning') or ${comparisonCellsTable.state} = 'enqueued')`,
+      sql`(${comparisonPanelsTable.state} in ('preparing', 'planning') or ${comparisonCellsTable.state} in ('enqueued', 'waiting'))`,
     ));
   if ((row?.inFlight ?? 0) === 0) {
     await db.update(comparisonRunsTable).set({ state: "done", endedAt: new Date() }).where(and(eq(comparisonRunsTable.id, runId), eq(comparisonRunsTable.state, "running")));
@@ -209,10 +232,21 @@ async function finishRunIfDone(runId: number): Promise<void> {
 
 interface PreparePayload { runId: number; panelId: number; reservationId: number }
 
+/**
+ * A panel that will not be prepared. Its waiting cells (a "full" run) give up
+ * their reservations and go back to expected, in the same transaction, so a
+ * retry of the panel admits them again and nothing waits for ever.
+ */
 async function failPanel(panelId: number, state: "failed" | "skipped", reason: string): Promise<void> {
-  await db.update(comparisonPanelsTable)
-    .set(state === "skipped" ? { state, skipReason: reason, updatedAt: new Date() } : { state, error: reason, updatedAt: new Date() })
-    .where(eq(comparisonPanelsTable.id, panelId));
+  await db.transaction(async (tx) => {
+    await tx.update(comparisonPanelsTable)
+      .set(state === "skipped" ? { state, skipReason: reason, updatedAt: new Date() } : { state, error: reason, updatedAt: new Date() })
+      .where(eq(comparisonPanelsTable.id, panelId));
+    for (const w of await waitingReservations(tx, panelId)) {
+      await tx.update(comparisonReservationsTable).set({ state: "released", settledAt: new Date() }).where(eq(comparisonReservationsTable.id, w.reservationId));
+      await tx.update(comparisonCellsTable).set({ state: "expected", updatedAt: new Date() }).where(eq(comparisonCellsTable.id, w.cellId));
+    }
+  });
 }
 
 /**
@@ -307,7 +341,11 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     await failPanel(panel.id, "failed", `the planner fell back (${provenance.fallbackReason}) to ${provenance.model ?? "another model"}`);
     return { ok: true, result: "planner fell back" };
   }
-  await db.update(comparisonPanelsTable).set({
+  // Recording the panel prepared and queueing its waiting cells is one
+  // transaction: a restart between the two can neither strand a cell nor
+  // queue it twice (each cell leaves "waiting" exactly once).
+  await db.transaction(async (tx) => {
+  await tx.update(comparisonPanelsTable).set({
     state: "prepared",
     visualPlan: assembled.output.visualPlan,
     compiledPrompt: assembled.compiled,
@@ -322,6 +360,8 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
     error: null,
     updatedAt: new Date(),
   }).where(eq(comparisonPanelsTable.id, panel.id));
+  for (const w of await waitingReservations(tx, panel.id)) await queueCell(tx, w.runId, w.cellId, w.reservationId);
+  });
   return { ok: true, result: "prepared" };
 }
 

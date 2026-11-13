@@ -8,7 +8,6 @@ import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
-import { GoldenToggle } from "@/components/admin/GoldenToggle";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
 import { resubmitFactForModeration } from "@/components/admin/resubmitForModeration";
@@ -50,9 +49,6 @@ interface Fact {
   hasEnrichment?: boolean;
   hasEnrichmentOverrides?: boolean;
   enrichmentBaselineChanged?: boolean;
-  /** Eval harness (Slice 2B): golden-set membership. */
-  evalGolden?: boolean;
-  evalGoldenReason?: string | null;
   // Root facts carry their variants nested (the list paginates by root). When
   // searching, this holds only the variants that matched. Absent on variant rows.
   variants?: Fact[];
@@ -1128,18 +1124,6 @@ export default function AdminFacts() {
                 <div className={`w-1.5 h-1.5 rounded-full ${selectedFact.isActive ? "bg-green-500" : "bg-red-500"}`} />
                 {selectedFact.isActive ? "Active" : "Inactive"}
               </span>
-              {/* Eval golden-set membership (Slice 2B). Keyed by fact id so it
-                  re-initializes when the moderator switches facts. */}
-              <GoldenToggle
-                key={selectedFact.id}
-                factId={selectedFact.id}
-                isActive={selectedFact.isActive}
-                initialGolden={!!selectedFact.evalGolden}
-                onChange={(golden) => {
-                  setSelectedFact((f) => (f ? { ...f, evalGolden: golden } : f));
-                  setFacts((prev) => prev.map((f) => (f.id === selectedFact.id ? { ...f, evalGolden: golden } : f)));
-                }}
-              />
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-sm border ${
                 selectedFact.hasEmbedding
                   ? "bg-blue-500/10 text-blue-600 border-blue-500/30"

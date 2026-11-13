@@ -29,7 +29,7 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affil
 | `/admin/billing` | `billing.tsx` | Stripe config/plan summary, live-mode toggle, test-event trigger, price-sync status. |
 | `/admin/refunds-disputes` | `refundsDisputes.tsx` | Refund/dispute event log plus a manual grace-sweep trigger. |
 | `/admin/moderation` | `moderation.tsx` | Fact review queue (covered elsewhere) **plus** an embedded comment-review panel — see *Dead and misleading surfaces*. |
-| `/admin/eval` | `evalDashboard.tsx` | Render-quality eval dashboard: golden fact set, cost-confirmed eval runs, per-render rating, run-vs-run comparison. |
+| `/admin/eval` | `evalDashboard.tsx` | Eval: two tabs, Evaluate Models and Evaluate Prompts, each a wizard (facts, engines or wordings, photo types, looks, description, one Generate Images) and a list of evaluations to judge blind, finish and read (plan `PLAN_EVAL_PAGE.md`). |
 | `/admin/config` | `config.tsx` | The generic `admin_config` key/value editor — see *Config surfaces*. |
 | `/admin/engines` | `engines.tsx` | The AI engine catalogue: per-engine model id, resolutions, aspect ratios, params. |
 | `/admin/taxonomy-health` | `taxonomy-health.tsx` | Covered in [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md). |
@@ -202,8 +202,8 @@ purpose-built UI of its own — access is config-only, through the generic
 
 The dashboard
 (`/admin`) itself is a light analytics surface (fact and user counts; its
-route-visit leaderboard went with the counters in launch Phase 4); the eval
-dashboard (`/admin/eval`, render-quality metrics, run-vs-run diffing);
+route-visit leaderboard went with the counters in launch Phase 4); the Eval
+page (`/admin/eval`, blind engine and prompt evaluations and their results);
 queue health (`/admin/queue-health`, job-infra throughput); and refunds/
 disputes (`/admin/refunds-disputes`, an event log, not aggregate revenue
 analytics). There is no dedicated growth or aggregate-revenue dashboard

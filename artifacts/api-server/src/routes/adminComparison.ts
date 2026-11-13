@@ -20,7 +20,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { comparisonJudgementSchema, comparisonPickSchema, comparisonResultsQuerySchema, comparisonRunPlanSchema, comparisonSetCreateSchema } from "@workspace/api-zod";
+import { comparisonJudgementSchema, comparisonPickSchema, comparisonResultsQuerySchema, comparisonRunPlanSchema, comparisonSetCreateSchema, evaluationCreateSchema, evaluationSelectionSchema } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { requireAdmin } from "./admin";
 import {
@@ -39,6 +39,18 @@ import {
   startComparisonRun,
 } from "../lib/comparison/runs";
 import { refreshBilledCosts } from "../lib/comparison/billedCost";
+import {
+  EvaluationRefused,
+  createEvaluation,
+  estimateEvaluation,
+  finishEvaluation,
+  listEvaluations,
+  resumeEvaluation,
+  searchEligibleFacts,
+} from "../lib/comparison/evaluations";
+import { db } from "@workspace/db";
+import { comparisonCellsTable, comparisonPanelsTable } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
 import { blindImagePath, ComparisonPickRefused, editionOfSets, getBlindSet, getComparisonResults, getJudgedResults, recordJudgement, recordPick } from "../lib/comparison/judging";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
@@ -123,17 +135,85 @@ for (const [path, key, action] of [
   ["cells/:id/rerun", "cell", rerunCell],
   ["panels/:id/reprepare", "panel", reprepareFailedPanel],
 ] as const) {
-  router.post(`/admin/comparison/${path}`, requireAdmin, async (req: Request, res: Response) => {
+  router.post(`/admin/comparison/${path}`, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
     const id = idParam(req);
     if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
     try {
-      res.json({ [key]: await action(id) });
+      const after = await action(id);
+      // A paid retry starts its work at once (plan PLAN_EVAL_PAGE.md, C):
+      // Retry scene prepares the panel and then draws its pictures, Retry
+      // picture draws the cell's one rerun. Retry storage spends nothing and
+      // has nothing to start.
+      if (action !== retryCellStorage) await resumeEvaluation(await setIdOf(key, id), req.user.id);
+      res.json({ [key]: after });
     } catch (err) {
       if (err instanceof ComparisonCellActionRefused) { res.status(409).json({ error: "cell_action_refused", refusal: err.message }); return; }
       throw err;
     }
   });
 }
+
+/** The set a panel or cell belongs to. */
+async function setIdOf(key: "cell" | "panel", id: number): Promise<number> {
+  if (key === "panel") {
+    const [p] = await db.select({ setId: comparisonPanelsTable.setId }).from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, id));
+    return p!.setId;
+  }
+  const [c] = await db.select({ setId: comparisonPanelsTable.setId }).from(comparisonCellsTable)
+    .innerJoin(comparisonPanelsTable, eq(comparisonPanelsTable.id, comparisonCellsTable.panelId)).where(eq(comparisonCellsTable.id, id));
+  return c!.setId;
+}
+
+// ─── The Eval page's evaluations (plan PLAN_EVAL_PAGE.md) ────────────────────
+
+function sendEvaluationRefusal(res: Response, err: unknown): void {
+  if (err instanceof EvaluationRefused) { res.status(409).json({ error: "evaluation_refused", refusal: err.refusal, reasons: err.reasons }); return; }
+  if (err instanceof ComparisonLayoutError) { res.status(400).json({ error: "evaluation_refused", refusal: "the selection cannot be drawn", reasons: err.reasons }); return; }
+  if (err instanceof ComparisonRunRefused) { res.status(409).json({ error: "evaluation_refused", refusal: err.refusal, reasons: [] }); return; }
+  throw err;
+}
+
+router.get("/admin/comparison/eligible-facts", requireAdmin, async (req: Request, res: Response) => {
+  const q = typeof req.query["q"] === "string" ? req.query["q"].slice(0, 200) : "";
+  res.json(await searchEligibleFacts(q));
+});
+
+router.post("/admin/comparison/evaluations/estimate", requireAdmin, async (req: Request, res: Response) => {
+  const parsed = evaluationSelectionSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
+  try {
+    res.json(await estimateEvaluation(parsed.data));
+  } catch (err) {
+    sendEvaluationRefusal(res, err);
+  }
+});
+
+router.post("/admin/comparison/evaluations", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = evaluationCreateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() }); return; }
+  try {
+    const out = await createEvaluation(parsed.data, req.user.id);
+    logger.info({ setId: out.setId, created: out.created, adminId: req.user.id }, "[comparison] evaluation generated");
+    res.status(out.created ? 201 : 200).json(out);
+  } catch (err) {
+    sendEvaluationRefusal(res, err);
+  }
+});
+
+router.get("/admin/comparison/evaluations", requireAdmin, async (req: Request, res: Response) => {
+  const kind = req.query["kind"] === "prompt" ? "prompt" : "engine";
+  res.json({ evaluations: await listEvaluations(kind) });
+});
+
+router.post("/admin/comparison/evaluations/:id/finish", requireAdmin, async (req: Request, res: Response) => {
+  const id = idParam(req);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  try {
+    res.json({ progress: await finishEvaluation(id) });
+  } catch (err) {
+    sendEvaluationRefusal(res, err);
+  }
+});
 
 // ─── Blind judging and results (increment 3) ─────────────────────────────────
 

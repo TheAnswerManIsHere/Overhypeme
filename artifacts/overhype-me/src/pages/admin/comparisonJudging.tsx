@@ -25,10 +25,10 @@
  * broken.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { Link } from "wouter";
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Flag, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { readError } from "@/components/admin/EngineComparison";
+import { readError } from "@/components/admin/readError";
 import { COMPARISON_SCORE_MAX, COMPARISON_SCORE_MIN, JUDGING_CATEGORIES, type JudgingCategoryKey } from "@workspace/api-zod";
 
 type CategoryScores = Partial<Record<JudgingCategoryKey, number>>;
@@ -317,6 +317,19 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
     setIndex(nextToJudge(body.panels, index));
   };
 
+  // Finish (plan PLAN_EVAL_PAGE.md, D): once every judgeable panel is saved;
+  // the server checks again, then the results open.
+  const [, navigate] = useLocation();
+  const [finishing, setFinishing] = useState(false);
+  const finish = async () => {
+    setFinishing(true);
+    setError("");
+    const r = await fetch(`/api/admin/comparison/evaluations/${setId}/finish`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
+    setFinishing(false);
+    if (!r || !r.ok) { setError(r ? `Not finished: ${await readError(r)}` : "Not finished: the request failed."); return; }
+    navigate(`/admin/eval/results?sets=${setId}`);
+  };
+
   const go = (delta: number) => {
     if (!data || data.panels.length === 0) return;
     setIndex((i) => (i + delta + data.panels.length) % data.panels.length);
@@ -326,7 +339,7 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
     <AdminLayout title="Blind judging">
       <div className="space-y-4 max-w-6xl" data-testid="judging-page">
         <p className="text-xs text-muted-foreground">
-          <Link href="/admin/eval" className="text-primary underline">← Eval dashboard</Link>
+          <Link href="/admin/eval" className="text-primary underline">← Eval</Link>
           {" · "}{second
             ? "Score each picture 1 (worst) to 5 (best) on every category shown, pick the one you would send to a friend, and mark any that are broken. "
             : "Score how each picture looks, 1 (worst) to 5 (best); prompt fidelity is tuned after the winner is chosen. "}
@@ -346,6 +359,11 @@ export default function ComparisonJudging({ params }: { params: { setId: string 
                 {data.progress.skipped > 0 ? ` · ${data.progress.skipped} skipped, never judged` : ""}
                 {(data.progress.lost ?? 0) > 0 ? ` · ${data.progress.lost} lost every image for good` : ""}
               </p>
+              {data.progress.judgeable > 0 && data.progress.judged >= data.progress.judgeable && (
+                <button type="button" onClick={() => void finish()} disabled={finishing} data-testid="judging-finish" className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold rounded-sm bg-primary text-white hover:opacity-90 disabled:opacity-40">
+                  {finishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flag className="w-4 h-4" />} Finish
+                </button>
+              )}
             </div>
 
             {data.panels.length === 0 ? (

@@ -1,108 +1,148 @@
 /**
- * EvalDashboard — the /admin/eval page. AdminLayout is stubbed (it pulls auth +
- * wouter context); we test the dashboard content: golden set, runs, run N-vs-N-1
- * diff, opportunistic-separated-as-directional, and the cost-confirmed start-run
- * flow with per-item status.
+ * The Eval page (plan docs/plans/PLAN_EVAL_PAGE.md): two tabs kept in the URL;
+ * the models wizard from fact search to Generate Images, with step gating,
+ * the image count and cost and the over-50 warning; one Generate request with
+ * a token, safely repeatable; the evaluations list's statuses, retries, Judge
+ * results and Results, and its connection-lost state.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
-// The prompt tuner's wording editor has its own tests (PromptRecipes.test.tsx).
-vi.mock("@/components/admin/PromptRecipes", () => ({ PromptRecipes: () => null }));
+vi.mock("@/components/admin/PromptRecipes", () => ({ PromptRecipes: () => <div data-testid="recipes-stub" /> }));
 vi.mock("@/components/admin/AdminLayout", () => ({
   AdminLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
 import EvalDashboard from "./evalDashboard";
 
-const DASHBOARD = {
-  goldenFacts: [{ id: 11, text: "Fact eleven" }, { id: 12, text: "Fact twelve" }],
-  runs: [
-    { id: 2, label: "cur", createdAt: new Date().toISOString(), aggregate: { count: 2, ratedCount: 2, avgRating: 4.5, tagDistribution: { concept: 0, compiler: 0, image_model: 0, none: 1 } }, byFact: [{ factId: 11, signatures: [{ signatureKey: "k", signature: { scenarioKey: "generic_t2i", actualImageEngineId: "nano", subjectRenderMode: "t2i_fallback" }, attempts: [{ attemptId: 100, factId: 11, status: "image_ready", rating: 4, failureTag: null }] }] }] },
-    { id: 1, label: "prev", createdAt: new Date().toISOString(), aggregate: { count: 2, ratedCount: 2, avgRating: 3, tagDistribution: { concept: 1, compiler: 0, image_model: 0, none: 0 } }, byFact: [] },
-  ],
-  runDiff: { currentRunId: 2, previousRunId: 1, avgRatingDelta: 1.5, tagDeltas: [{ tag: "concept", current: 0, previous: 1, delta: -1 }] },
-  opportunistic: { count: 1, ratedCount: 1, avgRating: 1, tagDistribution: { concept: 0, compiler: 0, image_model: 1, none: 0 } },
-};
+type Json = Record<string, unknown>;
+let posts: Array<{ url: string; body: Json }> = [];
+let evaluations: Json[] = [];
+let estimate: Json = { panels: 2, images: 4, totalBoundUsd: 1.23, preparationBoundUsd: 0.5, renderBoundUsd: 0.73, warning: false, refusal: null };
+let listFails = false;
 
-function routeFetch(overrides: Record<string, unknown> = {}) {
-  return vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.includes("/eval/dashboard")) return { ok: true, json: async () => DASHBOARD } as unknown as Response;
-    if (url.endsWith("/eval/runs") && init?.method === "POST") return { ok: true, json: async () => ({ runId: 99, items: [] }) } as unknown as Response;
-    if (url.includes("/eval/runs/99")) return { ok: true, json: async () => (overrides.runStatus ?? { run: { id: 99, label: null }, items: [{ attemptId: 1, factId: 11, scenarioKey: "generic_t2i", status: "pending" }], tally: { total: 1, done: 0, failed: 0, blocked: 0, working: 1 } }) } as unknown as Response;
-    return { ok: true, json: async () => ({}) } as unknown as Response;
-  });
+const EVAL = (over: Json = {}): Json => ({
+  id: 7, description: "GPT vs Nano", createdAt: new Date().toISOString(), finishedAt: null, status: "ready",
+  images: 4, drawn: 4, inFlight: 0, failed: 0, lost: 0, skippedPanels: 0, judgeablePanels: 2, judgedPanels: 0, needsAction: [],
+  engineFamilies: ["gpt-image-2-6", "nano-banana-2-1"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none"], factCount: 2, round: 1, imageSize: "comparison",
+  ...over,
+});
+
+function respond(body: unknown, status = 200) {
+  return { ok: status < 400, status, json: async () => body } as unknown as Response;
 }
 
-beforeEach(() => { vi.stubGlobal("fetch", routeFetch()); });
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+beforeEach(() => {
+  posts = [];
+  evaluations = [];
+  listFails = false;
+  estimate = { panels: 2, images: 4, totalBoundUsd: 1.23, preparationBoundUsd: 0.5, renderBoundUsd: 0.73, warning: false, refusal: null };
+  window.history.replaceState(null, "", "/admin/eval");
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      const body = JSON.parse(String(init.body ?? "{}")) as Json;
+      posts.push({ url, body });
+      if (url.endsWith("/evaluations/estimate")) return respond(estimate);
+      if (url.endsWith("/evaluations")) return respond({ setId: 9, created: true }, 201);
+      return respond({});
+    }
+    if (url.includes("/eligible-facts")) {
+      const q = decodeURIComponent(url.split("q=")[1] ?? "");
+      const facts = [{ id: 11, text: "{NAME} lifts a mountain" }, { id: 12, text: "{NAME} outruns light" }].filter((f) => f.text.includes(q));
+      return respond({ facts, eligibleTotal: 2 });
+    }
+    if (url.includes("/comparison/evaluations")) return listFails ? respond({}, 503) : respond({ evaluations });
+    if (url.endsWith("/look-styles")) return respond([{ id: "anime", label: "Anime" }]);
+    if (url.endsWith("/prompt-recipes")) return respond({ families: [] });
+    return respond({}, 404);
+  }));
+});
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
-describe("EvalDashboard", () => {
-  it("renders the golden set, runs, the run N-vs-N-1 diff, and opportunistic (directional)", async () => {
+const next = () => fireEvent.click(screen.getByTestId("wizard-next"));
+
+describe("the Eval page", () => {
+  it("shows two tabs, kept in the URL, with the wording editor only under Evaluate Prompts", async () => {
     render(<EvalDashboard />);
-    await waitFor(() => expect(screen.getByTestId("eval-golden-list")).toBeTruthy());
-    expect(screen.getByText("Fact eleven")).toBeTruthy();
-    expect(screen.getByText("Fact twelve")).toBeTruthy();
-    // Two runs render.
-    expect(screen.getAllByTestId("eval-run").length).toBe(2);
-    // Run diff renders with the +1.50 avg delta.
-    const diff = screen.getByTestId("eval-run-diff");
-    expect(diff.textContent).toMatch(/\+1\.50/);
-    // Opportunistic is separated + labeled directional.
-    const opp = screen.getByTestId("eval-opportunistic");
-    expect(opp.textContent?.toLowerCase()).toMatch(/directional only/);
-    // An image_ready eval attempt shows its render (via the admin eval image
-    // route) so ratings are informed, not blind.
-    const img = screen.getByTestId("eval-attempt-image") as HTMLImageElement;
-    expect(img.getAttribute("src")).toBe("/api/admin/eval/attempts/100/image");
+    expect(screen.getByTestId("eval-tab-models").getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByTestId("eval-wording-editor")).toBeNull();
+    fireEvent.click(screen.getByTestId("eval-tab-prompts"));
+    expect(window.location.search).toBe("?tab=prompts");
+    expect(screen.getByTestId("eval-wording-editor")).toBeTruthy();
+    expect(screen.getByTestId("wizard-prompt")).toBeTruthy();
   });
 
-  it("Start eval run shows a cost confirmation, then posts and shows per-item status", async () => {
-    const fetchFn = routeFetch();
-    vi.stubGlobal("fetch", fetchFn);
+  it("walks the models wizard: search and add facts, tick engines, photo types and looks, see the count and cost, generate once", async () => {
     render(<EvalDashboard />);
-    await waitFor(() => expect(screen.getByTestId("eval-golden-list")).toBeTruthy());
-
-    fireEvent.click(screen.getByTestId("eval-start-run"));
-    const confirm = screen.getByTestId("eval-run-confirm");
-    expect(confirm.textContent).toMatch(/real image-model spend/i);
-    expect(confirm.textContent).toMatch(/every golden fact \(2\)/i);
-
-    await act(async () => { fireEvent.click(screen.getByTestId("eval-run-confirm-yes")); });
-    // POST /eval/runs happened.
-    expect(fetchFn.mock.calls.some((c) => String(c[0]).endsWith("/eval/runs") && (c[1] as RequestInit)?.method === "POST")).toBe(true);
-    // The active-run per-item status panel appears.
-    await waitFor(() => expect(screen.getByTestId("eval-active-run")).toBeTruthy());
+    expect((screen.getByTestId("wizard-next") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("wizard-fact-search"), { target: { value: "mountain" } });
+    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    expect(screen.getByTestId("wizard-chosen-facts").textContent).toMatch(/#11/);
+    expect(screen.getByTestId("wizard-fact-total").textContent).toMatch(/2 facts are ready/);
+    next();
+    expect((screen.getByTestId("wizard-next") as HTMLButtonElement).disabled).toBe(true); // no engine yet
+    fireEvent.click(screen.getByTestId("wizard-engine-gpt-image-2-6"));
+    fireEvent.click(screen.getByTestId("wizard-engine-nano-banana-2-1"));
+    next();
+    expect((screen.getByTestId("wizard-photo-i2i_male_default") as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByText(/Female|Non-binary/)).toBeNull();
+    next();
+    fireEvent.click(await screen.findByTestId("wizard-look-anime"));
+    next();
+    fireEvent.change(screen.getByTestId("wizard-description"), { target: { value: "GPT vs Nano" } });
+    expect((await screen.findByTestId("wizard-count")).textContent).toMatch(/1 fact × 2 engines × 1 photo type × 2 looks = 4 images, at most \$1\.23/);
+    const est = posts.find((p) => p.url.endsWith("/estimate"))!;
+    expect(est.body).toEqual({ kind: "engine", factIds: [11], engineFamilies: ["gpt-image-2-6", "nano-banana-2-1"], scenarioKeys: ["i2i_male_default"], lookStyleIds: ["none", "anime"] });
+    fireEvent.click(screen.getByTestId("wizard-generate"));
+    await waitFor(() => expect(posts.some((p) => p.url.endsWith("/comparison/evaluations"))).toBe(true));
+    const gen = posts.find((p) => p.url.endsWith("/comparison/evaluations"))!;
+    expect(gen.body.description).toBe("GPT vs Nano");
+    expect(typeof gen.body.requestToken).toBe("string");
+    expect(gen.body.selection).toEqual(est.body);
   });
 
-  it("stops polling once the run reaches a terminal state (no infinite loop)", async () => {
-    const fetchFn = routeFetch({
-      runStatus: {
-        run: { id: 99, label: null },
-        items: [{ attemptId: 1, factId: 11, scenarioKey: "generic_t2i", status: "image_ready" }],
-        tally: { total: 1, done: 1, failed: 0, blocked: 0, working: 0 },
-      },
-    });
-    vi.stubGlobal("fetch", fetchFn);
+  it("warns above fifty images", async () => {
+    estimate = { ...estimate, images: 120, warning: true };
     render(<EvalDashboard />);
-    await waitFor(() => expect(screen.getByTestId("eval-golden-list")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("eval-start-run"));
-    await act(async () => { fireEvent.click(screen.getByTestId("eval-run-confirm-yes")); });
-    await waitFor(() => expect(screen.getByTestId("eval-active-run")).toBeTruthy());
-    const statusCalls = () => fetchFn.mock.calls.filter((c) => String(c[0]).includes("/eval/runs/99")).length;
-    const settled = statusCalls();
-    // Wait well past the 1.5s poll interval; a terminal run must NOT keep polling.
-    await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
-    expect(statusCalls()).toBe(settled);
+    fireEvent.click(await screen.findByTestId("wizard-fact-11"));
+    next();
+    fireEvent.click(screen.getByTestId("wizard-engine-muse-image"));
+    next(); next(); next();
+    expect((await screen.findByTestId("wizard-warning")).textContent).toMatch(/120 images/);
   });
 
-  it("disables Start when there are no golden facts", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      if (url.includes("/eval/dashboard")) return { ok: true, json: async () => ({ ...DASHBOARD, goldenFacts: [] }) } as unknown as Response;
-      return { ok: true, json: async () => ({}) } as unknown as Response;
-    }));
+  it("lists evaluations with Judge results, Results, and each failure's retry", async () => {
+    evaluations = [
+      EVAL({ id: 7, status: "ready" }),
+      EVAL({ id: 8, description: "With a failure", status: "needs_action", needsAction: [
+        { panelId: 3, cellId: null, action: "retry_scene", costs: true, reason: "planner failed: down" },
+        { panelId: 4, cellId: 40, action: "retry_storage", costs: false, reason: "storage failed" },
+      ] }),
+      EVAL({ id: 9, status: "finished", finishedAt: new Date().toISOString(), judgedPanels: 2 }),
+    ];
     render(<EvalDashboard />);
-    await waitFor(() => expect(screen.getByTestId("eval-golden-empty")).toBeTruthy());
-    expect((screen.getByTestId("eval-start-run") as HTMLButtonElement).disabled).toBe(true);
+    expect((await screen.findByTestId("evaluation-judge-7")).getAttribute("href")).toBe("/admin/eval/judge/7");
+    expect(screen.getByTestId("evaluation-status-8").textContent).toMatch(/Needs action: 2 to retry/);
+    expect(screen.getByTestId("evaluation-retry-retry_storage:40").textContent).toMatch(/Retry storage \(free\)/);
+    fireEvent.click(screen.getByTestId("evaluation-retry-retry_scene:3"));
+    await waitFor(() => expect(posts.some((p) => p.url.endsWith("/panels/3/reprepare"))).toBe(true));
+    expect(screen.getByTestId("evaluation-results-9").getAttribute("href")).toBe("/admin/eval/results?sets=9");
+    expect(screen.queryByTestId("evaluation-judge-9")).toBeNull();
+  });
+
+  it("polls while generating and says the connection is lost rather than that the server stopped", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    evaluations = [EVAL({ status: "generating", drawn: 1 })];
+    render(<EvalDashboard />);
+    expect((await screen.findByTestId("evaluation-status-7")).textContent).toMatch(/Generating: 1 of 4/);
+    listFails = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+    expect((await screen.findByTestId("evaluations-connection-lost")).textContent).toMatch(/Connection lost/);
+    expect(screen.getByTestId("evaluation-status-7").textContent).toMatch(/Generating/); // last known status kept
+    listFails = false;
+    evaluations = [EVAL({ status: "ready" })];
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+    await waitFor(() => expect(screen.queryByTestId("evaluations-connection-lost")).toBeNull());
+    expect(screen.getByTestId("evaluation-status-7").textContent).toMatch(/Ready to judge/);
   });
 });
