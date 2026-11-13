@@ -24,6 +24,7 @@ import { SEEDREAM_5_PRO, SEEDREAM_5_PRO_EDIT } from "./seedream-5-pro";
 import { MUSE_IMAGE, MUSE_IMAGE_EDIT } from "./muse-image";
 import { OPENAI_VISUAL_PLANNER } from "./openai-visual-planner";
 import { OPENAI_ENRICHER } from "./openai-enricher";
+import { OPENAI_GAG_WRITER } from "./openai-gag-writer";
 
 /**
  * Code-first engine catalogue. To add a new engine: drop a new file in this
@@ -57,4 +58,5 @@ export const ALL_ENGINES: EngineDefinition[] = [
   OPENAI_GENERAL,
   OPENAI_VISUAL_PLANNER,
   OPENAI_ENRICHER,
+  OPENAI_GAG_WRITER,
 ];
