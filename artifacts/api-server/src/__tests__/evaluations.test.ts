@@ -337,6 +337,46 @@ describe("statuses and Finish", () => {
     assert.equal(s.status, "ready");
   });
 
+  it("a retry starts only its own work, within the figure its button showed; Resume still holds the rest (PR #932 round 1)", async () => {
+    failPlanner = true;
+    const out = await createEvaluation(generate("retry-scope"), adminId);
+    await drainAll();
+    let r = await rows(out.setId);
+    const [failed, other] = r.panels;
+    assert.ok(failed && other && r.panels.every((p) => p.state === "failed"));
+    // The other scene becomes work no run holds: pending, its pictures expected.
+    await db.update(comparisonPanelsTable).set({ state: "pending", error: null }).where(eq(comparisonPanelsTable.id, other.id));
+    failPlanner = false;
+
+    let s = await summary(out.setId);
+    const retry = s.needsAction.find((a) => a.action === "retry_scene" && a.panelId === failed.id)!;
+    const resume = s.needsAction.find((a) => a.action === "resume")!;
+    assert.ok(retry.boundUsd != null && resume.boundUsd != null);
+
+    const res = await request(app()).post(`/api/admin/comparison/panels/${failed.id}/reprepare`).send({});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.startError, null);
+    r = await rows(out.setId);
+    assert.equal(r.panels.find((p) => p.id === other.id)!.state, "pending", "the other scene was not started");
+    assert.ok(r.cells.filter((c) => c.panelId === other.id).every((c) => c.state === "expected"), "nor its pictures");
+    const runs = await db.select().from(comparisonRunsTable).where(eq(comparisonRunsTable.setId, out.setId));
+    const latest = runs.sort((a, b) => b.id - a.id)[0]!;
+    assert.ok(Number(latest.boundUsd) <= retry.boundUsd! + 1e-9, `run bound ${latest.boundUsd} is within the shown ${retry.boundUsd}`);
+    const held = await db.select().from(comparisonReservationsTable).where(eq(comparisonReservationsTable.runId, latest.id));
+    const otherCells = new Set(r.cells.filter((c) => c.panelId === other.id).map((c) => c.id));
+    assert.ok(held.every((h) => h.panelId !== other.id && !otherCells.has(h.cellId ?? -1)), "no reservation for the other scene's work");
+
+    await drainAll();
+    s = await summary(out.setId);
+    const after = s.needsAction.find((a) => a.action === "resume")!;
+    assert.equal(after.boundUsd, resume.boundUsd, "Resume shows the same figure for the work it still holds");
+    const go = await request(app()).post(`/api/admin/comparison/evaluations/${out.setId}/resume`).send({});
+    assert.equal(go.body.started, true);
+    await drainAll();
+    r = await rows(out.setId);
+    assert.ok(r.cells.every((c) => c.state === "rendered"), "Resume drew the rest, once");
+  });
+
   it("two overlapping Generate requests with one token make one evaluation and both succeed", async () => {
     const token = randomUUID();
     const [a, b] = await Promise.all([createEvaluation(generate("race", token), adminId), createEvaluation(generate("race", token), adminId)]);

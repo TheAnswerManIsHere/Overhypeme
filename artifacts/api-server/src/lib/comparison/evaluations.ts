@@ -32,7 +32,7 @@ import {
 } from "@workspace/api-zod";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
 import { cellBoundUsd, panelPreparationBoundUsd, panelPreparationTypicalUsd, round4 } from "./admission";
-import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings } from "./sets";
+import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings, type RunScope } from "./sets";
 import { ComparisonRunRefused, startComparisonRun } from "./runs";
 import { cellLost, isJudgeable, panelWait } from "./judging";
 
@@ -442,5 +442,20 @@ export async function finishEvaluation(setId: number): Promise<EvaluationProgres
  */
 export async function resumeEvaluation(setId: number, adminUserId: string | null): Promise<{ started: boolean }> {
   return { started: await startOutstanding(setId, adminUserId) };
+}
+
+/**
+ * The second half of Retry scene / Retry picture: start exactly that retry's
+ * work, the amount its button showed (PR #932 round 1). Other unstarted work
+ * in the set is left for Resume generation.
+ */
+export async function startRetry(setId: number, scope: RunScope, adminUserId: string | null): Promise<{ started: boolean }> {
+  try {
+    await startComparisonRun(setId, { kind: "full" }, adminUserId, scope);
+    return { started: true };
+  } catch (err) {
+    if (err instanceof ComparisonRunRefused && err.refusal === "nothing left to do") return { started: false };
+    throw err;
+  }
 }
 

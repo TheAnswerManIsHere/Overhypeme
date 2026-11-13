@@ -77,7 +77,7 @@ import { blindToken } from "./blindToken";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
-import { loadSetRows, runItems } from "./sets";
+import { loadSetRows, runItems, type RunScope } from "./sets";
 import { awaitResult, comparisonFal } from "./transport";
 
 export const COMPARISON_PREPARE_QUEUE = "comparison_prepare";
@@ -126,6 +126,8 @@ export async function startComparisonRun(
   setId: number,
   req: ComparisonRunPlanRequest,
   adminUserId: string | null,
+  /** Limit a "full" run to one retry's own work. */
+  scope?: RunScope,
 ): Promise<{ run: ComparisonRun; plan: RunPlan } | null> {
   const ci = paidDispatchRefusal();
   if (ci) throw new ComparisonRunRefused(ci, null, null);
@@ -134,7 +136,7 @@ export async function startComparisonRun(
     await tx.execute(ADMISSION_LOCK);
     const rows = await loadSetRows(setId, tx);
     if (!rows) return null;
-    const plan = planRun(await runItems(req.kind, rows));
+    const plan = planRun(await runItems(req.kind, rows, scope));
     const base = { setId, kind: req.kind, createdBy: adminUserId };
     if (!plan.admitted) {
       const [run] = await tx.insert(comparisonRunsTable).values({ ...base, state: "refused", boundUsd: "0", refusal: plan.refusal, endedAt: new Date() }).returning();
