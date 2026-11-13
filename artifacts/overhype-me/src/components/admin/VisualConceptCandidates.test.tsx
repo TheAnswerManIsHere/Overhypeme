@@ -215,6 +215,30 @@ describe("the joke read and the humor note (PLAN_GAG_GENERATOR.md E)", () => {
     expect((screen.getByTestId("humor-note-input") as HTMLTextAreaElement).value).toBe("Half-typed correction");
   });
 
+  it("a typed first-note correction survives Regenerate: ok → pending → ok, and ok → pending → failed", () => {
+    for (const end of [withRead({ jokeRead: "A newer read." }), { status: "failed", candidates: [], current: false, humorNote: null } as VisualConceptsResponse]) {
+      const save = vi.fn(async () => null);
+      const { rerender, unmount } = render(<VisualConceptCandidates visualConcepts={withRead()} onPick={vi.fn()} onGenerate={noop} onSaveNote={save} />);
+      fireEvent.click(screen.getByTestId("joke-read-edit"));
+      fireEvent.change(screen.getByTestId("humor-note-input"), { target: { value: "Half-typed correction" } });
+      rerender(<VisualConceptCandidates visualConcepts={{ status: "pending", candidates: [], current: false, humorNote: null }} onPick={vi.fn()} onGenerate={noop} onSaveNote={save} />);
+      expect((screen.getByTestId("humor-note-input") as HTMLTextAreaElement).value).toBe("Half-typed correction");
+      rerender(<VisualConceptCandidates visualConcepts={end} onPick={vi.fn()} onGenerate={noop} onSaveNote={save} />);
+      expect((screen.getByTestId("humor-note-input") as HTMLTextAreaElement).value).toBe("Half-typed correction");
+      expect(save).not.toHaveBeenCalled();
+      unmount();
+    }
+  });
+
+  it("a note can be written before any generation has succeeded", async () => {
+    const save = vi.fn(async () => null);
+    render(<VisualConceptCandidates visualConcepts={{ status: null, candidates: [], current: false, humorNote: null } as unknown as VisualConceptsResponse} onPick={vi.fn()} onGenerate={noop} onSaveNote={save} />);
+    fireEvent.click(screen.getByTestId("humor-note-write"));
+    fireEvent.change(screen.getByTestId("humor-note-input"), { target: { value: "Written by hand." } });
+    await act(async () => { fireEvent.click(screen.getByTestId("humor-note-save")); });
+    expect(save).toHaveBeenCalledWith("Written by hand.");
+  });
+
   it("an approved note shows as approved, with the latest read beside it when it differs", () => {
     render(<VisualConceptCandidates
       visualConcepts={withRead({ humorNote: { text: "The approved reading.", approvedBy: "u1", approvedAt: new Date().toISOString() }, jokeRead: "The approved reading, but note the second sentence." })}

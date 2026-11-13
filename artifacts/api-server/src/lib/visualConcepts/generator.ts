@@ -273,10 +273,17 @@ function conversionProblem(original: string, converted: { template: string; gram
 }
 
 /**
+ * What a text that could not be converted becomes: one short invalid token,
+ * shorter than every length cap, so the whole response still validates and
+ * only that gag is stored unpickable (token validation names the token). The
+ * reason goes to the log, never into the capped text. It is never stored
+ * naming "Alex".
+ */
+export const CONVERSION_FAILED_MARKER = "{CONVERSION_FAILED}";
+
+/**
  * Convert each scene and each bubble line from the stand-in name to a token
- * template. A text that cannot be converted is replaced by one that fails
- * token validation with the reason, so its gag is stored as unpickable and
- * shows why; it is never stored naming "Alex".
+ * template; a text that cannot be converted becomes CONVERSION_FAILED_MARKER.
  */
 export async function convertStandInName(wire: CandidateConceptsWire, tokenize: TokenizeFn = defaultTokenize): Promise<CandidateConceptsWire> {
   // A scene always names the subject, so it always converts. A bubble line
@@ -292,11 +299,12 @@ export async function convertStandInName(wire: CandidateConceptsWire, tokenize: 
     try {
       const out = await tokenize(textIn);
       const problem = conversionProblem(textIn, out, needsSubject);
-      if (problem) return `{CONVERSION_FAILED} ${problem}: ${textIn}`;
-      return out.template;
+      if (!problem) return out.template;
+      logger.warn({ problem, text: textIn }, "[visualConcepts.generator] the stand-in name could not be converted");
     } catch (err) {
-      return `{CONVERSION_FAILED} the tokenizer failed (${err instanceof Error ? err.message : String(err)}): ${textIn}`;
+      logger.warn({ err, text: textIn }, "[visualConcepts.generator] the tokenizer failed on a gag line");
     }
+    return CONVERSION_FAILED_MARKER;
   };
   const concepts = await Promise.all(wire.concepts.map(async (c) => ({
     ...c,

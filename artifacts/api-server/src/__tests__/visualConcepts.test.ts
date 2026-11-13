@@ -406,6 +406,28 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
     assert.ok(out.candidates.slice(1).every(isCandidateConceptPickable));
   });
 
+  it("a bubble line that fails conversion leaves the other gags usable, whatever the failure and however long the line", async () => {
+    // Codex, PR #936 round 2: the failure text used to carry its diagnostic,
+    // so a 45-character line grew past the 80-character bubble cap and the
+    // whole response was refused. Each failure kind, at the longest legal line.
+    const long = "Alex just lifted the whole bus with one hand, and they barely noticed!".slice(0, 80);
+    const kinds: Array<(t: string) => Promise<{ template: string }>> = [
+      async (t) => ({ template: t }), // unchanged
+      async () => ({ template: "" }), // empty
+      async () => { throw new Error("grammar engine unavailable: ".repeat(10)); }, // thrown
+    ];
+    for (const fail of kinds) {
+      const tokenize = async (t: string) => (t === long ? fail(t) : { template: t.replace(/\bAlex\b/g, "{NAME}") });
+      const withBubble = { ...alex("Alex waves."), bubbles: [{ type: "speech", entity: "a bystander", text: long }] };
+      const model = async () => JSON.stringify({ jokeRead: "R", concepts: [withBubble, alex("Alex lifts a bus."), alex("Alex reads.")] });
+      const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+      assert.equal(out.candidates.length, 3);
+      assert.equal(isCandidateConceptPickable(out.candidates[0]!), false);
+      assert.equal(out.candidates[0]!.bubbles[0]!.text.includes("Alex"), false, "never stored naming Alex");
+      assert.ok(out.candidates.slice(1).every(isCandidateConceptPickable));
+    }
+  });
+
   it("a scene that never names the subject is not pickable", async () => {
     const tokenize = async (t: string) => ({ template: t });
     const model = async () => JSON.stringify({ jokeRead: "R", concepts: [alex("A bus floats."), alex("Alex lifts a bus."), alex("Alex reads.")] });

@@ -304,7 +304,10 @@ export function VisualConceptCandidates({
         </p>
       )}
 
-      {onSaveNote && (status === "ok" || visualConcepts?.humorNote) && (
+      {/* Mounted whenever a note can be saved, whatever the generation status,
+          so a correction being typed survives Regenerate (pending → ok/failed)
+          and a note can be written before any generation has succeeded. */}
+      {onSaveNote && (
         <HumorNoteCard
           jokeRead={status === "ok" ? visualConcepts?.jokeRead : undefined}
           humorNote={visualConcepts?.humorNote ?? null}

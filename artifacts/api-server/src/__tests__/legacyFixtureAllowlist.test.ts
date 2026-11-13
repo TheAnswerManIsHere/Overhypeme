@@ -160,6 +160,22 @@ describe("the scrub primitives", () => {
     assert.equal(SHAPES.factEnrichment.validate!(ok, {}), null, "an accepted label stays accepted");
   });
 
+  it("scrubs a humor note to the same placeholder as an equal joke read in its gags' blob, so freshness survives (Codex, PR #936 round 2)", () => {
+    const facts = includedTables().find((t) => sqlName(t.table) === "facts")!;
+    const rules = facts.columns as Record<string, unknown>;
+    assert.equal(rules.humorNote, "prose");
+    const read = "A revolving door cannot be slammed; Alex slams one anyway.";
+    const blob = {
+      candidates: [], generatedAt: "2026-11-13T00:00:00Z", inputHash: "h", reviewId: 1, candidateVersionId: null, source: "staging_fact",
+      provenance: { engineId: "openai-gag-writer", model: "gpt-6-astra", reasoningEffort: "high", timeoutMs: 1, promptVersion: 3 },
+      jokeRead: read, humorNoteUsed: "The note it was written under.",
+    };
+    const out = SHAPES.visualConceptCandidatesBlob.transform(blob, ctx(), {}) as { jokeRead: string; humorNoteUsed: string };
+    assert.equal(scrubber.prose(read), out.jokeRead, "a note equal to the joke read stays equal to it");
+    assert.equal(scrubber.prose("The note it was written under."), out.humorNoteUsed, "and to the note the gags were written under");
+    assert.notEqual(scrubber.prose("A different note."), out.jokeRead, "a different note stays different");
+  });
+
   it("stops on a key the shape does not describe, naming the path and never the value", () => {
     const e = { ...buildPlaceholderFactEnrichment("x"), zqxUnknownField: "zqx private value" };
     assert.throws(

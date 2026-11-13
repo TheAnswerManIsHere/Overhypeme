@@ -127,6 +127,9 @@ export async function evaluatePredicates(): Promise<PredicateRecord> {
       candidateVersionId: pendingReviewsTable.candidateVersionId,
       visualConceptStatus: factsTable.visualConceptStatus,
       visualConceptCandidates: factsTable.visualConceptCandidates,
+      humorNote: factsTable.humorNote,
+      humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
+      humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
     })
     .from(pendingReviewsTable)
     .innerJoin(factsTable, eq(factsTable.id, pendingReviewsTable.stagingFactId))
@@ -137,6 +140,9 @@ export async function evaluatePredicates(): Promise<PredicateRecord> {
       candidateVersionId: r.candidateVersionId ?? null,
       visualConceptStatus: r.visualConceptStatus ?? null,
       visualConceptCandidates: r.visualConceptCandidates,
+      humorNote: r.humorNote,
+      humorNoteApprovedBy: r.humorNoteApprovedBy,
+      humorNoteApprovedAt: r.humorNoteApprovedAt,
     });
     out.conceptBlobs[String(r.id)] = { current: resp.current, staleReason: (resp as { staleReason?: string }).staleReason ?? null };
   }
