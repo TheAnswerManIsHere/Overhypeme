@@ -115,7 +115,15 @@ the mandatory live check had no recorded command for close-out to run).
    device can do — and it says which, in its `**Judgement:**` line. Everything else
    is `ci`, `scripted`, `live` or `capture`, and **the check it cites is
    written in this same PR**, so the UAT he runs is the human residue and
-   nothing more. `capture` is for an answer only pixels hold — the words
+   nothing more. **Each machine check runs once, in the lifecycle, so `/uat`
+   never repeats it** (David, 2026-11-13; the `uat` skill, section 3): a
+   `ci` check runs in the required gate; a `scripted` proof runs before the
+   merge, at the head that merges, and its output is recorded on the PR —
+   a comment naming the step, the command, the commit and what it printed,
+   posted at close-out's step 8 (`pr-watch`) so a review fix cannot leave it
+   on a superseded head — or `/uat` has to run it after all; and a `live` step's check is also a
+   step of this PR's *Post-merge verification* section, so close-out runs
+   it before the workstream reaches `stage:uat`. `capture` is for an answer only pixels hold — the words
    the product draws onto an image, a canvas preview, the verifiable facts
    of a real AI render (a bubble appears and reads a given text; never
    likeness, scene, humour, quality, whether it shows a person or any
@@ -145,8 +153,9 @@ the mandatory live check had no recorded command for close-out to run).
    it writes the check and, in every merged PR's `## UAT` section that
    defers to #N, replaces the `**Deferred:**` line with the runnable
    `**Check:**` — an edit of that PR's body (`update_pull_request`), said
-   on #N; the guard cannot see an edit to a merged body, which is why the
-   resumed `/uat` runs the check rather than trusting the line. A legacy doc
+   on #N; the guard cannot see an edit to a merged body and this PR's gate
+   never ran the check, which is why the resumed `/uat` runs it rather than
+   settling it at this PR's merge (the `uat` skill, section 3). A legacy doc
    gets the same edit in its file.
    The deferred step is **never** turned into a `human` step to get past
    the wait: David's share is judgement only. Such a run is Blocked until #N
