@@ -413,3 +413,28 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
     assert.equal(isCandidateConceptPickable(out.candidates[0]!), false);
   });
 });
+
+describe("bubble lines convert when they refer to the subject (PR #936 round 1)", () => {
+  const scene = (bubbles: unknown[]) => ({ title: "T", whyItWorks: "W", sceneDescription: "Alex stands in the square.", bubbles });
+
+  it("a supporting character's pronoun-only line about the subject is converted; unrelated and hero-spoken lines stay exact", async () => {
+    const calls: string[] = [];
+    const tokenize = async (t: string) => {
+      calls.push(t);
+      return { template: t.replace(/\bAlex\b/g, "{NAME}").replace(/^Their\b/, "{Poss}") };
+    };
+    const model = async () => JSON.stringify({ jokeRead: "R", concepts: [
+      scene([{ type: "speech", entity: "the coach", text: "Their strength is impossible!" }]),
+      scene([{ type: "speech", entity: "the coach", text: "Nobody lifts a bus." }]),
+      scene([{ type: "speech", entity: "subject", text: "I heard that, and yes, they're real." }]),
+    ] });
+    const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+    assert.equal(out.candidates[0]!.bubbles[0]!.text, "{Poss} strength is impossible!");
+    assert.equal(out.candidates[1]!.bubbles[0]!.text, "Nobody lifts a bus.");
+    assert.equal(out.candidates[2]!.bubbles[0]!.text, "I heard that, and yes, they're real.");
+    assert.ok(calls.includes("Their strength is impossible!"));
+    assert.ok(!calls.includes("Nobody lifts a bus."), "no tokenizer call for a line with no subject reference");
+    assert.ok(!calls.includes("I heard that, and yes, they're real."), "no tokenizer call for the hero's own line without the name");
+    assert.ok(out.candidates.every(isCandidateConceptPickable));
+  });
+});

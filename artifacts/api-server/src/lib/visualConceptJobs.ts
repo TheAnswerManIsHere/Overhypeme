@@ -14,7 +14,9 @@
  * Lifecycle of `facts.visual_concept_status`:
  *   "pending"  — set by the enqueuer; the job is queued or retrying ("working").
  *   "ok"       — set by the handler when candidates land.
- *   "failed"   — set ONLY by onAbandon after the queue exhausts retries.
+ *   "failed"   — set by onAbandon after the queue exhausts retries, and by the
+ *                handler itself on a terminal failure (an unusable gag-writer
+ *                engine), which the worker never passes to onAbandon.
  *
  * COST GUARD: concepts are only useful while the review is unresolved. If the
  * review is missing / resolved (approved/rejected) by the time the job runs, the
@@ -246,9 +248,14 @@ export async function runVisualConceptsJob(
     });
   } catch (err) {
     // An unusable engine is a configuration fault: fail at once (no fallback
-    // model, no ten hours of retries). Anything else keeps the queue's retries;
-    // status stays "pending" (still running) and "failed" is onAbandon-only.
-    if (err instanceof VisualConceptsEngineUnusable) return terminalFailure("gag_writer_engine_unusable", err.message);
+    // model, no ten hours of retries). The worker does not call onAbandon for a
+    // terminal failure, so the handler writes "failed" itself; otherwise the
+    // fact would stay "pending" with Regenerate and approval refusing it.
+    // Anything else keeps the queue's retries with status "pending".
+    if (err instanceof VisualConceptsEngineUnusable) {
+      await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(eq(factsTable.id, factId));
+      return terminalFailure("gag_writer_engine_unusable", err.message);
+    }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 

@@ -485,7 +485,8 @@ describe("the gag writer has no fallback model", () => {
   it("an unusable engine fails the job at once, and the review response still loads with the reason", async () => {
     const { reviewId, factId } = await seedReview(adminId, "concept_review");
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
-    await db.update(factsTable).set({ humorNote: "Saved." }).where(eq(factsTable.id, factId));
+    // As an enqueue leaves it: pending, with the earlier ideas and a saved note.
+    await db.update(factsTable).set({ humorNote: "Saved.", visualConceptStatus: "pending" }).where(eq(factsTable.id, factId));
     const [prev] = await db.select({ value: adminConfigTable.value }).from(adminConfigTable).where(eq(adminConfigTable.key, "fact_visual_concepts_engine_id"));
     await db.insert(adminConfigTable).values({ key: "fact_visual_concepts_engine_id", value: "no-such-engine", dataType: "string", label: "x", description: "x", isPublic: false } as never)
       .onConflictDoUpdate({ target: adminConfigTable.key, set: { value: "no-such-engine" } });
@@ -499,8 +500,8 @@ describe("the gag writer has no fallback model", () => {
         assert.equal((res as { retryable?: boolean }).retryable, false, "a configuration fault is terminal");
         assert.match(res.error, /no-such-engine/);
       }
-      await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(eq(factsTable.id, factId));
       const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
+      assert.equal(row!.visualConceptStatus, "failed", "the handler itself marks the fact failed (no onAbandon on a terminal failure)");
       const r = await buildVisualConceptsResponse({
         id: reviewId, candidateVersionId: null, visualConceptStatus: row!.visualConceptStatus, visualConceptCandidates: row!.visualConceptCandidates,
         humorNote: row!.humorNote, humorNoteApprovedBy: row!.humorNoteApprovedBy, humorNoteApprovedAt: row!.humorNoteApprovedAt,
@@ -508,6 +509,17 @@ describe("the gag writer has no fallback model", () => {
       assert.equal(r.candidates.length, 3, "the stored ideas still load");
       assert.equal(r.humorNote?.text, "Saved.");
       assert.match(r.failureReason ?? "", /no-such-engine/);
+
+      // Repair the configuration: Regenerate is accepted, and a run succeeds.
+      await db.update(adminConfigTable).set({ value: prev?.value ?? "openai-gag-writer" }).where(eq(adminConfigTable.key, "fact_visual_concepts_engine_id"));
+      bustConfigCache();
+      const regen = await request(makeApp()).post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`).set("authorization", `Bearer ${adminSid}`).send({});
+      assert.equal(regen.status, 202, JSON.stringify(regen.body));
+      const again = await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "After repair.") });
+      assert.equal(again.ok, true);
+      const [after] = await db.select({ status: factsTable.visualConceptStatus, note: factsTable.humorNote }).from(factsTable).where(eq(factsTable.id, factId));
+      assert.equal(after!.status, "ok");
+      assert.equal(after!.note, "Saved.", "the approved note survives the failure and the recovery");
     } finally {
       await db.update(adminConfigTable).set({ value: prev?.value ?? "openai-gag-writer" }).where(eq(adminConfigTable.key, "fact_visual_concepts_engine_id"));
       bustConfigCache();

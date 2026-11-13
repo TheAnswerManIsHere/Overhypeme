@@ -42,7 +42,7 @@ import { validateVisualStrategyOverridePersistence } from "../imagePrompt/prompt
 import { callUtilityLLM } from "../utilityLLM";
 import { isMaterialCulturalReference } from "../imagePrompt/generator";
 import { renderPersonalized, stripSubjectNameSemanticEntities } from "../renderCanonical";
-import { tokenizePlainTextToTemplate } from "../factTokenizer";
+import { hasNoLikelySubjectReference, tokenizePlainTextToTemplate } from "../factTokenizer";
 import { getVisualConceptsSystem, getVisualConceptsEngineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID } from "../visualConceptsConfig";
 import { loadEngine } from "../engineInterpreter";
 import { logger } from "../logger";
@@ -279,8 +279,16 @@ function conversionProblem(original: string, converted: { template: string; gram
  * shows why; it is never stored naming "Alex".
  */
 export async function convertStandInName(wire: CandidateConceptsWire, tokenize: TokenizeFn = defaultTokenize): Promise<CandidateConceptsWire> {
-  const convert = async (textIn: string, needsSubject: boolean): Promise<string> => {
-    if (!STAND_IN_RE.test(textIn) && !needsSubject) return textIn;
+  // A scene always names the subject, so it always converts. A bubble line
+  // converts when it refers to the subject: by name, or by a pronoun (the
+  // tokenizer's own shared predicate). A line the subject speaks without
+  // naming "Alex" stays exact: a third-person pronoun in the hero's own line
+  // means someone else ("I heard that, and yes, they're real.").
+  const convert = async (textIn: string, needsSubject: boolean, spokenBySubject = false): Promise<string> => {
+    if (!needsSubject) {
+      if (spokenBySubject && !STAND_IN_RE.test(textIn)) return textIn;
+      if (hasNoLikelySubjectReference(textIn, [STAND_IN_NAME])) return textIn;
+    }
     try {
       const out = await tokenize(textIn);
       const problem = conversionProblem(textIn, out, needsSubject);
@@ -293,7 +301,7 @@ export async function convertStandInName(wire: CandidateConceptsWire, tokenize: 
   const concepts = await Promise.all(wire.concepts.map(async (c) => ({
     ...c,
     sceneDescription: await convert(c.sceneDescription, true),
-    bubbles: await Promise.all(c.bubbles.map(async (b) => ({ ...b, text: await convert(b.text, false) }))),
+    bubbles: await Promise.all(c.bubbles.map(async (b) => ({ ...b, text: await convert(b.text, false, b.entity.trim().toLowerCase() === "subject") }))),
   })));
   return { ...wire, concepts };
 }
