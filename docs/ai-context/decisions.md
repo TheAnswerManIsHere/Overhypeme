@@ -13,6 +13,13 @@
 
 ---
 
+### 2026-11-13 · The gag writer runs on GPT-6 Astra with a locked prompt, a per-fact humor note, and no fallback model
+- **Decision:** candidate visual gags are drafted by the `openai-gag-writer` engine (GPT-6 Astra) under a system prompt David locked on 2026-11-13 (`docs/plans/gag-prompt-LOCKED.md`). The model writes the subject as "Alex" and the existing tokenizer converts it. Each generation returns a joke read. A moderator's confirm or correction saves it as the fact's humor note, which only a moderator writes. An unusable engine fails generation; nothing falls back to a weaker model. A note survives later edits to the fact's wording.
+- **Why:** David, 2026-11-13: *"we'll use that, in conjunction with Astra 6 as the model that generates the gags in the app"*; on the note, *"understanding the nuance of visual humor is a big challenge"* (he chose AI-drafted, human-corrected); on tokens, *"we should have it use a generic name that we then tokenize using the function we already have"*; on the fallback, *"This is an admin function so doesn't need high availability."* The prompt's content came from four Claude–Astra exchanges and David's taste across eleven worked facts. It covers the absurd played straight, the hero as a stoic force for good, and restraint.
+- **Cost:** about $0.25 per generation (estimate at plan time, to be replaced by measured usage), on each fact entering paid preparation, each refresh and each Regenerate; accepted by David.
+- **Reference:** `docs/plans/PLAN_GAG_GENERATOR.md`; #935.
+- **Revisit if:** the moderator-confirmed share of joke reads stays low, or Astra's availability starts holding up moderation.
+
 ### 2026-11-12 · The prompt ceiling rises to 10,150 characters; the room goes to tunable wording
 - **Decision:** `PROMPT_TOTAL_BUDGET` / `MAX_PROMPT_CHARS` go from 6,900 to 10,150, and the whole rise goes to `FIXED_REQUIRED_RESERVE_BUDGET` (1,750 → 5,000). Today's wording still measures 1,704, so a prompt-tuner version can add about 3,300 characters instead of about 46. The moderator Concept, additions and balloon pools and the 750 outer margin are unchanged. No prompt sent today changes: the longest dev prompt in the last 60 days was 4,958 characters, under either ceiling.
 - **Why:** David, 2026-11-12: *"There's no good reason we have such a strict length limit. It was really about working around limitations in the engines. … If so, increase the length limit to accommodate. It shouldn't be such a hinderance."* The engines' own limits, read from fal's schemas that day: GPT Image 2.6 32,000 characters, Nano Banana 2.1 50,000. The ceiling was always ours (the 2026-07 entries call it an editorial forcing function), and it left the tuner close to rewording-only.
