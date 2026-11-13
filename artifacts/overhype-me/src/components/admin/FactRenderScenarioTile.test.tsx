@@ -52,3 +52,11 @@ describe("FactRenderScenarioTile image lightbox", () => {
     expect(screen.queryByTestId("render-scenario-lightbox")).toBeNull();
   });
 });
+
+describe("FactRenderScenarioTile without the old rating control", () => {
+  it("renders a done tile with an attempt and no eval/rating control", () => {
+    render(<FactRenderScenarioTile reviewId={5} card={DONE_CARD} onRun={vi.fn()} />);
+    expect(screen.getByTestId("render-scenario-image-button")).toBeTruthy();
+    expect(screen.queryByTestId("tile-eval")).toBeNull();
+  });
+});

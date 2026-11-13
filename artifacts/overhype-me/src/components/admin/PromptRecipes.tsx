@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
-import { readError } from "@/components/admin/EngineComparison";
+import { readError } from "@/components/admin/readError";
 import { announceRecipesChanged, promoteRecipeVersion } from "@/components/admin/promoteRecipeVersion";
 
 export interface PieceDef { key: string; label: string; group: string; when: string; slots: string[]; policy: boolean; baseline: string }

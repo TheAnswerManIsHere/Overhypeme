@@ -1,4 +1,4 @@
-import { readError } from "@/components/admin/EngineComparison";
+import { readError } from "@/components/admin/readError";
 
 /**
  * Fired on `window` after a version is saved or promoted, so every view of

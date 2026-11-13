@@ -131,13 +131,31 @@ beside the eval run rather than inside it (plan
   before its planner call, and a cell's request settings are written before
   its submission; a job that resumes to find the marker without a result
   fails as ambiguous and keeps its reservation, rather than calling again.
-- **The eval runner can name its engine per mode**
-  (`POST /api/admin/eval/runs` `imageEngines: { t2i?, i2i? }`); an engine
-  that cannot draw its mode refuses the run, never falls back.
-- **Status is shown at both altitudes** on `/admin/eval`: every cell's state,
-  and the set's aggregate and remaining worst case. A response is applied only
-  while the set it was requested for is still selected, so one set's figures
-  never appear under another.
+- **The Eval page** (`/admin/eval`; plan `docs/plans/PLAN_EVAL_PAGE.md`,
+  approved 2026-11-13) has two tabs, *Evaluate Models* and *Evaluate
+  Prompts* (`?tab=models|prompts`), each a wizard (`EvaluationWizard.tsx`):
+  facts found by keyword among eligible ones (active, enrichment validates —
+  `searchEligibleFacts`, the same predicate creation re-checks), the
+  candidate engines (`EVALUATION_CANDIDATE_FAMILIES`: GPT Image 2.6, Nano
+  Banana 2.1, Muse) or one engine's wording versions, photo types (male, pet,
+  vehicle — `EVALUATION_PHOTO_TYPES`), looks, a description, then the image
+  count and worst case (`estimateEvaluation`, read-only) and one **Generate
+  Images**. `createEvaluation` (`artifacts/api-server/src/lib/comparison/evaluations.ts`) makes the
+  set at comparison size and starts one `full` run; the wizard's request
+  token makes a repeated press return the same evaluation. In a `full` run a
+  picture is admitted and reserved with its scene and waits (cell state
+  `waiting`); the transaction that records the scene prepared queues it, and
+  a scene that fails or is skipped releases its waiting pictures back to
+  `expected`. Retry scene and Retry picture start their work at once; Retry
+  storage spends nothing. The evaluations list (`EvaluationsList.tsx`) shows
+  each one's status derived from its rows (`progressOf`: generating, needs
+  action with each retry, ready, judging, finished, nothing to judge), polls
+  every 5 s while anything is in flight, and says "Connection lost" when a
+  poll fails rather than that the server stopped. Judge results opens blind
+  judging; its Finish button (server-checked: nothing in flight or
+  retryable, every judgeable panel judged) opens the results. The old eval
+  harness (golden set, eval runs, opportunistic ratings) is gone from the
+  app; its tables wait for part 4's migration.
 - **Blind judging** (`/admin/eval/judge/:setId`,
   `artifacts/api-server/src/lib/comparison/judging.ts`): one panel at a time,
   its images lettered A, B, C… in a shuffle that is stable across reloads. Each

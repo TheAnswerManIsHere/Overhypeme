@@ -9,77 +9,12 @@
  *   compiler     — the concept was good but the compiled prompt lost it.
  *   image_model  — the prompt was good but the model executed it badly.
  *   none         — rated, no single dominant failure (distinct from NULL = unreviewed).
- *
- * `evalWriteSchema` clear-semantics (documented so FE/tests don't drift):
- *   key OMITTED  → leave that column unchanged.
- *   key = null   → clear that column.
- *   notes = ""   → normalized to null.
  */
-
-import { z } from "zod";
 
 // ─── Failure attribution ─────────────────────────────────────────────────────
 
 export const FAILURE_TAG_VALUES = ["concept", "compiler", "image_model", "none"] as const;
 export type FailureTag = (typeof FAILURE_TAG_VALUES)[number];
-
-// ─── Eval write (rating / failure-tag / notes on an attempt) ─────────────────
-
-export const evalWriteSchema = z.object({
-  rating: z.number().int().min(1).max(5).nullable().optional(),
-  failureTag: z.enum(FAILURE_TAG_VALUES).nullable().optional(),
-  notes: z.string().max(2000).nullable().optional(),
-});
-export type EvalWrite = z.infer<typeof evalWriteSchema>;
-
-/** The eval columns to UPDATE, honoring omitted (absent) vs null (clear). */
-export interface EvalColumnUpdate {
-  moderatorRating?: number | null;
-  failureTag?: FailureTag | null;
-  evalNotes?: string | null;
-}
-
-/**
- * Resolve an `evalWrite` into the columns to set. A key present as `undefined`
- * (omitted) is left out entirely → the UPDATE leaves it unchanged; an explicit
- * `null` clears it; empty/whitespace notes normalize to null. Returns `{}` when
- * nothing was provided (the caller should reject that as a no-op).
- */
-export function resolveEvalColumns(write: EvalWrite): EvalColumnUpdate {
-  const out: EvalColumnUpdate = {};
-  if (write.rating !== undefined) out.moderatorRating = write.rating;
-  if (write.failureTag !== undefined) out.failureTag = write.failureTag;
-  if (write.notes !== undefined) out.evalNotes = write.notes && write.notes.trim() ? write.notes.trim() : null;
-  return out;
-}
-
-export function evalColumnUpdateIsEmpty(update: EvalColumnUpdate): boolean {
-  return Object.keys(update).length === 0;
-}
-
-// ─── Golden-set toggle ────────────────────────────────────────────────────────
-
-export const evalGoldenWriteSchema = z.object({
-  golden: z.boolean(),
-  reason: z.string().max(500).nullable().optional(),
-});
-export type EvalGoldenWrite = z.infer<typeof evalGoldenWriteSchema>;
-
-// ─── Eval run creation ────────────────────────────────────────────────────────
-
-export const evalRunCreateSchema = z.object({
-  label: z.string().max(120).nullable().optional(),
-  /**
-   * Render this run through a named engine per mode instead of the configured
-   * defaults (launch Phase 8). Each id is validated against the catalogue for
-   * its mode, and an unusable one refuses the run, never falls back.
-   */
-  imageEngines: z.object({
-    t2i: z.string().trim().min(1).max(64).optional(),
-    i2i: z.string().trim().min(1).max(64).optional(),
-  }).strict().optional(),
-});
-export type EvalRunCreate = z.infer<typeof evalRunCreateSchema>;
 
 // ─── Shared signature / profile shapes (server computes; FE dashboard reads) ──
 

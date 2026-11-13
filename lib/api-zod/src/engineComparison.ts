@@ -67,15 +67,17 @@ export type ComparisonSetCreate = z.infer<typeof comparisonSetCreateSchema>;
 export const comparisonRunPlanSchema = z.object({
   /**
    * "prepare": every panel still to prepare; "render": every cell still to
-   * render. No allowance or week figure: pricing does not gate a comparison
+   * render; "full": both at once, each cell queued the moment its panel is
+   * prepared (the Eval page's one Generate Images button, PLAN_EVAL_PAGE.md C). No allowance or week figure: pricing does not gate a comparison
    * run (David, 2026-11-07, `decisions.md`).
    */
-  kind: z.enum(["prepare", "render"]),
+  kind: z.enum(["prepare", "render", "full"]),
 }).strict();
 export type ComparisonRunPlanRequest = z.infer<typeof comparisonRunPlanSchema>;
 
 export const COMPARISON_PANEL_STATES = ["pending", "preparing", "planning", "prepared", "failed", "skipped"] as const;
-export const COMPARISON_CELL_STATES = ["expected", "enqueued", "rendered", "failed", "skipped"] as const;
+/** "waiting": admitted with its panel's preparation, queued once the panel is prepared. */
+export const COMPARISON_CELL_STATES = ["expected", "waiting", "enqueued", "rendered", "failed", "skipped"] as const;
 export type ComparisonPanelState = (typeof COMPARISON_PANEL_STATES)[number];
 export type ComparisonCellState = (typeof COMPARISON_CELL_STATES)[number];
 
@@ -191,3 +193,65 @@ export type ComparisonJudgementRequest = z.infer<typeof comparisonJudgementSchem
 export const comparisonResultsQuerySchema = z.object({
   setIds: z.string().regex(/^\d+(,\d+)*$/).transform((s) => [...new Set(s.split(",").map(Number))]).pipe(z.array(z.number().int().positive()).min(1).max(10)),
 }).strict();
+
+
+// ─── The Eval page's wizards (plan docs/plans/PLAN_EVAL_PAGE.md) ────────────
+
+/**
+ * The engines an evaluation can compare, decided with David in conversation
+ * (2026-11-12: "Recommended"): GPT Image 2.6 for photoreal, Nano Banana 2.1
+ * for styled, Muse in reserve. Changed only by a PR.
+ */
+export const EVALUATION_CANDIDATE_FAMILIES = ["gpt-image-2-6", "nano-banana-2-1", "muse-image"] as const;
+
+/**
+ * The photo types an evaluation can draw from (David, 2026-11-12: female and
+ * non-binary dropped, "they're not necessary for judging the engine").
+ */
+export const EVALUATION_PHOTO_TYPES = [
+  { scenarioKey: "i2i_male_default", label: "Male" },
+  { scenarioKey: "i2i_nonhuman_animal", label: "Pet" },
+  { scenarioKey: "i2i_nonhuman_object_vehicle", label: "Vehicle" },
+] as const satisfies ReadonlyArray<{ scenarioKey: RenderScenarioKey; label: string }>;
+const PHOTO_TYPE_KEYS = EVALUATION_PHOTO_TYPES.map((t) => t.scenarioKey) as [RenderScenarioKey, ...RenderScenarioKey[]];
+
+/** Above this many pictures the wizard shows the count as a warning. */
+export const EVALUATION_IMAGE_WARNING = 50;
+
+/** The wizard's selection: what an evaluation would draw. */
+export const evaluationSelectionSchema = z.object({
+  kind: z.enum(COMPARISON_SET_KINDS),
+  factIds: z.array(z.number().int().positive()).min(1).max(50),
+  engineFamilies: z.array(z.enum(EVALUATION_CANDIDATE_FAMILIES)).min(1),
+  scenarioKeys: z.array(z.enum(PHOTO_TYPE_KEYS)).min(1),
+  lookStyleIds: z.array(z.string().trim().min(1).max(64)).min(1),
+  /** A prompt evaluation's versions, null for the baseline. */
+  recipeVersionIds: z.array(z.number().int().positive().nullable()).min(2).max(4).optional(),
+}).strict().superRefine((v, ctx) => {
+  const unique = <T>(xs: T[]) => new Set(xs).size === xs.length;
+  if (!unique(v.factIds)) ctx.addIssue({ code: "custom", path: ["factIds"], message: "each fact once" });
+  if (!unique(v.engineFamilies)) ctx.addIssue({ code: "custom", path: ["engineFamilies"], message: "each engine once" });
+  if (!unique(v.scenarioKeys)) ctx.addIssue({ code: "custom", path: ["scenarioKeys"], message: "each photo type once" });
+  if (!unique(v.lookStyleIds)) ctx.addIssue({ code: "custom", path: ["lookStyleIds"], message: "each look once" });
+  if (v.kind === "prompt") {
+    if (v.engineFamilies.length !== 1) ctx.addIssue({ code: "custom", path: ["engineFamilies"], message: "a prompt evaluation names exactly one engine" });
+    if (v.lookStyleIds.length !== 1) ctx.addIssue({ code: "custom", path: ["lookStyleIds"], message: "a prompt evaluation uses exactly one look" });
+    if (!v.recipeVersionIds) ctx.addIssue({ code: "custom", path: ["recipeVersionIds"], message: "a prompt evaluation names two to four versions" });
+    else if (new Set(v.recipeVersionIds.map((id) => id ?? 0)).size !== v.recipeVersionIds.length) ctx.addIssue({ code: "custom", path: ["recipeVersionIds"], message: "each version once" });
+  } else if (v.recipeVersionIds) {
+    ctx.addIssue({ code: "custom", path: ["recipeVersionIds"], message: "versions are named only on a prompt evaluation" });
+  }
+});
+export type EvaluationSelection = z.infer<typeof evaluationSelectionSchema>;
+
+/** Generate Images: the selection, a description, and the wizard's idempotency token. */
+export const evaluationCreateSchema = z.object({
+  requestToken: z.string().trim().min(8).max(64),
+  description: z.string().trim().min(1).max(200),
+  selection: evaluationSelectionSchema,
+}).strict();
+export type EvaluationCreate = z.infer<typeof evaluationCreateSchema>;
+
+/** Where an evaluation stands, derived from its panels, cells and judgements. */
+export const EVALUATION_STATUSES = ["generating", "needs_action", "ready", "judging", "finished", "nothing_to_judge"] as const;
+export type EvaluationStatus = (typeof EVALUATION_STATUSES)[number];

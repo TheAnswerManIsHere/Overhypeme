@@ -51,9 +51,15 @@ export const comparisonSetsTable = pgTable("comparison_sets", {
   kind: varchar("kind", { length: 16 }).notNull().default("engine"),
   /** A prompt set's recipe versions, 0 for the baseline; null on an engine set. */
   recipeVersionIds: jsonb("recipe_version_ids"),
+  /** When the admin pressed Finish (plan PLAN_EVAL_PAGE.md, D); null until then. */
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  /** Generate Images' idempotency token (plan, C); unique where set. */
+  requestToken: varchar("request_token", { length: 64 }),
   createdBy: varchar("created_by").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  uniqueIndex("UQ_comparison_sets_request_token").on(t.requestToken).where(sql`${t.requestToken} IS NOT NULL`),
+]);
 
 export const comparisonPanelsTable = pgTable("comparison_panels", {
   id: bigserial("id", { mode: "number" }).primaryKey(),

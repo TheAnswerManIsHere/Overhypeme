@@ -1,7 +1,5 @@
 /**
  * Eval harness (Slice 2B) — pure unit tests (no DB / no LLM):
- *   - resolveEvalColumns clear-semantics (omitted vs null vs value; empty notes
- *     → null; rating/failureTag independent).
  *   - deriveAttemptSignature: t2i vs i2i differ on the ACTUAL image engine (not
  *     the coarse targetEngine); missing inputs bucket as "unknown"; the signature
  *     key groups like rows and separates unlike ones.
@@ -11,38 +9,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  resolveEvalColumns,
-  evalColumnUpdateIsEmpty,
   attemptSignatureKey,
 } from "@workspace/api-zod";
 import type { ImagePromptAttempt } from "@workspace/db";
 import { deriveAttemptSignature } from "../lib/eval/signature.js";
-
-describe("resolveEvalColumns", () => {
-  it("omitted keys are left out (leave unchanged); present keys are included", () => {
-    assert.deepEqual(resolveEvalColumns({}), {});
-    assert.deepEqual(resolveEvalColumns({ rating: 4 }), { moderatorRating: 4 });
-    assert.deepEqual(resolveEvalColumns({ failureTag: "compiler" }), { failureTag: "compiler" });
-  });
-
-  it("explicit null clears; rating and failureTag are independent", () => {
-    assert.deepEqual(resolveEvalColumns({ rating: null }), { moderatorRating: null });
-    assert.deepEqual(resolveEvalColumns({ failureTag: null }), { failureTag: null });
-    // A failure-tag with no rating is valid quick-triage.
-    assert.deepEqual(resolveEvalColumns({ failureTag: "concept" }), { failureTag: "concept" });
-  });
-
-  it("empty / whitespace notes normalize to null; real notes trim", () => {
-    assert.deepEqual(resolveEvalColumns({ notes: "   " }), { evalNotes: null });
-    assert.deepEqual(resolveEvalColumns({ notes: "  looks great  " }), { evalNotes: "looks great" });
-    assert.deepEqual(resolveEvalColumns({ notes: null }), { evalNotes: null });
-  });
-
-  it("evalColumnUpdateIsEmpty detects a no-op write", () => {
-    assert.equal(evalColumnUpdateIsEmpty(resolveEvalColumns({})), true);
-    assert.equal(evalColumnUpdateIsEmpty(resolveEvalColumns({ rating: 3 })), false);
-  });
-});
 
 function attempt(overrides: Partial<ImagePromptAttempt> = {}): ImagePromptAttempt {
   return {
