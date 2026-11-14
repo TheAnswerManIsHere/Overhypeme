@@ -82,7 +82,7 @@ after(async () => {
 });
 
 describe("GET /admin/facts/:id — root fact detail for the Facts editor", () => {
-  it("returns every field the editor shows and the stored enrichment, with a null parentId for a root", async () => {
+  it("returns every field the editor shows and the stored enrichment (no gag in it), with a null parentId for a root", async () => {
     const res = await request(adminApp).get(`/api/admin/facts/${factId}`);
     assert.equal(res.status, 200);
     const body = res.body;
@@ -107,10 +107,8 @@ describe("GET /admin/facts/:id — root fact detail for the Facts editor", () =>
     const enrichment = body.enrichment as FactEnrichment;
     assert.equal(enrichment.primaryArchetype, "superhuman_physical_feat");
     assert.deepEqual(enrichment.suggestedHashtags, ["strength", "pushups", "earth"]);
-    assert.equal(
-      enrichment.visualPromptStrategyOverride?.coreSceneOverride,
-      "{NAME} bench-presses the Earth overhead in a stadium.",
-    );
-    assert.deepEqual(enrichment.visualPromptStrategyOverride?.requiredVisualDetails, ["a glowing aura"]);
+    // The gag is not part of the enrichment (fact_gags, migration 0139); the
+    // Facts editor reads it from /admin/facts/:id/gags.
+    assert.equal(enrichment.visualPromptStrategyOverride, undefined);
   });
 });

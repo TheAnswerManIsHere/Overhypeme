@@ -842,6 +842,7 @@ describe("approval renderability gating", () => {
         enrichment,
       })
       .returning();
+    await addGag(staging.id);
     const [review] = await db
       .insert(pendingReviewsTable)
       .values({
