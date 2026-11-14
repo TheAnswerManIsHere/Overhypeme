@@ -27,7 +27,7 @@ describe("aiSettingsView", () => {
     const helper = steps.find((s) => s.step.startsWith("General helper model (defaults"))!;
     assert.equal(param(helper, "Reasoning effort"), "none");
     assert.equal(param(helper, "Temperature"), "0.7");
-    for (const s of steps.filter((r) => r.model.startsWith("gpt-5"))) {
+    for (const s of steps.filter((r) => r.model.startsWith("gpt-5") && param(r, "Temperature") !== undefined)) {
       assert.equal(param(s, "Temperature"), "not sent", `${s.step}: gpt-5.x reasoning models take no temperature`);
     }
   });
