@@ -125,9 +125,9 @@ consequence a settled decision covers is answered by that decision; name it
 (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*).
 
 David's own feedback on the plan is not such an item: the builder states
-what it understood him to mean, in plain English, and he confirms the reading before any
-revision or exchange rests on it (`claude-core.md`, interaction rule 15). A
-package that carries his feedback says whether he has confirmed that reading.
+to him, in plain English, what it understood him to mean, and revises on
+that reading without waiting for him to confirm it; he corrects it if it is
+wrong (`claude-core.md`, interaction rule 15).
 
 David's later explicit decisions update the relevant requirements in the
 oracle. Preserve requirements those decisions do not change, and align the plan

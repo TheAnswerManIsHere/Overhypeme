@@ -169,10 +169,8 @@ oracle as a fenced `plan-oracle` block at its head — for a prototype's version
 the short plan `PLANS.md` describes, whose product is the questions file the
 `prototype` skill names. Tell David it is drafted and
 **keep going** — v1 changes anyway, and waiting buys nothing. He interjects
-whenever he likes, and when what he gives is feedback on the plan, what
-rests on it pauses: I state my reading of
-his feedback and he confirms it before any revision or exchange rests on it (*David's
-feedback on the plan pauses the loop*, below).
+whenever he likes, and when what he gives is feedback on the plan, I state
+my reading of it and revise, without waiting (*David's feedback on the plan*, below).
 
 **Run it detached. An exchange outlives the tool call that starts it.**
 
@@ -339,8 +337,8 @@ wrong. Do not use it to relitigate something I simply dislike.
 
 **There is no stop rule to compute and no round budget.** The loop ends when the
 judgement is that nothing more is worth writing, and that judgement is mine,
-stated in an action block. Nothing the loop raises stops it for David before
-the plan itself (his own feedback on a version does, below): a choice that changes intended behaviour or a user-facing consequence
+stated in an action block. Nothing stops the loop for David before
+the plan itself: a choice that changes intended behaviour or a user-facing consequence
 no settled decision covers is written into the plan and named in the approval
 readout, not asked mid-loop, and a consequence a settled decision reaches is
 not asked at all (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*); a scope addition is taken as *next* and
@@ -349,18 +347,17 @@ reported, and only one the plan cannot be correct without asks (David,
 question is his (`workstream-tracking.md`, the canonical check). A purely
 technical fork between two approaches to agreed behaviour is none of these.
 
-**David's feedback on the plan pauses the loop until he confirms I read it
-right** (David, 2026-11-14; `claude-core.md`, interaction rule 15, which
-also covers a message asking whether I understand and feedback after
-approval). Feedback on a scope, on v1 or any later version, or on the
-approval readout gets a plain-English statement of what I understood him to
-mean and what I would change, written inside the block of a `🛑 **NEED YOU** —
-confirm or correct my reading of your plan feedback` banner (under the
-banner line, before the closing rule, so a corrected reading rings) — never
-a question asking whether I understood, and no question ID. No revision, no exchange with Astra and no
-build rests on my reading until he says it is right; the next `plan-action`
-block is written only then. This is not the relay of step 1, which reports
-Astra's concerns and waits for nothing.
+**David's feedback on the plan gets my reading of it stated as its own
+paragraph, and the revision with no wait for him to confirm it** (David, 2026-11-14;
+`claude-core.md`, interaction rule 15). Feedback on a scope, on v1 or any
+later version, or on the approval readout is answered by saying what I understood him to mean, in plain English, and
+what I changed or will change because of it. The loop carries on, on that
+reading, in the same turn: no question, no
+question ID and no banner asks him to confirm it, and he corrects it if it is
+wrong. The reading is its own statement at the top of the turn's last message,
+after the last tool call (text written before the work reaches him
+paraphrased), never folded into the revised plan, which is the failure this rule was written
+for. It is not the relay of step 1, which reports Astra's concerns.
 
 **An assessment that says it could not do the job is not a clean exchange.** The
 old loop had two status labels that computed this; now it is prose I read. If
@@ -580,9 +577,6 @@ this at the scope gate, before the first label below is touched:
 - **David agrees the scope** → `waiting:claude`, and it stays there while
   the loop runs. **There is no `waiting:codex` state**: an exchange is a local
   process I am waiting on, so I am the holder through every exchange.
-- **My stated reading of his feedback posts** (`claude-core.md`, interaction rule
-  15) → `waiting:david`, and back to `waiting:claude` when he confirms the
-  reading.
 - **The approval ask posts** → `waiting:david`.
 - **David approves** → `stage:coding`, `waiting:claude`.
 

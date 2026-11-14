@@ -239,9 +239,7 @@ The block carries these seven, in order:
 5. **Settled — do not re-open** — the inline list from the handoff comment,
    then every question still open with David, under the ID it was asked
    under, and the highest question ID this session used, so the new session
-   numbers on from it (`claude-core.md`, interaction rule 4); and any
-   reading of his plan feedback he has not yet confirmed, marked
-   unconfirmed, so nothing is built on it (interaction rule 15).
+   numbers on from it (`claude-core.md`, interaction rule 4).
 6. **First action** — one concrete instruction, not a menu.
 7. **Out of scope** — what this session is explicitly not doing, so it
    doesn't wander back into the workstream we just left.

@@ -520,10 +520,7 @@ David-gate definition above):
   on a prototype-phase feature at `stage:coding` — a usable version delivered
   and waiting on his feedback through the rail) with no open question — say
   so plainly, and **match the example to the gate actually held**, since none
-  of the four is a merge gate any more. A fifth wait has no question
-  either: a planning session holding for his word on its stated reading of
-  his plan feedback (`claude-core.md`, interaction rule 15) is reported as
-  that, never as a plan-approval wait. The one merge gate he holds is the
+  of the four is a merge gate any more. The one merge gate he holds is the
   review gate's waiver, when a push came before a round's assessments
   (`claude-core.md`, *Shared judgement on a review round*): say "the review
   gate failed because fixes were pushed before both reviews; only your

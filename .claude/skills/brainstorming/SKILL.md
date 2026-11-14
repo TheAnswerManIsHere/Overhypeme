@@ -17,8 +17,8 @@ description: "You MUST use this before any creative work - creating features, bu
 > Every question below goes to David under its static ID, and a question's
 > options are numbered, never lettered — the "A/B/C/D" below is upstream's
 > (`claude-core.md`, interaction rule 4). My reading of his requested changes to a
-> design or spec is stated and confirmed by him before they are made
-> (interaction rule 15); the clickable A/B/C cards in
+> design or spec is stated as its own paragraph, with no wait for him to
+> confirm it (interaction rule 15); the clickable A/B/C cards in
 > `visual-companion.md` are widget keys, not typed options.
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
