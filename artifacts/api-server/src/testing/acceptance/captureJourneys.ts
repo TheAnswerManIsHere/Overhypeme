@@ -77,8 +77,6 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
         version: 1,
         requiredVisualDetails: [],
         forbiddenVisualDetails: [],
-        roleBindings: [],
-        bubbles: [],
         compositionGuidance: [],
         styleAgnosticPromptAdditions: [],
         negativePromptAdditions: [],

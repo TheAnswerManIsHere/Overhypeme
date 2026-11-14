@@ -324,7 +324,6 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       requiredVisualDetails: [],
       forbiddenVisualDetails: [],
       roleBindings: [],
-      bubbles: [],
       compositionGuidance: [],
       styleAgnosticPromptAdditions: [],
       negativePromptAdditions: [],
