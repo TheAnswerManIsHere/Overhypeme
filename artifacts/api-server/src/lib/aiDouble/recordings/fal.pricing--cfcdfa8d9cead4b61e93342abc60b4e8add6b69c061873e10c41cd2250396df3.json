@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "fal-ai/flux-2-pro"
+  },
+  "fingerprint": "cfcdfa8d9cead4b61e93342abc60b4e8add6b69c061873e10c41cd2250396df3",
+  "recordedAt": "2026-11-14T02:54:44.768Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "fal-ai/flux-2-pro",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "fal-ai/flux-2-pro",
+        "unit_price": 0.03,
+        "unit": "processed megapixels",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

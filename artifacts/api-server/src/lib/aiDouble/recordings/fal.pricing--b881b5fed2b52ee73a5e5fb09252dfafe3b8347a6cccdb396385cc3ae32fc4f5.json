@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "openai/gpt-image-2.5/sunburst/edit"
+  },
+  "fingerprint": "b881b5fed2b52ee73a5e5fb09252dfafe3b8347a6cccdb396385cc3ae32fc4f5",
+  "recordedAt": "2026-11-14T02:54:46.385Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "openai/gpt-image-2.5/sunburst/edit",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "openai/gpt-image-2.5/sunburst/edit",
+        "unit_price": 1,
+        "unit": "units",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}
