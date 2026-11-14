@@ -153,7 +153,7 @@ side effect of an unrelated config change.
   times. See the [PR #168/#205 decision](../ai-context/decisions.md).
 - **Engine/model identity is deliberately excluded from automatic
   staleness.** If which specific engine or model ID a fact was processed
-  under counted toward staleness automatically, a routine config change could
+  under counted toward staleness automatically, a routine engine change could
   silently mark the entire corpus stale. Only a genuine, admin-acknowledged
   "major update" should do that — hence the manual engine-revision bump
   instead of an automatic one.

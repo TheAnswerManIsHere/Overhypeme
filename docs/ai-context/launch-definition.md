@@ -144,7 +144,7 @@ testing-harness controls removed); Facts; Users with suspension; Moderation
 (pipeline intact, **UI/UX rebuilt** once the core functionality is locked,
 with AI-assisted triage, keyboard review and batch render approval); Billing;
 Refunds & Disputes; Config (Zazzle keys and Debug mode removed); Engines
-(video and PuLID removed, a default text engine set); Taxonomy Health;
+(video and PuLID removed, a default text engine named in code per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)); Taxonomy Health;
 Features; Email Queue; Queue Health; the Eval dashboard (admin-only); Help,
 plus a **user-facing help/guide derived from the same Manual source** on every
 user page; and four new screens: **Reports/takedown queue, Invites, a

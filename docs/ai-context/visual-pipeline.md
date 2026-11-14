@@ -510,7 +510,7 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
   image engine is their only writer: it validates the engine and writes the key
   for that engine's own mode. The generic config route refuses both keys, and
   an image engine's `isDefault` flag routes nothing (it still does for `llm`
-  and `utility`). `lib/imageEngineRouting.ts` owns all of this.
+  and `utility`, a known exception being moved into code, [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). `lib/imageEngineRouting.ts` owns all of this.
 - **An attempt records its engine once, at construction**, in
   `image_prompt_attempts.actual_image_engine_id`, and the worker renders through
   that engine, never through today's default: an attempt queued before a
@@ -930,7 +930,7 @@ only the AI background backfill). Making outputs identical needs temp 0 or resul
   per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); Nano Banana 2 and its edit engine until
   launch Phase 8 adopts GPT Image 2.6 and Nano Banana 2.1, per the
   [product strategy](./product-strategy.md#pictures-and-engines)). (The utility LLM — `gpt-6-luna` since it
-  replaced `gpt-4o-mini` on 2026-10-13 — serves utility calls only; FLUX Pro only
+  replaced `gpt-4o-mini` on 2026-10-13, chosen today by its engine row's `isDefault`, a known exception being moved into code — serves utility calls only; FLUX Pro only
   on the AI background backfill.)
 - **Choosing a render engine by string in the worker, or deriving a stored
   attempt's engine from the mode** — retired in launch Phase 8; the engine comes
