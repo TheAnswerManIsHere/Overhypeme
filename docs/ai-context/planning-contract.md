@@ -55,8 +55,9 @@ behaviour, scope, or accepted user-facing shortfalls — including his own use o
 the software factory — where no decision he has already made covers them. A
 consequence a settled decision already reaches is settled with it: name the
 decision. A question that is his is written into the plan and named in the
-approval readout as a numbered item with the recommendation beside it; it does
-not stop the loop (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*, the authority for every statement of this
+approval readout as an item under its question ID (`Q1`, `Q2`, …, static
+until answered) with the recommendation beside it; it does
+not stop the loop (the ID is the builder's to assign and keep: `claude-core.md`, interaction rule 4; `agent-working-rules.md`, *A reversible choice proceeds on the recommendation*, the authority for every statement of this
 in this contract).
 
 A useful plan carries David's intent accurately into implementation. It
@@ -122,6 +123,11 @@ it, and work that does not depend on his answer proceeds. Do not treat an
 unresolved choice as settled, and do not raise it as a separate interrupt. A
 consequence a settled decision covers is answered by that decision; name it
 (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*).
+
+David's own feedback on the plan is not such an item: the builder states
+what it understood him to mean, in plain English, and he confirms the reading before any
+revision or exchange rests on it (`claude-core.md`, interaction rule 15). A
+package that carries his feedback says whether he has confirmed that reading.
 
 David's later explicit decisions update the relevant requirements in the
 oracle. Preserve requirements those decisions do not change, and align the plan
@@ -394,7 +400,8 @@ restating closed history. Another exchange needs a purpose — a question,
 evidence, or a consequential revision to assess. **Routine incorporation of
 agreed wording does not require another full assessment.**
 
-**Questions for David.** Explain the options, their practical consequences, and
+**Questions for David.** Each sits under the question ID the builder gave it
+(`Q1`, `Q2`, …; one question keeps one ID until he answers it). Explain the options, their practical consequences, and
 your recommendation, in plain English. Identify which parts depend on his
 answer. Do not ask him to select technical mechanisms the agents can choose
 within the outcome, and do not disguise a change in product behaviour as a

@@ -77,7 +77,7 @@ conflict: finish the round, *then* hand off.
 
 **The destination has to be named.** Sections 6 and 7 of the prompt — first
 action and out of scope — cannot be written without knowing what the new
-session is for. If David hasn't said, ask one numbered question before Step 2.
+session is for. If David hasn't said, ask one question, under its ID (`claude-core.md`, interaction rule 4), before Step 2.
 
 **Report the verdict in one line either way.** If the verdict is *stay*,
 **stop there** — name in one line what I'd have carried, so David can
@@ -152,7 +152,7 @@ the work is genuinely at (usually `stage:discovery`), `waiting:claude`, and
 the right `mode:`.
 
 **A handoff is not a lifecycle transition.** `stage:` does not change, and
-`waiting:` does not change either — the holder is `claude` before and after.
+`waiting:` does not change either — whoever held the work before holds it after.
 Only the narrative moves.
 
 The handoff comment is a fixed shape:
@@ -167,7 +167,10 @@ The handoff comment is a fixed shape:
 **Live state that does not cross** — unpushed work being abandoned (never a
   file the destination needs: Step 2), PR subscriptions dropped, wakes
   disarmed, background tasks.
-**Still open** — undecided threads, each stated as the actual question.
+**Still open** — undecided threads, each stated as the actual question; a
+  question already put to David keeps the ID it was asked under, and the
+  line ends with the highest question ID this session used, so the
+  destination continues from it (`claude-core.md`, interaction rule 4).
 **Durable learnings** — where they went, or "/document owed on #N".
 ```
 
@@ -233,7 +236,12 @@ The block carries these seven, in order:
    the ceremony tier, and which skill to invoke on entry (`/status` is the safe
    default first move: it briefs David from the issue record and the plan,
    and repairs stale tracking on the way).
-5. **Settled — do not re-open** — the inline list from the handoff comment.
+5. **Settled — do not re-open** — the inline list from the handoff comment,
+   then every question still open with David, under the ID it was asked
+   under, and the highest question ID this session used, so the new session
+   numbers on from it (`claude-core.md`, interaction rule 4); and any
+   reading of his plan feedback he has not yet confirmed, marked
+   unconfirmed, so nothing is built on it (interaction rule 15).
 6. **First action** — one concrete instruction, not a menu.
 7. **Out of scope** — what this session is explicitly not doing, so it
    doesn't wander back into the workstream we just left.

@@ -923,7 +923,7 @@ flip under the branch regime the hardening PR's
 close-out also **retires the prototype environment**: the deployment is
 stopped and its database dropped once the owner's answers and the port are
 captured, owned by the `prototype` skill, and where only David can delete
-the host's deployment that step is a numbered ask to him. **Questions still unanswered when he
+the host's deployment that step is an ask to him. **Questions still unanswered when he
 declares are retired by the declaration**: they become the first items of
 the pre-plan conversation, never a reason for another prototype version.
 (An observable
@@ -1331,7 +1331,9 @@ carries what it was for.)
 **That agreement is the loop's authority to run autonomously up to the
 approval ask** — it replaces the retired per-round check-in (below) as
 David's control point at the front of the loop, paired with explicit plan
-approval at the back. **The agreed scope of work is also the review oracle
+approval at the back; his own feedback on the scope or a draft, whenever it
+comes, pauses the loop until he confirms the builder's plain-English reading
+of it (David, 2026-11-14; `claude-core.md`, interaction rule 15). **The agreed scope of work is also the review oracle
 itself** — it is handed to the reviewer verbatim, every round, as the thing the
 plan is checked against. The corollary is the escalation rule: anything that
 would *change* the agreed scope of work — a change to intended behaviour, a
@@ -1785,7 +1787,9 @@ reviewer challenges a mis-tiering by arguing with the reason and a bare letter
 gives them nothing to argue with. It is **required for Tier A as much as Tier
 B.** A is the classification reviewers most need to be able to challenge, so
 "A (contained)" alone is not enough: name the Q1/Q2 items you checked and
-ruled out, not just the ones that would have fired. A bare tier letter with no
+ruled out (written "tier check 1" and "tier check 2" in the PR body and
+anything else David reads: `Q1`, `Q2` there are his question IDs,
+`claude-core.md`, interaction rule 4), not just the ones that would have fired. A bare tier letter with no
 reasoning is a mis-tiering risk whether or not the letter turns out to be
 right.
 

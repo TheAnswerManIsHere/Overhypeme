@@ -114,7 +114,9 @@ in **its own PR in that repository, under the class its content earns** — it
 is consumer-owned content, so the standing declaration below does not cover
 it — and merges before the sync PR. A gap only David can answer (which
 features are in prototype phase, which subsystems are sensitive) holds
-**that repository's** sync on a 🛑 banner naming the question; the other
+**that repository's** sync on a 🛑 banner naming the question under its own ID (`claude-core.md`,
+interaction rule 4; several repositories held at once are several
+questions); the other
 repositories go ahead.
 
 ## Step 5 — sync, and open the PR

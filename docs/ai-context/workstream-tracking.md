@@ -316,6 +316,8 @@ of the workstream issue's body, with these fields:
   hasn't, anything that broke and how it was fixed. Not a checklist for its
   own sake — enough that a cold reader understands the current shape.
 - **What's blocking** — if `waiting` is `david`, the actual question,
+  under the question ID it was asked under where it has one
+  (`claude-core.md`, interaction rule 4),
   restated in plain language from the real thread, not inferred from the
   stage name alone (the same accuracy bar `/status-all` applies). If nothing's
   blocking, say so.
@@ -418,7 +420,7 @@ work it's already doing — not as a separate reminder to go check the board:
 
 | Skill | Owns |
 | --- | --- |
-| `plan-review-loop` | `waiting:claude` for the whole loop — a planning exchange is a local process the builder waits on, so there is no `waiting:codex` state; `stage:plan-approval` + `waiting:david` at the approval ask |
+| `plan-review-loop` | `waiting:claude` while the loop runs — a planning exchange is a local process the builder waits on, so there is no `waiting:codex` state; `waiting:david` while the builder's stated reading of his feedback on the plan awaits his confirmation (`claude-core.md`, interaction rule 15); `stage:plan-approval` + `waiting:david` at the approval ask |
 | `bugfix` | Opening the workstream at `stage:coding` directly (no Planning stage), `mode:bugfix` |
 | `prototype` | The workstream from `stage:coding` / `waiting:claude` onward for a feature David has declared prototype phase (its first version's issue is opened at `stage:planning` by `plan-review-loop`, above), `mode:feature`; `waiting:david` when a usable version is delivered and back when his feedback starts a revision, and `waiting:david` only while a paid AI run above David's paid-run budget — $5 a run, $25 a week across every product — waits for his go-ahead, back once he gives or declines it (a run within budget stays agent-held; `uat-doc-format.md`, *Lanes*); the relabel to `stage:planning` / `waiting:david` before `plan-review-loop` starts, at the flip and for a later version David asked a loop for (*Promotion is a real operation*, above) |
 | `pr-watch` | `stage:code-review` onward — round-by-round `waiting` toggling, `waiting:david` only on a product decision or the irreversible list (2026-10-21), `stage:test-run`/`waiting:replit` at merge when the PR's Post-merge verification section has real content (`waiting:david` instead only while a step that would start a paid AI run above David's paid-run budget — $5 a run, $25 a week across every product — waits for his go-ahead, `uat-doc-format.md`, *Lanes*; a step within budget stays agent-held; the close-out sequence then drives the checks and moves the label to `stage:uat`/`stage:close-out` once the checks pass); with "none needed" verification, the transition to `stage:uat`/`stage:close-out` still waits for the close-out sync checks (SHA match + clean worktree) to pass — never at the merge click itself, either branch. A workstream reaching `stage:close-out` this way (no UAT owed) goes on to `stage:done` and is closed in the same pass (*Closing an issue*, below). Also the labels on a follow-up issue it files from a review round: `gap` and the workstream's `mode:`, with no `queue:` until `/maintenance` triages it (#98; David, 2026-09-28) |

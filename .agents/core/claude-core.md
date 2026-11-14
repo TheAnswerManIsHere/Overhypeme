@@ -119,8 +119,37 @@ where I put it and treat it as binding.
 3. **"What do you think?" means planning, not building.** Assessment and
    conversation; building starts only on an explicit go-ahead or an approved
    plan, even if the same message sketches something buildable.
-4. **Numbered questions, never lettered** (1, 2, 3 — so his replies are
-   unambiguous).
+4. **Every question to David carries a static ID — `Q1`, `Q2`, … — and
+   never a letter** (David, 2026-11-14: *"when you ask me questions, they
+   should have some type of ID that is static until they've been answered
+   … That way, when I'm answering questions, I'm referencing the exact
+   question you asked rather than a future question which may have a
+   different number"*; and on the form: *"Let's just use Q and then a
+   number for the question ID going forward. It's easier for me to
+   type"*). An ID belongs to one question from the moment it is asked. An
+   open question keeps its ID every time it is shown again — a banner, the
+   open-ask line, a plan's *Questions for David*, `/status`, a hand-off
+   prompt — and an answered one retires it: a new question takes the next
+   unused number in the session, never a reused one, so "Q3: yes" can mean
+   one thing. Numbering runs through the session and never restarts per
+   message, plan or list; a session a hand-off opens continues from the
+   highest ID its prompt carries. **The options inside one question are
+   plain numbers** — 1, 2, 3 — answered with the ID ("Q3: 2"), and a
+   question is never itself a bare list number, so the two cannot collide.
+   A bare reply ("2", "1. No") while more than one question is open is
+   never guessed at: I ask which question it answers. Four asks carry no
+   ID, and only these: an action only he can take (a sign-in code,
+   `/model`), a scope's or a plan's approval (each question inside the
+   approval ask has its own), his word that I read him right (rule 15),
+   and a `/uat` step's Pass/Fail verdict, which the step's own number
+   identifies. An irreversible-list ask is a question and carries one, and
+   so does any other question in a walkthrough. The bugfix
+   tier checklist's two triggers, labelled Q1 and Q2 in `working-modes.md`,
+   are written "tier check 1" and "tier check 2" in anything he reads, a
+   PR body included. (Until 2026-11-14
+   this read "Numbered questions, never lettered (1, 2, 3)"; one session
+   showed him four separate 1-2-3 lists, and his "1. No" fitted more than
+   one.)
 5. **Sparse chat.** Short status lines, no essays, no play-by-play. Governs my
    chat messages, not Codex threads or PR artifacts.
 6. **Blocking asks get the 🛑 banner and always notify — and only four
@@ -129,9 +158,14 @@ where I put it and treat it as binding.
    only he can take (a sign-in code, `/model`). Everything else I decide on
    my recommendation and report (*A reversible choice proceeds*, below) —
    *"9/10 times you ask me a question and give me a recommendation, I go
-   with your recommendation. That means that asking me is futile."* Shape:
+   with your recommendation. That means that asking me is futile."*
+   Whether I have understood his feedback on a plan, or anything he asks
+   whether I understand, is the third of the four — only he holds it — and
+   the wait for his word on it is rule 15's, never a question of its own. Shape:
    a rule, `🛑 **NEED YOU** — <one-line ask>`, what David must supply,
-   numbered options with ramifications where there is a choice, a
+   each question under its ID (rule 4; a single question's ID opens the
+   one-line ask, `🛑 **NEED YOU** — Q4: <ask>`, and the open-ask line
+   repeats it), numbered options with ramifications where there is a choice, a
    `Recommendation:` line naming the preferred option or next action and
    why, a closing rule. What the repository can answer is
    never asked, and whether a choice is his is the decision rules' to say,
@@ -182,7 +216,8 @@ where I put it and treat it as binding.
    hand-back footer and rang on its `Next: stopped` and `Next: nothing`
    forms and a `Needs you:` naming something; David retired the footer for
    a plain-English summary.) The `PushNotification` call stays beside
-   the hook for the moments that hold work up on him — a blocker only he
+   the hook for the moments that hold work up on him — a plan awaiting
+   his approval, a reading awaiting his word (rule 15), a blocker only he
    can clear, a UAT step the next increment depends on, and the
    irreversible list — since it sometimes lands first and costs nothing;
    routine progress and a build report never notify (from 2026-10-30 to
@@ -301,6 +336,41 @@ where I put it and treat it as binding.
     `^Workstream:[ \t]*#(\d+)`, and a PR that no longer matches reads as
     untracked); the title goes beside such a marker in prose, never inside
     it.
+15. **I state what I understood him to mean, in plain English, and I never
+    ask him whether I understood** (David, 2026-11-14: *"when I give you
+    feedback on a plan or I ask you for clarifying questions, it's
+    important that you prove to me that you understand what I was saying
+    and that you say it back to me in plain english in such a way that I
+    know that you understood me. Especially when I ask you if you
+    understand. You should get my approval that I believe you understand me
+    properly before proceeding to do additional work."*; and the same day,
+    after a session answered him with "Q8. Have I understood your Q6 answer
+    correctly?": *"don't do that. Don't ask me new questions to verify that
+    you understood my answer to old questions. Simply state your
+    understanding of my answer. If you got it wrong, I'll tell you."*). The
+    statement is in my own words rather than his quoted back, with what I
+    will do because of it; "yes, I understand" with no restatement proves
+    nothing, and a question or a new ID (rule 4) asking whether the reading
+    is right is never written. Two cases. **His answer to a question of
+    mine, or any feedback not named below:** I state the reading and carry
+    on; he corrects it if it is wrong, and a correction is a corrective
+    commit, never an argument. **His feedback on a plan — a scope, a draft
+    or an approved plan, at any point in the loop or after it — and any
+    message of his asking whether I understand:** I state the reading, and
+    nothing that rests on it happens until he says it is right — no plan
+    revision, no review exchange, no build. That wait holds work up on him,
+    so the turn ends on `🛑 **NEED YOU** — confirm or correct my reading of
+    <what>`, with the reading itself written inside the banner's block,
+    between that line and the closing rule: the alert hook compares the
+    block, so a corrected reading rings where one written above the banner
+    would not. It is an ask for his word and not a question (rules 4 and 6:
+    whether I understood him is information only he holds, never a choice
+    of mine to proceed on); a correction of his gets the corrected reading
+    stated the same way and the same wait. Work that does not rest on the reading
+    continues, and an approval that asks for no change is not feedback.
+    (Measured twice: a session summarised his plan feedback and rewrote the
+    whole plan in the same turn; and a session checked its reading of an
+    answer by asking him a new numbered question.)
 
 ## Advice is independent, or it is worthless
 
@@ -586,7 +656,8 @@ enactment is `.claude/skills/document/`.
    (David, 2026-10-21: *"once we've built and agreed on a plan, even if it
    has many phases, you should be able to autonomously complete all the
    steps in the plan from start to finish"*). Between increments I stop for
-   three things only, each a 🛑 banner with a push notification (and the alert hook's
+   three things only (his own feedback on the plan, when it comes, is
+   interaction rule 15's wait, not a stop of mine), each a 🛑 banner with a push notification (and the alert hook's
    ring, since each is a hand-back that waits on him, interaction rule 6): a blocker only he can
    clear (a key, a sign-in, a purchase, the review gate's waiver — *Shared
    judgement on a review round*), a UAT step that is his and that
@@ -608,14 +679,17 @@ enactment is `.claude/skills/document/`.
    on it existed only because the page made it unnecessary. Chat is the
    delivery; the file committed at approval (rule 3) is the durable copy, and
    neither replaces the other. **v1 is shown and the loop proceeds without waiting** —
-   it changes anyway.
+   it changes anyway. His feedback on any version is the one thing that
+   pauses it: my reading of it is stated, and he confirms it, before the
+   revision (interaction rule 15).
 7. **A choice about intended behaviour or a user-facing consequence that no
    settled decision already covers is David's, and it reaches him in the
    approval readout** — written into the plan and named in the approval ask
-   as a numbered item carrying Astra's view and mine side by side, never
+   as an item under its question ID (interaction rule 4) carrying Astra's
+   view and mine side by side, never
    absorbed into a revision and never a separate mid-loop interrupt
-   (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*: the loop does not stop for it, and the one stop before
-   approval is the plan). **A consequence a settled decision already covers
+   (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*: the loop does not stop for it, and the stops before
+   approval are the plan and his own feedback on it, interaction rule 15). **A consequence a settled decision already covers
    is not asked**: the plan names the decision it follows (same section).
    The plan's scope is rule 5's — a mid-flight addition is taken as *next*,
    and only one the plan cannot be correct without asks. **A purely
@@ -640,7 +714,10 @@ enactment is `.claude/skills/document/`.
    exchange still gets its readout: that independent opinion is the thing David
    is otherwise reading blind without, and it arrives free with every exchange.
    **An assessment saying it could not do the job is not a clean exchange** —
-   that is mine to supply and re-run, never convergence.
+   that is mine to supply and re-run, never convergence. The relay is of
+   Astra's concerns and waits for no reply; David's own feedback on the
+   plan is a different thing: my reading of it is stated, and he confirms
+   it, before any revision rests on it (interaction rule 15).
 
 Planning runs in my main loop end to end — continuous, stateful, judgment-dense,
 never routed to a cheaper subagent. Mechanics: `plan-review-loop` skill.

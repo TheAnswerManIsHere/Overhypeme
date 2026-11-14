@@ -65,7 +65,7 @@ An invocation may name a PR, an issue, or nothing.
    a `## UAT run` section (section 5) whose verdict is `in progress`. If one
    exists, offer to **resume at its recorded step** — and re-do any setup it
    records as owed (section 2), since a paused run tears its setup down.
-3. **One candidate → start it. Several → ask which**, one numbered question.
+3. **One candidate → start it. Several → ask which**, one question under its ID (`claude-core.md`, interaction rule 4).
    **None → say so** and don't invent a run.
 
 Then give him a **three-line preview before step 1**, never the whole script:
@@ -646,7 +646,10 @@ by construction, and firing the 🛑 banner and a push for each one would make
 interaction rule 6 unusable exactly where he's most present. So, **scoped to
 an active run**: ordinary step-by-step turn-taking — including the
 continue-or-pause question right after a failure — gets **no banner and no
-`PushNotification` call**. He's at the keyboard; that's the premise of the
+`PushNotification` call**. A step's Pass/Fail verdict carries no question
+ID, since the step's number identifies it; every other question in the run
+(the "sort of worked" question, continue-or-pause, which priority) carries
+its ID like any question (`claude-core.md`, interaction rule 4). He's at the keyboard; that's the premise of the
 session. The alert hook rings nothing on those turns either: a walkthrough
 turn carries no banner and no plan-done line, which are the only hand-backs
 the hook rings for — beyond a permission prompt the session parks on and a

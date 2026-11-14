@@ -513,8 +513,8 @@ How to run it:
 Single message, ten short sections, worst news first. A major bump is a
 reversible merge, so I proceed on my recommendation and report it; an alarming
 Sentry issue and a recurring flake are reported, not asked. Only what the
-irreversible list names, or a product decision, goes in a numbered question
-list at the end per the numbered-questions rule,
+irreversible list names, or a product decision, goes in a question
+list at the end, each under its ID per the question-ID rule (`claude-core.md`, interaction rule 4),
 with the hand-back's plain-English summary directly above that list
 (`claude-core.md`, *A reversible choice proceeds, and every hand-back says what it did*, rule 2), and the list itself under a 🛑
 banner, since it waits on him (interaction rule 6).
