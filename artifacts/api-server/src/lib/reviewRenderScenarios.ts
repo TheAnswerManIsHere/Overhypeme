@@ -59,7 +59,7 @@ import {
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
-import { gagRenderInput, loadGagRenderContext, loadGags, stripGag, workingContent } from "./gags/resolver";
+import { gagRenderInput, loadGagRenderContext, loadGags, workingContent } from "./gags/resolver";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
@@ -361,7 +361,14 @@ export async function loadGagRenderTarget(
   if (!ctx) return { ok: false, reason: "fact_missing" };
   const content = workingContent(gag);
   if (!content) return { ok: false, reason: "gag_empty", stage: ctx.stage };
-  const ev = validateEnrichment(ctx.classification);
+  // Validate the joined render input, as the whole blob was validated before
+  // gags had their own table: the schema's normalisation of the gag is part
+  // of what the hash and the render read.
+  const ev = validateEnrichment(
+    ctx.classification && typeof ctx.classification === "object"
+      ? gagRenderInput(ctx.classification as FactEnrichment, content)
+      : ctx.classification,
+  );
   if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: ctx.stage };
   return {
     ok: true,
@@ -371,7 +378,7 @@ export async function loadGagRenderTarget(
       reviewId: ctx.reviewId,
       stagingFactId: gag.factId,
       factText: ctx.factText,
-      enrichment: gagRenderInput(stripGag(ev.data), content),
+      enrichment: ev.data,
       stage: ctx.stage,
       imageEngines: imageEngines ?? await currentRenderRouting(),
     },
