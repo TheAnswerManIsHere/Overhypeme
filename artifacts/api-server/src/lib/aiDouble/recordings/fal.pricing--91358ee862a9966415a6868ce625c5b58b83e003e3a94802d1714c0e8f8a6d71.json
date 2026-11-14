@@ -4,7 +4,7 @@
     "endpoint": "openai/gpt-image-2/edit"
   },
   "fingerprint": "91358ee862a9966415a6868ce625c5b58b83e003e3a94802d1714c0e8f8a6d71",
-  "recordedAt": "2026-11-14T02:54:45.592Z",
+  "recordedAt": "2026-11-14T15:58:49.252Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
