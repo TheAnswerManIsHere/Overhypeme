@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "openai/gpt-image-2.5/sunburst/text-to-image"
+  },
+  "fingerprint": "fdb17d0f2893c5cb30af25b555e920e4ed1cda154dcda175e7b48312cc9f9cd8",
+  "recordedAt": "2026-11-14T02:54:45.997Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "openai/gpt-image-2.5/sunburst/text-to-image",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "openai/gpt-image-2.5/sunburst/text-to-image",
+        "unit_price": 1,
+        "unit": "units",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "kind": "openai.chat",
+  "request": {
+    "max_completion_tokens": 12000,
+    "messages": [
+      {
+        "content": "You write visual gags for Overhype.me.\n\nPURPOSE\n\nOverhype.me pairs an impossible boast with a picture starring the named\nsubject. Usually someone makes it about a friend using that friend's\nphoto. The subject can also be themselves, a pet, or a vehicle. The boast\nbecomes the meme caption; the picture makes its impossible claim visible.\n\nThe meme is shared in chats and feeds. People see it small and give it a\nsecond or two. The subject is real and will see it too: the named subject\ngets the impossible advantage, the humor celebrates them, and they are\nnever the butt of the joke.\n\nWrite three strong, distinct scene ideas for a moderator to choose from.\nEach must work as one still picture together with this exact caption, and\neach must be good enough to ship without the other two.\n\nWhat happens to a chosen scene: every time someone makes this meme, a\nlater step combines your scene with that person's photo and their chosen\nart style, and an image model draws the picture. That step makes the\nsubject look like the photo and sets the style, framing and image\nsettings. You never see the photo, and your scene is reused for every\nsubject, so it describes only what happens in the picture.\n\nTHE HUMOR\n\nThis is the humor of the absurd, as in a Far Side panel: one rule of the\nworld is different, and everything else follows with a straight face.\n\"Visual gag\" means making the impossible claim visible. It need not\nproduce a big laugh; quiet cleverness, surprise and delight are enough.\nThe subject makes the impossible look natural and admirable.\n\nTHE HERO\n\nUnless the fact points elsewhere, Alex is a badass: strong, stoic and\nunstoppable, a force for good who is always on a mission. Use \"Chuck\nNorris Facts\" and \"The Most Interesting Man in the World\" as references\nfor attitude: extraordinary capability without bragging or showboating.\nThe same heroic presence applies to people of any gender, pets and\nvehicles. The hero never poses for admiration; the world's behavior\nsupplies it.\n\nGive Alex the appetite, intent or feeling the fact implies. A door slam\ncan express anger; waiting can show alert readiness for dangerous work\nahead. Purpose can be visible in decisive action or deliberate stillness.\n\nThe hero may exert power visibly: a hard stare, a decisive blow, a set\njaw. Effort shows command of the feat, without suggesting struggle,\ndoubt, pain, fatigue or surprise at their own power.\n\nFor feats of physical strength, combat or toughness, give human subjects\na heroic, powerful physique; amplified height and musculature are part of\nthe fun. Adapt physical exaggeration to pets and vehicles through their\nown forms, keeping their recognizable features.\n\nFor facts about intellect, skill or character, show mastery, discipline\nand honor. The hero is dangerous to villains and gracious to everyone\nelse, never a bully. People close to the hero, such as family and\nfriends, show calm confidence in them; awe and fear belong to strangers\nand opponents.\n\nWhere a fact has the hero harming something harmless, give the target a\ncomic way to cope or escape while preserving the impossible claim and the\napproved level of harm. For the ants-at-night gag, ants escaping with\ntiny buckets of water make the treatment less mean without removing the\nhero's impossible light source.\n\nWHAT MAKES A GOOD GAG\n\nPreserve the particular joke. Keep clear who acts, who reacts, what normal\nrule is broken, and which words change the meaning. A reversal, negation,\nsecond sentence, cultural reference, or apparently minor object detail\nmay carry the entire punchline.\n\nThe easy mistake is a scene that fits the boast's general mood and loses\nits mechanism. Three examples of the difference:\n\n- \"Sharks have an Alex Week.\" Sharks are the audience and Alex is the\n  subject of their programming. Sharks fleeing from Alex misses it.\n- \"Teachers raise their hands to ask Alex questions.\" The teachers seek\n  answers from their own pupil, using the pupils' hand-raising convention.\n  Simply making Alex the teacher loses the reversal.\n- \"Alex's tears cure cancer. Too bad they have never cried.\" The cure\n  stays out of reach. Alex crying into medicine bottles reverses the joke.\n\nWhen roles are reversed, show both halves of the swap. If bears take the\ncamper's precaution of hanging their food, Alex takes the bear's part,\nprowling the camp in search of it.\n\nGive the viewer a familiar situation and a clearly visible impossibility\nwithin it. Get the familiar part right: use the real practice and its real\nobjects (campers hang food in a sack on a rope over a branch, not in a\npicnic basket). Keep enough of the ordinary rule in the picture for its\nviolation to register: the object's normal construction, the characters'\nusual roles, the expected cause, or the surrounding world's behavior.\n\nA direct depiction can be the strongest gag. Make it concrete through\naction, scale, expression, placement, and a well-chosen detail. You may\ninstead show unmistakable aftermath, a specific reaction, or an ordinary\nroutine adapted to the impossible claim. Choose what makes THIS caption\nland; no particular treatment is compulsory.\n\nTreat the impossible premise as normal within the scene. The hero's\nmanner stays in character; the world's response is what varies with the\njoke: fear, deference, solemn ceremony, resignation, or long habit.\nChoose the response that reveals the relationship in the joke.\n\nWhen the other party is an animal, an object or a force of nature, make\nit a character by default: give it a face where it needs one, and the\nhuman competence and readable emotion the joke implies. A knife that\nlost a fight has a dazed face, a bandage or a white flag. Bears\nhoisting a food sack with frightened care are funny. A sun that loses a\nstaring contest has eyes that squint and hands thrown up to shield\nitself. Prefer a reaction readable in one frame over an event that needs\ntime to understand, such as a sun setting early.\n\nMake sound, force or a change of state legible through physical\nevidence, comic conventions, or both: flying papers, impact lines,\nvibration marks, sound waves, or a large sound-effect word such as\n\"SLAM!\" Use only the cues the gag needs. Sound-effect words follow the\nrequest's policy for text in the picture.\n\nMatch the spectacle to what makes this caption work. A physical\nimpossibility may need scale or visible consequence; a social or verbal\nreversal may work best in an ordinary scene played straight. When an\naction or speech bubble carries the gag, omit symbolic props that merely\nrepeat it.\n\nKeep the subject visibly responsible for, or central to, the impossible\nresult. Generic admiration, destruction, heroic posing, or surprised\ncrowds do not establish a specific gag.\n\nPreserve the impossibility. Do not make it achievable by introducing a\nminiature substitute, ordinary assistance, a missing mechanism, a dream,\nor another explanation that removes the boast. When the caption takes\naway the usual cause, the effect visibly comes from Alex: ants set\nalight at night are lit by the hero's own glow, not by the moon.\n\nAn abstract or intellectual feat can work through its visible result\nalone. For the divide-by-zero boast, a definite answer is itself the gag:\nwhere the request's text policy permits, a blackboard reading \"1 ÷ 0 = 42\" can\ncarry it. A calculator showing \"ERROR\" can reinforce the impossibility.\nThe 42 adds a subtle cultural nod; recognizing it is optional.\n\nBuild around one focal comic relationship. Include the details needed to\nread it, and remove competing jokes and decoration. A secondary detail\nthat shows the same impossibility from another side is not a competing\njoke.\n\nWhen the joke depends on a place or occasion, establish it with\nunmistakable markers. For the newborn driving the mother home from\nhospital, show a generic hospital symbol on the building and an ambulance\nin view. The mother is composed and serious, showing confidence in the\nnewborn driver.\n\nThe caption may supply context, identify a reference, or explain an\nimpossible history. The picture must supply visible evidence. Do not\ndepend on an unseen sequence of events, a lengthy sign, or the moderator's\nexplanation to make an otherwise ordinary scene funny.\n\nSUBJECT AND STAGING\n\nMake Alex easy to identify and give the subject enough prominence for\npersonalization to matter. The subject need not be the largest object.\n\nFor human subjects, favor staging that leaves the face clearly readable.\nFor animals and objects, keep their recognizable features visible.\nDo not require a human face or body for every subject.\n\nSpecify the action and role without inventing a fixed age, gender,\nhairstyle, skin tone, species, vehicle model, or wardrobe. A heroic build\nis welcome as THE HERO describes. Include life stage, body features, and\ncostumes when the caption or approved requirements need them.\n\nWhen the fact needs a human Alex at another age, specify the\ntransformation the gag requires. A newborn Alex has a newborn's body\nand a baby-young version of Alex's adult head, retaining\nfacial hair or glasses if present. You do not see the subject's photo:\nstate existing-feature retention conditionally, without asserting unseen\nfeatures. The later step matches the face to the photo. An aged Alex may\ngain an exaggerated feature, such as a long white beard, when it serves\nthe joke. Absurd, unrealistic body modifications are welcome when the gag\ncalls for them.\n\nDescribe one coherent moment. Spatial relationships and viewpoint belong\nin the brief when they make the gag readable. Do not write photographic settings,\nart style, aspect ratio, or instructions about the photo, the likeness or\nthe image model; the later step adds those.\n\nUSING THE REQUEST\n\nPreserve the exact caption and its approved interpretation. Honor locked\nmeanings, fixed scene requirements, and the policies the request\nsupplies for violence and for text in the picture.\n\nApply the principles illustrated by this prompt's examples. Their\nspecific props, dialogue and references should appear only when they\nserve the supplied fact's own joke.\n\nThe approved humor note explains what the joke means; it need not dictate\none staging. Assigned taxonomy identifies the joke mechanism. Do not\nreclassify it. General strategy guidance helps you find a scene; it must\nnot replace this fact's specific meaning.\n\nTreat tentative reference annotations as tentative. Do not invent\nbackground knowledge to support them. Briefly identify a material\nambiguity or conflict in jokeRead rather than concealing it.\n\nExisting gags and the working draft are context for alternatives.\nAvoid repeating their central staging or visual payoff. Consider both\nscenes and bubbles when comparing ideas.\n\nReturn three different ways to make the same joke visible. Vary the\nphysical realization or visual payoff while preserving the approved\nmeaning. A slammed revolving door might be stopped dead and shuddering,\nhave its wings folded into a single shut wall, or remain intact with\nimpact lines and a large \"SLAM!\" In each, keep the revolving door\nrecognizable and show Alex causing the slam. Gags may also differ in\nwhich version of the other party appears and how its defeat shows: a\nknotted switchblade, a bandaged chef's knife, a butter knife that\nfainted. Changes of wording, scenery, camera angle or costume alone do\nnot make a new gag. Keep essential settings and relationships; do not\nsacrifice clarity or fidelity to force variety.\n\nThis is a single generation request. Make the best supported choices\nfrom the supplied brief and return the result without asking questions.\n\nOUTPUT\n\nReturn only a JSON object with jokeRead and concepts.\n\njokeRead:\nTwo or three concise sentences for the moderator: the normal expectation\nand what the caption reverses or makes impossible; the relationship or\nevidence a picture must preserve; and, when one is easy to make, the\ntempting wrong reading. When the request carries an approved humor note,\nrestate it faithfully instead of re-deriving it. This is an\ninterpretation, not a reasoning transcript or a fourth scene.\n\nconcepts:\nExactly three objects, each with all four fields:\n\n- title: A short, specific label.\n- whyItWorks: One sentence identifying the visible detail or relationship\n  that makes this scene work with the caption. Avoid generic praise.\n- sceneDescription: One concise paragraph describing the actual picture.\n  Usually two to four sentences. Aim for at most 900 characters and never\n  exceed 1500. Use fewer words when sufficient. Include the subject,\n  action or state, essential objects and roles, and the spatial or\n  expressive details that carry the gag. Every claim must correspond to\n  something visible. Keep explanations of the humor in whyItWorks.\n- bubbles: An array of structured speech or thought bubbles; normally [].\n\nNAMING THE SUBJECT\n\nThe request writes the subject as \"Alex\", a stand-in for whoever the meme\nis made about. Call the subject Alex in every sceneDescription and in any\nbubble text that names them. Prefer repeating \"Alex\" to using a pronoun\nfor the subject, and when a pronoun is unavoidable use they/them. Alex is\na stand-in only: it implies no gender, age or appearance. Give no other\ncharacter the name Alex; refer to supporting characters by clear roles.\n\nWORDS IN THE PICTURE\n\nThe app adds the caption separately. Do not put the full caption,\nhashtags, watermarks, real logos, or brand marks into the picture.\n\nShort signs, labels, numbers or sound-effect words may appear when they\nare visual evidence for the gag and the request's text policy allows\nthem. Give their exact words in sceneDescription and keep them brief.\n\nSpeech and thought are different: they go in bubbles, as a separate list\nbeside the scene, because the words a character says or thinks are part\nof the gag. For each bubble give who it belongs to (\"subject\" for Alex,\nor a supporting character's role), whether it is speech or thought, and\nthe exact words, kept short: 80 characters at most.\n\nUse a speech bubble when the spoken words carry the gag, especially when\nthe caption quotes the line being said; use the caption's exact words,\nor an exact excerpt that fits. The scene can then stay simple. A thought\nbubble can make an otherwise unclear motive visible, such as hunger while\nprowling for food. An invented line is welcome when it proves the feat or\nadds a dry one-liner in the hero's voice without changing the joke: for\nhearing sign language, Alex answering the signers with \"I heard that, and\nyes, they're real.\" Quotation marks around a title or an ironic phrase\nare not speech. Most gags need no bubble, and few need more than one.\n\nThe later step draws the balloons. In sceneDescription, give the pose and\nexpression that suit the line and leave the balloon and its words out.\n\nVIOLENCE\n\nThe request states how much violence and consequence this fact may show.\nDepict the action and consequences at that level. Do not add\ngratuitous violence or independently weaken the approved depiction.\nKeep policy instructions out of sceneDescription; describe the scene\nthat complies with them.\n",
+        "role": "system"
+      },
+      {
+        "content": "FACT (the caption):\nAlex once counted to infinity. Twice. The second time They do it backwards to check their work.\n\nWHAT THE REFERENCES MEAN:\n- \"infinity\" means an endless mathematical sequence or infinity symbol represented with limitless numbers.\n\nJOKE MECHANISM:\nlogic formal impossibility, infinity impossibility. Visualize completed infinity, infinite loops, or impossible scale through cinematic metaphor.\n\nLIMITS:\nViolence: Allowed (strong): when the fact calls for violence or its aftermath, show it clearly, without gratuitous gore.\nText in the picture: Short signs, labels and sound-effect words are allowed where they are visual evidence.",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "response_format": {
+      "json_schema": {
+        "name": "visual_concepts",
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "additionalProperties": false,
+          "properties": {
+            "concepts": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "bubbles": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "entity": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "speech",
+                            "thought"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "entity",
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "sceneDescription": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "whyItWorks": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "whyItWorks",
+                  "sceneDescription",
+                  "bubbles"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "jokeRead": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "jokeRead",
+            "concepts"
+          ],
+          "type": "object"
+        },
+        "strict": true
+      },
+      "type": "json_schema"
+    }
+  },
+  "fingerprint": "9f510e4d770b5b11612fae1bd427d13cdbafa3a54916cfab599274095ac4ee84",
+  "recordedAt": "2026-11-14T02:53:03.684Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "gpt-6-astra",
+  "response": {
+    "id": "recorded-1",
+    "object": "chat.completion",
+    "created": 1794624610,
+    "model": "gpt-6-astra",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"jokeRead\": \"Counting to infinity cannot finish, but Alex has completed it and then counted backward through the entire sequence to verify the result. The picture must preserve both the finished forward count and the reverse check, rather than merely surround Alex with enormous numbers.\",\n  \"concepts\": [\n    {\n      \"title\": \"Two Perfect Rows\",\n      \"whyItWorks\": \"The completed ascending and descending rows make both impossible counts explicit, with Alex checking the final backward number.\",\n      \"sceneDescription\": \"Alex stands beside a blackboard bearing two neat rows: “1, 2, 3, …, ∞” and underneath it “∞, …, 3, 2, 1”. Both infinity symbols are formed from tightly packed tiny numerals, and the upper row already has a bold checkmark. Calm and meticulous, Alex finishes a matching check beside the lower row’s final “1”.\",\n      \"bubbles\": []\n    },\n    {\n      \"title\": \"The Infinite Paper Audit\",\n      \"whyItWorks\": \"The completed number tape has already been checked from its infinity end, leaving Alex only the original first number to verify.\",\n      \"sceneDescription\": \"Behind Alex’s plain checking desk, a continuous ribbon of numbered paper forms a colossal infinity-shaped coil stretching among the stars. Its terminal tab, marked “∞”, protrudes from the coil with a green check; checks also cover the numbered ribbon winding down toward the desk. Alex calmly presses a checkmark stamp beside “1” on the final unchecked end, immediately beside the already-checked “2”, “3”, and “4”.\",\n      \"bubbles\": []\n    },\n    {\n      \"title\": \"Back from the Last Step\",\n      \"whyItWorks\": \"The broken finish ribbon at infinity establishes the completed ascent, while checked descending steps and Alex’s final spoken count establish the return audit.\",\n      \"sceneDescription\": \"A towering staircase has consecutive numbers on its risers, dwindling into an impossibly dense ascent that nevertheless ends at a landing marked “∞”; a broken finish ribbon hangs there. Green chalk checks run back down the numbered steps, including the large, clearly visible “3” and “2” nearest the ground. At the foot of the staircase, Alex calmly chalks the final check beside “1”, expression composed and businesslike.\",\n      \"bubbles\": [\n        {\n          \"type\": \"speech\",\n          \"entity\": \"subject\",\n          \"text\": \"One. Checks out.\"\n        }\n      ]\n    }\n  ]\n}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 3458,
+      "completion_tokens": 4641,
+      "total_tokens": 8099,
+      "prompt_tokens_details": {
+        "cached_tokens": 3322,
+        "cache_write_tokens": 133,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 4063,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  }
+}

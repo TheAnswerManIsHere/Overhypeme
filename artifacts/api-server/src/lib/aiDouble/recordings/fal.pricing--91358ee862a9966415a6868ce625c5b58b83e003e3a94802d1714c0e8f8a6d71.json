@@ -1,0 +1,25 @@
+{
+  "kind": "fal.pricing",
+  "request": {
+    "endpoint": "openai/gpt-image-2/edit"
+  },
+  "fingerprint": "91358ee862a9966415a6868ce625c5b58b83e003e3a94802d1714c0e8f8a6d71",
+  "recordedAt": "2026-11-14T02:54:45.592Z",
+  "clients": {
+    "@fal-ai/client": "1.9.5",
+    "openai": "6.33.0"
+  },
+  "target": "openai/gpt-image-2/edit",
+  "response": {
+    "prices": [
+      {
+        "endpoint_id": "openai/gpt-image-2/edit",
+        "unit_price": 1,
+        "unit": "units",
+        "currency": "USD"
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}
