@@ -17,7 +17,7 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { panelPreparationBoundUsd } from "../lib/comparison/admission.js";
 import { DEFAULT_IMAGE_PROMPT_ENGINE_ID } from "../lib/imagePromptConfig.js";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 import { testEngineRow } from "./helpers/testEngines.js";
 
 const P = `t-cmp-${randomUUID().slice(0, 6)}`;
@@ -57,7 +57,7 @@ after(async () => {
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(inArray(factsTable.id, [factId]));
   await db.delete(lookStylesTable).where(inArray(lookStylesTable.id, [STYLE]));
-  clearEngineCaches();
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(inArray(usersTable.id, [adminId, userId]));
 });
 

@@ -18,7 +18,7 @@ import { BASELINE_PIECES } from "../lib/imagePrompt/recipe.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { testEngineRow } from "./helpers/testEngines.js";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
 const P = `t-pr-${randomUUID().slice(0, 6)}`;
 const FAMILY = `${P}-gpt`;
@@ -40,7 +40,7 @@ before(async () => {
 after(async () => {
   await db.delete(promptRecipePromotionsTable).where(inArray(promptRecipePromotionsTable.engineFamily, [FAMILY, OTHER]));
   await db.delete(promptRecipeVersionsTable).where(inArray(promptRecipeVersionsTable.engineFamily, [FAMILY, OTHER]));
-  clearEngineCaches();
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

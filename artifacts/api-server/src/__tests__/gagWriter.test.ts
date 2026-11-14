@@ -17,7 +17,7 @@ import { db } from "@workspace/db";
 import { adminConfigTable } from "@workspace/db/schema";
 import { FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT } from "../lib/visualConceptsConfig.js";
 import { resolveVisualConceptsLLMSettings } from "../lib/visualConcepts/generator.js";
-import { loadEngine } from "../lib/engineInterpreter.js";
+import { engineById } from "../lib/engineInterpreter.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -65,7 +65,7 @@ describe("migration 0137 points the gag generator at GPT-6 Astra", () => {
       assert.equal(settings.model, "gpt-6-astra");
       // The effort is the code's (decisions.md 2026-11-14).
       assert.equal(settings.reasoningEffort, "medium");
-      const planner = await loadEngine("openai-visual-planner");
+      const planner = engineById("openai-visual-planner");
       assert.equal(planner?.endpointId, "gpt-5.5", "the render planner's engine is unchanged");
     });
   }

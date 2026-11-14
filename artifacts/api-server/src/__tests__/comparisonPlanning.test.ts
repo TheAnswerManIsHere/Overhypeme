@@ -7,11 +7,11 @@ import assert from "node:assert/strict";
 
 import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspace/api-zod";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { codeDefinitionToRow } from "../lib/engines/toRow.js";
+import { toEngineRecord } from "../lib/engines/engineRecord.js";
 import { ComparisonLayoutError, deriveComparisonLayout } from "../lib/comparison/layout.js";
 import { cellBoundUsd, panelPreparationBoundUsd, planRun, type WorkItem } from "../lib/comparison/admission.js";
 
-const catalogue = ALL_ENGINES.filter((e) => e.kind === "image").map((e) => codeDefinitionToRow(e));
+const catalogue = ALL_ENGINES.filter((e) => e.kind === "image").map((e) => toEngineRecord(e));
 
 function round(n: 1 | 2) {
   const p = COMPARISON_ROUND_PRESETS[n];

@@ -5,11 +5,11 @@
  * server reads.
  */
 import type { EngineDefinition } from "../../lib/engines/types.js";
-import { codeDefinitionToRow, type Engine } from "../../lib/engines/toRow.js";
+import { toEngineRecord, type Engine } from "../../lib/engines/engineRecord.js";
 import { __registerEngineDefinitionForTest } from "../../lib/engineInterpreter.js";
 
 export function testEngineRow(base: EngineDefinition, id: string, family: string, overrides: Partial<EngineDefinition> = {}): Engine {
   const def: EngineDefinition = { ...base, ...overrides, id, family };
   __registerEngineDefinitionForTest(def);
-  return codeDefinitionToRow(def);
+  return toEngineRecord(def);
 }

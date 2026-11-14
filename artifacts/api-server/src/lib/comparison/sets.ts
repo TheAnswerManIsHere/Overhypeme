@@ -39,12 +39,12 @@ export { ComparisonLayoutError };
 
 export async function createComparisonSet(input: ComparisonSetCreate, adminUserId: string | null, opts: { requestToken?: string } = {}): Promise<{ setId: number; panels: number; cells: number }> {
   const styleIds = input.lookStyleIds.filter((s) => s !== "none");
-  const [facts, styles, engines] = await Promise.all([
+  const engines = imageEngines();
+  const [facts, styles] = await Promise.all([
     db.select({ id: factsTable.id }).from(factsTable).where(inArray(factsTable.id, input.factIds)),
     styleIds.length
       ? db.select({ id: lookStylesTable.id, isActive: lookStylesTable.isActive }).from(lookStylesTable).where(inArray(lookStylesTable.id, styleIds))
       : Promise.resolve([] as Array<{ id: string; isActive: boolean }>),
-    Promise.resolve(imageEngines()),
   ]);
 
   const reasons: string[] = [];

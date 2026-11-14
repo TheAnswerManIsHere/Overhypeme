@@ -14,7 +14,7 @@ import { createComparisonSet } from "../lib/comparison/sets.js";
 import { backfillTimings, parseTimings } from "../lib/comparison/backfillTiming.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { testEngineRow } from "./helpers/testEngines.js";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
 const P = `t-cbt-${randomUUID().slice(0, 6)}`;
 const engineIds: string[] = [];
@@ -40,7 +40,7 @@ before(async () => {
 after(async () => {
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
-  clearEngineCaches();
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

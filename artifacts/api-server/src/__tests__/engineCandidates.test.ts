@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { ALL_ENGINES, perCallBoundUsd, type EngineDefinition } from "../lib/engines";
 import { buildEngineInput } from "../lib/engineInterpreter";
 import { buildImageRequestSettings } from "../lib/imageRequestBuilder";
-import type { Engine } from "../lib/engines/toRow.js";
+import type { Engine } from "../lib/engines/engineRecord.js";
 
 const CANDIDATE_FAMILIES = ["gpt-image-2-6", "gpt-image-2-5", "nano-banana-2-1", "flux-3", "seedream-5-pro", "muse-image", "nano-banana-2"];
 

@@ -4,7 +4,7 @@
  * (decisions.md 2026-11-14); there is no engines table.
  */
 export { ALL_ENGINES } from "./catalogue";
-export { codeDefinitionToRow, type Engine } from "./toRow";
+export { toEngineRecord, type Engine } from "./engineRecord";
 export type {
   EngineDefinition,
   EngineKind,

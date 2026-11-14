@@ -7,7 +7,7 @@ import {
   InvalidEngineParamError,
   type ParamSchema,
 } from "../lib/engineInterpreter.js";
-import type { Engine } from "../lib/engines/toRow.js";
+import type { Engine } from "../lib/engines/engineRecord.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers: synthesize Engine rows whose paramSchema mirrors migration 0057.

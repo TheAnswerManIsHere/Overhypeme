@@ -31,7 +31,7 @@ import { createComparisonSet } from "../lib/comparison/sets.js";
 import { blindImagePath, getComparisonResults, median } from "../lib/comparison/judging.js";
 import { frozenJudgingReference } from "../lib/comparison/runs.js";
 import { testEngineRow } from "./helpers/testEngines.js";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
 const P = `t-cj-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -61,7 +61,7 @@ before(async () => {
 after(async () => {
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
-  clearEngineCaches();
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

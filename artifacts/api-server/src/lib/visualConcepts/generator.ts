@@ -45,7 +45,7 @@ import { isMaterialCulturalReference } from "../imagePrompt/generator";
 import { renderPersonalized, stripSubjectNameSemanticEntities } from "../renderCanonical";
 import { hasNoLikelySubjectReference, tokenizePlainTextToTemplate } from "../factTokenizer";
 import { getVisualConceptsSystem, getVisualConceptsEngineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID } from "../visualConceptsConfig";
-import { loadEngine } from "../engineInterpreter";
+import { engineById } from "../engineInterpreter";
 import { logger } from "../logger";
 
 /** A frontier reasoning model at high effort needs minutes, not the 30s default. */
@@ -135,7 +135,7 @@ export async function resolveVisualConceptsLLMSettings(): Promise<VisualConcepts
   });
   try {
     engineId = (await getVisualConceptsEngineId()).trim() || DEFAULT_VISUAL_CONCEPTS_ENGINE_ID;
-    const engine = await loadEngine(engineId);
+    const engine = engineById(engineId);
     const reason = !engine
       ? "engine_not_found"
       : engine.kind !== "llm"

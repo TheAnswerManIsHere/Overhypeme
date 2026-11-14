@@ -1,6 +1,6 @@
 import { logger } from "./logger.js";
 import { ALL_ENGINES } from "./engines/catalogue";
-import { codeDefinitionToRow, type Engine } from "./engines/toRow";
+import { toEngineRecord, type Engine } from "./engines/engineRecord";
 import type { EngineDefinition } from "./engines/types";
 
 /**
@@ -115,7 +115,7 @@ export function __registerEngineDefinitionForTest(def: EngineDefinition): void {
 }
 
 /** Test hook: forget every registered test definition. */
-export function clearEngineCaches(): void {
+export function clearTestEngineDefinitions(): void {
   testDefinitions.clear();
 }
 
@@ -131,30 +131,20 @@ export function codeEngineDefinition(id: string): EngineDefinition | undefined {
   return catalogueById.get(id) ?? testDefinitions.get(id);
 }
 
-/** The ids of every image engine with a code definition. */
-export function codeImageEngineIds(): string[] {
-  return codeEngineDefinitions().filter((d) => d.kind === "image").map((d) => d.id);
-}
-
 /** Every engine, as records, from the code catalogue. */
 export function allEngines(): Engine[] {
-  return codeEngineDefinitions().map(codeDefinitionToRow);
+  return codeEngineDefinitions().map(toEngineRecord);
 }
 
 /** Every image engine, as records, from the code catalogue. */
 export function imageEngines(): Engine[] {
-  return allEngines().filter((e) => e.kind === "image");
+  return codeEngineDefinitions().filter((d) => d.kind === "image").map(toEngineRecord);
 }
 
 /** The engine for an id, or null when the code catalogue has no such engine. */
 export function engineById(id: string): Engine | null {
   const def = codeEngineDefinition(id);
-  return def ? codeDefinitionToRow(def) : null;
-}
-
-/** `engineById`, kept async for its many callers. */
-export async function loadEngine(id: string): Promise<Engine | null> {
-  return engineById(id);
+  return def ? toEngineRecord(def) : null;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -21,8 +21,8 @@
  */
 
 import type { GenerationMode } from "@workspace/api-zod";
-import type { Engine } from "./engines/toRow";
-import { loadEngine } from "./engineInterpreter";
+import type { Engine } from "./engines/engineRecord";
+import { engineById } from "./engineInterpreter";
 import { liveRecipeVersionIdsForEngines } from "./imagePrompt/recipeStore";
 
 /**
@@ -121,7 +121,7 @@ export function imageEngineRefusal(engine: Engine | null, mode: GenerationMode):
  */
 export async function resolveImageEngine(mode: GenerationMode, override?: string | null): Promise<Engine> {
   const engineId = override?.trim() || (await currentImageEngineIds())[mode];
-  const engine = await loadEngine(engineId);
+  const engine = engineById(engineId);
   const refusal = imageEngineRefusal(engine, mode);
   if (refusal) throw new ImageEngineRoutingError(engineId, mode, refusal);
   return engine!;

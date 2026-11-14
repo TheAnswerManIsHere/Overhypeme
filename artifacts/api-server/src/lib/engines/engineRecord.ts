@@ -38,7 +38,7 @@ export interface Engine {
 }
 
 /** The engine record for a code definition. */
-export function codeDefinitionToRow(def: EngineDefinition): Engine {
+export function toEngineRecord(def: EngineDefinition): Engine {
   return {
     id: def.id,
     provider: def.provider,

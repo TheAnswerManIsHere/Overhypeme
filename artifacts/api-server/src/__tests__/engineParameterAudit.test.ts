@@ -21,7 +21,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { ALL_ENGINES } from "../lib/engines/catalogue.js";
-import { codeDefinitionToRow } from "../lib/engines/toRow.js";
+import { toEngineRecord } from "../lib/engines/engineRecord.js";
 import { buildEngineInput } from "../lib/engineInterpreter.js";
 import { buildImageRequestSettings } from "../lib/imageRequestBuilder.js";
 import { imageEngineParams } from "../lib/imageEngineRequest.js";
@@ -111,7 +111,7 @@ describe("every dispatchable image engine sends only what its endpoint accepts",
   for (const def of dispatchable) {
     it(`${def.id} (${def.endpointId})`, () => {
       const accepts = FAL_AUDIT[def.endpointId]!;
-      const row = codeDefinitionToRow(def) as never;
+      const row = toEngineRecord(def) as never;
       let built = 0;
       for (const purpose of ["preview", "comparison", "final"] as const) {
         for (const aspect of ["landscape", "square", "portrait"]) {

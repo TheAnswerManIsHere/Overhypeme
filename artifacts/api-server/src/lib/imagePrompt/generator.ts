@@ -33,7 +33,7 @@ import {
   getImagePromptEngineId,
   DEFAULT_IMAGE_PROMPT_ENGINE_ID,
 } from "../imagePromptConfig";
-import { loadEngine } from "../engineInterpreter";
+import { engineById } from "../engineInterpreter";
 import { logger } from "../logger";
 import { generationModeFromSubjectRenderMode } from "../sourceImageAnalysis";
 import { stripSubjectNameSemanticEntities, renderPersonalized } from "../renderCanonical";
@@ -111,13 +111,13 @@ function fallbackImagePromptLLMSettings(
  * (decisions.md 2026-11-14), into per-call LLM settings + provenance.
  * Any invalid state falls back to the pre-feature behavior (default llm
  * engine, original constants) with the reason recorded — never throws.
- * Note: `loadEngine` does NOT filter isActive, so we must.
+ * Note: `engineById` does NOT filter isActive, so we must.
  */
 export async function resolveImagePromptLLMSettings(): Promise<ImagePromptLLMSettings> {
   let configuredEngineId = DEFAULT_IMAGE_PROMPT_ENGINE_ID;
   try {
     configuredEngineId = (await getImagePromptEngineId()).trim() || DEFAULT_IMAGE_PROMPT_ENGINE_ID;
-    const engine = await loadEngine(configuredEngineId);
+    const engine = engineById(configuredEngineId);
     const reason = !engine
       ? "engine_not_found"
       : engine.kind !== "llm"

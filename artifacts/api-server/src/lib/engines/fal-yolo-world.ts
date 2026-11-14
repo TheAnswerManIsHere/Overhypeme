@@ -15,7 +15,7 @@ import type { EngineDefinition } from "./types";
  *
  * Cost: ~$0.001-0.005 per image (rough; verify in preflight). Latency: 1-2s p50.
  *
- * The source-image analyzer calls `loadEngine(getImageClassifierEngineId())`,
+ * The source-image analyzer calls `engineById(getImageClassifierEngineId())`,
  * and that id is set in code (decisions.md 2026-11-14: AI call settings live in code). To swap
  * detectors, add the engine to the catalogue and change the constant.
  */

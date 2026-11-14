@@ -46,7 +46,7 @@ import {
 } from "../lib/comparison/runs.js";
 import { llmMaxRetriesInScope } from "../lib/utilityLLM.js";
 import { testEngineRow } from "./helpers/testEngines.js";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
 const P = `t-cr-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -112,7 +112,7 @@ after(async () => {
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
-  clearEngineCaches();
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

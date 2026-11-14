@@ -20,7 +20,7 @@
  */
 
 import { fal, ensureFalConfigured } from "../falClient";
-import { loadEngine } from "../engineInterpreter";
+import { engineById } from "../engineInterpreter";
 import { logger } from "../logger";
 import { getImageClassifierEngineId, DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID } from "../imagePromptConfig";
 import type { SourceImageDetection } from "@workspace/api-zod";
@@ -46,14 +46,14 @@ export class Tier1DetectorError extends Error {
 export async function runTier1Detector(imageUrl: string): Promise<Tier1Result> {
   ensureFalConfigured();
   const engineId = (await getImageClassifierEngineId()) || DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID;
-  const engine = await loadEngine(engineId);
+  const engine = engineById(engineId);
   if (!engine) {
     throw new Tier1DetectorError(`source classifier engine "${engineId}" not found in catalogue`);
   }
   const startedAt = Date.now();
   try {
     // We pass the raw image URL + the engine's default class list (from
-    // paramSchema). `loadEngine` returns the static defaults; the analyzer
+    // paramSchema). `engineById` returns the static defaults; the analyzer
     // doesn't override them in v1 — the detector's default vocabulary
     // covers the COCO-superset subject taxonomy we care about.
     const defaults = extractStaticDefaultsFromParamSchema(engine.paramSchema);

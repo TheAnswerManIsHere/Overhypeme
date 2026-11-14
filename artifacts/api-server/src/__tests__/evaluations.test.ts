@@ -43,7 +43,7 @@ import { panelPreparationTypicalUsd } from "../lib/comparison/admission.js";
 import { plannerSettings } from "../lib/comparison/sets.js";
 import type { EvaluationCreate } from "@workspace/api-zod";
 import { testEngineRow } from "./helpers/testEngines.js";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
 const P = `t-ev-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -98,7 +98,7 @@ after(async () => {
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(inArray(factsTable.id, [activeFact, inactiveFact, brokenFact]));
-  clearEngineCaches();
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

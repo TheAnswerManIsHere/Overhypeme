@@ -106,7 +106,7 @@ const PROMPT_TEXT: Record<string, () => Promise<string>> = {
 
 export async function aiSettingsView(): Promise<AiSettingsView> {
   const utility = requireEngine(UTILITY_LLM_ENGINE_ID);
-  const utilityTemperature = utility.defaultTemperature != null ? Number(utility.defaultTemperature) : null;
+  const detector = requireEngine(DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID);
   const steps: AiSettingRow[] = [
     llmStep("Fact classification (enrichment)", DEFAULT_FACT_ENRICHMENT_ENGINE_ID, FACT_ENRICHMENT_CONFIG_KEYS.system),
     llmStep("Gag writer (visual gags and joke read)", DEFAULT_VISUAL_CONCEPTS_ENGINE_ID, VISUAL_CONCEPTS_CONFIG_KEYS.system),
@@ -115,8 +115,8 @@ export async function aiSettingsView(): Promise<AiSettingsView> {
     imageStep("Picture engine: from a reference photo", IMAGE_ENGINE_IDS.i2i),
     {
       step: "Source-photo detector",
-      engine: requireEngine(DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID).label,
-      model: requireEngine(DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID).endpointId,
+      engine: detector.label,
+      model: detector.endpointId,
       parameters: [],
       promptKey: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem,
     },
@@ -134,13 +134,7 @@ export async function aiSettingsView(): Promise<AiSettingsView> {
       parameters: [{ name: "safety_tolerance", value: FAL_SAFETY_TOLERANCE }],
       promptKey: null,
     },
-    {
-      step: "General helper model (defaults; a call may set its own budget)",
-      engine: utility.label,
-      model: utility.endpointId,
-      parameters: chatParameters(utility.endpointId, utility.defaultMaxTokens ?? 0, utilityTemperature, utility.defaultReasoningEffort),
-      promptKey: null,
-    },
+    llmStep("General helper model (defaults; a call may set its own budget)", UTILITY_LLM_ENGINE_ID, null),
     {
       step: "General helper model, judgement calls",
       engine: utility.label,

@@ -8,7 +8,7 @@
  *
  * The catalogue is the only copy: there is no engines table (decisions.md
  * 2026-11-14, AI call settings live in code). The server reads each
- * definition as an `Engine` record (`toRow.ts`, `engineById` in
+ * definition as an `Engine` record (`engineRecord.ts`, `engineById` in
  * engineInterpreter.ts).
  *
  * Adding a new engine = drop a new file in this directory, add it to
