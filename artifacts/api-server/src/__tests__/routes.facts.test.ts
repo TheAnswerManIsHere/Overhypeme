@@ -17,7 +17,8 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import {
   usersTable,
   factsTable,
@@ -65,14 +66,13 @@ async function bearerForUser(userId: string): Promise<string> {
 const insertedFactIds: number[] = [];
 
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
-  const [row] = await db.insert(factsTable).values({
+  const row = await insertLiveFact({
     text,
     submittedById: opts.submittedById,
-    isActive: true,
     canonicalText: text,
     // Active facts require a non-empty Visual Concept (Phase 2 CHECK constraint).
     enrichment: buildPlaceholderFactEnrichment(),
-  }).returning();
+  }, buildPlaceholderGag());
   insertedFactIds.push(row.id);
   return row.id;
 }
@@ -197,10 +197,9 @@ describe("GET /facts/:factId", () => {
     const rootId = await insertFact("root-with-images", { submittedById: userId });
     await db.update(factsTable).set({ aiMemeImages: { neutral: ["a.png"], male: [], female: [] } }).where(eq(factsTable.id, rootId));
 
-    const [variant] = await db.insert(factsTable).values({
-      text: "variant-no-images", canonicalText: "variant-no-images", isActive: true,
-      submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
-    }).returning();
+    const variant = await insertLiveFact({
+      text: "variant-no-images", canonicalText: "variant-no-images", submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
+    }, buildPlaceholderGag());
     insertedFactIds.push(variant.id);
 
     const res = await request(makeApp()).get(`/facts/${variant.id}`);
@@ -214,10 +213,9 @@ describe("GET /facts/:factId", () => {
     const rootId = await insertFact("root-keeps-ai-memes", { submittedById: userId });
     const aiMemeImages = { neutral: ["n1.png", "n2.png"], male: ["m1.png"], female: ["f1.png"] };
     await db.update(factsTable).set({ aiMemeImages }).where(eq(factsTable.id, rootId));
-    const [variant] = await db.insert(factsTable).values({
-      text: "variant-of-ai-root", canonicalText: "variant-of-ai-root", isActive: true,
-      submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
-    }).returning();
+    const variant = await insertLiveFact({
+      text: "variant-of-ai-root", canonicalText: "variant-of-ai-root", submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
+    }, buildPlaceholderGag());
     insertedFactIds.push(variant.id);
 
     const res = await request(makeApp()).get(`/facts/${rootId}`);
@@ -231,10 +229,9 @@ describe("GET /facts/:factId", () => {
     await db.update(factsTable).set({ aiMemeImages: { neutral: ["root.png"], male: [], female: [] } }).where(eq(factsTable.id, rootId));
 
     const variantImages = { neutral: ["variant.png"], male: [], female: [] };
-    const [variant] = await db.insert(factsTable).values({
-      text: "variant-own-images", canonicalText: "variant-own-images", isActive: true,
-      submittedById: userId, parentId: rootId, aiMemeImages: variantImages, enrichment: buildPlaceholderFactEnrichment(),
-    }).returning();
+    const variant = await insertLiveFact({
+      text: "variant-own-images", canonicalText: "variant-own-images", submittedById: userId, parentId: rootId, aiMemeImages: variantImages, enrichment: buildPlaceholderFactEnrichment(),
+    }, buildPlaceholderGag());
     insertedFactIds.push(variant.id);
 
     const res = await request(makeApp()).get(`/facts/${variant.id}`);
@@ -328,10 +325,9 @@ describe("GET /facts/:factId/related", () => {
   it("excludes the source fact and its variants from the results", async () => {
     const userId = await createTestUser();
     const parentId = await insertFact("parent", { submittedById: userId });
-    const [variant] = await db.insert(factsTable).values({
-      text: "variant", canonicalText: "variant", isActive: true,
-      submittedById: userId, parentId, enrichment: buildPlaceholderFactEnrichment(),
-    }).returning();
+    const variant = await insertLiveFact({
+      text: "variant", canonicalText: "variant", submittedById: userId, parentId, enrichment: buildPlaceholderFactEnrichment(),
+    }, buildPlaceholderGag());
 
     const tag = `${HASHTAG_PREFIX}${randomUUID()}`.replace(/[^a-z0-9_]/g, "").slice(0, 70);
     const [t] = await db.insert(hashtagsTable).values({ name: tag }).returning();

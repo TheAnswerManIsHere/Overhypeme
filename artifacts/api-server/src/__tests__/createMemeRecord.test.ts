@@ -15,7 +15,8 @@ import {
   memesTable,
 } from "@workspace/db/schema";
 import { eq, like, inArray } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import { createMemeRecord, CreateMemeError, type MemeAuthorizationDecisions } from "../lib/createMemeRecord.js";
 import { ownUpload } from "./helpers/ownedUpload.js";
@@ -46,10 +47,7 @@ async function createTestUser(): Promise<string> {
 const FACT_TEXT_PREFIX = "t-cmr-fact-";
 
 async function insertFact(): Promise<number> {
-  const [row] = await db
-    .insert(factsTable)
-    .values({ text: `${FACT_TEXT_PREFIX}{NAME}`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: FACT_TEXT_PREFIX })
-    .returning();
+  const row = await insertLiveFact({ text: `${FACT_TEXT_PREFIX}{NAME}`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: FACT_TEXT_PREFIX }, buildPlaceholderGag());
   insertedFactIds.push(row.id);
   return row.id;
 }

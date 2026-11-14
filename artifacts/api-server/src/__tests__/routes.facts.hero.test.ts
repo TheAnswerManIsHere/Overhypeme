@@ -50,7 +50,8 @@ import {
   userFactPreferencesTable,
 } from "@workspace/db/schema";
 import { and, desc, eq, inArray, isNull, like, not, or, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFacts } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import factsRouter from "../routes/facts.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -111,18 +112,17 @@ async function cleanup() {
 const seededFactIds: number[] = [];
 
 async function seedHeroFacts() {
-  const rows = await db
-    .insert(factsTable)
-    .values(
-      [0.95, 0.94, 0.93, 0.92, 0.91].map((wilsonScore, i) => ({
+  const rows = await insertLiveFacts(
+    [0.95, 0.94, 0.93, 0.92, 0.91].map((wilsonScore, i) => ({
+      fact: {
         text: `Hero pool seed fact ${i + 1} — {NAME} does something legendary.`,
         submittedById: null,
-        isActive: true,
         enrichment: buildPlaceholderFactEnrichment(),
         wilsonScore,
-      })),
-    )
-    .returning({ id: factsTable.id });
+      },
+      gag: buildPlaceholderGag(),
+    })),
+  );
   seededFactIds.push(...rows.map((r) => r.id));
 }
 

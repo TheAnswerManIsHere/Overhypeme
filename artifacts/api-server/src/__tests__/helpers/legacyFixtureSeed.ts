@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 
 import { testDatabaseRefusal } from "@workspace/db/test-database";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, type FactEnrichment } from "@workspace/api-zod";
 
 import { KEPT_FACT_TEXT, SENTINELS as S } from "./legacyFixtureSentinels";
@@ -66,7 +67,7 @@ await db.insert(t.activityFeedTable).values({ userId, actionType: "comment_appro
 await db.insert(t.searchHistoryTable).values({ userId, query: S.searchQuery });
 
 // ── The catalogue ──
-const placeholderEnrichment = buildPlaceholderFactEnrichment(S.coreScene);
+const placeholderEnrichment = buildPlaceholderFactEnrichment();
 const enrichment: FactEnrichment = {
   ...placeholderEnrichment,
   adminReviewNotes: S.adminReviewNotes,
@@ -75,43 +76,42 @@ const enrichment: FactEnrichment = {
     visualReferent: S.entityReferent, capitalizationSignal: "not_relevant", materiallyAffectsVisualPrompt: true,
     requiresAdminReview: false, confidence: 0.9, notes: "",
   }],
-  visualPromptStrategyOverride: {
-    ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-    coreSceneOverride: S.coreScene,
-    roleBindings: [{ entity: "subject", visualRole: S.roleVisual }],
-    bubbles: [{ type: "speech", entity: "subject", text: S.bubbleText }],
-    updatedBy: S.adminEmail,
-    updatedAt: "2026-01-01T00:00:00Z",
-    // The retired enable toggle older blobs still carry (seen on dev, 2026-10-13).
-    ...({ enabled: true } as object),
-  },
+};
+const activeGag = {
+  ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  coreSceneOverride: S.coreScene,
+  roleBindings: [{ entity: "subject", visualRole: S.roleVisual }],
+  bubbles: [{ type: "speech", entity: "subject", text: S.bubbleText }],
+  updatedBy: S.adminEmail,
+  updatedAt: "2026-01-01T00:00:00Z",
+  // The retired enable toggle older blobs still carry (seen on dev, 2026-10-13).
+  ...({ enabled: true } as object),
 };
 // A partial state the emptiness rule must keep: a blank core scene and a half-filled bubble (Astra round 2).
-const partialEnrichment: FactEnrichment = {
-  ...placeholderEnrichment,
-  visualPromptStrategyOverride: {
-    ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-    coreSceneOverride: "",
-    bubbles: [{ type: "speech", entity: "subject", text: "" }],
-  },
+const partialEnrichment: FactEnrichment = { ...placeholderEnrichment };
+const partialGag = {
+  ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  coreSceneOverride: "",
+  bubbles: [{ type: "speech", entity: "subject", text: "" }],
 };
 const overrides = {
   "/overhypeFit": { value: "strong", overriddenFrom: "questionable", createdAt: "2026-01-01T00:00:00Z", createdBy: adminId, reason: S.overrideReason },
   "/adminReviewNotes": { value: S.overrideNote, overriddenFrom: S.adminReviewNotes, createdAt: "2026-01-01T00:00:00Z", createdBy: adminId },
 };
 
-const [activeFact] = await db.insert(t.factsTable).values({
-  text: KEPT_FACT_TEXT, submittedById: userId, isActive: true, canonicalText: "Alex counted to infinity, twice, and the second time it was backwards.",
-  hasPronouns: false, enrichment, enrichmentAiDerived: { ...placeholderEnrichment, adminReviewNotes: S.adminReviewNotes, visualPromptStrategyOverride: undefined },
+const activeFact = await insertLiveFact({
+  text: KEPT_FACT_TEXT, submittedById: userId, canonicalText: "Alex counted to infinity, twice, and the second time it was backwards.",
+  hasPronouns: false, enrichment, enrichmentAiDerived: { ...placeholderEnrichment, adminReviewNotes: S.adminReviewNotes },
   enrichmentOverrides: overrides,
   aiScenePrompts: { fact_type: "action", male: S.scenePrompt, female: S.scenePrompt, neutral: "" },
   embedding: Array.from({ length: 384 }, (_, i) => (i % 7) / 10),
   createdAt: at,
-}).returning({ id: t.factsTable.id });
+}, activeGag);
 const [pendingFact] = await db.insert(t.factsTable).values({
   text: S.pendingFactText, submittedById: userId, isActive: false, canonicalText: S.pendingFactText.replace("{NAME}", "Alex"),
   hasPronouns: false, enrichment: partialEnrichment, enrichmentAiDerived: partialEnrichment, createdAt: at,
 }).returning({ id: t.factsTable.id });
+await db.insert(t.factGagsTable).values({ factId: pendingFact!.id, slot: 1, pendingContent: partialGag });
 
 // The live text on rows that do not own it (Codex round 1): an inactive duplicate fact, and a rejected
 // duplicate submission linked to no fact. Plan D4: neither keeps the text.

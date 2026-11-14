@@ -15,6 +15,7 @@ import type { Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { factsTable, usersTable } from "@workspace/db/schema";
 import { eq, like } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
@@ -40,13 +41,14 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
-  visualPromptStrategyOverride: {
-    version: 1,
-    coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
-    requiredVisualDetails: ["a glowing aura"],
-    forbiddenVisualDetails: [], roleBindings: [], bubbles: [],
-    compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
-  },
+};
+
+const GAG = {
+  version: 1,
+  coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
+  requiredVisualDetails: ["a glowing aura"],
+  forbiddenVisualDetails: [], roleBindings: [], bubbles: [],
+  compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
 };
 
 let adminId: string;
@@ -60,21 +62,17 @@ before(async () => {
     id: adminId, email: `${adminId}@test.local`, membershipTier: "registered", isAdmin: true,
   });
   adminApp = buildTestApp({ kind: "authenticated", userId: adminId }, adminRouter);
-  const [row] = await db
-    .insert(factsTable)
-    .values({
+  const row = await insertLiveFact({
       text,
       canonicalText: "Alex bench-presses the Earth",
       splitTokenIndex: 2,
       useCase: "boast",
-      isActive: true,
       upvotes: 11, downvotes: 3, score: 8, wilsonScore: 0.61,
       commentCount: 5, shareCount: 7,
       submittedById: adminId,
       ...buildFactEnrichmentColumns(ENRICHMENT),
       enrichmentStatus: "ok",
-    } as typeof factsTable.$inferInsert)
-    .returning({ id: factsTable.id });
+    } as Omit<typeof factsTable.$inferInsert, "isActive">, GAG);
   factId = row.id;
 });
 

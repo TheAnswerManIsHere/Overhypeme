@@ -1,7 +1,8 @@
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
 import { count, eq, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
+import { insertLiveFacts } from "@workspace/db/live-fact-fixture";
 
 const FACTS = [
   "{NAME} {doesn't|don't} read books. {Subj} stares them down until {SUBJ} gets the information {SUBJ} wants.",
@@ -78,32 +79,31 @@ async function seed() {
     insertedHashtags.map((h: { name: string; id: number }) => [h.name, h.id]),
   );
 
-  // Facts are born inactive and may only go live with a non-empty Visual Concept
-  // (Phase-2 fact-lifecycle closure + DB CHECK). Dev seed facts are meant to be
-  // live/browsable, so each carries a valid placeholder enrichment + concept and
-  // its projected taxonomy columns.
+  // Facts are born inactive and may only go live with an approved gag (Phase-2
+  // fact-lifecycle closure; since migration 0139 a database rule). Dev seed
+  // facts are meant to be live/browsable, so each carries a valid placeholder
+  // enrichment, its projected taxonomy columns and a placeholder gag.
   const seedEnrichment = buildPlaceholderFactEnrichment();
-  const insertedFacts = await db
-    .insert(factsTable)
-    .values(
-      FACTS.map((text) => {
-        const upvotes = Math.floor(Math.random() * 200);
-        const downvotes = Math.floor(Math.random() * 20);
-        return {
+  const insertedFacts = await insertLiveFacts(
+    FACTS.map((text) => {
+      const upvotes = Math.floor(Math.random() * 200);
+      const downvotes = Math.floor(Math.random() * 20);
+      return {
+        fact: {
           text,
           upvotes,
           downvotes,
           score: upvotes - downvotes,
-          isActive: true,
           enrichment: seedEnrichment,
           primaryArchetype: seedEnrichment.primaryArchetype,
           subtype: seedEnrichment.subtype,
           overhypeFit: seedEnrichment.overhypeFit,
           adultSuitability: seedEnrichment.adultSuitability,
-        };
-      }),
-    )
-    .returning();
+        },
+        gag: buildPlaceholderGag(),
+      };
+    }),
+  );
 
   for (const [factIdx, tags] of Object.entries(FACT_HASHTAG_MAP)) {
     const fact = insertedFacts[Number(factIdx)];

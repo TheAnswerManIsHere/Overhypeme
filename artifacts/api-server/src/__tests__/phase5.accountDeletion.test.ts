@@ -15,7 +15,8 @@ import {
   memesTable, ncmecReportsTable, reactionsTable, sessionsTable, uploadImageMetadataTable, userAiImagesTable, usersTable,
 } from "@workspace/db/schema";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { requireEligibleActor } from "../middlewares/requireEligibleActor.js";
@@ -71,9 +72,7 @@ async function sessionFor(userId: string, opts: { signedInAt?: number; isAdmin?:
 }
 
 async function createFact(): Promise<number> {
-  const [row] = await db.insert(factsTable)
-    .values({ text: `${PREFIX}{NAME} leaves`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}They leave` })
-    .returning();
+  const row = await insertLiveFact({ text: `${PREFIX}{NAME} leaves`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}They leave` }, buildPlaceholderGag());
   factIds.push(row!.id);
   return row!.id;
 }
@@ -415,14 +414,10 @@ describe("the account deletion state machine (T3)", () => {
     const othersMemeId = await memeIdOf(othersMeme.permalinkSlug);
     await db.insert(reactionsTable).values({ userId, targetType: "meme", targetId: othersMemeId, reactionType: "heart" });
     await db.update(memesTable).set({ heartCount: 1 }).where(eq(memesTable.id, othersMemeId));
-    const [ownFact] = await db.insert(factsTable)
-      .values({ text: `${PREFIX}{NAME} submitted`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}submitted`, submittedById: userId })
-      .returning();
+    const ownFact = await insertLiveFact({ text: `${PREFIX}{NAME} submitted`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}submitted`, submittedById: userId }, buildPlaceholderGag());
     factIds.push(ownFact!.id);
     // Comment counts: the person's approved comment and another member's on the same fact.
-    const [countedFact] = await db.insert(factsTable)
-      .values({ text: `${PREFIX}{NAME} is discussed`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}discussed`, commentCount: 2 })
-      .returning();
+    const countedFact = await insertLiveFact({ text: `${PREFIX}{NAME} is discussed`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}discussed`, commentCount: 2 }, buildPlaceholderGag());
     factIds.push(countedFact!.id);
     const [ownComment] = await db.insert(commentsTable).values([
       { factId: countedFact!.id, authorId: userId, text: `${PREFIX}comment`, status: "approved" },

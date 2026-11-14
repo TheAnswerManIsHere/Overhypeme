@@ -20,7 +20,8 @@ import { randomUUID } from "node:crypto";
 import express, { type Express } from "express";
 import request from "supertest";
 
-import { db } from "@workspace/db";
+import { db, factGagsTable } from "@workspace/db";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import {
   usersTable,
   factsTable,
@@ -53,15 +54,22 @@ const VALID_APPROVAL_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
-  // A fact reaching production_review carries a moderator Visual Concept (required to
-  // release to production — presence-based, no enable toggle).
-  visualPromptStrategyOverride: {
-    version: 1,
-    coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
-    requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
-    bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
-  },
 } as FactEnrichment;
+
+// A fact's gag lives in fact_gags (migration 0139), not in its enrichment.
+const GAG = {
+  version: 1,
+  coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
+  requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+  bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+};
+
+/** Give a fact its slot-1 gag: approved (as a fact reaching production approval has) or pending. */
+async function addGag(factId: number, kind: "approved" | "pending" = "approved"): Promise<void> {
+  await db.insert(factGagsTable).values(kind === "approved"
+    ? { factId, slot: 1, approvedContent: GAG, approvedCarriedOver: true }
+    : { factId, slot: 1, pendingContent: GAG });
+}
 
 // These fixtures seed a production_review WITHOUT any Step-2 render scenarios, so
 // the (new) admin-waivable visual-render gate would 409 on approval. Tests that
@@ -441,7 +449,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
-    const [parent] = await db.insert(factsTable).values({ text: "{NAME} parent", submittedById: adminId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT }).returning();
+    const parent = await insertLiveFact({ text: "{NAME} parent", submittedById: adminId, enrichment: VALID_APPROVAL_ENRICHMENT }, GAG);
     const reviewId = await seedTriageReview(submitterId);
 
     const res = await request(makeApp())
@@ -519,7 +527,7 @@ describe("staging-fact enrichment stage advancement", () => {
 
   it("live-fact re-enrich (no linked review) still classifies normally", async () => {
     const submitterId = await createTestUser();
-    const [fact] = await db.insert(factsTable).values({ text: "{NAME} jumps high", submittedById: submitterId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT }).returning();
+    const fact = await insertLiveFact({ text: "{NAME} jumps high", submittedById: submitterId, enrichment: VALID_APPROVAL_ENRICHMENT }, GAG);
     let classifyCalled = false;
     const result = await runEnrichmentForFact(fact.id, {
       classify: async () => { classifyCalled = true; return VALID_APPROVAL_ENRICHMENT; },
@@ -626,13 +634,14 @@ describe("GET /admin/reviews/:id", () => {
     assert.equal(res.body.stagingFact, null, "no staging fact before provisional approval");
   });
 
-  it("returns the staging fact's saved Visual Concept (the text the Step-2 card shows)", async () => {
+  it("returns the staging fact's classification without a gag in it (a gag lives in fact_gags)", async () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
     }).returning();
+    await addGag(staging.id);
     const [r] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
       workflowStage: "concept_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
@@ -640,10 +649,8 @@ describe("GET /admin/reviews/:id", () => {
 
     const res = await request(makeApp()).get(`/admin/reviews/${r.id}`).set("authorization", `Bearer ${sid}`);
     assert.equal(res.status, 200);
-    assert.equal(
-      res.body.stagingFact.enrichment.visualPromptStrategyOverride.coreSceneOverride,
-      "{NAME} bench-presses the Earth overhead in a stadium.",
-    );
+    assert.equal(res.body.stagingFact.enrichment.primaryArchetype, "superhuman_physical_feat");
+    assert.equal(res.body.stagingFact.enrichment.visualPromptStrategyOverride, undefined);
   });
 
   it("hydrates the staging fact's prep status (enrichment) once prep starts", async () => {
@@ -764,6 +771,7 @@ describe("POST /admin/reviews/:id/approve-variant", () => {
     const [staging] = await db.insert(factsTable).values({
       text: "variant attempt", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
     }).returning();
+    await addGag(staging.id);
     const [r] = await db.insert(pendingReviewsTable).values({
       submittedText: "variant attempt",
       submittedById: submitterId,
@@ -819,8 +827,12 @@ describe("approval renderability gating", () => {
     const submitterId = await createTestUser();
     const [parent] = await db
       .insert(factsTable)
-      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT })
+      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT })
       .returning();
+    await db.transaction(async (tx) => {
+      await tx.insert(factGagsTable).values({ factId: parent!.id, slot: 1, approvedContent: GAG, approvedCarriedOver: true });
+      await tx.update(factsTable).set({ isActive: true }).where(eq(factsTable.id, parent!.id));
+    });
     const [staging] = await db
       .insert(factsTable)
       .values({
@@ -903,6 +915,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
     }).returning();
+    await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
       workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
@@ -965,14 +978,9 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false,
       ...columns,
-      // The moderator Visual Concept is a separate additive layer (materializeEnrichment
-      // strips it from aiDerived); re-add it to the effective so the fact is promotable.
-      enrichment: {
-        ...(columns.enrichment as Record<string, unknown>),
-        visualPromptStrategyOverride: VALID_APPROVAL_ENRICHMENT.visualPromptStrategyOverride,
-      },
       enrichmentStatus: "ok",
     } as typeof factsTable.$inferInsert).returning();
+    await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
       workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
@@ -1023,6 +1031,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
     }).returning();
+    await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
       workflowStage: "prep_pending", stagingFactId: staging.id,
@@ -1045,13 +1054,14 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
 
   it("a variant review's approval activates the staging fact with parentId set to the parent fact (inactive before)", async () => {
     const submitterId = await createTestUser();
-    const [parent] = await db.insert(factsTable).values({
-      text: "{NAME} parent fact", submittedById: submitterId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT,
-    }).returning();
+    const parent = await insertLiveFact({
+      text: "{NAME} parent fact", submittedById: submitterId, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }, GAG);
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false,
       parentId: parent.id, enrichment: VALID_APPROVAL_ENRICHMENT,
     }).returning();
+    await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
       workflowStage: "production_review", stagingFactId: staging.id, parentFactId: parent.id,
@@ -1074,9 +1084,9 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     assert.equal(after.parentId, parent.id, "the activated variant must be nested under its parent fact");
   });
 
-  it("returns 409 CONCEPT_MISSING for a production_review with no Visual Concept, then 200 and an active fact once a concept is saved", async () => {
+  it("returns 409 CONCEPT_MISSING for a production_review with no approved gag, then 200 and an active fact once a gag is approved", async () => {
     const submitterId = await createTestUser();
-    const { visualPromptStrategyOverride: _concept, ...withoutConcept } = VALID_APPROVAL_ENRICHMENT;
+    const withoutConcept = VALID_APPROVAL_ENRICHMENT;
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: withoutConcept,
     }).returning();
@@ -1093,12 +1103,12 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
       .send({ ...WAIVE_ALL_REQUIRED });
     assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
     assert.equal(blocked.body.code, "CONCEPT_MISSING");
-    assert.equal(blocked.body.error, "Save a non-empty Visual Concept before approving for production.");
+    assert.equal(blocked.body.error, "Approve a test render for at least one gag before approving for production.");
     const [stillInactive] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
-    assert.equal(stillInactive.isActive, false, "a conceptless fact must not go live");
+    assert.equal(stillInactive.isActive, false, "a fact with no approved gag must not go live");
 
-    // The moderator saves a Visual Concept on the staging fact; the same approval now succeeds.
-    await db.update(factsTable).set({ enrichment: VALID_APPROVAL_ENRICHMENT }).where(eq(factsTable.id, staging.id));
+    // A gag is approved on the staging fact; the same approval now succeeds.
+    await addGag(staging.id);
     const ok = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
@@ -1115,6 +1125,7 @@ describe("PATCH /admin/reviews/:id (draft autosave)", () => {
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} does a thing", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
     }).returning();
+    await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} does a thing", submittedById: submitterId, status: "pending",
       workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
@@ -1145,6 +1156,7 @@ describe("reject past triage — first-time submission is blocked, refresh cycle
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} does a thing", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
     }).returning();
+    await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} does a thing", submittedById: submitterId, status: "pending",
       workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
@@ -1173,9 +1185,9 @@ describe("reject past triage — first-time submission is blocked, refresh cycle
     // carry submittedById=null, which the route guards separately (the
     // submitter-notification block is already gated on !isRefreshCycle).
     const ownerId = await createTestUser();
-    const [liveFact] = await db.insert(factsTable).values({
-      text: "{NAME} does a thing", submittedById: ownerId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT,
-    }).returning();
+    const liveFact = await insertLiveFact({
+      text: "{NAME} does a thing", submittedById: ownerId, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }, GAG);
     const [candidate] = await db.insert(factEnrichmentVersionsTable).values({
       factId: liveFact.id, versionNo: 2, status: "candidate", source: "refresh_candidate",
     }).returning();
@@ -1207,9 +1219,9 @@ describe("reject past triage — first-time submission is blocked, refresh cycle
 
   it("ignores a rejectionReason if one IS sent for a refresh decline — never persisted as fact-worthiness", async () => {
     const ownerId = await createTestUser();
-    const [liveFact] = await db.insert(factsTable).values({
-      text: "{NAME} does another thing", submittedById: ownerId, isActive: true, enrichment: VALID_APPROVAL_ENRICHMENT,
-    }).returning();
+    const liveFact = await insertLiveFact({
+      text: "{NAME} does another thing", submittedById: ownerId, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }, GAG);
     const [candidate] = await db.insert(factEnrichmentVersionsTable).values({
       factId: liveFact.id, versionNo: 2, status: "candidate", source: "refresh_candidate",
     }).returning();

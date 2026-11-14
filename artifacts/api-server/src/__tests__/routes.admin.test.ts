@@ -38,7 +38,9 @@ import {
   asyncJobsTable,
   membershipEntitlementsTable,
   membershipHistoryTable,
+  factGagsTable,
 } from "@workspace/db/schema";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { like, eq, inArray, or, and } from "drizzle-orm";
 
 import {
@@ -54,6 +56,7 @@ import {
   APPROVED_FACT_TEXT_EDIT_PHRASE,
   FACT_TEXT_EDIT_CODES,
   buildPlaceholderFactEnrichment,
+  buildPlaceholderGag,
   computeProcessingSignatureStaleness,
 } from "@workspace/api-zod";
 import { currentProcessingSignatureFromConfig } from "../lib/processingSignature.js";
@@ -132,13 +135,11 @@ async function createTestFact(
   opts: { parentId?: number; isActive?: boolean } = {},
 ): Promise<number> {
   const active = opts.isActive ?? true;
-  const [fact] = await db.insert(factsTable).values({
-    text,
-    parentId: opts.parentId,
-    isActive: active,
-    // Active facts require a non-empty Visual Concept (Phase 2 CHECK constraint).
-    enrichment: active ? buildPlaceholderFactEnrichment() : undefined,
-  }).returning({ id: factsTable.id });
+  if (active) {
+    const fact = await insertLiveFact({ text, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
+    return fact.id;
+  }
+  const [fact] = await db.insert(factsTable).values({ text, parentId: opts.parentId, isActive: false }).returning({ id: factsTable.id });
   return fact!.id;
 }
 
@@ -156,12 +157,13 @@ async function createTestFact(
 async function createDeactivatedFact(text: string): Promise<number> {
   const id = await createTestFact(text);
   await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, id));
-  const [row] = await db.select({ isActive: factsTable.isActive, enrichment: factsTable.enrichment })
+  const [row] = await db.select({ isActive: factsTable.isActive })
     .from(factsTable).where(eq(factsTable.id, id));
   assert.equal(row.isActive, false, "precondition: the fact must be deactivated");
+  const [gag] = await db.select({ approvedContent: factGagsTable.approvedContent })
+    .from(factGagsTable).where(and(eq(factGagsTable.factId, id), eq(factGagsTable.slot, 1)));
   assert.ok(
-    (row.enrichment as { visualPromptStrategyOverride?: { coreSceneOverride?: string } } | null)
-      ?.visualPromptStrategyOverride?.coreSceneOverride?.trim(),
+    (gag?.approvedContent as { coreSceneOverride?: string } | null)?.coreSceneOverride?.trim(),
     "precondition: a deactivated fact must RETAIN its Visual Concept, or this fixture is not the real state",
   );
   return id;

@@ -22,7 +22,8 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, commentsTable, asyncJobsTable, activityFeedTable } from "@workspace/db/schema";
 import { and, eq, like, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import { verifyCaptcha, TURNSTILE_SITEVERIFY_URL } from "../lib/captcha.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -191,9 +192,7 @@ async function cleanup(): Promise<void> {
 describe("Turnstile at every challenged route (a secret configured)", () => {
   before(async () => {
     await cleanup();
-    const [fact] = await db.insert(factsTable)
-      .values({ text: "{NAME} can divide by zero.", canonicalText: "{NAME} can divide by zero.", isActive: true, enrichment: buildPlaceholderFactEnrichment() })
-      .returning({ id: factsTable.id });
+    const fact = await insertLiveFact({ text: "{NAME} can divide by zero.", canonicalText: "{NAME} can divide by zero.", enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
     factId = fact.id;
   });
   after(async () => { await cleanup(); uninstallSiteverifyStub(); restoreEnv(); });
