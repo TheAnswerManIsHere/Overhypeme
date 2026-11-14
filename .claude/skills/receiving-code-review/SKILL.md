@@ -13,6 +13,12 @@ Code review requires technical evaluation, not emotional performance.
 
 **Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.
 
+**When the feedback is David's own** (2026-11-14): the reply states, in
+plain English, what I understood him to mean, and then I act on it, without
+asking him to confirm it (`claude-core.md`, interaction rule 15). Upstream's
+`"I understand items 1,2,3,6"` and "just fix it" below are a reviewer's
+shorthand; neither is a stated reading, and neither is how I answer him.
+
 **Local calibration (fleet, 2026-09-20; the bound retired 2026-10-21): this
 skill sets no bound, and neither does the fleet any more — and on a PR
 touching only a feature David has declared

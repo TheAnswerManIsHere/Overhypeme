@@ -163,8 +163,10 @@ intent.
 Technical/product risks and how the implementation reduces them.
 
 ## Questions for David
-Only questions that require product-owner judgment, each numbered with a
-recommendation beside it — this section is where a question that is his
+Only questions that require product-owner judgment, each under its
+question ID (`Q1`, `Q2`, … — the ID it already has if it was asked in chat,
+else the session's next unused one; `claude-core.md`, interaction rule 4)
+with a recommendation beside it — this section is where a question that is his
 reaches him, with the approval; a consequence a settled decision already
 covers is not one (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*). Do **not** ask David questions
 the repo can answer (resolve those yourself and note the resolution).

@@ -28,7 +28,10 @@ export function markRecipe(recipe: ResolvedRecipe): ResolvedRecipe {
   const pieces = { ...recipe.pieces };
   KEYS.forEach((key, i) => {
     const text = pieces[key];
-    if (!text) return;
+    // The shape pieces are the joins themselves: marking them would put marker
+    // characters between a sentence and the space after it, which the
+    // compiler's sentence de-dupe reads, so they stay unmarked.
+    if (!text || RECIPE_PIECES[i]!.group === "shape") return;
     const open = OPEN + String.fromCharCode(INDEX_BASE + i);
     pieces[key] = open + text.replace(SLOT_RE, (whole) => `${CLOSE}${whole}${open}`) + CLOSE;
   });

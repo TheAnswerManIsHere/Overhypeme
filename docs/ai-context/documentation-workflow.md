@@ -238,7 +238,8 @@ commits ambiguous truth:
 - If any claim needs **product judgment** — an unverifiable product claim, a
   "was that a decision or a deferral?" call — it is information only David
   holds: mark *that* claim **Needs David confirmation** (above), never commit
-  it as fact, and carry it to the final summary as a **numbered** question.
+  it as fact, and carry it to the final summary as a question under its **ID** (Claude
+  Code: `claude-core.md`, interaction rule 4).
   The run does not stop for it (`agent-working-rules.md`, *A reversible choice proceeds on the recommendation*: a question that is his is
   named in the report, not raised as an interrupt).
 - If David explicitly asks to **review the proposed routing before commits**,

@@ -241,9 +241,11 @@ function redact(text: string): string {
 }
 // --- recording mode's own checks (unchanged from increment 4) ---------------
 const FAL_INVALID = { input: { prompt: "" } };
+/** The text-to-image endpoint a render with no look is routed to (compiler review, Phase 1): the render-failure control's target. */
+const RENDER_FAILURE_ENDPOINT = "openai/gpt-image-2.6/sunburst/text-to-image";
 const OPENAI_INVALID = { model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 };
 const FAILURE_CONTROLS = [
-  { vendor: "fal", kind: "fal.subscribe" as const, target: "fal-ai/nano-banana-2", status: 422, request: falSubscribeRequest("fal-ai/nano-banana-2", FAL_INVALID) },
+  { vendor: "fal", kind: "fal.subscribe" as const, target: RENDER_FAILURE_ENDPOINT, status: 422, request: falSubscribeRequest(RENDER_FAILURE_ENDPOINT, FAL_INVALID) },
   { vendor: "OpenAI", kind: "openai.chat" as const, target: "gpt-5.4-mini", status: 400, request: OPENAI_INVALID },
 ];
 
@@ -262,7 +264,7 @@ async function recordVendorErrors(): Promise<string[]> {
   const falRec = recordingFal(vendorFal as never, shared, ctx, falUnitPrice);
   const oaRec = recordingOpenAI(new OpenAI({ apiKey: openaiKey, maxRetries: 0 }), shared, ctx);
   const send: Record<string, () => Promise<unknown>> = {
-    fal: () => falRec.subscribe("fal-ai/nano-banana-2", FAL_INVALID),
+    fal: () => falRec.subscribe(RENDER_FAILURE_ENDPOINT, FAL_INVALID),
     OpenAI: () => oaRec.chat.completions.create(OPENAI_INVALID as never),
   };
   const missing: string[] = [];
@@ -412,7 +414,7 @@ async function runVariantUnguarded(variant: Variant, liveRecordings: string, liv
     allowanceUsd: allowance || undefined,
     ...(control ? { control } : {}),
     aiDoubleFail:
-      control === "render-failure" ? "fal.subscribe:fal-ai/nano-banana-2"
+      control === "render-failure" ? `fal.subscribe:${RENDER_FAILURE_ENDPOINT}`
       : control === "upload-failure" ? `fal.storage.upload:storage@${photoSha}`
       : undefined,
     ...(mode === "serve" ? { serve: { port: Number(arg("port") ?? 8080), origin: serveOrigin } } : {}),

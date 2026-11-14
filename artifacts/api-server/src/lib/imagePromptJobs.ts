@@ -59,7 +59,7 @@ import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, resolveImageEngine } from "./imageEngineRouting";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
-import { recipeById } from "./imagePrompt/recipeStore";
+import { engineFamilyOf, recipeById } from "./imagePrompt/recipeStore";
 import type { ResolvedRecipe } from "./imagePrompt/recipe";
 import type { CompiledImagePrompt } from "./imagePrompt/types";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
@@ -168,9 +168,10 @@ export const imagePromptGenerationHandler: JobHandler = {
       return { ok: false, error: fullMsg };
     }
 
-    // The wording chosen when the attempt was queued; none is the baseline. Read
-    // outside the compile's try, so a database error stays retryable.
-    const recipe = await recipeById(attempt.recipeVersionId);
+    // The wording chosen when the attempt was queued; none is the baseline of
+    // the family of the engine recorded on the attempt. Read outside the
+    // compile's try, so a database error stays retryable.
+    const recipe = await recipeById(attempt.recipeVersionId, engineFamilyOf(attemptImageEngineId(attempt)));
     let compiled;
     try {
       compiled = compileForSubjectRenderMode({

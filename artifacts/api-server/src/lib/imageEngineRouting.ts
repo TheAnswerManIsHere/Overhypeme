@@ -26,13 +26,26 @@ import { engineById } from "./engineInterpreter";
 import { liveRecipeVersionIdsForEngines } from "./imagePrompt/recipeStore";
 
 /**
- * The engine that draws a render, by mode. Dev's configured values on
- * 2026-11-14, read through the connector; the photoreal and styled split
- * (GPT Image 2.6, Nano Banana 2.1) is adopted in launch Phase 8, not here.
+ * Which kind of look a render asks for: none (the photoreal default) or a
+ * chosen look style. The product strategy picks the engine by it
+ * (`product-strategy.md`, *Pictures and engines*).
  */
-export const IMAGE_ENGINE_IDS: Readonly<Record<GenerationMode, string>> = {
-  t2i: "nano-banana-2",
-  i2i: "nano-banana-2-edit",
+export type LookClass = "photoreal" | "styled";
+
+/** The look class of a resolved style selection: no look is photoreal, a chosen look is styled. */
+export function lookClassOfSelection(selection: "default" | "selected"): LookClass {
+  return selection === "selected" ? "styled" : "photoreal";
+}
+
+/**
+ * The engine that draws a render, by look and mode (compiler review, Phase 1,
+ * plan `docs/plans/PLAN_COMPILER_REVIEW.md`; this adopts launch Phase 8's
+ * photoreal and styled split): GPT Image 2.6 draws photoreal pictures and
+ * Nano Banana 2.1 styled ones.
+ */
+export const IMAGE_ENGINE_IDS: Readonly<Record<LookClass, Readonly<Record<GenerationMode, string>>>> = {
+  photoreal: { t2i: "gpt-image-2-6", i2i: "gpt-image-2-6-edit" },
+  styled: { t2i: "nano-banana-2-1", i2i: "nano-banana-2-1-edit" },
 };
 
 /** The engines every release before migration 0123 routed to, by mode. */
@@ -69,21 +82,24 @@ export function attemptImageEngineId(attempt: {
 }
 
 /**
- * The engine ids per mode, unvalidated: what a render would be routed to now.
- * Folded into the moderation hash, so a changed engine makes an old attempt
- * read stale.
+ * The engine ids per mode for a look class, unvalidated: what a render would
+ * be routed to now. Folded into the moderation hash, so a changed engine
+ * makes an old attempt read stale. Moderation scenarios render with no look,
+ * so they read the photoreal engines.
  */
-export async function currentImageEngineIds(): Promise<ImageEngineIds> {
-  return { t2i: IMAGE_ENGINE_IDS.t2i, i2i: IMAGE_ENGINE_IDS.i2i };
+export async function currentImageEngineIds(lookClass: LookClass = "photoreal"): Promise<ImageEngineIds> {
+  const ids = IMAGE_ENGINE_IDS[lookClass];
+  return { t2i: ids.t2i, i2i: ids.i2i };
 }
 
 /**
- * What a moderation render would use now: the routed engine per mode and the
- * live prompt recipe version for each (the prompt tuner). The moderation hash
- * reads this, so a promotion for a mode's engine makes its renders stale.
+ * What a moderation render would use now: the routed engine per mode for its
+ * look class (no look: photoreal) and the live prompt recipe version for each
+ * (the prompt tuner). The moderation hash reads this, so a promotion for a
+ * mode's engine makes its renders stale.
  */
-export async function currentRenderRouting(): Promise<ImageEngineIds> {
-  const ids = await currentImageEngineIds();
+export async function currentRenderRouting(lookClass: LookClass = "photoreal"): Promise<ImageEngineIds> {
+  const ids = await currentImageEngineIds(lookClass);
   const live = await liveRecipeVersionIdsForEngines([ids.t2i, ids.i2i]);
   return { ...ids, recipeVersions: { t2i: live.get(ids.t2i) ?? null, i2i: live.get(ids.i2i) ?? null } };
 }
@@ -116,11 +132,11 @@ export function imageEngineRefusal(engine: Engine | null, mode: GenerationMode):
 
 /**
  * Resolve the engine for a `mode` render: the override when a caller names
- * one, else the configured engine for the mode. Throws
+ * one, else the engine set in code for the look class and mode. Throws
  * `ImageEngineRoutingError` rather than falling back to anything.
  */
-export async function resolveImageEngine(mode: GenerationMode, override?: string | null): Promise<Engine> {
-  const engineId = override?.trim() || (await currentImageEngineIds())[mode];
+export async function resolveImageEngine(mode: GenerationMode, override?: string | null, lookClass: LookClass = "photoreal"): Promise<Engine> {
+  const engineId = override?.trim() || (await currentImageEngineIds(lookClass))[mode];
   const engine = engineById(engineId);
   const refusal = imageEngineRefusal(engine, mode);
   if (refusal) throw new ImageEngineRoutingError(engineId, mode, refusal);

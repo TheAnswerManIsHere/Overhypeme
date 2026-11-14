@@ -62,6 +62,14 @@ describe("prompt recipe versions", () => {
     const fam = res.body.families.find((f: { family: string }) => f.family === FAMILY);
     assert.equal(fam.liveVersionId, null);
     assert.equal(fam.engines.length, 2);
+    // Each chosen engine family lists its own baseline (compiler review, Phase 1).
+    const gpt = res.body.families.find((f: { family: string }) => f.family === "gpt-image-2-6");
+    assert.equal(gpt.baselinePieces["shape.join"], "\n\n", "GPT Image 2.6: one section per paragraph");
+    assert.equal(gpt.baselinePieces["shape.section"], "{label}: {body}");
+    const nb21 = res.body.families.find((f: { family: string }) => f.family === "nano-banana-2-1");
+    assert.equal(nb21.baselinePieces["shape.section"], "{body}", "Nano Banana 2.1: unlabeled paragraphs");
+    const nb2 = res.body.families.find((f: { family: string }) => f.family === "nano-banana-2");
+    assert.equal(nb2.baselinePieces["identity.person"], BASELINE_PIECES["identity.person"], "Nano Banana 2 keeps today's wording");
   });
 
   it("saves numbered versions, never editing one, and refuses malformed, over-budget or unchanged wording", async () => {

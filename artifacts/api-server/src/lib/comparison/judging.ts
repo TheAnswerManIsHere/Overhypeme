@@ -65,6 +65,7 @@ import { promptTextOf } from "./runs";
 export { blindToken } from "./blindToken";
 import { blindToken } from "./blindToken";
 import { codeEngineDefinition, engineById } from "../engineInterpreter";
+import { engineFamilyOf } from "../imagePrompt/recipeStore";
 
 /** A panel's cells in their blind order, each with its token. */
 function blindOrder(panel: ComparisonPanel, cells: ComparisonCell[]): Array<{ cell: ComparisonCell; token: string }> {
@@ -603,7 +604,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const allCells = [...cellsByPanel.values()].flat();
   const engineIds = [...new Set(allCells.map((c) => c.engineId))];
   const engines = engineIds.map((id) => ({ id, priceModel: engineById(id)?.priceModel ?? null }));
-  const familyOfEngine = new Map(engineIds.map((id) => [id, codeEngineDefinition(id)?.family ?? id]));
+  const familyOfEngine = new Map(engineIds.map((id) => [id, engineFamilyOf(id)]));
   const cellById = new Map(allCells.map((c) => [c.id, c]));
   const familyOfCell = (id: number) => {
     const engineId = cellById.get(id)?.engineId ?? "?";
@@ -830,7 +831,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
   const [versions] = await Promise.all([
     versionIds.length ? db.select({ id: promptRecipeVersionsTable.id, number: promptRecipeVersionsTable.number, note: promptRecipeVersionsTable.note }).from(promptRecipeVersionsTable).where(inArray(promptRecipeVersionsTable.id, versionIds)) : [],
   ]);
-  const familyOf = new Map(engineIds.map((id) => [id, codeEngineDefinition(id)?.family ?? id]));
+  const familyOf = new Map(engineIds.map((id) => [id, engineFamilyOf(id)]));
   const versionOf = new Map(versions.map((v) => [v.id, v]));
   const recipeLabel = (id: number | null) => (id == null ? "Baseline" : `Version ${versionOf.get(id)?.number ?? "?"}`);
 

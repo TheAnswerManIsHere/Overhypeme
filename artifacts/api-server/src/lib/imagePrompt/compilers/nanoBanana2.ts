@@ -865,10 +865,10 @@ function scrubIntentLanguage(text: string): string {
 
 // ─── Labeled-section formatting ─────────────────────────────────────────────
 
-/** Prefix a non-empty body with its contract header; "" stays "". */
-function labeled(header: string, body: string): string {
+/** Write a non-empty body as a section in the recipe's shape (`shape.section`, by default "LABEL: body"); "" stays "". */
+function labeled(r: ResolvedRecipe, header: string, body: string): string {
   const b = body.trim();
-  return b ? `${header}: ${b}` : "";
+  return b ? fillPiece(r, "shape.section", { label: header, body: b }) : "";
 }
 
 /**
@@ -1124,6 +1124,8 @@ interface Section {
 function assembleSections(
   sections: Section[],
   notes: string[],
+  /** What sits between two sections (the recipe's `shape.join`; a space by default). */
+  sep = " ",
 ): { prompt: string; breakdown: PromptSection[]; overflowBy: number } {
   let assembled = "";
   const breakdown: PromptSection[] = [];
@@ -1143,7 +1145,7 @@ function assembleSections(
   const requiredLenAfter: number[] = new Array(sections.length + 1).fill(0);
   for (let i = sections.length - 1; i >= 0; i--) {
     const raw = sections[i]!.text.trim();
-    const reserve = sections[i]!.priority === "required" && raw ? raw.length + 1 : 0;
+    const reserve = sections[i]!.priority === "required" && raw ? raw.length + sep.length : 0;
     requiredLenAfter[i] = requiredLenAfter[i + 1] + reserve;
   }
 
@@ -1159,7 +1161,7 @@ function assembleSections(
       record(section, "deduped", "", raw);
       continue;
     }
-    const candidate = assembled ? `${assembled} ${deduped}` : deduped;
+    const candidate = assembled ? `${assembled}${sep}${deduped}` : deduped;
     if (section.priority === "required") {
       // Required always survives; the final truncate clamps the pathological
       // (required alone > budget) case. This section's own length was already
@@ -1177,10 +1179,10 @@ function assembleSections(
       continue;
     }
     if (section.compressible) {
-      const remaining = MAX_PROMPT_CHARS - reserve - assembled.length - 1;
+      const remaining = MAX_PROMPT_CHARS - reserve - assembled.length - sep.length;
       const fitted = fitSentences(deduped, remaining);
       if (fitted) {
-        assembled = assembled ? `${assembled} ${fitted}` : fitted;
+        assembled = assembled ? `${assembled}${sep}${fitted}` : fitted;
         notes.push(`Compressed ${section.id} to fit the engine prompt budget.`);
         record(section, "compressed", fitted, raw);
         continue;
@@ -1490,43 +1492,43 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     {
       id: "core_scene",
       label: L("coreScene"),
-      text: labeled(L("coreScene"), coreScene),
+      text: labeled(r, L("coreScene"), coreScene),
       priority: coreSceneModeratorAuthored ? "required" : "high",
       compressible: !coreSceneModeratorAuthored,
       ...(coreSceneModeratorAuthored ? { moderatorAuthored: true } : {}),
     },
-    { id: mode.sectionId, label: L(mode.sectionLabel), text: labeled(L(mode.sectionLabel), taskBody), priority: "required" },
-    { id: "subject_binding", label: L("subjectBinding"), text: labeled(L("subjectBinding"), binding), priority: "required" },
-    { id: "subject_realization", label: L("subjectRealization"), text: labeled(L("subjectRealization"), subjectRealization), priority: "required" },
+    { id: mode.sectionId, label: L(mode.sectionLabel), text: labeled(r, L(mode.sectionLabel), taskBody), priority: "required" },
+    { id: "subject_binding", label: L("subjectBinding"), text: labeled(r, L("subjectBinding"), binding), priority: "required" },
+    { id: "subject_realization", label: L("subjectRealization"), text: labeled(r, L("subjectRealization"), subjectRealization), priority: "required" },
     {
       id: "role_details",
       label: L("roleDetails"),
-      text: labeled(L("roleDetails"), roleDetails.text),
+      text: labeled(r, L("roleDetails"), roleDetails.text),
       priority: hasOverrideRoles ? "required" : "high",
       compressible: !hasOverrideRoles,
       ...(hasOverrideRoles ? { moderatorAuthored: true } : {}),
     },
-    { id: "subject_details", label: L("subjectDetails"), text: labeled(L("subjectDetails"), subjectDetails), priority: "high", compressible: true },
-    { id: "required_visual_details", label: L("requiredVisualDetails"), text: labeled(L("requiredVisualDetails"), requiredVisualDetails), priority: "required" },
-    { id: "environment", label: L("environment"), text: labeled(L("environment"), environment), priority: "high", compressible: true },
-    { id: "additional_details", label: L("additionalDetails"), text: labeled(L("additionalDetails"), additionalDetails), priority: "high", compressible: true },
+    { id: "subject_details", label: L("subjectDetails"), text: labeled(r, L("subjectDetails"), subjectDetails), priority: "high", compressible: true },
+    { id: "required_visual_details", label: L("requiredVisualDetails"), text: labeled(r, L("requiredVisualDetails"), requiredVisualDetails), priority: "required" },
+    { id: "environment", label: L("environment"), text: labeled(r, L("environment"), environment), priority: "high", compressible: true },
+    { id: "additional_details", label: L("additionalDetails"), text: labeled(r, L("additionalDetails"), additionalDetails), priority: "high", compressible: true },
     {
       id: "bubbles",
       label: L("bubbles"),
-      text: labeled(L("bubbles"), bubbleResult.text),
+      text: labeled(r, L("bubbles"), bubbleResult.text),
       priority: "required",
       dedupe: "none",
       ...(hasBubbles ? { moderatorAuthored: true } : {}),
     },
-    { id: "composition", label: L("composition"), text: labeled(L("composition"), composition), priority: "high" },
-    { id: "lighting", label: L("lighting"), text: labeled(L("lighting"), lighting), priority: "medium", compressible: true },
+    { id: "composition", label: L("composition"), text: labeled(r, L("composition"), composition), priority: "high" },
+    { id: "lighting", label: L("lighting"), text: labeled(r, L("lighting"), lighting), priority: "medium", compressible: true },
     // Engine notes: only when the recipe has some, so a recipe without them
     // compiles exactly as the baseline does (breakdown included).
     ...(engineNotesText
-      ? [{ id: "engine_notes", label: L("engineNotes"), text: labeled(L("engineNotes"), engineNotesText), priority: "required" as const }]
+      ? [{ id: "engine_notes", label: L("engineNotes"), text: labeled(r, L("engineNotes"), engineNotesText), priority: "required" as const }]
       : []),
-    { id: "render_style", label: L("renderStyle"), text: labeled(L("renderStyle"), renderStyle), priority: "required" },
-    { id: "strict_constraints", label: L("strictConstraints"), text: labeled(L("strictConstraints"), strictConstraints), priority: "required" },
+    { id: "render_style", label: L("renderStyle"), text: labeled(r, L("renderStyle"), renderStyle), priority: "required" },
+    { id: "strict_constraints", label: L("strictConstraints"), text: labeled(r, L("strictConstraints"), strictConstraints), priority: "required" },
   ];
 
   // Final identity gate: resolve any residual {NAME}/{SUBJ}/… tokens the LLM
@@ -1535,20 +1537,26 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // a raw template token.
   const sections = rawSections.map((s) => ({ ...s, text: renderIdentityTokens(s.text, args.renderedSubject) }));
 
-  const { prompt: finalPrompt, breakdown, overflowBy } = assembleSections(sections, notes);
+  const { prompt: finalPrompt, breakdown, overflowBy } = assembleSections(sections, notes, r.pieces["shape.join"] || " ");
 
+  // When the moderator's approved gag leads, the scene is settled at
+  // moderation: the tone and density checks judge the planner's fields
+  // (its staging approach, subject details, environment, frame and role),
+  // which the gag makes irrelevant, so they are not run. A character the
+  // gag's role bindings leave incomplete is still flagged.
+  const densityWarnings = detectDensityWarnings({
+    coreScene,
+    subjectDetails: vp.subjectDetails ?? [],
+    environment: vp.environment ?? [],
+    roleInScene,
+    activeActionFrame,
+    secondaryCharacters,
+  });
   const warnings = [
     ...moderatorCoreWarnings,
     ...bubbleResult.warnings,
-    ...detectToneWarnings({ visualApproach, prose: coreScene }),
-    ...detectDensityWarnings({
-      coreScene,
-      subjectDetails: vp.subjectDetails ?? [],
-      environment: vp.environment ?? [],
-      roleInScene,
-      activeActionFrame,
-      secondaryCharacters,
-    }),
+    ...(coreSceneModeratorAuthored ? [] : detectToneWarnings({ visualApproach, prose: coreScene })),
+    ...(coreSceneModeratorAuthored ? densityWarnings.filter((w) => w.code === "incomplete-secondary-character") : densityWarnings),
   ];
 
   // Defensive: every section was token-rendered above, so the final prompt must

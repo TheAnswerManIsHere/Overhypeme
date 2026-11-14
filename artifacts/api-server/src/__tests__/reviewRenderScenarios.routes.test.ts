@@ -219,7 +219,7 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
       lookStyleId: null,
       styleSuffixVersion: null,
       identityPolicy: defaultIdentityPolicyForRenderMode("t2i_fallback"),
-      actualImageEngineId: "nano-banana-2",
+      actualImageEngineId: "gpt-image-2-6",
     });
     assert.equal(attempt!.reviewRenderInputHash, expectedHash);
 

@@ -29,6 +29,7 @@ import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReview
 import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
 import { gagRenderInput, loadGags, primaryGag, workingContent, type GagContent } from "../lib/gags/resolver";
 import { currentImageEngineIds } from "../lib/imageEngineRouting.js";
+import { RenderStyleRefusedError } from "../lib/imagePrompt/styleResolution.js";
 
 // Re-export the plan-generator test seam (now owned by the shared preview helper)
 // so existing tests importing it from this route keep working.
@@ -182,18 +183,27 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   // previewed prompt and the render that follows can never drift (analysis,
   // subject render mode, identity policy, render controls, style suffix, sample
   // subject, rendered fact text). See lib/imagePrompt/resolveRenderReviewInput.
-  const resolved = await resolveRenderReviewInput(sourceText, enrichment, {
-    subjectRenderMode: body.subjectRenderMode,
-    userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
-    sourceImageAnalysis: body.sourceImageAnalysis,
-    uploadedObjectPath: body.uploadedObjectPath,
-    referenceImageUrl: body.referenceImageUrl ?? null,
-    lookStyleId: body.lookStyleId ?? null,
-    renderControls: body.renderControls,
-    identityPolicyOverrides: body.identityPolicyOverrides,
-    previewName: body.previewName,
-    previewPronouns: body.previewPronouns,
-  });
+  let resolved;
+  try {
+    resolved = await resolveRenderReviewInput(sourceText, enrichment, {
+      subjectRenderMode: body.subjectRenderMode,
+      userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
+      sourceImageAnalysis: body.sourceImageAnalysis,
+      uploadedObjectPath: body.uploadedObjectPath,
+      referenceImageUrl: body.referenceImageUrl ?? null,
+      lookStyleId: body.lookStyleId ?? null,
+      renderControls: body.renderControls,
+      identityPolicyOverrides: body.identityPolicyOverrides,
+      previewName: body.previewName,
+      previewPronouns: body.previewPronouns,
+    });
+  } catch (err) {
+    if (err instanceof RenderStyleRefusedError) {
+      res.status(400).json({ error: err.code, message: err.message, styleId: err.styleId, reason: err.reason });
+      return;
+    }
+    throw err;
+  }
   const {
     analysis,
     subjectRenderMode,
@@ -205,13 +215,14 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
     previewName,
     previewPronouns,
     renderedFactText,
+    lookClass,
   } = resolved;
 
   const requestId = `admin-preview-${crypto.randomUUID()}`;
   // The wording a render of this fact would use now: the live recipe for the
-  // engine its mode is routed to (the prompt tuner), so the preview shows what
-  // a render sends.
-  const routedEngineId = (await currentImageEngineIds())[generationMode];
+  // engine its look and mode are routed to (the prompt tuner), so the preview
+  // shows what a render sends.
+  const routedEngineId = (await currentImageEngineIds(lookClass))[generationMode];
   const { versionId: recipeVersionId, recipe } = await liveRecipeForEngine(routedEngineId);
   let output;
   let compiled;

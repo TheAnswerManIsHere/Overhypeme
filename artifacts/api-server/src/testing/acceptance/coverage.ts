@@ -128,7 +128,8 @@ export function operations(photoSha256: string): Operation[] {
       journey: "3",
       description: "image generation (three review renders)",
       kind: "fal.subscribe",
-      target: /^fal-ai\/nano-banana-2(\/edit)?$/,
+      // The engines a render with no look is routed to (compiler review, Phase 1): GPT Image 2.6.
+      target: /^openai\/gpt-image-2\.6\/sunburst\/(text-to-image|edit)$/,
       matches: (r) => typeof r?.input?.prompt === "string" && r.input.prompt.length > 0,
       usable: (r) => typeof (r?.data?.images?.[0]?.url ?? r?.data?.image?.url) === "string",
       min: 3,
