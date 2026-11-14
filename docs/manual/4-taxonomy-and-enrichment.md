@@ -156,7 +156,8 @@ side effect of an unrelated config change.
   under counted toward staleness automatically, a routine engine change could
   silently mark the entire corpus stale. Only a genuine, admin-acknowledged
   "major update" should do that — hence the manual engine-revision bump
-  instead of an automatic one.
+  instead of an automatic one. (Which engine a step uses is set in code, so
+  an engine change is a reviewed code change: [decisions.md, 2026-11-14](../ai-context/decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows).)
 
 ## Boundaries & known limitations
 
