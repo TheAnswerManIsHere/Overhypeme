@@ -203,8 +203,9 @@ test.describe("Admin described screens", () => {
     await expect(page.getByText("Something broke")).toHaveCount(0);
   });
 
-  // PR234 step 1 — Moderation Step 2 leads with the required Visual Concept card.
-  test("Moderation Step 2 shows the Visual Concept card near the top with a red * in its header", async ({ page }) => {
+  // PR234 step 1 — Moderation Step 2 leads with the gags, each with its required Visual Concept card
+  // (plan docs/plans/PLAN_THREE_GAGS.md: the step is now called Gags).
+  test("Moderation Step 2 shows the gags near the top, each Visual Concept card with a red * in its header", async ({ page }) => {
     await stubConceptReview(page, {
       id: 98001,
       submittedText: "{NAME} makes onions cry.",
@@ -214,20 +215,21 @@ test.describe("Admin described screens", () => {
     const card = await openConceptReview(page, "{NAME} makes onions cry.");
     await expectRequiredMarker(page, card);
 
-    // Near the top: only the submitted fact and the one-line instruction come before it.
-    const before = await card.evaluate((el) => {
+    // Near the top: only the submitted fact and the one-line instruction come before the gags.
+    const gags = page.getByTestId("gags-panel");
+    const before = await gags.evaluate((el) => {
       const out: string[] = [];
       for (let s = el.previousElementSibling; s; s = s.previousElementSibling) out.unshift((s.textContent ?? "").trim());
       return out;
     });
     expect(before).toHaveLength(2);
     expect(before[0]).toMatch(/^submitted fact/i);
-    expect(before[1]).toMatch(/^Accept, edit, or write the Visual Concept/);
-    // And it sits above the bubbles and the visual ideas that follow it.
+    expect(before[1]).toMatch(/^Write, edit or use an idea for each gag/);
+    // In the gag, the concept sits above its bubbles; the visual ideas follow the gags.
     const cardTop = (await card.boundingBox())!.y;
-    const step = card.locator("xpath=..");
-    const bubbles = (await step.getByText(/speech & thought bubbles/i).boundingBox())!.y;
-    const ideas = (await step.getByText(/^visual ideas$/i).boundingBox())!.y;
+    const gag = page.getByTestId("gag-card").first();
+    const bubbles = (await gag.getByText(/speech & thought bubbles/i).first().boundingBox())!.y;
+    const ideas = (await page.getByTestId("visual-concepts").getByText(/^visual ideas$/i).boundingBox())!.y;
     expect(cardTop).toBeLessThan(bubbles);
     expect(bubbles).toBeLessThan(ideas);
   });
@@ -284,38 +286,38 @@ test.describe("Admin described screens", () => {
     await card.getByTestId("visual-concept-textarea").fill(OVER_BUDGET_CONCEPT);
     await expect(card.getByText("1500/1500")).toBeVisible();
 
-    const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().endsWith("/api/admin/facts/98102/enrichment"));
-    await page.getByTestId("enrichment-save").click();
+    // The gag save (PUT /api/admin/facts/:id/gags/:gagId) reaches the real server.
+    const saved = page.waitForResponse((r) => r.request().method() === "PUT" && /\/api\/admin\/facts\/98102\/gags\/\d+$/.test(r.url()));
+    await page.getByTestId("gag-save").click();
     const response = await saved;
     expect(response.status(), "the real server refuses the save").toBe(400);
-    expect(((await response.json()) as { error?: string }).error).toBe("visual_strategy_override_over_budget");
+    expect(((await response.json()) as { code?: string }).code).toBe("CONTENT_OVER_BUDGET");
 
-    const message = page.getByText(BUDGET_SENTENCE);
-    await expect(message).toBeVisible();
-    await expect(page.getByText("visual_strategy_override_over_budget")).toHaveCount(0);
-    await expect(page.getByTestId("enrichment-saved")).toHaveCount(0);
+    const message = page.getByTestId("gag-error");
+    await expect(message).toHaveText(BUDGET_SENTENCE);
+    await expect(page.getByText("CONTENT_OVER_BUDGET")).toHaveCount(0);
     // The refused edit stays in the box so it can be shortened.
     await expect(card.getByTestId("visual-concept-textarea")).toHaveValue(OVER_BUDGET_CONCEPT);
   });
 
-  // PR687 step 5 — the Facts page's refusal box: its text, its layout, its status, and nothing saved.
-  test("an over-budget Visual Concept saved on the Facts page shows a wrapped refusal box under the heading", async ({ page }) => {
+  // PR687 step 5 — the Facts page's refusal: its text, its colour, wrapped inside the gag card, and nothing saved.
+  test("an over-budget Visual Concept saved on the Facts page shows a wrapped refusal in the gag card", async ({ page }) => {
     await stubAdminFacts(page, [{
       row: adminFactRow({ id: 97201, text: "{NAME} leaps canyons." }),
       enrichment: enrichmentWithConcept("{NAME} leaps a canyon in one stride."),
     }]);
     const panel = await openFactEnrichment(page, 97201, "{NAME} leaps canyons.");
-    await panel.getByTestId("visual-concept-textarea").fill(OVER_BUDGET_CONCEPT);
+    const gag = panel.getByTestId("gag-card").first();
+    await gag.getByTestId("visual-concept-textarea").fill(OVER_BUDGET_CONCEPT);
 
-    const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.url().endsWith("/api/admin/facts/97201/enrichment"));
-    await panel.getByRole("button", { name: "Save enrichment" }).click();
+    const saved = page.waitForResponse((r) => r.request().method() === "PUT" && /\/api\/admin\/facts\/97201\/gags\/\d+$/.test(r.url()));
+    await gag.getByTestId("gag-save").click();
     const response = await saved;
     expect(response.status(), "the real server refuses the save").toBe(400);
 
-    const box = panel.getByTestId("enrichment-commit-error");
-    await expect(box).toBeVisible();
+    const box = gag.getByTestId("gag-error");
     await expect(box).toHaveText(BUDGET_SENTENCE);
-    await expect(box.locator("p")).toHaveCSS("color", await page.evaluate(() => {
+    await expect(box).toHaveCSS("color", await page.evaluate(() => {
       const probe = document.createElement("span");
       probe.className = "text-destructive";
       document.body.appendChild(probe);
@@ -324,33 +326,20 @@ test.describe("Admin described screens", () => {
       return c;
     }));
 
-    // The heading line: the heading, "Save refused" beside it, and "Discard changes", above the box.
-    const heading = panel.getByRole("heading", { name: /visual taxonomy enrichment/i });
-    const status = panel.getByText("Save refused", { exact: true });
-    const discard = panel.getByRole("button", { name: "Discard changes" }).first();
-    await expect(heading).toBeVisible();
-    await expect(status).toBeVisible();
-    await expect(discard).toBeVisible();
-    const [h, s, d, b, p] = await Promise.all([heading, status, discard, box, panel].map(async (l) => (await l.boundingBox())!));
-    const midline = (r: { y: number; height: number }) => r.y + r.height / 2;
-    expect(Math.abs(midline(s) - midline(h)), "the status sits on the heading's line").toBeLessThan(h.height);
-    expect(Math.abs(midline(d) - midline(h)), "Discard changes sits on the heading's line").toBeLessThan(h.height);
-    expect(b.y, "the box sits below the heading line").toBeGreaterThanOrEqual(Math.max(h.y + h.height, d.y + d.height) - 1);
-
-    // It wraps inside the panel: nothing runs past the panel's edge.
-    expect(b.x).toBeGreaterThanOrEqual(p.x);
-    expect(b.x + b.width).toBeLessThanOrEqual(p.x + p.width + 0.5);
-    const overflow = await box.evaluate((el) => {
-      const text = el.querySelector("p")!;
-      return { box: el.scrollWidth - el.clientWidth, text: text.scrollWidth - text.clientWidth, lines: Math.round(text.getBoundingClientRect().height / parseFloat(getComputedStyle(text).lineHeight)) };
-    });
-    expect(overflow.box, "the box's content does not overflow it").toBeLessThanOrEqual(0);
-    expect(overflow.text, "the sentence does not overflow its line").toBeLessThanOrEqual(0);
+    // It wraps inside the gag card: nothing runs past the card's edge.
+    const [b, c] = await Promise.all([box, gag].map(async (l) => (await l.boundingBox())!));
+    expect(b.x).toBeGreaterThanOrEqual(c.x);
+    expect(b.x + b.width).toBeLessThanOrEqual(c.x + c.width + 0.5);
+    const overflow = await box.evaluate((el) => ({
+      box: el.scrollWidth - el.clientWidth,
+      lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)),
+    }));
+    expect(overflow.box, "the sentence does not overflow its line").toBeLessThanOrEqual(0);
     expect(overflow.lines, "the sentence wraps onto more than one line rather than running on").toBeGreaterThanOrEqual(2);
 
-    // Nothing saved: the edit is still an unsaved draft.
-    await expect(panel.getByText("Saved to server")).toHaveCount(0);
-    await expect(panel.getByTestId("visual-concept-textarea")).toHaveValue(OVER_BUDGET_CONCEPT);
+    // Nothing saved: the edit is still in the box, and Save is still offered.
+    await expect(gag.getByTestId("visual-concept-textarea")).toHaveValue(OVER_BUDGET_CONCEPT);
+    await expect(gag.getByTestId("gag-save")).toBeEnabled();
   });
 
   // Launch Phase 4, removal 7: the orphaned comments page file is deleted;

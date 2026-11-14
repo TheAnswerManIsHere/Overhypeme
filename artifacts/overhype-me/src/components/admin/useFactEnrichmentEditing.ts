@@ -68,15 +68,14 @@ export interface FactServerRecord {
   enrichmentStatus?: string | null;
 }
 
-/** The only enrichment fields editable through the whole-blob draft path —
+/** The only enrichment field editable through the whole-blob draft path —
  *  everything else is either tracked (per-field override endpoints) or
- *  server-owned. */
-export type UntrackedEnrichmentField = "suggestedHashtags" | "visualPromptStrategyOverride";
+ *  server-owned. A fact's gags are not in the enrichment at all: they live in
+ *  their own table and are edited in the Gags panel (plan
+ *  docs/plans/PLAN_THREE_GAGS.md). */
+export type UntrackedEnrichmentField = "suggestedHashtags";
 
-const UNTRACKED_FIELDS: readonly UntrackedEnrichmentField[] = [
-  "suggestedHashtags",
-  "visualPromptStrategyOverride",
-];
+const UNTRACKED_FIELDS: readonly UntrackedEnrichmentField[] = ["suggestedHashtags"];
 
 function reconcileEnrichmentDraftToEditableFields(
   serverValue: FactEnrichment | null,
@@ -127,7 +126,7 @@ export interface UseFactEnrichmentEditingOptions {
    *  moderation modal passes production_review && stagingFactId > 0). */
   enabled: boolean;
   /** Which untracked fields THIS surface may commit through the draft PATCH.
-   *  Facts page: both; moderation: only the visual-strategy override. */
+   *  Facts page: suggestedHashtags; moderation: none. */
   editableUntrackedFields?: readonly UntrackedEnrichmentField[];
   /** Seed status shown before the first server fetch resolves (list-row value). */
   initialStatus?: string | null;
@@ -167,26 +166,6 @@ export interface UseFactEnrichmentEditingResult {
    *  Resolves true immediately when nothing is in flight. */
   flushOverrides: () => Promise<boolean>;
   reloadResolved: () => Promise<void>;
-  /** True while a batch tokenize round trip is in flight — every VSO save
-   *  surface AND terminal action (approve/reject/back) must disable while true. */
-  vsoTokenizing: boolean;
-  /** Path → the tokenizer's field-specific error for the current draft, keyed
-   *  the same as `collectRenderedTextEntries` paths, plus one sentinel `""` key
-   *  for a whole-batch (network/HTTP) failure. Cleared per-field the moment
-   *  that field's value changes again. */
-  vsoTokenizeErrors: Record<string, string>;
-  /**
-   * The ONE save path for every Visual-Concept-authoring surface (DraftSaveBar,
-   * "Save enrichment", "Save Visual Concept & Continue", the Facts page save):
-   * tokenizes whatever changed since the last known server override, folds the
-   * results back in, and persists the whole current enrichment. Returns false
-   * (blocking, not persisting) when any field failed to tokenize.
-   */
-  tokenizeAndSaveVisualOverride: (subjectNames: string[]) => Promise<boolean>;
-  /** The last-known PERSISTED visual-strategy override (server state, not the
-   *  draft) — lets pick surfaces compare "what would this candidate apply on
-   *  top of" against unsaved local edits. Null before the first load. */
-  getServerVisualOverride: () => VisualPromptStrategyOverride | null;
 }
 
 /**
@@ -196,7 +175,7 @@ export interface UseFactEnrichmentEditingResult {
  * `{ error: "visual_strategy_override_over_budget", details: budget.errors }`),
  * so the sentences win; any other refusal falls back to `error` (#685).
  */
-function saveRefusalMessage(body: unknown): string | undefined {
+export function saveRefusalMessage(body: unknown): string | undefined {
   const b = body as { error?: unknown; details?: unknown } | null;
   if (!b || typeof b !== "object") return undefined;
   const details = Array.isArray(b.details) ? b.details : [];
@@ -239,7 +218,10 @@ export function useFactEnrichmentEditing({
             storageKey: `candidate-enrichment-draft::${reviewId}`,
             fetchRecord: `/api/admin/reviews/${reviewId}/candidate-enrichment-resolved`,
             fetchResolved: `/api/admin/reviews/${reviewId}/candidate-enrichment-resolved`,
-            patch: `/api/admin/reviews/${reviewId}/candidate-enrichment`,
+            // A refresh candidate has no whole-blob save: its one untracked
+            // field (suggestedHashtags) is pinned, and the candidate PATCH that
+            // saved a gag is retired (410).
+            patch: null,
             overrides: `/api/admin/reviews/${reviewId}/candidate-overrides`,
             supportsRerun: false,
           }
@@ -299,6 +281,7 @@ export function useFactEnrichmentEditing({
     },
     commit: async (toSave): Promise<void | FactEnrichment> => {
       if (!toSave) throw new Error("Nothing to save.");
+      if (endpoints.patch == null) return serverEnrichmentRef.current ?? toSave;
       // Anti-smuggle overlay: untracked fields this surface may not edit are
       // pinned to the latest server value, so a stale draft can't change them.
       const payload = { ...toSave } as FactEnrichment;
@@ -342,128 +325,6 @@ export function useFactEnrichmentEditing({
       onAfterMutationRef.current?.();
     },
   });
-
-  // ── Auto-tokenize on Save (Visual-Concept authoring) ────────────────────────
-  const [vsoTokenizing, setVsoTokenizing] = useState(false);
-  const [vsoTokenizeErrors, setVsoTokenizeErrors] = useState<Record<string, string>>({});
-  // path -> the value that was showing when its error was set, so the effect
-  // below can tell "still the erroring value" from "admin already edited it".
-  const vsoTokenizeErrorSnapshotRef = useRef<Record<string, string>>({});
-
-  // Clear a field's tokenize error the moment its live value no longer matches
-  // the value that was in error — kept distinct from draft.commitError, which
-  // is about the PATCH itself, not a specific VSO field.
-  useEffect(() => {
-    const ov = draft.value?.visualPromptStrategyOverride;
-    const byPath = new Map(ov ? collectRenderedTextEntries(ov).map((e) => [e.path, e.value]) : []);
-    setVsoTokenizeErrors((prev) => {
-      const staleKeys = Object.keys(prev).filter(
-        (path) => path !== VSO_TOKENIZE_GENERAL_ERROR_KEY && byPath.get(path) !== vsoTokenizeErrorSnapshotRef.current[path],
-      );
-      if (staleKeys.length === 0) return prev;
-      const next = { ...prev };
-      for (const path of staleKeys) {
-        delete next[path];
-        delete vsoTokenizeErrorSnapshotRef.current[path];
-      }
-      return next;
-    });
-  }, [draft.value]);
-
-  /**
-   * The ONE save path for every Visual-Concept-authoring surface: diff the
-   * current override against the last known server override (via the shared
-   * `collectRenderedTextEntries` collector — no hand-maintained field list),
-   * batch-tokenize only what changed, fold the results back in, and persist
-   * the WHOLE current enrichment (never a bare override — this surface may
-   * share its draft with `suggestedHashtags`). Any field-level error blocks
-   * persistence and surfaces on that field instead.
-   */
-  const tokenizeAndSaveVisualOverride = useCallback(
-    async (subjectNames: string[]): Promise<boolean> => {
-      const targetKey = targetKeyRef.current;
-      const currentEnrichment = draft.value;
-      const currentOverride = currentEnrichment?.visualPromptStrategyOverride ?? null;
-
-      const baselineOverride = serverEnrichmentRef.current?.visualPromptStrategyOverride ?? null;
-      const baselineByPath = new Map(
-        baselineOverride ? collectRenderedTextEntries(baselineOverride).map((e) => [e.path, e.value]) : [],
-      );
-      const currentEntries = currentOverride ? collectRenderedTextEntries(currentOverride) : [];
-      const changedEntries = currentEntries.filter(
-        (e) => e.value.trim() !== "" && e.value !== baselineByPath.get(e.path),
-      );
-
-      if (changedEntries.length === 0) {
-        // Nothing new to tokenize — still persist the whole enrichment so a
-        // hashtag-only (or otherwise untracked-field) edit is not dropped.
-        return draft.saveValue(currentEnrichment);
-      }
-
-      setVsoTokenizing(true);
-      try {
-        let r: Response;
-        try {
-          r = await fetch("/api/ai/tokenize-enrichment", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              entries: changedEntries.map(({ path, value, kind }) => ({ path, value, kind })),
-              subjectContext: { names: subjectNames },
-            }),
-          });
-        } catch {
-          if (targetKeyRef.current !== targetKey) return false; // navigated away — drop
-          setVsoTokenizeErrors((prev) => ({ ...prev, [VSO_TOKENIZE_GENERAL_ERROR_KEY]: "Network error — could not tokenize." }));
-          return false;
-        }
-        if (targetKeyRef.current !== targetKey) return false; // navigated away — drop
-
-        if (!r.ok) {
-          let msg = `Tokenize failed (${r.status}).`;
-          try { const b = (await r.json()) as { error?: string }; if (b?.error) msg = b.error; } catch { /* generic */ }
-          setVsoTokenizeErrors((prev) => ({ ...prev, [VSO_TOKENIZE_GENERAL_ERROR_KEY]: msg }));
-          return false;
-        }
-
-        const body = (await r.json()) as TokenizeEnrichmentResponse;
-        if (targetKeyRef.current !== targetKey) return false; // navigated away — drop
-
-        let nextOverride = currentOverride as VisualPromptStrategyOverride;
-        const errors: Record<string, string> = {};
-        const errorSnapshots: Record<string, string> = {};
-        for (const result of body.results) {
-          nextOverride = setRenderedTextAtPath(nextOverride, result.path, result.value);
-          if (result.error) {
-            errors[result.path] = result.error;
-            errorSnapshots[result.path] = result.value;
-          }
-        }
-        const nextEnrichment: FactEnrichment = {
-          ...currentEnrichment,
-          visualPromptStrategyOverride: nextOverride,
-        } as FactEnrichment;
-
-        if (Object.keys(errors).length > 0) {
-          vsoTokenizeErrorSnapshotRef.current = { ...vsoTokenizeErrorSnapshotRef.current, ...errorSnapshots };
-          setVsoTokenizeErrors((prev) => {
-            const next = { ...prev, ...errors };
-            delete next[VSO_TOKENIZE_GENERAL_ERROR_KEY];
-            return next;
-          });
-          draft.setValue(nextEnrichment);
-          return false;
-        }
-
-        setVsoTokenizeErrors({});
-        return await draft.saveValue(nextEnrichment);
-      } finally {
-        setVsoTokenizing(false);
-      }
-    },
-    [draft],
-  );
 
   // ── AI-derived vs. manual-override state ────────────────────────────────────
   const [resolved, setResolved] = useState<ResolvedState | null>(null);
@@ -660,9 +521,5 @@ export function useFactEnrichmentEditing({
     overrideError,
     flushOverrides,
     reloadResolved: fetchResolved,
-    vsoTokenizing,
-    vsoTokenizeErrors,
-    tokenizeAndSaveVisualOverride,
-    getServerVisualOverride: () => serverEnrichmentRef.current?.visualPromptStrategyOverride ?? null,
   };
 }

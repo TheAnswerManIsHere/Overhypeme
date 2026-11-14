@@ -2,8 +2,10 @@
  * VisualConceptCandidates (Slice 2A) — the candidate-concept picker that sits
  * directly under the "Visual concept" field. During prep the frontier planner
  * drafts THREE distinct "describe the picture" ideas; here the moderator scans
- * them and (optionally) drops one into the Visual concept field as a starting
- * point — picking is draft-only, the moderator still Saves.
+ * them and uses one on a gag: instead of the default gag, as an additional gag,
+ * or in place of a named gag (plan docs/plans/PLAN_THREE_GAGS.md). Using an idea
+ * saves it as that gag's change; it reaches users only once a test render of it
+ * is approved as the gag's example.
  *
  * States (driven entirely by the server-computed `visualConcepts` block; the FE
  * never recomputes hashes):
@@ -12,7 +14,7 @@
  *   failed    → non-blocking; offer Try again.
  *   ok+stale  → the fact/enrichment changed since these were drafted → hide the
  *               candidates, show why, offer Regenerate.
- *   ok+current→ the three cards, each with an expandable scene + "Use as draft".
+ *   ok+current→ the three cards, each with an expandable scene and its gag actions.
  *
  * Optional by design: the Visual concept field works perfectly well empty, so a
  * failed/absent concept job never blocks anything.
@@ -25,6 +27,13 @@ import type {
   StoredCandidateConcept,
   VisualConceptStaleReason,
 } from "@workspace/api-zod";
+
+/** One way to use an idea on a gag, offered on every card. */
+export interface ConceptAction {
+  key: string;
+  label: string;
+  run: (concept: StoredCandidateConcept) => void | Promise<void>;
+}
 
 const STALE_COPY: Record<VisualConceptStaleReason, string> = {
   review_mismatch: "These ideas were drafted for a different review.",
@@ -122,19 +131,19 @@ function ConceptCard({
   index,
   disabled,
   pickBlockedReason,
-  onPick,
+  actions,
 }: {
   concept: StoredCandidateConcept;
   index: number;
   disabled?: boolean;
-  /** Non-null: picking is temporarily blocked for a draft-state reason (shown
-   *  as the button title); the card itself may still be valid. */
+  /** Non-null: using an idea is temporarily blocked (shown as the button
+   *  title); the card itself may still be valid. */
   pickBlockedReason?: string | null;
-  onPick: (concept: StoredCandidateConcept) => void;
+  actions: ConceptAction[];
 }) {
   const [expanded, setExpanded] = useState(false);
   // ATOMIC pickability: the scene AND every proposed bubble must be valid —
-  // "Use as draft" applies the complete displayed concept or nothing.
+  // An action applies the complete displayed concept or nothing.
   const conceptValid = isCandidateConceptPickable(concept);
   const pickable = conceptValid && !disabled && !pickBlockedReason;
   const bubbles = concept.bubbles ?? [];
@@ -150,20 +159,26 @@ function ConceptCard({
             <p className="text-xs text-muted-foreground mt-0.5">{concept.whyItWorks}</p>
           )}
         </div>
-        <button
-          type="button"
-          data-testid="candidate-use"
-          disabled={!pickable}
-          title={
-            !conceptValid
-              ? concept.tokenError ?? invalidBubbles[0]?.tokenError ?? "This idea uses an invalid personalization token."
-              : pickBlockedReason ?? undefined
-          }
-          onClick={() => onPick(concept)}
-          className="shrink-0 text-xs font-bold px-2 py-1 rounded-sm border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Use as draft
-        </button>
+        <div className="shrink-0 flex flex-col items-end gap-1">
+          {actions.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              data-testid="candidate-use"
+              data-action={a.key}
+              disabled={!pickable}
+              title={
+                !conceptValid
+                  ? concept.tokenError ?? invalidBubbles[0]?.tokenError ?? "This idea uses an invalid personalization token."
+                  : pickBlockedReason ?? undefined
+              }
+              onClick={() => void a.run(concept)}
+              className="text-xs font-bold px-2 py-1 rounded-sm border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Proposed bubbles — the NORMALIZED stored values, i.e. exactly what a
@@ -219,20 +234,19 @@ export function VisualConceptCandidates({
   visualConcepts,
   disabled,
   pickBlockedReason,
-  onPick,
+  actions,
   onGenerate,
   onSaveNote,
 }: {
   visualConcepts: VisualConceptsResponse | undefined;
   /** Disable picking / generating (e.g. while the enrichment draft is committing). */
   disabled?: boolean;
-  /** Non-null: picking is blocked because of unsaved unrelated Visual
-   *  Strategy edits — cards render normally but "Use as draft" disables with
-   *  this reason. Generating stays available. */
+  /** Non-null: using an idea is blocked — cards render normally but their
+   *  actions disable with this reason. Generating stays available. */
   pickBlockedReason?: string | null;
-  /** Apply the complete candidate (scene + bubbles) to the draft (draft-only). */
-  onPick: (concept: StoredCandidateConcept) => void;
-  /** POST regenerate — the server uses the current unsaved draft as context. */
+  /** The ways to use an idea on a gag; each applies the whole idea (scene + bubbles). */
+  actions: ConceptAction[];
+  /** POST regenerate — the server reads the fact's saved gags as context. */
   onGenerate: () => Promise<void>;
   /** PUT the fact's humor note; resolves to an error message, or null on success. */
   onSaveNote?: (text: string) => Promise<string | null>;
@@ -283,8 +297,8 @@ export function VisualConceptCandidates({
       {status == null && (
         <div className="space-y-2" data-testid="visual-concepts-idle">
           <p className="text-xs text-muted-foreground">
-            The planner can draft three distinct concepts to start from — pick one, edit it, or ignore them and
-            write your own above.
+            The planner can draft three distinct concepts to start from — use one on a gag, edit it there, or
+            ignore them and write your own.
           </p>
           <GenerateButton label="Generate visual ideas" />
         </div>
@@ -331,10 +345,10 @@ export function VisualConceptCandidates({
             </p>
           )}
           {candidates.map((c, i) => (
-            <ConceptCard key={i} concept={c} index={i} disabled={disabled} pickBlockedReason={pickBlockedReason} onPick={onPick} />
+            <ConceptCard key={i} concept={c} index={i} disabled={disabled} pickBlockedReason={pickBlockedReason} actions={actions} />
           ))}
           <p className="text-[11px] text-muted-foreground">
-            "Use as draft" fills the Visual concept and bubbles above — you still Save to apply it.
+            Using an idea saves it as that gag's change. It reaches users only once a test render of it is approved as the gag's example.
           </p>
         </div>
       )}

@@ -1,14 +1,14 @@
 /**
  * VisualConceptCandidates — the candidate-concept picker. Covers the server-
  * driven states (null → Generate, pending, failed, stale, ok+current → cards),
- * that picking a card writes the scene via onPick, that an invalid-token
+ * that a card's action receives the whole idea, that an invalid-token
  * candidate can't be picked, and that stale candidates are hidden behind the
  * server `current` flag (the FE never recomputes hashes).
  */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import type { VisualConceptsResponse, StoredCandidateConcept } from "@workspace/api-zod";
-import { VisualConceptCandidates } from "./VisualConceptCandidates";
+import { VisualConceptCandidates, type ConceptAction } from "./VisualConceptCandidates";
 
 function candidate(overrides: Partial<StoredCandidateConcept> = {}): StoredCandidateConcept {
   return {
@@ -27,10 +27,13 @@ function okCurrent(candidates: StoredCandidateConcept[]): VisualConceptsResponse
 
 const noop = async () => {};
 
+/** One action, the way most of these tests use a card. */
+const one = (run: (c: StoredCandidateConcept) => void): ConceptAction[] => [{ key: "default", label: "Use this instead of the current default gag", run }];
+
 describe("VisualConceptCandidates", () => {
   it("null status → shows Generate and calls onGenerate on click (no cards)", async () => {
     const onGenerate = vi.fn(async () => {});
-    render(<VisualConceptCandidates visualConcepts={undefined} onPick={vi.fn()} onGenerate={onGenerate} />);
+    render(<VisualConceptCandidates visualConcepts={undefined} actions={one(vi.fn())} onGenerate={onGenerate} />);
     expect(screen.queryByTestId("visual-concepts-cards")).toBeNull();
     expect(screen.getByTestId("visual-concepts-idle")).toBeTruthy();
     await act(async () => {
@@ -43,7 +46,7 @@ describe("VisualConceptCandidates", () => {
     render(
       <VisualConceptCandidates
         visualConcepts={{ status: "pending", candidates: [], current: false }}
-        onPick={vi.fn()}
+        actions={one(vi.fn())}
         onGenerate={noop}
       />,
     );
@@ -55,7 +58,7 @@ describe("VisualConceptCandidates", () => {
     render(
       <VisualConceptCandidates
         visualConcepts={{ status: "failed", candidates: [], current: false }}
-        onPick={vi.fn()}
+        actions={one(vi.fn())}
         onGenerate={noop}
       />,
     );
@@ -67,7 +70,7 @@ describe("VisualConceptCandidates", () => {
     render(
       <VisualConceptCandidates
         visualConcepts={{ status: "ok", current: false, candidates: [candidate()], staleReason: "input_hash_mismatch" }}
-        onPick={vi.fn()}
+        actions={one(vi.fn())}
         onGenerate={noop}
       />,
     );
@@ -77,7 +80,7 @@ describe("VisualConceptCandidates", () => {
 
   it("ok + current → renders the three cards with title + whyItWorks; scene is collapsed until expanded", () => {
     const cands = [candidate({ title: "A" }), candidate({ title: "B" }), candidate({ title: "C" })];
-    render(<VisualConceptCandidates visualConcepts={okCurrent(cands)} onPick={vi.fn()} onGenerate={noop} />);
+    render(<VisualConceptCandidates visualConcepts={okCurrent(cands)} actions={one(vi.fn())} onGenerate={noop} />);
     expect(screen.getAllByTestId("visual-concept-candidate")).toHaveLength(3);
     expect(screen.getByText("A")).toBeTruthy();
     // Scene hidden until the per-card toggle is clicked.
@@ -86,13 +89,13 @@ describe("VisualConceptCandidates", () => {
     expect(screen.getByTestId("candidate-scene").textContent).toMatch(/melting clocks/);
   });
 
-  it('"Use as draft" calls onPick with the COMPLETE candidate (scene + bubbles)', () => {
+  it("a card's action receives the COMPLETE candidate (scene + bubbles)", () => {
     const onPick = vi.fn();
     const c = candidate({
       sceneDescription: "{NAME} surfs a tidal wave of paperwork.",
       bubbles: [{ type: "speech", entity: "subject", text: "Approved!", tokenValid: true }],
     });
-    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} onPick={onPick} onGenerate={noop} />);
+    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} actions={one(onPick)} onGenerate={noop} />);
     fireEvent.click(screen.getByTestId("candidate-use"));
     expect(onPick).toHaveBeenCalledWith(c);
   });
@@ -100,7 +103,7 @@ describe("VisualConceptCandidates", () => {
   it("an invalid-token candidate can't be picked (button disabled, error shown)", () => {
     const onPick = vi.fn();
     const c = candidate({ tokenValid: false, tokenError: "unknown token {WEATHER}" });
-    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} onPick={onPick} onGenerate={noop} />);
+    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} actions={one(onPick)} onGenerate={noop} />);
     const btn = screen.getByTestId("candidate-use") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);
@@ -111,7 +114,7 @@ describe("VisualConceptCandidates", () => {
   it("disabled prop blocks Generate and picking", () => {
     const onGenerate = vi.fn(async () => {});
     const onPick = vi.fn();
-    render(<VisualConceptCandidates visualConcepts={okCurrent([candidate()])} disabled onPick={onPick} onGenerate={onGenerate} />);
+    render(<VisualConceptCandidates visualConcepts={okCurrent([candidate()])} disabled actions={one(onPick)} onGenerate={onGenerate} />);
     fireEvent.click(screen.getByTestId("candidate-use"));
     expect(onPick).not.toHaveBeenCalled();
   });
@@ -119,7 +122,7 @@ describe("VisualConceptCandidates", () => {
   it("Regenerate is disabled while a request is in flight, then re-enabled", async () => {
     let resolve: () => void = () => {};
     const onGenerate = vi.fn(() => new Promise<void>((r) => { resolve = r; }));
-    render(<VisualConceptCandidates visualConcepts={okCurrent([candidate()])} onPick={vi.fn()} onGenerate={onGenerate} />);
+    render(<VisualConceptCandidates visualConcepts={okCurrent([candidate()])} actions={one(vi.fn())} onGenerate={onGenerate} />);
     const btn = () => screen.getByTestId("visual-concepts-generate") as HTMLButtonElement;
     await act(async () => { fireEvent.click(btn()); });
     expect(btn().disabled).toBe(true);
@@ -139,7 +142,7 @@ describe("candidate bubble proposals", () => {
         { type: "thought", entity: "the bartender", text: "Not again.", tokenValid: true },
       ],
     });
-    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} onPick={() => {}} onGenerate={noop} />);
+    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} actions={one(() => {})} onGenerate={noop} />);
     const rows = screen.getAllByTestId("candidate-bubble");
     expect(rows).toHaveLength(2);
     expect(rows[0]!.textContent).toContain("Speech — subject");
@@ -155,12 +158,33 @@ describe("candidate bubble proposals", () => {
         { type: "speech", entity: "{NAME}", text: "Broken.", tokenValid: false, tokenError: "personalization tokens are not allowed here" },
       ],
     });
-    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} onPick={onPick} onGenerate={noop} />);
+    render(<VisualConceptCandidates visualConcepts={okCurrent([c])} actions={one(onPick)} onGenerate={noop} />);
     const btn = screen.getByTestId("candidate-use") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);
     expect(onPick).not.toHaveBeenCalled();
     expect(screen.getByTestId("candidate-unpickable").textContent).toContain("bubble 2");
+  });
+
+  it("offers every gag action on each card, and each runs with the idea", () => {
+    const toDefault = vi.fn();
+    const additional = vi.fn();
+    const c = candidate();
+    render(
+      <VisualConceptCandidates
+        visualConcepts={okCurrent([c])}
+        actions={[
+          { key: "default", label: "Use this instead of the current default gag", run: toDefault },
+          { key: "additional", label: "Use as an additional gag", run: additional },
+        ]}
+        onGenerate={noop}
+      />,
+    );
+    const buttons = screen.getAllByTestId("candidate-use");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Use this instead of the current default gag", "Use as an additional gag"]);
+    fireEvent.click(buttons[1]!);
+    expect(additional).toHaveBeenCalledWith(c);
+    expect(toDefault).not.toHaveBeenCalled();
   });
 
   it("pickBlockedReason disables picking with the reason but keeps the cards rendered", () => {
@@ -170,7 +194,7 @@ describe("candidate bubble proposals", () => {
       <VisualConceptCandidates
         visualConcepts={okCurrent([c])}
         pickBlockedReason="Save or discard your current Visual Strategy changes before using an AI idea — picking applies on top of the saved state."
-        onPick={onPick}
+        actions={one(onPick)}
         onGenerate={noop}
       />,
     );
@@ -190,7 +214,7 @@ describe("the joke read and the humor note (PLAN_GAG_GENERATOR.md E)", () => {
 
   it("shows the AI's read and confirms it with one press", async () => {
     const onSaveNote = vi.fn(async () => null);
-    render(<VisualConceptCandidates visualConcepts={withRead()} onPick={vi.fn()} onGenerate={noop} onSaveNote={onSaveNote} />);
+    render(<VisualConceptCandidates visualConcepts={withRead()} actions={one(vi.fn())} onGenerate={noop} onSaveNote={onSaveNote} />);
     expect(screen.getByTestId("joke-read-text").textContent).toMatch(/revolving door/);
     await act(async () => { fireEvent.click(screen.getByTestId("joke-read-confirm")); });
     expect(onSaveNote).toHaveBeenCalledWith("A revolving door cannot be slammed; Alex slams one anyway.");
@@ -198,7 +222,7 @@ describe("the joke read and the humor note (PLAN_GAG_GENERATOR.md E)", () => {
 
   it("corrects the read and saves the correction; a failed save says so and keeps the text", async () => {
     const onSaveNote = vi.fn(async () => "Could not save the humor note (500).");
-    render(<VisualConceptCandidates visualConcepts={withRead()} onPick={vi.fn()} onGenerate={noop} onSaveNote={onSaveNote} />);
+    render(<VisualConceptCandidates visualConcepts={withRead()} actions={one(vi.fn())} onGenerate={noop} onSaveNote={onSaveNote} />);
     fireEvent.click(screen.getByTestId("joke-read-edit"));
     fireEvent.change(screen.getByTestId("humor-note-input"), { target: { value: "The door is the victim." } });
     await act(async () => { fireEvent.click(screen.getByTestId("humor-note-save")); });
@@ -208,22 +232,22 @@ describe("the joke read and the humor note (PLAN_GAG_GENERATOR.md E)", () => {
   });
 
   it("a typed correction survives a poll that brings a new generation", () => {
-    const { rerender } = render(<VisualConceptCandidates visualConcepts={withRead()} onPick={vi.fn()} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
+    const { rerender } = render(<VisualConceptCandidates visualConcepts={withRead()} actions={one(vi.fn())} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
     fireEvent.click(screen.getByTestId("joke-read-edit"));
     fireEvent.change(screen.getByTestId("humor-note-input"), { target: { value: "Half-typed correction" } });
-    rerender(<VisualConceptCandidates visualConcepts={withRead({ jokeRead: "A newer read." })} onPick={vi.fn()} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
+    rerender(<VisualConceptCandidates visualConcepts={withRead({ jokeRead: "A newer read." })} actions={one(vi.fn())} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
     expect((screen.getByTestId("humor-note-input") as HTMLTextAreaElement).value).toBe("Half-typed correction");
   });
 
   it("a typed first-note correction survives Regenerate: ok → pending → ok, and ok → pending → failed", () => {
     for (const end of [withRead({ jokeRead: "A newer read." }), { status: "failed", candidates: [], current: false, humorNote: null } as VisualConceptsResponse]) {
       const save = vi.fn(async () => null);
-      const { rerender, unmount } = render(<VisualConceptCandidates visualConcepts={withRead()} onPick={vi.fn()} onGenerate={noop} onSaveNote={save} />);
+      const { rerender, unmount } = render(<VisualConceptCandidates visualConcepts={withRead()} actions={one(vi.fn())} onGenerate={noop} onSaveNote={save} />);
       fireEvent.click(screen.getByTestId("joke-read-edit"));
       fireEvent.change(screen.getByTestId("humor-note-input"), { target: { value: "Half-typed correction" } });
-      rerender(<VisualConceptCandidates visualConcepts={{ status: "pending", candidates: [], current: false, humorNote: null }} onPick={vi.fn()} onGenerate={noop} onSaveNote={save} />);
+      rerender(<VisualConceptCandidates visualConcepts={{ status: "pending", candidates: [], current: false, humorNote: null }} actions={one(vi.fn())} onGenerate={noop} onSaveNote={save} />);
       expect((screen.getByTestId("humor-note-input") as HTMLTextAreaElement).value).toBe("Half-typed correction");
-      rerender(<VisualConceptCandidates visualConcepts={end} onPick={vi.fn()} onGenerate={noop} onSaveNote={save} />);
+      rerender(<VisualConceptCandidates visualConcepts={end} actions={one(vi.fn())} onGenerate={noop} onSaveNote={save} />);
       expect((screen.getByTestId("humor-note-input") as HTMLTextAreaElement).value).toBe("Half-typed correction");
       expect(save).not.toHaveBeenCalled();
       unmount();
@@ -232,7 +256,7 @@ describe("the joke read and the humor note (PLAN_GAG_GENERATOR.md E)", () => {
 
   it("a note can be written before any generation has succeeded", async () => {
     const save = vi.fn(async () => null);
-    render(<VisualConceptCandidates visualConcepts={{ status: null, candidates: [], current: false, humorNote: null } as unknown as VisualConceptsResponse} onPick={vi.fn()} onGenerate={noop} onSaveNote={save} />);
+    render(<VisualConceptCandidates visualConcepts={{ status: null, candidates: [], current: false, humorNote: null } as unknown as VisualConceptsResponse} actions={one(vi.fn())} onGenerate={noop} onSaveNote={save} />);
     fireEvent.click(screen.getByTestId("humor-note-write"));
     fireEvent.change(screen.getByTestId("humor-note-input"), { target: { value: "Written by hand." } });
     await act(async () => { fireEvent.click(screen.getByTestId("humor-note-save")); });
@@ -242,7 +266,7 @@ describe("the joke read and the humor note (PLAN_GAG_GENERATOR.md E)", () => {
   it("an approved note shows as approved, with the latest read beside it when it differs", () => {
     render(<VisualConceptCandidates
       visualConcepts={withRead({ humorNote: { text: "The approved reading.", approvedBy: "u1", approvedAt: new Date().toISOString() }, jokeRead: "The approved reading, but note the second sentence." })}
-      onPick={vi.fn()} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
+      actions={one(vi.fn())} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
     expect(screen.getByTestId("humor-note-approved").textContent).toMatch(/The approved reading\./);
     expect(screen.getByTestId("joke-read-text").textContent).toMatch(/second sentence/);
     expect(screen.queryByTestId("joke-read-confirm")).toBeNull();
@@ -251,7 +275,7 @@ describe("the joke read and the humor note (PLAN_GAG_GENERATOR.md E)", () => {
   it("a failed generation shows its reason", () => {
     render(<VisualConceptCandidates
       visualConcepts={{ status: "failed", candidates: [], current: false, humorNote: null, failureReason: 'The gag writer engine "x" cannot be used (engine_inactive).' }}
-      onPick={vi.fn()} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
+      actions={one(vi.fn())} onGenerate={noop} onSaveNote={vi.fn(async () => null)} />);
     expect(screen.getByTestId("visual-concepts-failed").textContent).toMatch(/cannot be used/);
   });
 });

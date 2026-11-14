@@ -199,8 +199,8 @@ export const REVIEW_WORKFLOW_STAGE_DISPLAY: Record<ReviewWorkflowStage, ReviewWo
     group: "prep",
   },
   concept_review: {
-    label: "Visual Concept",
-    hint: "Accept, edit, or write the Visual Concept and approve the visual gag — no renders spend yet.",
+    label: "Gags",
+    hint: "Write, edit or use an idea for each of the fact's gags (up to three) and approve them — no renders spend yet.",
     group: "concept_review",
   },
   production_review: {

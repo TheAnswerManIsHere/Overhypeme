@@ -1494,8 +1494,6 @@ export function EnrichmentEditor({
   onFinalHashtagsChange,
   hideHashtags = false,
   overrideContext,
-  vsoTokenizing = false,
-  vsoTokenizeErrors,
 }: {
   value: FactEnrichment | null;
   status: string | null;
@@ -1519,12 +1517,6 @@ export function EnrichmentEditor({
    * redundant hashtag control. */
   hideHashtags?: boolean;
   overrideContext?: EnrichmentOverrideContext;
-  /** True while a Visual-Concept-authoring batch tokenize round trip is in
-   *  flight — disables the Visual Strategy Override panel on top of `busy`. */
-  vsoTokenizing?: boolean;
-  /** Path → tokenize error for the current draft (from
-   *  `useFactEnrichmentEditing`'s `vsoTokenizeErrors`). */
-  vsoTokenizeErrors?: Record<string, string>;
 }) {
   const e = value ? { ...EMPTY_ENRICHMENT, ...value } : EMPTY_ENRICHMENT;
   const [modifierInput, setModifierInput] = useState("");
@@ -1603,16 +1595,9 @@ export function EnrichmentEditor({
   };
 
   const validity = validateEnrichment(e);
-  // The schema's entity token backstop (`roleBindings[i].entity` or
-  // `bubbles[i].entity` carrying a `{…}` token) is the ONE validity error
-  // class that Save can fix by itself — it
-  // routes through tokenizeAndSaveVisualOverride, which blocks persistence and
-  // red-borders that row on its own if the token is still there after
-  // tokenizing. Save must NOT hard-disable on it, or the "click Save → shown
-  // as blocked" flow could never run. Every other error (unknown/malformed
-  // tokens in prose, VSO caps/enums, any non-VSO enrichment failure) still
-  // disables Save — this filter is intentionally narrow, matching only this
-  // exact schema issue, never a broad `visualPromptStrategyOverride:` prefix.
+  // Every validity error disables Save. (A gag's entity-token issue was the one
+  // Save could fix by tokenizing; gags left the enrichment for the Gags panel,
+  // plan docs/plans/PLAN_THREE_GAGS.md, and the filter stays as a no-op guard.)
   const nonFixableValidityErrors = validity.ok
     ? []
     : validity.error.split("; ").filter((err) => !isFixableEntityTokenIssue(err));
@@ -1658,17 +1643,14 @@ export function EnrichmentEditor({
 
       <Warnings e={e} />
 
-      {oc && (oc.summary.overriddenPaths.length > 0 || oc.summary.hasVisualStrategyOverride) && (
+      {oc && oc.summary.overriddenPaths.length > 0 && (
         <div className="rounded-sm border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-foreground flex items-center gap-x-2 gap-y-1 flex-wrap">
           <span className="font-semibold text-primary">Overridden:</span>
           <span>
-            {[
-              ...oc.summary.overriddenPaths.map((p) => {
-                const key = PATH_TO_DOC_KEY[p as OverridablePath];
-                return key ? fieldLabel(key) : p;
-              }),
-              ...(oc.summary.hasVisualStrategyOverride ? ["Visual Strategy"] : []),
-            ].join(", ")}
+            {oc.summary.overriddenPaths.map((p) => {
+              const key = PATH_TO_DOC_KEY[p as OverridablePath];
+              return key ? fieldLabel(key) : p;
+            }).join(", ")}
           </span>
           {oc.summary.baselineChangedPaths.length > 0 && (
             <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold">
@@ -1860,16 +1842,6 @@ export function EnrichmentEditor({
         {mark("/adminReviewNotes")}
       </div>
 
-      <div className="border-t border-border pt-4 space-y-3">
-        <p className="text-sm font-bold text-foreground uppercase tracking-wide">Visual Strategy Overrides</p>
-        <VisualStrategyOverridePanel
-          value={e.visualPromptStrategyOverride}
-          onChange={(next) => update({ visualPromptStrategyOverride: next })}
-          disabled={busy || vsoTokenizing}
-          fieldErrors={vsoTokenizeErrors}
-        />
-      </div>
-
       <p className="text-sm font-bold text-foreground uppercase tracking-wide border-t border-border pt-4">
         References &amp; Scene Entities
       </p>
@@ -1894,8 +1866,8 @@ export function EnrichmentEditor({
 
       <div className="rounded-sm border border-border bg-muted/20 p-3 text-xs text-muted-foreground leading-snug">
         This editor sets the <span className="font-semibold text-foreground">meaning</span> (taxonomy, cultural
-        references, semantic entities) and optional <span className="font-semibold text-foreground">art direction</span>{" "}
-        (Visual Strategy Override). To see what the image will actually be, use the{" "}
+        references, semantic entities). The <span className="font-semibold text-foreground">art direction</span> lives
+        in each gag, in the Gags panel. To see what the image will actually be, use the{" "}
         <span className="font-semibold text-foreground">Prompt Diagnostics</span> panel and the visual-review test renders —
         it is the single source of truth for the rendered prompt and reflects this enrichment and any override. Approval
         requires those required test renders to be fresh and successful (or explicitly waived) — that is the renderability gate.
@@ -1911,10 +1883,10 @@ export function EnrichmentEditor({
         <button
           type="button"
           onClick={onSave}
-          disabled={busy || vsoTokenizing || nonFixableValidityErrors.length > 0}
+          disabled={busy || nonFixableValidityErrors.length > 0}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-50"
         >
-          <Save className="w-3.5 h-3.5" /> {vsoTokenizing ? "Tokenizing and saving…" : "Save enrichment"}
+          <Save className="w-3.5 h-3.5" /> Save enrichment
         </button>
       )}
     </div>
