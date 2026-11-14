@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 
 import { aiSettingsView } from "../lib/aiSettingsView.js";
 import { CODE_OWNED_PROMPT_DEFS } from "../lib/codeOwnedPrompts.js";
+import { IMAGE_PROMPT_PLATFORM_HARD_RULES_MARKER } from "../lib/imagePromptConfig.js";
 
 const param = (row: { parameters: Array<{ name: string; value: string }> }, name: string) =>
   row.parameters.find((p) => p.name === name)?.value;
@@ -44,5 +45,28 @@ describe("aiSettingsView", () => {
     for (const p of prompts) assert.ok(p.text.trim().length > 50, `${p.key}: prompt text shown`);
     const keys = new Set(prompts.map((p) => p.key));
     for (const s of steps) if (s.promptKey) assert.ok(keys.has(s.promptKey), `${s.step}: names a shown prompt`);
+  });
+
+  it("names each prompt against the step that sends it, with that call's own settings (codex-4574712258)", async () => {
+    const { steps, prompts } = await aiSettingsView();
+    const detector = steps.find((s) => s.step === "Source-photo detector")!;
+    assert.equal(detector.promptKey, null, "the fal detector is sent no prompt");
+
+    const fallback = steps.find((s) => s.step.startsWith("Source-photo second look"))!;
+    assert.equal(fallback.promptKey, "fact_source_classifier_system");
+    assert.equal(fallback.model, "gpt-6-luna");
+    assert.equal(param(fallback, "Reasoning effort"), "low");
+    assert.equal(param(fallback, "Token limit"), String(400 + 8000), "the call's 400, plus reasoning headroom");
+    assert.equal(param(fallback, "Temperature"), "not sent");
+
+    const research = steps.find((s) => s.step.startsWith("Reference research"))!;
+    assert.equal(research.promptKey, "reference_research_system");
+    assert.equal(research.model, "gpt-6.1-sol");
+    assert.equal(param(research, "Reasoning effort"), "low");
+    assert.equal(param(research, "Token limit"), String(1500 + 25_000));
+    assert.equal(param(research, "Temperature"), "not sent");
+
+    const planner = prompts.find((p) => p.key === "fact_image_prompt_system")!;
+    assert.ok(planner.text.includes(IMAGE_PROMPT_PLATFORM_HARD_RULES_MARKER), "the planner prompt is shown as sent, with its hard rules");
   });
 });

@@ -19,6 +19,7 @@ import {
   DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID,
   DEFAULT_IMAGE_PROMPT_ENGINE_ID,
   IMAGE_PROMPT_CONFIG_KEYS,
+  composeImagePromptSystemPrompt,
   getFactSourceClassifierSystem,
   getImagePromptSystem,
 } from "./imagePromptConfig";
@@ -30,6 +31,8 @@ import { TOKENIZER_MODEL, TOKENIZER_REASONING_EFFORT } from "./factTokenizer";
 import { IMAGE_ENGINE_IDS } from "./imageEngineRouting";
 import { DEFAULT_NSFW_ENDPOINT } from "./moderation/nsfwClassifier";
 import { FAL_SAFETY_TOLERANCE } from "./moderation/falSafety";
+import { TIER3_MAX_TOKENS, TIER3_TEMPERATURE } from "./sourceImageAnalysis/tier3AiVisionFallback";
+import { buildReferenceResearchRequest } from "./referenceResearch/openaiResponses";
 
 export interface AiSettingRow {
   /** What the step does, in product English. */
@@ -98,11 +101,30 @@ function requireEngine(id: string): Engine {
 const PROMPT_TEXT: Record<string, () => Promise<string>> = {
   [FACT_ENRICHMENT_CONFIG_KEYS.system]: getFactEnrichmentSystem,
   [VISUAL_CONCEPTS_CONFIG_KEYS.system]: getVisualConceptsSystem,
-  [IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem]: getImagePromptSystem,
+  // As sent: the planner call appends the platform hard rules (imagePrompt/generator.ts).
+  [IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem]: async () => composeImagePromptSystemPrompt(await getImagePromptSystem()),
   [IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem]: getFactSourceClassifierSystem,
   [SCENE_PROMPT_CONFIG_KEYS.system]: getScenePromptSystem,
   [REFERENCE_RESEARCH_CONFIG_KEYS.system]: getReferenceResearchSystem,
 };
+
+/** The reference-research call, read from its own request builder (referenceResearch/openaiResponses.ts). */
+function researchStep(): AiSettingRow {
+  const req = buildReferenceResearchRequest({ systemPrompt: "", userMessage: "" }) as unknown as Record<string, unknown>;
+  const reasoning = req["reasoning"] as { effort?: string } | undefined;
+  const show = (v: unknown) => (v === undefined || v === null ? NOT_SENT : String(v));
+  return {
+    step: "Reference research (web search)",
+    engine: null,
+    model: String(req["model"]),
+    parameters: [
+      { name: "Reasoning effort", value: show(reasoning?.effort) },
+      { name: "Token limit", value: show(req["max_output_tokens"]) },
+      { name: "Temperature", value: show(req["temperature"]) },
+    ],
+    promptKey: REFERENCE_RESEARCH_CONFIG_KEYS.system,
+  };
+}
 
 export async function aiSettingsView(): Promise<AiSettingsView> {
   const utility = requireEngine(UTILITY_LLM_ENGINE_ID);
@@ -118,8 +140,18 @@ export async function aiSettingsView(): Promise<AiSettingsView> {
       engine: detector.label,
       model: detector.endpointId,
       parameters: [],
+      promptKey: null,
+    },
+    {
+      // The second look when the detector is unsure: the helper model with the
+      // classifier prompt, at the call's own budget (tier3AiVisionFallback.ts).
+      step: "Source-photo second look (vision fallback)",
+      engine: utility.label,
+      model: utility.endpointId,
+      parameters: chatParameters(utility.endpointId, TIER3_MAX_TOKENS, TIER3_TEMPERATURE, JUDGEMENT_REASONING_EFFORT),
       promptKey: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem,
     },
+    researchStep(),
     {
       step: "NSFW check on every image",
       engine: null,
