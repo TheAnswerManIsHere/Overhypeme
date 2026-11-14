@@ -1504,8 +1504,9 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     return;
   }
 
-  // Resolve enrichment through the review-cycle resolver: a refresh cycle
-  // previews its CANDIDATE version; a first-time cycle uses the staging fact.
+  // Resolve the render input through the review-cycle resolver: a refresh
+  // cycle previews its CANDIDATE classification, a first-time cycle the
+  // staging fact's, each with the fact's primary working gag.
   const cycle = await resolveReviewCycleEnrichment(review);
   if (!cycle) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
 
@@ -1535,12 +1536,14 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     ...resolved.renderControls,
     mirrorToLegacyStorage: false,
     reviewRenderSubject: { name: resolved.renderedSubject.name, pronouns: resolved.renderedSubject.pronouns },
-    reviewAudit: { reviewId: id, adminUserId: req.user.id },
+    reviewAudit: { reviewId: id, adminUserId: req.user.id, ...(cycle.gagId != null ? { gagId: cycle.gagId } : {}) },
   };
 
   const { renderJobId, attemptId } = await buildAndEnqueueImagePromptAttempt({
     factId: review.stagingFactId,
     userId: null, // not user-owned — provenance lives in reviewAudit / requestId
+    // The review's primary gag, the one the render input above carries.
+    gagId: cycle.gagId,
     enrichment: ev.data,
     renderedFactText: resolved.renderedFactText,
     analysis: resolved.analysis,

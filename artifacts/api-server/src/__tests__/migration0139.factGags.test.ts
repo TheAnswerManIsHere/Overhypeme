@@ -6,9 +6,9 @@
  * rebuilds every prior state and refuses once a gag has been touched.
  *
  * The test database is built past 0139, so the test recreates the state 0139
- * runs on: the live-fact trigger is dropped while the pre-0139 rows are
- * written (an active fact with no gag row), and running the migration again
- * recreates it.
+ * runs on: the live-fact trigger and the one-home CHECKs are dropped while the
+ * pre-0139 rows are written (an active fact with no gag row, gags in the
+ * enrichment), and running the migration again recreates them.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -105,6 +105,8 @@ describe("migration 0139: every gag in one place", () => {
     // The pre-0139 shape: no live-fact trigger yet (the migration recreates it).
     await db.execute(sql`DROP TRIGGER IF EXISTS facts_live_requires_approved_gag ON facts`);
     await db.execute(sql`DROP TRIGGER IF EXISTS fact_gags_live_fact_keeps_approved_gag ON fact_gags`);
+    await db.execute(sql`ALTER TABLE facts DROP CONSTRAINT IF EXISTS facts_enrichment_holds_no_gag`);
+    await db.execute(sql`ALTER TABLE fact_enrichment_versions DROP CONSTRAINT IF EXISTS fev_open_candidate_holds_no_gag`);
 
     const live = await insertFact("live", true, { ...classification, visualPromptStrategyOverride: ov("{NAME} lifts the moon.") });
     const staging = await insertFact("staging", false, { ...classification, visualPromptStrategyOverride: ov("{NAME} waits.") });
