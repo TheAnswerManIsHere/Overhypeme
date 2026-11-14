@@ -29,6 +29,19 @@ on:
       - artifacts/api-server/src/testing/**
       - artifacts/api-server/src/lib/aiDouble/**
       - artifacts/api-server/fixtures/legacy/**
+      # What shapes a recorded AI request: a change here changes a request's
+      # fingerprint, so the recordings must be proved against it before merge
+      # (PR #941 set the gag writer to medium effort without this run, and
+      # every later replay missed its recording).
+      - artifacts/api-server/src/lib/engines/**
+      - artifacts/api-server/src/lib/*Config.ts
+      - artifacts/api-server/src/lib/codeOwnedPrompts.ts
+      - artifacts/api-server/src/lib/openaiChatParams.ts
+      - artifacts/api-server/src/lib/utilityLLM.ts
+      - artifacts/api-server/src/lib/imageEngineRouting.ts
+      - artifacts/api-server/src/lib/imageEngineRequest.ts
+      - artifacts/api-server/src/lib/imageRequestBuilder.ts
+      - artifacts/api-server/src/lib/engineInterpreter.ts
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}

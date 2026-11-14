@@ -4,7 +4,7 @@
     "endpoint": "fal-ai/flux-pro/v1.1"
   },
   "fingerprint": "27513dfabe8723ff02e7e01114a80c5fa374075bf7c9fe9861bdb58e0d1d63ff",
-  "recordedAt": "2026-11-14T02:54:42.572Z",
+  "recordedAt": "2026-11-14T15:58:45.869Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
