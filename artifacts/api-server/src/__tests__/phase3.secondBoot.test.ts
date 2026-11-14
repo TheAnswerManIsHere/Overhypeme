@@ -2,7 +2,7 @@
  * Launch Phase 3, increment 2 (#770; plan docs/plans/PLAN_PHASE3_DATA_ENVIRONMENTS.md
  * §1, "a second boot preserves everything"): running the server's own database
  * boot steps again on a database that already holds data — the migration
- * runner, ensureSchema() and the engine reconcile, in boot order — keeps the
+ * runner and ensureSchema(), in boot order — keeps the
  * data, keeps an operator's setting, and changes no structure. The worker
  * database this runs on is a copy of one the runner built from the schema
  * baseline, ledger included, so the runner takes its upgrade path, as a
@@ -19,7 +19,6 @@ import { catalogFingerprint, fingerprintDiff } from "@workspace/db/baseline";
 import { eq } from "drizzle-orm";
 
 import { ensureSchema } from "../lib/seed.js";
-import { reconcileEngines } from "../lib/engines/index.js";
 
 const userId = `t_p3boot_${randomUUID()}`;
 let restore: { key: string; value: string } | null = null;
@@ -51,7 +50,6 @@ describe("a second boot on a built database", () => {
       const before = await catalogFingerprint(client, schema);
       await runMigrations();
       await ensureSchema();
-      await reconcileEngines();
       const after = await catalogFingerprint(client, schema);
 
       assert.deepEqual(fingerprintDiff(before, after), { onlyA: [], onlyB: [] }, "the second boot changed structure");

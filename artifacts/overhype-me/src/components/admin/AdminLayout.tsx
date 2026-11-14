@@ -14,6 +14,7 @@ import {
   ShieldOff,
   ChevronRight,
   Settings,
+  Bot,
   PanelLeftClose,
   PanelLeftOpen,
   ToggleLeft,
@@ -48,6 +49,7 @@ const NAV_ITEMS = [
   { href: "/admin/email-queue", label: "Email Queue", icon: Mail, badge: false as const },
   { href: "/admin/queue-health", label: "Queue Health", icon: HeartPulse, badge: false as const },
   { href: "/admin/features", label: "Features", icon: ToggleLeft, badge: false as const },
+  { href: "/admin/ai", label: "AI Settings", icon: Bot, badge: false as const },
   { href: "/admin/config", label: "Configuration", icon: Settings, badge: false as const },
   { href: "/admin/help", label: "Help", icon: BookOpen, badge: false as const },
 ];

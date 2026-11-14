@@ -7,18 +7,18 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 import { db } from "@workspace/db";
-import { enginesTable, promptRecipePromotionsTable, promptRecipeVersionsTable, usersTable } from "@workspace/db/schema";
+import { promptRecipePromotionsTable, promptRecipeVersionsTable, usersTable } from "@workspace/db/schema";
 import { eq, inArray } from "drizzle-orm";
 
 import adminPromptRecipesRouter from "../routes/adminPromptRecipes.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { liveRecipeVersionIdsForEngines, liveRecipeVersionIds } from "../lib/imagePrompt/recipeStore.js";
 import { BASELINE_PIECES } from "../lib/imagePrompt/recipe.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { testEngineRow } from "./helpers/testEngines.js";
+import { clearEngineCaches } from "../lib/engineInterpreter.js";
 
 const P = `t-pr-${randomUUID().slice(0, 6)}`;
 const FAMILY = `${P}-gpt`;
@@ -30,7 +30,7 @@ before(async () => {
   for (const [family, src] of [[FAMILY, "gpt-image-2-6"], [FAMILY, "gpt-image-2-6-edit"], [OTHER, "nano-banana-2-1"]] as const) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${family}-${def.imageMode}`;
-    await db.insert(enginesTable).values(testEngineRow(def, id, family));
+    testEngineRow(def, id, family);
     engineIds.push(id);
   }
   adminId = `${P}-admin`;
@@ -40,7 +40,7 @@ before(async () => {
 after(async () => {
   await db.delete(promptRecipePromotionsTable).where(inArray(promptRecipePromotionsTable.engineFamily, [FAMILY, OTHER]));
   await db.delete(promptRecipeVersionsTable).where(inArray(promptRecipeVersionsTable.engineFamily, [FAMILY, OTHER]));
-  await db.delete(enginesTable).where(inArray(enginesTable.id, engineIds));
+  clearEngineCaches();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

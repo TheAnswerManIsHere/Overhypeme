@@ -10,7 +10,7 @@ import { isEphemeralModerationRender, requestPurposeForRenderControls } from "..
 import { buildImageRequestSettings, ImageRequestBuildError, type ImageRequestPurpose } from "../lib/imageRequestBuilder";
 import { ALL_ENGINES } from "../lib/engines";
 import { buildEngineInput } from "../lib/engineInterpreter";
-import type { Engine } from "@workspace/db/schema";
+import type { Engine } from "../lib/engines/toRow.js";
 
 function controls(extra: Record<string, unknown> = {}): RenderControls {
   return { aspectRatio: "portrait", contentMode: "sfw", ...extra } as unknown as RenderControls;

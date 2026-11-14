@@ -9,13 +9,12 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 import { db } from "@workspace/db";
-import { comparisonSetsTable, enginesTable, factsTable, lookStylesTable, usersTable } from "@workspace/db/schema";
-import { eq, inArray, like } from "drizzle-orm";
+import { comparisonSetsTable, factsTable, lookStylesTable, usersTable } from "@workspace/db/schema";
+import { inArray, like } from "drizzle-orm";
 
 import adminComparisonRouter from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { panelPreparationBoundUsd } from "../lib/comparison/admission.js";
 import { DEFAULT_IMAGE_PROMPT_ENGINE_ID } from "../lib/imagePromptConfig.js";
 import { clearEngineCaches } from "../lib/engineInterpreter.js";
@@ -33,21 +32,16 @@ const engineIds: string[] = [];
 let adminId = "";
 let userId = "";
 let factId = 0;
-/** The default planner engine, seeded only when this database lacks it, and removed only then. */
-let seededPlanner = false;
 
 before(async () => {
   for (const family of FAMILIES) {
     for (const src of SOURCES[family]!) {
       const def = ALL_ENGINES.find((e) => e.id === src)!;
       const id = `${family}-${def.imageMode}`;
-      await db.insert(enginesTable).values(testEngineRow(def, id, family));
+      testEngineRow(def, id, family);
       engineIds.push(id);
     }
   }
-  const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
-  const inserted = await db.insert(enginesTable).values(codeDefinitionToRow(planner)).onConflictDoNothing().returning({ id: enginesTable.id });
-  seededPlanner = inserted.length > 0;
   await db.insert(lookStylesTable).values({ id: STYLE, label: "Comparison test look", promptSuffix: "test look" });
   adminId = `${P}-admin`;
   userId = `${P}-user`;
@@ -63,7 +57,7 @@ after(async () => {
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(inArray(factsTable.id, [factId]));
   await db.delete(lookStylesTable).where(inArray(lookStylesTable.id, [STYLE]));
-  await db.delete(enginesTable).where(inArray(enginesTable.id, seededPlanner ? [...engineIds, DEFAULT_IMAGE_PROMPT_ENGINE_ID] : engineIds));
+  clearEngineCaches();
   await db.delete(usersTable).where(inArray(usersTable.id, [adminId, userId]));
 });
 
@@ -125,28 +119,22 @@ describe("admin comparison routes", () => {
     assert.equal(render.body.refusal, "nothing left to do");
   });
 
-  it("prices preparation from the planner's code settings, not its row, and refuses on a planner fallback", async () => {
+  it("refuses preparation when the planner engine is inactive", async () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
     const created = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} planner` }));
-    const [original] = await db.select({ defaultMaxTokens: enginesTable.defaultMaxTokens, isActive: enginesTable.isActive }).from(enginesTable).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
+    // Engines live only in code (decisions.md 2026-11-14), so the test flips the catalogue definition itself and restores it.
+    const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
+    const original = planner.isActive;
     try {
       const before = await request(app).get(`/api/admin/comparison/sets/${created.body.setId}`);
       assert.equal(before.status, 200);
-      // A stored token limit is not read (decisions.md 2026-11-14): the bound is the code's.
-      await db.update(enginesTable).set({ defaultMaxTokens: 6000 }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
-      clearEngineCaches();
-      const raised = await request(app).get(`/api/admin/comparison/sets/${created.body.setId}`);
-      assert.equal(raised.status, 200);
-      assert.equal(raised.body.estimate.preparationBoundUsd, before.body.estimate.preparationBoundUsd);
 
-      await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
-      clearEngineCaches();
+      planner.isActive = false;
       const refused = await request(app).post(`/api/admin/comparison/sets/${created.body.setId}/plan`).send({ kind: "prepare" });
       assert.equal(refused.status, 400);
       assert.ok(refused.body.reasons.some((r: string) => r.includes(`"${DEFAULT_IMAGE_PROMPT_ENGINE_ID}" cannot be used (engine_inactive)`)), JSON.stringify(refused.body));
     } finally {
-      await db.update(enginesTable).set({ defaultMaxTokens: original!.defaultMaxTokens, isActive: original!.isActive }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
-      clearEngineCaches();
+      planner.isActive = original;
     }
   });
 

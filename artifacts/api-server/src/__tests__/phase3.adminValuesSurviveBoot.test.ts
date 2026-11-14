@@ -10,10 +10,6 @@
  * Its own scratch database, booted in a child process (scripts/boot-database.ts):
  * the boot steps change shared configuration rows, which other test files in
  * this shard read.
- *
- * Also holds the engines entry of the classification equal to the code's own
- * list of admin-editable engine fields, the one place ownership is already
- * written down elsewhere.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -24,8 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
-import { configTables, TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
-import { RECONCILE_PRESERVED_FIELDS } from "../lib/engines/types.js";
+import { configTables } from "@workspace/db/table-classification";
 import { droppablePool } from "./helpers/droppablePool.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -72,14 +67,6 @@ describe("admin-owned configuration survives a boot", () => {
     await control.end();
   });
 
-  it("the engines entry names exactly the code's admin-editable fields, plus the tombstone", () => {
-    const entry = TABLE_CLASSIFICATION.engines;
-    assert.equal(entry.class, "config");
-    const snake = (s: string) => s.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
-    const expected = [...RECONCILE_PRESERVED_FIELDS.map(snake), "deleted_at"].sort();
-    assert.deepEqual([...(entry.class === "config" ? entry.columns.admin : [])].sort(), expected);
-  });
-
   it("every admin-owned column reads back as the operator set it after the boot runs again", async (t) => {
     try {
       await control.query(`CREATE DATABASE "${scratchName}" TEMPLATE template0`);
@@ -87,7 +74,7 @@ describe("admin-owned configuration survives a boot", () => {
       t.skip(`CREATE DATABASE is not permitted here (${(err as Error).message}); CI runs per-database`);
       return;
     }
-    boot(); // the first boot: the baseline, then the seeds and the engine catalogue
+    boot(); // the first boot: the baseline, then the seeds
     scratch = droppablePool(scratchUrl()); // its database is force-dropped in after() (#808)
 
     const set: Array<{ table: string; where: string; params: unknown[]; col: string; value: unknown }> = [];

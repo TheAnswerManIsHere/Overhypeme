@@ -17,7 +17,6 @@ import {
   comparisonReservationsTable,
   comparisonRunsTable,
   comparisonSetsTable,
-  enginesTable,
   factsTable,
   usersTable,
 } from "@workspace/db/schema";
@@ -27,8 +26,6 @@ import adminComparisonRouter from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { makeStubPlan, VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
-import { DEFAULT_IMAGE_PROMPT_ENGINE_ID } from "../lib/imagePromptConfig.js";
 import { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { __setComparisonFalForTest, type ComparisonFal } from "../lib/comparison/transport.js";
@@ -46,6 +43,7 @@ import { panelPreparationTypicalUsd } from "../lib/comparison/admission.js";
 import { plannerSettings } from "../lib/comparison/sets.js";
 import type { EvaluationCreate } from "@workspace/api-zod";
 import { testEngineRow } from "./helpers/testEngines.js";
+import { clearEngineCaches } from "../lib/engineInterpreter.js";
 
 const P = `t-ev-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -54,7 +52,6 @@ const SOURCES: Array<[string, string]> = [
   [FAMILIES.flux, "flux-3"], [FAMILIES.flux, "flux-3-edit"],
 ];
 const engineIds: string[] = [];
-let seededPlanner = false;
 let adminId = "";
 let activeFact = 0;
 let inactiveFact = 0;
@@ -78,11 +75,9 @@ before(async () => {
   for (const [family, src] of SOURCES) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${family}-${def.imageMode}`;
-    await db.insert(enginesTable).values(testEngineRow(def, id, family));
+    testEngineRow(def, id, family);
     engineIds.push(id);
   }
-  const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
-  seededPlanner = (await db.insert(enginesTable).values(codeDefinitionToRow(planner)).onConflictDoNothing().returning({ id: enginesTable.id })).length > 0;
   adminId = `${P}-admin`;
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true });
   const facts = await db.insert(factsTable).values([
@@ -103,7 +98,7 @@ after(async () => {
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(inArray(factsTable.id, [activeFact, inactiveFact, brokenFact]));
-  await db.delete(enginesTable).where(inArray(enginesTable.id, seededPlanner ? [...engineIds, DEFAULT_IMAGE_PROMPT_ENGINE_ID] : engineIds));
+  clearEngineCaches();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

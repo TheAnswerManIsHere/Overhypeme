@@ -19,9 +19,8 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, adminConfigTable, factEnrichmentVersionsTable, enginesTable } from "@workspace/db/schema";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
-import { reconcileEngines } from "../lib/engines/reconcile.js";
+import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, adminConfigTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
+import { ALL_ENGINES } from "../lib/engines/index.js";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import {
   visualConceptCandidatesBlobSchema,
@@ -489,11 +488,10 @@ describe("the gag writer has no fallback model", () => {
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
     // As an enqueue leaves it: pending, with the earlier ideas and a saved note.
     await db.update(factsTable).set({ humorNote: "Saved.", visualConceptStatus: "pending" }).where(eq(factsTable.id, factId));
-    // The engine is set in code (decisions.md 2026-11-14); switching its stored row off is what makes it unusable now.
-    await reconcileEngines();
-    const [prev] = await db.select({ isActive: enginesTable.isActive }).from(enginesTable).where(eq(enginesTable.id, "openai-gag-writer"));
-    await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, "openai-gag-writer"));
-    clearEngineCaches();
+    // The engine is set in code (decisions.md 2026-11-14); switching its catalogue definition off is what makes it unusable now.
+    const gagWriter = ALL_ENGINES.find((e) => e.id === "openai-gag-writer")!;
+    const prevActive = gagWriter.isActive;
+    gagWriter.isActive = false;
     try {
       let called = false;
       const res = await runVisualConceptsJob({ reviewId, factId }, { generate: async (input) => { called = true; return generateVisualConcepts(input); } });
@@ -514,8 +512,7 @@ describe("the gag writer has no fallback model", () => {
       assert.match(r.failureReason ?? "", /openai-gag-writer|engine_inactive|inactive/);
 
       // Repair it: Regenerate is accepted, and a run succeeds.
-      await db.update(enginesTable).set({ isActive: prev?.isActive ?? true }).where(eq(enginesTable.id, "openai-gag-writer"));
-      clearEngineCaches();
+      gagWriter.isActive = prevActive;
       const regen = await request(makeApp()).post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`).set("authorization", `Bearer ${adminSid}`).send({});
       assert.equal(regen.status, 202, JSON.stringify(regen.body));
       const again = await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "After repair.") });
@@ -524,8 +521,7 @@ describe("the gag writer has no fallback model", () => {
       assert.equal(after!.status, "ok");
       assert.equal(after!.note, "Saved.", "the approved note survives the failure and the recovery");
     } finally {
-      await db.update(enginesTable).set({ isActive: prev?.isActive ?? true }).where(eq(enginesTable.id, "openai-gag-writer"));
-      clearEngineCaches();
+      gagWriter.isActive = prevActive;
     }
   });
 });

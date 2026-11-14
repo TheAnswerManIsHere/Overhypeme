@@ -81,6 +81,7 @@ const SIDEBAR: [string, string][] = [
   ["Email Queue", "/admin/email-queue"],
   ["Queue Health", "/admin/queue-health"],
   ["Features", "/admin/features"],
+  ["AI Settings", "/admin/ai"],
   ["Configuration", "/admin/config"],
   ["Help", "/admin/help"],
 ];

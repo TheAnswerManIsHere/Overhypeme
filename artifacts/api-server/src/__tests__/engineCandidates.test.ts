@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { ALL_ENGINES, perCallBoundUsd, type EngineDefinition } from "../lib/engines";
 import { buildEngineInput } from "../lib/engineInterpreter";
 import { buildImageRequestSettings } from "../lib/imageRequestBuilder";
-import type { Engine } from "@workspace/db/schema";
+import type { Engine } from "../lib/engines/toRow.js";
 
 const CANDIDATE_FAMILIES = ["gpt-image-2-6", "gpt-image-2-5", "nano-banana-2-1", "flux-3", "seedream-5-pro", "muse-image", "nano-banana-2"];
 
@@ -32,7 +32,6 @@ describe("candidate families", () => {
         assert.ok(e.sizeVocabulary && e.sizeVocabulary.options.length > 0, `${e.id} size vocabulary`);
         assert.ok(e.priceModel, `${e.id} price model`);
         assert.ok(e.priceModel.source && /^\d{4}-\d{2}-\d{2}$/.test(e.priceModel.readOn), `${e.id} price source`);
-        assert.equal(e.isDefault, false, "an image engine's default is a config key, never this flag");
       }
     });
   }
