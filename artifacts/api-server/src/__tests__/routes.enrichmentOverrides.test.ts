@@ -17,7 +17,8 @@ import { randomUUID } from "node:crypto";
 import type { Express } from "express";
 import request from "supertest";
 
-import { db } from "@workspace/db";
+import { db, factGagsTable } from "@workspace/db";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { factsTable, usersTable, asyncJobsTable, enrichmentOverrideHistoryTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
 import { type FactEnrichment } from "@workspace/api-zod";
@@ -49,10 +50,8 @@ const AI: FactEnrichment = {
   aiGenerationId: "gen-1",
 };
 
-// A saved Visual Concept — required to save through the tracked-override
-// endpoints (PUT/DELETE /enrichment-overrides), which this file exercises
-// throughout. Applied by `seedFact` (moderator layer, never part of `AI`
-// itself — the AI never authors this field).
+// A live fact's approved gag (fact_gags, migration 0139). Applied by `seedFact`;
+// it is never part of the enrichment (a CHECK refuses one there).
 const SAVED_CONCEPT = {
   version: 1 as const,
   coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
@@ -64,18 +63,13 @@ let adminId: string;
 let adminApp: Express;
 const insertedFactIds: number[] = [];
 
-async function seedFact(baseline: FactEnrichment = AI): Promise<number> {
+async function seedFact(baseline: FactEnrichment = AI, gag: object = SAVED_CONCEPT, extra: Record<string, unknown> = {}): Promise<number> {
   // Use the real materializer so the row has aiDerived + overrides({}) + projections.
-  // Default in a saved Visual Concept (required by the tracked-override write
-  // paths this file exercises) unless the caller already supplied one.
-  const withConcept = baseline.visualPromptStrategyOverride
-    ? baseline
-    : { ...baseline, visualPromptStrategyOverride: SAVED_CONCEPT };
-  const { columns } = materializeFromBaseline(withConcept);
-  const [row] = await db
-    .insert(factsTable)
-    .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: true, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
-    .returning({ id: factsTable.id });
+  const { columns } = materializeFromBaseline(baseline);
+  const row = await insertLiveFact(
+    { text: `${TEXT_PREFIX}${randomUUID()}`, ...columns, enrichmentStatus: "ok", ...extra } as Omit<typeof factsTable.$inferInsert, "isActive">,
+    gag,
+  );
   insertedFactIds.push(row.id);
   return row.id;
 }
@@ -110,42 +104,13 @@ describe("GET /admin/facts/:id/enrichment-resolved", () => {
     assert.equal(res.body.overrideSummary.hasOverrides, false);
   });
 
-  // The "Overridden: Visual Strategy" bar is driven by overrideSummary.hasVisualStrategyOverride,
-  // which must track override CONTENT — a saved Visual Concept is the required core, not an override.
-  const hasVisualOverride = async (id: number): Promise<unknown> =>
-    (await request(adminApp).get(`/api/admin/facts/${id}/enrichment-resolved`)).body.overrideSummary.hasVisualStrategyOverride;
-
-  it("reports hasVisualStrategyOverride false for a fact with no visual override and for one storing an empty scaffold", async () => {
-    // Inactive rows: an ACTIVE fact must carry a Visual Concept (facts_active_requires_concept).
-    const seedInactive = async (baseline: FactEnrichment): Promise<number> => {
-      const { columns } = materializeFromBaseline(baseline);
-      const [row] = await db
-        .insert(factsTable)
-        .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: false, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
-        .returning({ id: factsTable.id });
-      insertedFactIds.push(row.id);
-      return row.id;
-    };
-    assert.equal(await hasVisualOverride(await seedInactive(AI)), false, "no visual override at all");
-    const scaffold = { ...SAVED_CONCEPT, coreSceneOverride: "" };
-    assert.equal(
-      await hasVisualOverride(await seedInactive({ ...AI, visualPromptStrategyOverride: scaffold })),
-      false,
-      "empty scaffold",
-    );
-  });
-
-  it("reports hasVisualStrategyOverride false for a fact whose visual override holds only a Visual Concept", async () => {
-    const id = await seedFact();
-    assert.equal(await hasVisualOverride(id), false);
-  });
-
-  it("reports hasVisualStrategyOverride true for a fact with a Visual Concept plus a required visual detail", async () => {
-    const id = await seedFact({
-      ...AI,
-      visualPromptStrategyOverride: { ...SAVED_CONCEPT, requiredVisualDetails: ["uat-585-scratch"] },
-    });
-    assert.equal(await hasVisualOverride(id), true);
+  // The "Overridden: Visual Strategy" flag read the enrichment's visual
+  // override. A fact's gags live in fact_gags (migration 0139), so the
+  // classification never carries one and the flag is false whatever the gag holds.
+  it("reports hasVisualStrategyOverride false for a live fact whatever its gag holds", async () => {
+    const id = await seedFact(AI, { ...SAVED_CONCEPT, requiredVisualDetails: ["uat-585-scratch"] });
+    const res = await request(adminApp).get(`/api/admin/facts/${id}/enrichment-resolved`);
+    assert.equal(res.body.overrideSummary.hasVisualStrategyOverride, false);
   });
 });
 
@@ -297,21 +262,9 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
     // CHECK) — AI deliberately never carries visualPromptStrategyOverride (see
     // its own comment above), so this must supply SAVED_CONCEPT directly, same
     // as seedFact() does for every other test in this file.
-    const withConcept = { ...AI, visualPromptStrategyOverride: SAVED_CONCEPT };
-    const { columns: rootColumns } = materializeFromBaseline(withConcept);
-    const [rootRow] = await db
-      .insert(factsTable)
-      .values({ text: `${TEXT_PREFIX}${randomUUID()} ROOT_DISTINCTIVE_MARKER`, isActive: true, ...rootColumns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
-      .returning({ id: factsTable.id });
-    insertedFactIds.push(rootRow.id);
-
+    const rootRow = { id: await seedFact(AI, SAVED_CONCEPT, { text: `${TEXT_PREFIX}${randomUUID()} ROOT_DISTINCTIVE_MARKER` }) };
     const variantText = `${TEXT_PREFIX}${randomUUID()} VARIANT_DISTINCTIVE_MARKER`;
-    const { columns: variantColumns } = materializeFromBaseline(withConcept);
-    const [variantRow] = await db
-      .insert(factsTable)
-      .values({ text: variantText, isActive: true, parentId: rootRow.id, ...variantColumns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
-      .returning({ id: factsTable.id });
-    insertedFactIds.push(variantRow.id);
+    const variantRow = { id: await seedFact(AI, SAVED_CONCEPT, { text: variantText, parentId: rootRow.id }) };
 
     let capturedFactText: string | undefined;
     const result = await runEnrichmentForFact(variantRow.id, {
@@ -327,33 +280,30 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
 });
 
 describe("human-field survival (visual override + sticky notes)", () => {
-  it("preserves the visual override and a notes override across a taxonomy PUT and re-enrich", async () => {
+  it("preserves the gag and a notes override across a taxonomy PUT and re-enrich", async () => {
     const visual = {
       ...SAVED_CONCEPT,
       requiredVisualDetails: ["adult head on a newborn body"],
     };
-    const { columns } = materializeFromBaseline({ ...AI, visualPromptStrategyOverride: visual } as FactEnrichment);
-    const [row0] = await db.insert(factsTable)
-      .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: true, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
-      .returning({ id: factsTable.id });
-    const id = row0.id;
-    insertedFactIds.push(id);
+    const id = await seedFact(AI, visual);
+    const gagDetail = async () =>
+      ((await db.select().from(factGagsTable).where(eq(factGagsTable.factId, id)))[0]!.approvedContent as typeof visual).requiredVisualDetails[0];
 
     // Sticky note override + a taxonomy override.
     await request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/adminReviewNotes", value: "human-authored note" });
     await request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/overhypeFit", value: "questionable" });
 
-    // The visual override survived both taxonomy writes.
+    // The gag survived both taxonomy writes.
     let [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    assert.equal((row.enrichment as FactEnrichment).visualPromptStrategyOverride?.requiredVisualDetails[0], "adult head on a newborn body");
+    assert.equal(await gagDetail(), "adult head on a newborn body");
     assert.equal((row.enrichment as FactEnrichment).adminReviewNotes, "human-authored note");
 
     // Re-enrich with a fresh AI baseline (no visual override, blank notes, as the LLM emits).
     await runEnrichmentForFact(id, { classify: async () => ({ ...AI, adminReviewNotes: "", overhypeFit: "reject", aiGenerationId: "gen-2" }) });
     [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    // Both the human note override and the visual override stuck.
+    // Both the human note override and the gag stuck.
     assert.equal((row.enrichment as FactEnrichment).adminReviewNotes, "human-authored note");
-    assert.equal((row.enrichment as FactEnrichment).visualPromptStrategyOverride?.requiredVisualDetails[0], "adult head on a newborn body");
+    assert.equal(await gagDetail(), "adult head on a newborn body");
     assert.equal((row.enrichment as FactEnrichment).overhypeFit, "questionable");
   });
 });
@@ -365,7 +315,7 @@ describe("override endpoints on inactive (staging) facts", () => {
   // refactor adds an active-only filter, this fails loudly instead of
   // silently breaking moderation.
   it("PUT and GET-resolved work on an isActive:false fact", async () => {
-    const { columns } = materializeFromBaseline({ ...AI, visualPromptStrategyOverride: SAVED_CONCEPT });
+    const { columns } = materializeFromBaseline(AI);
     const [row] = await db.insert(factsTable)
       .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: false, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
       .returning({ id: factsTable.id });
