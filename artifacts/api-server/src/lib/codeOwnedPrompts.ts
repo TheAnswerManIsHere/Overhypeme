@@ -1,11 +1,12 @@
 /**
- * @purpose The six AI system prompts whose text lives in code alone: boot does not seed them, no admin write reaches them, every reader returns the code constant, and the admin config list shows them read-only from code.
+ * @purpose The AI settings that live in code alone (the six system prompts and the retired engine-choice keys): boot does not seed them, no admin write reaches them, every reader returns the code constant, and the admin config list does not show them.
  * @subsystem ai-config
  *
  * Launch Phase 3, plan amendment 1, Part B (docs/plans/PLAN_PHASE3_AMENDMENT_1.md,
  * approved by David 2026-10-29). Their `admin_config` rows, where an older
  * database still holds them, are ignored until a later migration retires them,
- * and never reach the admin screen.
+ * and never reach the admin screen. Until 2026-11-14 the prompts were shown
+ * read-only; David then retired every admin surface for AI settings.
  */
 import type { AdminConfig } from "@workspace/db/schema";
 
@@ -31,25 +32,33 @@ export function isCodeOwnedPromptKey(key: string): boolean {
   return CODE_OWNED_PROMPT_KEYS.has(key);
 }
 
-export type AdminConfigView = AdminConfig & { codeOwned?: true };
+/**
+ * The engine-choice keys retired by decisions.md 2026-11-14 (AI call settings
+ * live in code): their rows, where a database still holds them, are no longer
+ * read, and like the prompts they are neither shown nor writable.
+ */
+export const RETIRED_AI_ENGINE_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  "fact_visual_concepts_engine_id",
+  "fact_enrichment_engine_id",
+  "fact_image_prompt_engine_id",
+  "fact_source_classifier_engine_id",
+  "image_engine_t2i",
+  "image_engine_i2i",
+  "nsfw_classifier_endpoint",
+]);
 
-/** The six prompts as admin config rows, from code. */
-const CODE_OWNED_PROMPT_ROWS: readonly AdminConfigView[] = CODE_OWNED_PROMPT_DEFS.map((d) => ({
-  key: d.key,
-  value: d.value,
-  valueLabel: null,
-  dataType: "text",
-  label: d.label,
-  description: d.description,
-  minValue: null,
-  maxValue: null,
-  isPublic: false,
-  updatedAt: new Date(0),
-  updatedById: null,
-  codeOwned: true as const,
-}));
+export const CODE_OWNED_AI_SETTING_REFUSAL = "This AI setting is set in code; change it through a reviewed pull request.";
 
-/** The admin config list with the six prompts replaced by their code rows. */
-export function withCodeOwnedPrompts(rows: AdminConfig[]): AdminConfigView[] {
-  return [...rows.filter((r) => !isCodeOwnedPromptKey(r.key)), ...CODE_OWNED_PROMPT_ROWS];
+/** True for an AI setting set in code: a system prompt or a retired engine-choice key. */
+export function isCodeOwnedAiConfigKey(key: string): boolean {
+  return isCodeOwnedPromptKey(key) || RETIRED_AI_ENGINE_CONFIG_KEYS.has(key);
+}
+
+/**
+ * The admin config list without any AI setting set in code (David,
+ * 2026-11-14: the admin UI that defines engines or other AI settings is
+ * retired and removed, so an admin no longer sees it).
+ */
+export function withoutCodeOwnedAiSettings(rows: AdminConfig[]): AdminConfig[] {
+  return rows.filter((r) => !isCodeOwnedAiConfigKey(r.key));
 }

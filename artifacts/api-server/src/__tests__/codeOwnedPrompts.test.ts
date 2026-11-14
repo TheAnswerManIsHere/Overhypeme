@@ -2,8 +2,11 @@
  * Launch Phase 3, plan amendment 1, Part B (docs/plans/PLAN_PHASE3_AMENDMENT_1.md):
  * the six AI system prompts are set in code. Every reader returns the code text
  * even when an older database still holds a different row; boot seeding writes
- * none of them; the admin API refuses to save them and lists them from code,
- * marked code-owned; and the two wordings David chose are the ones in the code.
+ * none of them; and the two wordings David chose are the ones in the code.
+ *
+ * Since 2026-11-14 (docs/plans/PLAN_AI_SETTINGS_IN_CODE.md) the same holds for
+ * the retired engine-choice keys, and the admin API neither saves nor lists any
+ * AI setting: David retired every admin surface for them.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -18,12 +21,11 @@ import { eq, inArray } from "drizzle-orm";
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
-import { isCodeOwnedPromptKey } from "../lib/codeOwnedPrompts.js";
+import { isCodeOwnedAiConfigKey, isCodeOwnedPromptKey, RETIRED_AI_ENGINE_CONFIG_KEYS } from "../lib/codeOwnedPrompts.js";
 import {
   FACT_ENRICHMENT_SYSTEM_DEFAULT,
   getFactEnrichmentSystem,
   resolveFactEnrichmentSystemPrompt,
-  seedFactEnrichmentConfig,
 } from "../lib/factEnrichmentConfig.js";
 import {
   FACT_IMAGE_PROMPT_SYSTEM_DEFAULT,
@@ -37,7 +39,6 @@ import { SCENE_PROMPT_SYSTEM_DEFAULT, getScenePromptSystem } from "../lib/sceneP
 import {
   FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT,
   getVisualConceptsSystem,
-  seedVisualConceptsConfig,
 } from "../lib/visualConceptsConfig.js";
 
 const md5 = (s: string) => createHash("md5").update(s).digest("hex");
@@ -50,14 +51,16 @@ const READERS: Array<[string, () => Promise<string>, string]> = [
   ["scene_prompt_system", getScenePromptSystem, SCENE_PROMPT_SYSTEM_DEFAULT],
 ];
 const KEYS = READERS.map(([key]) => key);
+const ENGINE_KEYS = [...RETIRED_AI_ENGINE_CONFIG_KEYS];
+const ALL_AI_KEYS = [...KEYS, ...ENGINE_KEYS];
 
 let saved: Array<typeof adminConfigTable.$inferSelect> = [];
 let adminId = "";
 let adminSid = "";
 
-describe("the six AI system prompts are set in code", () => {
+describe("AI settings are set in code and have no admin surface", () => {
   before(async () => {
-    saved = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
+    saved = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     adminId = `t_cop_${randomUUID()}`;
     await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, isAdmin: true, membershipTier: "legendary", emailVerifiedAt: new Date(), onboardingCompletedAt: new Date() });
     const data: SessionData = {
@@ -69,19 +72,22 @@ describe("the six AI system prompts are set in code", () => {
   });
 
   after(async () => {
-    await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
+    await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     if (saved.length > 0) await db.insert(adminConfigTable).values(saved);
     await db.delete(usersTable).where(eq(usersTable.id, adminId));
     bustConfigCache();
   });
 
-  it("covers exactly the six keys of the amendment", () => {
+  it("covers exactly the six prompt keys, and every AI setting with the seven engine keys", () => {
     for (const key of KEYS) assert.ok(isCodeOwnedPromptKey(key), key);
     assert.equal(isCodeOwnedPromptKey("fact_enrichment_engine_id"), false);
+    assert.equal(ENGINE_KEYS.length, 7);
+    for (const key of ALL_AI_KEYS) assert.ok(isCodeOwnedAiConfigKey(key), key);
+    assert.equal(isCodeOwnedAiConfigKey("review_duplicate_threshold"), false);
   });
 
   it("every reader returns the code text, even when a stale row says otherwise", async () => {
-    await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
+    await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     await db.insert(adminConfigTable).values(KEYS.map((key) => ({ key, value: "stale stored prompt", dataType: "text", label: key })));
     bustConfigCache();
     for (const [key, read, text] of READERS) assert.equal(await read(), text, key);
@@ -90,38 +96,32 @@ describe("the six AI system prompts are set in code", () => {
     assert.equal(resolution.matchesCodeDefault, true);
   });
 
-  it("boot seeding writes none of the six rows", async () => {
-    await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
-    await seedFactEnrichmentConfig();
+  it("boot seeding writes none of the six prompt rows or the seven engine rows", async () => {
+    await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     await seedImagePromptConfig();
-    await seedVisualConceptsConfig();
-    const rows = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
+    const rows = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     assert.deepEqual(rows, []);
   });
 
-  it("the admin API refuses to save any of the six", async () => {
+  it("the admin API refuses to save any AI setting", async () => {
     const app = createApp();
-    for (const key of KEYS) {
+    for (const key of ALL_AI_KEYS) {
       const res = await request(app).patch(`/api/admin/config/${key}`).set("Authorization", `Bearer ${adminSid}`).send({ value: "edited" });
       assert.equal(res.status, 403, key);
       assert.match(res.body.error, /set in code/);
     }
   });
 
-  it("the admin API lists the six from code, marked code-owned, and removes the reset and provenance routes", async () => {
-    await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, KEYS));
-    await db.insert(adminConfigTable).values({ key: "scene_prompt_system", value: "stale stored prompt", dataType: "text", label: "x" });
+  it("the admin API lists no AI setting, even when stale rows exist, and removes the reset and provenance routes", async () => {
+    await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
+    await db.insert(adminConfigTable).values(ALL_AI_KEYS.map((key) => ({ key, value: "stale stored value", dataType: "text", label: key })));
     bustConfigCache();
     const app = createApp();
     const res = await request(app).get("/api/admin/config").set("Authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 200);
-    const rows = (res.body as Array<{ key: string; value: string; codeOwned?: boolean }>).filter((r) => isCodeOwnedPromptKey(r.key));
-    assert.equal(rows.length, 6);
-    for (const [key, , text] of READERS) {
-      const row = rows.find((r) => r.key === key);
-      assert.equal(row?.value, text, key);
-      assert.equal(row?.codeOwned, true, key);
-    }
+    const listed = (res.body as Array<{ key: string }>).map((r) => r.key);
+    assert.ok(listed.length > 0, "the list still carries the non-AI settings");
+    for (const key of ALL_AI_KEYS) assert.ok(!listed.includes(key), key);
     const reset = await request(app).post("/api/admin/config/fact-enrichment-system/reset-to-default").set("Authorization", `Bearer ${adminSid}`);
     assert.equal(reset.status, 404);
     const provenance = await request(app).get("/api/admin/config/fact-enrichment-system/provenance").set("Authorization", `Bearer ${adminSid}`);

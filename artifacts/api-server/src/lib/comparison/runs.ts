@@ -60,7 +60,7 @@ import { recipeById } from "../imagePrompt/recipeStore";
 import type { CompiledPrompt, IdentityPolicy, ImagePromptGenerationInput, VisualPlan } from "@workspace/api-zod";
 import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
-import { buildEngineInput } from "../engineInterpreter";
+import { buildEngineInput, effectiveEngine } from "../engineInterpreter";
 import { downloadToBuffer, extractFirstImageUrl, imageEngineParams } from "../imageEngineRequest";
 import {
   actorForUser,
@@ -516,7 +516,9 @@ export async function renderCell(p: RenderPayload): Promise<HandlerResult> {
 
 async function renderCellInFlight(cell: ComparisonCell, p: RenderPayload): Promise<HandlerResult> {
   const [panel] = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.id, cell.panelId));
-  const [engine] = await db.select().from(enginesTable).where(eq(enginesTable.id, cell.engineId));
+  // The effective definition: endpoint, size vocabulary and parameters come from code (decisions.md 2026-11-14).
+  const [engineRow] = await db.select().from(enginesTable).where(eq(enginesTable.id, cell.engineId));
+  const engine = engineRow ? effectiveEngine(engineRow) : null;
   const refusal = !panel || panel.state !== "prepared"
     ? "its panel is not prepared"
     : imageEngineRefusal((engine ?? null) as Engine | null, panel.imageMode as GenerationMode);

@@ -65,6 +65,7 @@ import { promptTextOf } from "./runs";
 
 export { blindToken } from "./blindToken";
 import { blindToken } from "./blindToken";
+import { codeEngineDefinition } from "../engineInterpreter";
 
 /** A panel's cells in their blind order, each with its token. */
 function blindOrder(panel: ComparisonPanel, cells: ComparisonCell[]): Array<{ cell: ComparisonCell; token: string }> {
@@ -603,7 +604,7 @@ export async function getComparisonResults(setIds: number[]): Promise<Comparison
   const allCells = [...cellsByPanel.values()].flat();
   const engineIds = [...new Set(allCells.map((c) => c.engineId))];
   const engines = engineIds.length ? await db.select({ id: enginesTable.id, family: enginesTable.family, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds)) : [];
-  const familyOfEngine = new Map(engines.map((e) => [e.id, e.family ?? e.id]));
+  const familyOfEngine = new Map(engines.map((e) => [e.id, codeEngineDefinition(e.id)?.family ?? e.family ?? e.id]));
   const cellById = new Map(allCells.map((c) => [c.id, c]));
   const familyOfCell = (id: number) => {
     const engineId = cellById.get(id)?.engineId ?? "?";
@@ -831,7 +832,7 @@ export async function getJudgedResults(setIds: number[]): Promise<JudgedResults 
     engineIds.length ? db.select({ id: enginesTable.id, family: enginesTable.family }).from(enginesTable).where(inArray(enginesTable.id, engineIds)) : [],
     versionIds.length ? db.select({ id: promptRecipeVersionsTable.id, number: promptRecipeVersionsTable.number, note: promptRecipeVersionsTable.note }).from(promptRecipeVersionsTable).where(inArray(promptRecipeVersionsTable.id, versionIds)) : [],
   ]);
-  const familyOf = new Map(engines.map((e) => [e.id, e.family ?? e.id]));
+  const familyOf = new Map(engines.map((e) => [e.id, codeEngineDefinition(e.id)?.family ?? e.family ?? e.id]));
   const versionOf = new Map(versions.map((v) => [v.id, v]));
   const recipeLabel = (id: number | null) => (id == null ? "Baseline" : `Version ${versionOf.get(id)?.number ?? "?"}`);
 

@@ -325,9 +325,9 @@ function enrichmentFallbackSettings(fallbackReason: string): FactEnrichmentLLMSe
   };
 }
 
-/** Resolve the enrichment LLM from the `fact_enrichment_engine_id` admin_config
- *  key (dedicated `openai-enricher` by default). Mirrors the visual-planner
- *  route: any missing/inactive/wrong-kind engine falls back to the default
+/** Resolve the enrichment LLM: the dedicated `openai-enricher`, chosen and
+ *  configured in code (decisions.md 2026-11-14). Mirrors the visual-planner
+ *  route: a missing, switched-off or archived engine falls back to the
  *  utility LLM (byte-identical to the pre-route behavior) with a logged reason. */
 export async function resolveFactEnrichmentLLMSettings(): Promise<FactEnrichmentLLMSettings> {
   let configuredEngineId = DEFAULT_FACT_ENRICHMENT_ENGINE_ID;

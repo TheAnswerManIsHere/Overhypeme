@@ -5,10 +5,10 @@
  * Which engine draws a render is answered in exactly three places, and this
  * module owns the first two:
  *
- *   - the product's engine per mode: two admin-config keys,
- *     `image_engine_t2i` and `image_engine_i2i` (seeded by migration 0123 to
- *     the engines the worker always used), written by the admin engines
- *     screen's "Set default" for an image engine;
+ *   - the product's engine per mode: `IMAGE_ENGINE_IDS`, set in code
+ *     (decisions.md 2026-11-14, AI call settings live in code). The
+ *     `image_engine_t2i` and `image_engine_i2i` config rows migration 0123
+ *     seeded are no longer read;
  *   - an explicit override, for a caller that names its engine (the engine
  *     evaluation);
  *   - history: `image_prompt_attempts.actual_image_engine_id`, written once at
@@ -21,15 +21,18 @@
  */
 
 import type { GenerationMode } from "@workspace/api-zod";
-import { db } from "@workspace/db";
-import { adminConfigTable, type Engine } from "@workspace/db/schema";
-import { bustConfigCache, getConfigString } from "./adminConfig";
-import { clearEngineCaches, loadEngine } from "./engineInterpreter";
+import type { Engine } from "@workspace/db/schema";
+import { loadEngine } from "./engineInterpreter";
 import { liveRecipeVersionIdsForEngines } from "./imagePrompt/recipeStore";
 
-export const IMAGE_ENGINE_CONFIG_KEYS: Readonly<Record<GenerationMode, string>> = {
-  t2i: "image_engine_t2i",
-  i2i: "image_engine_i2i",
+/**
+ * The engine that draws a render, by mode. Dev's configured values on
+ * 2026-11-14, read through the connector; the photoreal and styled split
+ * (GPT Image 2.6, Nano Banana 2.1) is adopted in launch Phase 8, not here.
+ */
+export const IMAGE_ENGINE_IDS: Readonly<Record<GenerationMode, string>> = {
+  t2i: "nano-banana-2",
+  i2i: "nano-banana-2-edit",
 };
 
 /** The engines every release before migration 0123 routed to, by mode. */
@@ -66,16 +69,12 @@ export function attemptImageEngineId(attempt: {
 }
 
 /**
- * The configured engine ids per mode, unvalidated: what a render would be
- * routed to now. Folded into the moderation hash, so a changed default makes
- * an old attempt read stale. A missing key reads as the seeded value.
+ * The engine ids per mode, unvalidated: what a render would be routed to now.
+ * Folded into the moderation hash, so a changed engine makes an old attempt
+ * read stale.
  */
 export async function currentImageEngineIds(): Promise<ImageEngineIds> {
-  const [t2i, i2i] = await Promise.all([
-    getConfigString(IMAGE_ENGINE_CONFIG_KEYS.t2i, PRE_ROUTING_IMAGE_ENGINE_IDS.t2i),
-    getConfigString(IMAGE_ENGINE_CONFIG_KEYS.i2i, PRE_ROUTING_IMAGE_ENGINE_IDS.i2i),
-  ]);
-  return { t2i: t2i.trim(), i2i: i2i.trim() };
+  return { t2i: IMAGE_ENGINE_IDS.t2i, i2i: IMAGE_ENGINE_IDS.i2i };
 }
 
 /**
@@ -128,41 +127,4 @@ export async function resolveImageEngine(mode: GenerationMode, override?: string
   const refusal = imageEngineRefusal(engine, mode);
   if (refusal) throw new ImageEngineRoutingError(engineId, mode, refusal);
   return engine!;
-}
-
-// ─── The one writer ──────────────────────────────────────────────────────────
-
-/** True for the two engine keys, which the generic config route refuses. */
-export function isImageEngineConfigKey(key: string): boolean {
-  return Object.values(IMAGE_ENGINE_CONFIG_KEYS).includes(key);
-}
-
-export const IMAGE_ENGINE_CONFIG_KEY_REFUSAL =
-  "The image engine for a render mode is set from the admin engines screen (Set default), which checks the engine can draw that mode.";
-
-/**
- * Make `engineId` the engine for its own mode: validates it, then writes the
- * mode's key (upserting the row if a database lacks it). Returns the mode it
- * now serves. The admin engines screen's "Set default" calls this for an
- * image engine; nothing else writes the keys.
- */
-export async function setImageEngineForItsMode(engineId: string): Promise<GenerationMode> {
-  clearEngineCaches();
-  const engine = await loadEngine(engineId);
-  const mode = engine?.imageMode === "t2i" || engine?.imageMode === "i2i" ? engine.imageMode : null;
-  if (!mode) throw new ImageEngineRoutingError(engineId, null, "it is not an image engine with a render mode");
-  const refusal = imageEngineRefusal(engine, mode);
-  if (refusal) throw new ImageEngineRoutingError(engineId, mode, refusal);
-  // One upsert: migration 0123 seeds both rows, and a database without them
-  // (a test clone) gets one with the same labels.
-  await db.insert(adminConfigTable).values({
-    key: IMAGE_ENGINE_CONFIG_KEYS[mode],
-    value: engineId,
-    dataType: "text",
-    label: mode === "t2i" ? "Image engine: text-to-image" : "Image engine: reference-photo editing",
-    description: "Set from the admin engines screen (Set default).",
-    isPublic: false,
-  }).onConflictDoUpdate({ target: adminConfigTable.key, set: { value: engineId, updatedAt: new Date() } });
-  bustConfigCache();
-  return mode;
 }

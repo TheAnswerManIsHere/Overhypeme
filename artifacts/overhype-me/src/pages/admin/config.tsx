@@ -1,12 +1,11 @@
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Bot, DollarSign, Shield, Mail, Clock, Wand2, ClipboardList } from "lucide-react";
+import { Settings, Loader2, DollarSign, Shield, Mail, Clock, ClipboardList } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
   ConfigCard,
   RETRY_DELAY_MS_KEYS,
-  SCENE_PROMPT_KEYS,
   useConfigCtx,
   useConfigPageState,
   msToHuman,
@@ -48,10 +47,8 @@ const BILLING_ONLY_KEYS = new Set([
   "pricing_refresh_interval_ms",
 ]);
 
-// Phase 6: the legacy per-model parameter definitions (MODEL_PARAMS) and the
-// ModelConfigSection component were removed when the ad-hoc ai_*/video_*
-// admin_config keys were retired. AI engine configuration now lives in the
-// engines table and is edited via /admin/engines.
+// AI settings (engines, models, parameters, system prompts) live in code and
+// have no admin screen (decisions.md 2026-11-14).
 
 // ── RetryTimelinePanel ────────────────────────────────────────────────────────
 
@@ -125,54 +122,6 @@ function RetryTimelinePanel() {
   );
 }
 
-// ── AI Settings group (nested inside Configuration) ───────────────────────────
-//
-// Hosts the editable AI Image Style Prompt plus the AI gallery display limit.
-// The model + sampling (temperature, max tokens, reasoning effort) for these
-// calls come from the shared General Intelligence engine (/admin/engines).
-// Image-engine config also lives at /admin/engines; look-style prompt text
-// lives on `look_styles`.
-
-function AISettingsGroup() {
-  const { rows } = useConfigCtx();
-
-  const imageStyleRows = [...SCENE_PROMPT_KEYS]
-    .map((key) => rows.find((r) => r.key === key))
-    .filter((r): r is NonNullable<typeof r> => r !== undefined);
-
-  return (
-    <div className="space-y-3">
-
-      {/* AI Style Prompt Configuration */}
-      {imageStyleRows.length > 0 && (
-        <CollapsibleSection
-          title="AI Style Prompt Configuration"
-          icon={<Wand2 className="w-4 h-4 text-muted-foreground" />}
-          description="The system prompt that turns a fact into the image style prompt sent to fal.ai (text → scene, per fact). The model + sampling come from the General Intelligence engine (/admin/engines)."
-          storageKey="admin_section_config_ai_style_prompts"
-        >
-          <div className="space-y-5">
-            {imageStyleRows.length > 0 && (
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">AI Image Style Prompt</h4>
-                {imageStyleRows.map((row) => (
-                  <ConfigCard
-                    key={row.key}
-                    row={row}
-                    textareaRows={row.key === "scene_prompt_system" ? 16 : 4}
-                  />
-                ))}
-              </div>
-            )}
-
-          </div>
-        </CollapsibleSection>
-      )}
-    </div>
-  );
-}
-
-
 // ── Main page component ───────────────────────────────────────────────────────
 
 export default function AdminConfig() {
@@ -189,7 +138,6 @@ export default function AdminConfig() {
   const moderationRows = rows.filter((r) => MODERATION_KEYS.has(r.key));
   const genericRows = rows.filter((r) =>
     !r.key.startsWith("style_suffix_") &&
-    !SCENE_PROMPT_KEYS.has(r.key) &&
     !BUDGET_KEYS.has(r.key) &&
     !LIMIT_KEYS.has(r.key) &&
     !EMAIL_KEYS.has(r.key) &&
@@ -279,16 +227,6 @@ export default function AdminConfig() {
                   </div>
                 </CollapsibleSection>
               )}
-
-              {/* AI Settings — collapsible group */}
-              <CollapsibleSection
-                title="AI Settings"
-                icon={<Bot className="w-4 h-4 text-muted-foreground" />}
-                description="Models, parameters and style suffixes."
-                storageKey="admin_section_config_ai_group"
-              >
-                <AISettingsGroup />
-              </CollapsibleSection>
 
             </div>
           )}

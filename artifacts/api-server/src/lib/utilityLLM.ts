@@ -2,19 +2,19 @@
  * Shared OpenAI chat dispatch.
  *
  * Every general-intelligence text/JSON call in the app routes through here so
- * the model + sampling defaults are configured in ONE place — the default
- * "llm" engine row in the engines table (provider "openai"), editable from
- * /admin/engines. Call sites pass their own messages + response format and may
- * override temperature / max tokens per request.
+ * the model + sampling defaults are set in ONE place — the code definition of
+ * the utility engine, `UTILITY_LLM_ENGINE_ID` (decisions.md 2026-11-14: AI call
+ * settings live in code). Call sites pass their own messages + response format
+ * and may override temperature / max tokens per request.
  *
- * If no default llm engine is configured (or the lookup fails), we fall back to
+ * If the utility engine is switched off or its lookup fails, we fall back to
  * baked-in defaults so a misconfiguration degrades rather than hard-fails.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import type OpenAI from "openai";
 import { getOpenAIClient } from "./aiClients";
-import { loadDefaultEngine } from "./engineInterpreter";
+import { loadEngine } from "./engineInterpreter";
 import { chatModelTuningParams } from "./openaiChatParams";
 import { logger } from "./logger";
 
@@ -92,10 +92,17 @@ export function __setUtilityLLMClientForTest(client: ReturnType<typeof getOpenAI
   clientForTest = client;
 }
 
-/** Resolve the model + sampling defaults from the default llm engine. */
+/**
+ * The utility helpers' engine (decisions.md 2026-10-13, GPT-6 Luna). Chosen in
+ * code (decisions.md 2026-11-14): no engine row's `is_default` picks it.
+ */
+export const UTILITY_LLM_ENGINE_ID = "openai-general";
+
+/** Resolve the model + sampling defaults from the utility engine's code definition. */
 async function resolveLLMSettings(): Promise<LLMSettings> {
   try {
-    const engine = await loadDefaultEngine("llm");
+    const engine = await loadEngine(UTILITY_LLM_ENGINE_ID);
+    if (!engine || !engine.isActive || engine.deletedAt) throw new Error(`utility engine "${UTILITY_LLM_ENGINE_ID}" is unavailable`);
     return {
       model: engine.endpointId || FALLBACK_MODEL,
       temperature: engine.defaultTemperature != null ? Number(engine.defaultTemperature) : FALLBACK_TEMPERATURE,
@@ -103,7 +110,7 @@ async function resolveLLMSettings(): Promise<LLMSettings> {
       reasoningEffort: engine.defaultReasoningEffort ?? undefined,
     };
   } catch (err) {
-    logger.warn({ err }, "[utilityLLM] no default llm engine configured; using baked-in defaults");
+    logger.warn({ err }, "[utilityLLM] utility engine unavailable; using baked-in defaults");
     return {
       model: FALLBACK_MODEL,
       temperature: FALLBACK_TEMPERATURE,

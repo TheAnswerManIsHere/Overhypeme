@@ -47,8 +47,9 @@ export async function getVisualConceptsSystem(): Promise<string> {
   return FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT;
 }
 
+/** The gag writer's engine: set in code (decisions.md 2026-11-14, AI call settings live in code). */
 export async function getVisualConceptsEngineId(): Promise<string> {
-  return getConfigString(VISUAL_CONCEPTS_CONFIG_KEYS.engineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID);
+  return DEFAULT_VISUAL_CONCEPTS_ENGINE_ID;
 }
 
 // ─── Seeding ───────────────────────────────────────────────────────────────
@@ -72,41 +73,3 @@ export const VISUAL_CONCEPTS_PROMPT_DEFS = [
   },
 ];
 
-export const VISUAL_CONCEPTS_CONFIG_DEFS: ConfigDef[] = [
-  {
-    key: VISUAL_CONCEPTS_CONFIG_KEYS.engineId,
-    value: DEFAULT_VISUAL_CONCEPTS_ENGINE_ID,
-    dataType: "string",
-    label: "Visual Concepts — Engine",
-    description:
-      "Engine id for the LLM that drafts the three candidate Visual concepts. Defaults to openai-gag-writer (GPT-6 Astra). There is no fallback: an unusable engine fails generation with its reason.",
-  },
-];
-
-/**
- * Idempotently seed the Slice-2A candidate-concept config rows. Safe on every
- * boot — existing rows untouched via ON CONFLICT DO NOTHING; labels/descriptions
- * refreshed if the canonical text changed.
- */
-export async function seedVisualConceptsConfig(): Promise<void> {
-  for (const def of VISUAL_CONCEPTS_CONFIG_DEFS) {
-    try {
-      await db.execute(sql`
-        INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
-        ON CONFLICT (key) DO NOTHING
-      `);
-      await db.execute(sql`
-        UPDATE admin_config SET data_type = ${def.dataType}
-        WHERE key = ${def.key} AND data_type <> ${def.dataType}
-      `);
-      await db.execute(sql`
-        UPDATE admin_config SET label = ${def.label}, description = ${def.description}
-        WHERE key = ${def.key}
-          AND (label IS DISTINCT FROM ${def.label} OR description IS DISTINCT FROM ${def.description})
-      `);
-    } catch (err) {
-      logger.warn({ err, key: def.key }, "[visualConceptsConfig] seed failed for key");
-    }
-  }
-}

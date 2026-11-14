@@ -10,10 +10,8 @@
  *                                         subjectFactCompatibility.
  *   fact_source_classifier_system       — system prompt for the Tier-3 OpenAI
  *                                         Vision fallback classifier.
- *   fact_source_classifier_engine_id    — which utility engine to call for
- *                                         Tier-1 detection (default: "fal-yolo-world").
- *                                         Admin can swap to another detector
- *                                         catalogued later without code change.
+ *   fact_source_classifier_engine_id    — retired (decisions.md 2026-11-14):
+ *                                         the Tier-1 detector is set in code.
  *
  * Sampling overrides (temperature, max tokens) for the image-prompt LLM call
  * live as constants in `lib/imagePrompt/generator.ts`. Sampling for the AI
@@ -164,18 +162,14 @@ export async function getFactSourceClassifierSystem(): Promise<string> {
   return FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT;
 }
 
+/** The Tier-1 source detector: set in code (decisions.md 2026-11-14, AI call settings live in code). */
 export async function getImageClassifierEngineId(): Promise<string> {
-  return getConfigString(
-    IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierEngineId,
-    DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID,
-  );
+  return DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID;
 }
 
+/** The visual planner's engine: set in code (decisions.md 2026-11-14). */
 export async function getImagePromptEngineId(): Promise<string> {
-  return getConfigString(
-    IMAGE_PROMPT_CONFIG_KEYS.imagePromptEngineId,
-    DEFAULT_IMAGE_PROMPT_ENGINE_ID,
-  );
+  return DEFAULT_IMAGE_PROMPT_ENGINE_ID;
 }
 
 // ─── Seeding ───────────────────────────────────────────────────────────────
@@ -206,24 +200,6 @@ export const IMAGE_PROMPT_PROMPT_DEFS = [
   },
 ];
 
-export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
-  {
-    key: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierEngineId,
-    value: DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID,
-    dataType: "string",
-    label: "Source Classifier — Active Engine ID",
-    description:
-      "Engine id (from the engines table) used as the Tier-1 source-image detector. Swap to a different catalogued detector to change which fal model classifies uploads.",
-  },
-  {
-    key: IMAGE_PROMPT_CONFIG_KEYS.imagePromptEngineId,
-    value: DEFAULT_IMAGE_PROMPT_ENGINE_ID,
-    dataType: "string",
-    label: "Image Prompt — Visual Planner Engine",
-    description:
-      "Engine id for the LLM that plans the visual gag before the deterministic compiler assembles the final prompt. Defaults to openai-visual-planner. Invalid or inactive values fall back to the default utility LLM and surface fallback provenance in Runtime Prompt Preview.",
-  },
-];
 
 /**
  * Idempotently seed Phase 2 image-prompt config rows. Safe to call on every
@@ -248,26 +224,5 @@ export async function seedImagePromptConfig(): Promise<void> {
     await db.execute(sql`DELETE FROM admin_config WHERE key = 'fact_visual_preview_system'`);
   } catch (err) {
     logger.warn({ err }, "[imagePromptConfig] failed to drop retired fact_visual_preview_system row");
-  }
-
-  for (const def of IMAGE_PROMPT_CONFIG_DEFS) {
-    try {
-      await db.execute(sql`
-        INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
-        ON CONFLICT (key) DO NOTHING
-      `);
-      await db.execute(sql`
-        UPDATE admin_config SET data_type = ${def.dataType}
-        WHERE key = ${def.key} AND data_type <> ${def.dataType}
-      `);
-      await db.execute(sql`
-        UPDATE admin_config SET label = ${def.label}, description = ${def.description}
-        WHERE key = ${def.key}
-          AND (label IS DISTINCT FROM ${def.label} OR description IS DISTINCT FROM ${def.description})
-      `);
-    } catch (err) {
-      logger.warn({ err, key: def.key }, "[imagePromptConfig] seed failed for key");
-    }
   }
 }

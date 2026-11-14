@@ -893,7 +893,6 @@ test.describe("7b — admin screens in regular use (PR287, PR288, PR293, PR308, 
     await expect(page.locator("div.bg-destructive\\/10"), "PR288 R1: the Email Queue should show no error").toHaveCount(0);
     await expect(page.getByText("Email queue failed to render"), "PR288 R1: ...and not its render-error panel").toHaveCount(0);
 
-    await expectAdminScreen(page, "/admin/engines");
     // Image tracing (#907): the trace screen loads, authorized, with its form.
     await expectAdminScreen(page, "/admin/trace");
     await expect(page.getByLabel("Record id or link"), "the trace screen should show its id-or-link field").toBeVisible();

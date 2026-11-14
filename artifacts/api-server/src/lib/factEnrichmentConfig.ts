@@ -330,8 +330,9 @@ export async function getFactEnrichmentSystem(): Promise<string> {
   return FACT_ENRICHMENT_SYSTEM_DEFAULT;
 }
 
+/** The enricher's engine: set in code (decisions.md 2026-11-14, AI call settings live in code). */
 export async function getFactEnrichmentEngineId(): Promise<string> {
-  return getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.engineId, DEFAULT_FACT_ENRICHMENT_ENGINE_ID);
+  return DEFAULT_FACT_ENRICHMENT_ENGINE_ID;
 }
 
 // ─── Prompt provenance ────────────────────────────────────────────────────────
@@ -396,48 +397,7 @@ export const FACT_ENRICHMENT_PROMPT_DEFS = [
     key: FACT_ENRICHMENT_CONFIG_KEYS.system,
     value: FACT_ENRICHMENT_SYSTEM_DEFAULT,
     label: "Fact Enrichment — System Prompt",
-    description: "LLM system prompt that classifies a submitted fact into the Overhype visual taxonomy. Must return JSON matching the enrichment schema (archetype, subtype, modifiers, etc.). The model + sampling come from the dedicated Fact Enricher engine (fact_enrichment_engine_id).",
+    description: "LLM system prompt that classifies a submitted fact into the Overhype visual taxonomy. Must return JSON matching the enrichment schema (archetype, subtype, modifiers, etc.). The model + sampling come from the dedicated Fact Enricher engine, set in code.",
   },
 ];
 
-export const FACT_ENRICHMENT_CONFIG_DEFS: FactEnrichmentConfigDef[] = [
-  {
-    key: FACT_ENRICHMENT_CONFIG_KEYS.engineId,
-    value: DEFAULT_FACT_ENRICHMENT_ENGINE_ID,
-    dataType: "string",
-    label: "Fact Enrichment — Active LLM Engine",
-    description:
-      "Engine id for the LLM that classifies a submitted fact into the Overhype taxonomy. Defaults to openai-enricher (gpt-5.5, high reasoning). Invalid or inactive values fall back to the default utility LLM.",
-  },
-];
-
-/**
- * Idempotently seed the fact-enrichment config rows with their production
- * defaults. Safe to call on every boot — existing rows (including admin edits)
- * are left untouched via ON CONFLICT DO NOTHING.
- */
-export async function seedFactEnrichmentConfig(): Promise<void> {
-  for (const def of FACT_ENRICHMENT_CONFIG_DEFS) {
-    try {
-      await db.execute(sql`
-        INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
-        ON CONFLICT (key) DO NOTHING
-      `);
-      if (def.dataType === "text") {
-        await db.execute(sql`
-          UPDATE admin_config SET data_type = 'text'
-          WHERE key = ${def.key} AND data_type <> 'text'
-        `);
-      }
-      // Labels/descriptions are code-owned (not admin-editable), so keep them current.
-      await db.execute(sql`
-        UPDATE admin_config SET label = ${def.label}, description = ${def.description}
-        WHERE key = ${def.key}
-          AND (label IS DISTINCT FROM ${def.label} OR description IS DISTINCT FROM ${def.description})
-      `);
-    } catch (err) {
-      logger.warn({ err, key: def.key }, "[factEnrichmentConfig] seed failed for key");
-    }
-  }
-}

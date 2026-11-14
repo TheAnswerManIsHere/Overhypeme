@@ -8,9 +8,7 @@ import { eq, sql, gt } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
-import { seedFactEnrichmentConfig } from "./factEnrichmentConfig";
 import { seedImagePromptConfig } from "./imagePromptConfig";
-import { seedVisualConceptsConfig } from "./visualConceptsConfig";
 import { logger } from "./logger";
 
 /**
@@ -580,17 +578,9 @@ export async function ensureSchema(): Promise<void> {
     }
   }
 
-  // Seed the admin-configurable fact-enrichment levers (the visual-taxonomy
-  // classifier system prompt, OpenAI model, temperature, max tokens).
-  await seedFactEnrichmentConfig();
-
-  // Seed the Phase 2 image-prompt admin config (image-prompt + source-classifier
-  // system prompts, active classifier engine id).
+  // Drop retired image-prompt config rows. The AI engine choices and system
+  // prompts are set in code and no longer seeded (decisions.md 2026-11-14).
   await seedImagePromptConfig();
-
-  // Seed the Slice-2A candidate Visual-concept levers (concept system prompt +
-  // engine id) used to auto-draft three "describe the picture" ideas per fact.
-  await seedVisualConceptsConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {

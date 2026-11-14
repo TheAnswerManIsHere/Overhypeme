@@ -67,7 +67,7 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** The sidebar as it stood before PR288, plus Queue Health directly after Email Queue. */
+/** The sidebar as it stood before PR288, plus Queue Health directly after Email Queue, less Engines (removed 2026-11-14). */
 const SIDEBAR: [string, string][] = [
   ["Dashboard", "/admin"],
   ["Facts", "/admin/facts"],
@@ -76,7 +76,6 @@ const SIDEBAR: [string, string][] = [
   ["Eval", "/admin/eval"],
   ["Billing", "/admin/billing"],
   ["Refunds & Disputes", "/admin/refunds-disputes"],
-  ["Engines", "/admin/engines"],
   ["Trace an image", "/admin/trace"],
   ["Taxonomy Health", "/admin/taxonomy-health"],
   ["Email Queue", "/admin/email-queue"],
