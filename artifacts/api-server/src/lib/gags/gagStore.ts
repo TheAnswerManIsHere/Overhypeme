@@ -84,7 +84,7 @@ export function validateGagContent(raw: unknown): GagContent {
   }
   const budget = validateVisualStrategyOverridePersistence(content);
   if (!budget.ok) {
-    throw new GagError("CONTENT_OVER_BUDGET", "This gag is too long for the image prompt.", 400, budget);
+    throw new GagError("CONTENT_OVER_BUDGET", "This gag is too long for the image prompt.", 400, budget.errors);
   }
   return content;
 }
@@ -205,6 +205,8 @@ export async function saveGagContent(factId: number, gagId: number, rawContent: 
     await lockFact(tx, factId);
     const { refreshReviewId } = await resolveScope(tx, factId, actor);
     const gag = await lockGag(tx, factId, gagId);
+    // Saving what is already pending changes nothing (no spurious timestamp bump).
+    if (gag.pendingContent != null && overrideValuesEqual(gag.pendingContent, content)) return gag;
     const sameAsApproved = gag.approvedContent != null && overrideValuesEqual(gag.approvedContent, content);
     const [updated] = await tx.update(factGagsTable).set(sameAsApproved
       ? { pendingContent: null, pendingExampleAttemptId: null, pendingReviewId: gag.pendingRemove ? gag.pendingReviewId : null, pendingBy: null, pendingAt: null, updatedAt: new Date() }
