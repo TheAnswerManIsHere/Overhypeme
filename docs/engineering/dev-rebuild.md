@@ -22,7 +22,8 @@ The mechanism is `artifacts/api-server/src/lib/devRebuild.ts`; the command is
    (hashed, independent of column order), and dumps it with `pg_dump`.
 2. **Build from code.** It creates `<dev>_rebuild_<id>` on the same server and
    boots it by the bootstrap path (`artifacts/api-server/scripts/boot-database.ts`: the baseline,
-   the migrations, the seeds; engines live only in code since migration 0138).
+   the migrations, the seeds; engines live only in code since migration 0138, `decisions.md`, 2026-11-14,
+   *The stored AI settings and the engines table are deleted*).
 3. **Load.** It loads the dump's rows into the built schema
    (`pg_restore --data-only`), except sessions and auth state. The load runs
    in a replica session, not with `--disable-triggers`. That flag ends by

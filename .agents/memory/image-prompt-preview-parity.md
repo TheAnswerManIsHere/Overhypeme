@@ -17,7 +17,8 @@ path: `generateImagePromptPlan()` (OpenAI planner) + `compileForSubjectRenderMod
 
 (A third, the i2i/t2i engine workbench on the Engines page, was removed with
 that page on 2026-11-14: decisions.md, *AI call settings live in code*. The
-read-only `/admin/ai` page now shows each step's settings.)
+read-only `/admin/ai` page now shows each step's settings: decisions.md, *The
+stored AI settings and the engines table are deleted*.)
 
 ## Rule: the preview uses the canonical test identity
 It renders fact templates ({NAME}/{SUBJ}/…) down to the constants
