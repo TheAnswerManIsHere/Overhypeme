@@ -19,7 +19,7 @@
 
 ## Page inventory
 
-Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affiliate screen went with merch in launch Phase 4; ledger [`docs/retired/README.md`](../retired/README.md)):
+Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 15 `NAV_ITEMS` (the Affiliate screen went with merch in launch Phase 4; ledger [`docs/retired/README.md`](../retired/README.md)):
 
 | Route | File | What it's for |
 | --- | --- | --- |
@@ -30,6 +30,7 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affil
 | `/admin/refunds-disputes` | `refundsDisputes.tsx` | Refund/dispute event log plus a manual grace-sweep trigger. |
 | `/admin/moderation` | `moderation.tsx` | Fact review queue (covered elsewhere) **plus** an embedded comment-review panel — see *Dead and misleading surfaces*. |
 | `/admin/eval` | `evalDashboard.tsx` | Eval: two tabs, Evaluate Models and Evaluate Prompts, each a wizard (facts, engines or wordings, photo types, looks, description, one Generate Images) and a list of evaluations to judge blind, finish and read (plan `PLAN_EVAL_PAGE.md`). |
+| `/admin/ai` | `aiSettings.tsx` | AI Settings, read-only: each AI step's model, its parameters as sent ("not sent" where the model takes none) and every system prompt, all from code ([decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)). No controls. |
 | `/admin/config` | `config.tsx` | The generic `admin_config` key/value editor — see *Config surfaces*. |
 | `/admin/taxonomy-health` | `taxonomy-health.tsx` | Covered in [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md). |
 | `/admin/features` | `features.tsx` | The tier × feature-flag permission matrix — see *Config surfaces*. |
@@ -37,10 +38,10 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affil
 | `/admin/queue-health` | `queueHealth.tsx` | Background job-queue infra dashboard: per-queue/lane status counts, oldest-pending age, per-item drill-in. |
 | `/admin/help`, `/admin/help/:chapter` | `help.tsx` | The [Overhype.me Manual](../manual/README.md), rendered in-console — see *The in-app Manual* below. A `NAV_ITEMS` entry ("Help"), and also reached from the `?` control on each screen. |
 
-`/admin/comments` and `/admin/ai` are routed to redirect components
-(`AdminModerationRedirect`, `AdminAIRedirect`) that land on Moderation and
-Config. The orphaned `comments.tsx` and `ai.tsx` files those addresses once
-served were deleted in launch Phase 4, removal 7 (ledger [`docs/retired/README.md`](../retired/README.md); tag
+`/admin/comments` is routed to a redirect component
+(`AdminModerationRedirect`) that lands on Moderation. (`/admin/ai` redirected
+to Config until 2026-11-14 and is now the AI Settings page.) The orphaned
+`comments.tsx` and `ai.tsx` files those addresses once served were deleted in launch Phase 4, removal 7 (ledger [`docs/retired/README.md`](../retired/README.md); tag
 `pre-cut/dead-surfaces`).
 
 ## The in-app Manual (`/admin/help`)
@@ -124,9 +125,9 @@ Two distinct pages, not one:
   gallery caps), Email (sender, retry, retention), Moderation
   (duplicate-detection threshold), plus a generic
   catch-all. It shows no AI setting: engines, models, parameters and system
-  prompts live in code and have no admin screen (David, 2026-11-14, per
-  [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); the Engines page and the nested AI-settings
-  group were removed then, and the AI gallery display limit went with the
+  prompts live in code, and the read-only `/admin/ai` page shows them (David,
+  2026-11-14, per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values); the Engines page and the nested AI-settings
+  group were removed that day, and the AI gallery display limit went with the
   legacy studio's gallery in launch Phase 4, removal 11; ledger
   [`docs/retired/README.md`](../retired/README.md)). Each key has one value; the Debug mode toggle and its
   second value set were removed in launch Phase 4

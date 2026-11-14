@@ -17,7 +17,6 @@ import { adminConfigTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
 import { ALL_ENGINES } from "../lib/engines";
-import { clearEngineCaches } from "../lib/engineInterpreter";
 import { bustConfigCache } from "../lib/adminConfig";
 import {
   getImagePromptEngineId,
@@ -57,19 +56,16 @@ describe("resolveImagePromptLLMSettings", () => {
     await db.delete(adminConfigTable).where(eq(adminConfigTable.key, KEY));
     if (savedKey) await db.insert(adminConfigTable).values(savedKey);
     bustConfigCache();
-    clearEngineCaches();
   });
 
   beforeEach(() => {
     bustConfigCache();
-    clearEngineCaches();
   });
 
   it("takes the code's settings and provenance even when the retired key disagrees", async () => {
     await db.insert(adminConfigTable).values({ key: KEY, value: "custom-engine", dataType: "string", label: "stale" })
       .onConflictDoUpdate({ target: adminConfigTable.key, set: { value: "custom-engine" } });
     bustConfigCache();
-    clearEngineCaches();
 
     assert.equal(await getImagePromptEngineId(), ENGINE_ID);
     const def = ALL_ENGINES.find((e) => e.id === ENGINE_ID)!;

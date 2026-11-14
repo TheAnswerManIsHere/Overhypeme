@@ -94,12 +94,4 @@ echo "[run-test] DB isolation active — tests use schema '${TEST_SCHEMA}' (publ
 TEST_URL="$(build_schema_url_for "$TEST_SCHEMA")"
 ISO="$(detect_isolation_flag)"
 
-# Seed the boot-time, code-owned engine catalogue rows (idempotent) so a targeted
-# DB-backed test sets up the same baseline as the full suite.
-echo "[run-test] seeding boot-time engine catalogue rows in '${TEST_SCHEMA}'…"
-if ! seed_catalogue "$TEST_URL"; then
-  echo "[run-test] ERROR: failed to seed boot-time engine catalogue rows" >&2
-  exit 1
-fi
-
 run_files "$TEST_URL" "$ISO" -- "${FILES[@]}"

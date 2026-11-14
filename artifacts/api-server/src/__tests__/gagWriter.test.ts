@@ -17,7 +17,7 @@ import { db } from "@workspace/db";
 import { adminConfigTable } from "@workspace/db/schema";
 import { FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT } from "../lib/visualConceptsConfig.js";
 import { resolveVisualConceptsLLMSettings } from "../lib/visualConcepts/generator.js";
-import { clearEngineCaches, loadEngine } from "../lib/engineInterpreter.js";
+import { loadEngine } from "../lib/engineInterpreter.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -39,7 +39,6 @@ describe("migration 0137 points the gag generator at GPT-6 Astra", () => {
   let original: string | undefined;
 
   after(async () => {
-    clearEngineCaches();
     // Migration 0138 deletes both keys; this test seeds them to replay 0137, so a database without them gets them removed again.
     if (original !== undefined) await db.update(adminConfigTable).set({ value: original }).where(eq(adminConfigTable.key, KEY));
     else await db.execute(sql`DELETE FROM admin_config WHERE key IN (${KEY}, ${BEFORE})`);

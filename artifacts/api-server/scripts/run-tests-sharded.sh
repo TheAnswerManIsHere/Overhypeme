@@ -272,9 +272,6 @@ if [ "$MODE" = "perdb" ]; then
 fi
 
 if [ "$MODE" = "perdb" ]; then
-  if ! seed_catalogue "$(build_db_url_for "$TEMPLATE_DB")"; then
-    echo "[run-tests] ERROR: seeding the template catalogue failed" >&2; exit 1
-  fi
   if ! lock_template "$TEMPLATE_DB"; then
     echo "[run-tests] ERROR: could not quiesce the template for cloning" >&2; exit 1
   fi
@@ -288,16 +285,13 @@ if [ "$MODE" = "perdb" ]; then
   done
   clone_ms_total=$(( $(_ms) - _cl0 ))
 else
-  # per-schema fallback: clone + seed one schema per worker in the source DB.
+  # per-schema fallback: clone one schema per worker in the source DB.
   for (( k=1; k<=shards; k++ )); do
     sch="$(sanitize_id "heliumdb_s_${stamp}_${run_id}_${k}")"
     if ! reset_and_clone_schema "$sch"; then
       echo "[run-tests] ERROR: cloning worker schema ${sch} failed" >&2; exit 1
     fi
     CREATED_SCHEMAS+=("$sch"); WORKER_OBJS[$k]="$sch"; WORKER_URLS[$k]="$(build_schema_url_for "$sch")"
-    if ! seed_catalogue "${WORKER_URLS[$k]}"; then
-      echo "[run-tests] ERROR: seeding worker schema ${sch} failed" >&2; exit 1
-    fi
   done
 fi
 

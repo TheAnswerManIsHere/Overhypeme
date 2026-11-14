@@ -50,9 +50,9 @@ model receives.** Enrichment is an input, not the prompt (see
    (`imagePromptConfig.ts`'s `FACT_IMAGE_PROMPT_SYSTEM_DEFAULT`, key
    `fact_image_prompt_system`). Since Launch Phase 3's amendment 1 the six AI system
    prompts are **set in code** (`codeOwnedPrompts.ts`): every reader returns the
-   constant, boot no longer seeds them, and the admin screen shows them read-only.
-   Changing the copy is an edit to the constant in a reviewed PR; an `admin_config`
-   row an older database still holds is ignored. This is one case of the general
+   constant, boot no longer seeds them, and the read-only `/admin/ai` page shows
+   them. Changing the copy is an edit to the constant in a reviewed PR; migration
+   0138 deleted their old `admin_config` rows ([decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)). This is one case of the general
    rule that AI call settings live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). (Before that, the rows were seeded
    `ON CONFLICT DO NOTHING` and a constant edit needed a DML migration too, which is
    why `0082` and `0084` exist.)
@@ -501,8 +501,8 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
 - **The engine per mode is set in code**, `IMAGE_ENGINE_IDS` in
   `lib/imageEngineRouting.ts` ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)): `nano-banana-2` and
   `nano-banana-2-edit`. The `image_engine_t2i` and `image_engine_i2i` rows
-  migration 0123 seeded are no longer read, and the generic config route
-  refuses them. No engine row's `isDefault` flag routes anything.
+  migration 0123 seeded were deleted by migration 0138, along with the engines
+  table ([decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)).
 - **An attempt records its engine once, at construction**, in
   `image_prompt_attempts.actual_image_engine_id`, and the worker renders through
   that engine, never through today's default: an attempt queued before a
@@ -612,7 +612,7 @@ approved by David 2026-11-13).**
   engine (GPT-6 Astra, medium effort since 2026-11-14: high took 100–211 s a call), chosen and
   configured in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). Migration 0137 had pointed the retired
   `fact_visual_concepts_engine_id` key there and kept the previous value as
-  `fact_visual_concepts_engine_id_before_0137`; neither row is read now.
+  `fact_visual_concepts_engine_id_before_0137`; migration 0138 deleted both.
   The render planner is a separate engine. The system prompt is the text David
   locked (`docs/plans/gag-prompt-LOCKED.md`); `gagWriter.test.ts` pins its
   sha256.
@@ -692,8 +692,8 @@ if the rest of the VSO is already near its own budget ceiling. Future work
 should not read "pickable" as removing the need for that final save-time
 check. (History: the deployed system prompt was once migrated, 0090, because it
 was read from an `admin_config` row that a boot seed never overwrote. The prompt
-has been read from code since Launch Phase 3's amendment 1, and the row is
-ignored; see the planner item's note on code-owned prompts, above.)
+has been read from code since Launch Phase 3's amendment 1, and migration 0138
+deleted the row; see the planner item's note on code-owned prompts, above.)
 
 ## Frontier visual planner
 
@@ -879,7 +879,8 @@ from all three surfaces going through the **same core path** —
 `generateImagePromptPlan()` + `compileForSubjectRenderMode()` — not from a shared
 wrapper. The **admin preview surface** (the admin fact-page RCP preview,
 `POST /admin/image-prompt/preview`; the i2i/t2i engine workbench went with the
-Engines page on 2026-11-14) calls those two functions via `assembleImagePromptForPreview()` (`imagePrompt/preview.ts`) and
+Engines page on 2026-11-14; the read-only `/admin/ai` page now shows each
+step's settings) calls those two functions via `assembleImagePromptForPreview()` (`imagePrompt/preview.ts`) and
 nothing else; **production** (`imagePromptJobs.ts`) calls the same two functions
 **directly** (it does *not* route through the preview helper). Both preview surfaces
 must feed the canonical test identity `RUNTIME_PREVIEW_DEFAULT_NAME = "David

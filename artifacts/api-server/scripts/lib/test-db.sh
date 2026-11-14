@@ -215,9 +215,8 @@ _td_dump_public() {
 # an empty grid as authoritative.)
 #
 # This copies the rows rather than re-declaring them, so the migration stays the
-# single source of truth for what the grid contains. The engine catalogue is the
-# sibling case, handled differently only because it is reconciled from code
-# (`seed_catalogue`) rather than owned by a migration.
+# single source of truth for what the grid contains. (Engines need no seed: they
+# live only in code since migration 0138.)
 _TD_REFERENCE_TABLES=(
   public.feature_flags
   public.tier_feature_permissions
@@ -341,16 +340,6 @@ reset_and_clone_schema() {
   fi
   rm -f "$refdump"
   return 0
-}
-
-# ── boot-time catalogue seed ──────────────────────────────────────────────────
-# seed_catalogue <db_or_schema_url> — reconcile the engine catalogue (idempotent).
-seed_catalogue() {
-  local url="$1"
-  DATABASE_URL="$url" TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 \
-    RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
-    CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
-    node --import tsx/esm -e 'import { reconcileEngines } from "./src/lib/engines/index.ts"; import { closePool } from "@workspace/db"; try { await reconcileEngines(); } finally { await closePool(); }'
 }
 
 # ── worker execution ──────────────────────────────────────────────────────────

@@ -206,7 +206,7 @@ we've sequenced for later.
     duration without ever reading a billing result. The real distinction is
     **provider-resolved rate** (fal's published price for that endpoint, applied
     to the request's actual parameters) versus **operator-configured estimate**
-    (the engine's `estimatedCostUsdPerCall`, or a hardcoded fallback). Both are
+    (the engine's `estimatedCostUsdPerCall`, from its code definition, or a hardcoded fallback). Both are
     computed; one tracks the provider, the other tracks our own guess.
 
     **Which writers produce which is deliberately NOT enumerated here.** This

@@ -30,7 +30,6 @@ import {
   resolveImageEngine,
 } from "../lib/imageEngineRouting.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { NANO_BANANA_2_SIZES } from "../lib/engines/nano-banana-2.js";
 import { FLUX_3 } from "../lib/engines/flux-3.js";
@@ -73,7 +72,6 @@ async function restore(): Promise<void> {
   await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, [...RETIRED_KEYS]));
   if (savedKeys.length) await db.insert(adminConfigTable).values(savedKeys);
   bustConfigCache();
-  clearEngineCaches();
 }
 
 function switchOff(id: string): void {
@@ -87,7 +85,6 @@ async function setRetiredKey(key: string, value: string): Promise<void> {
     .values({ key, value, dataType: "text", label: "test", description: "test", isPublic: false })
     .onConflictDoUpdate({ target: adminConfigTable.key, set: { value } });
   bustConfigCache();
-  clearEngineCaches();
 }
 
 before(async () => {

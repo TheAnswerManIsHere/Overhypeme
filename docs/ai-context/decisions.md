@@ -2085,6 +2085,7 @@
   future change makes a provably-conservative floor available in the unreadable
   branch (which would make degrading defensible there too).
 
+- **Superseded in part (2026-11-14):** there is no `engines` table, so the "unreadable persisted row" case no longer exists; an engine's estimate is its code definition's. See [The stored AI settings and the engines table are deleted](#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values).
 ### 2026-08-16 · Unpriced generations will be recorded to the cost ledger behind an `is_estimated` flag
 - **Decision:** `user_generation_costs` gets an `is_estimated` column, and a
   generation whose price could not be resolved is recorded with the gating
