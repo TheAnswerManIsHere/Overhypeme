@@ -396,6 +396,23 @@ product or architecture truth. **If product/architecture truth changes as a resu
 of your work, update the relevant shared doc in the same change** (don't fork a
 private copy).
 
+## A design guideline is written as a default, not an absolute (David, 2026-11-14)
+
+When a decision of David's sets how the product is built — where a setting
+lives, which pattern to use — record it as a default or a preference, not as
+"never" or "always". Sensible exceptions exist. When one is taken, it is
+named, and its reason recorded, where the decision lives. David,
+2026-11-14: *"Don't take "never" and "always" as being such strong
+absolutes. We should probably use language like "prefer" and "default" for
+decisions like this. There are exceptions to the rule that make sense, so
+don't make the rule too strict. It's a guideline, not a hard and fast must
+follow rule."*
+
+Some rules are absolute because David made them so, in words: the
+irreversible list, secrets, and what he reserves to himself. Those keep
+their absolutes. This section is about guidelines, and does not soften
+those rules.
+
 ## Memory notes vs. the shared library (promotion rule)
 
 `.agents/memory/*.md` are short engineering breadcrumbs — narrow gotchas an agent
