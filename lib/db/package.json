@@ -9,7 +9,8 @@
     "./test-database": "./src/testDatabaseMarker.ts",
     "./baseline": "./src/baseline.ts",
     "./table-classification": "./src/tableClassification.ts",
-    "./migrate": "./src/migrate.ts"
+    "./migrate": "./src/migrate.ts",
+    "./live-fact-fixture": "./src/liveFactFixture.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",
