@@ -32,6 +32,7 @@ const ENRICHMENT: FactEnrichment = {
 function terminalGrid(stale: boolean): RenderScenarioGrid {
   return {
     reviewId: 7,
+    gagId: 11,
     cards: [
       {
         key: "generic_t2i",

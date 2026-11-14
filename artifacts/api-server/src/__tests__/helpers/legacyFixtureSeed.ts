@@ -33,7 +33,7 @@ const { db } = await import("@workspace/db");
 const t = await import("@workspace/db/schema");
 const { aiBackgroundKey, uploadKey } = await import("../../lib/storageKeys");
 const { hashFactText } = await import("../../lib/enrichmentVersioning");
-const { computeScenarioInputHash, loadReviewRenderContext } = await import("../../lib/reviewRenderScenarios");
+const { computeScenarioInputHash, loadGagRenderTarget } = await import("../../lib/reviewRenderScenarios");
 const { computeCurrentInputHash, resolveVisualConceptCycle } = await import("../../lib/visualConceptJobs");
 
 const at = new Date("2026-01-02T03:04:05Z");
@@ -87,11 +87,12 @@ const activeGag = {
   // The retired enable toggle older blobs still carry (seen on dev, 2026-10-13).
   ...({ enabled: true } as object),
 };
-// A partial state the emptiness rule must keep: a blank core scene and a half-filled bubble (Astra round 2).
+// A partial state the emptiness rule must keep: a half-filled bubble (Astra round 2). A blank core
+// scene is no longer a state a gag can hold (fact_gags_pending_scene_nonempty, migration 0139).
 const partialEnrichment: FactEnrichment = { ...placeholderEnrichment };
 const partialGag = {
   ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-  coreSceneOverride: "",
+  coreSceneOverride: "{NAME} waits in line.",
   bubbles: [{ type: "speech", entity: "subject", text: "" }],
 };
 const overrides = {
@@ -216,15 +217,15 @@ await db.insert(t.userAiImagesTable).values([
 ]);
 
 const reviewRender = (hash: string) => ({
-  ...attemptBase, reviewId: refresh!.id, reviewRenderScenarioKey: "generic_t2i", reviewRenderInputHash: hash,
+  ...attemptBase, reviewId: refresh!.id, gagId: activeFact.gags[0]!.id, reviewRenderScenarioKey: "generic_t2i", reviewRenderInputHash: hash,
   renderJobId: randomUUID(), renderControls: {
     aspectRatio: "landscape", contentMode: "sfw", fallbackSubjectGender: "male", mirrorToLegacyStorage: false,
-    reviewAudit: { reviewId: refresh!.id, adminUserId: adminId }, reviewRenderSubject: { name: S.reviewSubjectName, pronouns: "he/him" },
+    reviewAudit: { reviewId: refresh!.id, adminUserId: adminId, gagId: activeFact.gags[0]!.id }, reviewRenderSubject: { name: S.reviewSubjectName, pronouns: "he/him" },
   },
   renderedFactText: `${S.reviewSubjectName} counted to infinity, twice, and the second time it was backwards.`,
 });
-const ctx = await loadReviewRenderContext(refresh!.id);
-const currentHash = ctx.ok ? computeScenarioInputHash("generic_t2i", ctx.ctx.stagingFactId, ctx.ctx.factText, ctx.ctx.enrichment, ctx.ctx.imageEngines) : "unavailable";
+const loaded = await loadGagRenderTarget(activeFact.gags[0]!.id);
+const currentHash = loaded.ok ? computeScenarioInputHash("generic_t2i", loaded.target.stagingFactId, loaded.target.factText, loaded.target.enrichment, loaded.target.imageEngines) : "unavailable";
 const [currentRender] = await db.insert(t.imagePromptAttemptsTable).values(reviewRender(currentHash)).returning({ id: t.imagePromptAttemptsTable.id });
 const [staleRender] = await db.insert(t.imagePromptAttemptsTable).values(reviewRender("zqx".padEnd(64, "0"))).returning({ id: t.imagePromptAttemptsTable.id });
 const reviewRenderPath = `/objects/ai-bg-v2/${activeFact!.id}/${currentRender!.id}-1767000000001.png`;
@@ -299,6 +300,6 @@ console.log(JSON.stringify({
   approvedReviewId: approved!.id, refreshReviewId: refresh!.id, submissionReviewId: submission!.id, versionId: version!.id,
   userAttemptId: userAttempt!.id, currentRenderId: currentRender!.id, staleRenderId: staleRender!.id,
   legacyBackground, newerPath, uploadPath, profilePath, matchedPath,
-  renderContextOk: ctx.ok, conceptCycleOk: cycle.ok,
+  renderContextOk: loaded.ok, conceptCycleOk: cycle.ok,
 }));
 process.exit(0);

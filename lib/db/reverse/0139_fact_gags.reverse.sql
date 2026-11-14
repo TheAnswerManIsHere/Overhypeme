@@ -57,6 +57,16 @@ BEGIN
      WHERE v.id = (c ->> 'id')::integer;
   END IF;
 
+  -- A fact the capture never saw (written after 0139 by a seed, with an
+  -- untouched carried-over gag) gets its slot-1 gag back the same way, so the
+  -- restored CHECK below holds for it too.
+  UPDATE facts f
+     SET enrichment = jsonb_set(coalesce(f.enrichment, '{}'::jsonb), '{visualPromptStrategyOverride}',
+                                coalesce(g.approved_content, g.pending_content))
+    FROM fact_gags g
+   WHERE g.fact_id = f.id AND g.slot = 1 AND g.removed_at IS NULL
+     AND NOT (coalesce(f.enrichment, '{}'::jsonb) ? 'visualPromptStrategyOverride');
+
   DROP TRIGGER IF EXISTS facts_live_requires_approved_gag ON facts;
   DROP TRIGGER IF EXISTS fact_gags_live_fact_keeps_approved_gag ON fact_gags;
   DROP FUNCTION IF EXISTS enforce_live_fact_has_approved_gag();
