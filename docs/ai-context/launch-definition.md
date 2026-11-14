@@ -104,6 +104,12 @@ credits, from the engine matched to the look
 ([product strategy](./product-strategy.md#pictures-and-engines)). Each
 fact shows **one example picture per approved gag**, and a fact may carry up to
 three approved gags ([product strategy](./product-strategy.md#gags-and-examples)).
+Gags are their own records, each approved by its example, since plan
+`docs/plans/PLAN_THREE_GAGS.md`; additional gags are optional, and **where a
+fact has more than one available gag the user picks which one their AI picture
+uses** — launch Phase 7 builds that picker with the user AI-picture flow, and
+anything that draws without a picker uses the fact's default gag (David,
+2026-11-14).
 A friend's photo in an AI picture is designed for and switched off until
 counsel answers ([product strategy](./product-strategy.md#a-friends-photo)). Photo upload accepts PNG and HEIC; caption and split
 caption; speech bubbles **finished** on the moderation side; style presets
@@ -213,6 +219,12 @@ unstyled example per approved gag is required, styled ones are optional, and
 examples are not re-rendered across the catalogue or used as meme
 backgrounds). The render-approval waiver is retired for the required
 examples; it remains an auditable override for any other render scenario.
+**Built for gags (plan `docs/plans/PLAN_THREE_GAGS.md`, increment 1):** a gag is
+approved only when a moderator approves one of its test renders as its example,
+and a first-time fact can't be approved for production without an approved
+gag. Gags approved before that plan carry no example on record ("no example
+yet") and stay live; Phase 7's publication model decides what examples public
+pages show.
 
 ## Verification is a prerequisite
 

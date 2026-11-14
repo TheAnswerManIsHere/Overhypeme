@@ -14,7 +14,7 @@ import {
   type FactGag,
 } from "@workspace/db";
 import { MAX_GAGS_PER_FACT, type FactGagsView, type GagExample, type GagView, type VisualPromptStrategyOverride } from "@workspace/api-zod";
-import { findInFlightRefreshCandidate } from "../enrichmentVersioning";
+import { findInFlightRefreshCandidate } from "../refreshCandidate";
 import { buildGagScenarioGrid, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, openReviewForFact } from "./resolver";
 

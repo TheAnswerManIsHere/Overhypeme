@@ -13,9 +13,10 @@
 ## Current source of truth
 
 For a moderated render, the **moderator-authored "Visual Concept (Core Scene)" is
-authoritative** when present. It is stored at
-`enrichment.visualPromptStrategyOverride.coreSceneOverride`
-(`lib/api-zod/src/visualStrategyOverride.ts`), capped at 1500 chars, carries
+authoritative** when present. It is a [gag](./glossary.md#gag)'s
+`coreSceneOverride`, stored in `fact_gags` since migration 0139 (plan
+`docs/plans/PLAN_THREE_GAGS.md`; the schema is
+`lib/api-zod/src/visualStrategyOverride.ts`), capped at 1500 chars, carries
 `{NAME}`/pronoun tokens, and is canonicalized + token-validated on save. It is
 consumed **deterministically** in two places:
 
@@ -536,11 +537,41 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
   becomes a mode's engine in `IMAGE_ENGINE_IDS`, a code change. The compiler is still Nano Banana 2's for
   every engine; adapting it to the two chosen engines is increment 4's.
 
-## Visual Concept
+## Gags: where the Visual Concept lives (migration 0139)
 
-The authoritative human-authored scene (above). A moderator authors it directly,
-or **picks a candidate** (next section) which becomes the `coreSceneOverride` via
-the same cap/token rules — "no new write surface."
+A fact has one to three [gags](./glossary.md#gag), each a `fact_gags` row in
+slot 1-3 holding a whole Visual Strategy Override; every gag follows the same
+rules whatever its slot (plan `docs/plans/PLAN_THREE_GAGS.md`, David
+2026-11-14). The enrichment holds none: a CHECK on `facts.enrichment` and on an
+open refresh candidate's enrichment refuses one, and a render's input is the
+classification joined with one gag's content (`gagRenderInput`,
+`lib/gags/resolver.ts`).
+
+- **Versions.** A gag has an approved version (offered to users on a live fact)
+  and may carry a pending change. Saving writes the pending change; it changes
+  nothing users get until a moderator approves one of its test renders as the
+  gag's **example** (`approveGagRender`), which makes it the approved version.
+  The render must be finished, unstyled and drawn from exactly that content.
+- **Renders belong to a gag.** `image_prompt_attempts.gag_id` names the gag each
+  test render drew; grids, staleness and enqueue all read the gag's render
+  target (`loadGagRenderTarget`, `reviewRenderScenarios.ts`), so they cannot
+  drift from the render.
+- **Refreshes.** While a refresh is open a fact's gags change only inside its
+  review, as its last step: a pick or a removal there waits on the gag
+  (`pending_review_id`) and lands at promotion (`applyReviewGagOps`); declining
+  discards it. The live fact's approved gags stay offered throughout.
+- **The rule the database holds.** A live fact always has an approved gag
+  (deferred constraint triggers `facts_live_requires_approved_gag` and
+  `fact_gags_live_fact_keeps_approved_gag`).
+- **Default gag.** Anything that draws a fact's picture without a picker uses
+  the lowest-slot approved gag (`primaryGag`). Where more than one gag is
+  available, users choose with a picker: launch Phase 7 builds it with the user
+  AI-picture flow (David, 2026-11-14, plan decisions 13 and 15).
+
+A moderator authors a gag directly in the **Gags panel**
+(`components/admin/gags/GagsPanel.tsx`, on the moderation review and the Facts
+editor), or **uses a candidate** (next section) on a gag, via the same cap and
+token rules.
 
 ## Visual Strategy Override authoring (auto-tokenize on Save)
 
@@ -551,11 +582,9 @@ changed rendered-text field through the shared tokenizer core (see
 [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#shared-core-fact-submission-and-admin-visual-concept-authoring-pr-206))
 and **shows the tokenized result in the field** before it persists — not a
 silent swap, mirroring the fact-submission write→preview→confirm pattern. This
-is the ONE save path (`tokenizeAndSaveVisualOverride` in
-`useFactEnrichmentEditing.ts`) every VSO surface calls — the Visual Concept
-card, the full override panel, and the Facts-page save all route through it,
-and it always persists the *whole* current enrichment so a concurrent hashtag
-edit is never dropped.
+is the ONE save path every gag save takes (`tokenizeGag` in
+`components/admin/gags/gagApi.ts`, then the gag route); it sends only the
+fields changed since the version the edit started from.
 
 **Authoring rule (load-bearing):** name ONLY the main subject; refer to every
 other character by role, never by name ("the bartender", not a second real
@@ -578,10 +607,9 @@ editor and no longer canonicalizes a typed token — it's a label field, not
 rendered prose.
 
 **Any field the tokenizer can't cleanly resolve blocks persistence** and
-surfaces a field-specific red-bordered error (`vsoTokenizeErrors`) instead of
-silently saving something wrong; both the Visual Concept card and the override
-panel disable entirely while a batch tokenize round trip is in flight
-(`vsoTokenizing`), so no edit can race it.
+surfaces a field-specific red-bordered error on that field instead of
+silently saving something wrong; the gag's card disables while its tokenize
+and save round trip is in flight, so no edit can race it.
 
 **Activation is presence-based — there is no `enabled` field.** The override
 object no longer carries an `enabled` boolean (retired). Every sub-field applies
@@ -593,16 +621,13 @@ compiler-side gates were converted from `ov?.enabled` to a plain presence check
 `imagePromptGeneration.ts`). Stored rows that still have a legacy `enabled` key
 parse cleanly — Zod strips the unknown field — so no migration was needed.
 
-**The Visual Concept (core scene) is REQUIRED, and the card is its single
-editing surface.** The core-scene field was removed from the Advanced Options
-`VisualStrategyOverridePanel`; the prominent `VisualConceptCard` is now the only
-place it is edited, on both the Moderation Step-2 flow and the Facts page. A
-blank `coreSceneOverride` **blocks admin save** (the enrichment PATCH and the
-review-candidate PATCH reject it `400 visual_concept_required`) **and blocks
-production approval** (`CONCEPT_MISSING` on the approve-visual-concept and
-first-time/refresh production-approval paths). Rationale: the image
-engines need a concrete scene to make a meme, so a fact can't be released
-without one.
+**The Visual Concept (core scene) is REQUIRED for every gag.** Each gag's card
+leads with its `VisualConceptCard`, with its bubbles and "More art direction"
+(the `VisualStrategyOverridePanel`) below. A gag with a blank scene can't be
+saved (`fact_gags_*_scene_nonempty`), and a fact can't go live, or stay live,
+without an approved gag (`CONCEPT_MISSING` on first-time production approval;
+`GAG_REQUIRED` on a refresh promotion that would leave none). Rationale: the
+image engines need a concrete scene to make a meme.
 
 ## Candidate Visual Concepts
 

@@ -33,7 +33,7 @@ import {
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
-import { findInFlightRefreshCandidate } from "../enrichmentVersioning";
+import { findInFlightRefreshCandidate } from "../refreshCandidate";
 import type { GagContent } from "./resolver";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];

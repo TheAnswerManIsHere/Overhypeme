@@ -86,7 +86,6 @@ async function seedActiveFact(): Promise<typeof factsTable.$inferSelect> {
   const { columns } = materializeEnrichment({
     aiDerived: AI_BASELINE,
     overrides: MANUAL_OVERRIDES,
-    visualPromptStrategyOverride: AI_BASELINE.visualPromptStrategyOverride,
   });
   // The fact's gag lives in fact_gags (migration 0139), approved.
   const { gags: _gags, ...fact } = await insertLiveFact({
