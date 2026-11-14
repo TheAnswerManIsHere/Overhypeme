@@ -43,5 +43,7 @@ export const OPENAI_GAG_WRITER: EngineDefinition = {
   // chatModelTuningParams.
   defaultTemperature: 0.8,
   defaultMaxTokens: 4000,
-  defaultReasoningEffort: "high",
+  // Medium (David, 2026-11-14, in UAT: high took 100–211 s a call, "WAY too
+  // long"). Admin-tunable: an existing row keeps its own value (reconcile.ts).
+  defaultReasoningEffort: "medium",
 };

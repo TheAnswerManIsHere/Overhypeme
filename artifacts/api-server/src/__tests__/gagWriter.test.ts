@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { sql, eq } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { adminConfigTable } from "@workspace/db/schema";
+import { adminConfigTable, enginesTable } from "@workspace/db/schema";
 import { FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT } from "../lib/visualConceptsConfig.js";
 import { resolveVisualConceptsLLMSettings } from "../lib/visualConcepts/generator.js";
 import { reconcileEngines } from "../lib/engines/reconcile.js";
@@ -62,7 +62,9 @@ describe("migration 0137 points the gag generator at GPT-6 Astra", () => {
       const settings = await resolveVisualConceptsLLMSettings();
       assert.equal(settings.unusableReason, null);
       assert.equal(settings.model, "gpt-6-astra");
-      assert.equal(settings.reasoningEffort, "high");
+      // The effort is the engine row's own (admin-tunable; a new row starts at the code's "medium").
+      const [engineRow] = await db.select({ effort: enginesTable.defaultReasoningEffort }).from(enginesTable).where(eq(enginesTable.id, "openai-gag-writer"));
+      assert.equal(settings.reasoningEffort, engineRow?.effort);
       const planner = await loadEngine("openai-visual-planner");
       assert.equal(planner?.endpointId, "gpt-5.5", "the render planner's engine is unchanged");
     });

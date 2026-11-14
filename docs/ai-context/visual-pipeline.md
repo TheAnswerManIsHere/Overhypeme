@@ -614,7 +614,7 @@ without one.
 **The gag writer (prompt version 3, plan `docs/plans/PLAN_GAG_GENERATOR.md`,
 approved by David 2026-11-13).**
 - **Engine and prompt.** The candidates are drafted by the `openai-gag-writer`
-  engine row (GPT-6 Astra, high effort), selected by
+  engine row (GPT-6 Astra, medium effort since 2026-11-14: high took 100–211 s a call), selected by
   `fact_visual_concepts_engine_id`; migration 0137 pointed that setting there
   and kept the previous value as `fact_visual_concepts_engine_id_before_0137`.
   The render planner keeps its own row. The system prompt is the text David
