@@ -512,7 +512,10 @@ David-gate value (`waiting:david` — since 2026-08-15 the only one; see the
 David-gate definition above):
 
 - If there's an open, unresolved review thread addressed to David → read
-  it and restate the actual question in plain language.
+  it and restate the actual question in plain language, keeping the
+  question ID it was asked under where it has one (`claude-core.md`,
+  interaction rule 4; an ID is one session's, so it is shown beside that
+  session's title).
 - If the gate is structural (🛑 Scope of work, 🛑 Plan approval, 🛑 UAT, or —
   on a prototype-phase feature at `stage:coding` — a usable version delivered
   and waiting on his feedback through the rail) with no open question — say
