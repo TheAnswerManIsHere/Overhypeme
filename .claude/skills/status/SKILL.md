@@ -58,8 +58,9 @@ first words of each line, since he scans (interaction rule 7's reason).
    Over-inclusion is fine; omission is not (David: *"It's OK if you
    accidentally give me more than I need, so long as it's summarized"*).
 6. **🛑 Waiting on you** — `nothing`, or **every open ask reproduced in
-   full**: the original banner verbatim, context, numbered options and
-   recommendation included. **This is the one named exception to
+   full**: the original banner verbatim, context, each question's ID (the
+   one it was asked under, never a new one — `claude-core.md`, interaction
+   rule 4), numbered options and recommendation included. **This is the one named exception to
    interaction rule 6's "an ask is shown once"** — saving him the scroll
    is the whole purpose, and he answers from context, not from a
    one-line reminder (David, 2026-10-23: *"I need the full question with

@@ -56,12 +56,13 @@ Decide by what "this" refers to (contract's trigger table):
 
 ## Claude-specific mechanics the contract leaves to me
 
-- **Numbered questions, never lettered** — per CLAUDE.md, when I ask David
-  anything during harvest/report.
+- **Every question under its static ID (`Q1`, `Q2`, …), never lettered** —
+  `claude-core.md`, interaction rule 4, when I ask David anything during
+  harvest/report.
 - **Report timing** — for unambiguous, session/repo-grounded routing I write
   the docs and report the completed routing in my summary (no pre-approval
   pause); a claim needing product judgment is marked **Needs David
-  confirmation** and carried to the report as a numbered question, never a
+  confirmation** and carried to the report as a question under its ID, never a
   stop (`documentation-workflow.md`, Step 5); I pause only when David asked
   to see routing first.
 - **Commit / PR discipline** — I follow the shared contract's placement rule
