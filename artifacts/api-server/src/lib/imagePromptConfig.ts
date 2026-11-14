@@ -20,7 +20,6 @@
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getConfigString } from "./adminConfig";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────
@@ -172,17 +171,8 @@ export async function getImagePromptEngineId(): Promise<string> {
   return DEFAULT_IMAGE_PROMPT_ENGINE_ID;
 }
 
-// ─── Seeding ───────────────────────────────────────────────────────────────
 
-interface ConfigDef {
-  key: string;
-  value: string;
-  dataType: string;
-  label: string;
-  description: string;
-}
-
-/** Their labels and descriptions for the admin screen's read-only rows (codeOwnedPrompts.ts). */
+/** The system prompt keys set in code, which codeOwnedPrompts.ts refuses to save or show. */
 export const IMAGE_PROMPT_PROMPT_DEFS = [
   {
     key: IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem,

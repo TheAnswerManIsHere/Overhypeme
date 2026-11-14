@@ -12,10 +12,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
-import { getConfigString, type ConfigStringSource } from "./adminConfig";
-import { logger } from "./logger";
+import type { ConfigStringSource } from "./adminConfig";
 
 /** Call-site sampling overrides (classification wants low temperature + room). */
 export const FACT_ENRICHMENT_TEMPERATURE = 0.2;
@@ -381,17 +378,8 @@ export async function resolveFactEnrichmentSystemPrompt(): Promise<FactEnrichmen
   return FACT_ENRICHMENT_SYSTEM_RESOLUTION;
 }
 
-// ─── Seeding ─────────────────────────────────────────────────────────────────
 
-interface FactEnrichmentConfigDef {
-  key: string;
-  value: string;
-  dataType: string;
-  label: string;
-  description: string;
-}
-
-/** Their labels and descriptions for the admin screen's read-only rows (codeOwnedPrompts.ts). */
+/** The system prompt keys set in code, which codeOwnedPrompts.ts refuses to save or show. */
 export const FACT_ENRICHMENT_PROMPT_DEFS = [
   {
     key: FACT_ENRICHMENT_CONFIG_KEYS.system,

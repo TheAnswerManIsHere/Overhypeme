@@ -14,10 +14,6 @@
  * {NAME}/{NAME_POSSESSIVE} tokens for the protagonist.
  */
 
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
-import { getConfigString } from "./adminConfig";
-import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────
 
@@ -49,17 +45,8 @@ export async function getVisualConceptsEngineId(): Promise<string> {
   return DEFAULT_VISUAL_CONCEPTS_ENGINE_ID;
 }
 
-// ─── Seeding ───────────────────────────────────────────────────────────────
 
-interface ConfigDef {
-  key: string;
-  value: string;
-  dataType: string;
-  label: string;
-  description: string;
-}
-
-/** Their labels and descriptions for the admin screen's read-only rows (codeOwnedPrompts.ts). */
+/** The system prompt keys set in code, which codeOwnedPrompts.ts refuses to save or show. */
 export const VISUAL_CONCEPTS_PROMPT_DEFS = [
   {
     key: VISUAL_CONCEPTS_CONFIG_KEYS.system,
