@@ -706,6 +706,10 @@ describe("refresh approve → promote", () => {
     const [tag] = await db.insert(hashtagsTable).values({ name: `trefresh${randomUUID().slice(0, 8)}` }).returning();
     await db.insert(factHashtagsTable).values({ factId: fact.id, hashtagId: tag.id });
 
+    // An approved humor note (PR #936) that a refresh must leave as it is.
+    const noteAt = new Date("2026-11-13T12:00:00Z");
+    await db.update(factsTable).set({ humorNote: "Alex outswims the shark.", humorNoteApprovedAt: noteAt }).where(eq(factsTable.id, fact.id));
+
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
     // Simulate the PR3 signature stamp so promote's signature-from-candidate is provable now.
     const fakeSignature = { engineRevision: 7, taxonomyVersion: "vTEST" };
@@ -738,6 +742,8 @@ describe("refresh approve → promote", () => {
     assert.deepEqual(f.aiMemeImages, AI_MEME_SENTINEL);
     assert.equal(f.upvotes, 7);
     assert.equal(f.score, 7);
+    assert.equal(f.humorNote, "Alex outswims the shark.", "the approved humor note survives the refresh");
+    assert.equal(f.humorNoteApprovedAt?.toISOString(), noteAt.toISOString());
     const tagRows = await db.select().from(factHashtagsTable).where(eq(factHashtagsTable.factId, fact.id));
     assert.equal(tagRows.length, 1, "hashtags neither attached nor removed");
     assert.equal(tagRows[0].hashtagId, tag.id);

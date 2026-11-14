@@ -21,6 +21,8 @@ import {
   storedCandidateConceptSchema,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   CANDIDATE_SCENE_MAX_CHARS,
+  HUMOR_NOTE_MAX_CHARS,
+  humorNoteSaveSchema,
   type FactEnrichment,
   type StoredCandidateConcept,
 } from "@workspace/api-zod";
@@ -426,6 +428,14 @@ describe("the stand-in name is converted by the tokenizer (PLAN_GAG_GENERATOR.md
       assert.equal(out.candidates[0]!.bubbles[0]!.text.includes("Alex"), false, "never stored naming Alex");
       assert.ok(out.candidates.slice(1).every(isCandidateConceptPickable));
     }
+  });
+
+  it("a joke read longer than the note's limit is capped, so That's right can always save it (build report, PR #936)", async () => {
+    const tokenize = async (t: string) => ({ template: t.replace(/\bAlex\b/g, "{NAME}") });
+    const model = async () => JSON.stringify({ jokeRead: "R".repeat(HUMOR_NOTE_MAX_CHARS + 400), concepts: [alex("Alex waves."), alex("Alex lifts a bus."), alex("Alex reads.")] });
+    const out = await generateVisualConceptsWithModel(input(), model, tokenize);
+    assert.equal(out.jokeRead.length, HUMOR_NOTE_MAX_CHARS);
+    assert.equal(humorNoteSaveSchema.safeParse({ text: out.jokeRead }).success, true);
   });
 
   it("a scene that never names the subject is not pickable", async () => {

@@ -30,6 +30,7 @@ import {
   getSubtypeGuidance,
   CANDIDATE_VISUAL_CONCEPT_COUNT,
   VISUAL_CONCEPTS_PROMPT_VERSION,
+  HUMOR_NOTE_MAX_CHARS,
   type CandidateConceptsWire,
   type FactEnrichment,
   type FactSubtype,
@@ -48,7 +49,10 @@ import { loadEngine } from "../engineInterpreter";
 import { logger } from "../logger";
 
 /** A frontier reasoning model at high effort needs minutes, not the 30s default. */
-export const VISUAL_CONCEPTS_LLM_TIMEOUT_MS = 240_000;
+// Measured on dev 2026-11-14 (PR #936 post-merge, five facts): 100–211 s per
+// call at high effort. 360 s leaves room above the slowest seen; with one
+// corrective retry a job stays well under the queue's 30-minute stuck cutoff.
+export const VISUAL_CONCEPTS_LLM_TIMEOUT_MS = 360_000;
 export const VISUAL_CONCEPTS_MAX_TOKENS = 4000;
 
 /** The stand-in name the gag writer uses for the subject; tokenized afterwards. */
@@ -346,7 +350,8 @@ export function validateAndSanitizeCandidateConcepts(
     return { ok: false, error: `no concept could be used (${why}). Name the subject "Alex" in every sceneDescription and give no other character that name.` };
   }
 
-  return { ok: true, jokeRead: result.data.jokeRead.trim(), candidates };
+  // Capped at the note's own limit, so "That's right" can always save it.
+  return { ok: true, jokeRead: result.data.jokeRead.trim().slice(0, HUMOR_NOTE_MAX_CHARS), candidates };
 }
 
 type UserMessage = { role: "user"; content: string };
