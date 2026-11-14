@@ -84,6 +84,11 @@ CREATE INDEX IF NOT EXISTS "IDX_fact_gags_fact_id" ON "fact_gags" ("fact_id");--
 CREATE UNIQUE INDEX IF NOT EXISTS "UQ_fact_gags_fact_slot_live" ON "fact_gags" ("fact_id", "slot") WHERE "removed_at" IS NULL;--> statement-breakpoint
 ALTER TABLE "image_prompt_attempts" ADD COLUMN IF NOT EXISTS "gag_id" bigint;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "IDX_ipa_gag_scenario_created" ON "image_prompt_attempts" ("gag_id", "review_render_scenario_key", "created_at" DESC);--> statement-breakpoint
+-- The old rule read the gag from the enrichment, which the data move below
+-- strips; a CHECK is enforced on each row as it is written, so it goes first
+-- (Codex, PR #956 round 1). Outside the block, so an empty database loses it
+-- too; the whole file is one transaction, so a later abort restores it.
+ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_active_requires_concept";--> statement-breakpoint
 DO $$
 DECLARE
   v_facts jsonb;
@@ -231,7 +236,6 @@ BEGIN
   RAISE NOTICE '0139_fact_gags: % approved (carried over), % pending, % empty-scene overrides removed, % refresh candidates moved to pending, % identical, % test renders now name their gag',
     v_approved, v_pending, v_empty, v_refresh_pending, v_refresh_same, v_attempts;
 END $$;--> statement-breakpoint
-ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_active_requires_concept";--> statement-breakpoint
 ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_enrichment_holds_no_gag";--> statement-breakpoint
 ALTER TABLE "facts" ADD CONSTRAINT "facts_enrichment_holds_no_gag" CHECK (
   NOT coalesce("enrichment" ? 'visualPromptStrategyOverride', false)

@@ -24,6 +24,13 @@ import { gagApi, tokenizeGag, type GagResult } from "./gagApi";
 
 const IN_FLIGHT = new Set(["queued", "rendering"]);
 const POLL_MS = 2000;
+/**
+ * How long after the panel opens at Test Renders it keeps reloading even with
+ * nothing visibly drawing: the batch the server queues on arrival is created by
+ * a background job a few seconds later, and until then the cards read
+ * `missing`, or show a previous batch's finished renders (Codex, PR #956 round 1).
+ */
+const PREPARE_WINDOW_MS = 60_000;
 
 export interface GagsPanelProps {
   factId: number;
@@ -31,6 +38,13 @@ export interface GagsPanelProps {
   reviewId: number | null;
   /** Test renders and "Approve this render" (the Test Renders step and the Facts editor). */
   rendersEnabled: boolean;
+  /**
+   * The server queues renders without being asked (a review arriving at Test
+   * Renders): keep reloading while a required render has not appeared, and for
+   * a short window after opening. Never set where `missing` just means nobody
+   * asked (the Facts editor, the Gags step), or the panel would poll forever.
+   */
+  rendersExpected?: boolean;
   /** Names the tokenizer should recognise as the subject. */
   subjectNames: string[];
   /** Bump to reload the view (an action elsewhere changed the gags). */
@@ -44,7 +58,7 @@ function sameContent(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
-export function GagsPanel({ factId, reviewId, rendersEnabled, subjectNames, reloadKey = 0, onView, disabled = false }: GagsPanelProps) {
+export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, disabled = false }: GagsPanelProps) {
   const [view, setView] = useState<FactGagsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -63,13 +77,24 @@ export function GagsPanel({ factId, reviewId, rendersEnabled, subjectNames, relo
 
   useEffect(() => { if (factId > 0) void load(); }, [factId, reloadKey, load]);
 
-  // Poll while any test render is still drawing; stop when all are terminal.
-  const drawing = !!view?.gags.some((g) => g.renders.cards.some((c) => IN_FLIGHT.has(c.status)));
+  // Poll while any test render is still drawing. Where the server queues renders
+  // itself, also while a required render has not appeared yet (the review grid's
+  // rule, useFactRenderScenarios) and through the prepare window after opening.
+  const [prepareWindowOpen, setPrepareWindowOpen] = useState(rendersExpected);
   useEffect(() => {
-    if (!drawing) return;
+    if (!rendersExpected) { setPrepareWindowOpen(false); return; }
+    setPrepareWindowOpen(true);
+    const t = setTimeout(() => setPrepareWindowOpen(false), PREPARE_WINDOW_MS);
+    return () => clearTimeout(t);
+  }, [rendersExpected, factId, reloadKey]);
+  const drawing = !!view?.gags.some((g) => g.renders.cards.some((c) => IN_FLIGHT.has(c.status)));
+  const awaitingPrepared = rendersExpected && !!view?.gags.some((g) => g.renders.cards.some((c) => c.required && c.status === "missing"));
+  const poll = drawing || awaitingPrepared || (rendersExpected && prepareWindowOpen);
+  useEffect(() => {
+    if (!poll) return;
     const h = setInterval(() => { void load(); }, POLL_MS);
     return () => clearInterval(h);
-  }, [drawing, load]);
+  }, [poll, load]);
 
   if (!view) {
     return loadError ? (

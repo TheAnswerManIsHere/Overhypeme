@@ -168,6 +168,35 @@ describe("gag routes: every slot follows the same rules", () => {
   });
 });
 
+describe("the default gag: approved first, across every slot", () => {
+  it("a pending-only gag in a freed lower slot does not displace the approved one above it", async () => {
+    const { factId, gagId } = await liveFact();
+    const content = scene("{NAME} the approved slot-2 gag.");
+    const added = await request(app).post(url(factId)).send({ content });
+    const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
+    await request(app).post(url(factId, `/${secondId}/approve`)).send({ attemptId: await render(factId, secondId, content) });
+    assert.equal((await request(app).post(url(factId, `/${gagId}/remove`)).send({})).status, 200);
+    // A new gag takes the freed slot 1, pending.
+    const fresh = await request(app).post(url(factId)).send({ content: scene("{NAME} pending in slot 1.") });
+    assert.equal(fresh.body.gags.find((g: { slot: number }) => g.slot === 1).state, "new");
+
+    const primary = await primaryGag(factId);
+    assert.equal(primary!.gag.id, secondId, "the default is the approved gag, not the lower-slot pending one");
+    assert.equal(primary!.content.coreSceneOverride, content.coreSceneOverride);
+    assert.equal((await availableGags(factId))[0]!.gagId, secondId, "and it agrees with the list a picker reads");
+  });
+
+  it("a fact with nothing approved falls back to its lowest-slot pending gag", async () => {
+    const [fact] = await db.insert(factsTable).values({ text: `{NAME} staging ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false, enrichment: buildPlaceholderFactEnrichment() as never }).returning({ id: factsTable.id });
+    factIds.push(fact!.id);
+    await db.insert(factGagsTable).values([
+      { factId: fact!.id, slot: 2, pendingContent: scene("{NAME} pending two.") as never },
+      { factId: fact!.id, slot: 1, pendingContent: scene("{NAME} pending one.") as never },
+    ]);
+    assert.equal((await primaryGag(fact!.id))!.content.coreSceneOverride, "{NAME} pending one.");
+  });
+});
+
 describe("gag routes: discard and remove", () => {
   it("discarding a change returns the gag to its approved version, and spends nothing", async () => {
     const { factId, gagId } = await liveFact();

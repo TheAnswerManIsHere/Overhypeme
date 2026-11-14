@@ -1160,6 +1160,7 @@ function ReviewModal({
                   factId={stagingFactId}
                   reviewId={review.id}
                   rendersEnabled
+                  rendersExpected
                   subjectNames={subjectNames}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}

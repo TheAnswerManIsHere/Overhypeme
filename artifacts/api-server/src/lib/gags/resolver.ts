@@ -127,15 +127,18 @@ export async function resolveOfferedGag(factId: number, gagId: number | null, ex
 /**
  * The gag a moderator-side surface uses when it needs "the fact's gag" and has
  * no specific one (comparison runs, the prompt preview, the gag writer's
- * context): the lowest-slot non-removed gag, its approved version if it has
- * one, else its pending content.
+ * context): the default gag, the lowest-slot APPROVED one, as `availableGags`
+ * puts first. Only a fact with nothing approved (first-time moderation) falls
+ * back to its lowest-slot pending content. Approved-first across the whole set,
+ * never per slot: a pending-only gag in a lower slot must not displace an
+ * approved one above it (Codex, PR #956 round 1).
  */
 export async function primaryGag(factId: number, executor: Executor = db): Promise<{ gag: FactGag; content: GagContent } | null> {
-  for (const gag of await loadGags(factId, executor)) {
-    const content = ((gag.approvedContent ?? gag.pendingContent) as GagContent | null) ?? null;
-    if (content) return { gag, content };
-  }
-  return null;
+  const gags = await loadGags(factId, executor);
+  const approved = gags.find((g) => g.approvedContent != null);
+  if (approved) return { gag: approved, content: approved.approvedContent as GagContent };
+  const pending = gags.find((g) => g.pendingContent != null);
+  return pending ? { gag: pending, content: pending.pendingContent as GagContent } : null;
 }
 
 /**

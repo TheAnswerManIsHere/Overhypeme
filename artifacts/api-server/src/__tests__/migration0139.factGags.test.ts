@@ -92,7 +92,15 @@ async function enrichmentOf(factId: number) {
     sql`SELECT enrichment, enrichment_ai_derived AS ai FROM facts WHERE id = ${factId}`);
 }
 
+/** The pre-0139 rule, as the baseline installs it (lib/db/migrations/baseline/baseline.sql). */
+const OLD_RULE = `ALTER TABLE facts ADD CONSTRAINT facts_active_requires_concept CHECK (
+  is_active = false OR COALESCE(
+    jsonb_typeof(enrichment #> '{visualPromptStrategyOverride,coreSceneOverride}') = 'string'
+    AND (enrichment #>> '{visualPromptStrategyOverride,coreSceneOverride}') ~ '\\S',
+    false))`;
+
 async function cleanup() {
+  await db.execute(sql`ALTER TABLE facts DROP CONSTRAINT IF EXISTS facts_active_requires_concept`);
   await db.execute(sql`DELETE FROM fact_enrichment_versions WHERE fact_id IN (SELECT id FROM facts WHERE text LIKE ${P + "%"})`);
   await db.execute(sql`DELETE FROM pending_reviews WHERE submitted_text LIKE ${P + "%"}`);
   await db.execute(sql`DELETE FROM facts WHERE text LIKE ${P + "%"}`);
@@ -107,6 +115,11 @@ describe("migration 0139: every gag in one place", () => {
     await db.execute(sql`DROP TRIGGER IF EXISTS fact_gags_live_fact_keeps_approved_gag ON fact_gags`);
     await db.execute(sql`ALTER TABLE facts DROP CONSTRAINT IF EXISTS facts_enrichment_holds_no_gag`);
     await db.execute(sql`ALTER TABLE fact_enrichment_versions DROP CONSTRAINT IF EXISTS fev_open_candidate_holds_no_gag`);
+    // ...and the old rule every pre-0139 database carries, which the data move
+    // must not trip (Codex, PR #956 round 1). NOT VALID: other suites' live facts
+    // in this shard are already in the new shape; it is still enforced on writes.
+    await db.execute(sql`ALTER TABLE facts DROP CONSTRAINT IF EXISTS facts_active_requires_concept`);
+    await db.execute(sql.raw(OLD_RULE + " NOT VALID"));
 
     const live = await insertFact("live", true, { ...classification, visualPromptStrategyOverride: ov("{NAME} lifts the moon.") });
     const staging = await insertFact("staging", false, { ...classification, visualPromptStrategyOverride: ov("{NAME} waits.") });

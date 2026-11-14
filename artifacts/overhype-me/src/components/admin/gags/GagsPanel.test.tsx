@@ -5,6 +5,7 @@
  * prompt-budget refusal shown as the server's sentences (#685).
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { act } from "@testing-library/react";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
@@ -157,5 +158,60 @@ describe("GagsPanel", () => {
     expect(screen.queryByTestId("gag-remove")).toBeNull();
     expect(screen.queryByTestId("gag-run-renders")).toBeNull();
     expect(screen.queryByTestId("gag-add")).toBeNull();
+  });
+
+  describe("reloading while the server prepares renders (Codex, PR #956 round 1)", () => {
+    const missing: RenderScenarioCard = {
+      key: "generic_t2i", label: "Generic", purpose: "", referenceIdentityType: null, required: true,
+      status: "missing", stale: false, latestAttemptId: null, imageUrl: null, message: null, applicability: null,
+    };
+    const done: RenderScenarioCard = { ...missing, status: "done", latestAttemptId: 950, imageUrl: "/api/admin/gags/2/renders/j/image" };
+    const pendingGag = (cards: RenderScenarioCard[]) => gag({
+      id: 2, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null,
+      pendingContent: scene("{NAME} juggles planets."), renders: { reviewId: 77, gagId: 2, cards, tally: NO_TALLY },
+    });
+    /** GET answers each view in turn, then repeats the last. */
+    function stubSequence(views: FactGagsView[]) {
+      let n = 0;
+      const gets = vi.fn();
+      vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+        gets();
+        const v = views[Math.min(n, views.length - 1)]!;
+        if ((init?.method ?? "GET") === "GET") n++;
+        return new Response(JSON.stringify(v), { status: 200, headers: { "Content-Type": "application/json" } });
+      }));
+      return gets;
+    }
+    afterEach(() => vi.useRealTimers());
+
+    it("at Test Renders, a first view with only missing renders reloads until the batch appears, and offers its approval", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const gets = stubSequence([view([pendingGag([missing])], { isActive: false }), view([pendingGag([done])], { isActive: false })]);
+      render(<GagsPanel factId={5} reviewId={77} rendersEnabled rendersExpected subjectNames={[]} />);
+      await screen.findByTestId("gag-card");
+      expect(screen.queryByTestId("gag-approve-render")).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+      expect(gets.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(await screen.findByTestId("gag-approve-render")).toBeTruthy();
+    });
+
+    it("on re-approval, a previous batch's finished renders do not stop the reloading inside the prepare window", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const old: RenderScenarioCard = { ...done, latestAttemptId: 900 };
+      const gets = stubSequence([view([pendingGag([old])], { isActive: false }), view([pendingGag([{ ...done, status: "queued", imageUrl: null }])], { isActive: false })]);
+      render(<GagsPanel factId={5} reviewId={77} rendersEnabled rendersExpected subjectNames={[]} />);
+      await screen.findByTestId("gag-card");
+      await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+      expect(gets.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("in the Facts editor, a never-run gag's missing renders do not make the panel poll", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const gets = stubSequence([view([pendingGag([missing])])]);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      await screen.findByTestId("gag-card");
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(gets).toHaveBeenCalledTimes(1);
+    });
   });
 });
