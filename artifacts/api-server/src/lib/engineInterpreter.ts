@@ -1,7 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { enginesTable, type Engine } from "@workspace/db/schema";
 import { logger } from "./logger.js";
+import { ALL_ENGINES } from "./engines/catalogue";
+import { codeDefinitionToRow } from "./engines/toRow";
+import type { EngineDefinition } from "./engines/types";
 
 /**
  * Data-driven engine interpreter.
@@ -42,86 +45,11 @@ import { logger } from "./logger.js";
 // ParamSchema shape (matches lib/db/src/schema/engines.ts JSONDB comment)
 // ────────────────────────────────────────────────────────────────────────────
 
-export type ParamPrimitive =
-  | "string"
-  | "int"
-  | "stringInt"
-  | "boolean"
-  | "float"
-  /**
-   * Wraps a scalar string into a single-element array, or passes an array
-   * through unchanged. Needed for engines like Nano Banana Pro whose
-   * `image_urls` input is an array even when only one reference is sent.
-   */
-  | "stringArray"
-  /**
-   * Parses "WxH" into `{ width, height }` for endpoints that take a size as
-   * a pixel object (launch Phase 8's GPT Image 2.5 and Seedream 5.0 Pro).
-   * Declare no `enum` on such an entry: the emitted value is an object.
-   */
-  | "dimensions";
-
-/**
- * Tiny predicate language used by `includeWhen`. Evaluates against the
- * raw pipeline params object. Two shapes:
- *   - `{ field: "engineMode", equals: "custom" }`
- *   - `{ field: "videoLengthSeconds", greaterThan: 5 }`
- *   - `{ field: "renderedFactText", present: true }`
- *
- * Multiple conditions in the same object are AND-ed. Use a top-level `any`
- * key with an array of predicates for OR semantics.
- */
-export interface ParamPredicate {
-  field?: string;
-  equals?: unknown;
-  notEquals?: unknown;
-  oneOf?: unknown[];
-  greaterThan?: number;
-  lessThan?: number;
-  /** True when the field is defined AND non-empty. */
-  present?: boolean;
-  /** OR-of any sub-predicate. */
-  any?: ParamPredicate[];
-}
-
-export interface ParamSchemaEntry {
-  /** Output key on the final fal input object. */
-  name: string;
-  /** Pipeline-level key to read from. */
-  from: string;
-  /** Coercion primitive. */
-  type: ParamPrimitive;
-  /** Optional substitution table applied before validation/coercion. */
-  map?: Record<string, unknown>;
-  /**
-   * Declared accepted values for this param. After map substitution, the
-   * resolved value must be `===` one of these; otherwise we throw
-   * InvalidEngineParamError before calling fal. Use to catch the "Veo
-   * doesn't accept generate_audio" class of bug.
-   */
-  enum?: unknown[];
-  /**
-   * Numeric range. `policy: "clamp"` (default) silently constrains; "throw"
-   * raises InvalidEngineParamError. No effect for non-numeric types.
-   */
-  range?: { min?: number; max?: number; policy?: "clamp" | "throw" };
-  /**
-   * When set, the param is only emitted if the predicate evaluates true
-   * against the full pipeline params object. Use for conditional fields
-   * like "only send voice_text when Kling voice control is enabled."
-   */
-  includeWhen?: ParamPredicate;
-  /** Fallback value when the pipeline value is undefined/null/empty. */
-  default?: unknown;
-  /** When true and no value resolves, throws MissingRequiredParamError. */
-  required?: boolean;
-}
-
-export interface ParamSchema {
-  params: ParamSchemaEntry[];
-  /** Static params merged into the final input as-is. */
-  static?: Record<string, unknown>;
-}
+// The parameter-schema types live in engines/paramSchema.ts, so that the
+// engine definitions can use them without importing this module (which reads
+// the catalogue: a cycle).
+export type { ParamPrimitive, ParamPredicate, ParamSchema, ParamSchemaEntry } from "./engines/paramSchema";
+import type { ParamPrimitive, ParamPredicate, ParamSchema, ParamSchemaEntry } from "./engines/paramSchema";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Errors
@@ -187,8 +115,6 @@ interface CacheEntry<T> {
 }
 
 const engineByIdCache = new Map<string, CacheEntry<Engine | null>>();
-const defaultByKindCache = new Map<string, CacheEntry<Engine>>();
-const activeByKindCache = new Map<string, CacheEntry<Engine[]>>();
 
 function getCached<T>(map: Map<string, CacheEntry<T>>, key: string): T | undefined {
   const entry = map.get(key);
@@ -204,18 +130,95 @@ function setCached<T>(map: Map<string, CacheEntry<T>>, key: string, value: T): v
   map.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-/** Test/admin hook — clears all in-memory engine caches. */
+/** Test hook — clears the in-memory engine cache. */
 export function clearEngineCaches(): void {
   engineByIdCache.clear();
-  defaultByKindCache.clear();
-  activeByKindCache.clear();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// The effective engine (plan `docs/plans/PLAN_AI_SETTINGS_IN_CODE.md`)
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Every field that decides which engine a step uses or how its request is
+ * built. They come from the code catalogue, never from the row: an engine
+ * row's stored copy of any of them is ignored (decisions.md 2026-11-14, AI
+ * call settings live in code). The row keeps availability, retirement and
+ * deletion, tier and visibility, ordering, pricing and run-time hints, and
+ * nothing writes the stored copies over, so a code revert restores the old
+ * behaviour exactly.
+ */
+export const CODE_OWNED_CALL_FIELDS = [
+  "provider",
+  "endpointId",
+  "kind",
+  "family",
+  "imageMode",
+  "sizeVocabulary",
+  "allowedResolutions",
+  "defaultResolution",
+  "allowedAspectRatios",
+  "defaultAspectRatio",
+  "paramSchema",
+  "defaultTemperature",
+  "defaultMaxTokens",
+  "defaultReasoningEffort",
+] as const satisfies readonly (keyof Engine)[];
+
+/** Definitions a test registers for engines it creates; never set in production. */
+const testDefinitions = new Map<string, EngineDefinition>();
+
+/** Test hook: register a code definition for a test engine id (a clone of a catalogue engine). */
+export function __registerEngineDefinitionForTest(def: EngineDefinition): void {
+  testDefinitions.set(def.id, def);
+  engineByIdCache.delete(def.id);
+}
+
+/** Every code definition: the catalogue, plus any a test registered. */
+export function codeEngineDefinitions(): EngineDefinition[] {
+  return testDefinitions.size ? [...ALL_ENGINES, ...testDefinitions.values()] : ALL_ENGINES;
+}
+
+const catalogueById = new Map(ALL_ENGINES.map((def) => [def.id, def]));
+
+/** The code definition for an engine id, or undefined when the catalogue has none. */
+export function codeEngineDefinition(id: string): EngineDefinition | undefined {
+  return catalogueById.get(id) ?? testDefinitions.get(id);
+}
+
+/** The ids of every image engine with a code definition. */
+export function codeImageEngineIds(): string[] {
+  return codeEngineDefinitions().filter((d) => d.kind === "image").map((d) => d.id);
+}
+
+/**
+ * An engine row with every call-shaping field taken from its code
+ * definition, or null when the catalogue has no definition: such an engine
+ * cannot be dispatched, and its row stays readable for history only.
+ */
+export function effectiveEngine(row: Engine): Engine | null {
+  const def = codeEngineDefinition(row.id);
+  if (!def) return null;
+  const code = codeDefinitionToRow(def);
+  const merged = { ...row } as Record<string, unknown>;
+  for (const field of CODE_OWNED_CALL_FIELDS) merged[field] = (code as Record<string, unknown>)[field] ?? null;
+  return merged as Engine;
+}
+
+/** `effectiveEngine` over a list, dropping the engines with no code definition. */
+export function effectiveEngines(rows: Engine[]): Engine[] {
+  return rows.map(effectiveEngine).filter((e): e is Engine => e !== null);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // Loaders
 // ────────────────────────────────────────────────────────────────────────────
 
-/** Fetches an engine row by id. Cached. Returns null when not found. */
+/**
+ * The effective engine for an id (above). Cached. Null when there is no row,
+ * or when the code catalogue has no definition for it, which is logged: an
+ * engine without a code definition cannot be dispatched.
+ */
 export async function loadEngine(id: string): Promise<Engine | null> {
   const cached = getCached(engineByIdCache, id);
   if (cached !== undefined) return cached;
@@ -225,75 +228,10 @@ export async function loadEngine(id: string): Promise<Engine | null> {
     .from(enginesTable)
     .where(eq(enginesTable.id, id))
     .limit(1);
-  const value = row ?? null;
+  const value = row ? effectiveEngine(row) : null;
+  if (row && !value) logger.warn({ engineId: id }, "engine has no code definition; refusing to dispatch it");
   setCached(engineByIdCache, id, value);
   return value;
-}
-
-/** Fetches the default engine for a kind. Throws if no active default exists. */
-export async function loadDefaultEngine(
-  kind: "image" | "utility" | "llm",
-): Promise<Engine> {
-  const cached = getCached(defaultByKindCache, kind);
-  if (cached) return cached;
-
-  const [row] = await db
-    .select()
-    .from(enginesTable)
-    .where(
-      and(
-        eq(enginesTable.kind, kind),
-        eq(enginesTable.isDefault, true),
-        eq(enginesTable.isActive, true),
-      ),
-    )
-    .limit(1);
-
-  if (!row) {
-    throw new Error(`No active default engine found for kind="${kind}"`);
-  }
-  setCached(defaultByKindCache, kind, row);
-  return row;
-}
-
-export interface LoadActiveEnginesOpts {
-  /**
-   * Predicate the caller supplies to test whether the requesting user has
-   * a feature flag enabled. The interpreter never reads from a user-flag
-   * source itself — callers (route handlers) wire it up.
-   */
-  userHasFlag?: (flag: string) => boolean;
-}
-
-/**
- * Returns active engines for a kind, filtered by feature-flag visibility.
- *
- * An engine is included when:
- *   - isActive = true, AND
- *   - featureFlagRequired is null, OR
- *   - the supplied predicate returns true for that flag, OR
- *   - the engine is the default for its kind (defaults are always visible)
- */
-export async function loadActiveEngines(
-  kind: "image" | "utility" | "llm",
-  opts: LoadActiveEnginesOpts = {},
-): Promise<Engine[]> {
-  let rows = getCached(activeByKindCache, kind);
-  if (!rows) {
-    rows = await db
-      .select()
-      .from(enginesTable)
-      .where(and(eq(enginesTable.kind, kind), eq(enginesTable.isActive, true)));
-    setCached(activeByKindCache, kind, rows);
-  }
-
-  const { userHasFlag } = opts;
-  return rows.filter((engine) => {
-    if (engine.isDefault) return true;
-    if (!engine.featureFlagRequired) return true;
-    if (!userHasFlag) return false;
-    return userHasFlag(engine.featureFlagRequired);
-  });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

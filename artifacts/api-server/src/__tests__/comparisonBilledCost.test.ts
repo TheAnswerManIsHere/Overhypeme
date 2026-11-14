@@ -14,6 +14,7 @@ import { createComparisonSet } from "../lib/comparison/sets.js";
 import { parseBillingEvents, syncBilledCosts, type BillingFetcher } from "../lib/comparison/billedCost.js";
 import { getComparisonResults } from "../lib/comparison/judging.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { testEngineRow } from "./helpers/testEngines.js";
 
 const P = `t-cbc-${randomUUID().slice(0, 6)}`;
 const engineIds: string[] = [];
@@ -26,7 +27,7 @@ before(async () => {
   for (const src of ["flux-3", "flux-3-edit"]) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${P}-${def.imageMode}`;
-    await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, family: P, isDefault: false });
+    await db.insert(enginesTable).values(testEngineRow(def, id, P));
     engineIds.push(id);
   }
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true });

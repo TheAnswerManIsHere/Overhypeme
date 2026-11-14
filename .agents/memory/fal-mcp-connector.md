@@ -40,7 +40,7 @@ generation, fal is something I can drive directly:
 - **Billing goes to fal's "Active MCP account"**, chosen at
   fal.ai/dashboard/ai-tools, not to whichever key the app uses. unable to
   verify: whether that is the same fal account as the app's key (`FAL_AI_API_KEY`,
-  falling back to `FAL_KEY`: `artifacts/api-server/src/routes/adminEngines.ts`);
+  falling back to `FAL_KEY`: `artifacts/api-server/src/lib/falClient.ts`);
   comparing the two in fal's dashboard would settle it.
 - **A connector generation does not go through the product.** It skips the
   app's planner, compiler, moderation and render-budget gate. So it can

@@ -153,8 +153,6 @@ export interface ConfigRow {
   maxValue: number | null;
   isPublic: boolean;
   updatedAt: string;
-  /** Set in code: shown read-only (Launch Phase 3, plan amendment 1). */
-  codeOwned?: boolean;
 }
 
 export interface FieldState {
@@ -171,11 +169,7 @@ export const STYLE_OPTIONS = IMAGE_STYLES.filter((s) => s.id !== "none");
 
 // ── Model / select option lists ───────────────────────────────────────────────
 
-// Phase 6: the FAL_IMAGE_*, FAL_SAFETY_TOLERANCE, FAL_OUTPUT_FORMAT,
-// FAL_ASPECT_RATIO, FAL_RAW_MODE, OPENAI_CHAT_MODELS, FAL_VIDEO_*
-// dropdown option lists were retired alongside their backing admin_config
-// keys. Engine metadata lives in the engines table (see lib/engines/* +
-// /admin/engines), and the AI meme pipeline uses baked-in defaults.
+// AI settings live in code and have no admin screen (decisions.md 2026-11-14).
 
 export const FLOAT_TEXT_CONFIGS = new Set<string>([]);
 
@@ -204,45 +198,7 @@ export function msToHuman(ms: number): string {
   return `≈ ${rounded} hour${rounded === 1 ? "" : "s"}`;
 }
 
-// OpenAI chat models offered for the image scene prompts.
-// Both families are supported: the legacy GPT-4o / 4.1 chat models (max_tokens +
-// temperature) and the GPT-5 reasoning models (max_completion_tokens +
-// reasoning_effort, no temperature), including GPT-6. The server picks the right call shape per
-// model via chatModelTuningParams (lib/openaiChatParams.ts), so any value here
-// works. GPT-5 models also honor the "Reasoning Effort" lever below.
-export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
-  { value: "gpt-6-luna",   label: "GPT-6 Luna (fast, cheap — default; temperature applies at effort None)" },
-  { value: "gpt-4o-mini",  label: "GPT-4o mini (legacy)" },
-  { value: "gpt-4o",       label: "GPT-4o" },
-  { value: "gpt-4.1-nano", label: "GPT-4.1 nano (fastest, cheapest)" },
-  { value: "gpt-4.1-mini", label: "GPT-4.1 mini" },
-  { value: "gpt-4.1",      label: "GPT-4.1" },
-  { value: "gpt-5.1",      label: "GPT-5.1 (reasoning — value)" },
-  { value: "gpt-5.2",      label: "GPT-5.2 (reasoning)" },
-  { value: "gpt-5.4-mini", label: "GPT-5.4 mini (reasoning — cheap)" },
-  { value: "gpt-5.5",      label: "GPT-5.5 (reasoning — frontier)" },
-];
-
-// Reasoning effort for GPT-5 / GPT-6 / o-series models. Ignored by GPT-4.x models.
-// For GPT-6 models, "None" also restores the temperature lever.
-export const REASONING_EFFORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "none",   label: "None (fastest, cheapest; GPT-6 honors temperature)" },
-  { value: "low",    label: "Low (default)" },
-  { value: "medium", label: "Medium" },
-  { value: "high",   label: "High" },
-  { value: "xhigh",  label: "Extra high (most capable, priciest)" },
-];
-
-// Model + sampling + reasoning effort for all LLM calls now live on the shared
-// General Intelligence engine (/admin/engines), so no scene-prompt config key is
-// a dropdown anymore. OPENAI_CHAT_MODEL_OPTIONS / REASONING_EFFORT_OPTIONS are
-// still exported for the engine editor on the engines page.
 export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {};
-
-// Image scene-prompt system prompt (model/sampling live on the engine now).
-export const SCENE_PROMPT_KEYS = new Set<string>([
-  "scene_prompt_system",
-]);
 
 // ── Shared context ────────────────────────────────────────────────────────────
 
@@ -369,21 +325,6 @@ export function ConfigInput({
   const isLong = row.dataType === "text" && !FLOAT_TEXT_CONFIGS.has(configKey);
   const dirty = stdDirty(configKey);
 
-  // The six AI system prompts are set in code (Launch Phase 3, plan amendment 1):
-  // shown here as the code has them, with no way to save.
-  if (row.codeOwned) {
-    return (
-      <div className="space-y-2" data-testid={`code-owned-${configKey}`}>
-        <textarea
-          rows={textRows ?? 3}
-          value={row.value}
-          readOnly
-          className="w-full bg-muted/40 border border-border rounded px-3 py-2 text-sm text-foreground/80 resize-y cursor-default"
-        />
-        <p className="text-xs text-muted-foreground">Set in code. Changing it is a reviewed pull request, not an edit here.</p>
-      </div>
-    );
-  }
   const isDelayMs = DELAY_MS_KEYS.has(configKey);
   const borderClass = "border-border";
 
@@ -485,14 +426,10 @@ export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textarea
           {row.description && (
             <p className="text-sm text-muted-foreground mt-0.5">{row.description}</p>
           )}
-          {row.codeOwned ? (
-            <div className="mt-1 text-xs text-muted-foreground">Set in code</div>
-          ) : (
-            <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-              <Clock className="w-3 h-3" />
-              <span>Last updated {new Date(row.updatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+            <Clock className="w-3 h-3" />
+            <span>Last updated {new Date(row.updatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+          </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{row.key}</code>

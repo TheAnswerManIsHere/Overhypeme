@@ -360,9 +360,10 @@ known exception, `recordStage2Cost`, which read its engine before its own `try`
 - **The fallback estimate prefers the persisted `engines` row over the code
   catalogue, but does use the catalogue as a fallback.** Precedence is
   persisted-exact → catalogue-exact → the maximum across both sources.
-  The persisted row wins because `estimatedCostUsdPerCall` is admin-editable and
-  `engines/reconcile.ts` strips `ADMIN_EDITABLE_FIELDS` from its boot update
-  precisely so operator edits survive; the catalogue still supplies a value when
+  The persisted row wins because `estimatedCostUsdPerCall` is among the fields
+  `engines/reconcile.ts` preserves at boot (`RECONCILE_PRESERVED_FIELDS`), so a
+  stored value survives a release (no admin screen edits it since 2026-11-14,
+  so changing it is a reviewed migration); the catalogue still supplies a value when
   the table legitimately has no row for that model, which happens (a seeded test
   database has far fewer rows than the catalogue). A model-specific figure always
   beats an aggregate, so an incomplete table cannot lower the floor. If the

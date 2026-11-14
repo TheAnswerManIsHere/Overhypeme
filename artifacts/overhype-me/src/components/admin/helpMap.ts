@@ -43,9 +43,8 @@ export const ADMIN_HELP_MAP: Record<string, HelpTarget> = {
   "/admin/eval": { chapter: "5-visual-pipeline" },
   "/admin/billing": { chapter: "10-payments-and-membership", anchor: "for-the-admin" },
   "/admin/refunds-disputes": { chapter: "10-payments-and-membership", anchor: "for-the-admin" },
-  // Engines, Features and Configuration genuinely share one section — that is
+  // Features and Configuration genuinely share one section — that is
   // what the Manual currently covers them under, not a mapping shortcut.
-  "/admin/engines": { chapter: "11-admin-console", anchor: "tuning-how-the-product-behaves" },
   // No chapter covers image tracing yet (its Manual harvest is the batched
   // Type 2 pass); chapter 5 is the nearest neighbour, since the records start
   // in the visual pipeline.

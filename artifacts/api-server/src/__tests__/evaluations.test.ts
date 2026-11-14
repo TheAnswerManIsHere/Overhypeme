@@ -45,6 +45,7 @@ import { createEvaluation, estimateEvaluation, finishEvaluation, listEvaluations
 import { panelPreparationTypicalUsd } from "../lib/comparison/admission.js";
 import { plannerSettings } from "../lib/comparison/sets.js";
 import type { EvaluationCreate } from "@workspace/api-zod";
+import { testEngineRow } from "./helpers/testEngines.js";
 
 const P = `t-ev-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -69,11 +70,15 @@ const fakeFal: ComparisonFal = {
 
 const ACTIVE_ENRICHMENT = { ...VALID_ENRICHMENT, visualPromptStrategyOverride: { version: 1, coreSceneOverride: "{NAME} lifts a whole mountain overhead." } };
 
+// One wrapper scopes the file-level hooks to this file: with test isolation off,
+// a root-level beforeEach would install this file's fakes for every other file
+// in the same shard.
+describe("evaluations", () => {
 before(async () => {
   for (const [family, src] of SOURCES) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${family}-${def.imageMode}`;
-    await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, family, isDefault: false });
+    await db.insert(enginesTable).values(testEngineRow(def, id, family));
     engineIds.push(id);
   }
   const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
@@ -401,4 +406,5 @@ describe("statuses and Finish", () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal((await summary(out.setId)).status, "finished");
   });
+});
 });

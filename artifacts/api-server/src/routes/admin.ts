@@ -25,8 +25,7 @@ import {
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
 import { isNcmecReservedConfigKey, NCMEC_RESERVED_KEY_REFUSAL } from "../lib/moderation/ncmecConfig";
-import { isImageEngineConfigKey, IMAGE_ENGINE_CONFIG_KEY_REFUSAL } from "../lib/imageEngineRouting";
-import { CODE_OWNED_PROMPT_REFUSAL, isCodeOwnedPromptKey, withCodeOwnedPrompts } from "../lib/codeOwnedPrompts";
+import { CODE_OWNED_AI_SETTING_REFUSAL, isCodeOwnedAiConfigKey, withoutCodeOwnedAiSettings } from "../lib/codeOwnedPrompts";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { revokeUserSessions } from "../lib/auth";
 import {
@@ -2270,8 +2269,8 @@ router.get("/config/public", async (_req: Request, res: Response) => {
 
 router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) => {
   try {
-    // The six code-owned prompts come from code, never from a stale row.
-    res.json(withCodeOwnedPrompts(await getAllConfig()));
+    // AI settings live in code and are not shown (decisions.md 2026-11-14).
+    res.json(withoutCodeOwnedAiSettings(await getAllConfig()));
   } catch (err) {
     res.status(500).json({ error: "Failed to load config" });
   }
@@ -2347,15 +2346,10 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     res.status(403).json({ error: NCMEC_RESERVED_KEY_REFUSAL });
     return;
   }
-  // The engine per render mode is written only by the engines screen's
-  // "Set default", which validates the engine (imageEngineRouting.ts).
-  if (isImageEngineConfigKey(key)) {
-    res.status(403).json({ error: IMAGE_ENGINE_CONFIG_KEY_REFUSAL });
-    return;
-  }
-  // The six AI system prompts are set in code (codeOwnedPrompts.ts).
-  if (isCodeOwnedPromptKey(key)) {
-    res.status(403).json({ error: CODE_OWNED_PROMPT_REFUSAL });
+  // AI settings (the six system prompts and the engine choices) are set in
+  // code (codeOwnedPrompts.ts; decisions.md 2026-11-14).
+  if (isCodeOwnedAiConfigKey(key)) {
+    res.status(403).json({ error: CODE_OWNED_AI_SETTING_REFUSAL });
     return;
   }
 

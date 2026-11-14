@@ -68,7 +68,7 @@ routes, delete, git keeps it) · **your call**.
 ### Decisions — Journey A (David, 2026-10-05)
 
 - Ship list accepted as presented (A1, A2, A4, A5, A7, A9, A10, A11, A12, A15, A16, A20, A23, A26), each on the launch verification list.
-- **A3** Pronoun suggestion: cost is negligible (one ~120-token utility call, `maxTokens: 64`, `ai.ts:405`); latency is the concern. **Cache by lowercased name for launch**; a common-names lookup table only if measured latency warrants. Note: runs on the utility-LLM fallback engine (no default `llm` engine configured).
+- **A3** Pronoun suggestion: cost is negligible (one ~120-token utility call, `maxTokens: 64`, `ai.ts:405`); latency is the concern. **Cache by lowercased name for launch**; a common-names lookup table only if measured latency warrants. Note: runs on the utility LLM (set in code since 2026-11-14, [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)).
 - **A6** Feed is fixed at 20 text-only cards (`Home.tsx:510-513`; server honours `limit`/`offset`, `facts.ts:127`), so load is not a function of catalogue size. Reachability is: **"load more" is a launch item if launching with > ~50 facts**, else `next`.
 - **A8** cut (delete `pages/Hashtags.tsx`).
 - **A13** Keep search-history recording **and add it to the search screen** so users see their previous searches (launch; David's scope addition).
@@ -305,7 +305,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Affiliate | **cut** (merch). *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | Video Styles | **cut** (video deleted) |
 | Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5); the stock picker limit and Pexels photo count 2026-10-23 (removal 6); Debug mode 2026-10-23 (removal 8); the AI gallery display limit 2026-10-23 (removal 11; ledger [`docs/retired/README.md`](../retired/README.md))* |
-| Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3; the engines' video-shaped columns and their admin fields 2026-10-23 (removal 11)* |
+| Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *The Engines page was removed 2026-11-14: AI settings live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)).* *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3; the engines' video-shaped columns and their admin fields 2026-10-23 (removal 11)* |
 | Taxonomy Health | ship (proven tonight) |
 | Features (tier × feature grid) | ship; **becomes the Legendary definition** (F21) + beta overlay later |
 | Email Queue | ship (proven tonight) |

@@ -34,6 +34,7 @@ import { resolveImagePromptLLMSettings } from "../imagePrompt/generator";
 import { liveRecipeVersionIds } from "../imagePrompt/recipeStore";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
 import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type PlannerRequestSettings, type RunPlan, type WorkItem } from "./admission";
+import { codeImageEngineIds, effectiveEngines } from "../engineInterpreter";
 
 export { ComparisonLayoutError };
 
@@ -44,7 +45,8 @@ export async function createComparisonSet(input: ComparisonSetCreate, adminUserI
     styleIds.length
       ? db.select({ id: lookStylesTable.id, isActive: lookStylesTable.isActive }).from(lookStylesTable).where(inArray(lookStylesTable.id, styleIds))
       : Promise.resolve([] as Array<{ id: string; isActive: boolean }>),
-    db.select().from(enginesTable).where(eq(enginesTable.kind, "image")),
+    // The effective definitions: family and mode come from code (decisions.md 2026-11-14).
+    db.select().from(enginesTable).where(inArray(enginesTable.id, codeImageEngineIds())).then(effectiveEngines),
   ]);
 
   const reasons: string[] = [];

@@ -1,11 +1,12 @@
 /**
  * Image engine routing (launch Phase 8, plan PLAN_PHASE8_ENGINE_EVALUATION.md,
- * A and B): the engine per render mode is a config key, an attempt records
- * the engine that draws it at construction, the moderation hash folds in the
- * engine a render would use NOW, and "Set default" is the keys' one writer.
+ * A and B, as amended by PLAN_AI_SETTINGS_IN_CODE.md): the engine per render
+ * mode is set in code, an attempt records the engine that draws it at
+ * construction, the moderation hash folds in the engine a render would use
+ * NOW, and a row or retired config key can change none of it.
  *
- * Touches the real test DB: engine rows under `t-ier-`, and the two
- * `image_engine_*` config keys, restored to their seeded values after each test.
+ * Touches the real test DB: the catalogue rows it alters are restored after
+ * each test, and one row under `t-ier-` with no code definition.
  */
 import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
@@ -19,6 +20,7 @@ import {
   factsTable,
   imagePromptAttemptsTable,
   usersTable,
+  type Engine,
 } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
@@ -26,22 +28,27 @@ import type { FactEnrichment } from "@workspace/api-zod";
 import {
   attemptImageEngineId,
   currentImageEngineIds, currentRenderRouting,
-  IMAGE_ENGINE_CONFIG_KEYS,
+  IMAGE_ENGINE_IDS,
   ImageEngineRoutingError,
   resolveImageEngine,
 } from "../lib/imageEngineRouting.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
 import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { reconcileEngines } from "../lib/engines/index.js";
+import { NANO_BANANA_2_SIZES } from "../lib/engines/nano-banana-2.js";
+import { FLUX_3 } from "../lib/engines/flux-3.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
 import { isAttemptStale } from "../lib/factRenderScenarios.js";
 import { imageGenerationHandler } from "../lib/imagePromptJobs.js";
 import { fal } from "../lib/falClient.js";
-import adminEnginesRouter from "../routes/adminEngines.js";
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const PREFIX = "t-ier-";
 const USER_PREFIX = "t-ier-u-";
+const RETIRED_KEYS = ["image_engine_t2i", "image_engine_i2i"] as const;
+/** Catalogue rows a test alters; restored after each test. */
+const TOUCHED = ["nano-banana-2", "flux-3", "nano-banana-pro"];
 
 const ENRICHMENT: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
@@ -59,110 +66,90 @@ const ENRICHMENT: FactEnrichment = {
   semanticEntities: [],
 };
 
-const VOCAB = { options: [{ params: { resolution: "1K" }, megapixels: 1 }, { params: { resolution: "2K" }, megapixels: 4 }] };
+let adminUserId: string;
+const factIds: number[] = [];
+let saved: Engine[] = [];
+let savedKeys: Array<typeof adminConfigTable.$inferSelect> = [];
 
-interface SeedOpts {
-  imageMode?: "t2i" | "i2i" | null;
-  isActive?: boolean;
-  retired?: boolean;
-  deleted?: boolean;
-  kind?: string;
-  sizeVocabulary?: unknown;
+async function restore(): Promise<void> {
+  for (const row of saved) await db.update(enginesTable).set(row).where(eq(enginesTable.id, row.id));
+  await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, [...RETIRED_KEYS]));
+  if (savedKeys.length) await db.insert(adminConfigTable).values(savedKeys);
+  bustConfigCache();
+  clearEngineCaches();
 }
 
-async function seedEngine(opts: SeedOpts = {}): Promise<string> {
-  const id = `${PREFIX}${randomUUID().slice(0, 12)}`;
-  await db.insert(enginesTable).values({
-    id,
-    provider: "fal",
-    endpointId: `fal-ai/test/${id}`,
-    label: `Routing test ${id}`,
-    kind: opts.kind ?? "image",
-    isActive: opts.isActive ?? true,
-    imageMode: opts.imageMode === undefined ? "t2i" : opts.imageMode,
-    family: "t-ier",
-    sizeVocabulary: (opts.sizeVocabulary === undefined ? VOCAB : opts.sizeVocabulary) as never,
-    retired: opts.retired ?? false,
-    deletedAt: opts.deleted ? new Date() : null,
-    paramSchema: {
-      params: [
-        { name: "prompt", from: "imagePrompt", type: "string", required: true },
-        { name: "resolution", from: "resolution", type: "string" },
-        { name: "image_urls", from: "referenceImageUrl", type: "stringArray" },
-      ],
-    } as never,
-  });
-  return id;
+async function setRow(id: string, set: Partial<Engine>): Promise<void> {
+  await db.update(enginesTable).set(set).where(eq(enginesTable.id, id));
+  clearEngineCaches();
 }
 
-async function setKey(mode: "t2i" | "i2i", value: string): Promise<void> {
-  // Upsert: a runner's cloned database may hold the schema without 0123's seed rows.
+async function setRetiredKey(key: string, value: string): Promise<void> {
   await db.insert(adminConfigTable)
-    .values({ key: IMAGE_ENGINE_CONFIG_KEYS[mode], value, dataType: "text", label: "test", description: "test", isPublic: false })
+    .values({ key, value, dataType: "text", label: "test", description: "test", isPublic: false })
     .onConflictDoUpdate({ target: adminConfigTable.key, set: { value } });
   bustConfigCache();
   clearEngineCaches();
 }
 
-async function restoreKeys(): Promise<void> {
-  await setKey("t2i", "nano-banana-2");
-  await setKey("i2i", "nano-banana-2-edit");
-}
-
-let adminUserId: string;
-const factIds: number[] = [];
-
 before(async () => {
+  await reconcileEngines();
+  saved = await db.select().from(enginesTable).where(inArray(enginesTable.id, TOUCHED));
+  savedKeys = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, [...RETIRED_KEYS]));
   adminUserId = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({ id: adminUserId, email: `${adminUserId}@test.local`, isAdmin: true, membershipTier: "legendary" });
   process.env["FAL_KEY"] ||= "test-key";
 });
 
 afterEach(async () => {
-  await restoreKeys();
+  await restore();
 });
 
 after(async () => {
   if (factIds.length) await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   await db.delete(enginesTable).where(like(enginesTable.id, `${PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
-  await restoreKeys();
+  await restore();
 });
 
-
-
 describe("resolveImageEngine", () => {
-  it("the seeded keys route each mode to the engines the worker always used", async () => {
+  it("routes each mode to the engines set in code, whatever the retired keys say", async () => {
+    await setRetiredKey("image_engine_t2i", "flux-3");
+    await setRetiredKey("image_engine_i2i", "flux-3-edit");
+    assert.deepEqual(IMAGE_ENGINE_IDS, { t2i: "nano-banana-2", i2i: "nano-banana-2-edit" });
     assert.deepEqual(await currentImageEngineIds(), { t2i: "nano-banana-2", i2i: "nano-banana-2-edit" });
     assert.deepEqual((await currentRenderRouting()).recipeVersions, { t2i: null, i2i: null }, "no prompt recipe is promoted: both modes read the baseline");
     assert.equal((await resolveImageEngine("t2i")).id, "nano-banana-2");
     assert.equal((await resolveImageEngine("i2i")).id, "nano-banana-2-edit");
   });
 
-  it("a key change routes that mode only; an override wins over the key", async () => {
-    const t2i = await seedEngine({ imageMode: "t2i" });
-    await setKey("t2i", t2i);
-    assert.equal((await resolveImageEngine("t2i")).id, t2i);
-    assert.equal((await resolveImageEngine("i2i")).id, "nano-banana-2-edit");
-    assert.equal((await resolveImageEngine("t2i", "nano-banana-2")).id, "nano-banana-2");
+  it("an override wins, and the engine it returns carries the code's definition, not the row's", async () => {
+    await setRow("flux-3", { endpointId: "fal-ai/stale", imageMode: "i2i", sizeVocabulary: null });
+    const engine = await resolveImageEngine("t2i", "flux-3");
+    assert.equal(engine.id, "flux-3");
+    assert.equal(engine.endpointId, FLUX_3.endpointId);
+    assert.notEqual(engine.endpointId, "fal-ai/stale");
+    assert.equal(engine.imageMode, "t2i");
+    assert.ok(engine.sizeVocabulary);
   });
 
-  it("refuses, never defaults: unknown, inactive, archived, retired, non-image, wrong mode, no vocabulary", async () => {
-    const cases: Array<[string, string]> = [
-      [`${PREFIX}missing`, "not in the catalogue"],
-      [await seedEngine({ isActive: false }), "inactive"],
-      [await seedEngine({ deleted: true }), "archived"],
-      [await seedEngine({ retired: true }), "retired"],
-      [await seedEngine({ kind: "utility", imageMode: null }), "kind is utility"],
-      [await seedEngine({ imageMode: "i2i" }), "mode is i2i"],
-      [await seedEngine({ sizeVocabulary: null }), "no size vocabulary"],
+  it("refuses, never defaults: no code definition, inactive, archived, retired, non-image, wrong mode, no vocabulary", async () => {
+    const orphan = `${PREFIX}${randomUUID().slice(0, 12)}`;
+    await db.insert(enginesTable).values({ id: orphan, provider: "fal", endpointId: "fal-ai/x", label: "orphan", kind: "image", imageMode: "t2i", paramSchema: { params: [] } as never });
+    const cases: Array<[string, Partial<Engine> | null, "t2i" | "i2i", string]> = [
+      [orphan, null, "t2i", "not in the catalogue"],
+      ["flux-3", { isActive: false }, "t2i", "inactive"],
+      ["flux-3", { deletedAt: new Date() }, "t2i", "archived"],
+      ["flux-3", { retired: true }, "t2i", "retired"],
+      ["openai-general", null, "t2i", "kind is llm"],
+      ["nano-banana-2-edit", null, "t2i", "mode is i2i"],
+      ["nano-banana-pro", null, "i2i", "no size vocabulary"],
     ];
-    for (const [id, why] of cases) {
-      await assert.rejects(resolveImageEngine("t2i", id), (err: unknown) =>
-        err instanceof ImageEngineRoutingError && err.message.includes(why), id);
-      await setKey("t2i", id);
-      await assert.rejects(resolveImageEngine("t2i"), ImageEngineRoutingError, `${id} via the key`);
-      await setKey("t2i", "nano-banana-2");
+    for (const [id, set, mode, why] of cases) {
+      if (set) await setRow(id, set);
+      await assert.rejects(resolveImageEngine(mode, id), (err: unknown) =>
+        err instanceof ImageEngineRoutingError && err.message.includes(why), `${id}: ${why}`);
+      await restore();
     }
   });
 });
@@ -188,10 +175,9 @@ describe("attribution", () => {
 });
 
 describe("the worker renders through the engine recorded at construction", () => {
-  it("an attempt made under engine A still renders through A after the key moves to B, and records its request settings", async () => {
-    const a = await seedEngine({ imageMode: "t2i" });
-    const b = await seedEngine({ imageMode: "t2i" });
-    await setKey("t2i", a);
+  it("an attempt renders through its recorded engine's code definition, and records its request settings", async () => {
+    // A stale row: its endpoint and size vocabulary must not reach the request.
+    await setRow("nano-banana-2", { endpointId: "fal-ai/stale", sizeVocabulary: { options: [{ params: { resolution: "9K" }, megapixels: 81 }] } as never });
     const [fact] = await db.insert(factsTable).values({ text: "{NAME} lifts a truck.", isActive: false, enrichment: ENRICHMENT }).returning({ id: factsTable.id });
     factIds.push(fact!.id);
     const [attempt] = await db.insert(imagePromptAttemptsTable).values({
@@ -209,8 +195,6 @@ describe("the worker renders through the engine recorded at construction", () =>
       compiledPrompt: { imagePrompt: "a truck, lifted" } as never,
     }).returning({ id: imagePromptAttemptsTable.id });
 
-    await setKey("t2i", b);
-
     const calls: Array<{ endpoint: string; input: Record<string, unknown> }> = [];
     const original = fal.subscribe;
     (fal as { subscribe: unknown }).subscribe = async (endpoint: string, opts: { input: Record<string, unknown> }) => {
@@ -223,59 +207,18 @@ describe("the worker renders through the engine recorded at construction", () =>
       (fal as { subscribe: unknown }).subscribe = original;
     }
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.endpoint, `fal-ai/test/${a}`, "rendered through A, not the new default B");
-    assert.equal(calls[0]!.input["resolution"], "2K", "a member render is final: the option nearest four megapixels");
+    assert.equal(calls[0]!.endpoint, "fal-ai/nano-banana-2", "the code's endpoint, not the row's");
+    const codeResolutions = NANO_BANANA_2_SIZES.options.map((o) => (o.params as Record<string, unknown>)["resolution"]);
+    assert.ok(codeResolutions.includes(calls[0]!.input["resolution"]), `a resolution from the code's vocabulary, got ${String(calls[0]!.input["resolution"])}`);
     const [row] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attempt!.id));
-    assert.equal(row!.actualImageEngineId, a);
-    assert.deepEqual(row!.requestSettings, { engineId: a, purpose: "final", aspectRatio: "portrait", sizeParams: { resolution: "2K" }, megapixels: 4 });
+    assert.equal(row!.actualImageEngineId, "nano-banana-2");
   });
 });
 
-describe("Set default is the keys' one writer", () => {
-  it("writes the engine's own mode key and leaves the other mode and isDefault alone", async () => {
-    const i2i = await seedEngine({ imageMode: "i2i" });
-    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-    const res = await request(app).post(`/api/admin/engines/${i2i}/set-default`).send({});
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.isDefault, false);
-    assert.deepEqual(await currentImageEngineIds(), { t2i: "nano-banana-2", i2i });
-  });
-
-  it("refuses an engine that cannot draw its mode, and changes nothing", async () => {
-    const noMode = await seedEngine({ imageMode: null });
-    const inactive = await seedEngine({ imageMode: "t2i", isActive: false });
-    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-    for (const id of [noMode, inactive]) {
-      const res = await request(app).post(`/api/admin/engines/${id}/set-default`).send({});
-      assert.equal(res.status, 400, id);
-    }
-    assert.deepEqual(await currentImageEngineIds(), { t2i: "nano-banana-2", i2i: "nano-banana-2-edit" });
-  });
-
-  it("the editor's default toggle cannot change an image engine's flag, and an unchanged flag still saves", async () => {
-    const id = await seedEngine({ imageMode: "t2i" });
-    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-    const refused = await request(app).patch(`/api/admin/engines/${id}`).send({ isDefault: true });
-    assert.equal(refused.status, 400);
-    const saved = await request(app).patch(`/api/admin/engines/${id}`).send({ isDefault: false, sortOrder: 5 });
-    assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  });
-
-  it("the list says which mode each image engine is the default for", async () => {
-    const t2i = await seedEngine({ imageMode: "t2i" });
-    await setKey("t2i", t2i);
-    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-    const res = await request(app).get("/api/admin/engines");
-    assert.equal(res.status, 200);
-    const rows = res.body.engines as Array<{ id: string; defaultForImageMode: string | null }>;
-    assert.equal(rows.find((r) => r.id === t2i)?.defaultForImageMode, "t2i");
-    assert.equal(rows.find((r) => r.id === "nano-banana-2")?.defaultForImageMode ?? null, null);
-    assert.deepEqual(res.body.imageEngines, { t2i, i2i: "nano-banana-2-edit" });
-  });
-
-  it("the generic config route refuses both keys", async () => {
+describe("the retired keys", () => {
+  it("the generic config route refuses both", async () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminRouter);
-    for (const key of Object.values(IMAGE_ENGINE_CONFIG_KEYS)) {
+    for (const key of RETIRED_KEYS) {
       const res = await request(app).patch(`/api/admin/config/${key}`).send({ value: "anything" });
       assert.equal(res.status, 403, key);
     }

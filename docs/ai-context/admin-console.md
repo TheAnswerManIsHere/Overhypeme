@@ -31,7 +31,6 @@ Mounted routes, from `App.tsx` and `AdminLayout.tsx`'s 14 `NAV_ITEMS` (the Affil
 | `/admin/moderation` | `moderation.tsx` | Fact review queue (covered elsewhere) **plus** an embedded comment-review panel — see *Dead and misleading surfaces*. |
 | `/admin/eval` | `evalDashboard.tsx` | Eval: two tabs, Evaluate Models and Evaluate Prompts, each a wizard (facts, engines or wordings, photo types, looks, description, one Generate Images) and a list of evaluations to judge blind, finish and read (plan `PLAN_EVAL_PAGE.md`). |
 | `/admin/config` | `config.tsx` | The generic `admin_config` key/value editor — see *Config surfaces*. |
-| `/admin/engines` | `engines.tsx` | The AI engine catalogue: per-engine model id, resolutions, aspect ratios, params. Settings that shape an AI call are meant to be code-owned ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)); the page's edits to them are being retired. |
 | `/admin/taxonomy-health` | `taxonomy-health.tsx` | Covered in [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md). |
 | `/admin/features` | `features.tsx` | The tier × feature-flag permission matrix — see *Config surfaces*. |
 | `/admin/email-queue` | `emailQueue.tsx` | Outbound transactional-email outbox: pending/failed rows, retry, requeue. |
@@ -124,10 +123,12 @@ Two distinct pages, not one:
   grouped into cards: Budget (per-tier AI spend), Limits (image/meme/
   gallery caps), Email (sender, retry, retention), Moderation
   (duplicate-detection threshold), plus a generic
-  catch-all and a nested AI-settings group (system prompts, shown read-only:
-  they are set in code, per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); its AI
-  gallery display limit went with the legacy studio's gallery in launch
-  Phase 4, removal 11; ledger [`docs/retired/README.md`](../retired/README.md)). Each key has one value; the Debug mode toggle and its
+  catch-all. It shows no AI setting: engines, models, parameters and system
+  prompts live in code and have no admin screen (David, 2026-11-14, per
+  [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); the Engines page and the nested AI-settings
+  group were removed then, and the AI gallery display limit went with the
+  legacy studio's gallery in launch Phase 4, removal 11; ledger
+  [`docs/retired/README.md`](../retired/README.md)). Each key has one value; the Debug mode toggle and its
   second value set were removed in launch Phase 4
   ([`docs/retired/debug-mode.md`](../retired/debug-mode.md)).
 - **`/admin/features`** — the tier × feature-flag matrix
@@ -218,7 +219,7 @@ from the in-app field-documentation registry
 **Its scope is narrow: the Enrichment Editor's fields only** (AI Visual
 Classification, Visual Strategy Override, References & Scene Entities) —
 used in moderation Step 2 → Advanced Options and in Admin → Facts. **It
-is not a general admin field index** — config, engines, users, billing,
+is not a general admin field index** — config, users, billing,
 and every other page's fields aren't covered by it.
 
 ## Dead and misleading surfaces

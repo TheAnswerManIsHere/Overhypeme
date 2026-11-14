@@ -68,7 +68,11 @@ they happen.
 ### Tuning how the product behaves
 
 Two different screens exist for two different questions. One is a
-general settings editor for the product's overall configuration. The
+general settings editor for the product's overall configuration. Neither
+one tunes the AI: which engine draws a picture or writes a gag, its model,
+its reasoning effort and its prompts all live in the code, so the version
+of the code says exactly how every AI step behaves, and changing one is a
+reviewed change rather than an edit here (David, November 2026). The
 other is specifically about what each membership tier — including the
 Admin column — is allowed to do: a grid of features against tiers, so
 "can a free user do X" is one clear answer in one place, and a toggle

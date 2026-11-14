@@ -117,6 +117,10 @@ async function cleanup() {
   insertedFactIds.length = 0;
 }
 
+// One wrapper scopes the file-level hooks to this file: with test isolation off,
+// root-level hooks run for the whole shard, so another file's cleanup could
+// clear this file's fal stub before its tests ran.
+describe("review render scenarios", () => {
 before(async () => {
   await cleanup();
   // Stub fal uploads so the i2i (male) reference resolves without a network call.
@@ -380,4 +384,5 @@ describe("approval visual-render gate (admin-waivable)", () => {
     assert.equal(res.status, 409);
     assert.equal(res.body.error, "visual_render_incomplete");
   });
+});
 });

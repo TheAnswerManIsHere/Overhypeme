@@ -72,7 +72,9 @@ export async function classifyNsfwByUrl(
   imageUrl: string,
   overrides: NsfwClassifierOverrides = {},
 ): Promise<NsfwClassifierResult> {
-  const endpoint = overrides.endpoint ?? (await getConfigString("nsfw_classifier_endpoint", DEFAULT_NSFW_ENDPOINT));
+  // The endpoint is set in code (decisions.md 2026-11-14); the retired
+  // `nsfw_classifier_endpoint` row is not read.
+  const endpoint = overrides.endpoint ?? DEFAULT_NSFW_ENDPOINT;
   const timeoutMs = overrides.timeoutMs ?? (await getConfigInt("nsfw_classifier_timeout_ms", 15_000));
   const fallback: typeof fal = fal;
   const client = overrides.falImpl ?? fallback;

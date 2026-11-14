@@ -14,7 +14,7 @@
  *   sanitizing and budget preflight run. A conversion that leaves the stand-in
  *   name in place, or a scene with no subject token, is a failed conversion,
  *   never a pickable gag.
- * - The engine is `fact_visual_concepts_engine_id` (openai-gag-writer, GPT-6
+ * - The engine is set in code (openai-gag-writer, GPT-6
  *   Astra). There is no fallback to a weaker model: an unusable engine fails
  *   generation with its reason (David: "an admin function so doesn't need high
  *   availability").
@@ -381,7 +381,6 @@ function makeOpenAIConceptsCaller(settings: VisualConceptsLLMSettings): (userMes
     const systemPrompt = await getVisualConceptsSystem();
     const response = await callUtilityLLM({
       model: settings.model ?? undefined,
-      temperature: 0.8,
       maxTokens: settings.maxTokens,
       reasoningEffort: settings.reasoningEffort,
       timeoutMs: settings.timeoutMs,

@@ -4,8 +4,8 @@
  * The Step-2 visual-review grid renders i2i scenarios against canonical default
  * reference images (one per identity type). This module owns where those assets
  * live, how they're versioned, and how they become fal-fetchable URLs — reusing
- * the same lazy upload-to-fal seam the Engine workbench uses
- * (`adminEngines.getBundledTestFaceUrl`), generalized per asset.
+ * the lazy upload-to-fal seam the retired engine workbench used
+ * (`getBundledTestFaceUrl`), generalized per asset.
  *
  * MALE is satisfied by the already-bundled `src/assets/test-face.jpg` — a real
  * 3088×2316 photograph (NOT the "1×1 placeholder" an old code comment claimed).

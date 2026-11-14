@@ -27,9 +27,9 @@ import { callUtilityLLM } from "./utilityLLM";
 // tokenizer module; the implementation lives in api-zod with its siblings.
 export { collapseNameSubjectConjugationPairs, expandSubjectContractions };
 
-// Deliberately code-owned tokenizer models — NOT governed by adminEngines'
-// ALLOWED_LLM_MODELS (that list only gates the admin-editable engine row). Keep
-// this set tiny; tokenizer model changes should be reviewed in code.
+// Deliberately code-owned tokenizer models (decisions.md 2026-11-14: AI call
+// settings live in code). Keep this set tiny; tokenizer model changes are
+// reviewed in code.
 export const TOKENIZER_ALLOWED_MODELS: ReadonlySet<string> = new Set([
   "gpt-5.4-mini",
   "gpt-5.5",

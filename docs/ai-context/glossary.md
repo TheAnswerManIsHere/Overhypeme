@@ -732,10 +732,8 @@ Any generative model the platform can call (`image | utility | llm`; the
 [`docs/retired/README.md`](../retired/README.md)),
 defined **code-first** in `artifacts/api-server/src/lib/engines/` and reconciled
 into the `engines` table at boot. Every setting that shapes an AI call is
-meant to live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)); today admins still own
-`isActive`/`isDefault`/pricing and the model parameters (reasoning effort,
-temperature, token limits), and the `isDefault` and parameter fields are known
-exceptions being moved into code.
+read from the code catalogue ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)); the row keeps availability,
+retirement, ordering and pricing, and no admin screen edits it.
 → [architecture-map](./architecture-map.md)
 
 ---

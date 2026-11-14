@@ -4,7 +4,7 @@ import { lookStylesTable } from "@workspace/db/schema";
 import { eq, asc } from "drizzle-orm";
 
 /**
- * Look-styles catalogue. Read by the admin image bench (`/admin/engines`) and
+ * Look-styles catalogue. Read by the Eval page and
  * the runtime prompt preview. It lived in the video route file until video was
  * cut (launch Phase 4, removal 2); the catalogue itself is the image flow's.
  */

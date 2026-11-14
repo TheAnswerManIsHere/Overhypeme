@@ -19,7 +19,9 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, adminConfigTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, adminConfigTable, factEnrichmentVersionsTable, enginesTable } from "@workspace/db/schema";
+import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { reconcileEngines } from "../lib/engines/reconcile.js";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import {
   visualConceptCandidatesBlobSchema,
@@ -487,10 +489,11 @@ describe("the gag writer has no fallback model", () => {
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate() });
     // As an enqueue leaves it: pending, with the earlier ideas and a saved note.
     await db.update(factsTable).set({ humorNote: "Saved.", visualConceptStatus: "pending" }).where(eq(factsTable.id, factId));
-    const [prev] = await db.select({ value: adminConfigTable.value }).from(adminConfigTable).where(eq(adminConfigTable.key, "fact_visual_concepts_engine_id"));
-    await db.insert(adminConfigTable).values({ key: "fact_visual_concepts_engine_id", value: "no-such-engine", dataType: "string", label: "x", description: "x", isPublic: false } as never)
-      .onConflictDoUpdate({ target: adminConfigTable.key, set: { value: "no-such-engine" } });
-    bustConfigCache();
+    // The engine is set in code (decisions.md 2026-11-14); switching its stored row off is what makes it unusable now.
+    await reconcileEngines();
+    const [prev] = await db.select({ isActive: enginesTable.isActive }).from(enginesTable).where(eq(enginesTable.id, "openai-gag-writer"));
+    await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, "openai-gag-writer"));
+    clearEngineCaches();
     try {
       let called = false;
       const res = await runVisualConceptsJob({ reviewId, factId }, { generate: async (input) => { called = true; return generateVisualConcepts(input); } });
@@ -498,7 +501,7 @@ describe("the gag writer has no fallback model", () => {
       assert.equal(res.ok, false);
       if (!res.ok) {
         assert.equal((res as { retryable?: boolean }).retryable, false, "a configuration fault is terminal");
-        assert.match(res.error, /no-such-engine/);
+        assert.match(res.error, /openai-gag-writer|engine_inactive/);
       }
       const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
       assert.equal(row!.visualConceptStatus, "failed", "the handler itself marks the fact failed (no onAbandon on a terminal failure)");
@@ -508,11 +511,11 @@ describe("the gag writer has no fallback model", () => {
       });
       assert.equal(r.candidates.length, 3, "the stored ideas still load");
       assert.equal(r.humorNote?.text, "Saved.");
-      assert.match(r.failureReason ?? "", /no-such-engine/);
+      assert.match(r.failureReason ?? "", /openai-gag-writer|engine_inactive|inactive/);
 
-      // Repair the configuration: Regenerate is accepted, and a run succeeds.
-      await db.update(adminConfigTable).set({ value: prev?.value ?? "openai-gag-writer" }).where(eq(adminConfigTable.key, "fact_visual_concepts_engine_id"));
-      bustConfigCache();
+      // Repair it: Regenerate is accepted, and a run succeeds.
+      await db.update(enginesTable).set({ isActive: prev?.isActive ?? true }).where(eq(enginesTable.id, "openai-gag-writer"));
+      clearEngineCaches();
       const regen = await request(makeApp()).post(`/admin/reviews/${reviewId}/visual-concepts/regenerate`).set("authorization", `Bearer ${adminSid}`).send({});
       assert.equal(regen.status, 202, JSON.stringify(regen.body));
       const again = await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "After repair.") });
@@ -521,8 +524,8 @@ describe("the gag writer has no fallback model", () => {
       assert.equal(after!.status, "ok");
       assert.equal(after!.note, "Saved.", "the approved note survives the failure and the recovery");
     } finally {
-      await db.update(adminConfigTable).set({ value: prev?.value ?? "openai-gag-writer" }).where(eq(adminConfigTable.key, "fact_visual_concepts_engine_id"));
-      bustConfigCache();
+      await db.update(enginesTable).set({ isActive: prev?.isActive ?? true }).where(eq(enginesTable.id, "openai-gag-writer"));
+      clearEngineCaches();
     }
   });
 });

@@ -79,7 +79,7 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
 - `routes/facts.ts`, `routes/reviews.ts` — submission + moderation lifecycle.
 - `routes/ai.ts` — tokenize-fact, suggest-hashtags, check-duplicate.
 - `routes/admin.ts` + `routes/admin*.ts` (e.g. `adminImagePrompt.ts`,
-  `adminEngines.ts`) — admin surfaces, all guarded by `requireAdmin`.
+  `adminComparison.ts`) — admin surfaces, all guarded by `requireAdmin`.
 - `routes/stripe.ts` + webhook handlers — billing/checkout.
 - Domain libs (`artifacts/api-server/src/lib/`): `imagePrompt/`,
   `factImagePipeline.ts`, `factEnrichment*.ts`, `enrichmentVersioning.ts`,
@@ -432,9 +432,9 @@ deliberately excludes them and points here instead.
 - Generative models are configured **code-first** in
   `artifacts/api-server/src/lib/engines/` (`catalogue.ts`, `reconcile.ts`, one file
   per engine) and reconciled into the `engines` table at boot. Every setting that
-  shapes an AI call is meant to live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows));
-  today admin still owns `isActive`/`isDefault`/pricing and the model parameters,
-  and the default-model choice and parameters are known exceptions being moved into code.
+  shapes an AI call is read from the code catalogue, never from the row
+  (`effectiveEngine` in `engineInterpreter.ts`; [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). The row keeps
+  availability, retirement, ordering and pricing, and no admin screen edits it.
 
 ## Admin and moderation surfaces
 

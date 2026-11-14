@@ -1,26 +1,18 @@
 /**
  * Slice 2A — admin-configurable knobs for candidate Visual-concept generation.
  *
- * Two keys live in `admin_config`, mirroring imagePromptConfig.ts:
+ * Both are set in code (decisions.md 2026-11-14: AI call settings live in code):
  *
- *   fact_visual_concepts_system     — system prompt for the OpenAI Structured
- *                                     Outputs call that drafts THREE distinct
- *                                     "describe the picture" concepts.
- *   fact_visual_concepts_engine_id  — which utility engine plans the concepts.
- *                                     Default: "openai-visual-planner" (the same
- *                                     frontier gpt-5.5 engine the render planner
- *                                     uses). Invalid/inactive → default utility
- *                                     LLM with the reason recorded in provenance.
+ *   the system prompt for the OpenAI Structured Outputs call that drafts THREE
+ *   distinct "describe the picture" concepts (`fact_visual_concepts_system`,
+ *   codeOwnedPrompts.ts), and the engine, `DEFAULT_VISUAL_CONCEPTS_ENGINE_ID`
+ *   (the gag writer on GPT-6 Astra). Their `admin_config` rows, where a
+ *   database still holds them, are not read.
  *
  * The concept scene must survive becoming `coreSceneOverride`, so the prompt is
  * render-mode-AGNOSTIC (no reference-image, identity, or style language) and uses
  * {NAME}/{NAME_POSSESSIVE} tokens for the protagonist.
  */
-
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
-import { getConfigString } from "./adminConfig";
-import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────
 
@@ -47,21 +39,12 @@ export async function getVisualConceptsSystem(): Promise<string> {
   return FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT;
 }
 
+/** The gag writer's engine: set in code (decisions.md 2026-11-14, AI call settings live in code). */
 export async function getVisualConceptsEngineId(): Promise<string> {
-  return getConfigString(VISUAL_CONCEPTS_CONFIG_KEYS.engineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID);
+  return DEFAULT_VISUAL_CONCEPTS_ENGINE_ID;
 }
 
-// ─── Seeding ───────────────────────────────────────────────────────────────
-
-interface ConfigDef {
-  key: string;
-  value: string;
-  dataType: string;
-  label: string;
-  description: string;
-}
-
-/** Their labels and descriptions for the admin screen's read-only rows (codeOwnedPrompts.ts). */
+/** The system prompt keys set in code, which codeOwnedPrompts.ts refuses to save or show. */
 export const VISUAL_CONCEPTS_PROMPT_DEFS = [
   {
     key: VISUAL_CONCEPTS_CONFIG_KEYS.system,
@@ -71,42 +54,3 @@ export const VISUAL_CONCEPTS_PROMPT_DEFS = [
       "LLM system prompt for candidate Visual-concept generation (Slice 2A). Drafts three distinct render-mode-agnostic 'describe the picture' briefs a moderator picks from into the Visual concept field.",
   },
 ];
-
-export const VISUAL_CONCEPTS_CONFIG_DEFS: ConfigDef[] = [
-  {
-    key: VISUAL_CONCEPTS_CONFIG_KEYS.engineId,
-    value: DEFAULT_VISUAL_CONCEPTS_ENGINE_ID,
-    dataType: "string",
-    label: "Visual Concepts — Engine",
-    description:
-      "Engine id for the LLM that drafts the three candidate Visual concepts. Defaults to openai-gag-writer (GPT-6 Astra). There is no fallback: an unusable engine fails generation with its reason.",
-  },
-];
-
-/**
- * Idempotently seed the Slice-2A candidate-concept config rows. Safe on every
- * boot — existing rows untouched via ON CONFLICT DO NOTHING; labels/descriptions
- * refreshed if the canonical text changed.
- */
-export async function seedVisualConceptsConfig(): Promise<void> {
-  for (const def of VISUAL_CONCEPTS_CONFIG_DEFS) {
-    try {
-      await db.execute(sql`
-        INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
-        ON CONFLICT (key) DO NOTHING
-      `);
-      await db.execute(sql`
-        UPDATE admin_config SET data_type = ${def.dataType}
-        WHERE key = ${def.key} AND data_type <> ${def.dataType}
-      `);
-      await db.execute(sql`
-        UPDATE admin_config SET label = ${def.label}, description = ${def.description}
-        WHERE key = ${def.key}
-          AND (label IS DISTINCT FROM ${def.label} OR description IS DISTINCT FROM ${def.description})
-      `);
-    } catch (err) {
-      logger.warn({ err, key: def.key }, "[visualConceptsConfig] seed failed for key");
-    }
-  }
-}

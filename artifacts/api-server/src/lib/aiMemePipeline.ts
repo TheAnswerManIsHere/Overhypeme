@@ -64,8 +64,8 @@ function detectImageFormat(response: Response): { contentType: string; ext: stri
 // ─── LLM scene prompt generation ─────────────────────────────────────────────
 
 /**
- * @deprecated Legacy FLUX scene-prompt generator. The t2i/i2i engine bench and
- * the image meme generator now use the render-time image-prompt engine
+ * @deprecated Legacy FLUX scene-prompt generator. The image meme generator
+ * now uses the render-time image-prompt engine
  * (`lib/imagePrompt/*` + `buildAndEnqueueImagePromptAttempt`) rendering with Nano
  * Banana 2. This function survives ONLY for the per-fact AI background backfill
  * (`generateAiMemeBackgrounds`); its other callers (video, PuLID) were deleted

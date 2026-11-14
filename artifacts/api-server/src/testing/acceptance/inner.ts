@@ -117,18 +117,15 @@ async function probe(cfg: InnerConfig): Promise<Record<string, unknown>> {
  * The rest of a restored snapshot's state that shapes a recorded request or
  * runs on its own (restoredSnapshot, above): engines back to their code
  * definitions (the fields reconcile preserves at boot, so the reset holds
- * through boot), the engine-choice settings back to their defaults, and
- * restored non-terminal jobs made terminal. Reported, so a run shows what it
+ * through boot), and restored non-terminal jobs made terminal. Engine choices
+ * are set in code and need no reset (decisions.md 2026-11-14). Reported, so a run shows what it
  * changed.
  */
 async function pinRestoredSnapshot(databaseUrl: string): Promise<Record<string, unknown>> {
   process.env.DATABASE_URL = databaseUrl;
   const { ALL_ENGINES } = await import("../../lib/engines/catalogue");
   const { codeDefinitionToRow } = await import("../../lib/engines/reconcile");
-  const { ADMIN_EDITABLE_FIELDS } = await import("../../lib/engines/types");
-  const { FACT_ENRICHMENT_CONFIG_KEYS, DEFAULT_FACT_ENRICHMENT_ENGINE_ID } = await import("../../lib/factEnrichmentConfig");
-  const { VISUAL_CONCEPTS_CONFIG_KEYS, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID } = await import("../../lib/visualConceptsConfig");
-  const ip = await import("../../lib/imagePromptConfig");
+  const { RECONCILE_PRESERVED_FIELDS } = await import("../../lib/engines/types");
   const snake = (f: string) => f.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
@@ -136,7 +133,7 @@ async function pinRestoredSnapshot(databaseUrl: string): Promise<Record<string, 
     const engines: string[] = [];
     for (const def of ALL_ENGINES) {
       const row = codeDefinitionToRow(def) as Record<string, unknown>;
-      const fields = [...ADMIN_EDITABLE_FIELDS, "deletedAt"];
+      const fields = [...RECONCILE_PRESERVED_FIELDS, "deletedAt"];
       const sets = fields.map((f, i) => `"${snake(f)}" = $${i + 2}`).join(", ");
       const changed = fields.map((f, i) => `"${snake(f)}" IS DISTINCT FROM $${i + 2}`).join(" OR ");
       const { rowCount } = await client.query(
@@ -145,22 +142,11 @@ async function pinRestoredSnapshot(databaseUrl: string): Promise<Record<string, 
       );
       if (rowCount) engines.push(def.id);
     }
-    const choices: Array<[string, string]> = [
-      [FACT_ENRICHMENT_CONFIG_KEYS.engineId, DEFAULT_FACT_ENRICHMENT_ENGINE_ID],
-      [VISUAL_CONCEPTS_CONFIG_KEYS.engineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID],
-      [ip.IMAGE_PROMPT_CONFIG_KEYS.imagePromptEngineId, ip.DEFAULT_IMAGE_PROMPT_ENGINE_ID],
-      [ip.IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierEngineId, ip.DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID],
-    ];
-    const engineChoices: string[] = [];
-    for (const [key, value] of choices) {
-      const { rowCount } = await client.query("UPDATE admin_config SET value = $2 WHERE key = $1 AND value IS DISTINCT FROM $2", [key, value]);
-      if (rowCount) engineChoices.push(key);
-    }
     const { rowCount: jobsMadeTerminal } = await client.query(
       `UPDATE async_jobs SET status = 'failed', last_error = 'restored with a snapshot; made terminal before the acceptance journeys', updated_at = now()
        WHERE status IN ('pending', 'processing')`,
     );
-    return { enginesReset: engines, engineChoicesReset: engineChoices, jobsMadeTerminal };
+    return { enginesReset: engines, jobsMadeTerminal };
   } finally {
     await client.end();
   }

@@ -23,10 +23,11 @@ correct in any test that uses `undefined` rather than a real DB `null`.
    `estimatedCostUsdPerCall: null`**, so this was not a hypothetical.
 3. Then in the opposite direction: the guard against (1) and (2) was
    `n > 0`, which *also* discarded a deliberate `0`. The admin engine
-   validator accepts any non-negative number
-   (`routes/adminEngines.ts`, `v >= 0`), so an operator can legitimately waive
-   an engine's cost — and `> 0` silently overrode that with a positive
-   estimate, refusing a call the operator had made free.
+   validator then accepted any non-negative number (`routes/adminEngines.ts`,
+   `v >= 0`; that route went with the Engines page on 2026-11-14), so an
+   operator could legitimately waive an engine's cost — and `> 0` silently
+   overrode that with a positive estimate, refusing a call the operator had
+   made free. A stored zero is still a deliberate value.
 
 **The rule.** `null` and `0` are different facts whenever the column is
 nullable. Reject `null`/`undefined` **explicitly, before any numeric

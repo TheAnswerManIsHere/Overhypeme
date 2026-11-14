@@ -16,6 +16,7 @@ import { db } from "@workspace/db";
 import { enginesTable, promptRecipePromotionsTable, promptRecipeVersionsTable } from "@workspace/db/schema";
 import { BASELINE_RECIPE, RECIPE_PIECE_KEYS, changedPolicyPieces, recipeFrom, recipeProblems, type RecipePieceKey, type ResolvedRecipe } from "./recipe";
 import { recipeBudgetProblems } from "./promptBudget";
+import { codeEngineDefinition, codeEngineDefinitions, codeImageEngineIds, effectiveEngines } from "../engineInterpreter";
 
 export class RecipeRefused extends Error {
   constructor(message: string, readonly details: Record<string, unknown> = {}) { super(message); }
@@ -56,10 +57,8 @@ export async function liveRecipeVersionIdForFamily(family: string): Promise<numb
 
 /** Each engine's family (its own id when it has none), in one read. */
 export async function engineFamiliesOf(engineIds: string[]): Promise<Map<string, string>> {
-  const rows = engineIds.length ? await db.select({ id: enginesTable.id, family: enginesTable.family }).from(enginesTable).where(inArray(enginesTable.id, engineIds)) : [];
-  const out = new Map(engineIds.map((id) => [id, id]));
-  for (const r of rows) if (r.family) out.set(r.id, r.family);
-  return out;
+  // Family is set in code (decisions.md 2026-11-14), never read from a row.
+  return new Map(engineIds.map((id) => [id, codeEngineDefinition(id)?.family ?? id]));
 }
 
 /** The live version id for each engine a render could be routed to, in two reads. */
@@ -86,8 +85,8 @@ export async function draftRecipe(family: string, basedOnVersionId: number | nul
 }
 
 async function assertImageFamily(family: string): Promise<void> {
-  const rows = await db.select({ deletedAt: enginesTable.deletedAt }).from(enginesTable)
-    .where(and(eq(enginesTable.family, family), eq(enginesTable.kind, "image")));
+  const ids = codeEngineDefinitions().filter((d) => d.family === family && d.kind === "image").map((d) => d.id);
+  const rows = ids.length ? await db.select({ deletedAt: enginesTable.deletedAt }).from(enginesTable).where(inArray(enginesTable.id, ids)) : [];
   if (!rows.some((r) => r.deletedAt == null)) throw new RecipeRefused(`"${family}" is not an image engine family`);
 }
 
@@ -154,8 +153,9 @@ export interface RecipeFamilySummary {
 /** Every image engine family with its versions, the live one and its promotion history, newest first. */
 export async function listRecipeFamilies(): Promise<RecipeFamilySummary[]> {
   // An archived (soft-deleted) engine is left out; the engines table is small, so it is filtered here.
-  const engines = (await db.select({ id: enginesTable.id, label: enginesTable.label, family: enginesTable.family, imageMode: enginesTable.imageMode, retired: enginesTable.retired, deletedAt: enginesTable.deletedAt })
-    .from(enginesTable).where(eq(enginesTable.kind, "image")).orderBy(asc(enginesTable.id))).filter((e) => e.deletedAt == null);
+  // Family and mode come from code (decisions.md 2026-11-14); the row keeps label, retirement and deletion.
+  const engines = effectiveEngines(await db.select().from(enginesTable).where(inArray(enginesTable.id, codeImageEngineIds())).orderBy(asc(enginesTable.id)))
+    .filter((e) => e.deletedAt == null);
   const families = [...new Set(engines.map((e) => e.family).filter((f): f is string => !!f))].sort();
   if (families.length === 0) return [];
   const [versions, promotions, live] = await Promise.all([

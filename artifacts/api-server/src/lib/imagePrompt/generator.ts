@@ -107,8 +107,8 @@ function fallbackImagePromptLLMSettings(
 }
 
 /**
- * Resolve the dedicated visual-planner engine (config key
- * `fact_image_prompt_engine_id`) into per-call LLM settings + provenance.
+ * Resolve the dedicated visual-planner engine, chosen and configured in code
+ * (decisions.md 2026-11-14), into per-call LLM settings + provenance.
  * Any invalid state falls back to the pre-feature behavior (default llm
  * engine, original constants) with the reason recorded — never throws.
  * Note: `loadEngine` does NOT filter isActive/deletedAt, so we must.
