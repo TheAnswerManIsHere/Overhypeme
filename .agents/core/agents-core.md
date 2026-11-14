@@ -214,7 +214,21 @@ does not apply. The tool, its contract and its back-out:
   (2026-09-14, when the human-merge gate was retired). Neither class is
   fixed because the diff would be small: each fix costs a review round, and the aggregate is never
   weighed at the moment one is chosen.
-- **Prefer database-backed config for tunable operational settings.**
+- **Prefer configuration in code.** By default a setting is a constant in
+  the repository, reviewed and versioned with the code that reads it, so
+  its history and the version it shipped with are kept. The database is for
+  a setting that must take effect in the running product immediately, where
+  a commit would be too slow or cumbersome (David, 2026-11-14: *"the right
+  way to do things is in code unless it needs immediate impact in the
+  product where it would be too long or cumbersome to do a new commit"*).
+  Settings that shape an AI call (which engine or model a step uses, its
+  endpoint, reasoning effort, temperature, token limits, prompt text)
+  default firmly to code: they rarely need immediate effect, and their
+  version history is most of their value. This is a guideline, not an
+  absolute (David, 2026-11-14: *"It's a guideline, not a hard and fast must
+  follow rule"*): an exception that makes sense is fine, and it is named
+  with its reason in the product's `decisions.md` — Overhype.me's prompt
+  tuner, for one, keeps its reviewed wording versions in the database.
 - **Migrations must be idempotent and observable.**
 - **Async work must show status** at two altitudes (per-item + aggregate) — see
   [`docs/ai-context/async-ui-status.md`](../../docs/ai-context/async-ui-status.md).
