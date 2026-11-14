@@ -22,7 +22,7 @@ import type {
   ParamPredicate,
   ParamSchema,
   ParamSchemaEntry,
-} from "../engineInterpreter";
+} from "./paramSchema";
 
 // Re-export so engine files only need to import from this barrel.
 export type { ParamPrimitive, ParamPredicate, ParamSchema, ParamSchemaEntry };

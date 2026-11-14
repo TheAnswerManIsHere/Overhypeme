@@ -18,6 +18,7 @@ import { liveRecipeVersionIdsForEngines, liveRecipeVersionIds } from "../lib/ima
 import { BASELINE_PIECES } from "../lib/imagePrompt/recipe.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { testEngineRow } from "./helpers/testEngines.js";
 
 const P = `t-pr-${randomUUID().slice(0, 6)}`;
 const FAMILY = `${P}-gpt`;
@@ -29,7 +30,7 @@ before(async () => {
   for (const [family, src] of [[FAMILY, "gpt-image-2-6"], [FAMILY, "gpt-image-2-6-edit"], [OTHER, "nano-banana-2-1"]] as const) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${family}-${def.imageMode}`;
-    await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, family, isDefault: false });
+    await db.insert(enginesTable).values(testEngineRow(def, id, family));
     engineIds.push(id);
   }
   adminId = `${P}-admin`;

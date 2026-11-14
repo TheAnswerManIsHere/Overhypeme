@@ -50,7 +50,7 @@ describe("a meme traces back to how it was made, from its link or from the pictu
 
   // The upload route skips the fal NSFW classifier when no fal key is set,
   // which is what this test relies on. With test isolation off, another file's
-  // dummy key (adminEngines.test.ts sets one at import) can still be set here,
+  // dummy key (another test file may set one at import) can still be set here,
   // and the route then calls the real classifier and fails closed with a 503
   // (PR #936: a new test file moved this one into that file's shard).
   const falKey = process.env["FAL_AI_API_KEY"];

@@ -19,6 +19,7 @@ import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { panelPreparationBoundUsd } from "../lib/comparison/admission.js";
 import { DEFAULT_IMAGE_PROMPT_ENGINE_ID } from "../lib/imagePromptConfig.js";
 import { clearEngineCaches } from "../lib/engineInterpreter.js";
+import { testEngineRow } from "./helpers/testEngines.js";
 
 const P = `t-cmp-${randomUUID().slice(0, 6)}`;
 const FAMILIES = [`${P}-gpt`, `${P}-flux`];
@@ -40,7 +41,7 @@ before(async () => {
     for (const src of SOURCES[family]!) {
       const def = ALL_ENGINES.find((e) => e.id === src)!;
       const id = `${family}-${def.imageMode}`;
-      await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, family, isDefault: false });
+      await db.insert(enginesTable).values(testEngineRow(def, id, family));
       engineIds.push(id);
     }
   }
@@ -124,16 +125,19 @@ describe("admin comparison routes", () => {
     assert.equal(render.body.refusal, "nothing left to do");
   });
 
-  it("prices preparation from the planner's configured settings, and refuses on a planner fallback", async () => {
+  it("prices preparation from the planner's code settings, not its row, and refuses on a planner fallback", async () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminId }, adminComparisonRouter);
     const created = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} planner` }));
     const [original] = await db.select({ defaultMaxTokens: enginesTable.defaultMaxTokens, isActive: enginesTable.isActive }).from(enginesTable).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
     try {
+      const before = await request(app).get(`/api/admin/comparison/sets/${created.body.setId}`);
+      assert.equal(before.status, 200);
+      // A stored token limit is not read (decisions.md 2026-11-14): the bound is the code's.
       await db.update(enginesTable).set({ defaultMaxTokens: 6000 }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
       clearEngineCaches();
       const raised = await request(app).get(`/api/admin/comparison/sets/${created.body.setId}`);
       assert.equal(raised.status, 200);
-      assert.ok(Math.abs(raised.body.estimate.preparationBoundUsd - 4 * 0.96) < 1e-3, String(raised.body.estimate.preparationBoundUsd));
+      assert.equal(raised.body.estimate.preparationBoundUsd, before.body.estimate.preparationBoundUsd);
 
       await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, DEFAULT_IMAGE_PROMPT_ENGINE_ID));
       clearEngineCaches();

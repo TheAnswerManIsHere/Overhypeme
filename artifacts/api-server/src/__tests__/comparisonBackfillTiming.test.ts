@@ -14,6 +14,7 @@ import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
 import { backfillTimings, parseTimings } from "../lib/comparison/backfillTiming.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
+import { testEngineRow } from "./helpers/testEngines.js";
 
 const P = `t-cbt-${randomUUID().slice(0, 6)}`;
 const engineIds: string[] = [];
@@ -25,7 +26,7 @@ before(async () => {
   for (const src of ["flux-3", "flux-3-edit"]) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${P}-${def.imageMode}`;
-    await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, family: P, isDefault: false });
+    await db.insert(enginesTable).values(testEngineRow(def, id, P));
     engineIds.push(id);
   }
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true });

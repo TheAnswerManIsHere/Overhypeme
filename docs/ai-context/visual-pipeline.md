@@ -278,9 +278,7 @@ came to exist. The rules a change here must keep:
   from today's configuration.
 - **Producers today:** the render worker (`imagePromptJobs.ts`: product,
   moderation and eval renders), the engine comparison (`comparison/runs.ts`),
-  the engine workbench (`routes/adminEngines.ts` via
-  `artifacts/api-server/src/lib/provenance/workbench.ts`, whose completed result names our stored
-  copy, never the vendor URL), and member uploads (`userImageUpload.ts`,
+and member uploads (`userImageUpload.ts`,
   recorded unstamped), and every composed meme — the bake on save and the
   backfill bake (`memeBake.ts` `renderTracedMeme`), the live render of an
   unbaked meme, and the builder's preview and download (`memeComposite.ts`
@@ -502,15 +500,11 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
 *Proposed Design* A, A2 and B). Until it, the worker chose `nano-banana-2` or
 `nano-banana-2-edit` by string. Now:
 
-- **The engine per mode is two admin-config keys** today, `image_engine_t2i` and
-  `image_engine_i2i`. This is a known exception to the rule that AI call
-  settings live in code, and it is being removed ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)): the target is
-  the engine per mode named in code. (Migration 0123 seeded them to those two engines, so
-  rendering did not change). The admin engines screen's **Set default** on an
-  image engine is their only writer: it validates the engine and writes the key
-  for that engine's own mode. The generic config route refuses both keys, and
-  an image engine's `isDefault` flag routes nothing (it still does for `llm`
-  and `utility`, a known exception being moved into code, [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). `lib/imageEngineRouting.ts` owns all of this.
+- **The engine per mode is set in code**, `IMAGE_ENGINE_IDS` in
+  `lib/imageEngineRouting.ts` ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)): `nano-banana-2` and
+  `nano-banana-2-edit`. The `image_engine_t2i` and `image_engine_i2i` rows
+  migration 0123 seeded are no longer read, and the generic config route
+  refuses them. No engine row's `isDefault` flag routes anything.
 - **An attempt records its engine once, at construction**, in
   `image_prompt_attempts.actual_image_engine_id`, and the worker renders through
   that engine, never through today's default: an attempt queued before a
@@ -541,8 +535,7 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
   the Nano Banana 2 control.
   Each carries a `priceModel`, a complete per-call bound at the comparison
   settings with each component's source, and nothing routes to one until it
-  becomes a mode's engine (today an admin's Set default, which is being moved
-  into code: [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). The compiler is still Nano Banana 2's for
+  becomes a mode's engine in `IMAGE_ENGINE_IDS`, a code change. The compiler is still Nano Banana 2's for
   every engine; adapting it to the two chosen engines is increment 4's.
 
 ## Visual Concept
@@ -707,11 +700,10 @@ ignored; see the planner item's note on code-owned prompts, above.)
 ## Frontier visual planner
 
 `generateImagePromptPlan()` (`imagePrompt/generator.ts`) calls OpenAI with strict
-Structured Outputs. Engine is resolved today from admin key `fact_image_prompt_engine_id`
-(a known exception being moved into code, [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)),
-default **`openai-visual-planner`** (`engines/openai-visual-planner.ts`,
+Structured Outputs. The engine is set in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)):
+**`openai-visual-planner`** (`engines/openai-visual-planner.ts`,
 `endpointId: "gpt-5.5"`, `kind: llm`, `tierRequirement: legendary`, high reasoning
-effort, 180 s timeout, deliberately blocked from becoming the global default LLM).
+effort, 180 s timeout).
 Resolution **never throws** — it falls back to the default utility LLM with a
 recorded `fallbackReason`. (Introduced by PR #157.)
 
@@ -887,19 +879,21 @@ launch Phase 4 (ledger `docs/retired/README.md`; lessons
 The admin **"Runtime Compiled Prompt Preview" must match runtime.** Parity comes
 from all three surfaces going through the **same core path** —
 `generateImagePromptPlan()` + `compileForSubjectRenderMode()` — not from a shared
-wrapper. The **two admin preview surfaces** (the admin fact-page RCP preview,
-`POST /admin/image-prompt/preview`, and the i2i/t2i engine workbench) call those two
-functions via `assembleImagePromptForPreview()` (`imagePrompt/preview.ts`) and
+wrapper. The **admin preview surface** (the admin fact-page RCP preview,
+`POST /admin/image-prompt/preview`; the i2i/t2i engine workbench went with the
+Engines page on 2026-11-14) calls those two functions via `assembleImagePromptForPreview()` (`imagePrompt/preview.ts`) and
 nothing else; **production** (`imagePromptJobs.ts`) calls the same two functions
 **directly** (it does *not* route through the preview helper). Both preview surfaces
 must feed the canonical test identity `RUNTIME_PREVIEW_DEFAULT_NAME = "David
 Franklin"` / he/him; production uses the real user identity
 (`resolveAttemptIdentity`).
 
-**Preview ≠ byte-identical to production** because `IMAGE_PROMPT_TEMPERATURE = 0.4`
-(two live calls word differently). Divergence is **temperature, not caching** —
+**Preview ≠ byte-identical to production** because two live calls to a reasoning
+model word differently. No temperature is sent: the planner runs `gpt-5.5` at high
+effort, which takes none (the parameter audit, 2026-11-14,
+`engineParameterAudit.test.ts`). Divergence is **sampling, not caching** —
 previews don't cache and don't read the `aiScenePrompts` blob (that cache serves
-only the AI background backfill). Making outputs identical needs temp 0 or result-reuse
+only the AI background backfill). Making outputs identical needs result-reuse
 — **ask David first** (see `.agents/memory/image-prompt-preview-parity.md`).
 
 ## Known failure modes
@@ -932,7 +926,7 @@ only the AI background backfill). Making outputs identical needs temp 0 or resul
   per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); Nano Banana 2 and its edit engine until
   launch Phase 8 adopts GPT Image 2.6 and Nano Banana 2.1, per the
   [product strategy](./product-strategy.md#pictures-and-engines)). (The utility LLM — `gpt-6-luna` since it
-  replaced `gpt-4o-mini` on 2026-10-13, chosen today by its engine row's `isDefault`, a known exception being moved into code per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows) — serves utility calls only; FLUX Pro only
+  replaced `gpt-4o-mini` on 2026-10-13, named in code by `UTILITY_LLM_ENGINE_ID` — serves utility calls only; FLUX Pro only
   on the AI background backfill.)
 - **Choosing a render engine by string in the worker, or deriving a stored
   attempt's engine from the mode** — retired in launch Phase 8; the engine comes

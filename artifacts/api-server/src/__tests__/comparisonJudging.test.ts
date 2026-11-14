@@ -32,6 +32,7 @@ import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
 import { blindImagePath, getComparisonResults, median } from "../lib/comparison/judging.js";
 import { frozenJudgingReference } from "../lib/comparison/runs.js";
+import { testEngineRow } from "./helpers/testEngines.js";
 
 const P = `t-cj-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -48,7 +49,7 @@ before(async () => {
   for (const [family, src] of SOURCES) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${family}-${def.imageMode}`;
-    await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, family, isDefault: false });
+    await db.insert(enginesTable).values(testEngineRow(def, id, family));
     engineIds.push(id);
     endpointIds.push(def.endpointId!);
   }

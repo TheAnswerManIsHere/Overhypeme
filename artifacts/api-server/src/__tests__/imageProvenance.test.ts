@@ -3,8 +3,8 @@
 // names — the stamp never changes a picture's pixels and carries only the id
 // and an engine name; a record holds the hash of exactly the bytes returned;
 // it survives deletion of the account; the trace returns every match and
-// names what it tried; the workbench hands back our stamped copy, not the
-// vendor's URL; the retention purge does nothing at 0; the trace is admin-only.
+// names what it tried; the retention purge does nothing at 0; the trace is
+// admin-only. (The engine workbench went with the Engines page, 2026-11-14.)
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
@@ -29,7 +29,6 @@ import {
   setVendorRequestId,
 } from "../lib/provenance/records.js";
 import { parseTraceInput, traceIdOrLink } from "../lib/provenance/trace.js";
-import { finishWorkbenchResult } from "../lib/provenance/workbench.js";
 import { attemptProvenanceContext } from "../lib/provenance/attemptActor.js";
 import { runProvenanceRetentionPurge } from "../jobs/provenanceRetentionPurger.js";
 import { codeVersion } from "../lib/codeVersion.js";
@@ -265,74 +264,6 @@ describe("the trace", () => {
   });
 });
 
-describe("the engine workbench", () => {
-  it("hands back our stamped, recorded copy in place of the vendor URL, once", async () => {
-    const vendorId = `${P}-wb`;
-    const reqId = await recordGenerationRequest({
-      producer: "engine_workbench", engineId: "wb-engine", endpointId: "fal-ai/wb", request: { prompt: "workbench" },
-      actor: await actorForUser(adminId, "admin"),
-    });
-    createdRequestIds.push(reqId);
-    await setVendorRequestId(reqId, vendorId);
-    const png = await picture("png");
-    const stored: Array<{ subPath: string; buffer: Buffer }> = [];
-    const deps = {
-      storage: { uploadObjectBuffer: async (a: { subPath: string; buffer: Buffer }) => { stored.push(a); return `/objects/${a.subPath}`; } },
-      download: async () => png,
-      exists: async (path: string) => stored.some((x) => `/objects/${x.subPath}` === path),
-    };
-    const vendorResult = { images: [{ url: "https://v3.fal.media/files/x.png", width: 41 }], seed: 3 };
-    const first = await finishWorkbenchResult({ id: "wb-engine", label: "WB Engine" }, vendorId, vendorResult, deps) as typeof vendorResult & { images: Array<{ url: string; provenance_id: string }> };
-    assert.match(first.images[0]!.url, /^\/api\/admin\/provenance\/images\/\d+$/);
-    assert.ok(!JSON.stringify(first).includes("fal.media"), "the vendor URL is gone");
-    const id = Number(first.images[0]!.provenance_id);
-    createdRecordIds.push(id);
-    assert.equal(readStampedId(stored[0]!.buffer), id);
-    const [row] = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.id, id));
-    assert.equal(row!.generationRequestId, reqId);
-    assert.equal(row!.actorUserId, adminId);
-
-    const again = await finishWorkbenchResult({ id: "wb-engine", label: "WB Engine" }, vendorId, vendorResult, deps) as typeof first;
-    assert.equal(again.images[0]!.url, first.images[0]!.url, "a repeated poll reuses the record");
-    assert.equal(stored.length, 1);
-  });
-
-  it("stores again when an earlier poll's store failed after its record was written (Codex, PR #911)", async () => {
-    const vendorId = `${P}-wb-fail`;
-    const reqId = await recordGenerationRequest({
-      producer: "engine_workbench", engineId: "wb-engine", endpointId: "fal-ai/wb", request: { prompt: "x" },
-      actor: await actorForUser(adminId, "admin"),
-    });
-    createdRequestIds.push(reqId);
-    await setVendorRequestId(reqId, vendorId);
-    const png = await picture("png");
-    const stored: string[] = [];
-    let failNext = true;
-    const deps = {
-      storage: { uploadObjectBuffer: async (a: { subPath: string }) => {
-        if (failNext) { failNext = false; throw new Error("storage down"); }
-        stored.push(`/objects/${a.subPath}`); return `/objects/${a.subPath}`;
-      } },
-      download: async () => png,
-      exists: async (path: string) => stored.includes(path),
-    };
-    const vendorResult = { images: [{ url: "https://v3.fal.media/files/y.png" }] };
-    await assert.rejects(finishWorkbenchResult({ id: "wb-engine", label: "WB" }, vendorId, vendorResult, deps));
-    const retried = await finishWorkbenchResult({ id: "wb-engine", label: "WB" }, vendorId, vendorResult, deps) as { images: Array<{ url: string; provenance_id: string }> };
-    assert.equal(stored.length, 1, "the second poll stored the picture");
-    const records = await db.select().from(imageProvenanceTable).where(eq(imageProvenanceTable.generationRequestId, reqId));
-    records.forEach((r) => createdRecordIds.push(r.id));
-    assert.equal(records.length, 2, "the failed store's record stays; the stored picture has its own");
-    assert.equal(retried.images[0]!.url, `/api/admin/provenance/images/${retried.images[0]!.provenance_id}`);
-    assert.equal(stored[0], records.find((r) => String(r.id) === retried.images[0]!.provenance_id)!.objectPath);
-  });
-
-  it("leaves a result with no image unchanged", async () => {
-    const r = { label: "safe", score: 0.1 };
-    assert.deepEqual(await finishWorkbenchResult({ id: "x", label: "x" }, `${P}-none`, r), r);
-  });
-});
-
 describe("retention", () => {
   it("deletes nothing while the setting is 0 (kept indefinitely)", async () => {
     // Migration 0129 seeds the setting at 0; a database without the row reads the same default.
@@ -357,7 +288,7 @@ describe("the producer inventory", () => {
     "testing/legacyFixture/load.ts": "test fixture data",
   };
   const PRODUCES = /uploadObjectBuffer\(|fal\.subscribe\(|fal\.queue\.submit|fal\.queue\.result/;
-  const RECORDS = /finishAndStore\(|finishImage\(|recordGenerationRequest\(|finishWorkbenchResult\(|finishMeme\(/;
+  const RECORDS = /finishAndStore\(|finishImage\(|recordGenerationRequest\(|finishMeme\(/;
 
   it("every file that stores a picture or calls the image vendor records provenance, or is named as exempt", async () => {
     const { readdir, readFile } = await import("node:fs/promises");

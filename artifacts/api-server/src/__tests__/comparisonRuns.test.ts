@@ -48,6 +48,7 @@ import {
   retryCellStorage,
 } from "../lib/comparison/runs.js";
 import { llmMaxRetriesInScope } from "../lib/utilityLLM.js";
+import { testEngineRow } from "./helpers/testEngines.js";
 
 const P = `t-cr-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -86,11 +87,15 @@ const isGptEditRequest = (requestId: string) => {
 /** The retry count the planner call ran under, per preparation. */
 let plannerRetries: Array<number | undefined> = [];
 
+// One wrapper scopes the file-level hooks to this file: with test isolation off,
+// a root-level beforeEach would install this file's fakes for every other file
+// in the same shard.
+describe("comparison runs", () => {
 before(async () => {
   for (const [family, src] of SOURCES) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${family}-${def.imageMode}`;
-    await db.insert(enginesTable).values({ ...codeDefinitionToRow(def), id, family, isDefault: false });
+    await db.insert(enginesTable).values(testEngineRow(def, id, family));
     engineIds.push(id);
   }
   const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
@@ -565,4 +570,5 @@ describe("a prompt comparison", () => {
       await db.delete(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, v!.id));
     }
   });
+});
 });

@@ -10,8 +10,7 @@ import type { EngineDefinition } from "./types";
  *
  * Like openai-general, this is not called through the fal interpreter —
  * `endpointId` is the OpenAI model, set here (decisions.md 2026-11-14: AI call settings live in code). The
- * sampling defaults mirror the enrichment constants (temp 0.2, 600 output
- * tokens); temperature is dropped for reasoning models by chatModelTuningParams.
+ * token limit mirrors the enrichment constant (600 output tokens).
  */
 export const OPENAI_ENRICHER: EngineDefinition = {
   id: "openai-enricher",
@@ -42,7 +41,10 @@ export const OPENAI_ENRICHER: EngineDefinition = {
   // Mirror the enrichment sampling constants. Temperature is dropped for
   // reasoning models by chatModelTuningParams; it applies only if an admin
   // points the row at a 4.x chat model.
-  defaultTemperature: 0.2,
+  // No temperature: at this reasoning effort the model accepts none, so none
+  // is sent (openaiChatParams.ts; OpenAI's GPT-6 guide: "When reasoning effort
+  // is not none, remove temperature"). Parameter audit, 2026-11-14.
+  defaultTemperature: null,
   defaultMaxTokens: 600,
   defaultReasoningEffort: "high",
 };

@@ -36,10 +36,12 @@ export const OPENAI_GAG_WRITER: EngineDefinition = {
   expectedRunMs: 120000,
   estimatedCostUsdPerCall: null,
 
-  // Temperature is dropped for reasoning models. The answer is three short
-  // scenes plus a joke read; reasoning headroom is added on top of this by
-  // chatModelTuningParams.
-  defaultTemperature: 0.8,
+  // The answer is three short scenes plus a joke read; reasoning headroom is
+  // added on top of this by chatModelTuningParams.
+  // No temperature: at this reasoning effort the model accepts none, so none
+  // is sent (openaiChatParams.ts; OpenAI's GPT-6 guide: "When reasoning effort
+  // is not none, remove temperature"). Parameter audit, 2026-11-14.
+  defaultTemperature: null,
   defaultMaxTokens: 4000,
   // Medium (David, 2026-11-14, in UAT: high took 100–211 s a call, "WAY too
   // long"). Set here; no engine row's stored copy is read.

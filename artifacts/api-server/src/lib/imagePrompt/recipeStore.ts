@@ -16,8 +16,7 @@ import { db } from "@workspace/db";
 import { enginesTable, promptRecipePromotionsTable, promptRecipeVersionsTable } from "@workspace/db/schema";
 import { BASELINE_RECIPE, RECIPE_PIECE_KEYS, changedPolicyPieces, recipeFrom, recipeProblems, type RecipePieceKey, type ResolvedRecipe } from "./recipe";
 import { recipeBudgetProblems } from "./promptBudget";
-import { codeEngineDefinition, effectiveEngines } from "../engineInterpreter";
-import { ALL_ENGINES } from "../engines/catalogue";
+import { codeEngineDefinition, codeEngineDefinitions, effectiveEngines } from "../engineInterpreter";
 
 export class RecipeRefused extends Error {
   constructor(message: string, readonly details: Record<string, unknown> = {}) { super(message); }
@@ -86,7 +85,7 @@ export async function draftRecipe(family: string, basedOnVersionId: number | nul
 }
 
 async function assertImageFamily(family: string): Promise<void> {
-  const ids = ALL_ENGINES.filter((d) => d.family === family && d.kind === "image").map((d) => d.id);
+  const ids = codeEngineDefinitions().filter((d) => d.family === family && d.kind === "image").map((d) => d.id);
   const rows = ids.length ? await db.select({ deletedAt: enginesTable.deletedAt }).from(enginesTable).where(inArray(enginesTable.id, ids)) : [];
   if (!rows.some((r) => r.deletedAt == null)) throw new RecipeRefused(`"${family}" is not an image engine family`);
 }

@@ -381,7 +381,6 @@ function makeOpenAIConceptsCaller(settings: VisualConceptsLLMSettings): (userMes
     const systemPrompt = await getVisualConceptsSystem();
     const response = await callUtilityLLM({
       model: settings.model ?? undefined,
-      temperature: 0.8,
       maxTokens: settings.maxTokens,
       reasoningEffort: settings.reasoningEffort,
       timeoutMs: settings.timeoutMs,
