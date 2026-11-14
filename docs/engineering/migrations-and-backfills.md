@@ -12,11 +12,12 @@
   partially migrated, failed, skipped, and no-op. Don't assume all rows are fresh.
 - **Migrations must be idempotent and observable** — re-running must be safe, and
   the change must expose what it did (counts).
-- Prefer **database-backed config** for tunable operational settings over hardcoded
-  constants, so operators can adjust without a deploy. **Not for AI call settings**
-  (which engine or model a step uses, its endpoint, reasoning effort, temperature,
-  token limits, prompt text): those live in code, and a change is a reviewed code
-  change ([decisions.md, 2026-11-14](../ai-context/decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)).
+- **Configuration lives in code by default**; a setting goes in the database
+  only when it must take effect in the running product immediately and a
+  commit would be too slow, and an AI call setting never does
+  ([`agents-core.md`](../../.agents/core/agents-core.md#important-product-principles),
+  *Important product principles*; here,
+  [decisions.md, 2026-11-14](../ai-context/decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)).
 - Guard destructive operations (see rollback/recovery).
 - **A migration cannot manufacture a privilege boundary above itself.** It
   runs as the application role, so it owns everything it creates — an
