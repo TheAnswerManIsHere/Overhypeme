@@ -120,10 +120,8 @@ export function operations(photoSha256: string): Operation[] {
       required: always,
     },
     { key: "enrichment", journey: "3", description: "the fact enrichment classifier", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You are the fact enrichment classifier"), usable: parsesAsObject, min: 1, required: always },
-    // The gag writer (PR #936) opens "You write visual gags for Overhype.me."; the
-    // old ideator's phrase stays matched until the re-recorded corpus replaces
-    // its recording, then goes in the same pull request as the recordings.
-    { key: "visual-concepts", journey: "3", description: "the gag writer", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You write visual gags for Overhype.me.") || systemText(r).includes("Visual-concept ideator"), usable: parsesAsObject, min: 1, required: always },
+    // The gag writer (PR #936): the locked prompt's opening line.
+    { key: "visual-concepts", journey: "3", description: "the gag writer", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You write visual gags for Overhype.me."), usable: parsesAsObject, min: 1, required: always },
     { key: "image-prompts", journey: "3", description: "the image-prompt generator (three review renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 3, required: always },
     {
       key: "image-renders",

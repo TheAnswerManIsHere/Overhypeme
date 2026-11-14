@@ -854,7 +854,7 @@ ask for (only `AI_DOUBLE_FAIL` asks).
 
 **Re-recording** (after a change to a prompt, a schema, the baseline, or a
 vendor client upgrade) runs on the Repl, never in CI, under a spending
-ceiling the recorder enforces before every vendor call. Like every paid AI run, it starts only on David's go-ahead in words for that run (`decisions.md`, 2026-10-17).:
+ceiling the recorder enforces before every vendor call. Like every paid AI run, it proceeds within David's budget ($5 a run, $25 a week across every product, read from the fleet ledger) and is reported with its cost; above that it asks first (`uat-doc-format.md`, *Lanes*):
 
 ```sh
 cd artifacts/api-server && DATABASE_URL=<heliumdb_test> \
