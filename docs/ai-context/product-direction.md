@@ -132,7 +132,8 @@ inferred.
 **The grid holds anything that determines what a given account may do**,
 including numeric limits (spend, upload and rate caps), not just on/off
 switches. `admin_config` keeps global tuning that is identical for everybody.
-That boundary is what decides where the *next* setting goes.
+That boundary is what decides where the *next* setting goes, with one exception:
+a setting that shapes an AI call goes in neither, but in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)).
 
 **Overlays are unions, never overrides.** `admin` adds to the account's
 tier; more permissive wins. An admin who also pays never loses a feature by

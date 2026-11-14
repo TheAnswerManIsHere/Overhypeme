@@ -431,8 +431,10 @@ deliberately excludes them and points here instead.
 - **Sentry** — error reporting (telemetry spans three tabs; see `docs/SENTRY.md`).
 - Generative models are configured **code-first** in
   `artifacts/api-server/src/lib/engines/` (`catalogue.ts`, `reconcile.ts`, one file
-  per engine) and reconciled into the `engines` table at boot; admin owns
-  `isActive`/`isDefault`/pricing.
+  per engine) and reconciled into the `engines` table at boot. Every setting that
+  shapes an AI call is meant to live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows));
+  today admin still owns `isActive`/`isDefault`/pricing and the model parameters,
+  and the default-model choice and parameters are known exceptions being moved into code.
 
 ## Admin and moderation surfaces
 

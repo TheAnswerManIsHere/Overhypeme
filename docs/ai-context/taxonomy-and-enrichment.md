@@ -202,7 +202,8 @@ generated under, so a fact processed under old assumptions reads as stale.
   only moves via the admin "Mark major update" action (atomic, advisory-locked
   bump + `engine_revision_bumps` audit row) for engine/LLM swaps that no code
   constant captures. Engine/model IDs are deliberately **excluded** from the
-  signature — a config toggle would otherwise flip corpus-wide staleness.
+  signature — an engine change would otherwise flip corpus-wide staleness. (Engine
+  choice is a code change, [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows).)
   `currentProcessingSignatureFromConfig()` (api-server) reads it via
   `getConfigIntRaw`, the plain `value` read kept as this marker's named entry
   point (it once bypassed Debug mode's overlay, removed in launch Phase 4:

@@ -13,7 +13,10 @@
 - **Migrations must be idempotent and observable** — re-running must be safe, and
   the change must expose what it did (counts).
 - Prefer **database-backed config** for tunable operational settings over hardcoded
-  constants, so operators can adjust without a deploy.
+  constants, so operators can adjust without a deploy. **Not for AI call settings**
+  (which engine or model a step uses, its endpoint, reasoning effort, temperature,
+  token limits, prompt text): those live in code, and a change is a reviewed code
+  change ([decisions.md, 2026-11-14](../ai-context/decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)).
 - Guard destructive operations (see rollback/recovery).
 - **A migration cannot manufacture a privilege boundary above itself.** It
   runs as the application role, so it owns everything it creates — an
