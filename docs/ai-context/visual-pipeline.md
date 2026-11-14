@@ -52,7 +52,8 @@ model receives.** Enrichment is an input, not the prompt (see
    prompts are **set in code** (`codeOwnedPrompts.ts`): every reader returns the
    constant, boot no longer seeds them, and the admin screen shows them read-only.
    Changing the copy is an edit to the constant in a reviewed PR; an `admin_config`
-   row an older database still holds is ignored. (Before that, the rows were seeded
+   row an older database still holds is ignored. This is one case of the general
+   rule that AI call settings live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). (Before that, the rows were seeded
    `ON CONFLICT DO NOTHING` and a constant edit needed a DML migration too, which is
    why `0082` and `0084` exist.)
 3. **Compiler** (`compileForSubjectRenderMode()`, Nano Banana 2) → the
@@ -501,8 +502,10 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
 *Proposed Design* A, A2 and B). Until it, the worker chose `nano-banana-2` or
 `nano-banana-2-edit` by string. Now:
 
-- **The engine per mode is two admin-config keys**, `image_engine_t2i` and
-  `image_engine_i2i` (migration 0123 seeded them to those two engines, so
+- **The engine per mode is two admin-config keys** today, `image_engine_t2i` and
+  `image_engine_i2i`. This is a known exception to the rule that AI call
+  settings live in code, and it is being removed ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)): the target is
+  the engine per mode named in code. (Migration 0123 seeded them to those two engines, so
   rendering did not change). The admin engines screen's **Set default** on an
   image engine is their only writer: it validates the engine and writes the key
   for that engine's own mode. The generic config route refuses both keys, and
@@ -537,8 +540,9 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
   Nano Banana 2.1, FLUX 3 Image, Seedream 5.0 Pro and Meta Muse Image, beside
   the Nano Banana 2 control.
   Each carries a `priceModel`, a complete per-call bound at the comparison
-  settings with each component's source, and nothing routes to one until an
-  admin sets it as a mode's default. The compiler is still Nano Banana 2's for
+  settings with each component's source, and nothing routes to one until it
+  becomes a mode's engine (today an admin's Set default, which is being moved
+  into code: [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). The compiler is still Nano Banana 2's for
   every engine; adapting it to the two chosen engines is increment 4's.
 
 ## Visual Concept
@@ -614,8 +618,9 @@ without one.
 **The gag writer (prompt version 3, plan `docs/plans/PLAN_GAG_GENERATOR.md`,
 approved by David 2026-11-13).**
 - **Engine and prompt.** The candidates are drafted by the `openai-gag-writer`
-  engine row (GPT-6 Astra, medium effort since 2026-11-14: high took 100–211 s a call), selected by
-  `fact_visual_concepts_engine_id`; migration 0137 pointed that setting there
+  engine row (GPT-6 Astra, medium effort since 2026-11-14: high took 100–211 s a call), selected today by
+  `fact_visual_concepts_engine_id` (an `admin_config` key, and the effort an engine-row field: both known
+  exceptions being moved into code, [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)); migration 0137 pointed that setting there
   and kept the previous value as `fact_visual_concepts_engine_id_before_0137`.
   The render planner keeps its own row. The system prompt is the text David
   locked (`docs/plans/gag-prompt-LOCKED.md`); `gagWriter.test.ts` pins its
@@ -694,14 +699,16 @@ the full submitted override) — one function, two call sites, so there's no
 second formula to drift, but a candidate marked pickable can still fail Save
 if the rest of the VSO is already near its own budget ceiling. Future work
 should not read "pickable" as removing the need for that final save-time
-check. The deployed system prompt was migrated (0090) because
-`seedVisualConceptsConfig` is ON CONFLICT DO NOTHING — editing the TS default
-alone never reaches deployed rows (same class as migration 0085).
+check. (History: the deployed system prompt was once migrated, 0090, because it
+was read from an `admin_config` row that a boot seed never overwrote. The prompt
+has been read from code since Launch Phase 3's amendment 1, and the row is
+ignored; see the planner item's note on code-owned prompts, above.)
 
 ## Frontier visual planner
 
 `generateImagePromptPlan()` (`imagePrompt/generator.ts`) calls OpenAI with strict
-Structured Outputs. Engine is resolved from admin key `fact_image_prompt_engine_id`,
+Structured Outputs. Engine is resolved today from admin key `fact_image_prompt_engine_id`
+(a known exception being moved into code, [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)),
 default **`openai-visual-planner`** (`engines/openai-visual-planner.ts`,
 `endpointId: "gpt-5.5"`, `kind: llm`, `tierRequirement: legendary`, high reasoning
 effort, 180 s timeout, deliberately blocked from becoming the global default LLM).
@@ -918,8 +925,9 @@ only the AI background backfill). Making outputs identical needs temp 0 or resul
   manual fallback, not a requirement.
 - A global "no readable text" rule.
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
-  path is the **frontier planner (`gpt-5.5`) + the configured image engine per mode**
-  (`image_engine_t2i` / `image_engine_i2i`; Nano Banana 2 and its edit engine until
+  path is the **frontier planner (`gpt-5.5`) + the image engine per mode**
+  (today the `image_engine_t2i` / `image_engine_i2i` keys, being moved into code
+  per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); Nano Banana 2 and its edit engine until
   launch Phase 8 adopts GPT Image 2.6 and Nano Banana 2.1, per the
   [product strategy](./product-strategy.md#pictures-and-engines)). (The utility LLM — `gpt-6-luna` since it
   replaced `gpt-4o-mini` on 2026-10-13 — serves utility calls only; FLUX Pro only

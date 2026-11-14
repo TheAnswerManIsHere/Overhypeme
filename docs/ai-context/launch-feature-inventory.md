@@ -358,7 +358,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 | K1 | Zazzle affiliate | cut. *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | K2 | Pexels | moderation research only (user-facing stock removed, D3); keep. *Deleted entirely 2026-10-23 (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | K3 | Eval dashboard | keep (engine evaluation) |
-| K4 | Engines catalogue | prune video + PuLID; winner of the engine evaluation becomes default; **set a default `llm` engine** (tonight's fallback warning). *Video and PuLID pruned 2026-10-22 (Phase 4, removals 2 and 3)* |
+| K4 | Engines catalogue | prune video + PuLID; winner of the engine evaluation becomes default; **set a default `llm` engine** (tonight's fallback warning; since 2026-11-14 that default is named in code, not set on an engine row: [decisions.md](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). *Video and PuLID pruned 2026-10-22 (Phase 4, removals 2 and 3)* |
 | K5 | Video styles | cut |
 | K6 | Sentry | ship; **alerts routed to David** (email/push) as a readiness criterion |
 | K7 | Cloudflare OG-router worker | ship; loop phase (OG fix) |
