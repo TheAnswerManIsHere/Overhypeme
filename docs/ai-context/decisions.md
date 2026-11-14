@@ -13,6 +13,15 @@
 
 ---
 
+### 2026-11-14 · AI call settings live in code, never in database rows
+- **Decision:** every setting that shapes an AI call is defined in code and read from code: which engine or model a step uses, its endpoint, reasoning effort, temperature, token limits, and prompt text. None is read from `admin_config` or from an engine row's admin-tunable fields at run time. A change is a code change, reviewed and merged like any other.
+- **Why:** David, 2026-11-14, verbatim: *"Remember that all API calls, model selection, reasoning effort, etc. should now only be stored in code, never in database entries."* Measured the same day: the gag writer's reasoning effort was an admin-tunable engine field, so changing its code default left dev's row unchanged until it was edited by hand.
+- **Known exceptions still in place (audit, 2026-11-14), to be removed:**
+  - engine selection by `admin_config` keys (`fact_visual_concepts_engine_id`, `fact_enrichment_engine_id`, `fact_image_prompt_engine_id`, `fact_source_classifier_engine_id`, `image_engine_t2i`, `image_engine_i2i`, `nsfw_classifier_endpoint`);
+  - the engine rows' admin-tunable model parameters (`default_reasoning_effort`, `default_temperature`, `default_max_tokens`), and the default utility LLM chosen by an engine row's `is_default`;
+  - the prompt tuner's promoted wording versions, a question for David.
+- **Reference:** Issue #935; PR #941.
+
 ### 2026-11-13 · The gag writer runs on GPT-6 Astra with a locked prompt, a per-fact humor note, and no fallback model
 - **Decision:** candidate visual gags are drafted by the `openai-gag-writer` engine (GPT-6 Astra) under a system prompt David locked on 2026-11-13 (`docs/plans/gag-prompt-LOCKED.md`). The model writes the subject as "Alex" and the existing tokenizer converts it. Each generation returns a joke read. A moderator's confirm or correction saves it as the fact's humor note, which only a moderator writes. An unusable engine fails generation; nothing falls back to a weaker model. A note survives later edits to the fact's wording.
 - **Why:** David, 2026-11-13: *"we'll use that, in conjunction with Astra 6 as the model that generates the gags in the app"*; on the note, *"understanding the nuance of visual humor is a big challenge"* (he chose AI-drafted, human-corrected); on tokens, *"we should have it use a generic name that we then tokenize using the function we already have"*; on the fallback, *"This is an admin function so doesn't need high availability."* The prompt's content came from four Claude–Astra exchanges and David's taste across eleven worked facts. It covers the absurd played straight, the hero as a stoic force for good, and restraint.
