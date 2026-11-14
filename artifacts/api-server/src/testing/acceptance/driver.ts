@@ -56,6 +56,49 @@ function sameDrawing(a: Buffer, b: Buffer): boolean {
   return true;
 }
 
+/**
+ * The same lettering, whatever colour the name is drawn in. Since PR #872 a
+ * saved meme draws a `{NAME}` piece in the brand colour (MEME_NAME_COLOR,
+ * #FF6600) and hand-typed words in the caption's white, so a tokenised caption
+ * and its hand-typed twin can never be the same drawing. Both colours have a
+ * red channel of 255, and every blend of a fill with the black outline or the
+ * photo blends its red channel identically, so comparing the red channel alone
+ * (raw RGB, three bytes a pixel) removes that one difference and keeps every
+ * other: a surviving token, a brace, a shortened name or a wrong conjugation
+ * still moves thousands of red values.
+ *
+ * Its own tolerance: the saved meme is a JPEG, whose colour subsampling bleeds
+ * the orange-against-white difference into the red channel at the letters'
+ * edges. Measured on the baseline journey (2026-11-14): at most 85 of 255, on
+ * 631 pixels, with identical lettering. A changed glyph swaps black outline,
+ * white fill or photo, which moves red by well over 120.
+ *
+ * And a small count of pixels allowed past it: the name and the punctuation
+ * after it are separate pieces, each outlined on its own, so where the name's
+ * last letter meets a comma the outlines overlap differently. Measured: 22
+ * pixels in a strip 2 px wide, invisible; any changed glyph moves thousands.
+ */
+const SAME_LETTERING_TOLERANCE = 120;
+const SAME_LETTERING_MAX_PIXELS = 64;
+function sameLettering(a: Buffer, b: Buffer): boolean {
+  if (a.length !== b.length) return false;
+  let over = 0;
+  for (let i = 0; i < a.length; i += 3) if (Math.abs(a[i]! - b[i]!) > SAME_LETTERING_TOLERANCE && ++over > SAME_LETTERING_MAX_PIXELS) return false;
+  return true;
+}
+
+/**
+ * Whether the tokenised caption drew its name in the brand colour where the
+ * hand-typed twin drew white: the green channel falls from 255 to 102 on the
+ * name's fill. A floor of pixels, so the watermark's noise cannot pass for it.
+ */
+const NAME_COLOURED_MIN_PIXELS = 200;
+function nameDrawnInBrandColour(tokenised: Buffer, typed: Buffer): boolean {
+  let n = 0;
+  for (let i = 1; i < tokenised.length; i += 3) if (typed[i]! - tokenised[i]! > 100 && ++n >= NAME_COLOURED_MIN_PIXELS) return true;
+  return false;
+}
+
 /** The committed account definitions and fixture images live beside the scripts that seed and record them. */
 const SCRIPTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts");
 
@@ -428,21 +471,23 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       const img = await readImage(anonymous, "4", what, `/api/memes/${saved.permalinkSlug}/image`, "landscape");
       return sharp(img.bytes).removeAlpha().raw().toBuffer();
     };
-    const twin = async (what: string, tokenised: [string, string], typed: [string, string]) => {
+    const twin = async (what: string, tokenised: [string, string], typed: [string, string], opts: { name?: boolean } = {}) => {
       const [a, b] = [await served(`${what}, tokenised`, ...tokenised), await served(`${what}, typed by hand`, ...typed)];
-      if (!sameDrawing(a, b)) throw new JourneyError("4", what, "the served image differs from its hand-typed twin");
+      if (!sameLettering(a, b)) throw new JourneyError("4", what, "the served image's lettering differs from its hand-typed twin");
+      if (opts.name && !nameDrawnInBrandColour(a, b)) throw new JourneyError("4", what, "the name was not drawn in the brand colour");
+      if (!opts.name && !sameDrawing(a, b)) throw new JourneyError("4", what, "the served image differs from its hand-typed twin");
       return a;
     };
     const setPronouns = (pronouns: string) => free.json("4", "PATCH", "/api/users/me", { pronouns });
     const captions: Record<string, Buffer> = {};
-    captions.nameInTop = await twin("the name in the top half", ["{NAME} counted to infinity", "twice."], [`${name} counted to infinity`, "twice."]);
-    captions.nameInBottom = await twin("the name in the bottom half", ["Infinity was counted", "by {NAME}, twice."], ["Infinity was counted", `by ${name}, twice.`]);
+    captions.nameInTop = await twin("the name in the top half", ["{NAME} counted to infinity", "twice."], [`${name} counted to infinity`, "twice."], { name: true });
+    captions.nameInBottom = await twin("the name in the bottom half", ["Infinity was counted", "by {NAME}, twice."], ["Infinity was counted", `by ${name}, twice.`], { name: true });
     // The bottom line's guard: a different typed bottom line must change the picture, or the bottom twin proves nothing.
-    if (sameDrawing(await served("a different bottom line, typed by hand", "Infinity was counted", "by Someone Else, twice."), captions.nameInBottom!)) {
+    if (sameLettering(await served("a different bottom line, typed by hand", "Infinity was counted", "by Someone Else, twice."), captions.nameInBottom!)) {
       throw new JourneyError("4", "the bottom-line guard", "a different bottom line served the same image");
     }
     // The guard: a different typed name must not match, or equality proves nothing.
-    if (sameDrawing(await served("a different name, typed by hand", "Someone Else counted to infinity", "twice."), captions.nameInTop!)) {
+    if (sameLettering(await served("a different name, typed by hand", "Someone Else counted to infinity", "twice."), captions.nameInTop!)) {
       throw new JourneyError("4", "the caption guard", "a different name served the same image");
     }
     await setPronouns("they/them");
