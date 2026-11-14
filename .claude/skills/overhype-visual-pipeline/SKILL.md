@@ -43,8 +43,7 @@ photoreal and Nano Banana 2.1 for styles, per the
 [product strategy](../../../docs/ai-context/product-strategy.md#pictures-and-engines)) · enrichment-time visual preview as source of
 truth · violence auto-softeners · per-route preview identities · choosing the
 render engine by string, or deriving a stored attempt's engine from its mode (it
-is the per-mode engine `imageEngineRouting.ts` resolves, read today from config
-keys that are being moved into code per
+is the per-mode engine `imageEngineRouting.ts` resolves, set in code per
 [`decisions.md`, 2026-11-14](../../../docs/ai-context/decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows),
 and the attempt's own column; `visual-pipeline.md` *Which engine draws a render*).
 

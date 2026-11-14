@@ -35,11 +35,10 @@ export function __setPlanGeneratorForTest(fn: PlanGenerator | null): void {
 
 /**
  * Canonical test identity shared by EVERY sync preview/test surface — the
- * Phase-2C admin "Runtime Compiled Prompt Preview" (`adminImagePrompt`) AND the
- * t2i/i2i engine workbench (`adminEngines`). Both render fact templates
- * ({NAME}/{SUBJ}/…) down to this single brand protagonist before calling the
- * planner, so the two surfaces feed byte-identical input to the shared rendering
- * code. With this unified, the only remaining difference between the two
+ * Phase-2C admin "Runtime Compiled Prompt Preview" (`adminImagePrompt`); the
+ * t2i/i2i engine workbench that shared it went with the Engines page on
+ * 2026-11-14. It renders fact templates ({NAME}/{SUBJ}/…) down to this single
+ * brand protagonist before calling the planner. With this unified, the only remaining difference between the two
  * previews is the planner's own temperature (IMAGE_PROMPT_TEMPERATURE = 0.4) —
  * never a harness mismatch.
  */

@@ -219,7 +219,7 @@ from the in-app field-documentation registry
 **Its scope is narrow: the Enrichment Editor's fields only** (AI Visual
 Classification, Visual Strategy Override, References & Scene Entities) —
 used in moderation Step 2 → Advanced Options and in Admin → Facts. **It
-is not a general admin field index** — config, engines, users, billing,
+is not a general admin field index** — config, users, billing,
 and every other page's fields aren't covered by it.
 
 ## Dead and misleading surfaces

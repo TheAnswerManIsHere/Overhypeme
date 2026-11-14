@@ -488,9 +488,7 @@ successful later attempt and surfaced together in the render-poll payload
 - `nonhuman_subject_i2i` — preserve an uploaded non-human subject.
 - `t2i_fallback` — no reference; uses `fallbackSubjectGender`.
 
-`tier2Heuristics.ts` suggests the mode from image analysis; the admin engine
-bench sets it from the bench instead (`image-to-image` → `human_identity_i2i`,
-otherwise `t2i_fallback`; `routes/adminEngines.ts`).
+`tier2Heuristics.ts` suggests the mode from image analysis.
 `generationModeFromSubjectRenderMode` maps
 `t2i_fallback → "t2i"`, everything else → `"i2i"`.
 
@@ -611,11 +609,11 @@ without one.
 **The gag writer (prompt version 3, plan `docs/plans/PLAN_GAG_GENERATOR.md`,
 approved by David 2026-11-13).**
 - **Engine and prompt.** The candidates are drafted by the `openai-gag-writer`
-  engine row (GPT-6 Astra, medium effort since 2026-11-14: high took 100–211 s a call), selected today by
-  `fact_visual_concepts_engine_id` (an `admin_config` key, and the effort an engine-row field: both known
-  exceptions being moved into code, [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)); migration 0137 pointed that setting there
-  and kept the previous value as `fact_visual_concepts_engine_id_before_0137`.
-  The render planner keeps its own row. The system prompt is the text David
+  engine (GPT-6 Astra, medium effort since 2026-11-14: high took 100–211 s a call), chosen and
+  configured in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). Migration 0137 had pointed the retired
+  `fact_visual_concepts_engine_id` key there and kept the previous value as
+  `fact_visual_concepts_engine_id_before_0137`; neither row is read now.
+  The render planner is a separate engine. The system prompt is the text David
   locked (`docs/plans/gag-prompt-LOCKED.md`); `gagWriter.test.ts` pins its
   sha256.
 - **No fallback model.** An unusable engine fails the job at once
@@ -922,8 +920,7 @@ only the AI background backfill). Making outputs identical needs result-reuse
 - A global "no readable text" rule.
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
   path is the **frontier planner (`gpt-5.5`) + the image engine per mode**
-  (today the `image_engine_t2i` / `image_engine_i2i` keys, being moved into code
-  per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); Nano Banana 2 and its edit engine until
+  (set in code, `IMAGE_ENGINE_IDS`, per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); Nano Banana 2 and its edit engine until
   launch Phase 8 adopts GPT Image 2.6 and Nano Banana 2.1, per the
   [product strategy](./product-strategy.md#pictures-and-engines)). (The utility LLM — `gpt-6-luna` since it
   replaced `gpt-4o-mini` on 2026-10-13, named in code by `UTILITY_LLM_ENGINE_ID` — serves utility calls only; FLUX Pro only

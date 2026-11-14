@@ -79,7 +79,7 @@ Routes in `artifacts/api-server/src/routes/*`; domain logic in
 - `routes/facts.ts`, `routes/reviews.ts` — submission + moderation lifecycle.
 - `routes/ai.ts` — tokenize-fact, suggest-hashtags, check-duplicate.
 - `routes/admin.ts` + `routes/admin*.ts` (e.g. `adminImagePrompt.ts`,
-  `adminEngines.ts`) — admin surfaces, all guarded by `requireAdmin`.
+  `adminComparison.ts`) — admin surfaces, all guarded by `requireAdmin`.
 - `routes/stripe.ts` + webhook handlers — billing/checkout.
 - Domain libs (`artifacts/api-server/src/lib/`): `imagePrompt/`,
   `factImagePipeline.ts`, `factEnrichment*.ts`, `enrichmentVersioning.ts`,

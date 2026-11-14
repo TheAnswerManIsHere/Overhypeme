@@ -36,8 +36,6 @@ export const OPENAI_VISUAL_PLANNER: EngineDefinition = {
   expectedRunMs: 90000,
   estimatedCostUsdPerCall: null,
 
-  // Temperature is dropped for reasoning models by chatModelTuningParams;
-  // it applies only if an admin points the row at a 4.x chat model.
   // No temperature: at this reasoning effort the model accepts none, so none
   // is sent (openaiChatParams.ts; OpenAI's GPT-6 guide: "When reasoning effort
   // is not none, remove temperature"). Parameter audit, 2026-11-14.

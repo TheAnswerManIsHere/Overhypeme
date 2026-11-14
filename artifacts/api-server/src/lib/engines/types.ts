@@ -127,8 +127,6 @@ export const RECONCILE_PRESERVED_FIELDS = [
   "defaultReasoningEffort",
 ] as const;
 
-
-
 // ── Size vocabulary (request builder) ─────────────────────────────────────
 
 /** The wizard aspect names every engine maps from. */

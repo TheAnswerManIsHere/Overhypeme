@@ -171,7 +171,6 @@ export async function getImagePromptEngineId(): Promise<string> {
   return DEFAULT_IMAGE_PROMPT_ENGINE_ID;
 }
 
-
 /** The system prompt keys set in code, which codeOwnedPrompts.ts refuses to save or show. */
 export const IMAGE_PROMPT_PROMPT_DEFS = [
   {
@@ -189,7 +188,6 @@ export const IMAGE_PROMPT_PROMPT_DEFS = [
       "LLM system prompt for the Tier-3 OpenAI Vision fallback classifier. Only fires when Tier-1 (fal detector) + Tier-2 (heuristics) produce ambiguous or low-confidence results.",
   },
 ];
-
 
 /**
  * Idempotently seed Phase 2 image-prompt config rows. Safe to call on every

@@ -179,9 +179,16 @@ export function codeEngineDefinitions(): EngineDefinition[] {
   return testDefinitions.size ? [...ALL_ENGINES, ...testDefinitions.values()] : ALL_ENGINES;
 }
 
+const catalogueById = new Map(ALL_ENGINES.map((def) => [def.id, def]));
+
 /** The code definition for an engine id, or undefined when the catalogue has none. */
 export function codeEngineDefinition(id: string): EngineDefinition | undefined {
-  return ALL_ENGINES.find((def) => def.id === id) ?? testDefinitions.get(id);
+  return catalogueById.get(id) ?? testDefinitions.get(id);
+}
+
+/** The ids of every image engine with a code definition. */
+export function codeImageEngineIds(): string[] {
+  return codeEngineDefinitions().filter((d) => d.kind === "image").map((d) => d.id);
 }
 
 /**

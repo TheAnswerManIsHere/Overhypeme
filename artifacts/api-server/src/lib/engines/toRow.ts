@@ -43,4 +43,3 @@ export function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
     deletedAt: null,
   };
 }
-

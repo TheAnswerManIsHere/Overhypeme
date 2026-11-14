@@ -35,7 +35,7 @@ import { cellBoundUsd, panelPreparationBoundUsd, panelPreparationTypicalUsd, rou
 import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings, type RunScope } from "./sets";
 import { ComparisonRunRefused, startComparisonRun } from "./runs";
 import { cellLost, isJudgeable, panelWait } from "./judging";
-import { effectiveEngines } from "../engineInterpreter";
+import { codeImageEngineIds, effectiveEngines } from "../engineInterpreter";
 
 // ─── Eligible facts ───────────────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ export async function actionPricing(): Promise<ActionPricing> {
  */
 export async function estimateEvaluation(sel: EvaluationSelection): Promise<EvaluationEstimate> {
   // The effective definitions: family and mode come from code (decisions.md 2026-11-14).
-  const engines = effectiveEngines(await db.select().from(enginesTable)).filter((e) => e.kind === "image");
+  const engines = effectiveEngines(await db.select().from(enginesTable).where(inArray(enginesTable.id, codeImageEngineIds())));
   const layout = deriveComparisonLayout({ factIds: sel.factIds, scenarioKeys: sel.scenarioKeys, lookStyleIds: sel.lookStyleIds, engineFamilies: sel.engineFamilies }, engines);
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
   const perCell = sel.kind === "prompt" ? (sel.recipeVersionIds?.length ?? 0) : 1;

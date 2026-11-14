@@ -26,8 +26,6 @@ const CODE_OWNED_PROMPT_DEFS = [
 
 const CODE_OWNED_PROMPT_KEYS: ReadonlySet<string> = new Set(CODE_OWNED_PROMPT_DEFS.map((d) => d.key));
 
-export const CODE_OWNED_PROMPT_REFUSAL = "This prompt is set in code; change it through a reviewed pull request.";
-
 export function isCodeOwnedPromptKey(key: string): boolean {
   return CODE_OWNED_PROMPT_KEYS.has(key);
 }

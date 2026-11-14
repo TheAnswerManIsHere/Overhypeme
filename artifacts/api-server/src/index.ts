@@ -336,7 +336,7 @@ await ensureSchema();
 
 // Configure the fal.ai client once at boot. Every fal-calling code path
 // (videoPipelineRunner, falAutoSubtitle, aiMemePipeline, userImageUpload,
-// adminEngines, /videos/generate, …) imports from lib/falClient.ts and
+// the comparison runs, …) imports from lib/falClient.ts and
 // relies on this module-level config rather than calling fal.config()
 // individually. Boot fails loudly when the key is missing so we don't
 // surface a misleading "Unauthorized" from fal at the first request.

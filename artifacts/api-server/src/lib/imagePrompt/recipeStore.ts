@@ -16,7 +16,7 @@ import { db } from "@workspace/db";
 import { enginesTable, promptRecipePromotionsTable, promptRecipeVersionsTable } from "@workspace/db/schema";
 import { BASELINE_RECIPE, RECIPE_PIECE_KEYS, changedPolicyPieces, recipeFrom, recipeProblems, type RecipePieceKey, type ResolvedRecipe } from "./recipe";
 import { recipeBudgetProblems } from "./promptBudget";
-import { codeEngineDefinition, codeEngineDefinitions, effectiveEngines } from "../engineInterpreter";
+import { codeEngineDefinition, codeEngineDefinitions, codeImageEngineIds, effectiveEngines } from "../engineInterpreter";
 
 export class RecipeRefused extends Error {
   constructor(message: string, readonly details: Record<string, unknown> = {}) { super(message); }
@@ -154,8 +154,8 @@ export interface RecipeFamilySummary {
 export async function listRecipeFamilies(): Promise<RecipeFamilySummary[]> {
   // An archived (soft-deleted) engine is left out; the engines table is small, so it is filtered here.
   // Family and mode come from code (decisions.md 2026-11-14); the row keeps label, retirement and deletion.
-  const engines = effectiveEngines(await db.select().from(enginesTable).orderBy(asc(enginesTable.id)))
-    .filter((e) => e.kind === "image" && e.deletedAt == null);
+  const engines = effectiveEngines(await db.select().from(enginesTable).where(inArray(enginesTable.id, codeImageEngineIds())).orderBy(asc(enginesTable.id)))
+    .filter((e) => e.deletedAt == null);
   const families = [...new Set(engines.map((e) => e.family).filter((f): f is string => !!f))].sort();
   if (families.length === 0) return [];
   const [versions, promotions, live] = await Promise.all([

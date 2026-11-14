@@ -378,7 +378,6 @@ export async function resolveFactEnrichmentSystemPrompt(): Promise<FactEnrichmen
   return FACT_ENRICHMENT_SYSTEM_RESOLUTION;
 }
 
-
 /** The system prompt keys set in code, which codeOwnedPrompts.ts refuses to save or show. */
 export const FACT_ENRICHMENT_PROMPT_DEFS = [
   {
@@ -388,4 +387,3 @@ export const FACT_ENRICHMENT_PROMPT_DEFS = [
     description: "LLM system prompt that classifies a submitted fact into the Overhype visual taxonomy. Must return JSON matching the enrichment schema (archetype, subtype, modifiers, etc.). The model + sampling come from the dedicated Fact Enricher engine, set in code.",
   },
 ];
-

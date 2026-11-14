@@ -106,7 +106,7 @@ export async function reconcileEngines(): Promise<ReconcileResult> {
 /**
  * Subset of fields that reconciliation overwrites on every boot — i.e. the
  * "code is source of truth" fields. Excludes everything in
- * RECONCILE_PRESERVED_FIELDS (which the admin panel owns) plus the auto-managed
+ * RECONCILE_PRESERVED_FIELDS (kept as stored) plus the auto-managed
  * created_at / updated_at columns.
  */
 function codeOwnedFields(def: EngineDefinition): Partial<InsertEngine> {

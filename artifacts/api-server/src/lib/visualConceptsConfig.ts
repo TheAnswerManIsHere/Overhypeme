@@ -14,7 +14,6 @@
  * {NAME}/{NAME_POSSESSIVE} tokens for the protagonist.
  */
 
-
 // ─── Config keys ───────────────────────────────────────────────────────────
 
 export const VISUAL_CONCEPTS_CONFIG_KEYS = {
@@ -45,7 +44,6 @@ export async function getVisualConceptsEngineId(): Promise<string> {
   return DEFAULT_VISUAL_CONCEPTS_ENGINE_ID;
 }
 
-
 /** The system prompt keys set in code, which codeOwnedPrompts.ts refuses to save or show. */
 export const VISUAL_CONCEPTS_PROMPT_DEFS = [
   {
@@ -56,4 +54,3 @@ export const VISUAL_CONCEPTS_PROMPT_DEFS = [
       "LLM system prompt for candidate Visual-concept generation (Slice 2A). Drafts three distinct render-mode-agnostic 'describe the picture' briefs a moderator picks from into the Visual concept field.",
   },
 ];
-

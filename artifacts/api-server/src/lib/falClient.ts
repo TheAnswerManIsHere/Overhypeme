@@ -3,7 +3,7 @@
  *
  * Before this module existed, eight separate call sites (videoPipelineRunner,
  * falAutoSubtitle, aiMemePipeline, userImageUpload, createMemeRecord,
- * adminEngines, routes/videos.ts, falPricing.ts) each repeated the same
+ * the old engine bench, routes/videos.ts, falPricing.ts) each repeated the same
  * three-step dance:
  *
  *   1. read `process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"]`
