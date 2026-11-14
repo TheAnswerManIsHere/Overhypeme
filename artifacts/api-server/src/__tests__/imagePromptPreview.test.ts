@@ -465,7 +465,8 @@ function promptSection(prompt: string, label: string): string {
   assert.ok(start >= 0, `section ${label} missing from: ${prompt}`);
   const body = prompt.slice(start + label.length + 2);
   // Sections are joined by the routed engine's shape: a space, or paragraph breaks.
-  const next = labels.map((l) => body.search(new RegExp(`\\s${l.replace(/[&]/g, "\\$&")}: `))).filter((i) => i >= 0);
+  const escape = (t: string) => t.replace(/[\\^$.*+?()[\]{}|&]/g, "\\$&");
+  const next = labels.map((l) => body.search(new RegExp(`\\s${escape(l)}: `))).filter((i) => i >= 0);
   return (next.length ? body.slice(0, Math.min(...next)) : body).trim();
 }
 
