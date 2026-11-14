@@ -24,7 +24,7 @@ import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { enqueueJob } from "./asyncJobs";
 import { lookClassOfSelection, resolveImageEngine } from "./imageEngineRouting";
 import { isValidRenderStyleSnapshot, resolveAndFreezeRenderStyle, type ResolvedRenderStyleSnapshot } from "./imagePrompt/styleResolution";
-import { liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
+import { engineFamilyOf, liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
 
 /** RenderControls plus the route-attached fields `imagePromptJobs` reads. */
 export type RenderControlsWithRefs = RenderControls & {
@@ -134,7 +134,7 @@ export async function buildAndEnqueueImagePromptAttempt(
   // The wording is chosen here too, so a promotion never changes queued work.
   const recipeVersionId = args.recipeVersionId !== undefined
     ? args.recipeVersionId
-    : await liveRecipeVersionIdForFamily(imageEngine.family ?? imageEngine.id);
+    : await liveRecipeVersionIdForFamily(engineFamilyOf(imageEngine.id));
   const renderJobId = randomUUID();
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)

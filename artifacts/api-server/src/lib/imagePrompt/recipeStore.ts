@@ -36,7 +36,7 @@ export function engineFamilyOf(engineId: string): string {
  * `family` — the family of the engine that draws the render — which is Nano
  * Banana 2's wording for any family without its own.
  */
-export async function recipeById(versionId: number | null | undefined, family?: string | null): Promise<ResolvedRecipe> {
+export async function recipeById(versionId: number | null | undefined, family: string | null): Promise<ResolvedRecipe> {
   if (versionId == null) return baselineRecipeFor(family);
   const cached = versionCache.get(versionId);
   if (cached) return cached;

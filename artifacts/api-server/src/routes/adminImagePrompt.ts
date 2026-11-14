@@ -157,18 +157,18 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   // subject, rendered fact text). See lib/imagePrompt/resolveRenderReviewInput.
   let resolved;
   try {
-  resolved = await resolveRenderReviewInput(sourceText, enrichment, {
-    subjectRenderMode: body.subjectRenderMode,
-    userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
-    sourceImageAnalysis: body.sourceImageAnalysis,
-    uploadedObjectPath: body.uploadedObjectPath,
-    referenceImageUrl: body.referenceImageUrl ?? null,
-    lookStyleId: body.lookStyleId ?? null,
-    renderControls: body.renderControls,
-    identityPolicyOverrides: body.identityPolicyOverrides,
-    previewName: body.previewName,
-    previewPronouns: body.previewPronouns,
-  });
+    resolved = await resolveRenderReviewInput(sourceText, enrichment, {
+      subjectRenderMode: body.subjectRenderMode,
+      userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
+      sourceImageAnalysis: body.sourceImageAnalysis,
+      uploadedObjectPath: body.uploadedObjectPath,
+      referenceImageUrl: body.referenceImageUrl ?? null,
+      lookStyleId: body.lookStyleId ?? null,
+      renderControls: body.renderControls,
+      identityPolicyOverrides: body.identityPolicyOverrides,
+      previewName: body.previewName,
+      previewPronouns: body.previewPronouns,
+    });
   } catch (err) {
     if (err instanceof RenderStyleRefusedError) {
       res.status(400).json({ error: err.code, message: err.message, styleId: err.styleId, reason: err.reason });

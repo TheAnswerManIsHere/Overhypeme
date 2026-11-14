@@ -1594,20 +1594,20 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
   // forced to t2i with a fallback gender so the generator can build a protagonist.
   let resolved;
   try {
-  resolved = await resolveRenderReviewInput(cycle.text, ev.data, {
-    subjectRenderMode: T2I_MODE,
-    userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? body.subjectRenderMode ?? null,
-    lookStyleId: body.lookStyleId ?? null,
-    renderControls: {
-      aspectRatio: body.renderControls?.aspectRatio,
-      contentMode: body.renderControls?.contentMode,
-      negativeSpacePreference: body.renderControls?.negativeSpacePreference,
-      fallbackSubjectGender: body.renderControls?.fallbackSubjectGender ?? "neutral",
-    },
-    identityPolicyOverrides: body.identityPolicyOverrides,
-    previewName: body.previewName,
-    previewPronouns: body.previewPronouns,
-  });
+    resolved = await resolveRenderReviewInput(cycle.text, ev.data, {
+      subjectRenderMode: T2I_MODE,
+      userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? body.subjectRenderMode ?? null,
+      lookStyleId: body.lookStyleId ?? null,
+      renderControls: {
+        aspectRatio: body.renderControls?.aspectRatio,
+        contentMode: body.renderControls?.contentMode,
+        negativeSpacePreference: body.renderControls?.negativeSpacePreference,
+        fallbackSubjectGender: body.renderControls?.fallbackSubjectGender ?? "neutral",
+      },
+      identityPolicyOverrides: body.identityPolicyOverrides,
+      previewName: body.previewName,
+      previewPronouns: body.previewPronouns,
+    });
   } catch (err) {
     if (err instanceof RenderStyleRefusedError) {
       res.status(400).json({ error: err.code, message: err.message, styleId: err.styleId, reason: err.reason });

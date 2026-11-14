@@ -346,25 +346,22 @@ const FAMILY_BASELINES: Readonly<Record<string, Partial<RecipePieces>>> = {
   },
 };
 
-/** The family's own baseline pieces: Nano Banana 2's wording with the family's differences laid over it. */
-export function baselinePiecesFor(family: string | null | undefined): RecipePieces {
-  const own = family ? FAMILY_BASELINES[family] : undefined;
-  return own ? Object.freeze({ ...BASELINE_PIECES, ...own }) as RecipePieces : BASELINE_PIECES;
-}
-
-const familyBaselineCache = new Map<string, ResolvedRecipe>();
+/** Each family's baseline, built once: Nano Banana 2's wording with the family's differences laid over it. */
+const FAMILY_BASELINE_RECIPES: ReadonlyMap<string, ResolvedRecipe> = new Map(
+  Object.entries(FAMILY_BASELINES).map(([family, own]) => [
+    family,
+    Object.freeze({ versionId: null, pieces: Object.freeze({ ...BASELINE_PIECES, ...own }) as RecipePieces }),
+  ]),
+);
 
 /** The baseline a family compiles with when no version is live. Nano Banana 2 and any family without its own is `BASELINE_RECIPE` itself. */
 export function baselineRecipeFor(family: string | null | undefined): ResolvedRecipe {
-  if (!family || !FAMILY_BASELINES[family]) return BASELINE_RECIPE;
-  let r = familyBaselineCache.get(family);
-  if (!r) { r = Object.freeze({ versionId: null, pieces: baselinePiecesFor(family) }); familyBaselineCache.set(family, r); }
-  return r;
+  return (family && FAMILY_BASELINE_RECIPES.get(family)) || BASELINE_RECIPE;
 }
 
 /** A stored version's pieces over its family's baseline: a piece added to the code after the version was saved reads its baseline text. */
 export function recipeFrom(versionId: number | null, stored: unknown, family?: string | null): ResolvedRecipe {
-  const pieces = { ...baselinePiecesFor(family) };
+  const pieces = { ...baselineRecipeFor(family).pieces };
   if (stored && typeof stored === "object") {
     for (const [k, v] of Object.entries(stored as Record<string, unknown>)) {
       if (DEF.has(k) && typeof v === "string") pieces[k as RecipePieceKey] = v;
