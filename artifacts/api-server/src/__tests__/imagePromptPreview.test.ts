@@ -544,6 +544,17 @@ describe("image-prompt preview — CORE SCENE source", () => {
 });
 
 describe("image-prompt preview — look style copy per generation mode", () => {
+  it("refuses a look that does not exist with a 400, never treating it as no look", async () => {
+    const factId = await seedFact();
+    __setPlanGeneratorForTest(async () => makeOutput({ subjectRenderMode: "t2i_fallback", promptText: "A protagonist lifts a mountain." }) as never);
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "t2i_fallback", lookStyleId: "no-such-look-style", renderControls: { fallbackSubjectGender: "female" } });
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(res.body.error, "look_style_unavailable");
+    assert.equal(res.body.reason, "not_found");
+  });
+
   it("t2i_fallback compiles the style's declarative promptSuffix, not its promptSuffixReference", async () => {
     const factId = await seedFact();
     const styleId = await seedStyle();
