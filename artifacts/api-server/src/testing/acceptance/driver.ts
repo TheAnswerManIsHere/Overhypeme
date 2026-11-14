@@ -268,9 +268,13 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       (c) => c.tokenValid && (c.bubbles ?? []).every((b: any) => b.tokenValid),
     );
     if (!candidate) throw new JourneyError("3", "pick a Visual Concept", "no token-valid candidate");
-    // The baseline fact has no dialogue, so no proposed idea carries a speech or thought bubble (PR229 step 14).
+    // A gag may carry an invented line even for a fact with no dialogue: the
+    // locked gag-writer prompt (docs/plans/gag-prompt-LOCKED.md, PR #936)
+    // allows one that serves the gag, so the old "no bubble on a dialogue-free
+    // fact" check (PR229 step 14) is retired. The candidate picked above is
+    // token-valid, bubbles included, and its bubbles apply with it below.
+    // The count stays in the journey's evidence.
     const withBubbles = (prepared.visualConcepts.candidates as any[]).filter((c) => (c.bubbles ?? []).length > 0).length;
-    if (withBubbles > 0) throw new JourneyError("3", "Visual Ideas for a dialogue-free fact", `${withBubbles} candidate(s) propose a bubble`);
 
     const fact = await admin.json<any>("3", "GET", `/api/admin/facts/${stagingFactId}`);
     const enrichment = structuredClone(fact.enrichment);
