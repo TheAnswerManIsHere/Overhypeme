@@ -25,7 +25,7 @@ const DESKTOP = { width: 1280, height: 900 };
 /** The sidebar's entries, in order (`components/admin/AdminLayout.tsx`, NAV_ITEMS). */
 const SIDEBAR = [
   "Dashboard", "Facts", "Users", "Moderation", "Eval", "Billing", "Refunds & Disputes",
-  "Trace an image", "Taxonomy Health", "Email Queue", "Queue Health", "Features", "Configuration", "Help",
+  "Trace an image", "Taxonomy Health", "Email Queue", "Queue Health", "Features", "AI Settings", "Configuration", "Help",
 ];
 
 /** 1,500 characters dense with {NAME}: fits the box, but past the 2,000-character budget once names are filled in. */
@@ -138,6 +138,16 @@ test.describe("Admin described screens", () => {
         for (const status of ["Pending", "Approved", "Rejected", "All"]) {
           await expect(page.getByRole("button", { name: status, exact: true })).toBeVisible();
         }
+      },
+    },
+    {
+      path: "/admin/ai",
+      title: "AI Settings",
+      nav: "AI Settings",
+      content: async (page) => {
+        await expect(page.getByTestId("ai-settings-steps")).toBeVisible();
+        await expect(page.getByText("Gag writer (visual gags and joke read)")).toBeVisible();
+        await expect(page.getByRole("textbox")).toHaveCount(0);
       },
     },
     {
@@ -343,12 +353,11 @@ test.describe("Admin described screens", () => {
     await expect(panel.getByTestId("visual-concept-textarea")).toHaveValue(OVER_BUDGET_CONCEPT);
   });
 
-  // Launch Phase 4, removal 7: the orphaned comments and AI-settings page
-  // files are deleted; their old addresses still land on the live screens.
-  test("the retired comments and AI addresses redirect to moderation and config", async ({ page }) => {
+  // Launch Phase 4, removal 7: the orphaned comments page file is deleted;
+  // its old address still lands on the live screen. (/admin/ai redirected to
+  // config until 2026-11-14; it is now the read-only AI settings page.)
+  test("the retired comments address redirects to moderation", async ({ page }) => {
     await page.goto("/admin/comments");
     await expect(page).toHaveURL(/\/admin\/moderation$/);
-    await page.goto("/admin/ai");
-    await expect(page).toHaveURL(/\/admin\/config$/);
   });
 });

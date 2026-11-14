@@ -3,7 +3,7 @@
 // 2026-11-07, decisions.md); what is tested is that each paid call happens
 // once and is recorded.
 // Seeds two engine families under a `t-cr-` prefix (GPT, token-billed; FLUX,
-// flat), the default planner engine when absent, one enriched fact, and a set
+// flat), registered as code definitions, one enriched fact, and a set
 // of two panels (generic_t2i and i2i_male_default, unstyled) — four cells.
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
@@ -18,7 +18,6 @@ import {
   comparisonReservationsTable,
   comparisonRunsTable,
   comparisonSetsTable,
-  enginesTable,
   factsTable,
   usersTable,
   type ComparisonCell,
@@ -29,8 +28,6 @@ import adminComparisonRouter from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { makeStubPlan, VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
-import { DEFAULT_IMAGE_PROMPT_ENGINE_ID } from "../lib/imagePromptConfig.js";
 import { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
@@ -49,6 +46,7 @@ import {
 } from "../lib/comparison/runs.js";
 import { llmMaxRetriesInScope } from "../lib/utilityLLM.js";
 import { testEngineRow } from "./helpers/testEngines.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
 const P = `t-cr-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -57,7 +55,6 @@ const SOURCES: Array<[string, string]> = [
   [FAMILIES.flux, "flux-3"], [FAMILIES.flux, "flux-3-edit"],
 ];
 const engineIds: string[] = [];
-let seededPlanner = false;
 let adminId = "";
 let factId = 0;
 
@@ -95,11 +92,9 @@ before(async () => {
   for (const [family, src] of SOURCES) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${family}-${def.imageMode}`;
-    await db.insert(enginesTable).values(testEngineRow(def, id, family));
+    testEngineRow(def, id, family);
     engineIds.push(id);
   }
-  const planner = ALL_ENGINES.find((e) => e.id === DEFAULT_IMAGE_PROMPT_ENGINE_ID)!;
-  seededPlanner = (await db.insert(enginesTable).values(codeDefinitionToRow(planner)).onConflictDoNothing().returning({ id: enginesTable.id })).length > 0;
   adminId = `${P}-admin`;
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true });
   const [fact] = await db.insert(factsTable).values({ text: `${P} {NAME} lifts a mountain`, isActive: false, enrichment: VALID_ENRICHMENT as never }).returning({ id: factsTable.id });
@@ -117,7 +112,7 @@ after(async () => {
   await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.queue, [COMPARISON_PREPARE_QUEUE, COMPARISON_RENDER_QUEUE]));
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
-  await db.delete(enginesTable).where(inArray(enginesTable.id, seededPlanner ? [...engineIds, DEFAULT_IMAGE_PROMPT_ENGINE_ID] : engineIds));
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 
@@ -452,7 +447,10 @@ describe("a comparison run end to end, with fakes", () => {
     await drain((await start(setId, "prepare")).body.run.id);
     const render = await start(setId, "render");
     const fluxT2i = engineIds[2]!;
-    await db.update(enginesTable).set({ isActive: false }).where(eq(enginesTable.id, fluxT2i));
+    const fluxSource = ALL_ENGINES.find((e) => e.id === "flux-3")!;
+    const fluxFamily = FAMILIES.flux;
+    // Engines live only in code: re-register the test clone as inactive.
+    testEngineRow(fluxSource, fluxT2i, fluxFamily, { isActive: false });
     try {
       const before = submissions.length;
       await drain(render.body.run.id);
@@ -464,7 +462,7 @@ describe("a comparison run end to end, with fakes", () => {
       const [cell] = await db.select().from(comparisonCellsTable).where(and(eq(comparisonCellsTable.id, released[0]!.cellId!)));
       assert.match(String(cell!.error), /not rendered: it is inactive/);
     } finally {
-      await db.update(enginesTable).set({ isActive: true }).where(eq(enginesTable.id, fluxT2i));
+      testEngineRow(fluxSource, fluxT2i, fluxFamily);
     }
   });
 });

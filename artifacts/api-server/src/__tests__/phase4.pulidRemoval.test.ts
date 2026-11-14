@@ -26,7 +26,6 @@ import {
   usersTable,
   factsTable,
   memesTable,
-  enginesTable,
   falPricingCacheTable,
   adminConfigTable,
 } from "@workspace/db/schema";
@@ -35,6 +34,7 @@ import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import { createLegacyEnginesTable, dropLegacyEnginesTable, insertLegacyEngine, legacyEngineIds } from "./helpers/legacyEnginesTable.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(
@@ -62,7 +62,7 @@ async function bearer(userId: string): Promise<string> {
 async function cleanup() {
   if (memeSlugs.length) await db.delete(memesTable).where(inArray(memesTable.permalinkSlug, memeSlugs));
   if (factIds.length) await db.delete(factsTable).where(inArray(factsTable.id, factIds));
-  await db.delete(enginesTable).where(like(enginesTable.id, `${PREFIX}%`));
+  await dropLegacyEnginesTable();
   await db.delete(falPricingCacheTable).where(like(falPricingCacheTable.endpointId, `${PREFIX}%`));
   await db.execute(sql`DELETE FROM upload_image_metadata WHERE user_id LIKE ${`${PREFIX}%`}`);
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
@@ -129,10 +129,10 @@ describe("migration 0104 retires PuLID's data", () => {
     // The test database was migrated before the suite (pretest), so 0104 may
     // already have logged a capture there; count only this test's own run.
     await db.execute(sql`DELETE FROM feature_permissions_migration_log WHERE migration_name = '0104_retire_pulid'`);
-    await db.insert(enginesTable).values([
-      { id: `${PREFIX}pulid`, provider: "fal", endpointId: "fal-ai/flux-pulid", label: "PuLID (test)", description: "Synthetic — phase4.pulidRemoval.test.ts.", kind: "image", tierRequirement: "legendary", isDefault: false, isActive: true, sortOrder: 999, paramSchema: { params: [] } as unknown },
-      { id: `${PREFIX}image`, provider: "fal", endpointId: `${PREFIX}vendor/edit`, label: "Image (test)", description: "Synthetic — phase4.pulidRemoval.test.ts.", kind: "image", tierRequirement: "legendary", isDefault: false, isActive: true, sortOrder: 999, paramSchema: { params: [] } as unknown },
-    ]);
+    // Migration 0138 dropped the engines table; 0104 ran against it, so a minimal copy is recreated.
+    await createLegacyEnginesTable();
+    await insertLegacyEngine(`${PREFIX}pulid`, "image", "fal-ai/flux-pulid");
+    await insertLegacyEngine(`${PREFIX}image`, "image", `${PREFIX}vendor/edit`);
     await db.insert(falPricingCacheTable).values([
       { endpointId: "fal-ai/flux-pulid", unitPrice: "0.0333", unit: "megapixels", fetchedAt: new Date() },
       { endpointId: `${PREFIX}vendor/edit`, unitPrice: "0.04", unit: "image", fetchedAt: new Date() },
@@ -167,6 +167,8 @@ describe("migration 0104 retires PuLID's data", () => {
 
   after(async () => {
     await db.execute(sql`DELETE FROM feature_permissions_migration_log WHERE migration_name = '0104_retire_pulid'`);
+    // Seeded above to prove 0104 leaves it; migration 0138 deletes it everywhere, so it must not outlive the test.
+    await db.execute(sql`DELETE FROM admin_config WHERE key = 'fal_safety_tolerance_pulid'`);
     await db.execute(sql`DELETE FROM fal_pricing_cache WHERE endpoint_id = 'fal-ai/flux-pulid'`);
     if (savedEndpoints === null) {
       await db.delete(adminConfigTable).where(eq(adminConfigTable.key, ENDPOINTS_KEY));
@@ -181,8 +183,7 @@ describe("migration 0104 retires PuLID's data", () => {
 
     await db.execute(sql.raw(MIGRATION_SQL));
 
-    const engines = await db.select({ id: enginesTable.id }).from(enginesTable).where(like(enginesTable.id, `${PREFIX}%`));
-    assert.deepEqual(engines.map((e) => e.id), [`${PREFIX}image`]);
+    assert.deepEqual(await legacyEngineIds(PREFIX), [`${PREFIX}image`]);
     const prices = await db.select({ e: falPricingCacheTable.endpointId }).from(falPricingCacheTable)
       .where(inArray(falPricingCacheTable.endpointId, ["fal-ai/flux-pulid", `${PREFIX}vendor/edit`]));
     assert.deepEqual(prices.map((p) => p.e), [`${PREFIX}vendor/edit`]);
@@ -222,7 +223,6 @@ describe("migration 0104 retires PuLID's data", () => {
     assert.equal(log.length, 1);
     const [{ revision: revAfter }] = (await db.execute(sql`SELECT coalesce((SELECT revision FROM entitlement_grid_revision WHERE id = 1), 0)::int AS revision`)).rows as Array<{ revision: number }>;
     assert.equal(revAfter, revBefore);
-    const engines = await db.select({ id: enginesTable.id }).from(enginesTable).where(like(enginesTable.id, `${PREFIX}%`));
-    assert.deepEqual(engines.map((e) => e.id), [`${PREFIX}image`]);
+    assert.deepEqual(await legacyEngineIds(PREFIX), [`${PREFIX}image`]);
   });
 });

@@ -21,7 +21,6 @@ export const OPENAI_GAG_WRITER: EngineDefinition = {
     "Drafts each fact's joke read and three candidate visual gags for moderators. Chosen in code; not eligible as the global default LLM.",
   kind: "llm",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 2,
   featureFlagRequired: null,

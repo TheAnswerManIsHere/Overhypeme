@@ -304,15 +304,15 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Refunds & Disputes | ship |
 | Affiliate | **cut** (merch). *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | Video Styles | **cut** (video deleted) |
-| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5); the stock picker limit and Pexels photo count 2026-10-23 (removal 6); Debug mode 2026-10-23 (removal 8); the AI gallery display limit 2026-10-23 (removal 11; ledger [`docs/retired/README.md`](../retired/README.md))* |
-| Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *The Engines page was removed 2026-11-14: AI settings live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)).* *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3; the engines' video-shaped columns and their admin fields 2026-10-23 (removal 11)* |
+| Config (Budget, Limits, Email, Zazzle, Moderation, AI, Debug) | ship; **prune Zazzle keys** and any key for a cut feature. *Zazzle keys pruned 2026-10-22 (Phase 4, removal 4); the gradient picker limit 2026-10-23 (removal 5); the stock picker limit and Pexels photo count 2026-10-23 (removal 6); Debug mode 2026-10-23 (removal 8); the AI gallery display limit 2026-10-23 (removal 11; ledger [`docs/retired/README.md`](../retired/README.md)); the AI settings group 2026-11-14, now shown read-only at `/admin/ai` ([decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values))* |
+| Engines | ship; **prune video engines + PuLID**; engine evaluation uses it. *The Engines page was removed 2026-11-14: AI settings live in code, shown read-only at `/admin/ai`, and the engines table was dropped by migration 0138 ([decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values); [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)).* *Pruned 2026-10-22: video engines in Phase 4 removal 2, PuLID in removal 3; the engines' video-shaped columns and their admin fields 2026-10-23 (removal 11)* |
 | Taxonomy Health | ship (proven tonight) |
 | Features (tier × feature grid) | ship; **becomes the Legendary definition** (F21) + beta overlay later |
 | Email Queue | ship (proven tonight) |
 | Queue Health | ship (proven tonight) |
 | Eval dashboard | keep, admin-only; the engine-evaluation tool; Manual ch.13 still unwritten |
 | Help (in-console Manual) | ship; Manual refreshed in the docs pass at the end |
-| `comments.tsx`, `ai.tsx` (dead redirects) | **delete**. *Deleted 2026-10-23; their `/admin/comments` and `/admin/ai` redirects stay (Phase 4, removal 7; ledger [`docs/retired/README.md`](../retired/README.md))* |
+| `comments.tsx`, `ai.tsx` (dead redirects) | **delete**. *Deleted 2026-10-23; the `/admin/comments` redirect stays, and `/admin/ai` became the read-only AI Settings page on 2026-11-14 (Phase 4, removal 7; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | **New screens from decisions** | **Reports / takedown queue** (C9); **Invites** (the Seed gate; see the four stages in the launch definition); **Read-only mode switch**; **Safety** (`/admin/safety`, NCMEC phases — scope set in the compliance phase); consent/list counts on Dashboard |
 | Cleanup stop condition (Astra) | every retained control performs its stated action; forbidden actions enforced server-side; operators can understand failure and recovery. No redesign. |
 
@@ -358,7 +358,7 @@ Core of the product; everything ships. Notes per item: triage queue/reject/provi
 | K1 | Zazzle affiliate | cut. *Deleted 2026-10-22 (Phase 4, removal 4; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | K2 | Pexels | moderation research only (user-facing stock removed, D3); keep. *Deleted entirely 2026-10-23 (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | K3 | Eval dashboard | keep (engine evaluation) |
-| K4 | Engines catalogue | prune video + PuLID; winner of the engine evaluation becomes default; **set a default `llm` engine** (tonight's fallback warning; since 2026-11-14 that default is named in code, not set on an engine row: [decisions.md](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). *Video and PuLID pruned 2026-10-22 (Phase 4, removals 2 and 3)* |
+| K4 | Engines catalogue | prune video + PuLID; winner of the engine evaluation becomes default; **set a default `llm` engine** (tonight's fallback warning; since 2026-11-14 that default is named in code, and there is no engine table: [decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)). *Video and PuLID pruned 2026-10-22 (Phase 4, removals 2 and 3)* |
 | K5 | Video styles | cut |
 | K6 | Sentry | ship; **alerts routed to David** (email/push) as a readiness criterion |
 | K7 | Cloudflare OG-router worker | ship; loop phase (OG fix) |

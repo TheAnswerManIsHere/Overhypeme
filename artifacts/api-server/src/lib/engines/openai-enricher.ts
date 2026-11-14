@@ -21,7 +21,6 @@ export const OPENAI_ENRICHER: EngineDefinition = {
     "Dedicated LLM for fact enrichment / taxonomy classification. Chosen in code; not eligible as the global default LLM.",
   kind: "llm",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 2,
   featureFlagRequired: null,

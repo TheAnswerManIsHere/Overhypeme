@@ -11,7 +11,7 @@ import type { EngineDefinition } from "./types";
  * Unlike the fal media engines, this engine is not called through the fal
  * interpreter — `endpointId` is the OpenAI chat model, set here with the
  * sampling defaults (decisions.md 2026-11-14: AI call settings live in code). It is the utility
- * engine because `UTILITY_LLM_ENGINE_ID` names it, not because of `isDefault`.
+ * engine because `UTILITY_LLM_ENGINE_ID` names it.
  * Call sites may override temperature / max tokens / response format per
  * request.
  */
@@ -24,7 +24,6 @@ export const OPENAI_GENERAL: EngineDefinition = {
     "The shared LLM used for all text/JSON helper calls: fact tokenization, duplicate checks, hashtag + pronoun suggestions, comment moderation, scene prompts, and video direction.",
   kind: "llm",
   tierRequirement: "legendary",
-  isDefault: true,
   isActive: true,
   sortOrder: 0,
   featureFlagRequired: null,

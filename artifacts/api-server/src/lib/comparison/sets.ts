@@ -14,7 +14,6 @@ import {
   comparisonPanelsTable,
   comparisonRunsTable,
   comparisonSetsTable,
-  enginesTable,
   factsTable,
   lookStylesTable,
   promptRecipeVersionsTable,
@@ -34,19 +33,18 @@ import { resolveImagePromptLLMSettings } from "../imagePrompt/generator";
 import { liveRecipeVersionIds } from "../imagePrompt/recipeStore";
 import { ComparisonLayoutError, deriveComparisonLayout } from "./layout";
 import { cellBoundUsd, panelPreparationBoundUsd, planRun, round4, type PlannerRequestSettings, type RunPlan, type WorkItem } from "./admission";
-import { codeImageEngineIds, effectiveEngines } from "../engineInterpreter";
+import { engineById, imageEngines } from "../engineInterpreter";
 
 export { ComparisonLayoutError };
 
 export async function createComparisonSet(input: ComparisonSetCreate, adminUserId: string | null, opts: { requestToken?: string } = {}): Promise<{ setId: number; panels: number; cells: number }> {
   const styleIds = input.lookStyleIds.filter((s) => s !== "none");
-  const [facts, styles, engines] = await Promise.all([
+  const engines = imageEngines();
+  const [facts, styles] = await Promise.all([
     db.select({ id: factsTable.id }).from(factsTable).where(inArray(factsTable.id, input.factIds)),
     styleIds.length
       ? db.select({ id: lookStylesTable.id, isActive: lookStylesTable.isActive }).from(lookStylesTable).where(inArray(lookStylesTable.id, styleIds))
       : Promise.resolve([] as Array<{ id: string; isActive: boolean }>),
-    // The effective definitions: family and mode come from code (decisions.md 2026-11-14).
-    db.select().from(enginesTable).where(inArray(enginesTable.id, codeImageEngineIds())).then(effectiveEngines),
   ]);
 
   const reasons: string[] = [];
@@ -211,10 +209,8 @@ export async function loadSetRows(setId: number, exec: Executor = db): Promise<S
     ? await exec.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id))).orderBy(asc(comparisonCellsTable.id))
     : [];
   const engineIds = [...new Set(cells.map((c) => c.engineId))];
-  const engines = engineIds.length
-    ? await exec.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable).where(inArray(enginesTable.id, engineIds))
-    : [];
-  return { set, panels, cells, prices: new Map(engines.map((r) => [r.id, r.priceModel])) };
+  const prices = new Map(engineIds.map((id) => [id, engineById(id)?.priceModel ?? null] as const));
+  return { set, panels, cells, prices };
 }
 
 /** Panels still to prepare, each priced at two planner calls at the planner's real ceiling. */

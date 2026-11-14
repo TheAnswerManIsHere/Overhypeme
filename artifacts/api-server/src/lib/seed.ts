@@ -544,22 +544,9 @@ export async function ensureSchema(): Promise<void> {
       ddl: `ALTER TABLE pending_reviews ADD COLUMN IF NOT EXISTS enrichment_status varchar(16)`,
     },
     {
-      label: "engines.default_temperature",
-      ddl: `ALTER TABLE engines ADD COLUMN IF NOT EXISTS default_temperature numeric(4,2)`,
-    },
-    {
-      label: "engines.default_max_tokens",
-      ddl: `ALTER TABLE engines ADD COLUMN IF NOT EXISTS default_max_tokens integer`,
-    },
-    {
-      label: "engines.default_reasoning_effort",
-      ddl: `ALTER TABLE engines ADD COLUMN IF NOT EXISTS default_reasoning_effort varchar(16)`,
-    },
-    {
-      // Consolidated: the model + sampling + reasoning effort for ALL LLM calls
-      // now come from the shared General Intelligence engine (engines table,
-      // provider "openai"). Only the editable system prompts remain in
-      // admin_config. Drop the per-feature model/temperature/max-token/
+      // History: the model + sampling + reasoning effort moved off per-feature
+      // keys long ago; since migration 0138 they live only in code (no engines
+      // table, decisions.md 2026-11-14). Drop the per-feature model/temperature/max-token/
       // reasoning-effort keys for image style, video motion, and fact enrichment.
       label: "admin_config delete consolidated LLM model/sampling keys",
       ddl: `DELETE FROM admin_config WHERE key IN (

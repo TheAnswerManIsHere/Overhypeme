@@ -3,10 +3,9 @@
  * A and B, as amended by PLAN_AI_SETTINGS_IN_CODE.md): the engine per render
  * mode is set in code, an attempt records the engine that draws it at
  * construction, the moderation hash folds in the engine a render would use
- * NOW, and a row or retired config key can change none of it.
- *
- * Touches the real test DB: the catalogue rows it alters are restored after
- * each test, and one row under `t-ier-` with no code definition.
+ * NOW, and a retired config key can change none of it. There is no engines
+ * table (decisions.md 2026-11-14), so a test that switches an engine off flips
+ * the catalogue definition itself and restores it after each test.
  */
 import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
@@ -16,11 +15,9 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import {
   adminConfigTable,
-  enginesTable,
   factsTable,
   imagePromptAttemptsTable,
   usersTable,
-  type Engine,
 } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
@@ -33,8 +30,7 @@ import {
   resolveImageEngine,
 } from "../lib/imageEngineRouting.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
-import { clearEngineCaches } from "../lib/engineInterpreter.js";
-import { reconcileEngines } from "../lib/engines/index.js";
+import { ALL_ENGINES } from "../lib/engines/index.js";
 import { NANO_BANANA_2_SIZES } from "../lib/engines/nano-banana-2.js";
 import { FLUX_3 } from "../lib/engines/flux-3.js";
 import { computeScenarioInputHash } from "../lib/reviewRenderScenarios.js";
@@ -47,8 +43,6 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 const PREFIX = "t-ier-";
 const USER_PREFIX = "t-ier-u-";
 const RETIRED_KEYS = ["image_engine_t2i", "image_engine_i2i"] as const;
-/** Catalogue rows a test alters; restored after each test. */
-const TOUCHED = ["nano-banana-2", "flux-3", "nano-banana-pro"];
 
 const ENRICHMENT: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
@@ -68,20 +62,22 @@ const ENRICHMENT: FactEnrichment = {
 
 let adminUserId: string;
 const factIds: number[] = [];
-let saved: Engine[] = [];
+/** Catalogue definitions a test switched off, with their original value; restored after each test. */
+const switchedOff = new Map<string, boolean>();
 let savedKeys: Array<typeof adminConfigTable.$inferSelect> = [];
 
 async function restore(): Promise<void> {
-  for (const row of saved) await db.update(enginesTable).set(row).where(eq(enginesTable.id, row.id));
+  for (const [id, isActive] of switchedOff) ALL_ENGINES.find((e) => e.id === id)!.isActive = isActive;
+  switchedOff.clear();
   await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, [...RETIRED_KEYS]));
   if (savedKeys.length) await db.insert(adminConfigTable).values(savedKeys);
   bustConfigCache();
-  clearEngineCaches();
 }
 
-async function setRow(id: string, set: Partial<Engine>): Promise<void> {
-  await db.update(enginesTable).set(set).where(eq(enginesTable.id, id));
-  clearEngineCaches();
+function switchOff(id: string): void {
+  const def = ALL_ENGINES.find((e) => e.id === id)!;
+  if (!switchedOff.has(id)) switchedOff.set(id, def.isActive);
+  def.isActive = false;
 }
 
 async function setRetiredKey(key: string, value: string): Promise<void> {
@@ -89,12 +85,9 @@ async function setRetiredKey(key: string, value: string): Promise<void> {
     .values({ key, value, dataType: "text", label: "test", description: "test", isPublic: false })
     .onConflictDoUpdate({ target: adminConfigTable.key, set: { value } });
   bustConfigCache();
-  clearEngineCaches();
 }
 
 before(async () => {
-  await reconcileEngines();
-  saved = await db.select().from(enginesTable).where(inArray(enginesTable.id, TOUCHED));
   savedKeys = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, [...RETIRED_KEYS]));
   adminUserId = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({ id: adminUserId, email: `${adminUserId}@test.local`, isAdmin: true, membershipTier: "legendary" });
@@ -107,7 +100,6 @@ afterEach(async () => {
 
 after(async () => {
   if (factIds.length) await db.delete(factsTable).where(inArray(factsTable.id, factIds));
-  await db.delete(enginesTable).where(like(enginesTable.id, `${PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   await restore();
 });
@@ -123,30 +115,25 @@ describe("resolveImageEngine", () => {
     assert.equal((await resolveImageEngine("i2i")).id, "nano-banana-2-edit");
   });
 
-  it("an override wins, and the engine it returns carries the code's definition, not the row's", async () => {
-    await setRow("flux-3", { endpointId: "fal-ai/stale", imageMode: "i2i", sizeVocabulary: null });
+  it("an override wins, and the engine it returns carries the code's definition", async () => {
     const engine = await resolveImageEngine("t2i", "flux-3");
     assert.equal(engine.id, "flux-3");
     assert.equal(engine.endpointId, FLUX_3.endpointId);
-    assert.notEqual(engine.endpointId, "fal-ai/stale");
     assert.equal(engine.imageMode, "t2i");
     assert.ok(engine.sizeVocabulary);
   });
 
-  it("refuses, never defaults: no code definition, inactive, archived, retired, non-image, wrong mode, no vocabulary", async () => {
+  it("refuses, never defaults: no code definition, inactive, non-image, wrong mode, no vocabulary", async () => {
     const orphan = `${PREFIX}${randomUUID().slice(0, 12)}`;
-    await db.insert(enginesTable).values({ id: orphan, provider: "fal", endpointId: "fal-ai/x", label: "orphan", kind: "image", imageMode: "t2i", paramSchema: { params: [] } as never });
-    const cases: Array<[string, Partial<Engine> | null, "t2i" | "i2i", string]> = [
-      [orphan, null, "t2i", "not in the catalogue"],
-      ["flux-3", { isActive: false }, "t2i", "inactive"],
-      ["flux-3", { deletedAt: new Date() }, "t2i", "archived"],
-      ["flux-3", { retired: true }, "t2i", "retired"],
-      ["openai-general", null, "t2i", "kind is llm"],
-      ["nano-banana-2-edit", null, "t2i", "mode is i2i"],
-      ["nano-banana-pro", null, "i2i", "no size vocabulary"],
+    const cases: Array<[string, boolean, "t2i" | "i2i", string]> = [
+      [orphan, false, "t2i", "not in the catalogue"],
+      ["flux-3", true, "t2i", "inactive"],
+      ["openai-general", false, "t2i", "kind is llm"],
+      ["nano-banana-2-edit", false, "t2i", "mode is i2i"],
+      ["nano-banana-pro", false, "i2i", "no size vocabulary"],
     ];
-    for (const [id, set, mode, why] of cases) {
-      if (set) await setRow(id, set);
+    for (const [id, off, mode, why] of cases) {
+      if (off) switchOff(id);
       await assert.rejects(resolveImageEngine(mode, id), (err: unknown) =>
         err instanceof ImageEngineRoutingError && err.message.includes(why), `${id}: ${why}`);
       await restore();
@@ -176,8 +163,6 @@ describe("attribution", () => {
 
 describe("the worker renders through the engine recorded at construction", () => {
   it("an attempt renders through its recorded engine's code definition, and records its request settings", async () => {
-    // A stale row: its endpoint and size vocabulary must not reach the request.
-    await setRow("nano-banana-2", { endpointId: "fal-ai/stale", sizeVocabulary: { options: [{ params: { resolution: "9K" }, megapixels: 81 }] } as never });
     const [fact] = await db.insert(factsTable).values({ text: "{NAME} lifts a truck.", isActive: false, enrichment: ENRICHMENT }).returning({ id: factsTable.id });
     factIds.push(fact!.id);
     const [attempt] = await db.insert(imagePromptAttemptsTable).values({
@@ -207,7 +192,7 @@ describe("the worker renders through the engine recorded at construction", () =>
       (fal as { subscribe: unknown }).subscribe = original;
     }
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.endpoint, "fal-ai/nano-banana-2", "the code's endpoint, not the row's");
+    assert.equal(calls[0]!.endpoint, "fal-ai/nano-banana-2", "the code's endpoint");
     const codeResolutions = NANO_BANANA_2_SIZES.options.map((o) => (o.params as Record<string, unknown>)["resolution"]);
     assert.ok(codeResolutions.includes(calls[0]!.input["resolution"]), `a resolution from the code's vocabulary, got ${String(calls[0]!.input["resolution"])}`);
     const [row] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attempt!.id));

@@ -17,7 +17,6 @@ import {
   comparisonReservationsTable,
   comparisonRunsTable,
   comparisonSetsTable,
-  enginesTable,
   factsTable,
   lookStylesTable,
   usersTable,
@@ -28,11 +27,11 @@ import adminComparisonRouter, { __setBlindImageStorageForTest } from "../routes/
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
 import { blindImagePath, getComparisonResults, median } from "../lib/comparison/judging.js";
 import { frozenJudgingReference } from "../lib/comparison/runs.js";
 import { testEngineRow } from "./helpers/testEngines.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
 const P = `t-cj-${randomUUID().slice(0, 6)}`;
 const FAMILIES = { gpt: `${P}-gpt`, flux: `${P}-flux` };
@@ -49,7 +48,7 @@ before(async () => {
   for (const [family, src] of SOURCES) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${family}-${def.imageMode}`;
-    await db.insert(enginesTable).values(testEngineRow(def, id, family));
+    testEngineRow(def, id, family);
     engineIds.push(id);
     endpointIds.push(def.endpointId!);
   }
@@ -62,7 +61,7 @@ before(async () => {
 after(async () => {
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
-  await db.delete(enginesTable).where(inArray(enginesTable.id, engineIds));
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

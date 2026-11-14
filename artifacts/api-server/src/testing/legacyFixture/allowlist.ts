@@ -152,17 +152,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   include(s.featureFlagsTable, { key: "keep", displayName: "keep", description: "keep", createdAt: "keep" }),
   include(s.tierFeaturePermissionsTable, { tier: "keep", featureKey: "ref:feature_flags", enabled: "keep", updatedAt: "keep" }),
   include(s.entitlementGridRevisionTable, { id: "keep", revision: "keep" }),
-  include(s.enginesTable, {
-    id: "keep", provider: "keep", endpointId: "keep", label: "keep", description: "keep", kind: "keep",
-    tierRequirement: "keep", isDefault: "keep", isActive: "keep", sortOrder: "keep",
-    allowedResolutions: "shape:config", defaultResolution: "keep", allowedAspectRatios: "shape:config",
-    defaultAspectRatio: "keep", paramSchema: "shape:config", estimatedCostUsdPerCall: "keep", expectedRunMs: "keep",
-    defaultTemperature: "keep", defaultMaxTokens: "keep", defaultReasoningEffort: "keep",
-    featureFlagRequired: "keep", createdAt: "keep", updatedAt: "keep", deletedAt: "keep",
-    // 0123: code-owned, reconciled from the catalogue at boot; the committed
-    // fixture predates them, so they take their defaults on load.
-    imageMode: "drop", family: "drop", priceModel: "drop", sizeVocabulary: "drop", retired: "drop",
-  }),
   include(s.lookStylesTable, {
     id: "keep", label: "keep", description: "keep", promptSuffix: "keep", promptSuffixReference: "keep",
     previewImagePath: "media", sortOrder: "keep", isActive: "keep", createdAt: "keep", updatedAt: "keep",

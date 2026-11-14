@@ -14,7 +14,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type OpenAI from "openai";
 import { getOpenAIClient } from "./aiClients";
-import { loadEngine } from "./engineInterpreter";
+import { engineById } from "./engineInterpreter";
 import { chatModelTuningParams } from "./openaiChatParams";
 import { logger } from "./logger";
 
@@ -101,8 +101,8 @@ export const UTILITY_LLM_ENGINE_ID = "openai-general";
 /** Resolve the model + sampling defaults from the utility engine's code definition. */
 async function resolveLLMSettings(): Promise<LLMSettings> {
   try {
-    const engine = await loadEngine(UTILITY_LLM_ENGINE_ID);
-    if (!engine || !engine.isActive || engine.deletedAt) throw new Error(`utility engine "${UTILITY_LLM_ENGINE_ID}" is unavailable`);
+    const engine = engineById(UTILITY_LLM_ENGINE_ID);
+    if (!engine || !engine.isActive) throw new Error(`utility engine "${UTILITY_LLM_ENGINE_ID}" is unavailable`);
     return {
       model: engine.endpointId || FALLBACK_MODEL,
       temperature: engine.defaultTemperature != null ? Number(engine.defaultTemperature) : FALLBACK_TEMPERATURE,

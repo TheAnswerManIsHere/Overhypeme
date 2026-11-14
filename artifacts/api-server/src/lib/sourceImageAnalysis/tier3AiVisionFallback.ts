@@ -29,8 +29,8 @@ import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "../utilityLLM";
 import { getFactSourceClassifierSystem } from "../imagePromptConfig";
 import { logger } from "../logger";
 
-const TIER3_TEMPERATURE = 0;
-const TIER3_MAX_TOKENS = 400;
+export const TIER3_TEMPERATURE = 0;
+export const TIER3_MAX_TOKENS = 400;
 
 /** Strict wire schema for the AI vision classifier output. */
 const tier3WireSchema = z.object({

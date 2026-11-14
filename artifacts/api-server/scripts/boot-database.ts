@@ -1,8 +1,8 @@
 /**
  * Runs the server's database boot steps — and only those — against
- * DATABASE_URL, in the order index.ts runs them: the migration runner,
- * ensureSchema() (idempotent schema and config seeds), then the engine
- * catalogue reconcile. Nothing else the server does at boot writes a
+ * DATABASE_URL, in the order index.ts runs them: the migration runner, then
+ * ensureSchema() (idempotent schema and config seeds). Engines live only in
+ * code since migration 0138, so there is no catalogue to reconcile. Nothing else the server does at boot writes a
  * configuration table (tableClassification.ts names them).
  *
  * Launch Phase 3, increment 3 (#770; plan §3): the config diff boots a freshly
@@ -16,15 +16,13 @@
 import { pool, runMigrations } from "@workspace/db";
 
 import { ensureSchema } from "../src/lib/seed.js";
-import { reconcileEngines } from "../src/lib/engines/index.js";
 
 if (process.env.REPLIT_DEPLOYMENT === "1") throw new Error("Refusing to run in a deployment");
 
 try {
   await runMigrations();
   await ensureSchema();
-  const engines = await reconcileEngines();
-  console.log(`[boot-database] booted: ${engines.totalCodeEngines} engine(s) reconciled`);
+  console.log("[boot-database] booted");
 } finally {
   await pool.end();
 }

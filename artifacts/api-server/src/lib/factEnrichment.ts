@@ -44,7 +44,7 @@ import {
   FACT_ENRICHMENT_MAX_TOKENS,
 } from "./factEnrichmentConfig";
 import { callUtilityLLM } from "./utilityLLM";
-import { loadEngine } from "./engineInterpreter";
+import { engineById } from "./engineInterpreter";
 import { logger } from "./logger";
 import { stripSubjectNameSemanticEntities } from "./renderCanonical";
 // The subject/app-name hashtag denylist now lives in the shared hashtag module
@@ -333,7 +333,7 @@ export async function resolveFactEnrichmentLLMSettings(): Promise<FactEnrichment
   let configuredEngineId = DEFAULT_FACT_ENRICHMENT_ENGINE_ID;
   try {
     configuredEngineId = (await getFactEnrichmentEngineId()).trim() || DEFAULT_FACT_ENRICHMENT_ENGINE_ID;
-    const engine = await loadEngine(configuredEngineId);
+    const engine = engineById(configuredEngineId);
     const reason = !engine
       ? "engine_not_found"
       : engine.kind !== "llm"
@@ -342,11 +342,9 @@ export async function resolveFactEnrichmentLLMSettings(): Promise<FactEnrichment
           ? "engine_not_openai"
           : !engine.isActive
             ? "engine_inactive"
-            : engine.deletedAt != null
-              ? "engine_deleted"
-              : !engine.endpointId
-                ? "engine_missing_model"
-                : null;
+            : !engine.endpointId
+              ? "engine_missing_model"
+              : null;
     if (engine && reason === null) {
       return {
         model: engine.endpointId,

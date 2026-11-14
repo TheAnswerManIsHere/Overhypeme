@@ -37,7 +37,6 @@ export const MUSE_IMAGE: EngineDefinition = {
   imageMode: "t2i",
   family: "muse-image",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 68,
   featureFlagRequired: null,

@@ -357,19 +357,11 @@ known exception, `recordStage2Cost`, which read its engine before its own `try`
   Read it with the narrowing above: it does not see a conditional behind a helper
   or a non-price-named flag, and it cannot see a spend path that never calls
   `checkBudget` at all. A backstop against one recurrence, not the control.
-- **The fallback estimate prefers the persisted `engines` row over the code
-  catalogue, but does use the catalogue as a fallback.** Precedence is
-  persisted-exact → catalogue-exact → the maximum across both sources.
-  The persisted row wins because `estimatedCostUsdPerCall` is among the fields
-  `engines/reconcile.ts` preserves at boot (`RECONCILE_PRESERVED_FIELDS`), so a
-  stored value survives a release (no admin screen edits it since 2026-11-14,
-  so changing it is a reviewed migration); the catalogue still supplies a value when
-  the table legitimately has no row for that model, which happens (a seeded test
-  database has far fewer rows than the catalogue). A model-specific figure always
-  beats an aggregate, so an incomplete table cannot lower the floor. If the
-  `engines` read itself **fails**, the gate denies rather than falling back —
-  when the persisted values are unknown, no catalogue-derived number provably
-  avoids undercutting them.
+- **The fallback estimate's persisted-row path is gone.** It preferred an
+  `engines` row's `estimatedCostUsdPerCall` over the code catalogue's and denied
+  when that row could not be read; migration 0138 dropped the table, so an
+  engine's estimate is its code definition's and that deny path no longer
+  exists ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)).
 - **The admin exemption precedes the *cost* resolution and the config/ledger
   reads — not every fallible read.** `checkBudget` must first read the user row
   to know whether the caller is an admin at all, and that read sits inside the

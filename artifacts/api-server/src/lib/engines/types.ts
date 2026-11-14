@@ -6,12 +6,10 @@
  * edit time — exactly the class of bug that produced migration 0058 (Veo's
  * `generate_audio` rejection at fal).
  *
- * Boot-time reconciliation upserts each definition into the `engines` table
- * (see `reconcile.ts`). The fields in `RECONCILE_PRESERVED_FIELDS` keep their
- * stored values once a row exists; the rest are refreshed on every boot.
- * Every field that decides how a call is made is read from this catalogue at
- * run time, never from the row (`effectiveEngine` in engineInterpreter.ts;
- * decisions.md 2026-11-14), whatever reconciliation leaves stored.
+ * The catalogue is the only copy: there is no engines table (decisions.md
+ * 2026-11-14, AI call settings live in code). The server reads each
+ * definition as an `Engine` record (`engineRecord.ts`, `engineById` in
+ * engineInterpreter.ts).
  *
  * Adding a new engine = drop a new file in this directory, add it to
  * `ALL_ENGINES` in `index.ts`. No SQL migration required.
@@ -44,10 +42,8 @@ export interface EngineDefinition {
   description: string;
   kind: EngineKind;
 
-  // ── Tier + visibility (stored on the row; no admin screen edits them) ────
+  // ── Tier + visibility (set here; a change is a code change) ─────────────
   tierRequirement: TierRequirement;
-  /** Stored for history; it selects nothing (decisions.md 2026-11-14). */
-  isDefault: boolean;
   isActive: boolean;
   sortOrder: number;
   /** Feature flag gate for visibility in the wizard. Null = always visible. */
@@ -99,33 +95,6 @@ export interface EngineDefinition {
   /** Default reasoning effort for reasoning models (gpt-5 / o-series). */
   defaultReasoningEffort?: string | null;
 }
-
-/**
- * Fields reconciliation leaves as stored once a row exists; everything else is
- * refreshed from the code definition on every boot. Until 2026-11-14 this was
- * also the admin PATCH allowlist; that route is removed, and the set is kept
- * unchanged so that boot never overwrites a stored value and a code revert
- * restores the old behaviour exactly (plan PLAN_AI_SETTINGS_IN_CODE.md).
- * The call-shaping fields among them are stored but never read at run time.
- *
- * `deletedAt` is not listed: the reconciler preserves it on a separate path.
- */
-export const RECONCILE_PRESERVED_FIELDS = [
-  "isActive",
-  "isDefault",
-  "sortOrder",
-  "tierRequirement",
-  "featureFlagRequired",
-  "defaultResolution",
-  "defaultAspectRatio",
-  "expectedRunMs",
-  "estimatedCostUsdPerCall",
-  // An OpenAI engine's endpointId (reconcile.ts re-asserts a fal engine's).
-  "endpointId",
-  "defaultTemperature",
-  "defaultMaxTokens",
-  "defaultReasoningEffort",
-] as const;
 
 // ── Size vocabulary (request builder) ─────────────────────────────────────
 

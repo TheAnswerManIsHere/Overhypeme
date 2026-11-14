@@ -54,6 +54,7 @@ export const ADMIN_HELP_MAP: Record<string, HelpTarget> = {
   "/admin/queue-health": { chapter: "12-background-work", anchor: "worker-liveness-and-the-queue-health-surface" },
   "/admin/features": { chapter: "11-admin-console", anchor: "tuning-how-the-product-behaves" },
   "/admin/config": { chapter: "11-admin-console", anchor: "tuning-how-the-product-behaves" },
+  "/admin/ai": { chapter: "11-admin-console", anchor: "tuning-how-the-product-behaves" },
 };
 
 /**

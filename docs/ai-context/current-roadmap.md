@@ -133,6 +133,8 @@ KITT work a launch phase needs and a second app would need identically;
   cost can't be read; the fallback prefers the persisted `engines` row over the
   code seed (falling back to the seed for a model the table has no row for),
   honors a deliberate `0`, and resolves after the admin exemption. `scripts/check-budget-gate-unconditional.mjs` is the CI backstop.
+  (Since 2026-11-14 there is no `engines` table: the estimate is the engine's
+  code definition, and the persisted-row path is gone; [decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values).)
   Five Codex rounds, eight findings, all real. See
   [`security-model.md`](./security-model.md)'s generation-spend section and the
   two 2026-08-16 entries in [`decisions.md`](./decisions.md).

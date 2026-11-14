@@ -730,10 +730,10 @@ Only the legacy studio's user generate paths built it, and they were deleted wit
 Any generative model the platform can call (`image | utility | llm`; the
 `video` kind went with video in launch Phase 4 — ledger
 [`docs/retired/README.md`](../retired/README.md)),
-defined **code-first** in `artifacts/api-server/src/lib/engines/` and reconciled
-into the `engines` table at boot. Every setting that shapes an AI call is
-read from the code catalogue ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)); the row keeps availability,
-retirement, ordering and pricing, and no admin screen edits it.
+defined **only in code**, in `artifacts/api-server/src/lib/engines/`: there is
+no engines table ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)). Every setting, from the
+model and its call parameters to availability, tier, ordering and pricing, is a
+field of the engine's code definition. The read-only `/admin/ai` page shows them.
 → [architecture-map](./architecture-map.md)
 
 ---
@@ -1334,10 +1334,10 @@ pinned to the ceiling that actually applied.
 - **`false` — provider-resolved.** Computed from the provider's own published
   rate, fetched by `getCachedPrice`, times the job's actual quantity.
 - **`true` — estimated.** No provider rate resolved, so the figure came from the
-  operator-configured `engines` row **or from a hard-coded fallback whenever no
-  usable configured estimate resolves** — which is broader than "no row exists":
-  an existing row whose configured estimate is null or non-numeric falls back
-  too (the image pipeline falls back to the code catalogue's
+  engine's configured estimate **or from a hard-coded fallback whenever no
+  usable configured estimate resolves** (since migration 0138 the configured
+  estimate is the engine's code definition; the `engines` row it was once read
+  from is gone, [decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)) (the image pipeline falls back to the code catalogue's
   `estimatedCostUsdPerCall`; the video paths' hard-coded `0.05`/s fallbacks
   went with video in launch Phase 4, ledger
   [`docs/retired/README.md`](../retired/README.md)). All of these are

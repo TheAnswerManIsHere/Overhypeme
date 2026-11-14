@@ -9,13 +9,6 @@ import type { EngineDefinition } from "./types";
  * Google's headline strength for this model is likeness preservation
  * across outfit / scene / style swaps — exactly the meme use case.
  *
- * IMPORTANT runtime caveat: the video pipeline's Stage 1
- * (`videoPipelineRunner.ts` `runStage1`) still calls
- * `generateAiMemeBackgroundFromReference` from `aiMemePipeline.ts`,
- * which hardcodes PuLID. Marking Nano Banana Pro as `isDefault: true`
- * here made it the catalogue default for the retired engine workbench; the
- * flag no longer selects anything (decisions.md 2026-11-14: AI call settings live in code).
- *
  * Notable contracts (from the fal docs):
  *   - `image_urls` is an ARRAY (up to 14). Our pipelineParams sends a
  *     single `referenceImageUrl` string; the new `stringArray` primitive
@@ -50,7 +43,6 @@ export const NANO_BANANA_PRO: EngineDefinition = {
   imageMode: "i2i",
   family: "nano-banana-pro",
   tierRequirement: "legendary",
-  isDefault: true,
   isActive: true,
   sortOrder: 90,
   featureFlagRequired: null,

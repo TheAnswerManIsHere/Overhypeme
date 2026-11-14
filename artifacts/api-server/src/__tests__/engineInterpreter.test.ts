@@ -7,7 +7,7 @@ import {
   InvalidEngineParamError,
   type ParamSchema,
 } from "../lib/engineInterpreter.js";
-import type { Engine } from "@workspace/db/schema";
+import type { Engine } from "../lib/engines/engineRecord.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers: synthesize Engine rows whose paramSchema mirrors migration 0057.
@@ -26,7 +26,6 @@ function makeEngine(id: string, paramSchema: ParamSchema): Engine {
     description: "",
     kind: "video",
     tierRequirement: "legendary",
-    isDefault: false,
     isActive: true,
     sortOrder: 0,
     allowedResolutions: null,
@@ -36,8 +35,6 @@ function makeEngine(id: string, paramSchema: ParamSchema): Engine {
     estimatedCostUsdPerCall: null,
     expectedRunMs: 30000,
     featureFlagRequired: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
   } as unknown as Engine;
 }
 

@@ -23,7 +23,7 @@
 ```
 artifacts/
   api-server/        Express API, domain logic in src/lib/*, routes in src/routes/*, tests in src/__tests__/*
-                     (generative engine catalogue lives here: src/lib/engines/ — catalogue.ts, reconcile.ts, one file per engine)
+                     (generative engine catalogue lives here: src/lib/engines/ — catalogue.ts, one file per engine; engines live only in code)
   overhype-me/       React+Vite frontend (pages/, components/, admin under pages/admin & components/admin)
 lib/
   db/                Drizzle schema (src/schema/*) + migrations
@@ -59,12 +59,11 @@ docs/                this documentation
   launch Phase 4
   ([`decisions.md`](./decisions.md#2026-10-22--the-legacy-meme-studio-is-deleted-the-user-generate-route-survives-photo-only-until-pulid-goes)).
 - **Admin** (`src/pages/admin/`, wrapped in `components/admin/AdminLayout.tsx`):
-  Dashboard, Facts, Users, Moderation, Billing, Refunds & Disputes,
-  Engines, Taxonomy Health, Email Queue, Features,
-  Configuration, Eval, Queue Health — the full, routed inventory is
-  [`admin-console.md`](./admin-console.md). `/admin/comments` and
-  `/admin/ai` redirect to Moderation and Config (their orphaned page files
-  went in launch Phase 4, removal 7). Shared: `EnrichmentEditor.tsx` (+
+  Dashboard, Facts, Users, Moderation, Eval, Billing, Refunds & Disputes,
+  Trace an image, Taxonomy Health, Email Queue, Queue Health, Features,
+  AI Settings (read-only), Configuration, Help — the full, routed inventory is
+  [`admin-console.md`](./admin-console.md). `/admin/comments` redirects to
+  Moderation (its orphaned page file went in launch Phase 4, removal 7). Shared: `EnrichmentEditor.tsx` (+
   `fieldDocs/`), `useTaxonomyHealthActions.ts` (async-status reference).
 - Prefer the generated React Query hooks (`lib/api-client-react`) for API calls.
   Note this is **not** universal: many surfaces (admin prompt-preview/moderation
@@ -115,7 +114,7 @@ deliberately excludes them and points here instead.
 ## Database and Drizzle conventions
 
 - Schema per concern in `lib/db/src/schema/*.ts` (e.g. `facts`, `reviews`
-  → `pending_reviews`, `engines`, `asyncJobs` → `async_jobs`,
+  → `pending_reviews`, `asyncJobs` → `async_jobs`,
   `factEnrichmentVersions`, `memberships`, `auth`).
 - `pgvector` `vector(384)` embedding on `facts.embedding`.
 - **Migration tooling caveat:** `drizzle-kit generate` currently fails on a
@@ -429,12 +428,13 @@ deliberately excludes them and points here instead.
   share-by-email and onboarding (`lib/captcha.ts`, `components/ui/Turnstile.tsx`;
   it replaced hCaptcha in launch Phase 5).
 - **Sentry** — error reporting (telemetry spans three tabs; see `docs/SENTRY.md`).
-- Generative models are configured **code-first** in
-  `artifacts/api-server/src/lib/engines/` (`catalogue.ts`, `reconcile.ts`, one file
-  per engine) and reconciled into the `engines` table at boot. Every setting that
-  shapes an AI call is read from the code catalogue, never from the row
-  (`effectiveEngine` in `engineInterpreter.ts`; [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). The row keeps
-  availability, retirement, ordering and pricing, and no admin screen edits it.
+- Generative models live **only in code**, in
+  `artifacts/api-server/src/lib/engines/` (`catalogue.ts`, one file per engine):
+  there is no engines table ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)). The server reads
+  an engine's record from the catalogue (`engineById`, `imageEngines` in
+  `engineInterpreter.ts`); availability, tier, ordering and pricing are fields
+  of its definition, so any change is a code change. The read-only `/admin/ai`
+  page shows each step's model, parameters as sent and system prompt.
 
 ## Admin and moderation surfaces
 

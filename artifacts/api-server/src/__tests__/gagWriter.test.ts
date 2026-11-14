@@ -3,8 +3,8 @@
  * the system prompt is the text David locked, byte for byte, and migration
  * 0137 points the gag generator at GPT-6 Astra from any previous setting
  * while leaving the render planner alone. Since 2026-11-14 the engine and its
- * settings are set in code, so the generation resolves to Astra at medium
- * effort whatever the setting or the row says.
+ * settings are set in code (there is no engines table), so the generation
+ * resolves to Astra at medium effort whatever the setting says.
  */
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
@@ -14,11 +14,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { sql, eq } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { adminConfigTable, enginesTable } from "@workspace/db/schema";
+import { adminConfigTable } from "@workspace/db/schema";
 import { FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT } from "../lib/visualConceptsConfig.js";
 import { resolveVisualConceptsLLMSettings } from "../lib/visualConcepts/generator.js";
-import { reconcileEngines } from "../lib/engines/reconcile.js";
-import { clearEngineCaches, loadEngine } from "../lib/engineInterpreter.js";
+import { engineById } from "../lib/engineInterpreter.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -38,23 +37,16 @@ describe("migration 0137 points the gag generator at GPT-6 Astra", () => {
   const migration = readFileSync(resolve(repo, "lib/db/migrations/0137_gag_writer.sql"), "utf8");
   const repoint = migration.slice(migration.indexOf("DO $$"));
   let original: string | undefined;
-  let originalEffort: string | null | undefined;
 
   after(async () => {
-    if (originalEffort !== undefined) await db.update(enginesTable).set({ defaultReasoningEffort: originalEffort }).where(eq(enginesTable.id, "openai-gag-writer"));
-    clearEngineCaches();
+    // Migration 0138 deletes both keys; this test seeds them to replay 0137, so a database without them gets them removed again.
     if (original !== undefined) await db.update(adminConfigTable).set({ value: original }).where(eq(adminConfigTable.key, KEY));
-    else await db.update(adminConfigTable).set({ value: "openai-gag-writer" }).where(eq(adminConfigTable.key, KEY));
+    else await db.execute(sql`DELETE FROM admin_config WHERE key IN (${KEY}, ${BEFORE})`);
     bustConfigCache();
   });
 
   for (const previous of ["openai-visual-planner", "some-custom-engine"]) {
     it(`from ${previous}: the setting moves, the old value is kept, and generation resolves to gpt-6-astra`, async () => {
-      await reconcileEngines();
-      // A stale stored effort is not read.
-      if (originalEffort === undefined) originalEffort = (await db.select({ e: enginesTable.defaultReasoningEffort }).from(enginesTable).where(eq(enginesTable.id, "openai-gag-writer")))[0]?.e ?? null;
-      await db.update(enginesTable).set({ defaultReasoningEffort: "high" }).where(eq(enginesTable.id, "openai-gag-writer"));
-      clearEngineCaches();
       const [row] = await db.select({ value: adminConfigTable.value }).from(adminConfigTable).where(eq(adminConfigTable.key, KEY));
       original ??= row?.value;
       await db.execute(sql`DELETE FROM admin_config WHERE key = ${BEFORE}`);
@@ -71,9 +63,9 @@ describe("migration 0137 points the gag generator at GPT-6 Astra", () => {
       const settings = await resolveVisualConceptsLLMSettings();
       assert.equal(settings.unusableReason, null);
       assert.equal(settings.model, "gpt-6-astra");
-      // The effort is the code's (decisions.md 2026-11-14), whatever the row stores.
+      // The effort is the code's (decisions.md 2026-11-14).
       assert.equal(settings.reasoningEffort, "medium");
-      const planner = await loadEngine("openai-visual-planner");
+      const planner = engineById("openai-visual-planner");
       assert.equal(planner?.endpointId, "gpt-5.5", "the render planner's engine is unchanged");
     });
   }

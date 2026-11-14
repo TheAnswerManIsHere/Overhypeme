@@ -40,6 +40,7 @@ const AdminConfig = lazy(() => import("@/pages/admin/config"));
 const AdminTrace = lazy(() => import("@/pages/admin/trace"));
 const AdminTaxonomyHealth = lazy(() => import("@/pages/admin/taxonomy-health"));
 const AdminFeatures = lazy(() => import("@/pages/admin/features"));
+const AdminAiSettings = lazy(() => import("@/pages/admin/aiSettings"));
 const AdminEmailQueue = lazy(() => import("@/pages/admin/emailQueue"));
 const AdminQueueHealth = lazy(() => import("@/pages/admin/queueHealth"));
 const AdminHelp = lazy(() => import("@/pages/admin/help"));
@@ -66,12 +67,6 @@ const queryClient = new QueryClient({
 function HallOfFameRedirect() {
   const [, setLocation] = useLocation();
   useEffect(() => { setLocation("/top-facts"); }, [setLocation]);
-  return null;
-}
-
-function AdminAIRedirect() {
-  const [, setLocation] = useLocation();
-  useEffect(() => { setLocation("/admin/config"); }, [setLocation]);
   return null;
 }
 
@@ -291,7 +286,7 @@ function Router() {
         <Route path="/admin/config" component={AdminConfig} />
         <Route path="/admin/trace" component={AdminTrace} />
         <Route path="/admin/taxonomy-health" component={AdminTaxonomyHealth} />
-        <Route path="/admin/ai"><AdminAIRedirect /></Route>
+        <Route path="/admin/ai" component={AdminAiSettings} />
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin/email-queue" component={AdminEmailQueue} />
         <Route path="/admin/queue-health" component={AdminQueueHealth} />

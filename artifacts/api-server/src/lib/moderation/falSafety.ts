@@ -14,11 +14,17 @@
  * is documented. The whitelist below is conservative — better to skip a
  * field than 422 fal.ai's input validator.
  *
- * @purpose fal.ai's built-in safety controls: sets safety_tolerance from admin_config on the allowlisted FLUX Pro models unless the caller already set it, and throws FalSafetyTriggeredError when a result reports has_nsfw_concepts.
+ * @purpose fal.ai's built-in safety controls: sets safety_tolerance, set in code, on the allowlisted FLUX Pro models unless the caller already set it, and throws FalSafetyTriggeredError when a result reports has_nsfw_concepts.
  * @subsystem legal-safety
  */
 
-import { getConfigString } from "../adminConfig";
+/**
+ * The `safety_tolerance` sent to an allowlisted FLUX Pro model when the caller
+ * sets none: "1", the strictest. Set in code (decisions.md 2026-11-14, AI call
+ * settings live in code); dev and production both held "1" in the retired
+ * `fal_safety_tolerance_pulid` row it replaces.
+ */
+export const FAL_SAFETY_TOLERANCE = "1";
 
 /** Fal.ai endpoints whose published input schema accepts `safety_tolerance`. */
 const SAFETY_TOLERANCE_MODELS = new Set<string>([
@@ -31,14 +37,13 @@ export function modelAcceptsSafetyTolerance(model: string): boolean {
   return SAFETY_TOLERANCE_MODELS.has(model);
 }
 
-export async function applyFalSafetyTolerance(
+export function applyFalSafetyTolerance(
   input: Record<string, unknown>,
   model: string,
-): Promise<void> {
+): void {
   if (!modelAcceptsSafetyTolerance(model)) return;
   if (input["safety_tolerance"] != null && input["safety_tolerance"] !== "") return; // caller-set wins
-  const value = await getConfigString("fal_safety_tolerance_pulid", "1");
-  input["safety_tolerance"] = value;
+  input["safety_tolerance"] = FAL_SAFETY_TOLERANCE;
 }
 
 export class FalSafetyTriggeredError extends Error {

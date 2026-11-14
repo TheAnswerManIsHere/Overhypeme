@@ -3,10 +3,9 @@
  * @subsystem ai-config
  *
  * Launch Phase 3, plan amendment 1, Part B (docs/plans/PLAN_PHASE3_AMENDMENT_1.md,
- * approved by David 2026-10-29). Their `admin_config` rows, where an older
- * database still holds them, are ignored until a later migration retires them,
- * and never reach the admin screen. Until 2026-11-14 the prompts were shown
- * read-only; David then retired every admin surface for AI settings.
+ * approved by David 2026-10-29). Migration 0138 deleted their `admin_config`
+ * rows; the refusal below keeps a write from recreating one. The read-only AI
+ * settings page shows them, from code (aiSettingsView.ts).
  */
 import type { AdminConfig } from "@workspace/db/schema";
 
@@ -16,7 +15,7 @@ import { REFERENCE_RESEARCH_PROMPT_DEF } from "./referenceResearchConfig";
 import { SCENE_PROMPT_DEF } from "./scenePromptConfig";
 import { VISUAL_CONCEPTS_PROMPT_DEFS } from "./visualConceptsConfig";
 
-const CODE_OWNED_PROMPT_DEFS = [
+export const CODE_OWNED_PROMPT_DEFS = [
   ...FACT_ENRICHMENT_PROMPT_DEFS,
   ...IMAGE_PROMPT_PROMPT_DEFS,
   REFERENCE_RESEARCH_PROMPT_DEF,
@@ -43,6 +42,8 @@ export const RETIRED_AI_ENGINE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "image_engine_t2i",
   "image_engine_i2i",
   "nsfw_classifier_endpoint",
+  "fact_visual_concepts_engine_id_before_0137",
+  "fal_safety_tolerance_pulid",
 ]);
 
 export const CODE_OWNED_AI_SETTING_REFUSAL = "This AI setting is set in code; change it through a reviewed pull request.";

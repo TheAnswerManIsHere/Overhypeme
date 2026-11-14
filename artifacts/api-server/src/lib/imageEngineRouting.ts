@@ -21,8 +21,8 @@
  */
 
 import type { GenerationMode } from "@workspace/api-zod";
-import type { Engine } from "@workspace/db/schema";
-import { loadEngine } from "./engineInterpreter";
+import type { Engine } from "./engines/engineRecord";
+import { engineById } from "./engineInterpreter";
 import { liveRecipeVersionIdsForEngines } from "./imagePrompt/recipeStore";
 
 /**
@@ -108,8 +108,6 @@ export class ImageEngineRoutingError extends Error {
 export function imageEngineRefusal(engine: Engine | null, mode: GenerationMode): string | null {
   if (!engine) return "not in the catalogue";
   if (engine.kind !== "image") return `its kind is ${engine.kind}, not image`;
-  if (engine.retired) return "it is retired";
-  if (engine.deletedAt) return "it is archived";
   if (!engine.isActive) return "it is inactive";
   if (engine.imageMode !== mode) return `its mode is ${engine.imageMode ?? "unset"}, not ${mode}`;
   if (!engine.sizeVocabulary) return "it declares no size vocabulary, so no request can be built for it";
@@ -123,7 +121,7 @@ export function imageEngineRefusal(engine: Engine | null, mode: GenerationMode):
  */
 export async function resolveImageEngine(mode: GenerationMode, override?: string | null): Promise<Engine> {
   const engineId = override?.trim() || (await currentImageEngineIds())[mode];
-  const engine = await loadEngine(engineId);
+  const engine = engineById(engineId);
   const refusal = imageEngineRefusal(engine, mode);
   if (refusal) throw new ImageEngineRoutingError(engineId, mode, refusal);
   return engine!;

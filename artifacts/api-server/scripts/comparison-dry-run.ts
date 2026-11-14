@@ -15,16 +15,14 @@
 import { installStdioGuard } from "../src/lib/stdioGuard.js";
 installStdioGuard();
 
-import { db } from "@workspace/db";
-import { enginesTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { imageEngines } from "../src/lib/engineInterpreter.js";
 import { COMPARISON_DEFAULT_FAMILIES, COMPARISON_ROUND_PRESETS } from "@workspace/api-zod";
 import { deriveComparisonLayout } from "../src/lib/comparison/layout.js";
 import { cellBoundUsd, panelPreparationBoundUsd, type WorkItem } from "../src/lib/comparison/admission.js";
 import { estimateOf, plannerSettings } from "../src/lib/comparison/sets.js";
 
 async function main(): Promise<void> {
-  const engines = await db.select().from(enginesTable).where(eq(enginesTable.kind, "image"));
+  const engines = imageEngines();
   const panels = ([1, 2] as const).flatMap((round) => {
     const preset = COMPARISON_ROUND_PRESETS[round];
     return deriveComparisonLayout({

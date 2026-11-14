@@ -27,7 +27,6 @@ export const GPT_IMAGE_2: EngineDefinition = {
   imageMode: "t2i",
   family: "gpt-image-2",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 72,
   featureFlagRequired: null,

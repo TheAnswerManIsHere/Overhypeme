@@ -30,7 +30,6 @@ import {
   usersTable,
   factsTable,
   memesTable,
-  enginesTable,
   falPricingCacheTable,
   adminConfigTable,
   lookStylesTable,
@@ -40,6 +39,7 @@ import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import { createLegacyEnginesTable, dropLegacyEnginesTable, insertLegacyEngine, legacyEngineIds } from "./helpers/legacyEnginesTable.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(
@@ -66,7 +66,7 @@ async function bearer(userId: string): Promise<string> {
 async function cleanup() {
   if (memeSlugs.length) await db.delete(memesTable).where(inArray(memesTable.permalinkSlug, memeSlugs));
   if (factIds.length) await db.delete(factsTable).where(inArray(factsTable.id, factIds));
-  await db.delete(enginesTable).where(like(enginesTable.id, `${PREFIX}%`));
+  await dropLegacyEnginesTable();
   await db.delete(falPricingCacheTable).where(like(falPricingCacheTable.endpointId, `${PREFIX}%`));
   await db.delete(lookStylesTable).where(like(lookStylesTable.id, `${PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
@@ -142,19 +142,9 @@ describe("migration 0103 retires video's data and schema", () => {
   let savedEndpoints: string | null = null;
 
   async function engine(id: string, kind: string, endpointId: string) {
-    await db.insert(enginesTable).values({
-      id,
-      provider: "fal",
-      endpointId,
-      label: id,
-      description: "Synthetic engine — phase4.videoRemoval.test.ts.",
-      kind,
-      tierRequirement: "legendary",
-      isDefault: false,
-      isActive: true,
-      sortOrder: 999,
-      paramSchema: { params: [] } as unknown,
-    });
+    // Migration 0138 dropped the engines table; 0103 ran against it, so a minimal copy is recreated.
+    await createLegacyEnginesTable();
+    await insertLegacyEngine(id, kind, endpointId);
   }
 
   async function pricing(endpointId: string) {
@@ -244,8 +234,7 @@ describe("migration 0103 retires video's data and schema", () => {
     }
     assert.equal(memes.length, 2);
 
-    const engines = await db.select({ id: enginesTable.id }).from(enginesTable).where(like(enginesTable.id, `${PREFIX}%`));
-    assert.deepEqual(engines.map((e) => e.id), [`${PREFIX}image`]);
+    assert.deepEqual(await legacyEngineIds(PREFIX), [`${PREFIX}image`]);
 
     const prices = await db.select({ e: falPricingCacheTable.endpointId }).from(falPricingCacheTable).where(like(falPricingCacheTable.endpointId, `${PREFIX}%`));
     assert.deepEqual(prices.map((p) => p.e), [`${PREFIX}vendor/edit`]);

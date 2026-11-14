@@ -1,7 +1,8 @@
 # A retirement migration captures admin-curated rows before deleting them
 
 **Shape.** A migration that retires a feature deletes rows an admin may have
-edited: config values, engine rows, curated lists. The deleting migration is
+edited: config values, curated lists, and (until migration 0138 dropped their
+table, capturing them) engine rows. The deleting migration is
 the last moment those values exist anywhere the repository can reach. The tag
 holds the code and the seed defaults, never what an admin typed, and the
 production copy goes at the next publish with nobody looking at it.

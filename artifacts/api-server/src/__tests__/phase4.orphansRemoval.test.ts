@@ -17,7 +17,9 @@
  *
  * The test database is built from the schema baseline, whose cutoff is past
  * 0110, so the dropped objects are already absent here. The migration case recreates them first,
- * which is the state the Repl's dev database is in when 0110 runs there.
+ * which is the state the Repl's dev database is in when 0110 runs there. That
+ * includes the `engines` table, which 0138 later dropped (engines live only in
+ * code), so the test creates a minimal copy of it and drops it again.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -29,12 +31,13 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 import { db } from "@workspace/db";
-import { usersTable, factsTable, enginesTable, reactionsTable, externalLinksTable } from "@workspace/db/schema";
-import { eq, inArray, like, sql } from "drizzle-orm";
+import { usersTable, factsTable, reactionsTable, externalLinksTable } from "@workspace/db/schema";
+import { eq, like, sql } from "drizzle-orm";
 import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+import { createLegacyEnginesTable, dropLegacyEnginesTable } from "./helpers/legacyEnginesTable.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_SQL = readFileSync(
@@ -44,10 +47,6 @@ const MIGRATION_SQL = readFileSync(
 
 const PREFIX = "t_p4r11_";
 const LOG = "0110_prune_orphans";
-const VIDEO_COLUMNS = [
-  "allowed_durations_sec", "default_duration_sec", "supported_modes",
-  "default_mode", "audio_handling", "estimated_cost_usd_per_second",
-];
 
 let adminId: string;
 let adminSid: string;
@@ -59,13 +58,12 @@ async function dropRecreated() {
   await db.execute(sql`DROP TABLE IF EXISTS affiliate_clicks`);
   await db.execute(sql`DROP TYPE IF EXISTS affiliate_destination`);
   await db.execute(sql`DROP TYPE IF EXISTS affiliate_source_type`);
-  for (const c of VIDEO_COLUMNS) await db.execute(sql.raw(`ALTER TABLE engines DROP COLUMN IF EXISTS ${c}`));
+  await dropLegacyEnginesTable();
 }
 
 async function cleanup() {
   await dropRecreated();
   await db.execute(sql`DELETE FROM feature_permissions_migration_log WHERE migration_name = ${LOG}`);
-  await db.delete(enginesTable).where(like(enginesTable.id, `${PREFIX}%`));
   await db.delete(reactionsTable).where(like(reactionsTable.userId, `${PREFIX}%`));
   if (factId) await db.delete(factsTable).where(eq(factsTable.id, factId));
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
@@ -157,11 +155,8 @@ describe("migration 0110 captures, then drops the orphans", () => {
         id serial PRIMARY KEY, user_id varchar, source_type affiliate_source_type NOT NULL,
         source_id varchar NOT NULL, destination affiliate_destination NOT NULL, source varchar(64),
         clicked_at timestamp with time zone NOT NULL DEFAULT now())`);
-    await db.execute(sql.raw(`ALTER TABLE engines
-      ADD COLUMN allowed_durations_sec jsonb, ADD COLUMN default_duration_sec integer,
-      ADD COLUMN supported_modes jsonb, ADD COLUMN default_mode varchar(32),
-      ADD COLUMN audio_handling varchar(32) NOT NULL DEFAULT 'none',
-      ADD COLUMN estimated_cost_usd_per_second numeric(10, 6)`));
+    // The engines table as it stood before 0138 dropped it, with the six video columns 0110 drops.
+    await createLegacyEnginesTable();
 
     // Row states. Ratings: one 0035 copied into reactions, one it did not.
     const copier = `${PREFIX}copied_${randomUUID()}`;
@@ -177,10 +172,10 @@ describe("migration 0110 captures, then drops the orphans", () => {
     // Telemetry: counted, not captured.
     await db.execute(sql`INSERT INTO affiliate_clicks (source_type, source_id, destination) VALUES ('fact', '1', 'zazzle')`);
     // Engines: one with a non-empty video value, one with only the empty values.
-    await db.insert(enginesTable).values([
-      { id: `${PREFIX}video_valued`, provider: "fal", endpointId: `${PREFIX}a`, label: "valued", kind: "image", paramSchema: { params: [] } as unknown },
-      { id: `${PREFIX}empty`, provider: "fal", endpointId: `${PREFIX}b`, label: "empty", kind: "image", paramSchema: { params: [] } as unknown },
-    ]);
+    await db.execute(sql`
+      INSERT INTO engines (id, provider, endpoint_id, label, kind, param_schema) VALUES
+        (${`${PREFIX}video_valued`}, 'fal', ${`${PREFIX}a`}, 'valued', 'image', '{"params":[]}'::jsonb),
+        (${`${PREFIX}empty`}, 'fal', ${`${PREFIX}b`}, 'empty', 'image', '{"params":[]}'::jsonb)`);
     await db.execute(sql`UPDATE engines SET audio_handling = 'prompt_cue', default_duration_sec = 6 WHERE id = ${`${PREFIX}video_valued`}`);
     await db.execute(sql`UPDATE engines SET supported_modes = '[]'::jsonb WHERE id = ${`${PREFIX}empty`}`);
     // The orphan setting, as an admin left it.
@@ -203,7 +198,8 @@ describe("migration 0110 captures, then drops the orphans", () => {
     assert.deepEqual(captured!.admin_config!.map((c) => [c.key, c.value]), [["ai_gallery_display_limit", "4"]], "the setting as the admin left it");
     const setting = await db.execute(sql`SELECT 1 FROM admin_config WHERE key = 'ai_gallery_display_limit'`);
     assert.equal(setting.rows.length, 0, "the setting row is deleted");
-    assert.equal((await db.select().from(enginesTable).where(inArray(enginesTable.id, [`${PREFIX}video_valued`, `${PREFIX}empty`]))).length, 2, "engine rows themselves are kept");
+    const kept = await db.execute(sql`SELECT id FROM engines WHERE id IN (${`${PREFIX}video_valued`}, ${`${PREFIX}empty`})`);
+    assert.equal(kept.rows.length, 2, "engine rows themselves are kept");
   });
 
   it("is a no-op on a second run, and captures nothing", async () => {

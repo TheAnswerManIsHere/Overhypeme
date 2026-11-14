@@ -7,14 +7,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { db } from "@workspace/db";
-import { comparisonCellsTable, comparisonPanelsTable, comparisonSetsTable, enginesTable, factsTable, usersTable } from "@workspace/db/schema";
+import { comparisonCellsTable, comparisonPanelsTable, comparisonSetsTable, factsTable, usersTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
 import { ALL_ENGINES } from "../lib/engines/index.js";
-import { codeDefinitionToRow } from "../lib/engines/reconcile.js";
 import { createComparisonSet } from "../lib/comparison/sets.js";
 import { backfillTimings, parseTimings } from "../lib/comparison/backfillTiming.js";
 import { VALID_ENRICHMENT } from "./helpers/stubPlanner.js";
 import { testEngineRow } from "./helpers/testEngines.js";
+import { clearTestEngineDefinitions } from "../lib/engineInterpreter.js";
 
 const P = `t-cbt-${randomUUID().slice(0, 6)}`;
 const engineIds: string[] = [];
@@ -26,7 +26,7 @@ before(async () => {
   for (const src of ["flux-3", "flux-3-edit"]) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
     const id = `${P}-${def.imageMode}`;
-    await db.insert(enginesTable).values(testEngineRow(def, id, P));
+    testEngineRow(def, id, P);
     engineIds.push(id);
   }
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true });
@@ -40,7 +40,7 @@ before(async () => {
 after(async () => {
   await db.delete(comparisonSetsTable).where(like(comparisonSetsTable.label, `${P}%`));
   await db.delete(factsTable).where(eq(factsTable.id, factId));
-  await db.delete(enginesTable).where(inArray(enginesTable.id, engineIds));
+  clearTestEngineDefinitions();
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
 });
 

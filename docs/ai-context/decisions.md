@@ -13,6 +13,15 @@
 
 ---
 
+### 2026-11-14 · The stored AI settings and the engines table are deleted; a read-only page shows the values
+- **Decision:** migration 0138 deletes the retired AI-setting rows from `admin_config` and drops the `engines` table. Engines exist only in the code catalogue (`artifacts/api-server/src/lib/engines/`): every reader, from the image routing and the three model resolvers to the Eval page and the prompt tuner, reads an engine's record from code (`engineById`, `imageEngines` in `engineInterpreter.ts`), and the boot-time reconciler that copied the catalogue into the table is deleted. An engine's on/off, tier and order are fields of its code definition, so switching one off is a code change. The admin console gains a read-only **AI Settings** page (`/admin/ai`) showing, from code, each AI step's model, its parameters as the request sends them ("not sent" where the model accepts none), and every system prompt. It has no controls.
+- **Why:** David, 2026-11-14: *"Why are we maintaining the old database entries? Shouldn't we clean that up? It's just detritus at this point. On the admin screen, instead of a configuration page that lets you SET the values, we should have a page that SHOWS the values."* Then, asked whether the engine table itself should go: option 1, remove it all. The stored copies had been kept only so a revert of PR #946 restored the old behaviour; once it merged and verified, that was not worth a second copy that could only drift from the code. History tables keep the engine id as plain text with no foreign key, so dropping the table loses no history.
+- **Deleted rows:** the seven engine choices, `nsfw_classifier_endpoint`, the six system prompts, 0137's recovery copy `fact_visual_concepts_engine_id_before_0137`, and `fal_safety_tolerance_pulid`. The last was an AI call parameter the first audit missed; it is now `FAL_SAFETY_TOLERANCE` in code, at the "1" dev and production both held.
+- **Checked before deleting:** every engine's on/off, tier, order and feature flag, read on dev (25 engines) and production (12) on 2026-11-14, equal the code's, so no engine switched on or off.
+- **Rollback:** not by revert. The deleted values are in git history; restoring the table would be a new migration and the reconciler from before this change.
+- **Supersedes in part:** the entry below, where it kept the stored copies "so a code revert restores the old behaviour exactly", read call-shaping fields through `effectiveEngine`, and removed the read-only view of the prompts.
+- **Reference:** Issue #943 (scope agreed 2026-11-14).
+
 ### 2026-11-14 · AI call settings live in code, never in database rows
 - **Decision:** every setting that shapes an AI call is defined in code and read from code: which engine or model a step uses, its endpoint, reasoning effort, temperature, token limits, and prompt text. By default none is read from `admin_config` or from an engine row's admin-tunable fields at run time; a sensible exception is named below with its reason. A change is a code change, reviewed and merged like any other.
 - **Why:** David, 2026-11-14, verbatim: *"Remember that all API calls, model selection, reasoning effort, etc. should now only be stored in code, never in database entries."* Measured the same day: the gag writer's reasoning effort was an admin-tunable engine field, so changing its code default left dev's row unchanged until it was edited by hand.
@@ -25,6 +34,7 @@
 - **A named exception (David, 2026-11-14):** the prompt tuner's stored and promoted wording versions stay in the database. David: *"4 is not a configuration setting"*. Its versions are reviewable records, and promoting one is a deliberate admin act.
 - **Supersedes in part:** 2026-11-06, *The image engine is chosen per render mode by a config key* (the choice moves into code; each attempt still records its engine); and 2026-10-13, *Utility helpers run on GPT-6 Luna* (its helpers that take the engine row's default effort read it from code instead).
 - **Reference:** Issue #935; PR #941.
+- **Superseded in part (2026-11-14):** the stored copies are deleted and the engines table dropped, so an engine's on/off is a field of its code definition and switching one off is a code change, and a read-only page shows the values; see [The stored AI settings and the engines table are deleted](#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values).
 
 ### 2026-11-13 · The gag writer runs on GPT-6 Astra with a locked prompt, a per-fact humor note, and no fallback model
 - **Decision:** candidate visual gags are drafted by the `openai-gag-writer` engine (GPT-6 Astra) under a system prompt David locked on 2026-11-13 (`docs/plans/gag-prompt-LOCKED.md`). The model writes the subject as "Alex" and the existing tokenizer converts it. Each generation returns a joke read. A moderator's confirm or correction saves it as the fact's humor note, which only a moderator writes. An unusable engine fails generation; nothing falls back to a weaker model. A note survives later edits to the fact's wording.
@@ -2075,6 +2085,7 @@
   future change makes a provably-conservative floor available in the unreadable
   branch (which would make degrading defensible there too).
 
+- **Superseded in part (2026-11-14):** there is no `engines` table, so the "unreadable persisted row" case no longer exists; an engine's estimate is its code definition's. See [The stored AI settings and the engines table are deleted](#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values).
 ### 2026-08-16 · Unpriced generations will be recorded to the cost ledger behind an `is_estimated` flag
 - **Decision:** `user_generation_costs` gets an `is_estimated` column, and a
   generation whose price could not be resolved is recorded with the gating

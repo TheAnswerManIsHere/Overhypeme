@@ -115,11 +115,17 @@ describe("an AI render's record holds its whole configuration", () => {
       sent = opts.input;
       return { requestId: "req-complete-1", data: { images: [{ url: `data:image/png;base64,${png.toString("base64")}` }], seed: 424242, has_nsfw_concepts: [false] } };
     };
+    // Set here, not only at load: the shard shares one process, and another
+    // file's cleanup may have removed the key since this file loaded.
+    const priorKey = process.env["FAL_AI_API_KEY"];
+    process.env["FAL_AI_API_KEY"] = priorKey ?? "test-fal-key";
     try {
       const out = await imageGenerationHandler.run({ attemptId: attempt!.id }, {} as never);
       assert.equal(out.ok, true, JSON.stringify(out));
     } finally {
       (fal as { subscribe: unknown }).subscribe = original;
+      if (priorKey === undefined) delete process.env["FAL_AI_API_KEY"];
+      else process.env["FAL_AI_API_KEY"] = priorKey;
     }
 
     // Every live row it came from goes: the attempt, then the fact.

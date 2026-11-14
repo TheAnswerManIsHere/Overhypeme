@@ -78,10 +78,10 @@ describe("AI settings are set in code and have no admin surface", () => {
     bustConfigCache();
   });
 
-  it("covers exactly the six prompt keys, and every AI setting with the seven engine keys", () => {
+  it("covers exactly the six prompt keys, and every AI setting with the nine retired engine-setting keys", () => {
     for (const key of KEYS) assert.ok(isCodeOwnedPromptKey(key), key);
     assert.equal(isCodeOwnedPromptKey("fact_enrichment_engine_id"), false);
-    assert.equal(ENGINE_KEYS.length, 7);
+    assert.equal(ENGINE_KEYS.length, 9);
     for (const key of ALL_AI_KEYS) assert.ok(isCodeOwnedAiConfigKey(key), key);
     assert.equal(isCodeOwnedAiConfigKey("review_duplicate_threshold"), false);
   });
@@ -96,7 +96,7 @@ describe("AI settings are set in code and have no admin surface", () => {
     assert.equal(resolution.matchesCodeDefault, true);
   });
 
-  it("boot seeding writes none of the six prompt rows or the seven engine rows", async () => {
+  it("boot seeding writes none of the six prompt rows or the nine retired engine-setting rows", async () => {
     await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));
     await seedImagePromptConfig();
     const rows = await db.select().from(adminConfigTable).where(inArray(adminConfigTable.key, ALL_AI_KEYS));

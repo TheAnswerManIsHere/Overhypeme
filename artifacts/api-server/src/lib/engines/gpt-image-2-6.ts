@@ -77,7 +77,6 @@ export const GPT_IMAGE_2_6: EngineDefinition = {
   imageMode: "t2i",
   family: "gpt-image-2-6",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 62,
   featureFlagRequired: null,

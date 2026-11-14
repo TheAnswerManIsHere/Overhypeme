@@ -42,7 +42,6 @@ export const NANO_BANANA_2: EngineDefinition = {
   imageMode: "t2i",
   family: "nano-banana-2",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 80,
   featureFlagRequired: null,

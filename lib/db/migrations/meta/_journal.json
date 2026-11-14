@@ -967,6 +967,13 @@
       "when": 1787000000000,
       "tag": "0137_gag_writer",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1787100000000,
+      "tag": "0138_ai_settings_in_code",
+      "breakpoints": true
     }
   ]
 }

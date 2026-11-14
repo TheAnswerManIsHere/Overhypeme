@@ -13,10 +13,10 @@
  */
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { enginesTable, promptRecipePromotionsTable, promptRecipeVersionsTable } from "@workspace/db/schema";
+import { promptRecipePromotionsTable, promptRecipeVersionsTable } from "@workspace/db/schema";
 import { BASELINE_RECIPE, RECIPE_PIECE_KEYS, changedPolicyPieces, recipeFrom, recipeProblems, type RecipePieceKey, type ResolvedRecipe } from "./recipe";
 import { recipeBudgetProblems } from "./promptBudget";
-import { codeEngineDefinition, codeEngineDefinitions, codeImageEngineIds, effectiveEngines } from "../engineInterpreter";
+import { codeEngineDefinition, codeEngineDefinitions, imageEngines } from "../engineInterpreter";
 
 export class RecipeRefused extends Error {
   constructor(message: string, readonly details: Record<string, unknown> = {}) { super(message); }
@@ -85,9 +85,7 @@ export async function draftRecipe(family: string, basedOnVersionId: number | nul
 }
 
 async function assertImageFamily(family: string): Promise<void> {
-  const ids = codeEngineDefinitions().filter((d) => d.family === family && d.kind === "image").map((d) => d.id);
-  const rows = ids.length ? await db.select({ deletedAt: enginesTable.deletedAt }).from(enginesTable).where(inArray(enginesTable.id, ids)) : [];
-  if (!rows.some((r) => r.deletedAt == null)) throw new RecipeRefused(`"${family}" is not an image engine family`);
+  if (!codeEngineDefinitions().some((d) => d.family === family && d.kind === "image")) throw new RecipeRefused(`"${family}" is not an image engine family`);
 }
 
 /**
@@ -143,7 +141,7 @@ export async function promoteRecipe(args: { family: string; versionId: number | 
 export interface RecipeFamilySummary {
   family: string;
   /** The engines of the family, e.g. its text-to-image and edit endpoints. */
-  engines: Array<{ id: string; label: string; imageMode: string | null; retired: boolean }>;
+  engines: Array<{ id: string; label: string; imageMode: string | null }>;
   /** The live version, or null for the baseline. */
   liveVersionId: number | null;
   versions: Array<{ id: number; number: number; note: string; createdBy: string | null; createdAt: string; pieces: Record<string, string> }>;
@@ -152,10 +150,8 @@ export interface RecipeFamilySummary {
 
 /** Every image engine family with its versions, the live one and its promotion history, newest first. */
 export async function listRecipeFamilies(): Promise<RecipeFamilySummary[]> {
-  // An archived (soft-deleted) engine is left out; the engines table is small, so it is filtered here.
-  // Family and mode come from code (decisions.md 2026-11-14); the row keeps label, retirement and deletion.
-  const engines = effectiveEngines(await db.select().from(enginesTable).where(inArray(enginesTable.id, codeImageEngineIds())).orderBy(asc(enginesTable.id)))
-    .filter((e) => e.deletedAt == null);
+  // From the code catalogue (decisions.md 2026-11-14).
+  const engines = imageEngines().sort((a, b) => a.id.localeCompare(b.id));
   const families = [...new Set(engines.map((e) => e.family).filter((f): f is string => !!f))].sort();
   if (families.length === 0) return [];
   const [versions, promotions, live] = await Promise.all([
@@ -165,7 +161,7 @@ export async function listRecipeFamilies(): Promise<RecipeFamilySummary[]> {
   ]);
   return families.map((family) => ({
     family,
-    engines: engines.filter((e) => e.family === family).map((e) => ({ id: e.id, label: e.label, imageMode: e.imageMode, retired: e.retired })),
+    engines: engines.filter((e) => e.family === family).map((e) => ({ id: e.id, label: e.label, imageMode: e.imageMode })),
     liveVersionId: live.get(family) ?? null,
     versions: versions.filter((v) => v.engineFamily === family).map((v) => ({
       id: v.id, number: v.number, note: v.note, createdBy: v.createdBy, createdAt: v.createdAt.toISOString(),

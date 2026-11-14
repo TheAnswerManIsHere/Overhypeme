@@ -19,7 +19,6 @@ export const OPENAI_VISUAL_PLANNER: EngineDefinition = {
     "Dedicated LLM for render-time visual gag planning. Chosen in code; not eligible as the global default LLM.",
   kind: "llm",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 1,
   featureFlagRequired: null,

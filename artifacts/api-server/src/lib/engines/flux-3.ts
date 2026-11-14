@@ -54,7 +54,6 @@ export const FLUX_3: EngineDefinition = {
   imageMode: "t2i",
   family: "flux-3",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 64,
   featureFlagRequired: null,

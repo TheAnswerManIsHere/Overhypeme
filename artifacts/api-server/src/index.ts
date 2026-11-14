@@ -30,7 +30,7 @@ import { registerFactSendBackHandler } from "./lib/factSendBackJob.js";
 import { registerFactAiMemeBackfillHandler } from "./lib/aiMemeBackfillJobs.js";
 import { registerVisualConceptJobHandlers } from "./lib/visualConceptJobs.js";
 import { runAsyncJobsWorker } from "./lib/asyncJobs.js";
-import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
+import { ALL_ENGINES } from "./lib/engines";
 import { ensureFalConfigured, getFalApiKey } from "./lib/falClient";
 import { runStripeBootVerification, startStripeAfterBoot } from "./lib/stripeInit.js";
 
@@ -506,18 +506,11 @@ scheduleContentPurger();
 scheduleAccountDeletionWorker();
 scheduleMediaBackup();
 scheduleMemeBakeBackfill();
-// Engines: reconcile the typed code catalogue into the DB before pricing
-// cache so the active engines drive the cache refresh.
-reconcileEngines()
-  .then((result) =>
-    logger.info(result, "Engine reconciliation complete"),
-  )
-  .catch((err: unknown) => logger.error({ err }, "Engine reconciliation failed"))
-  .finally(() => {
-    initPricingCache().catch((err: unknown) =>
-      logger.warn({ err }, "Pricing cache init error"),
-    );
-  });
+// Engines live in the code catalogue (decisions.md 2026-11-14); the pricing
+// cache warms from it directly.
+initPricingCache().catch((err: unknown) =>
+  logger.warn({ err }, "Pricing cache init error"),
+);
 // Register all async-job handlers before starting the worker. New queues
 // (future fal_*) call their own register* function here.
 registerEmailHandler();
