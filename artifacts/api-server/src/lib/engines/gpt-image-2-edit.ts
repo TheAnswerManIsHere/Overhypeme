@@ -24,7 +24,6 @@ export const GPT_IMAGE_2_EDIT: EngineDefinition = {
   imageMode: "i2i",
   family: "gpt-image-2",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 73,
   featureFlagRequired: null,

@@ -1,14 +1,44 @@
 /**
- * An engine's code definition as an `engines` row. Its own module so that
- * both reconciliation and the engine interpreter's effective definition can
- * use it without importing each other.
+ * An engine as the rest of the server reads it: its code definition, in the
+ * flat shape the old `engines` table row had, so readers keep their field
+ * names. There is no table any more (decisions.md 2026-11-14, AI call
+ * settings live in code); this record is built from the catalogue and is the
+ * only copy.
  */
 
-import type { InsertEngine } from "@workspace/db/schema";
 import type { EngineDefinition } from "./types";
 
-/** Full row insert — includes both refreshed and preserved fields. */
-export function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
+export interface Engine {
+  id: string;
+  provider: string;
+  endpointId: string;
+  label: string;
+  description: string;
+  kind: string;
+  tierRequirement: string;
+  isActive: boolean;
+  sortOrder: number;
+  allowedResolutions: unknown;
+  defaultResolution: string | null;
+  allowedAspectRatios: unknown;
+  defaultAspectRatio: string | null;
+  paramSchema: unknown;
+  /** Decimal string, as the column was. */
+  estimatedCostUsdPerCall: string | null;
+  expectedRunMs: number;
+  featureFlagRequired: string | null;
+  /** Decimal string, as the column was. */
+  defaultTemperature: string | null;
+  defaultMaxTokens: number | null;
+  defaultReasoningEffort: string | null;
+  imageMode: string | null;
+  family: string | null;
+  sizeVocabulary: unknown;
+  priceModel: unknown;
+}
+
+/** The engine record for a code definition. */
+export function codeDefinitionToRow(def: EngineDefinition): Engine {
   return {
     id: def.id,
     provider: def.provider,
@@ -17,7 +47,6 @@ export function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
     description: def.description,
     kind: def.kind,
     tierRequirement: def.tierRequirement,
-    isDefault: def.isDefault,
     isActive: def.isActive,
     sortOrder: def.sortOrder,
     allowedResolutions: def.allowedResolutions,
@@ -31,15 +60,11 @@ export function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
     featureFlagRequired: def.featureFlagRequired,
     defaultTemperature:
       def.defaultTemperature != null ? String(def.defaultTemperature) : null,
-    defaultMaxTokens: def.defaultMaxTokens,
+    defaultMaxTokens: def.defaultMaxTokens ?? null,
     defaultReasoningEffort: def.defaultReasoningEffort ?? null,
-    // Image routing and costing (0123). Code-owned: refreshed every boot.
-    // `retired` is deliberately absent: a migration sets it, and nothing in
-    // code may clear it.
     imageMode: def.imageMode ?? null,
     family: def.family ?? null,
     sizeVocabulary: def.sizeVocabulary ?? null,
     priceModel: def.priceModel ?? null,
-    deletedAt: null,
   };
 }

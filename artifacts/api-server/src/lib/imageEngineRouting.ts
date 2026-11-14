@@ -21,7 +21,7 @@
  */
 
 import type { GenerationMode } from "@workspace/api-zod";
-import type { Engine } from "@workspace/db/schema";
+import type { Engine } from "./engines/toRow";
 import { loadEngine } from "./engineInterpreter";
 import { liveRecipeVersionIdsForEngines } from "./imagePrompt/recipeStore";
 
@@ -108,8 +108,6 @@ export class ImageEngineRoutingError extends Error {
 export function imageEngineRefusal(engine: Engine | null, mode: GenerationMode): string | null {
   if (!engine) return "not in the catalogue";
   if (engine.kind !== "image") return `its kind is ${engine.kind}, not image`;
-  if (engine.retired) return "it is retired";
-  if (engine.deletedAt) return "it is archived";
   if (!engine.isActive) return "it is inactive";
   if (engine.imageMode !== mode) return `its mode is ${engine.imageMode ?? "unset"}, not ${mode}`;
   if (!engine.sizeVocabulary) return "it declares no size vocabulary, so no request can be built for it";

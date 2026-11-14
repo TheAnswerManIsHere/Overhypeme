@@ -1,9 +1,6 @@
-import { eq } from "drizzle-orm";
-import { db } from "@workspace/db";
-import { enginesTable, type Engine } from "@workspace/db/schema";
 import { logger } from "./logger.js";
 import { ALL_ENGINES } from "./engines/catalogue";
-import { codeDefinitionToRow } from "./engines/toRow";
+import { codeDefinitionToRow, type Engine } from "./engines/toRow";
 import type { EngineDefinition } from "./engines/types";
 
 /**
@@ -104,66 +101,10 @@ export class InvalidEngineParamError extends Error {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// In-memory cache (60s TTL)
+// Engines come from the code catalogue (decisions.md 2026-11-14)
 // ────────────────────────────────────────────────────────────────────────────
 
-const CACHE_TTL_MS = 60_000;
-
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-
-const engineByIdCache = new Map<string, CacheEntry<Engine | null>>();
-
-function getCached<T>(map: Map<string, CacheEntry<T>>, key: string): T | undefined {
-  const entry = map.get(key);
-  if (!entry) return undefined;
-  if (entry.expiresAt < Date.now()) {
-    map.delete(key);
-    return undefined;
-  }
-  return entry.value;
-}
-
-function setCached<T>(map: Map<string, CacheEntry<T>>, key: string, value: T): void {
-  map.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
-}
-
-/** Test hook — clears the in-memory engine cache. */
-export function clearEngineCaches(): void {
-  engineByIdCache.clear();
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// The effective engine (plan `docs/plans/PLAN_AI_SETTINGS_IN_CODE.md`)
-// ────────────────────────────────────────────────────────────────────────────
-
-/**
- * Every field that decides which engine a step uses or how its request is
- * built. They come from the code catalogue, never from the row: an engine
- * row's stored copy of any of them is ignored (decisions.md 2026-11-14, AI
- * call settings live in code). The row keeps availability, retirement and
- * deletion, tier and visibility, ordering, pricing and run-time hints, and
- * nothing writes the stored copies over, so a code revert restores the old
- * behaviour exactly.
- */
-export const CODE_OWNED_CALL_FIELDS = [
-  "provider",
-  "endpointId",
-  "kind",
-  "family",
-  "imageMode",
-  "sizeVocabulary",
-  "allowedResolutions",
-  "defaultResolution",
-  "allowedAspectRatios",
-  "defaultAspectRatio",
-  "paramSchema",
-  "defaultTemperature",
-  "defaultMaxTokens",
-  "defaultReasoningEffort",
-] as const satisfies readonly (keyof Engine)[];
+export type { Engine };
 
 /** Definitions a test registers for engines it creates; never set in production. */
 const testDefinitions = new Map<string, EngineDefinition>();
@@ -171,7 +112,11 @@ const testDefinitions = new Map<string, EngineDefinition>();
 /** Test hook: register a code definition for a test engine id (a clone of a catalogue engine). */
 export function __registerEngineDefinitionForTest(def: EngineDefinition): void {
   testDefinitions.set(def.id, def);
-  engineByIdCache.delete(def.id);
+}
+
+/** Test hook: forget every registered test definition. */
+export function clearEngineCaches(): void {
+  testDefinitions.clear();
 }
 
 /** Every code definition: the catalogue, plus any a test registered. */
@@ -191,47 +136,25 @@ export function codeImageEngineIds(): string[] {
   return codeEngineDefinitions().filter((d) => d.kind === "image").map((d) => d.id);
 }
 
-/**
- * An engine row with every call-shaping field taken from its code
- * definition, or null when the catalogue has no definition: such an engine
- * cannot be dispatched, and its row stays readable for history only.
- */
-export function effectiveEngine(row: Engine): Engine | null {
-  const def = codeEngineDefinition(row.id);
-  if (!def) return null;
-  const code = codeDefinitionToRow(def);
-  const merged = { ...row } as Record<string, unknown>;
-  for (const field of CODE_OWNED_CALL_FIELDS) merged[field] = (code as Record<string, unknown>)[field] ?? null;
-  return merged as Engine;
+/** Every engine, as records, from the code catalogue. */
+export function allEngines(): Engine[] {
+  return codeEngineDefinitions().map(codeDefinitionToRow);
 }
 
-/** `effectiveEngine` over a list, dropping the engines with no code definition. */
-export function effectiveEngines(rows: Engine[]): Engine[] {
-  return rows.map(effectiveEngine).filter((e): e is Engine => e !== null);
+/** Every image engine, as records, from the code catalogue. */
+export function imageEngines(): Engine[] {
+  return allEngines().filter((e) => e.kind === "image");
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Loaders
-// ────────────────────────────────────────────────────────────────────────────
+/** The engine for an id, or null when the code catalogue has no such engine. */
+export function engineById(id: string): Engine | null {
+  const def = codeEngineDefinition(id);
+  return def ? codeDefinitionToRow(def) : null;
+}
 
-/**
- * The effective engine for an id (above). Cached. Null when there is no row,
- * or when the code catalogue has no definition for it, which is logged: an
- * engine without a code definition cannot be dispatched.
- */
+/** `engineById`, kept async for its many callers. */
 export async function loadEngine(id: string): Promise<Engine | null> {
-  const cached = getCached(engineByIdCache, id);
-  if (cached !== undefined) return cached;
-
-  const [row] = await db
-    .select()
-    .from(enginesTable)
-    .where(eq(enginesTable.id, id))
-    .limit(1);
-  const value = row ? effectiveEngine(row) : null;
-  if (row && !value) logger.warn({ engineId: id }, "engine has no code definition; refusing to dispatch it");
-  setCached(engineByIdCache, id, value);
-  return value;
+  return engineById(id);
 }
 
 // ────────────────────────────────────────────────────────────────────────────

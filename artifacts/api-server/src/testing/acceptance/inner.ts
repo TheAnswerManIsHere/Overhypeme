@@ -114,39 +114,20 @@ async function probe(cfg: InnerConfig): Promise<Record<string, unknown>> {
 }
 
 /**
- * The rest of a restored snapshot's state that shapes a recorded request or
- * runs on its own (restoredSnapshot, above): engines back to their code
- * definitions (the fields reconcile preserves at boot, so the reset holds
- * through boot), and restored non-terminal jobs made terminal. Engine choices
- * are set in code and need no reset (decisions.md 2026-11-14). Reported, so a run shows what it
- * changed.
+ * The rest of a restored snapshot's state that runs on its own
+ * (restoredSnapshot, above): restored non-terminal jobs made terminal.
+ * Engines and their settings live in code and need no reset (decisions.md
+ * 2026-11-14). Reported, so a run shows what it changed.
  */
 async function pinRestoredSnapshot(databaseUrl: string): Promise<Record<string, unknown>> {
-  process.env.DATABASE_URL = databaseUrl;
-  const { ALL_ENGINES } = await import("../../lib/engines/catalogue");
-  const { codeDefinitionToRow } = await import("../../lib/engines/reconcile");
-  const { RECONCILE_PRESERVED_FIELDS } = await import("../../lib/engines/types");
-  const snake = (f: string) => f.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   try {
-    const engines: string[] = [];
-    for (const def of ALL_ENGINES) {
-      const row = codeDefinitionToRow(def) as Record<string, unknown>;
-      const fields = [...RECONCILE_PRESERVED_FIELDS, "deletedAt"];
-      const sets = fields.map((f, i) => `"${snake(f)}" = $${i + 2}`).join(", ");
-      const changed = fields.map((f, i) => `"${snake(f)}" IS DISTINCT FROM $${i + 2}`).join(" OR ");
-      const { rowCount } = await client.query(
-        `UPDATE engines SET ${sets} WHERE id = $1 AND (${changed})`,
-        [def.id, ...fields.map((f) => row[f] ?? null)],
-      );
-      if (rowCount) engines.push(def.id);
-    }
     const { rowCount: jobsMadeTerminal } = await client.query(
       `UPDATE async_jobs SET status = 'failed', last_error = 'restored with a snapshot; made terminal before the acceptance journeys', updated_at = now()
        WHERE status IN ('pending', 'processing')`,
     );
-    return { enginesReset: engines, jobsMadeTerminal };
+    return { jobsMadeTerminal };
   } finally {
     await client.end();
   }

@@ -16,7 +16,7 @@ import {
   type GenerationMode,
   type RenderScenarioKey,
 } from "@workspace/api-zod";
-import type { Engine } from "@workspace/db/schema";
+import type { Engine } from "../engines/toRow";
 import { generationModeForSubjectRenderMode } from "../factRenderScenarios";
 import { imageEngineRefusal } from "../imageEngineRouting";
 

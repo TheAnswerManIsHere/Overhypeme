@@ -37,7 +37,6 @@ const CONFIG_TABLES = new Set([
   "feature_flags",
   "tier_feature_permissions",
   "entitlement_grid_revision",
-  "engines",
   "look_styles",
   "fal_pricing_cache",
   "admin_config",

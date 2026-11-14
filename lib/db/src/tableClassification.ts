@@ -44,9 +44,9 @@ export interface ConfigOwnership {
   runtime: readonly string[];
   /**
    * An admin-owned column that is admin-owned only on the rows a SQL predicate
-   * selects; on every other row the code owns it. Engines' endpoint_id: the
-   * model an LLM engine calls is an admin's choice, a media engine's endpoint
-   * is re-asserted from code on every boot (engines/reconcile.ts).
+   * selects; on every other row the code owns it. (Its one user, the engines
+   * table's endpoint_id, went with that table in migration 0138; the
+   * mechanism and its tests remain.)
    */
   adminOnlyWhere?: Readonly<Record<string, string>>;
   /**
@@ -73,49 +73,6 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
       // PATCH /admin/config/:key writes value and value_label.
       admin: ["value", "value_label"],
       runtime: ["updated_at", "updated_by_id"],
-    },
-  },
-  engines: {
-    class: "config",
-    columns: {
-      key: ["id"],
-      // reconcileEngines() rewrites these on every boot (engines/reconcile.ts).
-      code: [
-        "provider",
-        "label",
-        "description",
-        "kind",
-        "allowed_resolutions",
-        "allowed_aspect_ratios",
-        "param_schema",
-        // Image routing and costing (0123): reconciled from the catalogue.
-        "image_mode",
-        "family",
-        "price_model",
-        "size_vocabulary",
-        // Set by a migration (increment 4 of launch Phase 8), never by an admin.
-        "retired",
-      ],
-      // RECONCILE_PRESERVED_FIELDS (engines/types.ts) plus the soft-delete tombstone;
-      // a test holds the two lists equal.
-      admin: [
-        "is_active",
-        "is_default",
-        "sort_order",
-        "tier_requirement",
-        "feature_flag_required",
-        "default_resolution",
-        "default_aspect_ratio",
-        "expected_run_ms",
-        "estimated_cost_usd_per_call",
-        "endpoint_id",
-        "default_temperature",
-        "default_max_tokens",
-        "default_reasoning_effort",
-        "deleted_at",
-      ],
-      runtime: ["created_at", "updated_at"],
-      adminOnlyWhere: { endpoint_id: "provider = 'openai'" },
     },
   },
   feature_flags: {

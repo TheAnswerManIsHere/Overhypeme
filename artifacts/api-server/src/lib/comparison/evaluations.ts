@@ -16,7 +16,6 @@ import {
   comparisonPanelsTable,
   comparisonPicksTable,
   comparisonSetsTable,
-  enginesTable,
   factsTable,
   lookStylesTable,
   type ComparisonCell,
@@ -35,7 +34,7 @@ import { cellBoundUsd, panelPreparationBoundUsd, panelPreparationTypicalUsd, rou
 import { createComparisonSet, groupCellsByPanel, planComparisonRun, plannerSettings, type RunScope } from "./sets";
 import { ComparisonRunRefused, startComparisonRun } from "./runs";
 import { cellLost, isJudgeable, panelWait } from "./judging";
-import { codeImageEngineIds, effectiveEngines } from "../engineInterpreter";
+import { allEngines, imageEngines } from "../engineInterpreter";
 
 // ─── Eligible facts ───────────────────────────────────────────────────────────
 
@@ -116,7 +115,7 @@ export interface ActionPricing {
 }
 
 export async function actionPricing(): Promise<ActionPricing> {
-  const engines = await db.select({ id: enginesTable.id, priceModel: enginesTable.priceModel }).from(enginesTable);
+  const engines = allEngines();
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
   let prepUsd: number | null = null;
   try {
@@ -137,8 +136,7 @@ export async function actionPricing(): Promise<ActionPricing> {
  * layout and per-call bounds a run admits with; nothing is saved.
  */
 export async function estimateEvaluation(sel: EvaluationSelection): Promise<EvaluationEstimate> {
-  // The effective definitions: family and mode come from code (decisions.md 2026-11-14).
-  const engines = effectiveEngines(await db.select().from(enginesTable).where(inArray(enginesTable.id, codeImageEngineIds())));
+  const engines = imageEngines();
   const layout = deriveComparisonLayout({ factIds: sel.factIds, scenarioKeys: sel.scenarioKeys, lookStyleIds: sel.lookStyleIds, engineFamilies: sel.engineFamilies }, engines);
   const price = new Map(engines.map((e) => [e.id, e.priceModel]));
   const perCell = sel.kind === "prompt" ? (sel.recipeVersionIds?.length ?? 0) : 1;

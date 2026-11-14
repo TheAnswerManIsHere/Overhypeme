@@ -102,7 +102,7 @@ export const UTILITY_LLM_ENGINE_ID = "openai-general";
 async function resolveLLMSettings(): Promise<LLMSettings> {
   try {
     const engine = await loadEngine(UTILITY_LLM_ENGINE_ID);
-    if (!engine || !engine.isActive || engine.deletedAt) throw new Error(`utility engine "${UTILITY_LLM_ENGINE_ID}" is unavailable`);
+    if (!engine || !engine.isActive) throw new Error(`utility engine "${UTILITY_LLM_ENGINE_ID}" is unavailable`);
     return {
       model: engine.endpointId || FALLBACK_MODEL,
       temperature: engine.defaultTemperature != null ? Number(engine.defaultTemperature) : FALLBACK_TEMPERATURE,

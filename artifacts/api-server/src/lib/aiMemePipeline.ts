@@ -178,7 +178,7 @@ async function generateAndStoreImage(
 
   // Layer 2 (request side): set fal.ai safety_tolerance for models that
   // accept it. No-op for models whose schema rejects the field.
-  await applyFalSafetyTolerance(input, model);
+  applyFalSafetyTolerance(input, model);
 
   const result = await fal.subscribe(model, {
     input,

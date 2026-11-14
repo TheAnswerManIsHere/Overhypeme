@@ -111,7 +111,7 @@ function fallbackImagePromptLLMSettings(
  * (decisions.md 2026-11-14), into per-call LLM settings + provenance.
  * Any invalid state falls back to the pre-feature behavior (default llm
  * engine, original constants) with the reason recorded — never throws.
- * Note: `loadEngine` does NOT filter isActive/deletedAt, so we must.
+ * Note: `loadEngine` does NOT filter isActive, so we must.
  */
 export async function resolveImagePromptLLMSettings(): Promise<ImagePromptLLMSettings> {
   let configuredEngineId = DEFAULT_IMAGE_PROMPT_ENGINE_ID;
@@ -126,11 +126,9 @@ export async function resolveImagePromptLLMSettings(): Promise<ImagePromptLLMSet
           ? "engine_not_openai"
           : !engine.isActive
             ? "engine_inactive"
-            : engine.deletedAt != null
-              ? "engine_deleted"
-              : !engine.endpointId
-                ? "engine_missing_model"
-                : null;
+            : !engine.endpointId
+              ? "engine_missing_model"
+              : null;
     if (engine && reason === null) {
       return {
         model: engine.endpointId,

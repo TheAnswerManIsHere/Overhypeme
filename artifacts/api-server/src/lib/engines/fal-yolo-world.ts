@@ -31,7 +31,6 @@ export const FAL_YOLO_WORLD: EngineDefinition = {
   // NOT a kind="utility" catalogue default — auto-subtitle already holds that slot.
   // The active source-image classifier is `DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID`
   // in `imagePromptConfig.ts`, set in code.
-  isDefault: false,
   isActive: true,
   sortOrder: 250,
   featureFlagRequired: null,

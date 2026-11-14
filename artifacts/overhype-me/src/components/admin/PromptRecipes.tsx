@@ -18,7 +18,7 @@ export interface PieceDef { key: string; label: string; group: string; when: str
 export interface FamilyVersion { id: number; number: number; note: string; createdBy: string | null; createdAt: string; pieces: Record<string, string> }
 export interface RecipeFamily {
   family: string;
-  engines: Array<{ id: string; label: string; imageMode: string | null; retired: boolean }>;
+  engines: Array<{ id: string; label: string; imageMode: string | null }>;
   liveVersionId: number | null;
   versions: FamilyVersion[];
   promotions: Array<{ id: number; versionId: number | null; promotedBy: string | null; promotedAt: string }>;

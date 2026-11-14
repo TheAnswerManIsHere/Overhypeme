@@ -56,7 +56,6 @@ export const SEEDREAM_5_PRO: EngineDefinition = {
   imageMode: "t2i",
   family: "seedream-5-pro",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 66,
   featureFlagRequired: null,

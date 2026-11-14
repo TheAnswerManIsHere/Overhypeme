@@ -342,11 +342,9 @@ export async function resolveFactEnrichmentLLMSettings(): Promise<FactEnrichment
           ? "engine_not_openai"
           : !engine.isActive
             ? "engine_inactive"
-            : engine.deletedAt != null
-              ? "engine_deleted"
-              : !engine.endpointId
-                ? "engine_missing_model"
-                : null;
+            : !engine.endpointId
+              ? "engine_missing_model"
+              : null;
     if (engine && reason === null) {
       return {
         model: engine.endpointId,

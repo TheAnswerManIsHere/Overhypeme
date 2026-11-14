@@ -1,12 +1,10 @@
 /**
- * Engines barrel — re-exports the catalogue, reconciler, and types so call
- * sites can import everything from a single path. The ALL_ENGINES array
- * itself lives in `catalogue.ts` to avoid a cycle with reconcile.ts (which
- * imports the array directly from catalogue.ts to keep the dependency
- * graph one-directional).
+ * Engines barrel — re-exports the catalogue and its types so call sites can
+ * import everything from a single path. Engines live only here, in code
+ * (decisions.md 2026-11-14); there is no engines table.
  */
 export { ALL_ENGINES } from "./catalogue";
-export { reconcileEngines } from "./reconcile";
+export { codeDefinitionToRow, type Engine } from "./toRow";
 export type {
   EngineDefinition,
   EngineKind,
@@ -22,4 +20,4 @@ export type {
   TokenPriceComponent,
   WizardAspect,
 } from "./types";
-export { RECONCILE_PRESERVED_FIELDS, perCallBoundUsd, perImagePrice } from "./types";
+export { perCallBoundUsd, perImagePrice } from "./types";

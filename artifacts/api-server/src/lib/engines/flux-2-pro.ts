@@ -25,7 +25,6 @@ export const FLUX_2_PRO: EngineDefinition = {
   imageMode: "t2i",
   family: "flux-2-pro",
   tierRequirement: "legendary",
-  isDefault: false,
   isActive: true,
   sortOrder: 71,
   featureFlagRequired: null,
