@@ -20,7 +20,7 @@ import request from "supertest";
 import { db, factsTable, usersTable, factGagsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable, factEnrichmentVersionsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
-import { eq, gte, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   buildPlaceholderFactEnrichment,
@@ -28,9 +28,15 @@ import {
 } from "@workspace/api-zod";
 
 import gagsRouter from "../routes/gags.js";
+import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { availableGags, primaryGag } from "../lib/gags/resolver.js";
-import { applyReviewGagOps, cancelReviewGagOps } from "../lib/gags/gagStore.js";
+import { applyReviewGagOps, cancelReviewGagOps, gagContentEqual } from "../lib/gags/gagStore.js";
+import { loadGagRenderTarget, ensureDefaultReviewRenders, reviewRenderStates } from "../lib/reviewRenderScenarios.js";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { visualPromptStrategyOverrideSchema } from "@workspace/api-zod";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
@@ -80,12 +86,18 @@ before(async () => {
 
 after(async () => {
   if (factIds.length) {
-    await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, factIds));
-    // Inactive first so the live-fact rule does not refuse the gag deletes.
+    // Children before parents: gags point at renders and reviews, renders and
+    // refresh candidates at reviews. Inactive first so the live-fact rule allows
+    // deleting the gags.
     await db.update(factsTable).set({ isActive: false }).where(inArray(factsTable.id, factIds));
+    await db.delete(factGagsTable).where(inArray(factGagsTable.factId, factIds));
+    await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.factId, factIds));
+    await db.delete(factEnrichmentVersionsTable).where(inArray(factEnrichmentVersionsTable.factId, factIds));
+    await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, factIds));
     await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   }
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
+  await db.delete(asyncJobsTable).where(gte(asyncJobsTable.createdAt, START));
 });
 
 describe("gag routes: a change is hidden until its example is approved", () => {
@@ -197,6 +209,49 @@ describe("the default gag: approved first, across every slot", () => {
   });
 });
 
+describe("a gag the migration carried over can be approved (Codex, PR #956 round 2)", () => {
+  it("a render of a carried-over gag in its legacy shape is approved, and a render of other content is still refused", async () => {
+    // The shape migration 0139 moves byte for byte: no defaulted lists, a retired key.
+    const legacy = { version: 1, enabled: true, coreSceneOverride: "{NAME} lifts the moon (legacy shape)." };
+    const f = await insertLiveFact({ text: `{NAME} legacy ${RUN} ${randomUUID().slice(0, 6)}`, enrichment: buildPlaceholderFactEnrichment() }, legacy as never);
+    factIds.push(f.id);
+    const gagId = f.gags[0]!.id;
+    // The snapshot a real render stores: the render target the loader builds.
+    const loaded = await loadGagRenderTarget(gagId);
+    assert.ok(loaded.ok, JSON.stringify(loaded));
+    const drew = (loaded as { target: { enrichment: { visualPromptStrategyOverride: unknown } } }).target.enrichment.visualPromptStrategyOverride;
+    const [real] = await db.insert(imagePromptAttemptsTable).values({
+      factId: f.id, gagId, renderJobId: randomUUID(), generationMode: "t2i", subjectRenderMode: "t2i_fallback", targetEngine: "nano_banana_2",
+      sourceImageAnalysis: {} as never, identityPolicy: {} as never, renderControls: {} as never,
+      factEnrichmentSnapshot: (loaded as { target: { enrichment: unknown } }).target.enrichment as never,
+      archetypeStrategyVersion: "v2", generatedImageObjectPath: `/objects/ai-bg-v2/${f.id}/${randomUUID()}.png`,
+    }).returning({ id: imagePromptAttemptsTable.id });
+    assert.notDeepEqual(drew, legacy, "precondition: the snapshot is the normalised form, not the stored one");
+
+    const other = await request(app).post(url(f.id, `/${gagId}/approve`)).send({ attemptId: await render(f.id, gagId, scene("{NAME} a different scene.")) });
+    assert.equal(other.body.code, "CONTENT_CHANGED", "a render of other content is still refused");
+    const ok = await request(app).post(url(f.id, `/${gagId}/approve`)).send({ attemptId: real!.id });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal((await gagRow(gagId)).approvedExampleAttemptId, real!.id, "the render is the gag's example");
+  });
+
+  it("every schema-valid gag in the legacy fixture is equal to its own normalised form", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const rows = readFileSync(path.join(here, "../../fixtures/legacy/fact_gags.ndjson"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+    let checked = 0;
+    for (const r of rows) {
+      for (const c of [r["approved_content"], r["pending_content"]]) {
+        if (c == null) continue;
+        const parsed = visualPromptStrategyOverrideSchema.safeParse(c);
+        if (!parsed.success) continue;
+        assert.ok(gagContentEqual(c, parsed.data), `fixture gag ${String(r["id"])} differs from its normalised form`);
+        checked++;
+      }
+    }
+    assert.ok(checked > 40, `checked ${checked}`);
+  });
+});
+
 describe("gag routes: discard and remove", () => {
   it("discarding a change returns the gag to its approved version, and spends nothing", async () => {
     const { factId, gagId } = await liveFact();
@@ -281,6 +336,64 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
     assert.equal(after.pendingRemove, false);
     assert.equal(after.pendingReviewId, null, "a declined review's decision is no longer owned, so no later review applies it");
     assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride, content.coreSceneOverride]);
+  });
+
+  it("advancing to Test Renders starts no paid batch for a gag the review marked for removal (Codex, PR #956 round 2)", async () => {
+    const { factId, gagId } = await liveFact();
+    const content = scene("{NAME} a second approved gag.");
+    const added = await request(app).post(url(factId)).send({ content });
+    const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
+    await request(app).post(url(factId, `/${secondId}/approve`)).send({ attemptId: await render(factId, secondId, content) });
+
+    const reviewId = await openRefresh(factId);
+    // A change saved to gag 2, then gag 2 removed: the draft stays (a decline keeps it).
+    assert.equal((await request(app).put(url(factId, `/${secondId}`)).send({ content: scene("{NAME} a change, then removed."), reviewId })).status, 200);
+    assert.equal((await request(app).post(url(factId, `/${secondId}/remove`)).send({ reviewId })).status, 200);
+    const before = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, secondId));
+
+    // No vendor call: the i2i reference upload is stubbed, as the render tests do.
+    __setReferenceFalUploadForTest(async () => "https://fal.test/ref.jpg");
+    try {
+      await ensureDefaultReviewRenders(reviewId, { force: true });
+    } finally {
+      __setReferenceFalUploadForTest(null);
+    }
+    const after = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, secondId));
+    assert.equal(after.length, before.length, "no attempt for the gag being removed");
+    const gate = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable)
+      .where(and(eq(imagePromptAttemptsTable.gagId, gagId), eq(imagePromptAttemptsTable.reviewId, reviewId)));
+    assert.ok(gate.length > 0, "the surviving gate gag gets its batch");
+  });
+
+  it("the list's render state counts each surviving gag: one finishing never hides another (Codex, PR #956 round 2)", async () => {
+    const { factId, gagId } = await liveFact();
+    const added = await request(app).post(url(factId)).send({ content: scene("{NAME} gag two.") });
+    const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
+    const reviewId = await openRefresh(factId);
+    const attempt = async (gid: number, state: "running" | "failed" | "done", at: string) => {
+      await db.insert(imagePromptAttemptsTable).values({
+        factId, gagId: gid, reviewId, reviewRenderScenarioKey: "generic_t2i", renderJobId: randomUUID(),
+        generationMode: "t2i", subjectRenderMode: "t2i_fallback", targetEngine: "nano_banana_2",
+        sourceImageAnalysis: {} as never, identityPolicy: {} as never, renderControls: {} as never,
+        factEnrichmentSnapshot: {} as never, archetypeStrategyVersion: "v2",
+        generatedImageObjectPath: state === "done" ? `/objects/x/${randomUUID()}.png` : null,
+        error: state === "failed" ? "vendor failed" : null, createdAt: new Date(at),
+      });
+    };
+    // The earlier gag still drawing, the later one finished.
+    await attempt(gagId, "running", "2026-01-01T00:00:00Z");
+    await attempt(secondId, "done", "2026-01-01T00:01:00Z");
+    assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "running");
+    // The earlier gag failed (a newer attempt of it), the later one finished.
+    await attempt(gagId, "failed", "2026-01-01T00:02:00Z");
+    assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "needs_attention");
+    // The failed gag marked for removal by this review: no longer counted.
+    await db.update(factGagsTable).set({ pendingRemove: true, pendingReviewId: reviewId }).where(eq(factGagsTable.id, gagId));
+    assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "ready");
+    // A superseded failure of a gag does not poison its later success.
+    await db.update(factGagsTable).set({ pendingRemove: false, pendingReviewId: null }).where(eq(factGagsTable.id, gagId));
+    await attempt(gagId, "done", "2026-01-01T00:03:00Z");
+    assert.equal((await reviewRenderStates([reviewId])).get(reviewId), "ready");
   });
 
   it("editing after picking cancels the pick", async () => {

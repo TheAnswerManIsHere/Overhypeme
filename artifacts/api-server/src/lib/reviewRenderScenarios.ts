@@ -407,8 +407,13 @@ async function loadReviewRow(reviewId: number) {
  * leaving out a removal this review requested), else, while nothing is
  * approved yet, the lowest-slot gag.
  */
+/** The gags that will still be on the fact once this review is promoted: all but its own pending removals. */
+export function survivingGags(gags: FactGag[], reviewId: number): FactGag[] {
+  return gags.filter((g) => !(g.pendingRemove && g.pendingReviewId === reviewId));
+}
+
 export function gateGag(gags: FactGag[], reviewId: number): FactGag | null {
-  const surviving = gags.filter((g) => !(g.pendingRemove && g.pendingReviewId === reviewId));
+  const surviving = survivingGags(gags, reviewId);
   const willBeApproved = surviving.find((g) =>
     g.approvedContent != null || (g.pendingExampleAttemptId != null && g.pendingReviewId === reviewId));
   return willBeApproved ?? surviving[0] ?? null;
@@ -484,7 +489,10 @@ export async function ensureDefaultReviewRenders(
   }
   const gags = await loadGags(review.stagingFactId);
   const gate = gateGag(gags, reviewId);
-  const chosen = gags.filter((g) => g.pendingContent != null || g.id === gate?.id);
+  // Only gags that survive the review: a gag this review has marked for removal
+  // keeps its saved change (a declined refresh keeps the draft) but gets no paid
+  // batch (Codex, PR #956 round 2).
+  const chosen = survivingGags(gags, reviewId).filter((g) => g.pendingContent != null || g.id === gate?.id);
   const imageEngines = await currentRenderRouting();
   const enqueued: EnqueueScenarioResult[] = [];
   for (const gag of chosen) {
@@ -652,8 +660,12 @@ export async function buildReviewScenarioGrid(
 
 /**
  * Coarse per-review render state for the moderation LIST, computed in ONE
- * aggregate query over the latest attempt per scenario (via `DISTINCT ON`) so the
- * hot, ~2.5s-polled endpoint stays cheap regardless of page size. Reviews with no
+ * aggregate query over the latest attempt per gag and scenario (via `DISTINCT
+ * ON`), counting only gags that survive the review (not removed, and not marked
+ * for removal by it), so one gag finishing never hides another still drawing or
+ * failed (Codex, PR #956 round 2). Attempts that name no gag (renders of a fact
+ * that never had one) count as one group, as before. One query keeps the
+ * hot, ~2.5s-polled endpoint cheap regardless of page size. Reviews with no
  * attempts are ABSENT from the map — the caller treats a miss as `not_started`.
  *
  * This is deliberately coarser than the modal's `buildReviewScenarioGrid`: it
@@ -670,12 +682,16 @@ export async function reviewRenderStates(reviewIds: number[]): Promise<Map<numbe
       COUNT(*) FILTER (WHERE latest.error IS NULL AND latest.generated_image_object_path IS NULL)::int AS running,
       COUNT(*) FILTER (WHERE latest.error IS NOT NULL)::int AS failed
     FROM (
-      SELECT DISTINCT ON (a.review_id, a.review_render_scenario_key)
+      SELECT DISTINCT ON (a.review_id, a.gag_id, a.review_render_scenario_key)
         a.review_id, a.error, a.generated_image_object_path
       FROM image_prompt_attempts a
       WHERE a.review_id = ANY(ARRAY[${sql.join(reviewIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
         AND a.review_render_scenario_key IS NOT NULL
-      ORDER BY a.review_id, a.review_render_scenario_key, a.created_at DESC
+        AND (a.gag_id IS NULL OR EXISTS (
+          SELECT 1 FROM fact_gags g
+          WHERE g.id = a.gag_id AND g.removed_at IS NULL
+            AND NOT (g.pending_remove AND g.pending_review_id = a.review_id)))
+      ORDER BY a.review_id, a.gag_id, a.review_render_scenario_key, a.created_at DESC
     ) latest
     GROUP BY latest.review_id
   `);

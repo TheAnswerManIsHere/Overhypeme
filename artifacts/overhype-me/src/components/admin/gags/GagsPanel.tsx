@@ -51,6 +51,12 @@ export interface GagsPanelProps {
   reloadKey?: number;
   /** Called with every view the panel loads. */
   onView?: (view: FactGagsView) => void;
+  /**
+   * Called when the panel starts or stops holding work that is not saved: an
+   * edited gag, a save still in flight, or a new gag with text typed in. An
+   * approval that acts on the saved gags waits on it (Codex, PR #956 round 2).
+   */
+  onUnsavedChange?: (unsaved: boolean) => void;
   disabled?: boolean;
 }
 
@@ -58,12 +64,28 @@ function sameContent(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
-export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, disabled = false }: GagsPanelProps) {
+export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false }: GagsPanelProps) {
   const [view, setView] = useState<FactGagsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const onViewRef = useRef(onView);
   onViewRef.current = onView;
+
+  // Which cards hold unsaved work; the panel reports whether any does.
+  const [unsavedKeys, setUnsavedKeys] = useState<Set<string>>(() => new Set());
+  const reportUnsaved = useCallback((key: string, unsaved: boolean) => {
+    setUnsavedKeys((prev) => {
+      if (prev.has(key) === unsaved) return prev;
+      const next = new Set(prev);
+      if (unsaved) next.add(key); else next.delete(key);
+      return next;
+    });
+  }, []);
+  const anyUnsaved = unsavedKeys.size > 0;
+  const onUnsavedRef = useRef(onUnsavedChange);
+  onUnsavedRef.current = onUnsavedChange;
+  useEffect(() => { onUnsavedRef.current?.(anyUnsaved); }, [anyUnsaved]);
+  useEffect(() => () => { onUnsavedRef.current?.(false); }, []);
 
   const accept = useCallback((v: FactGagsView) => {
     setView(v);
@@ -139,6 +161,7 @@ export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = 
           subjectNames={subjectNames}
           readOnly={readOnly}
           onView={accept}
+          reportUnsaved={reportUnsaved}
         />
       ))}
 
@@ -147,8 +170,9 @@ export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = 
           factId={factId}
           reviewId={reviewId}
           subjectNames={subjectNames}
-          onCancel={() => setAdding(false)}
-          onView={(v) => { accept(v); setAdding(false); }}
+          onCancel={() => { reportUnsaved("new", false); setAdding(false); }}
+          onView={(v) => { reportUnsaved("new", false); accept(v); setAdding(false); }}
+          reportUnsaved={reportUnsaved}
         />
       )}
 
@@ -248,6 +272,7 @@ function GagCard({
   subjectNames,
   readOnly,
   onView,
+  reportUnsaved,
 }: {
   factId: number;
   reviewId: number | null;
@@ -256,6 +281,7 @@ function GagCard({
   subjectNames: string[];
   readOnly: boolean;
   onView: (v: FactGagsView) => void;
+  reportUnsaved: (key: string, unsaved: boolean) => void;
 }) {
   const working = gag.pendingContent ?? gag.approvedContent ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
   const [draft, setDraft] = useState<VisualPromptStrategyOverride>(working);
@@ -264,6 +290,9 @@ function GagCard({
   useEffect(() => { setDraft(JSON.parse(workingKey) as VisualPromptStrategyOverride); }, [workingKey]);
   const dirty = !sameContent(draft, working);
   const s = useGagSave(subjectNames);
+  const unsavedKey = `gag-${gag.id}`;
+  useEffect(() => { reportUnsaved(unsavedKey, dirty || s.busy); }, [reportUnsaved, unsavedKey, dirty, s.busy]);
+  useEffect(() => () => reportUnsaved(unsavedKey, false), [reportUnsaved, unsavedKey]);
   const done = (r: GagResult | null) => { if (r?.ok) onView(r.view); };
 
   const save = async () => done(await s.run(draft, working, (c) => gagApi.save(factId, gag.id, c, reviewId), setDraft));
@@ -421,12 +450,14 @@ function NewGagCard({
   subjectNames,
   onCancel,
   onView,
+  reportUnsaved,
 }: {
   factId: number;
   reviewId: number | null;
   subjectNames: string[];
   onCancel: () => void;
   onView: (v: FactGagsView) => void;
+  reportUnsaved: (key: string, unsaved: boolean) => void;
 }) {
   const [draft, setDraft] = useState<VisualPromptStrategyOverride>(EMPTY_VISUAL_STRATEGY_OVERRIDE);
   const s = useGagSave(subjectNames);
@@ -435,6 +466,9 @@ function NewGagCard({
     if (r?.ok) onView(r.view);
   };
   const hasScene = useMemo(() => !!draft.coreSceneOverride?.trim(), [draft]);
+  const typed = !sameContent(draft, EMPTY_VISUAL_STRATEGY_OVERRIDE);
+  useEffect(() => { reportUnsaved("new", typed || s.busy); }, [reportUnsaved, typed, s.busy]);
+  useEffect(() => () => reportUnsaved("new", false), [reportUnsaved]);
   return (
     <div className="rounded-sm border-2 border-dashed border-primary/40 bg-card p-4 space-y-3" data-testid="gag-new">
       <p className="text-sm font-bold text-foreground">New gag</p>

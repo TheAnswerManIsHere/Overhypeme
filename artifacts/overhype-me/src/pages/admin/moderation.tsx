@@ -431,6 +431,9 @@ function ReviewModal({
   // idea is used on a gag from the Visual ideas cards.
   const [gagsView, setGagsView] = useState<FactGagsView | null>(null);
   const [gagsReloadKey, setGagsReloadKey] = useState(0);
+  // A gag edit not yet saved (or still saving) in the Gags panel: approvals act
+  // on the saved gags, so they wait for it (Codex, PR #956 round 2).
+  const [gagsUnsaved, setGagsUnsaved] = useState(false);
 
   // Subject-name hint for the Gags panel's tokenizer: the moderator's active
   // render-diagnostics preview name (if set) folded in ahead of the shared
@@ -760,7 +763,8 @@ function ReviewModal({
   const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null || g.pendingExample != null);
   const canApproveProduction = isApprovable(enrichment)
     && (isRefreshCycle || finalHashtags.length > 0)
-    && hasApprovedGag;
+    && hasApprovedGag
+    && !gagsUnsaved;
   const ideasPending = visualConceptStatus === "pending";
   const ideasFailed = visualConceptStatus === "failed";
   const ideasTerminalOk = visualConceptStatus === "ok";
@@ -768,7 +772,7 @@ function ReviewModal({
   // but a SAVED concept is what drives renders — so this is non-blocking.
   const ideasStaleButSaved = ideasTerminalOk && detail?.visualConcepts?.current === false && hasSavedGag;
   // "Approve the gags": enabled with a saved gag AND terminal-OK ideas.
-  const canApproveGag = hasSavedGag && ideasTerminalOk;
+  const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved;
   // Refresh cycles reject the CANDIDATE, not the fact — the label says so.
   const rejectLabel = isRefreshCycle ? "Don't Promote Refresh" : "Reject";
   // A first-time submission can only be rejected during triage (Step 1) —
@@ -1079,6 +1083,7 @@ function ReviewModal({
                   subjectNames={subjectNames}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
+                  onUnsavedChange={setGagsUnsaved}
                   disabled={loading}
                 />
               )}
@@ -1164,6 +1169,7 @@ function ReviewModal({
                   subjectNames={subjectNames}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
+                  onUnsavedChange={setGagsUnsaved}
                   disabled={loading}
                 />
               )}
@@ -1326,7 +1332,9 @@ function ReviewModal({
                 {!canApproveGag && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    {!hasSavedGag
+                    {gagsUnsaved
+                      ? "Save or undo your gag edits first: approving uses the saved gags."
+                      : !hasSavedGag
                       ? "Approve is locked until a gag is saved. Write one above (or use an idea) and save it."
                       : ideasPending
                       ? "Approve is locked while visual ideas are still generating — this updates live."
@@ -1376,6 +1384,8 @@ function ReviewModal({
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     {!isApprovable(enrichment)
                       ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. Approval also requires the required test renders above to be fresh and successful (or explicitly waived)."
+                      : gagsUnsaved
+                      ? "Save or undo your gag edits first: approving uses the saved gags."
                       : !hasApprovedGag
                       ? "Approve is locked until a gag has an example: run its test renders above and approve one."
                       : "Approve is locked until there's at least one hashtag. Add a tag under Final hashtags (above the test renders) — clearing them all is usually a mistake."}

@@ -72,6 +72,20 @@ export interface GagActor {
   reviewId?: number | null;
 }
 
+/**
+ * Whether two gag contents are the same gag, as the schema reads them. A gag
+ * the migration carried over is stored byte for byte in its legacy shape (no
+ * defaulted lists, a retired `enabled` key), while a render's snapshot holds the
+ * schema-normalised render input, so a raw comparison calls an unchanged gag
+ * changed (Codex, PR #956 round 2). Content the schema refuses is never equal.
+ * `overrideValuesEqual` itself stays raw: the enrichment audit shares it.
+ */
+export function gagContentEqual(a: unknown, b: unknown): boolean {
+  const pa = visualPromptStrategyOverrideSchema.safeParse(a);
+  const pb = visualPromptStrategyOverrideSchema.safeParse(b);
+  return pa.success && pb.success && overrideValuesEqual(pa.data, pb.data);
+}
+
 /** Validate and canonicalize a gag's content: the visual-strategy override schema, a non-empty scene, the prompt budget. */
 export function validateGagContent(raw: unknown): GagContent {
   const parsed = visualPromptStrategyOverrideSchema.safeParse(raw);
@@ -206,8 +220,8 @@ export async function saveGagContent(factId: number, gagId: number, rawContent: 
     const { refreshReviewId } = await resolveScope(tx, factId, actor);
     const gag = await lockGag(tx, factId, gagId);
     // Saving what is already pending changes nothing (no spurious timestamp bump).
-    if (gag.pendingContent != null && overrideValuesEqual(gag.pendingContent, content)) return gag;
-    const sameAsApproved = gag.approvedContent != null && overrideValuesEqual(gag.approvedContent, content);
+    if (gag.pendingContent != null && gagContentEqual(gag.pendingContent, content)) return gag;
+    const sameAsApproved = gag.approvedContent != null && gagContentEqual(gag.approvedContent, content);
     const [updated] = await tx.update(factGagsTable).set(sameAsApproved
       ? { pendingContent: null, pendingExampleAttemptId: null, pendingReviewId: gag.pendingRemove ? gag.pendingReviewId : null, pendingBy: null, pendingAt: null, updatedAt: new Date() }
       : { pendingContent: content, pendingExampleAttemptId: null, pendingReviewId: refreshReviewId ?? (gag.pendingRemove ? gag.pendingReviewId : null), pendingBy: actor.adminId, pendingAt: new Date(), updatedAt: new Date() },
@@ -260,7 +274,7 @@ export async function approveGagRender(factId: number, gagId: number, attemptId:
     }
     const target = (gag.pendingContent ?? gag.approvedContent) as GagContent | null;
     const drew = (attempt.factEnrichmentSnapshot as { visualPromptStrategyOverride?: unknown } | null)?.visualPromptStrategyOverride;
-    if (!target || drew == null || !overrideValuesEqual(drew, target)) {
+    if (!target || drew == null || !gagContentEqual(drew, target)) {
       throw new GagError("CONTENT_CHANGED", "This render was made from different content than the gag holds now. Run its test renders again.");
     }
     const now = new Date();

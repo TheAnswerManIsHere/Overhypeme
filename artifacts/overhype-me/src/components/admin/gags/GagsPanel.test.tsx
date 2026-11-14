@@ -160,6 +160,21 @@ describe("GagsPanel", () => {
     expect(screen.queryByTestId("gag-add")).toBeNull();
   });
 
+  it("reports unsaved gag work, so an approval can wait for it (Codex, PR #956 round 2)", async () => {
+    stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
+    const onUnsaved = vi.fn();
+    render(<GagsPanel factId={5} reviewId={77} rendersEnabled={false} subjectNames={[]} onUnsavedChange={onUnsaved} />);
+    const card = await screen.findByTestId("gag-card");
+    fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} an unsaved edit." } });
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(true));
+    fireEvent.click(within(card).getByTestId("gag-undo"));
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(false));
+    // A new gag with text typed in is unsaved work too.
+    fireEvent.click(screen.getByTestId("gag-add"));
+    fireEvent.change(within(screen.getByTestId("gag-new")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} typed, not saved." } });
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(true));
+  });
+
   describe("reloading while the server prepares renders (Codex, PR #956 round 1)", () => {
     const missing: RenderScenarioCard = {
       key: "generic_t2i", label: "Generic", purpose: "", referenceIdentityType: null, required: true,
