@@ -22,6 +22,8 @@ import {
 } from "@workspace/api-zod";
 import { materializeEnrichment } from "./factEnrichment";
 import { stripVisualOverride } from "./enrichmentOverrideLayers";
+import { applyReviewGagOps } from "./gags/gagStore";
+import { hasApprovedGag } from "./factActivation";
 
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -217,7 +219,8 @@ export type PromoteCandidateErrorCode =
   | "CANDIDATE_NOT_PENDING"
   | "FACT_NOT_FOUND"
   | "ENRICHMENT_INVALID"
-  | "REFRESH_STALE_TEXT";
+  | "REFRESH_STALE_TEXT"
+  | "GAG_REQUIRED";
 
 /** Typed failure from `promoteCandidateEnrichmentVersion`; the route maps codes to HTTP. */
 export class PromoteCandidateError extends Error {
@@ -245,8 +248,8 @@ export class PromoteCandidateError extends Error {
  *     candidate was classified against, else `REFRESH_STALE_TEXT`;
  *  4. archive the prior active `facts.*` layers as a `superseded` version row
  *     (`source: 'prior_active_snapshot'`) so history is never lost;
- *  5. re-materialize the candidate's layers (baseline + overrides + visual
- *     override) and write ONLY the enrichment columns + projections +
+ *  5. re-materialize the candidate's layers (baseline + overrides) and write
+ *     ONLY the enrichment columns + projections +
  *     `last_processed_signature = candidate.signature` onto the fact. The
  *     signature is the CANDIDATE's (classify-time), not a fresh current one —
  *     permissive staleness: if the world moved on mid-review, the fact stays stale;
@@ -371,9 +374,6 @@ export async function promoteCandidateEnrichmentVersion(
   const { columns, effective } = materializeEnrichment({
     aiDerived: baselineCheck.data,
     overrides: (candidate.enrichmentOverrides ?? {}) as EnrichmentOverrides,
-    visualPromptStrategyOverride: (candidate.visualOverride ?? undefined) as
-      | FactEnrichment["visualPromptStrategyOverride"]
-      | undefined,
   });
   await tx
     .update(factsTable)
@@ -384,6 +384,15 @@ export async function promoteCandidateEnrichmentVersion(
       lastProcessedSignature: candidate.signature,
     })
     .where(eq(factsTable.id, fact.id));
+
+  // 5b. This review's gag decisions land with its classification (plan
+  // docs/plans/PLAN_THREE_GAGS.md, section D): its example picks become
+  // approved versions and its removals take effect, under the fact lock taken
+  // above. The live-fact trigger re-checks at commit that an approved gag remains.
+  await applyReviewGagOps(tx, fact.id, reviewId, adminId);
+  if (fact.isActive && !(await hasApprovedGag(tx, fact.id))) {
+    throw new PromoteCandidateError("GAG_REQUIRED", "This refresh would leave the fact without an approved gag.");
+  }
 
   // 6. Retire the candidate as promoted history.
   await tx

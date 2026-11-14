@@ -34,6 +34,9 @@ BEGIN
   SELECT deleted_rows INTO v_log FROM feature_permissions_migration_log
    WHERE migration_name = '0139_fact_gags' ORDER BY id DESC LIMIT 1;
 
+  ALTER TABLE facts DROP CONSTRAINT IF EXISTS facts_enrichment_holds_no_gag;
+  ALTER TABLE fact_enrichment_versions DROP CONSTRAINT IF EXISTS fev_open_candidate_holds_no_gag;
+
   IF v_log IS NOT NULL THEN
     UPDATE facts f
        SET enrichment = CASE WHEN x ? 'override' AND x -> 'override' <> 'null'::jsonb

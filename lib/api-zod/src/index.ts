@@ -25,6 +25,7 @@ export * from "./engineComparison";
 export * from "./promptRecipes";
 export * from "./moderationWorkflow";
 export * from "./renderScenarios";
+export * from "./gags";
 export * from "./factTextEdit";
 export * from "./stripeVerification";
 export * from "./personalNameRule";

@@ -1305,12 +1305,6 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
       const inFlight = await findInFlightRefreshCandidate(id, tx);
       if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet — classify it first" };
-      // Required Visual Concept (blocking) — same invariant as the whole-blob
-      // PATCH: a fact can't be saved without one. This is a separate tracked-
-      // field write path (PUT /enrichment-overrides), so it needs its own gate.
-      if (!state.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
-        return { status: 400, error: "visual_concept_required" };
-      }
       const aiDerived = state.aiDerived;
 
       // Shared merge core: validation, reset-when-equal-AI, acknowledge
@@ -1325,7 +1319,7 @@ router.put("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req: Re
       });
       if (!result.ok) return { status: result.status, error: result.error };
 
-      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides, visualPromptStrategyOverride: state.visualPromptStrategyOverride });
+      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides });
       await tx.update(factsTable).set({ ...columns, enrichmentStatus: "ok" }).where(eq(factsTable.id, id));
       // Fact edits are the audited surface — map the change list to history rows.
       await recordOverrideHistory(
@@ -1364,16 +1358,11 @@ router.delete("/admin/facts/:id/enrichment-overrides", requireAdmin, async (req:
       const inFlight = await findInFlightRefreshCandidate(id, tx);
       if (inFlight) return { status: 409, body: refreshInReviewErrorBody(inFlight) };
       if (!state.aiDerived) return { status: 409, error: "Fact has no enrichment baseline yet" };
-      // Required Visual Concept (blocking) — same invariant as the PUT handler
-      // above; a reset is still a save and must not bypass the gate.
-      if (!state.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
-        return { status: 400, error: "visual_concept_required" };
-      }
       const aiDerived = state.aiDerived;
 
       const result = applyOverrideReset({ layers: { ...state, aiDerived }, path: path as OverridablePath | null });
 
-      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides, visualPromptStrategyOverride: state.visualPromptStrategyOverride });
+      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides });
       await tx.update(factsTable).set({ ...columns, enrichmentStatus: "ok" }).where(eq(factsTable.id, id));
       await recordOverrideHistory(
         result.changes.map((c): InsertEnrichmentOverrideHistory => ({
@@ -1407,35 +1396,27 @@ router.get("/admin/facts/:id/enrichment-overrides/history", requireAdmin, async 
 });
 
 // PATCH /admin/facts/:id/enrichment — persist admin edits to the NON-tracked
-// enrichment fields only (the moderator visual-strategy override + suggested
-// hashtags). Tracked taxonomy/notes paths are owned by the override endpoints
-// (PUT/DELETE /enrichment-overrides); a PATCH that tries to CHANGE any tracked
-// field is rejected with 400 so stale clients can't overwrite them in place.
+// enrichment fields only (suggested hashtags). Tracked taxonomy/notes paths are
+// owned by the override endpoints (PUT/DELETE /enrichment-overrides); a PATCH
+// that tries to CHANGE any tracked field is rejected with 400 so stale clients
+// can't overwrite them in place. A fact's gags are not enrichment (migration
+// 0139): they are saved through /admin/facts/:id/gags, and a PATCH carrying one
+// is refused rather than silently dropped.
 router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params["id"]);
   if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
-  const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
+  const raw = (req.body as { enrichment?: unknown } | null | undefined)?.enrichment;
+  if (raw && typeof raw === "object" && "visualPromptStrategyOverride" in raw) {
+    res.status(400).json({
+      error: "A fact's gags are saved through /admin/facts/:id/gags, not the enrichment.",
+      code: "GAG_IN_ENRICHMENT",
+    });
+    return;
+  }
+  const result = validateEnrichment(raw);
   if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
   const submitted = result.data;
-
-  // §10 rendered-text budget: reject a NEW save whose moderator Concept +
-  // additions would (worst-case, once names/pronouns are filled in) overflow the
-  // engine prompt budget — before it can silently drop policy guardrails at
-  // compile. Legacy stored content stays readable; this gates saves only.
-  const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
-  if (submittedVso) {
-    // Presence-based (the enable toggle was retired): validate whenever a VSO is
-    // submitted. Additions + bubbles are measured through the REAL compiler (wrapping
-    // included), not a raw field sum, so a save the gate accepts can't overflow
-    // at render. One shared preflight with the review-candidate PATCH and
-    // candidate-concept pickability.
-    const budget = validateVisualStrategyOverridePersistence(submittedVso);
-    if (!budget.ok) {
-      res.status(400).json({ error: "visual_strategy_override_over_budget", details: budget.errors });
-      return;
-    }
-  }
 
   const state = await loadFactOverrideState(db, id);
   if (!state) { res.status(404).json({ error: "Fact not found" }); return; }
@@ -1462,34 +1443,13 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
     }
   }
 
-  // Required Visual Concept (blocking): a valid admin-authored enrichment save must carry
-  // a non-empty Visual Concept — including when the override is absent entirely. A fact
-  // cannot reach production without a scene for the image/video engines; this is the
-  // admin-save half of that gate (approval gates are enforced separately). Placed after the
-  // structural checks (404 / write-freeze / tracked-field) so it never shadows them, and
-  // after — automated enrichment jobs write through the worker, not this admin route.
-  if (!submittedVso?.coreSceneOverride?.trim()) {
-    res.status(400).json({ error: "visual_concept_required" });
-    return;
-  }
-
-  // Apply only the non-tracked edits. suggestedHashtags is an AI field edited in
-  // place on the baseline (not tracked); the visual override is the separate
-  // additive layer with server-owned provenance.
+  // Apply only the non-tracked edits: suggestedHashtags is an AI field edited
+  // in place on the baseline (not tracked).
   const baseline = state.aiDerived ?? stripVisualOverride(submitted);
   if (!baseline) { res.status(409).json({ error: "Fact has no enrichment baseline yet" }); return; }
   const newAiDerived = { ...baseline, suggestedHashtags: submitted.suggestedHashtags } as FactEnrichment;
 
-  const actor = (req as AuthenticatedRequest).user;
-  const actorLabel = actor?.displayName ?? actor?.email ?? null;
-  const stamped = stampOverrideProvenance(
-    { ...newAiDerived, visualPromptStrategyOverride: submitted.visualPromptStrategyOverride } as FactEnrichment,
-    state.effective ?? null,
-    actorLabel,
-  );
-  const visualPromptStrategyOverride = (stamped as { visualPromptStrategyOverride?: VisualOverride }).visualPromptStrategyOverride;
-
-  const { columns } = materializeEnrichment({ aiDerived: newAiDerived, overrides: state.overrides, visualPromptStrategyOverride });
+  const { columns } = materializeEnrichment({ aiDerived: newAiDerived, overrides: state.overrides });
   const [updated] = await db
     .update(factsTable)
     .set({ ...columns, enrichmentStatus: "ok" })
@@ -2230,17 +2190,9 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
       for (const fact of rows) {
         try {
           const enrichment = await enrichFact({ factText: fact.text });
-          // Preserve the moderator's Visual Concept (visualPromptStrategyOverride)
-          // from the EXISTING row: fresh classifier output never carries a VSO, so
-          // materializing from it alone would strip the human concept (breaking
-          // render, and failing the active-requires-concept CHECK on active rows).
-          // Re-apply the current row's VSO onto the fresh AI baseline via the
-          // VSO-preserving materialize path — the preservation source is the
-          // existing row, not the new baseline.
-          const priorVSO = (fact.enrichment as FactEnrichment | null)?.visualPromptStrategyOverride;
-          const aiDerived = { ...enrichment } as FactEnrichment;
-          delete (aiDerived as Record<string, unknown>)["visualPromptStrategyOverride"];
-          const { columns } = materializeEnrichment({ aiDerived, overrides: {}, visualPromptStrategyOverride: priorVSO });
+          // The fact's gags live in fact_gags (migration 0139): re-classifying
+          // never touches them.
+          const { columns } = materializeEnrichment({ aiDerived: enrichment, overrides: {} });
           await db.update(factsTable).set(columns).where(eq(factsTable.id, fact.id));
           done++;
         } catch (err) {

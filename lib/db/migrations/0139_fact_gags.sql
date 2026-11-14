@@ -10,7 +10,8 @@
 --    non-removed gag per fact and slot, a version present, an approved version
 --    has an example unless carried over here, non-empty scenes, refresh-only
 --    operations owned by a review.
--- 2. image_prompt_attempts.gag_id: the gag an attempt drew (null on history).
+-- 2. image_prompt_attempts.gag_id: the gag an attempt drew. A plain value: a
+--    gag is deleted only with its fact, which deletes its attempts too.
 -- 3. The data move. CAPTURED FIRST into feature_permissions_migration_log
 --    under '0139_fact_gags': every fact's visual-strategy override and every
 --    open refresh candidate's, whole, so the reverse script
@@ -32,9 +33,13 @@
 --      fact with no override                     -> untouched
 --      open candidate differing / identical      -> pending on the gag / nothing
 --      fact that already has a gag (re-run)      -> skipped
+--      moderation test render of a moved gag     -> gag_id set to that gag
 --    Each moved override is compared with what landed in fact_gags; any
 --    difference, or a live fact left without an approved gag, aborts.
--- 4. facts_active_requires_concept (it read the gag from the enrichment) is
+-- 4. One home, by construction: CHECKs refuse a gag in facts.enrichment,
+--    facts.enrichment_ai_derived, or an open refresh candidate
+--    (facts_enrichment_holds_no_gag, fev_open_candidate_holds_no_gag).
+-- 5. facts_active_requires_concept (it read the gag from the enrichment) is
 --    replaced by the constraint trigger enforce_live_fact_has_approved_gag:
 --    a fact may be active only while it has a non-removed gag with an
 --    approved version. It locks the fact row and then validates, so two
@@ -77,7 +82,7 @@ CREATE TABLE IF NOT EXISTS "fact_gags" (
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "IDX_fact_gags_fact_id" ON "fact_gags" ("fact_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "UQ_fact_gags_fact_slot_live" ON "fact_gags" ("fact_id", "slot") WHERE "removed_at" IS NULL;--> statement-breakpoint
-ALTER TABLE "image_prompt_attempts" ADD COLUMN IF NOT EXISTS "gag_id" bigint REFERENCES "fact_gags"("id") ON DELETE SET NULL;--> statement-breakpoint
+ALTER TABLE "image_prompt_attempts" ADD COLUMN IF NOT EXISTS "gag_id" bigint;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "IDX_ipa_gag_scenario_created" ON "image_prompt_attempts" ("gag_id", "review_render_scenario_key", "created_at" DESC);--> statement-breakpoint
 DO $$
 DECLARE
@@ -90,6 +95,7 @@ DECLARE
   v_refresh_same integer := 0;
   v_mismatch integer := 0;
   v_orphan integer := 0;
+  v_attempts integer := 0;
 BEGIN
   -- Capture: facts that still carry an override and have no gag yet, and the
   -- open candidates of those facts.
@@ -165,6 +171,21 @@ BEGIN
     RAISE EXCEPTION '0139_fact_gags: % moved gags differ from their source override', v_mismatch;
   END IF;
 
+  -- The moderation test renders already made drew the fact's only gag: they
+  -- now name it, so an in-flight review's grid keeps its renders (a render's
+  -- input hash is unchanged by the move, so they keep their freshness too).
+  WITH upd AS (
+    UPDATE image_prompt_attempts a
+       SET gag_id = g.id
+      FROM fact_gags g
+     WHERE a.gag_id IS NULL
+       AND a.review_render_scenario_key IS NOT NULL
+       AND g.fact_id = a.fact_id AND g.slot = 1 AND g.removed_at IS NULL
+       AND a.fact_id IN (SELECT (x ->> 'id')::integer FROM jsonb_array_elements(v_facts) x)
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_attempts FROM upd;
+
   -- Open refresh candidates whose gag differs become that gag's pending change.
   WITH cand AS (
     SELECT (c ->> 'fact_id')::integer AS fact_id,
@@ -207,10 +228,17 @@ BEGIN
     RAISE EXCEPTION '0139_fact_gags: % live facts would have no approved gag', v_orphan;
   END IF;
 
-  RAISE NOTICE '0139_fact_gags: % approved (carried over), % pending, % empty-scene overrides removed, % refresh candidates moved to pending, % identical',
-    v_approved, v_pending, v_empty, v_refresh_pending, v_refresh_same;
+  RAISE NOTICE '0139_fact_gags: % approved (carried over), % pending, % empty-scene overrides removed, % refresh candidates moved to pending, % identical, % test renders now name their gag',
+    v_approved, v_pending, v_empty, v_refresh_pending, v_refresh_same, v_attempts;
 END $$;--> statement-breakpoint
 ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_active_requires_concept";--> statement-breakpoint
+ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_enrichment_holds_no_gag";--> statement-breakpoint
+ALTER TABLE "facts" ADD CONSTRAINT "facts_enrichment_holds_no_gag" CHECK (
+  NOT coalesce("enrichment" ? 'visualPromptStrategyOverride', false)
+  AND NOT coalesce("enrichment_ai_derived" ? 'visualPromptStrategyOverride', false));--> statement-breakpoint
+ALTER TABLE "fact_enrichment_versions" DROP CONSTRAINT IF EXISTS "fev_open_candidate_holds_no_gag";--> statement-breakpoint
+ALTER TABLE "fact_enrichment_versions" ADD CONSTRAINT "fev_open_candidate_holds_no_gag" CHECK (
+  "status" <> 'candidate' OR ("visual_override" IS NULL AND NOT coalesce("enrichment" ? 'visualPromptStrategyOverride', false)));--> statement-breakpoint
 CREATE OR REPLACE FUNCTION enforce_live_fact_has_approved_gag() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE

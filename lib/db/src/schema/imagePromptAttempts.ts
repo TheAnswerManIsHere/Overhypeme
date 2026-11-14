@@ -1,12 +1,11 @@
 import {
-  pgTable, bigserial, integer, varchar, text, jsonb, timestamp, index, smallint, bigint, type AnyPgColumn,
+  pgTable, bigserial, integer, varchar, text, jsonb, timestamp, index, smallint, bigint,
 } from "drizzle-orm/pg-core";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
 import { pendingReviewsTable } from "./reviews";
 import { evalRunsTable } from "./evalRuns";
 import { promptRecipeVersionsTable } from "./promptRecipes";
-import { factGagsTable } from "./factGags";
 
 /**
  * Phase 2 — per-attempt image prompt generation metadata.
@@ -139,9 +138,12 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
    * The gag this attempt drew (migration 0139). Null on every attempt made
    * before gags had their own table; those drew the fact's only gag, whose
    * content is in `fact_enrichment_snapshot`. The snapshot stays the exact
-   * content rendered either way.
+   * content rendered either way. A plain value, no foreign key: a gag row is
+   * never deleted except with its fact, which deletes its attempts too, and
+   * fact_gags already points back here for its example, so a key both ways
+   * would make the pair impossible to insert in either order.
    */
-  gagId: bigint("gag_id", { mode: "number" }).references((): AnyPgColumn => factGagsTable.id, { onDelete: "set null" }),
+  gagId: bigint("gag_id", { mode: "number" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

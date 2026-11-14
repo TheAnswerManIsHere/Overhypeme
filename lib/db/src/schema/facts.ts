@@ -167,6 +167,11 @@ export const factsTable = pgTable("facts", {
   // it is a deferred constraint trigger declared in migration 0139 only; it
   // replaced the facts_active_requires_concept CHECK, which read the gag from
   // the enrichment blob before gags moved to their own table.
+  // One home for a gag (migration 0139): neither enrichment layer may carry one.
+  check(
+    "facts_enrichment_holds_no_gag",
+    sql`NOT coalesce(${table.enrichment} ? 'visualPromptStrategyOverride', false) AND NOT coalesce(${table.enrichmentAiDerived} ? 'visualPromptStrategyOverride', false)`,
+  ),
 ]);
 
 export const insertFactSchema = createInsertSchema(factsTable).omit({ id: true, upvotes: true, downvotes: true, score: true, wilsonScore: true, commentCount: true, shareCount: true, createdAt: true, updatedAt: true });

@@ -72,19 +72,10 @@ export const factEnrichmentBackfillHandler: JobHandler = {
       return { ok: false, error: `enrichFact failed: ${msg}` };
     }
 
-    // Preserve the moderator's Visual Concept (visualPromptStrategyOverride) from
-    // the EXISTING row. `next` is fresh classifier output that never carries a VSO,
-    // so materializing from it alone would STRIP the human concept — which both
-    // breaks generic-meme render (fact_enrichment_invalid) and, once the
-    // active-requires-concept CHECK is installed, fails the update on any active
-    // fact. So we re-apply the current row's VSO onto the fresh AI baseline via
-    // materializeEnrichment (the preservation source is the existing row, NOT the
-    // new baseline). Manual field-overrides intentionally reset here — this path
-    // only reaches re-enrich when the row is not admin-edited or force is set.
-    const priorVSO = (row.enrichment as FactEnrichment | null)?.visualPromptStrategyOverride;
-    const aiDerived = { ...next } as FactEnrichment;
-    delete (aiDerived as Record<string, unknown>)["visualPromptStrategyOverride"];
-    const { columns } = materializeEnrichment({ aiDerived, overrides: {}, visualPromptStrategyOverride: priorVSO });
+    // Manual field-overrides intentionally reset here — this path only reaches
+    // re-enrich when the row is not admin-edited or force is set. The fact's
+    // gags live in fact_gags (migration 0139) and are not touched.
+    const { columns } = materializeEnrichment({ aiDerived: next, overrides: {} });
     await db
       .update(factsTable)
       .set(columns)

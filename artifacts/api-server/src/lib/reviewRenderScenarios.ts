@@ -1,21 +1,26 @@
 /**
- * Review-scoped render-scenario orchestration (the Step-2 visual-review engine).
+ * Per-gag test-render orchestration (the Test Renders engine).
  *
  * Wraps the entity-agnostic policy in `factRenderScenarios.ts` with the
- * review-specific wiring: enqueueing default-scenario test renders against a
- * review's staging fact, deriving the scenario grid the admin UI polls, and the
- * `review_render_scenarios_prepare` async job that fires automatically when
- * enrichment advances a review into `production_review`.
+ * wiring: enqueueing default-scenario test renders of ONE GAG, deriving that
+ * gag's scenario grid the admin UI polls, and the
+ * `review_render_scenarios_prepare` async job that fires the batches when a
+ * review's gags step is approved.
  *
- * Durable + server-side: `image_prompt_attempts` rows are the source of truth
- * (no browser localStorage). Idempotent: the same review+scenario+input-hash is
- * enqueued at most once for the default batch — re-running prep or polling never
- * double-spends. Manual reruns intentionally create fresh attempts.
+ * Since migration 0139 (plan docs/plans/PLAN_THREE_GAGS.md) renders belong to a
+ * gag, not a review: attempts are looked up by gag and scenario, so one gag's
+ * renders never replace another's and a review transition detaches nothing. An
+ * attempt still records the open review it was made in (null for a live fact
+ * with no review open), which the moderation list's coarse state reads.
+ *
+ * Durable + server-side: `image_prompt_attempts` rows are the source of truth.
+ * Idempotent: the same gag+scenario+input-hash is enqueued at most once by a
+ * non-force batch. Manual reruns intentionally create fresh attempts.
  */
 
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { db, imagePromptAttemptsTable, pendingReviewsTable, factsTable, type ImagePromptAttempt } from "@workspace/db";
+import { db, imagePromptAttemptsTable, pendingReviewsTable, factGagsTable, type ImagePromptAttempt, type FactGag } from "@workspace/db";
 import {
   defaultIdentityPolicyForRenderMode,
   validateEnrichment,
@@ -54,7 +59,7 @@ import {
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
-import { resolveReviewCycleEnrichment } from "./moderationStaging";
+import { gagRenderInput, loadGagRenderContext, loadGags, stripGag, workingContent } from "./gags/resolver";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
@@ -155,14 +160,14 @@ export function computeScenarioInputHash(
 // ─── Attempt queries ─────────────────────────────────────────────────────────
 
 async function latestAttemptForScenario(
-  reviewId: number,
+  gagId: number,
   scenarioKey: RenderScenarioKey,
 ): Promise<ImagePromptAttempt | null> {
   const [row] = await db
     .select()
     .from(imagePromptAttemptsTable)
     .where(and(
-      eq(imagePromptAttemptsTable.reviewId, reviewId),
+      eq(imagePromptAttemptsTable.gagId, gagId),
       eq(imagePromptAttemptsTable.reviewRenderScenarioKey, scenarioKey),
     ))
     .orderBy(desc(imagePromptAttemptsTable.createdAt))
@@ -171,7 +176,7 @@ async function latestAttemptForScenario(
 }
 
 async function scenarioAttemptExists(
-  reviewId: number,
+  gagId: number,
   scenarioKey: RenderScenarioKey,
   inputHash: string,
 ): Promise<boolean> {
@@ -179,7 +184,7 @@ async function scenarioAttemptExists(
     .select({ id: imagePromptAttemptsTable.id })
     .from(imagePromptAttemptsTable)
     .where(and(
-      eq(imagePromptAttemptsTable.reviewId, reviewId),
+      eq(imagePromptAttemptsTable.gagId, gagId),
       eq(imagePromptAttemptsTable.reviewRenderScenarioKey, scenarioKey),
       eq(imagePromptAttemptsTable.reviewRenderInputHash, inputHash),
     ))
@@ -198,7 +203,10 @@ export interface EnqueueScenarioResult {
 }
 
 interface EnqueueScenarioArgs {
-  reviewId: number;
+  /** The open review the render is made in; null for a live fact with no review open. */
+  reviewId: number | null;
+  /** The gag this render draws; `enrichment` is its render input. */
+  gagId: number;
   stagingFactId: number;
   factText: string;
   enrichment: FactEnrichment;
@@ -222,7 +230,7 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
       factId: args.stagingFactId,
       userId: null,
       renderJobId: randomUUID(),
-      requestId: `admin-review-scenario:${args.reviewId}:${args.scenarioKey}:${randomUUID()}`,
+      requestId: `admin-gag-scenario:${args.gagId}:${args.scenarioKey}:${randomUUID()}`,
       generationMode: generationModeForSubjectRenderMode(mode),
       subjectRenderMode: mode,
       targetEngine: "nano_banana_2",
@@ -233,12 +241,13 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
       renderControls: {
         ...renderControls,
         mirrorToLegacyStorage: false,
-        reviewAudit: { reviewId: args.reviewId, adminUserId: args.adminUserId },
+        reviewAudit: { reviewId: args.reviewId, adminUserId: args.adminUserId, gagId: args.gagId },
       } satisfies RenderControlsWithRefs,
       factEnrichmentSnapshot: args.enrichment,
       renderedFactText: renderPersonalized(args.factText, subject.name, subject.pronouns),
       archetypeStrategyVersion: "v2",
       error: errorMessage,
+      gagId: args.gagId,
       reviewId: args.reviewId,
       reviewRenderScenarioKey: args.scenarioKey,
       reviewRenderInputHash: inputHash,
@@ -289,7 +298,7 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
     ...resolved.renderControls,
     mirrorToLegacyStorage: false,
     reviewRenderSubject: { name: resolved.renderedSubject.name, pronouns: resolved.renderedSubject.pronouns },
-    reviewAudit: { reviewId: args.reviewId, adminUserId: args.adminUserId },
+    reviewAudit: { reviewId: args.reviewId, adminUserId: args.adminUserId, gagId: args.gagId },
   };
 
   const { renderJobId, attemptId } = await buildAndEnqueueImagePromptAttempt({
@@ -302,7 +311,8 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
     userSelectedSubjectRenderMode: resolved.userSelectedSubjectRenderMode,
     identityPolicy: resolved.identityPolicy,
     renderControls: controls,
-    requestId: `admin-review-scenario:${args.reviewId}:${args.scenarioKey}:${randomUUID()}`,
+    requestId: `admin-gag-scenario:${args.gagId}:${args.scenarioKey}:${randomUUID()}`,
+    gagId: args.gagId,
     imageEngineId: args.imageEngines[generationModeForSubjectRenderMode(mode)],
     // The wording the hash above froze, so a promotion in between cannot split them.
     ...(args.imageEngines.recipeVersions ? { recipeVersionId: args.imageEngines.recipeVersions[generationModeForSubjectRenderMode(mode)] ?? null } : {}),
@@ -318,31 +328,58 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
   return { scenarioKey: args.scenarioKey, attemptId, renderJobId };
 }
 
-// ─── Load review + staging fact + enrichment ─────────────────────────────────
+// ─── Load a gag + its fact + the render input ────────────────────────────────
 
-export interface ReviewRenderContext {
-  reviewId: number;
+export interface GagRenderTarget {
+  gagId: number;
+  /** The open review renders are recorded against; null outside a review. */
+  reviewId: number | null;
   stagingFactId: number;
   factText: string;
+  /** The render input: the classification renders are drawn against, with this gag's working content. */
   enrichment: FactEnrichment;
-  stage: string;
+  /** The open review's stage, or null with no review. */
+  stage: string | null;
   /** The engine per mode a render would be routed to now; folded into every hash. */
   imageEngines: ImageEngineIds;
 }
 
 /**
- * Load the renderable context for a review. Reads enrichment through the
- * review-cycle resolver: a REFRESH cycle (`candidateVersionId != null`) renders
- * its CANDIDATE version's enrichment; a first-time cycle uses the staging fact's
- * own `facts.enrichment`. Either way the stored blob IS what the moderator is
- * reviewing, so grid/staleness computed here can't drift from the render.
+ * Load what a gag's renders are drawn from. The classification is the open
+ * refresh candidate's while one is under review, else the fact's own; the
+ * gag's content is its working content (the pending change if there is one,
+ * else the approved version). Grid, staleness and enqueue all read this, so
+ * they cannot drift from the render.
  */
-export async function loadReviewRenderContext(
-  reviewId: number,
-): Promise<
-  | { ok: true; ctx: ReviewRenderContext }
-  | { ok: false; reason: string; stage?: string }
-> {
+export async function loadGagRenderTarget(
+  gagId: number,
+  imageEngines?: ImageEngineIds,
+): Promise<{ ok: true; target: GagRenderTarget; gag: FactGag } | { ok: false; reason: string; stage?: string | null }> {
+  const [gag] = await db.select().from(factGagsTable).where(eq(factGagsTable.id, gagId)).limit(1);
+  if (!gag || gag.removedAt) return { ok: false, reason: "gag_not_found" };
+  const ctx = await loadGagRenderContext(gag.factId);
+  if (!ctx) return { ok: false, reason: "fact_missing" };
+  const content = workingContent(gag);
+  if (!content) return { ok: false, reason: "gag_empty", stage: ctx.stage };
+  const ev = validateEnrichment(ctx.classification);
+  if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: ctx.stage };
+  return {
+    ok: true,
+    gag,
+    target: {
+      gagId,
+      reviewId: ctx.reviewId,
+      stagingFactId: gag.factId,
+      factText: ctx.factText,
+      enrichment: gagRenderInput(stripGag(ev.data), content),
+      stage: ctx.stage,
+      imageEngines: imageEngines ?? await currentRenderRouting(),
+    },
+  };
+}
+
+/** A review and its staging fact, for the review-level entry points below. */
+async function loadReviewRow(reviewId: number) {
   const [review] = await db
     .select({
       id: pendingReviewsTable.id,
@@ -353,82 +390,99 @@ export async function loadReviewRenderContext(
     .from(pendingReviewsTable)
     .where(eq(pendingReviewsTable.id, reviewId))
     .limit(1);
-  if (!review) return { ok: false, reason: "review_not_found" };
-  if (review.stagingFactId == null) return { ok: false, reason: "no_staging_fact", stage: review.workflowStage };
-  const cycle = await resolveReviewCycleEnrichment(review);
-  if (!cycle) return { ok: false, reason: "staging_fact_missing", stage: review.workflowStage };
-  const ev = validateEnrichment(cycle.rawEnrichment);
-  if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
-  const enrichment = ev.data;
-  const imageEngines = await currentRenderRouting();
-  return {
-    ok: true,
-    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: cycle.text, enrichment, stage: review.workflowStage, imageEngines },
-  };
+  return review ?? null;
+}
+
+/**
+ * The gag whose grid a review's production gate reads: the default gag as it
+ * will stand once this review is approved. That is the lowest-slot gag that
+ * will have an approved version (counting a pick this review made, and
+ * leaving out a removal this review requested), else, while nothing is
+ * approved yet, the lowest-slot gag.
+ */
+export function gateGag(gags: FactGag[], reviewId: number): FactGag | null {
+  const surviving = gags.filter((g) => !(g.pendingRemove && g.pendingReviewId === reviewId));
+  const willBeApproved = surviving.find((g) =>
+    g.approvedContent != null || (g.pendingExampleAttemptId != null && g.pendingReviewId === reviewId));
+  return willBeApproved ?? surviving[0] ?? null;
 }
 
 // ─── Idempotent auto-enqueue of the default batch ────────────────────────────
 
+/** The scenario keys a default batch for this render target renders. */
+function defaultBatchKeys(target: GagRenderTarget): RenderScenarioKey[] {
+  const applicability = resolveNonHumanScenarioApplicability(target.enrichment, target.factText);
+  const keys: RenderScenarioKey[] = [...REQUIRED_RENDER_SCENARIO_KEYS];
+  if (applicability.autoRun) keys.push(nonHumanScenarioKeyForApplicability(applicability));
+  return keys;
+}
+
 /**
- * Enqueue the default render scenarios for a review exactly once per
- * scenario/input-hash. Safe to call repeatedly (the gag-approval transition
- * fires it; a defensive backstop may too). No-op when the review isn't ready.
- *
- * `opts.force` (set on the gag-approval "approve the visual gag" path): skip the
- * per-scenario/input-hash idempotency check so a FRESH batch is always created,
- * even when a prior batch's attempts share the current input hash. This is how a
- * Step-3 → Step-2 bounce re-renders from scratch on re-approval even if the
- * concept text is unchanged. Default (non-force) idempotency is unchanged.
+ * Enqueue one gag's default render batch. `force` always creates fresh
+ * attempts; otherwise each scenario is enqueued at most once per input hash.
+ */
+export async function enqueueGagDefaultBatch(
+  gagId: number,
+  opts: { force?: boolean; adminUserId?: string; imageEngines?: ImageEngineIds } = {},
+): Promise<{ enqueued: EnqueueScenarioResult[] } | { error: string; stage?: string | null }> {
+  const loaded = await loadGagRenderTarget(gagId, opts.imageEngines);
+  if (!loaded.ok) return { error: loaded.reason, stage: loaded.stage };
+  const { target } = loaded;
+  const batchId = randomUUID();
+  const enqueued: EnqueueScenarioResult[] = [];
+  for (const scenarioKey of defaultBatchKeys(target)) {
+    if (opts.force !== true) {
+      const inputHash = computeScenarioInputHash(scenarioKey, target.stagingFactId, target.factText, target.enrichment, target.imageEngines);
+      if (await scenarioAttemptExists(gagId, scenarioKey, inputHash)) continue; // idempotent
+    }
+    enqueued.push(await enqueueScenarioRender({
+      reviewId: target.reviewId,
+      gagId,
+      stagingFactId: target.stagingFactId,
+      factText: target.factText,
+      enrichment: target.enrichment,
+      scenarioKey,
+      // The admin whose action started this batch; "system" only for an
+      // unattended transition (image tracing, plan PLAN_IMAGE_TRACING.md).
+      adminUserId: opts.adminUserId ?? "system",
+      batchId,
+      imageEngines: target.imageEngines,
+    }));
+  }
+  if (enqueued.length) {
+    logger.info({ gagId, reviewId: target.reviewId, count: enqueued.length, batchId, force: opts.force === true }, "[moderation] gag render batch enqueued");
+  }
+  return { enqueued };
+}
+
+/**
+ * The batches a review's approved gags step fires: one per gag that has a
+ * pending change, and one for the gate gag (the default gag as it will stand),
+ * so a one-gag fact renders exactly as it did before gags had their own table.
+ * Stage-guarded to production_review: a delayed or retried prepare job must
+ * not spend once the review has left it.
  */
 export async function ensureDefaultReviewRenders(
   reviewId: number,
   opts?: { force?: boolean; adminUserId?: string },
 ): Promise<{ enqueued: EnqueueScenarioResult[] }> {
-  const force = opts?.force === true;
-  const loaded = await loadReviewRenderContext(reviewId);
-  if (!loaded.ok) {
-    logger.info({ reviewId, reason: loaded.reason }, "[moderation] ensureDefaultReviewRenders skipped");
+  const review = await loadReviewRow(reviewId);
+  if (!review || review.stagingFactId == null) {
+    logger.info({ reviewId }, "[moderation] ensureDefaultReviewRenders skipped (no review or staging fact)");
     return { enqueued: [] };
   }
-  const { ctx } = loaded;
-  // Stage guard: renders are the Step 3 (Test Renders) artifact, so this only
-  // fires in production_review. A delayed/retried prepare job (or any re-entry)
-  // must NOT enqueue paid renders once the review has left production_review
-  // (e.g. rejected, or bounced back to concept_review). The manual route guards
-  // at the HTTP layer; this guards the async/auto path.
-  if (ctx.stage !== "production_review") {
-    logger.info({ reviewId, stage: ctx.stage }, "[moderation] ensureDefaultReviewRenders skipped (not production_review)");
+  if (review.workflowStage !== "production_review") {
+    logger.info({ reviewId, stage: review.workflowStage }, "[moderation] ensureDefaultReviewRenders skipped (not production_review)");
     return { enqueued: [] };
   }
-  const applicability = resolveNonHumanScenarioApplicability(ctx.enrichment, ctx.factText);
-  const keys: RenderScenarioKey[] = [...REQUIRED_RENDER_SCENARIO_KEYS];
-  if (applicability.autoRun) keys.push(nonHumanScenarioKeyForApplicability(applicability));
-
-  const batchId = randomUUID();
+  const gags = await loadGags(review.stagingFactId);
+  const gate = gateGag(gags, reviewId);
+  const chosen = gags.filter((g) => g.pendingContent != null || g.id === gate?.id);
+  const imageEngines = await currentRenderRouting();
   const enqueued: EnqueueScenarioResult[] = [];
-  for (const scenarioKey of keys) {
-    // Force mode always creates a fresh attempt; non-force stays idempotent per
-    // (scenario, input-hash).
-    if (!force) {
-      const inputHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment, ctx.imageEngines);
-      if (await scenarioAttemptExists(reviewId, scenarioKey, inputHash)) continue; // idempotent
-    }
-    enqueued.push(await enqueueScenarioRender({
-      reviewId,
-      stagingFactId: ctx.stagingFactId,
-      factText: ctx.factText,
-      enrichment: ctx.enrichment,
-      scenarioKey,
-      // The admin whose approval started this batch, carried through the
-      // prepare job; "system" only for the unattended enrichment transition
-      // (image tracing, plan PLAN_IMAGE_TRACING.md, "Who made it").
-      adminUserId: opts?.adminUserId ?? "system",
-      batchId,
-      imageEngines: ctx.imageEngines,
-    }));
-  }
-  if (enqueued.length) {
-    logger.info({ reviewId, count: enqueued.length, batchId, force }, "[moderation] default review render scenarios enqueued");
+  for (const gag of chosen) {
+    const r = await enqueueGagDefaultBatch(gag.id, { force: opts?.force, adminUserId: opts?.adminUserId, imageEngines });
+    if ("enqueued" in r) enqueued.push(...r.enqueued);
   }
   return { enqueued };
 }
@@ -436,50 +490,70 @@ export async function ensureDefaultReviewRenders(
 // ─── Manual (selective) rerun ────────────────────────────────────────────────
 
 /**
- * Run the named scenarios on demand (the checkbox "Run" + per-tile rerun).
- * Always creates fresh attempts. `force` lets a moderator run a non-applicable
- * non-human scenario anyway.
+ * Run the named scenarios of one gag on demand (the checkbox "Run" + per-tile
+ * rerun). Always creates fresh attempts. `force` lets a moderator run a
+ * non-applicable non-human scenario anyway.
  */
-export async function runReviewScenarios(
-  reviewId: number,
+export async function runGagScenarios(
+  gagId: number,
   scenarioKeys: RenderScenarioKey[],
   adminUserId: string,
-): Promise<{ enqueued: EnqueueScenarioResult[] } | { error: string; stage?: string }> {
-  const loaded = await loadReviewRenderContext(reviewId);
+): Promise<{ enqueued: EnqueueScenarioResult[] } | { error: string; stage?: string | null }> {
+  const loaded = await loadGagRenderTarget(gagId);
   if (!loaded.ok) return { error: loaded.reason, stage: loaded.stage };
-  const { ctx } = loaded;
+  const { target } = loaded;
   const batchId = randomUUID();
   const enqueued: EnqueueScenarioResult[] = [];
   for (const scenarioKey of scenarioKeys) {
     enqueued.push(await enqueueScenarioRender({
-      reviewId,
-      stagingFactId: ctx.stagingFactId,
-      factText: ctx.factText,
-      enrichment: ctx.enrichment,
+      reviewId: target.reviewId,
+      gagId,
+      stagingFactId: target.stagingFactId,
+      factText: target.factText,
+      enrichment: target.enrichment,
       scenarioKey,
       adminUserId,
       batchId,
-      imageEngines: ctx.imageEngines,
+      imageEngines: target.imageEngines,
     }));
   }
   return { enqueued };
 }
 
+/** The review-level rerun: the named scenarios of the review's gate gag. */
+export async function runReviewScenarios(
+  reviewId: number,
+  scenarioKeys: RenderScenarioKey[],
+  adminUserId: string,
+): Promise<{ enqueued: EnqueueScenarioResult[] } | { error: string; stage?: string | null }> {
+  const review = await loadReviewRow(reviewId);
+  if (!review) return { error: "review_not_found" };
+  if (review.stagingFactId == null) return { error: "no_staging_fact", stage: review.workflowStage };
+  const gate = gateGag(await loadGags(review.stagingFactId), reviewId);
+  if (!gate) return { error: "no_gag", stage: review.workflowStage };
+  return runGagScenarios(gate.id, scenarioKeys, adminUserId);
+}
+
 // ─── Scenario grid (derived, read-only) ──────────────────────────────────────
 
-function imageUrlForAttempt(reviewId: number, attempt: ImagePromptAttempt, status: RenderScenarioStatus): string | null {
+/** The admin-gated image URL of a gag's render (routes/gags.ts). */
+export function gagRenderImageUrl(gagId: number, renderJobId: string): string {
+  return `/api/admin/gags/${gagId}/renders/${renderJobId}/image`;
+}
+
+function imageUrlForAttempt(gagId: number, attempt: ImagePromptAttempt, status: RenderScenarioStatus): string | null {
   if (status !== "done" || !attempt.renderJobId) return null;
-  return `/api/admin/reviews/${reviewId}/renders/${attempt.renderJobId}/image`;
+  return gagRenderImageUrl(gagId, attempt.renderJobId);
 }
 
 async function buildCard(
-  reviewId: number,
+  gagId: number,
   scenarioKey: RenderScenarioKey,
-  ctx: ReviewRenderContext,
+  ctx: GagRenderTarget,
   applicability: NonHumanApplicability | null,
 ): Promise<RenderScenarioCard> {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
-  const attempt = await latestAttemptForScenario(reviewId, scenarioKey);
+  const attempt = await latestAttemptForScenario(gagId, scenarioKey);
   const currentHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment, ctx.imageEngines);
 
   let status: RenderScenarioStatus;
@@ -498,7 +572,7 @@ async function buildCard(
     status = deriveScenarioStatus(attempt);
     stale = isAttemptStale(attempt, currentHash);
     latestAttemptId = attempt.id;
-    imageUrl = imageUrlForAttempt(reviewId, attempt, status);
+    imageUrl = imageUrlForAttempt(gagId, attempt, status);
     if (status === "failed") message = attempt.error;
     else if (status === "blocked") message = buildRenderStatusPayload(attempt).blockReason;
     moderatorRating = attempt.moderatorRating ?? null;
@@ -524,17 +598,13 @@ async function buildCard(
   };
 }
 
-export async function buildReviewScenarioGrid(
-  reviewId: number,
-): Promise<RenderScenarioGrid> {
-  const loaded = await loadReviewRenderContext(reviewId);
-  const empty: RenderScenarioGrid = {
-    reviewId,
-    cards: [],
-    tally: { requested: 0, done: 0, rendering: 0, queued: 0, failed: 0, blocked: 0, skipped: 0, stale: 0 },
-  };
-  if (!loaded.ok) return empty;
-  const { ctx } = loaded;
+const EMPTY_TALLY = { requested: 0, done: 0, rendering: 0, queued: 0, failed: 0, blocked: 0, skipped: 0, stale: 0 };
+
+/** One gag's scenario grid: the latest attempt per scenario, its status and staleness. */
+export async function buildGagScenarioGrid(gagId: number, reviewId: number | null = null): Promise<RenderScenarioGrid> {
+  const loaded = await loadGagRenderTarget(gagId);
+  if (!loaded.ok) return { reviewId: reviewId ?? 0, gagId, cards: [], tally: { ...EMPTY_TALLY } };
+  const ctx = loaded.target;
 
   const applicability = resolveNonHumanScenarioApplicability(ctx.enrichment, ctx.factText);
   const nonHumanKey = nonHumanScenarioKeyForApplicability(applicability);
@@ -543,7 +613,7 @@ export async function buildReviewScenarioGrid(
   const cards: RenderScenarioCard[] = [];
   for (const key of orderedKeys) {
     const app = key === nonHumanKey ? applicability : null;
-    cards.push(await buildCard(reviewId, key, ctx, app));
+    cards.push(await buildCard(gagId, key, ctx, app));
   }
 
   const tally = {
@@ -556,7 +626,19 @@ export async function buildReviewScenarioGrid(
     skipped: cards.filter((c) => c.status === "skipped").length,
     stale: cards.filter((c) => c.stale).length,
   };
-  return { reviewId, cards, tally };
+  return { reviewId: reviewId ?? ctx.reviewId ?? 0, gagId, cards, tally };
+}
+
+/** A review's grid: its gate gag's (the default gag as it will stand once approved). */
+export async function buildReviewScenarioGrid(
+  reviewId: number,
+): Promise<RenderScenarioGrid> {
+  const empty: RenderScenarioGrid = { reviewId, gagId: null, cards: [], tally: { ...EMPTY_TALLY } };
+  const review = await loadReviewRow(reviewId);
+  if (!review || review.stagingFactId == null) return empty;
+  const gate = gateGag(await loadGags(review.stagingFactId), reviewId);
+  if (!gate) return empty;
+  return buildGagScenarioGrid(gate.id, reviewId);
 }
 
 // ─── List-level coarse render state ──────────────────────────────────────────
@@ -607,29 +689,31 @@ export async function reviewRenderStates(reviewIds: number[]): Promise<Map<numbe
 // ─── Frozen per-attempt diagnostics ──────────────────────────────────────────
 
 export async function getScenarioAttemptDiagnostics(
-  reviewId: number,
   scenarioKey: RenderScenarioKey,
   attemptId: number,
+  scope: { reviewId?: number; gagId?: number },
 ): Promise<Record<string, unknown> | null> {
   const [attempt] = await db
     .select()
     .from(imagePromptAttemptsTable)
     .where(and(
       eq(imagePromptAttemptsTable.id, attemptId),
-      eq(imagePromptAttemptsTable.reviewId, reviewId),
       eq(imagePromptAttemptsTable.reviewRenderScenarioKey, scenarioKey),
+      ...(scope.reviewId != null ? [eq(imagePromptAttemptsTable.reviewId, scope.reviewId)] : []),
+      ...(scope.gagId != null ? [eq(imagePromptAttemptsTable.gagId, scope.gagId)] : []),
     ))
     .limit(1);
   if (!attempt) return null;
 
-  const loaded = await loadReviewRenderContext(reviewId);
-  const currentHash = loaded.ok
-    ? computeScenarioInputHash(scenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment, loaded.ctx.imageEngines)
+  const loaded = attempt.gagId != null ? await loadGagRenderTarget(attempt.gagId) : null;
+  const currentHash = loaded?.ok
+    ? computeScenarioInputHash(scenarioKey, loaded.target.stagingFactId, loaded.target.factText, loaded.target.enrichment, loaded.target.imageEngines)
     : "";
   const payload = buildRenderStatusPayload(attempt);
   return {
     ...payload,
     scenarioKey,
+    gagId: attempt.gagId ?? null,
     referenceIdentityType: attempt.reviewReferenceIdentityType,
     referenceAssetVersion: attempt.reviewReferenceAssetVersion,
     actualImageEngineId: attemptImageEngineId(attempt),

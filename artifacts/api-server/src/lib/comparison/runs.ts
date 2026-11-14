@@ -45,6 +45,7 @@ import {
   type GenerationMode,
   type ReferenceIdentityType,
   type RenderScenarioKey,
+  type FactEnrichment,
 } from "@workspace/api-zod";
 import { enqueueJob, registerJobHandler, terminalFailure, type HandlerResult } from "../asyncJobs";
 import { defaultScenarioRenderControls, syntheticAnalysisForReference } from "../reviewRenderScenarios";
@@ -74,6 +75,7 @@ import { vendorContext } from "../provenance/vendorContext";
 import { blindToken } from "./blindToken";
 import { ObjectStorageService } from "../objectStorage";
 import { logger } from "../logger";
+import { gagRenderInput, primaryGag } from "../gags/resolver";
 import { planRun, type RunPlan, type WorkItem } from "./admission";
 import { loadSetRows, runItems, type RunScope } from "./sets";
 import { awaitResult, comparisonFal } from "./transport";
@@ -272,7 +274,13 @@ export async function preparePanel(p: PreparePayload): Promise<HandlerResult> {
 async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): Promise<HandlerResult> {
   // Everything before the planner call can refuse for free.
   const [fact] = await db.select({ text: factsTable.text, enrichment: factsTable.enrichment }).from(factsTable).where(eq(factsTable.id, panel.factId));
-  const enrichment = fact ? validateEnrichment(fact.enrichment) : null;
+  // The render input: the fact's classification with its primary gag (the
+  // lowest-slot gag's approved version; lib/gags/resolver.ts), as a comparison
+  // read the fact's one gag before gags had their own table.
+  const primary = fact ? await primaryGag(panel.factId) : null;
+  const enrichment = fact
+    ? validateEnrichment(primary && fact.enrichment ? gagRenderInput(fact.enrichment as FactEnrichment, primary.content) : fact.enrichment)
+    : null;
   if (!fact || !enrichment?.ok) {
     await failPanel(panel.id, "skipped", fact ? "the fact's enrichment does not validate" : "the fact no longer exists");
     await release(p.reservationId);
@@ -368,10 +376,10 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
 /**
  * What a second-edition panel is judged against, frozen at preparation (plan
  * `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed Design* B): the fact's wording
- * and its approved visual gag (the Visual Concept,
- * `visualPromptStrategyOverride.coreSceneOverride`), both rendered for the
- * panel's subject. A fact with no approved gag freezes null, and the judging
- * page says so.
+ * and the gag the panel rendered (its scene, the render input's
+ * `visualPromptStrategyOverride.coreSceneOverride`; the fact's primary gag),
+ * both rendered for the panel's subject. A fact with no gag freezes null, and
+ * the judging page says so.
  */
 export function frozenJudgingReference(
   renderedFactText: string,
