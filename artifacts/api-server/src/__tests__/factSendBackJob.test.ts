@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { db } from "@workspace/db";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import {
   usersTable,
   factsTable,
@@ -22,7 +23,7 @@ import {
   asyncJobsTable,
 } from "@workspace/db/schema";
 import { and, eq, inArray, like } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import {
   factSendBackHandler,
@@ -36,17 +37,13 @@ const insertedFactIds: number[] = [];
 let adminId: string;
 
 async function seedActiveFact(overrides: Partial<typeof factsTable.$inferInsert> = {}): Promise<number> {
-  const [fact] = await db
-    .insert(factsTable)
-    .values({
-      text: `{NAME} does something #${randomUUID().slice(0, 8)}.`,
-      submittedById: adminId,
-      isActive: true,
-      enrichment: buildPlaceholderFactEnrichment(),
-      enrichmentStatus: "ok",
-      ...overrides,
-    } as typeof factsTable.$inferInsert)
-    .returning({ id: factsTable.id });
+  const fact = await insertLiveFact({
+    text: `{NAME} does something #${randomUUID().slice(0, 8)}.`,
+    submittedById: adminId,
+    enrichment: buildPlaceholderFactEnrichment(),
+    enrichmentStatus: "ok",
+    ...overrides,
+  } as typeof factsTable.$inferInsert, buildPlaceholderGag());
   insertedFactIds.push(fact!.id);
   return fact!.id;
 }
@@ -117,7 +114,8 @@ describe("factSendBackHandler", () => {
   });
 
   it("NOT_ACTIVE guard → terminal skip, not a retryable failure", async () => {
-    const factId = await seedActiveFact({ isActive: false });
+    const factId = await seedActiveFact();
+    await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, factId));
     const result = await factSendBackHandler.run({ factId }, {} as never);
     assert.equal(result.ok, true, "a guard rejection is a clean skip, never ok:false");
     if (!result.ok) throw new Error("unreachable");
