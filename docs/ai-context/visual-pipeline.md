@@ -745,7 +745,7 @@ parameter** — exclusions are positive scene language.
 
 ### Prompt recipes: the compiler's global wording, versioned per engine
 
-The one standing exception to the rule that AI call settings live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)): wording versions are stored and promoted in the database by design.
+A named exception to the guideline that AI call settings default to code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)): wording versions are stored and promoted in the database by design.
 
 (The prompt tuner, part 2; plan `docs/plans/PLAN_PROMPT_TUNER.md`, *Proposed
 Design* A and D; migration 0134.) Every piece of wording the compiler owns that
