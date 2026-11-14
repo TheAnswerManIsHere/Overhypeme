@@ -14,12 +14,13 @@
 ---
 
 ### 2026-11-14 · AI call settings live in code, never in database rows
-- **Decision:** every setting that shapes an AI call is defined in code and read from code: which engine or model a step uses, its endpoint, reasoning effort, temperature, token limits, and prompt text. None is read from `admin_config` or from an engine row's admin-tunable fields at run time. A change is a code change, reviewed and merged like any other.
+- **Decision:** every setting that shapes an AI call is defined in code and read from code: which engine or model a step uses, its endpoint, reasoning effort, temperature, token limits, and prompt text. By default none is read from `admin_config` or from an engine row's admin-tunable fields at run time; a sensible exception is named below with its reason. A change is a code change, reviewed and merged like any other.
 - **Why:** David, 2026-11-14, verbatim: *"Remember that all API calls, model selection, reasoning effort, etc. should now only be stored in code, never in database entries."* Measured the same day: the gag writer's reasoning effort was an admin-tunable engine field, so changing its code default left dev's row unchanged until it was edited by hand.
 - **Known exceptions still in place (audit, 2026-11-14), to be removed:**
   - engine selection by `admin_config` keys (`fact_visual_concepts_engine_id`, `fact_enrichment_engine_id`, `fact_image_prompt_engine_id`, `fact_source_classifier_engine_id`, `image_engine_t2i`, `image_engine_i2i`, `nsfw_classifier_endpoint`);
-  - the engine rows' admin-tunable model parameters (`default_reasoning_effort`, `default_temperature`, `default_max_tokens`), and the default utility LLM chosen by an engine row's `is_default`;
-- **The one standing exception (David, 2026-11-14):** the prompt tuner's stored and promoted wording versions stay in the database. David: *"4 is not a configuration setting"*. Its versions are reviewable records, and promoting one is a deliberate admin act.
+  - the engine rows' admin-tunable model parameters (`default_reasoning_effort`, `default_temperature`, `default_max_tokens`), and the default utility LLM chosen by an engine row's `is_default`.
+- **A guideline, not an absolute (David, 2026-11-14):** *"Don't take "never" and "always" as being such strong absolutes. We should probably use language like "prefer" and "default" for decisions like this. There are exceptions to the rule that make sense, so don't make the rule too strict. It's a guideline, not a hard and fast must follow rule."* AI call settings default firmly to code. A sensible exception is fine, and is named here with its reason. (The title's "never" is kept only because 22 links depend on its anchor.)
+- **A named exception (David, 2026-11-14):** the prompt tuner's stored and promoted wording versions stay in the database. David: *"4 is not a configuration setting"*. Its versions are reviewable records, and promoting one is a deliberate admin act.
 - **Supersedes in part:** 2026-11-06, *The image engine is chosen per render mode by a config key* (the choice moves into code; each attempt still records its engine); and 2026-10-13, *Utility helpers run on GPT-6 Luna* (its helpers that take the engine row's default effort read it from code instead).
 - **Reference:** Issue #935; PR #941.
 
