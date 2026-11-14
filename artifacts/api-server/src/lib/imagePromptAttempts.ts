@@ -22,13 +22,16 @@ import type {
 } from "@workspace/api-zod";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { enqueueJob } from "./asyncJobs";
-import { resolveImageEngine } from "./imageEngineRouting";
-import { liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
+import { lookClassOfSelection, resolveImageEngine } from "./imageEngineRouting";
+import { isValidRenderStyleSnapshot, resolveAndFreezeRenderStyle, type ResolvedRenderStyleSnapshot } from "./imagePrompt/styleResolution";
+import { engineFamilyOf, liveRecipeVersionIdForFamily } from "./imagePrompt/recipeStore";
 
 /** RenderControls plus the route-attached fields `imagePromptJobs` reads. */
 export type RenderControlsWithRefs = RenderControls & {
   styleId?: string | null;
   referenceImageUrl?: string | null;
+  /** The look, resolved once and frozen at queue time (`styleResolution.ts`); the worker reads it, never the look's row. */
+  resolvedRenderStyle?: ResolvedRenderStyleSnapshot;
   /**
    * Moderation-only ephemeral render: when explicitly `false`, the image
    * pipeline stores the generated image on the attempt (so the poll route can
@@ -67,8 +70,8 @@ export interface BuildImagePromptAttemptArgs {
    */
   requestId?: string | null;
   /**
-   * The engine to draw this attempt. Omitted: the mode's engine, set in code
-   * (`IMAGE_ENGINE_IDS`). A caller that folded an
+   * The engine to draw this attempt. Omitted: the engine set in code for the
+   * look's class and the mode (`IMAGE_ENGINE_IDS`). A caller that folded an
    * engine into a hash (moderation, eval) passes the one it hashed, so the
    * stored attempt and its hash name the same engine. Validated either way;
    * an unusable engine refuses the attempt rather than falling back.
@@ -118,12 +121,20 @@ export async function buildAndEnqueueImagePromptAttempt(
   args: BuildImagePromptAttemptArgs,
 ): Promise<{ renderJobId: string; attemptId: number }> {
   const generationMode = generationModeFromSubjectRenderMode(args.subjectRenderMode);
-  // Routing is resolved once, here, and stored: history never re-derives it.
-  const imageEngine = await resolveImageEngine(generationMode, args.imageEngineId);
+  // The look is resolved once and frozen on the attempt (the shared resolver
+  // has normally done it already); an unusable look throws
+  // `RenderStyleRefusedError` before anything is stored.
+  const resolvedRenderStyle = isValidRenderStyleSnapshot(args.renderControls.resolvedRenderStyle)
+    ? args.renderControls.resolvedRenderStyle
+    : await resolveAndFreezeRenderStyle(args.renderControls.styleId, generationMode);
+  const renderControls: RenderControlsWithRefs = { ...args.renderControls, resolvedRenderStyle };
+  // Routing is resolved once, here, from the look's class, and stored: history
+  // never re-derives it.
+  const imageEngine = await resolveImageEngine(generationMode, args.imageEngineId, lookClassOfSelection(resolvedRenderStyle.selection));
   // The wording is chosen here too, so a promotion never changes queued work.
   const recipeVersionId = args.recipeVersionId !== undefined
     ? args.recipeVersionId
-    : await liveRecipeVersionIdForFamily(imageEngine.family ?? imageEngine.id);
+    : await liveRecipeVersionIdForFamily(engineFamilyOf(imageEngine.id));
   const renderJobId = randomUUID();
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)
@@ -141,7 +152,7 @@ export async function buildAndEnqueueImagePromptAttempt(
       sourceImageAnalysis: args.analysis,
       sourceImageSha256: args.analysis.sourceImageSha256 ?? null,
       identityPolicy: args.identityPolicy,
-      renderControls: args.renderControls,
+      renderControls,
       factEnrichmentSnapshot: args.enrichment,
       renderedFactText: args.renderedFactText,
       archetypeStrategyVersion: "v2",

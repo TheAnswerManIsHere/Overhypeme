@@ -12,6 +12,7 @@
  */
 
 import { describe, it, before, after, afterEach } from "node:test";
+import { baselineRecipeFor } from "../lib/imagePrompt/recipe.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -307,10 +308,11 @@ describe("image-prompt preview — human i2i", () => {
     assert.equal(res.body.debug.visualStrategyVersion, "test-strategy-v1");
     assert.equal(res.body.debug.generatedBy, "openai");
 
-    // Compiler injected the transformation-aware human identity preamble.
-    assert.match(
-      String(res.body.compiledPrompt.imagePrompt).toLowerCase(),
-      /preserve the reference person's recognizable identity and likeness/,
+    // Compiler injected the transformation-aware human identity paragraph, in
+    // the wording of the engine a look-less render is routed to (GPT Image 2.6).
+    assert.ok(
+      String(res.body.compiledPrompt.imagePrompt).includes(baselineRecipeFor("gpt-image-2-6").pieces["identity.person"]),
+      "the routed engine's identity paragraph",
     );
   });
 });
@@ -462,7 +464,9 @@ function promptSection(prompt: string, label: string): string {
   const start = prompt.indexOf(`${label}: `);
   assert.ok(start >= 0, `section ${label} missing from: ${prompt}`);
   const body = prompt.slice(start + label.length + 2);
-  const next = labels.map((l) => body.indexOf(` ${l}: `)).filter((i) => i >= 0);
+  // Sections are joined by the routed engine's shape: a space, or paragraph breaks.
+  const escape = (t: string) => t.replace(/[\\^$.*+?()[\]{}|&]/g, "\\$&");
+  const next = labels.map((l) => body.search(new RegExp(`\\s${escape(l)}: `))).filter((i) => i >= 0);
   return (next.length ? body.slice(0, Math.min(...next)) : body).trim();
 }
 
@@ -541,6 +545,17 @@ describe("image-prompt preview — CORE SCENE source", () => {
 });
 
 describe("image-prompt preview — look style copy per generation mode", () => {
+  it("refuses a look that does not exist with a 400, never treating it as no look", async () => {
+    const factId = await seedFact();
+    __setPlanGeneratorForTest(async () => makeOutput({ subjectRenderMode: "t2i_fallback", promptText: "A protagonist lifts a mountain." }) as never);
+    const res = await request(adminApp())
+      .post("/api/admin/image-prompt/preview")
+      .send({ factId, subjectRenderMode: "t2i_fallback", lookStyleId: "no-such-look-style", renderControls: { fallbackSubjectGender: "female" } });
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(res.body.error, "look_style_unavailable");
+    assert.equal(res.body.reason, "not_found");
+  });
+
   it("t2i_fallback compiles the style's declarative promptSuffix, not its promptSuffixReference", async () => {
     const factId = await seedFact();
     const styleId = await seedStyle();
@@ -560,8 +575,9 @@ describe("image-prompt preview — look style copy per generation mode", () => {
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.inputSummary.styleSource, "selected_look_style");
     assert.equal(res.body.inputSummary.stylePrompt, ", cinematic test style suffix");
+    // A chosen look routes to Nano Banana 2.1, whose shape writes no section labels.
     const prompt = String(res.body.compiledPrompt.imagePrompt);
-    assert.match(promptSection(prompt, "RENDER STYLE"), /cinematic test style suffix/);
+    assert.match(prompt, /cinematic test style suffix/);
     assert.doesNotMatch(prompt, /reimagined in cinematic test style/);
   });
 });

@@ -13,7 +13,7 @@ import { db } from "@workspace/db";
 import { falPricingCacheTable } from "@workspace/db/schema";
 import { like } from "drizzle-orm";
 
-import { falCachedCallPrice, falCallPrice } from "../lib/falClient.js";
+import { catalogueCallBound, falCachedCallPrice, falCallPrice } from "../lib/falClient.js";
 import { Allowance, recordingFal } from "../lib/aiDouble/recorder.js";
 import { resetRecordingCache } from "../lib/aiDouble/recordings.js";
 import { FAL_PRESET_SIZES } from "../lib/aiDouble/falPresetSizes.js";
@@ -114,6 +114,13 @@ describe("falCachedCallPrice: the in-server recorder prices from the product's c
   after(async () => {
     await db.delete(falPricingCacheTable).where(like(falPricingCacheTable.endpointId, `${PREFIX}%`));
     for (const k of KEYS) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+  });
+
+  it("bounds a token-priced engine fal cannot price per call by the catalogue's worst case (compiler review, Phase 1)", async () => {
+    close(await catalogueCallBound("openai/gpt-image-2.6/sunburst/edit"), 0.12868);
+    close(await catalogueCallBound("openai/gpt-image-2.6/sunburst/text-to-image"), 0.11268);
+    assert.equal(await catalogueCallBound(`${PREFIX}not-in-the-catalogue`), null);
+    close(await falCachedCallPrice("openai/gpt-image-2.6/sunburst/edit", { prompt: "x" }), 0.12868);
   });
 
   it("bounds a cached per-megapixel price from the request, with no live pricing call", async () => {

@@ -56,8 +56,8 @@ model receives.** Enrichment is an input, not the prompt (see
    rule that AI call settings live in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). (Before that, the rows were seeded
    `ON CONFLICT DO NOTHING` and a constant edit needed a DML migration too, which is
    why `0082` and `0084` exist.)
-3. **Compiler** (`compileForSubjectRenderMode()`, Nano Banana 2) → the
-   engine-specific `compiledPrompt`.
+3. **Compiler** (`compileForSubjectRenderMode()`) → the `compiledPrompt`, in
+   the wording and shape of the routed engine's family (*Prompt recipes*).
 4. **Production** (`imagePromptJobs.ts`) renders via fal.ai through the engine
    recorded on the attempt, at the size the request builder chose, and persists
    the result (`imagePromptAttempts.ts`). See *Which engine draws a render*.
@@ -495,12 +495,30 @@ successful later attempt and surfaced together in the render-poll payload
 ## Which engine draws a render
 
 Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
-*Proposed Design* A, A2 and B). Until it, the worker chose `nano-banana-2` or
-`nano-banana-2-edit` by string. Now:
+*Proposed Design* A, A2 and B), and the compiler review's Phase 1 (plan
+`docs/plans/PLAN_COMPILER_REVIEW.md`, #950), which adopted the strategy's
+photoreal and styled split. Until increment 1 the worker chose `nano-banana-2`
+or `nano-banana-2-edit` by string. Now:
 
-- **The engine per mode is set in code**, `IMAGE_ENGINE_IDS` in
-  `lib/imageEngineRouting.ts` ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)): `nano-banana-2` and
-  `nano-banana-2-edit`. The `image_engine_t2i` and `image_engine_i2i` rows
+- **The engine per look class and mode is set in code**, `IMAGE_ENGINE_IDS` in
+  `lib/imageEngineRouting.ts` ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)):
+  a render with no look is **photoreal** and goes to `gpt-image-2-6` /
+  `gpt-image-2-6-edit`; a render with a chosen look is **styled** and goes to
+  `nano-banana-2-1` / `nano-banana-2-1-edit`
+  ([product strategy](./product-strategy.md#pictures-and-engines)).
+- **The look is resolved once, at queue time, and frozen.** The shared input
+  resolver (`resolveRenderReviewInput.ts`) runs `resolveAndFreezeRenderStyle`
+  and puts the snapshot on the render controls (`resolvedRenderStyle`);
+  `buildAndEnqueueImagePromptAttempt` picks the engine from its look class
+  (freezing one itself if a caller passed none). The worker reads the snapshot,
+  never the look's row, so a look edited or deleted between queue and render
+  changes neither the engine nor the RENDER STYLE. A look that cannot be used
+  (missing, inactive, empty or over-long copy) throws
+  `RenderStyleRefusedError` — a 400 from the preview and the admin render
+  action — and is never treated as "no look". Moderation scenarios render
+  with no look, so their hash folds in the photoreal engines. Nano Banana 2
+  stays in the catalogue: an attempt recorded with it still renders through it.
+- The `image_engine_t2i` and `image_engine_i2i` rows
   migration 0123 seeded were deleted by migration 0138, along with the engines
   table ([decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)).
 - **An attempt records its engine once, at construction**, in
@@ -533,8 +551,9 @@ Launch Phase 8, increment 1 (plan `docs/plans/PLAN_PHASE8_ENGINE_EVALUATION.md`,
   the Nano Banana 2 control.
   Each carries a `priceModel`, a complete per-call bound at the comparison
   settings with each component's source, and nothing routes to one until it
-  becomes a mode's engine in `IMAGE_ENGINE_IDS`, a code change. The compiler is still Nano Banana 2's for
-  every engine; adapting it to the two chosen engines is increment 4's.
+  becomes an engine in `IMAGE_ENGINE_IDS`, a code change. The one compiler is
+  adapted to the two chosen engines through their recipes' baselines
+  (*Prompt recipes*), not by a second compiler.
 
 ## Visual Concept
 
@@ -708,8 +727,10 @@ recorded `fallbackReason`. (Introduced by PR #157.)
 ## Prompt compiler
 
 `compileForSubjectRenderMode()` in `compilers/nanoBanana2.ts` — the
-**deterministic Nano Banana 2 compiler**. It dispatches by render mode and
-assembles a labeled contract where **the Visual Concept (CORE SCENE) LEADS**:
+**deterministic compiler**, one for every engine (the file keeps its first
+engine's name). It dispatches by render mode and assembles a sectioned
+contract, worded and shaped by the routed engine family's recipe, where
+**the Visual Concept (CORE SCENE) LEADS**:
 CORE SCENE · IDENTITY & REFERENCE (i2i) / RENDER TASK (t2i) · SUBJECT BINDING ·
 SUBJECT REALIZATION · ROLE DETAILS · SUBJECT DETAILS · REQUIRED VISUAL DETAILS ·
 ENVIRONMENT · ADDITIONAL DETAILS · COMPOSITION · LIGHTING · RENDER STYLE · STRICT
@@ -730,8 +751,11 @@ reference/binding/STRICT-CONSTRAINTS/text-policy language; planner prose that
 duplicates these is stripped (`RemovedProseReason`). The de-dupe haystack is
 seeded ONLY from emitted text (never the non-emitted visualGoal/visualApproach).
 Dropped role/key-element candidates are recorded in
-`diagnostics.droppedCandidates`. Nano Banana 2 has **no negative-prompt
-parameter** — exclusions are positive scene language.
+`diagnostics.droppedCandidates`. None of the routed engines takes a
+negative-prompt parameter — exclusions are scene language. When the
+moderator's gag leads, the tone and density warnings that judge the planner's
+own fields (subject details, environment, frame, staging approach) are not
+run; an incomplete role binding is still flagged.
 
 ### Prompt recipes: the compiler's global wording, versioned per engine
 
@@ -753,6 +777,23 @@ section order. Slots (`{subject}`, `{side}`…) are filled once; a version that
 drops a required slot or names an unknown one is refused. **Policy pieces**
 (`text.overlay`, `text.incidental`, `violence.*`) can be reworded but not
 emptied.
+
+**The shape is two pieces** (compiler review, Phase 1): `shape.section`, how
+one section is written (`{label}: {body}` by default; `{label}` may be left
+out, `{body}` may not), and `shape.join`, what sits between sections (spaces
+and line breaks only). **Each engine family has its own baseline**
+(`FAMILY_BASELINES` in `recipe.ts`; `baselineRecipeFor`): Nano Banana 2's is
+`BASELINE_RECIPE`, today's wording byte for byte and every other family's
+default; GPT Image 2.6's follows OpenAI's image prompting guide — labeled
+sections one per paragraph, the reference named as "image 1", likeness
+spelled out, photoreal asked for explicitly; Nano Banana 2.1's follows
+Google's Gemini image guide — unlabeled narrative paragraphs, "remain
+completely unchanged" for likeness, and the do-nots written as what the
+picture is. Both drop the doubled `COMPOSITION: Composition:` label. A null
+version resolves to the baseline of the family of the engine that draws the
+render (`recipeById(versionId, family)`), and a stored version is laid over
+its own family's baseline. The preview's highlighting never marks the shape
+pieces, since they are the joins the sentence de-dupe reads.
 
 - **The baseline is today's wording, byte for byte**: compiling with no recipe
   or `BASELINE_RECIPE` reproduces the 121-input corpus captured before the
@@ -920,9 +961,9 @@ only the AI background backfill). Making outputs identical needs result-reuse
   manual fallback, not a requirement.
 - A global "no readable text" rule.
 - `gpt-4o-mini` / `gpt-image-1` / FLUX as the render prompt/model path — the render
-  path is the **frontier planner (`gpt-5.5`) + the image engine per mode**
-  (set in code, `IMAGE_ENGINE_IDS`, per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows); Nano Banana 2 and its edit engine until
-  launch Phase 8 adopts GPT Image 2.6 and Nano Banana 2.1, per the
+  path is the **frontier planner (`gpt-5.5`) + the image engine per look and
+  mode** (set in code, `IMAGE_ENGINE_IDS`, per [decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows): GPT Image 2.6 for
+  photoreal and Nano Banana 2.1 for a chosen look, per the
   [product strategy](./product-strategy.md#pictures-and-engines)). (The utility LLM — `gpt-6-luna` since it
   replaced `gpt-4o-mini` on 2026-10-13, named in code by `UTILITY_LLM_ENGINE_ID` — serves utility calls only; FLUX Pro only
   on the AI background backfill.)

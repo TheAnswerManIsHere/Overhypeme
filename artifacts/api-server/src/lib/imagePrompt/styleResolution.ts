@@ -12,11 +12,11 @@
  * validation so a customized style row can't blow the compiler's RENDER STYLE
  * budget reserve.
  *
- * Wiring this into attempt construction (resolve ONCE before enqueue, freeze
- * the result, never re-resolve live) is the next slice
- * (`prepareImagePromptAttemptInputs`) -- this module is the pure resolution
- * logic + snapshot shape it will use. The workbench/preview path adopts this
- * resolver too, replacing its own duplicated raw query.
+ * Since the compiler review's Phase 1 (`docs/plans/PLAN_COMPILER_REVIEW.md`)
+ * the shared render-input resolver resolves the look ONCE with
+ * `resolveAndFreezeRenderStyle`, the snapshot rides on the attempt's render
+ * controls, and the engine is chosen from its look class; preview, moderation
+ * renders and the worker all read that one resolution.
  */
 
 import { createHash } from "node:crypto";
@@ -157,6 +157,30 @@ export function freezeRenderStyleSnapshot(
     copyDigest: result.copyDigest,
     resolutionSource,
   };
+}
+
+/** A look that cannot be used: refused at queue and preview time, never treated as "no look". */
+export class RenderStyleRefusedError extends Error {
+  readonly code = "look_style_unavailable";
+  constructor(readonly styleId: string, readonly reason: StyleInvalidReason) {
+    super(`look style "${styleId}" cannot be used: ${reason}`);
+    this.name = "RenderStyleRefusedError";
+  }
+}
+
+/**
+ * Resolve a look once and freeze it, refusing an invalid one: the snapshot a
+ * new attempt carries, from which its engine (by look class) and its RENDER
+ * STYLE are both read, so a look edited or deleted between queue and render
+ * changes neither.
+ */
+export async function resolveAndFreezeRenderStyle(
+  styleId: string | null | undefined,
+  generationMode: GenerationMode,
+): Promise<ResolvedRenderStyleSnapshot> {
+  const result = await resolveRenderStyle(styleId, generationMode);
+  if (result.selection === "invalid") throw new RenderStyleRefusedError(result.styleId, result.reason);
+  return freezeRenderStyleSnapshot(result, "frozen");
 }
 
 /**

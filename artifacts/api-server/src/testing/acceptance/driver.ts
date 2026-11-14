@@ -204,7 +204,7 @@ export interface DriveResult {
 
 export interface DriveOptions {
   /**
-   * Run with `AI_DOUBLE_FAIL=fal.subscribe:fal-ai/nano-banana-2`: journey 3's
+   * Run with `AI_DOUBLE_FAIL=fal.subscribe:openai/gpt-image-2.6/sunburst/text-to-image`: journey 3's
    * text-to-image render must end failed — the recorded vendor error carried
    * through the real render job — and the run stops there. A control, never
    * an acceptance pass.

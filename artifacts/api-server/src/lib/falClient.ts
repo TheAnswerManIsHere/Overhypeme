@@ -142,7 +142,21 @@ export async function fetchFalPricing(endpointId: string): Promise<unknown | nul
  * Null when it cannot be bounded, and the recorder then refuses the call.
  */
 export async function falUnitPrice(endpoint: string, input?: unknown): Promise<number | null> {
-  return falCallPrice(await fetchFalPricing(endpoint), endpoint, input);
+  return falCallPrice(await fetchFalPricing(endpoint), endpoint, input) ?? (await catalogueCallBound(endpoint));
+}
+
+/**
+ * The worst case of one call, from the engine catalogue's own price model, for
+ * an endpoint fal's pricing feed cannot price per call: a token-priced engine
+ * such as GPT Image 2.6 reports no per-image or per-megapixel unit (the
+ * compiler review, Phase 1, found the recorder refusing it). Null for an
+ * endpoint the catalogue does not hold. Loaded lazily, so importing this
+ * client stays light.
+ */
+export async function catalogueCallBound(endpoint: string): Promise<number | null> {
+  const [{ codeEngineDefinitions }, { perCallBoundUsd }] = await Promise.all([import("./engineInterpreter"), import("./engines")]);
+  const def = codeEngineDefinitions().find((d) => d.endpointId === endpoint && d.priceModel);
+  return def?.priceModel ? perCallBoundUsd(def.priceModel) : null;
 }
 
 /**
@@ -160,11 +174,13 @@ export async function falCachedCallPrice(endpoint: string, input?: unknown): Pro
     const [{ db }, { falPricingCacheTable }, { eq }] = await Promise.all([import("@workspace/db"), import("@workspace/db/schema"), import("drizzle-orm")]);
     const [row] = await db.select().from(falPricingCacheTable).where(eq(falPricingCacheTable.endpointId, endpoint)).limit(1);
     if (row && Date.now() - row.fetchedAt.getTime() <= CACHED_PRICE_FRESH_MS) {
-      return falCallPrice({ prices: [{ endpoint_id: endpoint, unit_price: Number(row.unitPrice), unit: row.unit }] }, endpoint, input);
+      return falCallPrice({ prices: [{ endpoint_id: endpoint, unit_price: Number(row.unitPrice), unit: row.unit }] }, endpoint, input)
+        ?? (await catalogueCallBound(endpoint));
     }
   } catch {
     // No readable cache: price it live, as before.
   }
+  // falUnitPrice falls back to the catalogue's bound for a token-priced engine.
   return falUnitPrice(endpoint, input);
 }
 

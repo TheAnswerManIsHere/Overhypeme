@@ -20,6 +20,8 @@ export interface RecipeFamily {
   family: string;
   engines: Array<{ id: string; label: string; imageMode: string | null }>;
   liveVersionId: number | null;
+  /** This family's own baseline wording (Nano Banana 2's for a family without its own). */
+  baselinePieces?: Record<string, string>;
   versions: FamilyVersion[];
   promotions: Array<{ id: number; versionId: number | null; promotedBy: string | null; promotedAt: string }>;
 }
@@ -28,7 +30,7 @@ interface Segment { text: string; piece: string | null }
 interface Preview { prompt: string; length: number; overflowBy: number; problems: string[]; sections: Array<{ id: string; label: string; status: string; text: string; segments?: Segment[] }> }
 
 const GROUP_LABEL: Record<string, string> = {
-  labels: "Section labels", identity: "Identity", binding: "Subject binding", constraints: "Do-nots and failure guards",
+  labels: "Section labels", shape: "Prompt shape (how sections are written and joined)", identity: "Identity", binding: "Subject binding", constraints: "Do-nots and failure guards",
   composition: "Composition", style: "Style", text: "Text in the picture", violence: "Violence", bubbles: "Speech and thought balloons", notes: "Engine notes",
 };
 
@@ -79,9 +81,9 @@ export function PromptRecipes() {
   const baseVersion = fam?.versions.find((v) => v.id === baseId) ?? null;
   const basePieces = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const p of data?.pieces ?? []) out[p.key] = baseVersion?.pieces[p.key] ?? p.baseline;
+    for (const p of data?.pieces ?? []) out[p.key] = baseVersion?.pieces[p.key] ?? fam?.baselinePieces?.[p.key] ?? p.baseline;
     return out;
-  }, [data, baseVersion]);
+  }, [data, baseVersion, fam]);
   const changed = useMemo(() => Object.keys(draft).filter((k) => draft[k] !== basePieces[k]), [draft, basePieces]);
   const changedSet = useMemo(() => new Set(changed), [changed]);
   const pieceLabel = (key: string) => data?.pieces.find((p) => p.key === key)?.label ?? key;

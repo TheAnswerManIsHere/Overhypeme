@@ -1,18 +1,18 @@
 {
   "kind": "fal.subscribe",
   "request": {
-    "endpoint": "fal-ai/nano-banana-2",
+    "endpoint": "openai/gpt-image-2.6/sunburst/text-to-image",
     "input": {
       "prompt": ""
     }
   },
-  "fingerprint": "b8c0d9fdf50dfd021d3786e05fecd5e2b42473472c645f392e08376ae99670cd",
-  "recordedAt": "2026-10-13T02:41:19.421Z",
+  "fingerprint": "64e3ec025fa291c35fcde129b6168d8b42baadef3496f25aefc7bcfb996ade3a",
+  "recordedAt": "2026-11-14T22:14:18.515Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
   },
-  "target": "fal-ai/nano-banana-2",
+  "target": "openai/gpt-image-2.6/sunburst/text-to-image",
   "error": {
     "name": "ValidationError",
     "message": "Unprocessable Entity",
@@ -25,10 +25,10 @@
             "body",
             "prompt"
           ],
-          "msg": "String should have at least 3 characters",
+          "msg": "String should have at least 1 character",
           "input": "",
           "ctx": {
-            "min_length": 3
+            "min_length": 1
           }
         }
       ]

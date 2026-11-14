@@ -17,8 +17,6 @@
  * prompt generation. The preview route runs the planner/compiler on this; the
  * render route inserts an attempt + enqueues the async pipeline on this.
  */
-import { eq } from "drizzle-orm";
-import { db, lookStylesTable } from "@workspace/db";
 import {
   defaultIdentityPolicyForRenderMode,
   type FactEnrichment,
@@ -35,6 +33,8 @@ import {
   RUNTIME_PREVIEW_DEFAULT_PRONOUNS,
   type RenderControlsWithRefs,
 } from "./preview";
+import { resolveAndFreezeRenderStyle } from "./styleResolution";
+import { lookClassOfSelection, type LookClass } from "../imageEngineRouting";
 
 /** Raw render assumptions a caller passes through (mirrors the preview body). */
 export interface RenderReviewControls {
@@ -60,6 +60,8 @@ export interface ResolvedRenderReviewInput {
   renderControls: RenderControlsWithRefs;
   stylePrompt: string;
   styleSource: "selected_look_style" | "none";
+  /** No look is photoreal, a chosen look is styled; the engine is picked by it. */
+  lookClass: LookClass;
   renderedSubject: { name: string; pronouns: string };
   generationMode: GenerationMode;
   previewName: string;
@@ -122,6 +124,16 @@ export async function resolveRenderReviewInput(
     ...(controls.identityPolicyOverrides ?? {}),
   } as IdentityPolicy;
 
+  // The look, resolved once per generation mode (i2i vs t2i variant) and
+  // frozen onto the render controls: the worker reads this snapshot, never
+  // the look's row, and the engine is picked by its look class. A look that
+  // cannot be used throws `RenderStyleRefusedError`, never "no look".
+  const generationMode = generationModeFromSubjectRenderMode(subjectRenderMode);
+  const resolvedRenderStyle = await resolveAndFreezeRenderStyle(controls.lookStyleId, generationMode);
+  const stylePrompt = resolvedRenderStyle.selection === "selected" ? resolvedRenderStyle.prompt : "";
+  const styleSource: "selected_look_style" | "none" = resolvedRenderStyle.selection === "selected" ? "selected_look_style" : "none";
+  const lookClass = lookClassOfSelection(resolvedRenderStyle.selection);
+
   const renderControls: RenderControlsWithRefs = {
     aspectRatio: controls.renderControls?.aspectRatio ?? "portrait",
     contentMode: controls.renderControls?.contentMode ?? "sfw",
@@ -129,24 +141,8 @@ export async function resolveRenderReviewInput(
     fallbackSubjectGender: controls.renderControls?.fallbackSubjectGender,
     styleId: controls.lookStyleId ?? null,
     referenceImageUrl: controls.referenceImageUrl ?? null,
+    resolvedRenderStyle,
   };
-
-  // Resolve the look-style suffix per generation mode (i2i vs t2i variant).
-  const generationMode = generationModeFromSubjectRenderMode(subjectRenderMode);
-  let stylePrompt = "";
-  if (controls.lookStyleId) {
-    const [ls] = await db
-      .select({
-        promptSuffix: lookStylesTable.promptSuffix,
-        promptSuffixReference: lookStylesTable.promptSuffixReference,
-      })
-      .from(lookStylesTable)
-      .where(eq(lookStylesTable.id, controls.lookStyleId))
-      .limit(1);
-    if (ls) stylePrompt = generationMode === "i2i" ? ls.promptSuffixReference : ls.promptSuffix;
-  }
-  const styleSource: "selected_look_style" | "none" =
-    controls.lookStyleId && stylePrompt ? "selected_look_style" : "none";
 
   const renderedSubject = resolvePreviewSubject(controls);
   // The generator/compiler expect RENDERED fact text — personalize the template
@@ -162,6 +158,7 @@ export async function resolveRenderReviewInput(
     renderControls,
     stylePrompt,
     styleSource,
+    lookClass,
     renderedSubject,
     generationMode,
     previewName: renderedSubject.name,

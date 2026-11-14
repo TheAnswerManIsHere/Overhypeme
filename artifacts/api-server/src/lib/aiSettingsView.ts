@@ -133,8 +133,10 @@ export async function aiSettingsView(): Promise<AiSettingsView> {
     llmStep("Fact classification (enrichment)", DEFAULT_FACT_ENRICHMENT_ENGINE_ID, FACT_ENRICHMENT_CONFIG_KEYS.system),
     llmStep("Gag writer (visual gags and joke read)", DEFAULT_VISUAL_CONCEPTS_ENGINE_ID, VISUAL_CONCEPTS_CONFIG_KEYS.system),
     llmStep("Picture planner (image prompt)", DEFAULT_IMAGE_PROMPT_ENGINE_ID, IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem),
-    imageStep("Picture engine: text to image", IMAGE_ENGINE_IDS.t2i),
-    imageStep("Picture engine: from a reference photo", IMAGE_ENGINE_IDS.i2i),
+    imageStep("Picture engine: photoreal, from a reference photo", IMAGE_ENGINE_IDS.photoreal.i2i),
+    imageStep("Picture engine: photoreal, text to image", IMAGE_ENGINE_IDS.photoreal.t2i),
+    imageStep("Picture engine: a chosen look, from a reference photo", IMAGE_ENGINE_IDS.styled.i2i),
+    imageStep("Picture engine: a chosen look, text to image", IMAGE_ENGINE_IDS.styled.t2i),
     {
       step: "Source-photo detector",
       engine: detector.label,
