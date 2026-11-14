@@ -54,7 +54,7 @@ import { assembleImagePromptForPreview } from "../imagePrompt/preview";
 import { withoutLlmRetries } from "../utilityLLM";
 import { renderPersonalized } from "../renderCanonical";
 import { compileForSubjectRenderMode } from "../imagePrompt/compilers/nanoBanana2";
-import { recipeById } from "../imagePrompt/recipeStore";
+import { engineFamilyOf, recipeById } from "../imagePrompt/recipeStore";
 import type { CompiledPrompt, IdentityPolicy, ImagePromptGenerationInput, VisualPlan } from "@workspace/api-zod";
 import { imageEngineRefusal } from "../imageEngineRouting";
 import { buildImageRequestSettings } from "../imageRequestBuilder";
@@ -393,7 +393,7 @@ interface PanelCompileArgs { visualPlan: VisualPlan; plannerPrompt: CompiledProm
  * cell's prompt wording (the prompt tuner), or, for a panel prepared before
  * scenes were frozen, the panel's one compiled prompt.
  */
-export async function cellPromptText(panel: ComparisonPanel, cell: Pick<ComparisonCell, "recipeVersionId">): Promise<string | null> {
+export async function cellPromptText(panel: ComparisonPanel, cell: Pick<ComparisonCell, "recipeVersionId" | "engineId">): Promise<string | null> {
   const args = panel.compileArgs as PanelCompileArgs | null;
   if (!args) return promptTextOf(panel.compiledPrompt);
   const compiled = compileForSubjectRenderMode({
@@ -401,7 +401,7 @@ export async function cellPromptText(panel: ComparisonPanel, cell: Pick<Comparis
     compiledPrompt: args.plannerPrompt,
     input: args.input,
     renderedSubject: args.renderedSubject,
-    recipe: await recipeById(cell.recipeVersionId),
+    recipe: await recipeById(cell.recipeVersionId, engineFamilyOf(cell.engineId)),
   });
   return compiled.prompt || null;
 }

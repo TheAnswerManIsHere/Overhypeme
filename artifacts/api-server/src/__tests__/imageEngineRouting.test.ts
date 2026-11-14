@@ -105,14 +105,29 @@ after(async () => {
 });
 
 describe("resolveImageEngine", () => {
-  it("routes each mode to the engines set in code, whatever the retired keys say", async () => {
+  it("routes each look class and mode to the engines set in code, whatever the retired keys say", async () => {
     await setRetiredKey("image_engine_t2i", "flux-3");
     await setRetiredKey("image_engine_i2i", "flux-3-edit");
-    assert.deepEqual(IMAGE_ENGINE_IDS, { t2i: "nano-banana-2", i2i: "nano-banana-2-edit" });
-    assert.deepEqual(await currentImageEngineIds(), { t2i: "nano-banana-2", i2i: "nano-banana-2-edit" });
+    assert.deepEqual(IMAGE_ENGINE_IDS, {
+      photoreal: { t2i: "gpt-image-2-6", i2i: "gpt-image-2-6-edit" },
+      styled: { t2i: "nano-banana-2-1", i2i: "nano-banana-2-1-edit" },
+    });
+    assert.deepEqual(await currentImageEngineIds(), { t2i: "gpt-image-2-6", i2i: "gpt-image-2-6-edit" }, "no look is photoreal");
+    assert.deepEqual(await currentImageEngineIds("styled"), { t2i: "nano-banana-2-1", i2i: "nano-banana-2-1-edit" });
     assert.deepEqual((await currentRenderRouting()).recipeVersions, { t2i: null, i2i: null }, "no prompt recipe is promoted: both modes read the baseline");
-    assert.equal((await resolveImageEngine("t2i")).id, "nano-banana-2");
-    assert.equal((await resolveImageEngine("i2i")).id, "nano-banana-2-edit");
+    assert.equal((await resolveImageEngine("t2i")).id, "gpt-image-2-6");
+    assert.equal((await resolveImageEngine("i2i")).id, "gpt-image-2-6-edit");
+    assert.equal((await resolveImageEngine("t2i", null, "styled")).id, "nano-banana-2-1");
+    assert.equal((await resolveImageEngine("i2i", null, "styled")).id, "nano-banana-2-1-edit");
+  });
+
+  it("every engine a look class routes to can draw its mode", async () => {
+    for (const lookClass of ["photoreal", "styled"] as const) {
+      for (const mode of ["t2i", "i2i"] as const) {
+        const engine = await resolveImageEngine(mode, null, lookClass);
+        assert.equal(engine.imageMode, mode, `${lookClass} ${mode}`);
+      }
+    }
   });
 
   it("an override wins, and the engine it returns carries the code's definition", async () => {
@@ -171,7 +186,8 @@ describe("the worker renders through the engine recorded at construction", () =>
       generationMode: "t2i",
       subjectRenderMode: "t2i_fallback",
       targetEngine: "nano_banana_2",
-      actualImageEngineId: (await resolveImageEngine("t2i")).id,
+      // An attempt queued before routing moved off Nano Banana 2 still renders through it.
+      actualImageEngineId: "nano-banana-2",
       sourceImageAnalysis: {} as never,
       identityPolicy: {} as never,
       renderControls: { aspectRatio: "portrait" } as never,
@@ -200,6 +216,81 @@ describe("the worker renders through the engine recorded at construction", () =>
   });
 });
 
+describe("a render is routed by its look, resolved once at queue time (compiler review, Phase 1)", () => {
+  const LOOK = `${PREFIX}look-${randomUUID().slice(0, 8)}`;
+  const queued: number[] = [];
+
+  async function enqueue(lookStyleId: string | null) {
+    const { buildAndEnqueueImagePromptAttempt } = await import("../lib/imagePromptAttempts.js");
+    const { resolveRenderReviewInput } = await import("../lib/imagePrompt/resolveRenderReviewInput.js");
+    const { syntheticAnalysisForReference, defaultScenarioRenderControls } = await import("../lib/reviewRenderScenarios.js");
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} lifts a truck.", isActive: false, enrichment: ENRICHMENT }).returning({ id: factsTable.id });
+    factIds.push(fact!.id);
+    const resolved = await resolveRenderReviewInput("{NAME} lifts a truck.", ENRICHMENT, {
+      subjectRenderMode: "human_identity_i2i",
+      sourceImageAnalysis: syntheticAnalysisForReference("male"),
+      referenceImageUrl: "https://example.com/ref.png",
+      lookStyleId,
+      renderControls: defaultScenarioRenderControls("i2i_male_default"),
+    });
+    const { attemptId } = await buildAndEnqueueImagePromptAttempt({
+      factId: fact!.id, userId: null, enrichment: ENRICHMENT, renderedFactText: resolved.renderedFactText,
+      analysis: resolved.analysis, subjectRenderMode: resolved.subjectRenderMode, identityPolicy: resolved.identityPolicy,
+      renderControls: resolved.renderControls,
+    });
+    queued.push(attemptId);
+    const [row] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, attemptId));
+    return { resolved, row: row! };
+  }
+
+  before(async () => {
+    const { lookStylesTable } = await import("@workspace/db/schema");
+    await db.insert(lookStylesTable).values({ id: LOOK, label: "Test look", promptSuffix: "Rendered as a watercolour.", promptSuffixReference: "Repainted as a watercolour.", isActive: true });
+  });
+
+  after(async () => {
+    const { lookStylesTable, asyncJobsTable } = await import("@workspace/db/schema");
+    for (const id of queued) await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.dedupeKey, [`image_prompt:attempt:${id}`, `image_prompt_generation:attempt:${id}`]));
+    if (queued.length) await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.id, queued));
+    await db.delete(lookStylesTable).where(eq(lookStylesTable.id, LOOK));
+  });
+
+  it("no look goes to GPT Image 2.6 and a chosen look to Nano Banana 2.1, each with the look frozen on the attempt", async () => {
+    const plain = await enqueue(null);
+    assert.equal(plain.resolved.lookClass, "photoreal");
+    assert.equal(plain.row.actualImageEngineId, "gpt-image-2-6-edit");
+    assert.equal((plain.row.renderControls as { resolvedRenderStyle?: { selection: string } }).resolvedRenderStyle?.selection, "default");
+
+    const styled = await enqueue(LOOK);
+    assert.equal(styled.resolved.lookClass, "styled");
+    assert.equal(styled.row.actualImageEngineId, "nano-banana-2-1-edit");
+    const frozen = (styled.row.renderControls as { resolvedRenderStyle?: { selection: string; prompt: string; styleId: string } }).resolvedRenderStyle;
+    assert.equal(frozen?.selection, "selected");
+    assert.equal(frozen?.styleId, LOOK);
+    assert.equal(frozen?.prompt, "Repainted as a watercolour.", "the reference-photo variant, frozen as resolved");
+  });
+
+  it("a look edited after queueing changes neither the queued engine nor its frozen style text", async () => {
+    const { lookStylesTable } = await import("@workspace/db/schema");
+    const styled = await enqueue(LOOK);
+    await db.update(lookStylesTable).set({ promptSuffixReference: "Redrawn as a charcoal sketch.", isActive: false }).where(eq(lookStylesTable.id, LOOK));
+    try {
+      const [row] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, styled.row.id));
+      assert.equal(row!.actualImageEngineId, "nano-banana-2-1-edit");
+      assert.equal((row!.renderControls as { resolvedRenderStyle?: { prompt: string } }).resolvedRenderStyle?.prompt, "Repainted as a watercolour.");
+    } finally {
+      await db.update(lookStylesTable).set({ promptSuffixReference: "Repainted as a watercolour.", isActive: true }).where(eq(lookStylesTable.id, LOOK));
+    }
+  });
+
+  it("an unusable look is refused before anything is stored, never treated as no look", async () => {
+    const { RenderStyleRefusedError } = await import("../lib/imagePrompt/styleResolution.js");
+    const before = queued.length;
+    await assert.rejects(enqueue(`${PREFIX}missing-look`), (err: unknown) => err instanceof RenderStyleRefusedError && err.reason === "not_found");
+    assert.equal(queued.length, before, "no attempt was queued");
+  });
+});
+
 describe("the retired keys", () => {
   it("the generic config route refuses both", async () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminRouter);
@@ -207,6 +298,6 @@ describe("the retired keys", () => {
       const res = await request(app).patch(`/api/admin/config/${key}`).send({ value: "anything" });
       assert.equal(res.status, 403, key);
     }
-    assert.deepEqual(await currentImageEngineIds(), { t2i: "nano-banana-2", i2i: "nano-banana-2-edit" });
+    assert.deepEqual(await currentImageEngineIds(), { t2i: "gpt-image-2-6", i2i: "gpt-image-2-6-edit" });
   });
 });

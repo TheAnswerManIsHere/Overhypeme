@@ -21,10 +21,18 @@
  * - **Policy pieces** (the overlay-text and incidental-text rules and the
  *   violence lines) can be reworded but never emptied, and promoting a change
  *   to one asks a second confirmation (David, 2026-11-12).
- * - **Section order is fixed**; the section labels are pieces.
+ * - **Section order is fixed**; the section labels are pieces, and so is the
+ *   shape: how a section is written (`shape.section`) and what sits between
+ *   sections (`shape.join`).
+ * - **A baseline per engine family** (compiler review, Phase 1, plan
+ *   `docs/plans/PLAN_COMPILER_REVIEW.md`). `BASELINE_RECIPE` is Nano Banana 2's
+ *   wording and every family's default; a family in `FAMILY_BASELINES`
+ *   replaces only the pieces it names, following that vendor's published
+ *   prompting guidance. A stored version is laid over its own family's
+ *   baseline.
  */
 
-export type RecipeGroup = "labels" | "identity" | "binding" | "constraints" | "composition" | "style" | "text" | "violence" | "bubbles" | "notes";
+export type RecipeGroup = "labels" | "shape" | "identity" | "binding" | "constraints" | "composition" | "style" | "text" | "violence" | "bubbles" | "notes";
 
 export interface RecipePieceDef {
   key: string;
@@ -35,6 +43,8 @@ export interface RecipePieceDef {
   when: string;
   /** Slots the piece must contain, each exactly as `{slot}`. */
   slots: readonly string[];
+  /** Slots the piece may contain but need not (a section written without its label). */
+  optionalSlots?: readonly string[];
   /** Reworded freely but never emptied; a change asks a second confirmation at promotion. */
   policy?: boolean;
   /** Today's wording. */
@@ -63,6 +73,18 @@ export const RECIPE_PIECES = [
   label("engineNotes", "ENGINE NOTES", "Whenever this recipe's engine notes are not empty."),
   label("renderStyle", "RENDER STYLE", "Always."),
   label("strictConstraints", "STRICT CONSTRAINTS"),
+
+  // ── Shape: how sections are written and joined ──────────────────────────────
+  {
+    key: "shape.section", label: "How each section is written", group: "shape",
+    when: "For every section that has content.", slots: ["body"], optionalSlots: ["label"],
+    text: "{label}: {body}",
+  },
+  {
+    key: "shape.join", label: "Between sections", group: "shape",
+    when: "Between every two sections. Spaces and line breaks only.", slots: [],
+    text: " ",
+  },
 
   // ── Identity ────────────────────────────────────────────────────────────────
   {
@@ -275,9 +297,74 @@ export const BASELINE_PIECES: RecipePieces = Object.freeze(
 );
 export const BASELINE_RECIPE: ResolvedRecipe = Object.freeze({ versionId: null, pieces: BASELINE_PIECES });
 
-/** A stored version's pieces over the baseline: a piece added to the code after the version was saved reads its baseline text. */
-export function recipeFrom(versionId: number | null, stored: unknown): ResolvedRecipe {
-  const pieces = { ...BASELINE_PIECES };
+/**
+ * Each engine family's own starting wording, where it differs from Nano Banana
+ * 2's (compiler review, Phase 1). Only what differs is named; when a line
+ * appears is still the compiler's. Both fix the doubled "COMPOSITION:
+ * Composition:" label; Nano Banana 2's baseline keeps it, byte for byte, so
+ * its stored renders stay reproducible.
+ *
+ * - **GPT Image 2.6** follows OpenAI's image prompting guide
+ *   (developers.openai.com/api/docs/guides/image-prompting, read 2026-11-14):
+ *   "organize the prompt as scene, subject, details, and constraints, using
+ *   labeled sections"; "Identify each input by number and purpose"; "State
+ *   which facial features and proportions must remain unchanged"; "Put
+ *   required wording in quotes"; "Request 'photorealistic' or 'real
+ *   photograph' explicitly". Labeled sections, one per paragraph.
+ * - **Nano Banana 2.1** follows Google's Gemini image-generation guide
+ *   (ai.google.dev/gemini-api/docs/image-generation, and Google Cloud's
+ *   "ultimate Nano Banana prompting guide", 2026-03-05, both read
+ *   2026-11-14): "describe the scene narratively" rather than as keywords;
+ *   "Ensure that the features of [element from image 1] remain completely
+ *   unchanged"; "Use positive framing: Describe what you want, not what you
+ *   don't want". Unlabeled paragraphs, and the do-nots written as what the
+ *   picture is.
+ */
+const FAMILY_BASELINES: Readonly<Record<string, Partial<RecipePieces>>> = {
+  "gpt-image-2-6": {
+    "shape.join": "\n\n",
+    "identity.person": "Edit image 1. The person in image 1 is the subject of this picture. Keep their identity and likeness exactly: face, facial features, skin tone, hairstyle and distinctive characteristics, so they are unmistakably the same person. Their apparent age, body proportions, clothing, pose and life stage change only where the scene requires it.",
+    "identity.object": "Edit image 1. The subject in image 1, a pet or an object, is the named subject of the fact. Keep its recognizable identity exactly: markings, colours, shape and distinctive features. Do not replace the subject with a human.",
+    "composition.framing": "{framing}.",
+    "style.photoreal": "A photorealistic image, like a real photograph: true-to-life materials and textures, natural detail and believable lighting.",
+    "text.literal": "Render this in-scene text exactly as quoted, clearly and legibly, each item exactly once: {items}.",
+  },
+  "nano-banana-2-1": {
+    "shape.section": "{body}",
+    "shape.join": "\n\n",
+    "identity.person": "Create this image using the provided photo as the reference for the person in it. Ensure that their face, facial features, skin tone and distinctive characteristics remain completely unchanged, so they are unmistakably the same person; their apparent age, body proportions, hair, clothing and life stage change only where the scene requires it.",
+    "identity.object": "Create this image using the provided photo as the reference for its subject, a pet or an object that is the named subject of the fact. Ensure that its markings, colours, shape and distinctive features remain completely unchanged, and keep it the animal or object it is.",
+    "composition.framing": "{framing}.",
+    "style.photoreal": "A photorealistic photograph with true-to-life materials and textures, natural light and realistic optical detail.",
+    "constraints.agePerson": "{subject} appears exactly once in the frame, only as the {noun}: the {noun} and {subject} are the same person.",
+    "constraints.ageOther": "The subject appears exactly once, only at that life stage: the {noun} in the frame is the subject itself.",
+    "constraints.duplicate": "{subject} appears exactly once in the frame, as a single figure.",
+    "constraints.reversal": "Realize {subject} through the reversed role the scene requires, as a participant in it beside the object.",
+    "text.overlay": "The picture is a clean, uncaptioned scene: captions are added later, so it carries none of these: {forbidden}.",
+    "text.incidental": "Background signs and labels stay softly unreadable; the only legible lettering is the in-scene text these instructions ask for.",
+    "text.forbid": "The scene carries no readable lettering unless a higher-priority instruction asks for it.",
+  },
+};
+
+/** The family's own baseline pieces: Nano Banana 2's wording with the family's differences laid over it. */
+export function baselinePiecesFor(family: string | null | undefined): RecipePieces {
+  const own = family ? FAMILY_BASELINES[family] : undefined;
+  return own ? Object.freeze({ ...BASELINE_PIECES, ...own }) as RecipePieces : BASELINE_PIECES;
+}
+
+const familyBaselineCache = new Map<string, ResolvedRecipe>();
+
+/** The baseline a family compiles with when no version is live. Nano Banana 2 and any family without its own is `BASELINE_RECIPE` itself. */
+export function baselineRecipeFor(family: string | null | undefined): ResolvedRecipe {
+  if (!family || !FAMILY_BASELINES[family]) return BASELINE_RECIPE;
+  let r = familyBaselineCache.get(family);
+  if (!r) { r = Object.freeze({ versionId: null, pieces: baselinePiecesFor(family) }); familyBaselineCache.set(family, r); }
+  return r;
+}
+
+/** A stored version's pieces over its family's baseline: a piece added to the code after the version was saved reads its baseline text. */
+export function recipeFrom(versionId: number | null, stored: unknown, family?: string | null): ResolvedRecipe {
+  const pieces = { ...baselinePiecesFor(family) };
   if (stored && typeof stored === "object") {
     for (const [k, v] of Object.entries(stored as Record<string, unknown>)) {
       if (DEF.has(k) && typeof v === "string") pieces[k as RecipePieceKey] = v;
@@ -289,7 +376,7 @@ export function recipeFrom(versionId: number | null, stored: unknown): ResolvedR
 export const SLOT_RE = /\{([A-Za-z]+)\}/g;
 
 /** Slots that carry a fact's own words into the prompt. */
-const CONTENT_SLOTS = new Set(["text", "guidance", "items", "elements"]);
+const CONTENT_SLOTS = new Set(["text", "guidance", "items", "elements", "body"]);
 
 /** Slots measured at their longest by the budget check, so repeating them is charged in full. */
 const UNBOUNDED_SLOTS = new Set(["subject", "gender"]);
@@ -326,6 +413,7 @@ export function recipeProblems(pieces: Record<string, unknown>): string[] {
     if (!value.trim() && def.slots.some((s) => CONTENT_SLOTS.has(s))) out.push(`${def.label}: carries the fact's own text, so it can be reworded but not emptied`);
     if (def.group === "labels" && !value.trim()) out.push(`${def.label}: a section label cannot be empty`);
     if (def.group === "labels" && /[\r\n:]/.test(value)) out.push(`${def.label}: a section label is one line with no colon`);
+    if (def.key === "shape.join" && !/^[ \n]+$/.test(value)) out.push(`${def.label}: spaces and line breaks only, at least one`);
     const uses = [...value.matchAll(SLOT_RE)].map((m) => m[1]!);
     const named = new Set(uses);
     for (const slot of def.slots) if (value.trim() && !named.has(slot)) out.push(`${def.label}: must contain {${slot}}`);
@@ -340,7 +428,8 @@ export function recipeProblems(pieces: Record<string, unknown>): string[] {
       const allowed = Math.max(1, (def.text.match(new RegExp(`\\{${slot}\\}`, "g")) ?? []).length);
       if (count > allowed) out.push(`${def.label}: {${slot}} may appear ${allowed === 1 ? "once" : `${allowed} times`}; it is filled with the fact's own text`);
     }
-    for (const slot of named) if (!def.slots.includes(slot)) out.push(`${def.label}: {${slot}} is not something this piece can name${def.slots.length ? ` (it can name ${def.slots.map((s) => `{${s}}`).join(", ")})` : ""}`);
+    const allowedSlots = [...def.slots, ...(def.optionalSlots ?? [])];
+    for (const slot of named) if (!allowedSlots.includes(slot)) out.push(`${def.label}: {${slot}} is not something this piece can name${allowedSlots.length ? ` (it can name ${allowedSlots.map((s) => `{${s}}`).join(", ")})` : ""}`);
   }
   return out;
 }

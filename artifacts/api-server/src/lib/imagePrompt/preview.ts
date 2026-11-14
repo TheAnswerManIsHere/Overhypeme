@@ -9,6 +9,7 @@
  * side effects.
  */
 import type { ResolvedRecipe } from "./recipe";
+import type { ResolvedRenderStyleSnapshot } from "./styleResolution";
 import type {
   FactEnrichment,
   IdentityPolicy,
@@ -49,6 +50,8 @@ export const RUNTIME_PREVIEW_DEFAULT_PRONOUNS = "he/him";
 export type RenderControlsWithRefs = RenderControls & {
   styleId?: string | null;
   referenceImageUrl?: string | null;
+  /** The look, resolved once and frozen (`styleResolution.ts`); the engine and the RENDER STYLE are read from it. */
+  resolvedRenderStyle?: ResolvedRenderStyleSnapshot;
 };
 
 export interface AssembleImagePromptArgs {

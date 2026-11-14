@@ -14,7 +14,7 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { promptRecipePromotionsTable, promptRecipeVersionsTable } from "@workspace/db/schema";
-import { BASELINE_RECIPE, RECIPE_PIECE_KEYS, changedPolicyPieces, recipeFrom, recipeProblems, type RecipePieceKey, type ResolvedRecipe } from "./recipe";
+import { RECIPE_PIECE_KEYS, baselineRecipeFor, changedPolicyPieces, recipeFrom, recipeProblems, type RecipePieceKey, type ResolvedRecipe } from "./recipe";
 import { recipeBudgetProblems } from "./promptBudget";
 import { codeEngineDefinition, codeEngineDefinitions, imageEngines } from "../engineInterpreter";
 
@@ -25,14 +25,24 @@ export class RecipeRefused extends Error {
 /** Versions are never edited, so a version read once is kept for the process's life. */
 const versionCache = new Map<number, ResolvedRecipe>();
 
-/** A stored version as the compiler uses it; null, or a version that no longer exists, is the baseline. */
-export async function recipeById(versionId: number | null | undefined): Promise<ResolvedRecipe> {
-  if (versionId == null) return BASELINE_RECIPE;
+/** An engine's family: set in code (decisions.md 2026-11-14), its own id when it has none. */
+export function engineFamilyOf(engineId: string): string {
+  return codeEngineDefinition(engineId)?.family ?? engineId;
+}
+
+/**
+ * A stored version as the compiler uses it, laid over its own family's
+ * baseline. Null, or a version that no longer exists, is the baseline of
+ * `family` — the family of the engine that draws the render — which is Nano
+ * Banana 2's wording for any family without its own.
+ */
+export async function recipeById(versionId: number | null | undefined, family?: string | null): Promise<ResolvedRecipe> {
+  if (versionId == null) return baselineRecipeFor(family);
   const cached = versionCache.get(versionId);
   if (cached) return cached;
-  const [row] = await db.select({ id: promptRecipeVersionsTable.id, pieces: promptRecipeVersionsTable.pieces }).from(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, versionId));
-  if (!row) return BASELINE_RECIPE;
-  const recipe = recipeFrom(row.id, row.pieces);
+  const [row] = await db.select({ id: promptRecipeVersionsTable.id, pieces: promptRecipeVersionsTable.pieces, family: promptRecipeVersionsTable.engineFamily }).from(promptRecipeVersionsTable).where(eq(promptRecipeVersionsTable.id, versionId));
+  if (!row) return baselineRecipeFor(family);
+  const recipe = recipeFrom(row.id, row.pieces, row.family);
   versionCache.set(row.id, recipe);
   return recipe;
 }
@@ -58,7 +68,7 @@ export async function liveRecipeVersionIdForFamily(family: string): Promise<numb
 /** Each engine's family (its own id when it has none), in one read. */
 export async function engineFamiliesOf(engineIds: string[]): Promise<Map<string, string>> {
   // Family is set in code (decisions.md 2026-11-14), never read from a row.
-  return new Map(engineIds.map((id) => [id, codeEngineDefinition(id)?.family ?? id]));
+  return new Map(engineIds.map((id) => [id, engineFamilyOf(id)]));
 }
 
 /** The live version id for each engine a render could be routed to, in two reads. */
@@ -71,7 +81,7 @@ export async function liveRecipeVersionIdsForEngines(engineIds: string[]): Promi
 /** The live version id and recipe for the engine a render is routed to. */
 export async function liveRecipeForEngine(engineId: string): Promise<{ versionId: number | null; recipe: ResolvedRecipe }> {
   const versionId = (await liveRecipeVersionIdsForEngines([engineId])).get(engineId) ?? null;
-  return { versionId, recipe: await recipeById(versionId) };
+  return { versionId, recipe: await recipeById(versionId, engineFamilyOf(engineId)) };
 }
 
 /**
@@ -80,8 +90,8 @@ export async function liveRecipeForEngine(engineId: string): Promise<{ versionId
  * pieces laid over it. Shared by save and preview, so the two never differ.
  */
 export async function draftRecipe(family: string, basedOnVersionId: number | null | undefined, pieces: Record<string, string>): Promise<{ base: ResolvedRecipe; draft: ResolvedRecipe }> {
-  const base = await recipeById(basedOnVersionId !== undefined ? basedOnVersionId : await liveRecipeVersionIdForFamily(family));
-  return { base, draft: recipeFrom(null, { ...base.pieces, ...pieces }) };
+  const base = await recipeById(basedOnVersionId !== undefined ? basedOnVersionId : await liveRecipeVersionIdForFamily(family), family);
+  return { base, draft: recipeFrom(null, { ...base.pieces, ...pieces }, family) };
 }
 
 async function assertImageFamily(family: string): Promise<void> {
@@ -128,8 +138,8 @@ export async function promoteRecipe(args: { family: string; versionId: number | 
     if (!v) throw new RecipeRefused("no such version");
     if (v.family !== args.family) throw new RecipeRefused(`that version belongs to ${v.family}, not ${args.family}`);
   }
-  const live = await recipeById(await liveRecipeVersionIdForFamily(args.family));
-  const next = await recipeById(args.versionId);
+  const live = await recipeById(await liveRecipeVersionIdForFamily(args.family), args.family);
+  const next = await recipeById(args.versionId, args.family);
   const changedPolicy = changedPolicyPieces(live.pieces, next.pieces);
   if (changedPolicy.length && !args.confirmPolicy) {
     throw new RecipeRefused("this version changes policy wording; confirm it to promote", { needsPolicyConfirmation: true, changedPolicy });
@@ -144,6 +154,8 @@ export interface RecipeFamilySummary {
   engines: Array<{ id: string; label: string; imageMode: string | null }>;
   /** The live version, or null for the baseline. */
   liveVersionId: number | null;
+  /** This family's own baseline wording, every piece (Nano Banana 2's for a family without its own). */
+  baselinePieces: Record<string, string>;
   versions: Array<{ id: number; number: number; note: string; createdBy: string | null; createdAt: string; pieces: Record<string, string> }>;
   promotions: Array<{ id: number; versionId: number | null; promotedBy: string | null; promotedAt: string }>;
 }
@@ -163,9 +175,10 @@ export async function listRecipeFamilies(): Promise<RecipeFamilySummary[]> {
     family,
     engines: engines.filter((e) => e.family === family).map((e) => ({ id: e.id, label: e.label, imageMode: e.imageMode })),
     liveVersionId: live.get(family) ?? null,
+    baselinePieces: { ...baselineRecipeFor(family).pieces },
     versions: versions.filter((v) => v.engineFamily === family).map((v) => ({
       id: v.id, number: v.number, note: v.note, createdBy: v.createdBy, createdAt: v.createdAt.toISOString(),
-      pieces: recipeFrom(v.id, v.pieces).pieces,
+      pieces: recipeFrom(v.id, v.pieces, family).pieces,
     })),
     promotions: promotions.filter((p) => p.engineFamily === family).map((p) => ({ id: p.id, versionId: p.versionId, promotedBy: p.promotedBy, promotedAt: p.promotedAt.toISOString() })),
   }));

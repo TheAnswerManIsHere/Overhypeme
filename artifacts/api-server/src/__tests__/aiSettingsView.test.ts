@@ -35,8 +35,10 @@ describe("aiSettingsView", () => {
 
   it("shows the picture engine for each render mode", async () => {
     const { steps } = await aiSettingsView();
-    assert.equal(steps.find((s) => s.step === "Picture engine: text to image")!.model, "fal-ai/nano-banana-2");
-    assert.equal(steps.find((s) => s.step === "Picture engine: from a reference photo")!.model, "fal-ai/nano-banana-2/edit");
+    assert.equal(steps.find((s) => s.step === "Picture engine: photoreal, from a reference photo")!.model, "openai/gpt-image-2.6/sunburst/edit");
+    assert.equal(steps.find((s) => s.step === "Picture engine: photoreal, text to image")!.model, "openai/gpt-image-2.6/sunburst/text-to-image");
+    assert.equal(steps.find((s) => s.step === "Picture engine: a chosen look, from a reference photo")!.model, "google/nano-banana-2.1/edit");
+    assert.equal(steps.find((s) => s.step === "Picture engine: a chosen look, text to image")!.model, "google/nano-banana-2.1");
   });
 
   it("shows every system prompt set in code, with its text, and names only prompts it shows", async () => {

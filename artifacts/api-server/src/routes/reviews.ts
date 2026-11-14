@@ -79,6 +79,7 @@ import {
   type RenderControlsWithRefs,
 } from "../lib/imagePromptAttempts";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
+import { RenderStyleRefusedError } from "../lib/imagePrompt/styleResolution";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import {
   buildReviewScenarioGrid,
@@ -1591,7 +1592,9 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
 
   // Shared deterministic assembly — identical to the prompt-preview factId path,
   // forced to t2i with a fallback gender so the generator can build a protagonist.
-  const resolved = await resolveRenderReviewInput(cycle.text, ev.data, {
+  let resolved;
+  try {
+  resolved = await resolveRenderReviewInput(cycle.text, ev.data, {
     subjectRenderMode: T2I_MODE,
     userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? body.subjectRenderMode ?? null,
     lookStyleId: body.lookStyleId ?? null,
@@ -1605,6 +1608,13 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     previewName: body.previewName,
     previewPronouns: body.previewPronouns,
   });
+  } catch (err) {
+    if (err instanceof RenderStyleRefusedError) {
+      res.status(400).json({ error: err.code, message: err.message, styleId: err.styleId, reason: err.reason });
+      return;
+    }
+    throw err;
+  }
 
   // Only server-written internal fields reach renderControls — the client cannot
   // inject arbitrary keys (the resolver rebuilt renderControls from validated input).
