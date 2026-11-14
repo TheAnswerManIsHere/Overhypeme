@@ -4,14 +4,13 @@ import type { EngineDefinition } from "./types";
  * OpenAI gag writer: the model that drafts each fact's joke read and three
  * candidate visual gags during moderation prep (plan
  * docs/plans/PLAN_GAG_GENERATOR.md, approved by David 2026-11-13: "Astra 6 as
- * the model that generates the gags in the app"). Selected by the
- * `fact_visual_concepts_engine_id` admin_config key, which migration 0137
- * points here. Its own row, so the render planner (`openai-visual-planner`)
+ * the model that generates the gags in the app"). Selected by
+ * `DEFAULT_VISUAL_CONCEPTS_ENGINE_ID`, set in code. Its own row, so the render planner (`openai-visual-planner`)
  * is unchanged. There is no fallback to a weaker model (David: "an admin
  * function so doesn't need high availability").
  *
  * Not called through the fal interpreter; `endpointId` is the OpenAI model,
- * admin-editable from /admin/engines.
+ * set here (decisions.md 2026-11-14: AI call settings live in code).
  */
 export const OPENAI_GAG_WRITER: EngineDefinition = {
   id: "openai-gag-writer",
@@ -19,14 +18,13 @@ export const OPENAI_GAG_WRITER: EngineDefinition = {
   endpointId: "gpt-6-astra",
   label: "OpenAI — Gag Writer",
   description:
-    "Drafts each fact's joke read and three candidate visual gags for moderators. Selected by fact_visual_concepts_engine_id; not eligible as the global default LLM.",
+    "Drafts each fact's joke read and three candidate visual gags for moderators. Chosen in code; not eligible as the global default LLM.",
   kind: "llm",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,
   sortOrder: 2,
   featureFlagRequired: null,
-  eligibleAsKindDefault: false,
 
   allowedResolutions: null,
   defaultResolution: null,
@@ -44,6 +42,6 @@ export const OPENAI_GAG_WRITER: EngineDefinition = {
   defaultTemperature: 0.8,
   defaultMaxTokens: 4000,
   // Medium (David, 2026-11-14, in UAT: high took 100–211 s a call, "WAY too
-  // long"). Admin-tunable: an existing row keeps its own value (reconcile.ts).
+  // long"). Set here; no engine row's stored copy is read.
   defaultReasoningEffort: "medium",
 };

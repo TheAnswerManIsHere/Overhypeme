@@ -9,13 +9,13 @@
  *     surfaces it. Editing them via SQL is meaningless because they get
  *     reset.
  *
- *   - **Admin-tunable fields** are preserved across boots once the row first
- *     exists. These are the operational levers: isActive, isDefault,
- *     defaults, expectedRunMs, pricing fallbacks. Admins flip them in the
- *     `/admin/engines` page; reconciliation respects their value.
+ *   - **Preserved fields** (`RECONCILE_PRESERVED_FIELDS`) keep their stored
+ *     value once the row exists. No admin screen edits them any more
+ *     (decisions.md 2026-11-14), and the call-shaping ones among them are
+ *     never read at run time; they are preserved so a code revert restores
+ *     the old behaviour exactly.
  *
- *   - **Soft-deleted rows** stay soft-deleted. If an admin archives an
- *     engine, the next reconciliation does NOT resurrect it. Removing the
+ *   - **Soft-deleted rows** stay soft-deleted. If an engine was archived, the next reconciliation does NOT resurrect it. Removing the
  *     engine's file from the code catalogue stops the row from updating
  *     but doesn't delete it either — lineage on video_jobs.video_engine_id
  *     stays intact.
@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { logger } from "../logger";
 import { clearEngineCaches } from "../engineInterpreter";
 import { ALL_ENGINES } from "./catalogue";
-import { ADMIN_EDITABLE_FIELDS, type EngineDefinition } from "./types";
+import { RECONCILE_PRESERVED_FIELDS, type EngineDefinition } from "./types";
 import { codeDefinitionToRow } from "./toRow";
 
 export { codeDefinitionToRow };
@@ -49,7 +49,7 @@ interface ReconcileResult {
  *   2. If absent → insert the full code definition (admin fields use code
  *      defaults; deletedAt = null).
  *   3. If present and not soft-deleted → update only the code-owned fields;
- *      leave admin-tunable fields and deletedAt alone.
+ *      leave preserved fields and deletedAt alone.
  *   4. If present and soft-deleted → still update code-owned fields so the
  *      paramSchema stays accurate; do NOT touch deletedAt.
  */
@@ -106,23 +106,23 @@ export async function reconcileEngines(): Promise<ReconcileResult> {
 /**
  * Subset of fields that reconciliation overwrites on every boot — i.e. the
  * "code is source of truth" fields. Excludes everything in
- * ADMIN_EDITABLE_FIELDS (which the admin panel owns) plus the auto-managed
+ * RECONCILE_PRESERVED_FIELDS (which the admin panel owns) plus the auto-managed
  * created_at / updated_at columns.
  */
 function codeOwnedFields(def: EngineDefinition): Partial<InsertEngine> {
   const allFields = { ...codeDefinitionToRow(def) } as Record<string, unknown>;
-  // Remove admin-editable fields (preserved across boots).
-  for (const field of ADMIN_EDITABLE_FIELDS) {
+  // Remove the preserved fields.
+  for (const field of RECONCILE_PRESERVED_FIELDS) {
     delete allFields[field];
   }
-  // endpointId is admin-editable ONLY for LLM engines (the model picker).
+  // endpointId is preserved ONLY for LLM engines (where the retired model picker wrote it).
   // For media (fal) engines, code remains the source of truth for the
   // endpoint, so re-assert it on every boot.
   if (def.provider !== "openai") {
     allFields.endpointId = def.endpointId;
   }
   // `deletedAt` is also admin-owned (soft-delete via the dedicated DELETE
-  // endpoint) but lives outside ADMIN_EDITABLE_FIELDS because it's not
+  // endpoint) but lives outside RECONCILE_PRESERVED_FIELDS because it's not
   // PATCH-editable. Reconciliation must never reset a tombstone.
   delete allFields.deletedAt;
   // Always refresh updated_at so we can see when reconciliation last touched

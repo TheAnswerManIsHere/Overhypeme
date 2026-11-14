@@ -244,7 +244,7 @@ export async function ensureSchema(): Promise<void> {
     // Retired in migration 0059_retire_legacy_model_config_keys:
     //   ai_scene_prompt_system, ai_image_model_standard, ai_image_model_reference,
     //   ai_image_size (consumers now use baked-in defaults; PuLID/face-reference
-    //   path now reads from the engines table via loadDefaultEngine("image")).
+    //   path was later retired).
     // Retired in migration 0059_retire_legacy_model_config_keys:
     //   ai_std_*, ai_ref_pulid_*, ai_pulid_composition_suffix,
     //   video_prompt_system_prompt, video_model, video_duration,

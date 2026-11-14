@@ -96,7 +96,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
         // Set by a migration (increment 4 of launch Phase 8), never by an admin.
         "retired",
       ],
-      // ADMIN_EDITABLE_FIELDS (engines/types.ts) plus the soft-delete tombstone;
+      // RECONCILE_PRESERVED_FIELDS (engines/types.ts) plus the soft-delete tombstone;
       // a test holds the two lists equal.
       admin: [
         "is_active",

@@ -67,8 +67,8 @@ export interface BuildImagePromptAttemptArgs {
    */
   requestId?: string | null;
   /**
-   * The engine to draw this attempt. Omitted: the configured engine for the
-   * mode (`image_engine_t2i` / `image_engine_i2i`). A caller that folded an
+   * The engine to draw this attempt. Omitted: the mode's engine, set in code
+   * (`IMAGE_ENGINE_IDS`). A caller that folded an
    * engine into a hash (moderation, eval) passes the one it hashed, so the
    * stored attempt and its hash name the same engine. Validated either way;
    * an unusable engine refuses the attempt rather than falling back.

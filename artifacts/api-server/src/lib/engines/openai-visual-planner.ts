@@ -4,14 +4,11 @@ import type { EngineDefinition } from "./types";
  * OpenAI visual-planner engine — the dedicated frontier LLM for render-time
  * visual gag planning (image-prompt generation).
  *
- * Selected per-purpose via the `fact_image_prompt_engine_id` admin_config key
- * (see lib/imagePromptConfig.ts), NOT by being the default `llm` engine.
- * `eligibleAsKindDefault: false` blocks it from ever becoming the global
- * default LLM — routing every utility call through a high-reasoning model
- * would be a silent cost/latency blast radius.
+ * Selected per-purpose by `DEFAULT_IMAGE_PROMPT_ENGINE_ID` in
+ * lib/imagePromptConfig.ts, set in code, NOT by being the utility engine.
  *
  * Like openai-general, this is not called through the fal interpreter —
- * `endpointId` is the OpenAI model, admin-editable from /admin/engines.
+ * `endpointId` is the OpenAI model, set here (decisions.md 2026-11-14: AI call settings live in code).
  */
 export const OPENAI_VISUAL_PLANNER: EngineDefinition = {
   id: "openai-visual-planner",
@@ -19,14 +16,13 @@ export const OPENAI_VISUAL_PLANNER: EngineDefinition = {
   endpointId: "gpt-5.5",
   label: "OpenAI — Visual Planner",
   description:
-    "Dedicated LLM for render-time visual gag planning. Selected by fact_image_prompt_engine_id; not eligible as the global default LLM.",
+    "Dedicated LLM for render-time visual gag planning. Chosen in code; not eligible as the global default LLM.",
   kind: "llm",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,
   sortOrder: 1,
   featureFlagRequired: null,
-  eligibleAsKindDefault: false,
 
   allowedResolutions: null,
   defaultResolution: null,

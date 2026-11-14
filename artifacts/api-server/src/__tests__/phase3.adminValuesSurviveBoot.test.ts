@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 import { configTables, TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
-import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
+import { RECONCILE_PRESERVED_FIELDS } from "../lib/engines/types.js";
 import { droppablePool } from "./helpers/droppablePool.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -76,7 +76,7 @@ describe("admin-owned configuration survives a boot", () => {
     const entry = TABLE_CLASSIFICATION.engines;
     assert.equal(entry.class, "config");
     const snake = (s: string) => s.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
-    const expected = [...ADMIN_EDITABLE_FIELDS.map(snake), "deleted_at"].sort();
+    const expected = [...RECONCILE_PRESERVED_FIELDS.map(snake), "deleted_at"].sort();
     assert.deepEqual([...(entry.class === "config" ? entry.columns.admin : [])].sort(), expected);
   });
 

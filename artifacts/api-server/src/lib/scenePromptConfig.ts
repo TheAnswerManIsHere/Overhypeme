@@ -6,7 +6,7 @@
  * (codeOwnedPrompts.ts; Launch Phase 3, plan amendment 1).
  *
  * The model + sampling are NOT configured here — they come from the shared
- * General Intelligence engine (see lib/utilityLLM.ts / /admin/engines).
+ * utility engine (see lib/utilityLLM.ts), set in code.
  */
 
 // ─── Config keys ───────────────────────────────────────────────────────────────

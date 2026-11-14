@@ -13,16 +13,11 @@ import type { EngineDefinition } from "./types";
  *   - input: { image_url: string, classes?: string, ... }
  *   - output: { detections: Array&lt;{ label, score, box: { x, y, w, h } }&gt; }
  *
- * Bench: classifies as "image-classifier" via engineBenchType() because it
- * takes `imageUrl` but no `prompt`. Shows up next to image/video benches at
- * /admin/engines for IO testing.
- *
  * Cost: ~$0.001-0.005 per image (rough; verify in preflight). Latency: 1-2s p50.
  *
- * Swappable via admin config: the source-image analyzer calls
- * `loadEngine(getImageClassifierEngineId())` so admins can flip the active
- * detector without code changes. Add additional detector engines as separate
- * files and seed their ids into the same admin_config key.
+ * The source-image analyzer calls `loadEngine(getImageClassifierEngineId())`,
+ * and that id is set in code (decisions.md 2026-11-14: AI call settings live in code). To swap
+ * detectors, add the engine to the catalogue and change the constant.
  */
 export const FAL_YOLO_WORLD: EngineDefinition = {
   id: "fal-yolo-world",
@@ -34,9 +29,8 @@ export const FAL_YOLO_WORLD: EngineDefinition = {
   kind: "utility",
   tierRequirement: "legendary",
   // NOT a kind="utility" catalogue default — auto-subtitle already holds that slot.
-  // The active source-image classifier is selected by admin_config key
-  // `fact_source_classifier_engine_id`, which defaults to "fal-yolo-world"
-  // in `factSourceClassifierConfig.ts`.
+  // The active source-image classifier is `DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID`
+  // in `imagePromptConfig.ts`, set in code.
   isDefault: false,
   isActive: true,
   sortOrder: 250,

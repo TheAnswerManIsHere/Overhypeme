@@ -7,11 +7,11 @@
  * `generate_audio` rejection at fal).
  *
  * Boot-time reconciliation upserts each definition into the `engines` table
- * (see `reconcile.ts`). Admin-tunable fields (isActive, isDefault,
- * pricing overrides, etc.) are preserved across reconciliations once first
- * persisted. Code-owned fields (paramSchema, allowed sets,
- * label, description, kind) are overwritten on every boot — code is the
- * source of truth for "what does fal accept from this engine."
+ * (see `reconcile.ts`). The fields in `RECONCILE_PRESERVED_FIELDS` keep their
+ * stored values once a row exists; the rest are refreshed on every boot.
+ * Every field that decides how a call is made is read from this catalogue at
+ * run time, never from the row (`effectiveEngine` in engineInterpreter.ts;
+ * decisions.md 2026-11-14), whatever reconciliation leaves stored.
  *
  * Adding a new engine = drop a new file in this directory, add it to
  * `ALL_ENGINES` in `index.ts`. No SQL migration required.
@@ -32,8 +32,8 @@ export type TierRequirement = "unregistered" | "registered" | "legendary";
 
 /**
  * The typed engine definition. The interpreter (engineInterpreter.ts) consumes
- * the `paramSchema` field at runtime; everything else is metadata or
- * admin-tunable defaults.
+ * the `paramSchema` field at runtime, and every call-shaping field here is
+ * read from code (`CODE_OWNED_CALL_FIELDS`).
  */
 export interface EngineDefinition {
   // ── Identity ────────────────────────────────────────────────────────────
@@ -44,22 +44,14 @@ export interface EngineDefinition {
   description: string;
   kind: EngineKind;
 
-  // ── Tier + visibility (admin-editable in the panel) ─────────────────────
+  // ── Tier + visibility (stored on the row; no admin screen edits them) ────
   tierRequirement: TierRequirement;
-  /** True if this engine is the default for its kind on first boot. */
+  /** Stored for history; it selects nothing (decisions.md 2026-11-14). */
   isDefault: boolean;
   isActive: boolean;
   sortOrder: number;
   /** Feature flag gate for visibility in the wizard. Null = always visible. */
   featureFlagRequired: string | null;
-  /**
-   * False blocks the engine from becoming the default for its kind via
-   * POST /admin/engines/:id/set-default (per-purpose config-key routing
-   * only). Omitted/true = eligible. Read from the in-process catalogue —
-   * DB-only rows with no catalogue definition stay eligible (current
-   * behavior preserved).
-   */
-  eligibleAsKindDefault?: boolean;
 
   // ── Allowed option sets ─────────────────────────────────────────────────
   /** Resolution strings as the engine itself speaks them. */
@@ -109,17 +101,16 @@ export interface EngineDefinition {
 }
 
 /**
- * Sub-set of fields that admins can edit through the PATCH handler in
- * routes/adminEngines.ts. Reconciliation preserves these once first
- * persisted; everything outside this list is overwritten on every boot
- * from the code definition.
+ * Fields reconciliation leaves as stored once a row exists; everything else is
+ * refreshed from the code definition on every boot. Until 2026-11-14 this was
+ * also the admin PATCH allowlist; that route is removed, and the set is kept
+ * unchanged so that boot never overwrites a stored value and a code revert
+ * restores the old behaviour exactly (plan PLAN_AI_SETTINGS_IN_CODE.md).
+ * The call-shaping fields among them are stored but never read at run time.
  *
- * `deletedAt` is excluded here — soft-delete + restore go through the
- * dedicated DELETE / POST .../restore endpoints rather than the PATCH
- * surface. The reconciler still respects an existing deletedAt
- * (preserved across boots) via a separate code path in reconcile.ts.
+ * `deletedAt` is not listed: the reconciler preserves it on a separate path.
  */
-export const ADMIN_EDITABLE_FIELDS = [
+export const RECONCILE_PRESERVED_FIELDS = [
   "isActive",
   "isDefault",
   "sortOrder",
@@ -129,17 +120,14 @@ export const ADMIN_EDITABLE_FIELDS = [
   "defaultAspectRatio",
   "expectedRunMs",
   "estimatedCostUsdPerCall",
-  // LLM engines: the model (endpointId) and sampling defaults are admin-tunable.
-  // For media (fal) engines, endpointId stays code-owned — reconcile.ts
-  // re-asserts it on every boot (see codeOwnedFields), so only "openai"
-  // providers actually have an editable endpoint.
+  // An OpenAI engine's endpointId (reconcile.ts re-asserts a fal engine's).
   "endpointId",
   "defaultTemperature",
   "defaultMaxTokens",
   "defaultReasoningEffort",
 ] as const;
 
-export type AdminEditableField = (typeof ADMIN_EDITABLE_FIELDS)[number];
+
 
 // ── Size vocabulary (request builder) ─────────────────────────────────────
 

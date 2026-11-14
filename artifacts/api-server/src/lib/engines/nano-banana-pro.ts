@@ -13,10 +13,8 @@ import type { EngineDefinition } from "./types";
  * (`videoPipelineRunner.ts` `runStage1`) still calls
  * `generateAiMemeBackgroundFromReference` from `aiMemePipeline.ts`,
  * which hardcodes PuLID. Marking Nano Banana Pro as `isDefault: true`
- * here makes it the catalogue default (admin workbench picks it up
- * via the engine test endpoint), but the production video pipeline
- * still runs PuLID until a follow-up refactor wires Stage 1 through
- * `loadDefaultEngine("image")` + `buildEngineInput`.
+ * here made it the catalogue default for the retired engine workbench; the
+ * flag no longer selects anything (decisions.md 2026-11-14: AI call settings live in code).
  *
  * Notable contracts (from the fal docs):
  *   - `image_urls` is an ARRAY (up to 14). Our pipelineParams sends a

@@ -7,7 +7,7 @@
 import type { InsertEngine } from "@workspace/db/schema";
 import type { EngineDefinition } from "./types";
 
-/** Full row insert — includes both code-owned and admin-tunable fields. */
+/** Full row insert — includes both refreshed and preserved fields. */
 export function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
   return {
     id: def.id,

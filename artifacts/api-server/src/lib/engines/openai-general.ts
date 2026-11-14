@@ -9,9 +9,11 @@ import type { EngineDefinition } from "./types";
  * lib/utilityLLM.ts for the dispatch helper.
  *
  * Unlike the fal media engines, this engine is not called through the fal
- * interpreter — `endpointId` is the OpenAI chat model, and the admin can edit
- * it (plus the sampling defaults) from /admin/engines. Call sites may override
- * temperature / max tokens / response format per request.
+ * interpreter — `endpointId` is the OpenAI chat model, set here with the
+ * sampling defaults (decisions.md 2026-11-14: AI call settings live in code). It is the utility
+ * engine because `UTILITY_LLM_ENGINE_ID` names it, not because of `isDefault`.
+ * Call sites may override temperature / max tokens / response format per
+ * request.
  */
 export const OPENAI_GENERAL: EngineDefinition = {
   id: "openai-general",

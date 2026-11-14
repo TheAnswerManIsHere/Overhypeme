@@ -5,9 +5,9 @@
  * `getImageClassifierEngineId` in `imagePromptConfig.ts`) and returns a flat
  * list of detections. The Tier-2 heuristics map detections → SourceSubjectKind.
  *
- * Engine swap path: the active classifier engine id lives in admin_config
- * under `fact_source_classifier_engine_id`. Add new detector engines to the
- * catalogue (per the engine-workbench plumbing) and flip the key to switch.
+ * Engine swap path: the active classifier engine id is set in code
+ * (decisions.md 2026-11-14: AI call settings live in code). Add the new detector to the catalogue
+ * and change `DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID`.
  *
  * NOTE on endpoint shape: fal's yolo-world endpoint accepts an image URL +
  * comma-separated class names and returns a `detections` array with label /

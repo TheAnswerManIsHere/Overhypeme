@@ -1,8 +1,7 @@
 /**
  * Pure assembly of a render-time image prompt for SYNC preview/test surfaces.
  *
- * Shared by the Phase-2C admin preview route (`POST /admin/image-prompt/preview`)
- * and the t2i/i2i engine workbench (`POST /admin/engines/:id/assemble-prompt`).
+ * Used by the Phase-2C admin preview route (`POST /admin/image-prompt/preview`).
  * Builds the `ImagePromptGenerationInput`, calls the planner, and runs the
  * deterministic Nano Banana 2 compiler — and NOTHING else. It never touches the
  * database or persists an attempt; persistence stays in the caller that needs it

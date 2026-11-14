@@ -1,16 +1,13 @@
 /**
  * Slice 2A — admin-configurable knobs for candidate Visual-concept generation.
  *
- * Two keys live in `admin_config`, mirroring imagePromptConfig.ts:
+ * Both are set in code (decisions.md 2026-11-14: AI call settings live in code):
  *
- *   fact_visual_concepts_system     — system prompt for the OpenAI Structured
- *                                     Outputs call that drafts THREE distinct
- *                                     "describe the picture" concepts.
- *   fact_visual_concepts_engine_id  — which utility engine plans the concepts.
- *                                     Default: "openai-visual-planner" (the same
- *                                     frontier gpt-5.5 engine the render planner
- *                                     uses). Invalid/inactive → default utility
- *                                     LLM with the reason recorded in provenance.
+ *   the system prompt for the OpenAI Structured Outputs call that drafts THREE
+ *   distinct "describe the picture" concepts (`fact_visual_concepts_system`,
+ *   codeOwnedPrompts.ts), and the engine, `DEFAULT_VISUAL_CONCEPTS_ENGINE_ID`
+ *   (the gag writer on GPT-6 Astra). Their `admin_config` rows, where a
+ *   database still holds them, are not read.
  *
  * The concept scene must survive becoming `coreSceneOverride`, so the prompt is
  * render-mode-AGNOSTIC (no reference-image, identity, or style language) and uses

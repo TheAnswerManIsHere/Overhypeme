@@ -5,14 +5,11 @@ import type { EngineDefinition } from "./types";
  * / taxonomy classification (the step that assigns archetype, subtype,
  * modifiers, cultural references, and semantic entities).
  *
- * Selected per-purpose via the `fact_enrichment_engine_id` admin_config key
- * (see lib/factEnrichmentConfig.ts), NOT by being the default `llm` engine.
- * `eligibleAsKindDefault: false` blocks it from ever becoming the global
- * default LLM — routing every utility call through a high-reasoning model
- * would be a silent cost/latency blast radius.
+ * Selected per-purpose by `DEFAULT_FACT_ENRICHMENT_ENGINE_ID` in
+ * lib/factEnrichmentConfig.ts, set in code, NOT by being the utility engine.
  *
  * Like openai-general, this is not called through the fal interpreter —
- * `endpointId` is the OpenAI model, admin-editable from /admin/engines. The
+ * `endpointId` is the OpenAI model, set here (decisions.md 2026-11-14: AI call settings live in code). The
  * sampling defaults mirror the enrichment constants (temp 0.2, 600 output
  * tokens); temperature is dropped for reasoning models by chatModelTuningParams.
  */
@@ -22,14 +19,13 @@ export const OPENAI_ENRICHER: EngineDefinition = {
   endpointId: "gpt-5.5",
   label: "OpenAI — Fact Enricher",
   description:
-    "Dedicated LLM for fact enrichment / taxonomy classification. Selected by fact_enrichment_engine_id; not eligible as the global default LLM.",
+    "Dedicated LLM for fact enrichment / taxonomy classification. Chosen in code; not eligible as the global default LLM.",
   kind: "llm",
   tierRequirement: "legendary",
   isDefault: false,
   isActive: true,
   sortOrder: 2,
   featureFlagRequired: null,
-  eligibleAsKindDefault: false,
 
   allowedResolutions: null,
   defaultResolution: null,

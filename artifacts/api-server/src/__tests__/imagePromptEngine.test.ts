@@ -36,7 +36,7 @@ const ENGINE_ID = DEFAULT_IMAGE_PROMPT_ENGINE_ID;
 const KEY = IMAGE_PROMPT_CONFIG_KEYS.imagePromptEngineId;
 
 describe("openai-visual-planner catalogue definition", () => {
-  it("exists with the agreed defaults and is not kind-default eligible", () => {
+  it("exists with the agreed defaults and is an LLM engine on OpenAI", () => {
     const def = ALL_ENGINES.find((e) => e.id === "openai-visual-planner");
     assert.ok(def, "openai-visual-planner must be in ALL_ENGINES");
     assert.equal(def!.kind, "llm");
@@ -45,7 +45,6 @@ describe("openai-visual-planner catalogue definition", () => {
     assert.equal(def!.endpointId, "gpt-5.5");
     assert.equal(def!.defaultReasoningEffort, "high");
     assert.equal(def!.defaultMaxTokens, 2800);
-    assert.equal(def!.eligibleAsKindDefault, false);
   });
 });
 

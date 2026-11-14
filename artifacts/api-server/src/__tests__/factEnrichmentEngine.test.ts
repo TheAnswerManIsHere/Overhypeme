@@ -35,7 +35,7 @@ const ENGINE_ID = DEFAULT_FACT_ENRICHMENT_ENGINE_ID;
 const KEY = FACT_ENRICHMENT_CONFIG_KEYS.engineId;
 
 describe("openai-enricher catalogue definition", () => {
-  it("exists with the agreed defaults and is not kind-default eligible", () => {
+  it("exists with the agreed defaults and is an LLM engine on OpenAI", () => {
     const def = ALL_ENGINES.find((e) => e.id === "openai-enricher");
     assert.ok(def, "openai-enricher must be in ALL_ENGINES");
     assert.equal(def!.kind, "llm");
@@ -44,7 +44,6 @@ describe("openai-enricher catalogue definition", () => {
     assert.equal(def!.endpointId, "gpt-5.5");
     assert.equal(def!.defaultReasoningEffort, "high");
     assert.equal(def!.defaultMaxTokens, 600);
-    assert.equal(def!.eligibleAsKindDefault, false);
   });
 });
 
