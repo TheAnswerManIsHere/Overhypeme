@@ -2,8 +2,10 @@
  * @purpose What the admin Gags panel reads for one fact: each gag's state in words, whether users could be offered it, its approved example and pending change, and its test renders.
  * @subsystem visual-pipeline
  *
- * Plan docs/plans/PLAN_THREE_GAGS.md, section E. Read-only; every write is in
- * gagStore.ts.
+ * Plans docs/plans/PLAN_THREE_GAGS.md (section E) and
+ * docs/plans/PLAN_GAG_EXAMPLES.md (section E): each gag's examples per subject
+ * kind and its render of the current content per kind. Read-only; every
+ * write is in gagStore.ts.
  */
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
@@ -13,10 +15,11 @@ import {
   imagePromptAttemptsTable,
   type FactGag,
 } from "@workspace/db";
-import { MAX_GAGS_PER_FACT, type FactGagsView, type GagExample, type GagView } from "@workspace/api-zod";
+import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, type FactGagsView, type GagExample, type GagView, type PerKind } from "@workspace/api-zod";
 import { findInFlightRefreshCandidate } from "../refreshCandidate";
-import { buildGagScenarioGrid, gagRenderImageUrl } from "../reviewRenderScenarios";
+import { buildGagKindCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
+import { emptyExamples, loadExamples, type GagExamples } from "./examples";
 
 async function examples(ids: number[], gagIdOf: Map<number, number>): Promise<Map<number, GagExample>> {
   const out = new Map<number, GagExample>();
@@ -48,18 +51,22 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
     .orderBy(desc(factEnrichmentVersionsTable.promotedAt))
     .limit(1);
 
+  const byGag = await loadExamples(gags.map((g) => g.id));
   const exampleIds: number[] = [];
   const gagIdOf = new Map<number, number>();
-  for (const g of gags) {
-    for (const id of [g.approvedExampleAttemptId, g.pendingExampleAttemptId]) {
-      if (id != null) { exampleIds.push(id); gagIdOf.set(id, g.id); }
+  for (const [gagId, set] of byGag) {
+    for (const stage of ["approved", "pending"] as const) {
+      for (const kind of GAG_EXAMPLE_KINDS) {
+        const row = set[stage][kind];
+        if (row) { exampleIds.push(row.attemptId); gagIdOf.set(row.attemptId, gagId); }
+      }
     }
   }
   const ex = await examples(exampleIds, gagIdOf);
   const defaultId = fact.isActive ? gags.find((g) => g.approvedContent != null)?.id ?? null : null;
 
   const views: GagView[] = [];
-  for (const g of gags) views.push(await viewOf(g, fact.isActive, defaultId, ex, lastPromotion?.at ?? null, review?.id ?? null));
+  for (const g of gags) views.push(await viewOf(g, fact.isActive, defaultId, byGag.get(g.id) ?? emptyExamples(), ex, lastPromotion?.at ?? null));
   return {
     factId,
     isActive: fact.isActive,
@@ -70,13 +77,21 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
   };
 }
 
+function perKind(set: GagExamples["approved"], ex: Map<number, GagExample>): PerKind<GagExample | null> {
+  return {
+    male: set.male ? ex.get(set.male.attemptId) ?? null : null,
+    female: set.female ? ex.get(set.female.attemptId) ?? null : null,
+    pet: set.pet ? ex.get(set.pet.attemptId) ?? null : null,
+  };
+}
+
 async function viewOf(
   g: FactGag,
   factActive: boolean,
   defaultId: number | null,
+  set: GagExamples,
   ex: Map<number, GagExample>,
   lastPromotionAt: Date | null,
-  reviewId: number | null,
 ): Promise<GagView> {
   const approved = g.approvedContent != null;
   const state = !approved ? "new" : g.pendingContent != null ? "approved_with_change" : "approved";
@@ -87,14 +102,14 @@ async function viewOf(
     availableToUsers: factActive && approved,
     isDefault: g.id === defaultId,
     approvedContent: normaliseGagContent(g.approvedContent),
-    approvedExample: g.approvedExampleAttemptId != null ? ex.get(g.approvedExampleAttemptId) ?? null : null,
-    carriedOver: g.approvedCarriedOver,
+    approvedExamples: perKind(set.approved, ex),
+    grandfathered: approved && (g.approvedBeforeExampleSets || g.approvedCarriedOver),
     approvedAt: g.approvedAt?.toISOString() ?? null,
     pendingContent: normaliseGagContent(g.pendingContent),
     pendingReviewId: g.pendingReviewId ?? null,
-    pendingExample: g.pendingExampleAttemptId != null ? ex.get(g.pendingExampleAttemptId) ?? null : null,
+    pendingExamples: perKind(set.pending, ex),
     pendingRemove: g.pendingRemove,
     refreshedSinceApproval: approved && lastPromotionAt != null && (g.approvedAt == null || g.approvedAt < lastPromotionAt),
-    renders: await buildGagScenarioGrid(g.id, reviewId),
+    renders: await buildGagKindCards(g.id),
   };
 }

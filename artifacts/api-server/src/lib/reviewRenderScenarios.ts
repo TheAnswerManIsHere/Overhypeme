@@ -25,15 +25,17 @@ import {
   defaultIdentityPolicyForRenderMode,
   validateEnrichment,
   RENDER_SCENARIO_DESCRIPTORS,
-  REQUIRED_RENDER_SCENARIO_KEYS,
   SOURCE_IMAGE_ANALYZER_VERSION,
+  GAG_EXAMPLE_KINDS,
+  ITERATION_KIND,
+  SCENARIO_FOR_KIND,
+  type GagExampleKind,
+  type PerKind,
   type ContentMode,
   type FactEnrichment,
   type FallbackSubjectGender,
-  type NonHumanApplicability,
   type ReferenceIdentityType,
   type RenderScenarioCard,
-  type RenderScenarioGrid,
   type RenderScenarioKey,
   type RenderScenarioStatus,
   type RenderReviewState,
@@ -46,8 +48,6 @@ import {
   deriveScenarioStatus,
   generationModeForSubjectRenderMode,
   isAttemptStale,
-  nonHumanScenarioKeyForApplicability,
-  resolveNonHumanScenarioApplicability,
 } from "./factRenderScenarios";
 import {
   ReferenceAssetUnavailableError,
@@ -159,9 +159,17 @@ export function computeScenarioInputHash(
 
 // ─── Attempt queries ─────────────────────────────────────────────────────────
 
-async function latestAttemptForScenario(
+/**
+ * The latest attempt of a gag's scenario drawn from exactly this render input
+ * (the gag's content joined to the fact's classification), whatever engine or
+ * recipe drew it: the content identity reuse and the tiles share (plan
+ * PLAN_GAG_EXAMPLES.md, section C). jsonb equality compares the input as a
+ * value, so key order cannot split one content into two.
+ */
+async function attemptForContent(
   gagId: number,
   scenarioKey: RenderScenarioKey,
+  enrichment: FactEnrichment,
 ): Promise<ImagePromptAttempt | null> {
   const [row] = await db
     .select()
@@ -169,27 +177,11 @@ async function latestAttemptForScenario(
     .where(and(
       eq(imagePromptAttemptsTable.gagId, gagId),
       eq(imagePromptAttemptsTable.reviewRenderScenarioKey, scenarioKey),
+      sql`${imagePromptAttemptsTable.factEnrichmentSnapshot} = ${JSON.stringify(enrichment)}::jsonb`,
     ))
     .orderBy(desc(imagePromptAttemptsTable.createdAt))
     .limit(1);
   return row ?? null;
-}
-
-async function scenarioAttemptExists(
-  gagId: number,
-  scenarioKey: RenderScenarioKey,
-  inputHash: string,
-): Promise<boolean> {
-  const [row] = await db
-    .select({ id: imagePromptAttemptsTable.id })
-    .from(imagePromptAttemptsTable)
-    .where(and(
-      eq(imagePromptAttemptsTable.gagId, gagId),
-      eq(imagePromptAttemptsTable.reviewRenderScenarioKey, scenarioKey),
-      eq(imagePromptAttemptsTable.reviewRenderInputHash, inputHash),
-    ))
-    .limit(1);
-  return !!row;
 }
 
 // ─── Enqueue one scenario render ─────────────────────────────────────────────
@@ -385,7 +377,7 @@ export async function loadGagRenderTarget(
   };
 }
 
-/** A review and its staging fact, for the review-level entry points below. */
+/** A review and its staging fact, for the review-level entry point below. */
 async function loadReviewRow(reviewId: number) {
   const [review] = await db
     .select({
@@ -400,156 +392,95 @@ async function loadReviewRow(reviewId: number) {
   return review ?? null;
 }
 
-/**
- * The gag whose grid a review's production gate reads: the default gag as it
- * will stand once this review is approved. That is the lowest-slot gag that
- * will have an approved version (counting a pick this review made, and
- * leaving out a removal this review requested), else, while nothing is
- * approved yet, the lowest-slot gag.
- */
 /** The gags that will still be on the fact once this review is promoted: all but its own pending removals. */
 export function survivingGags(gags: FactGag[], reviewId: number): FactGag[] {
   return gags.filter((g) => !(g.pendingRemove && g.pendingReviewId === reviewId));
 }
 
-export function gateGag(gags: FactGag[], reviewId: number): FactGag | null {
-  const surviving = survivingGags(gags, reviewId);
-  const willBeApproved = surviving.find((g) =>
-    g.approvedContent != null || (g.pendingExampleAttemptId != null && g.pendingReviewId === reviewId));
-  return willBeApproved ?? surviving[0] ?? null;
-}
-
-// ─── Idempotent auto-enqueue of the default batch ────────────────────────────
-
-/** The scenario keys a default batch for this render target renders. */
-function defaultBatchKeys(target: GagRenderTarget): RenderScenarioKey[] {
-  const applicability = resolveNonHumanScenarioApplicability(target.enrichment, target.factText);
-  const keys: RenderScenarioKey[] = [...REQUIRED_RENDER_SCENARIO_KEYS];
-  if (applicability.autoRun) keys.push(nonHumanScenarioKeyForApplicability(applicability));
-  return keys;
-}
+// ─── Drawing a gag's kinds ───────────────────────────────────────────────────
 
 /**
- * Enqueue one gag's default render batch. `force` always creates fresh
- * attempts; otherwise each scenario is enqueued at most once per input hash.
+ * Draw a gag's renders for the given kinds, of its current content (plan
+ * PLAN_GAG_EXAMPLES.md, section C). Without `redraw`, a kind that already has
+ * a render of this content is reused and not drawn again; with it, the
+ * moderator asked for a new one. Each kind's check and enqueue run under an
+ * advisory lock on the gag and kind, so a save and the Gags approval arriving
+ * together draw one render.
  */
-export async function enqueueGagDefaultBatch(
+export async function drawGagKinds(
   gagId: number,
-  opts: { force?: boolean; adminUserId?: string; imageEngines?: ImageEngineIds } = {},
+  kinds: readonly GagExampleKind[],
+  opts: { adminUserId: string; redraw?: boolean; imageEngines?: ImageEngineIds },
 ): Promise<{ enqueued: EnqueueScenarioResult[] } | { error: string; stage?: string | null }> {
   const loaded = await loadGagRenderTarget(gagId, opts.imageEngines);
   if (!loaded.ok) return { error: loaded.reason, stage: loaded.stage };
   const { target } = loaded;
   const batchId = randomUUID();
   const enqueued: EnqueueScenarioResult[] = [];
-  for (const scenarioKey of defaultBatchKeys(target)) {
-    if (opts.force !== true) {
-      const inputHash = computeScenarioInputHash(scenarioKey, target.stagingFactId, target.factText, target.enrichment, target.imageEngines);
-      if (await scenarioAttemptExists(gagId, scenarioKey, inputHash)) continue; // idempotent
-    }
-    enqueued.push(await enqueueScenarioRender({
-      reviewId: target.reviewId,
-      gagId,
-      stagingFactId: target.stagingFactId,
-      factText: target.factText,
-      enrichment: target.enrichment,
-      scenarioKey,
-      // The admin whose action started this batch; "system" only for an
-      // unattended transition (image tracing, plan PLAN_IMAGE_TRACING.md).
-      adminUserId: opts.adminUserId ?? "system",
-      batchId,
-      imageEngines: target.imageEngines,
-    }));
+  for (const kind of kinds) {
+    const scenarioKey = SCENARIO_FOR_KIND[kind];
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`gag-render:${gagId}:${kind}`}))`);
+      if (opts.redraw !== true && await attemptForContent(gagId, scenarioKey, target.enrichment)) return null;
+      return enqueueScenarioRender({
+        reviewId: target.reviewId,
+        gagId,
+        stagingFactId: target.stagingFactId,
+        factText: target.factText,
+        enrichment: target.enrichment,
+        scenarioKey,
+        adminUserId: opts.adminUserId,
+        batchId,
+        imageEngines: target.imageEngines,
+      });
+    });
+    if (result) enqueued.push(result);
   }
   if (enqueued.length) {
-    logger.info({ gagId, reviewId: target.reviewId, count: enqueued.length, batchId, force: opts.force === true }, "[moderation] gag render batch enqueued");
+    logger.info({ gagId, reviewId: target.reviewId, kinds, count: enqueued.length, redraw: opts.redraw === true }, "[moderation] gag renders enqueued");
   }
   return { enqueued };
 }
 
 /**
- * The batches a review's approved gags step fires: one per gag that has a
- * pending change, and one for the gate gag (the default gag as it will stand),
- * so a one-gag fact renders exactly as it did before gags had their own table.
- * Stage-guarded to production_review: a delayed or retried prepare job must
- * not spend once the review has left it.
+ * The iteration render: one male render of the gag's current content, reused
+ * when one exists. Every change to a gag's content and the Gags approval come
+ * through here. Never throws: a failure is logged and the tile shows no render,
+ * which the moderator can draw again; the save that triggered it stands.
  */
-export async function ensureDefaultReviewRenders(
-  reviewId: number,
-  opts?: { force?: boolean; adminUserId?: string },
-): Promise<{ enqueued: EnqueueScenarioResult[] }> {
-  const review = await loadReviewRow(reviewId);
-  if (!review || review.stagingFactId == null) {
-    logger.info({ reviewId }, "[moderation] ensureDefaultReviewRenders skipped (no review or staging fact)");
-    return { enqueued: [] };
+export async function scheduleIterationRender(gagId: number, adminUserId: string, imageEngines?: ImageEngineIds): Promise<void> {
+  try {
+    const r = await drawGagKinds(gagId, [ITERATION_KIND], { adminUserId, imageEngines });
+    if ("error" in r) logger.info({ gagId, reason: r.error }, "[moderation] iteration render not drawn");
+  } catch (err) {
+    logger.error({ err, gagId }, "[moderation] iteration render failed to enqueue (the save stands)");
   }
+}
+
+/**
+ * What approving a review's Gags step draws: the iteration render of each
+ * surviving gag with a new or changed content, and nothing for an unchanged
+ * gag (grandfathered ones included). Existing renders are kept and reused.
+ * Stage-guarded to production_review: a delayed job must not spend once the
+ * review has left it.
+ */
+export async function ensureReviewIterationRenders(
+  reviewId: number,
+  opts: { adminUserId?: string } = {},
+): Promise<{ scheduled: number }> {
+  const review = await loadReviewRow(reviewId);
+  if (!review || review.stagingFactId == null) return { scheduled: 0 };
   if (review.workflowStage !== "production_review") {
-    logger.info({ reviewId, stage: review.workflowStage }, "[moderation] ensureDefaultReviewRenders skipped (not production_review)");
-    return { enqueued: [] };
+    logger.info({ reviewId, stage: review.workflowStage }, "[moderation] iteration renders skipped (not production_review)");
+    return { scheduled: 0 };
   }
-  const gags = await loadGags(review.stagingFactId);
-  const gate = gateGag(gags, reviewId);
-  // Only gags that survive the review: a gag this review has marked for removal
-  // keeps its saved change (a declined refresh keeps the draft) but gets no paid
-  // batch (Codex, PR #956 round 2).
-  const chosen = survivingGags(gags, reviewId).filter((g) => g.pendingContent != null || g.id === gate?.id);
+  const gags = survivingGags(await loadGags(review.stagingFactId), reviewId).filter((g) => g.pendingContent != null);
   const imageEngines = await currentRenderRouting();
-  const enqueued: EnqueueScenarioResult[] = [];
-  for (const gag of chosen) {
-    const r = await enqueueGagDefaultBatch(gag.id, { force: opts?.force, adminUserId: opts?.adminUserId, imageEngines });
-    if ("enqueued" in r) enqueued.push(...r.enqueued);
-  }
-  return { enqueued };
+  for (const gag of gags) await scheduleIterationRender(gag.id, opts.adminUserId ?? "system", imageEngines);
+  return { scheduled: gags.length };
 }
 
-// ─── Manual (selective) rerun ────────────────────────────────────────────────
-
-/**
- * Run the named scenarios of one gag on demand (the checkbox "Run" + per-tile
- * rerun). Always creates fresh attempts. `force` lets a moderator run a
- * non-applicable non-human scenario anyway.
- */
-export async function runGagScenarios(
-  gagId: number,
-  scenarioKeys: RenderScenarioKey[],
-  adminUserId: string,
-): Promise<{ enqueued: EnqueueScenarioResult[] } | { error: string; stage?: string | null }> {
-  const loaded = await loadGagRenderTarget(gagId);
-  if (!loaded.ok) return { error: loaded.reason, stage: loaded.stage };
-  const { target } = loaded;
-  const batchId = randomUUID();
-  const enqueued: EnqueueScenarioResult[] = [];
-  for (const scenarioKey of scenarioKeys) {
-    enqueued.push(await enqueueScenarioRender({
-      reviewId: target.reviewId,
-      gagId,
-      stagingFactId: target.stagingFactId,
-      factText: target.factText,
-      enrichment: target.enrichment,
-      scenarioKey,
-      adminUserId,
-      batchId,
-      imageEngines: target.imageEngines,
-    }));
-  }
-  return { enqueued };
-}
-
-/** The review-level rerun: the named scenarios of the review's gate gag. */
-export async function runReviewScenarios(
-  reviewId: number,
-  scenarioKeys: RenderScenarioKey[],
-  adminUserId: string,
-): Promise<{ enqueued: EnqueueScenarioResult[] } | { error: string; stage?: string | null }> {
-  const review = await loadReviewRow(reviewId);
-  if (!review) return { error: "review_not_found" };
-  if (review.stagingFactId == null) return { error: "no_staging_fact", stage: review.workflowStage };
-  const gate = gateGag(await loadGags(review.stagingFactId), reviewId);
-  if (!gate) return { error: "no_gag", stage: review.workflowStage };
-  return runGagScenarios(gate.id, scenarioKeys, adminUserId);
-}
-
-// ─── Scenario grid (derived, read-only) ──────────────────────────────────────
+// ─── A gag's tiles (derived, read-only) ──────────────────────────────────────
 
 /** The admin-gated image URL of a gag's render (routes/gags.ts). */
 export function gagRenderImageUrl(gagId: number, renderJobId: string): string {
@@ -561,99 +492,46 @@ function imageUrlForAttempt(gagId: number, attempt: ImagePromptAttempt, status: 
   return gagRenderImageUrl(gagId, attempt.renderJobId);
 }
 
-async function buildCard(
-  gagId: number,
-  scenarioKey: RenderScenarioKey,
-  ctx: GagRenderTarget,
-  applicability: NonHumanApplicability | null,
-): Promise<RenderScenarioCard> {
+function cardFor(gagId: number, scenarioKey: RenderScenarioKey, attempt: ImagePromptAttempt | null): RenderScenarioCard {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
-  const attempt = await latestAttemptForScenario(gagId, scenarioKey);
-  const currentHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment, ctx.imageEngines);
-
-  let status: RenderScenarioStatus;
-  let stale = false;
-  let message: string | null = null;
-  let latestAttemptId: number | null = null;
-  let imageUrl: string | null = null;
-  let moderatorRating: number | null = null;
-  let failureTag: string | null = null;
-  let evalNotes: string | null = null;
-
-  if (!attempt) {
-    // No attempt: a non-applicable optional (non-human, not autoRun) is "skipped"; else "missing".
-    status = !desc.required && applicability && !applicability.autoRun ? "skipped" : "missing";
-  } else {
-    status = deriveScenarioStatus(attempt);
-    stale = isAttemptStale(attempt, currentHash);
-    latestAttemptId = attempt.id;
-    imageUrl = imageUrlForAttempt(gagId, attempt, status);
-    if (status === "failed") message = attempt.error;
-    else if (status === "blocked") message = buildRenderStatusPayload(attempt).blockReason;
-    moderatorRating = attempt.moderatorRating ?? null;
-    failureTag = attempt.failureTag ?? null;
-    evalNotes = attempt.evalNotes ?? null;
-  }
-
+  const status: RenderScenarioStatus = attempt ? deriveScenarioStatus(attempt) : "missing";
   return {
     key: scenarioKey,
     label: desc.label,
     purpose: desc.purpose,
     referenceIdentityType: desc.referenceIdentityType,
-    required: desc.required,
+    required: true,
     status,
-    stale,
-    latestAttemptId,
-    imageUrl,
-    message,
-    applicability,
-    moderatorRating,
-    failureTag,
-    evalNotes,
+    // Matched by content: a later engine or recipe change does not unseat it.
+    stale: false,
+    latestAttemptId: attempt?.id ?? null,
+    imageUrl: attempt ? imageUrlForAttempt(gagId, attempt, status) : null,
+    message: !attempt ? null
+      : status === "failed" ? attempt.error
+      : status === "blocked" ? buildRenderStatusPayload(attempt).blockReason
+      : null,
+    applicability: null,
+    moderatorRating: attempt?.moderatorRating ?? null,
+    failureTag: attempt?.failureTag ?? null,
+    evalNotes: attempt?.evalNotes ?? null,
   };
 }
 
-const EMPTY_TALLY = { requested: 0, done: 0, rendering: 0, queued: 0, failed: 0, blocked: 0, skipped: 0, stale: 0 };
-
-/** One gag's scenario grid: the latest attempt per scenario, its status and staleness. */
-export async function buildGagScenarioGrid(gagId: number, reviewId: number | null = null): Promise<RenderScenarioGrid> {
+/**
+ * A gag's tile per kind: the render of its current content the scheduler
+ * reused or drew (plan PLAN_GAG_EXAMPLES.md, section C). Renders of other
+ * content are history and are not listed.
+ */
+export async function buildGagKindCards(gagId: number): Promise<PerKind<RenderScenarioCard | null>> {
+  const empty: PerKind<RenderScenarioCard | null> = { male: null, female: null, pet: null };
   const loaded = await loadGagRenderTarget(gagId);
-  if (!loaded.ok) return { reviewId: reviewId ?? 0, gagId, cards: [], tally: { ...EMPTY_TALLY } };
-  const ctx = loaded.target;
-
-  const applicability = resolveNonHumanScenarioApplicability(ctx.enrichment, ctx.factText);
-  const nonHumanKey = nonHumanScenarioKeyForApplicability(applicability);
-  const orderedKeys: RenderScenarioKey[] = [...REQUIRED_RENDER_SCENARIO_KEYS, nonHumanKey];
-
-  const cards: RenderScenarioCard[] = [];
-  for (const key of orderedKeys) {
-    const app = key === nonHumanKey ? applicability : null;
-    cards.push(await buildCard(gagId, key, ctx, app));
+  if (!loaded.ok) return empty;
+  const out = { ...empty };
+  for (const kind of GAG_EXAMPLE_KINDS) {
+    const scenarioKey = SCENARIO_FOR_KIND[kind];
+    out[kind] = cardFor(gagId, scenarioKey, await attemptForContent(gagId, scenarioKey, loaded.target.enrichment));
   }
-
-  const tally = {
-    requested: cards.length,
-    done: cards.filter((c) => c.status === "done").length,
-    rendering: cards.filter((c) => c.status === "rendering").length,
-    queued: cards.filter((c) => c.status === "queued" || c.status === "missing").length,
-    failed: cards.filter((c) => c.status === "failed").length,
-    blocked: cards.filter((c) => c.status === "blocked").length,
-    skipped: cards.filter((c) => c.status === "skipped").length,
-    stale: cards.filter((c) => c.stale).length,
-  };
-  return { reviewId: reviewId ?? ctx.reviewId ?? 0, gagId, cards, tally };
-}
-
-/** A review's grid: its gate gag's (the default gag as it will stand once approved). */
-export async function buildReviewScenarioGrid(
-  reviewId: number,
-): Promise<RenderScenarioGrid> {
-  const empty: RenderScenarioGrid = { reviewId, gagId: null, cards: [], tally: { ...EMPTY_TALLY } };
-  const review = await loadReviewRow(reviewId);
-  if (!review || review.stagingFactId == null) return empty;
-  const gate = gateGag(await loadGags(review.stagingFactId), reviewId);
-  if (!gate) return empty;
-  return buildGagScenarioGrid(gate.id, reviewId);
+  return out;
 }
 
 // ─── List-level coarse render state ──────────────────────────────────────────
@@ -686,7 +564,9 @@ export async function reviewRenderStates(reviewIds: number[]): Promise<Map<numbe
         a.review_id, a.error, a.generated_image_object_path
       FROM image_prompt_attempts a
       WHERE a.review_id = ANY(ARRAY[${sql.join(reviewIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
-        AND a.review_render_scenario_key IS NOT NULL
+        -- Only the three kinds a gag is shown with: renders of a retired
+        -- scenario (generic, object/vehicle) are history (PLAN_GAG_EXAMPLES.md).
+        AND a.review_render_scenario_key IN ('i2i_male_default', 'i2i_female_default', 'i2i_nonhuman_animal')
         AND (a.gag_id IS NULL OR EXISTS (
           SELECT 1 FROM fact_gags g
           WHERE g.id = a.gag_id AND g.removed_at IS NULL
@@ -749,16 +629,19 @@ export async function getScenarioAttemptDiagnostics(
 
 export const reviewRenderScenariosPrepareHandler: JobHandler = {
   async run(payload: unknown): Promise<HandlerResult> {
-    const p = payload as { reviewId?: number; force?: boolean; adminUserId?: string };
+    const p = payload as { reviewId?: number; gagId?: number; adminUserId?: string };
+    if (typeof p.gagId === "number") {
+      await scheduleIterationRender(p.gagId, typeof p.adminUserId === "string" && p.adminUserId ? p.adminUserId : "system");
+      return { ok: true, result: { gagId: p.gagId } };
+    }
     if (typeof p.reviewId !== "number") {
       return { ok: false, error: `${REVIEW_RENDER_PREPARE_QUEUE}: payload missing reviewId` };
     }
     try {
-      const { enqueued } = await ensureDefaultReviewRenders(p.reviewId, {
-        force: p.force === true,
+      const { scheduled } = await ensureReviewIterationRenders(p.reviewId, {
         ...(typeof p.adminUserId === "string" && p.adminUserId ? { adminUserId: p.adminUserId } : {}),
       });
-      return { ok: true, result: { enqueued: enqueued.length } };
+      return { ok: true, result: { scheduled } };
     } catch (err) {
       return { ok: false, error: `${REVIEW_RENDER_PREPARE_QUEUE}: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -769,31 +652,29 @@ export function registerReviewRenderScenarioHandlers(): void {
   registerJobHandler(REVIEW_RENDER_PREPARE_QUEUE, reviewRenderScenariosPrepareHandler);
 }
 
-/** Enqueue the prepare job (idempotent via dedupeKey). Called from the enrichment transition. */
-export async function enqueueReviewRenderPrepare(reviewId: number): Promise<void> {
-  await enqueueJob({
-    queue: REVIEW_RENDER_PREPARE_QUEUE,
-    payload: { reviewId },
-    dedupeKey: `review_render_prep:${reviewId}`,
-  });
+/**
+ * Enqueue the job that draws a review's iteration renders after its Gags step
+ * is approved (plan PLAN_GAG_EXAMPLES.md, section C). Keyless, so it cannot
+ * coalesce onto an older job; the draws themselves are idempotent per content,
+ * so a second job draws nothing new. The approving admin rides in the payload
+ * so each render records who started it (image tracing).
+ */
+/**
+ * Enqueue one gag's iteration render, after a change to its content (a save,
+ * a new gag, an idea used as a gag, a discarded change). The save has already
+ * committed; the draw is reused when this content already has its render.
+ */
+export async function enqueueGagIterationRender(gagId: number, adminUserId: string): Promise<void> {
+  try {
+    await enqueueJob({ queue: REVIEW_RENDER_PREPARE_QUEUE, payload: { gagId, adminUserId } });
+  } catch (err) {
+    logger.error({ err, gagId }, "[moderation] iteration render job failed to enqueue (the save stands)");
+  }
 }
 
-/**
- * Enqueue a FORCE prepare job with NO dedupe key — the gag-approval "approve the
- * visual gag" path. Deliberately keyless so it can never coalesce onto a stale
- * pending/processing prepare job carrying the stable `review_render_prep:<id>`
- * key (that coalescing would silently drop the fresh batch). The double-click /
- * concurrency guard is the atomic compare-and-set stage transition at the call
- * site — this is only ever reached after THIS request advanced the row, so two
- * concurrent approvals produce exactly one force batch. Returns the job result so
- * the caller can surface the concrete render-prepare job id.
- */
-export async function enqueueForceReviewRenderPrepare(reviewId: number, adminUserId: string): Promise<EnqueueJobResult> {
+export async function enqueueReviewIterationRenders(reviewId: number, adminUserId: string): Promise<EnqueueJobResult> {
   return enqueueJob({
     queue: REVIEW_RENDER_PREPARE_QUEUE,
-    // The approving admin rides in the payload so each render records who
-    // started it (image tracing); without it the batch was written as "system".
-    payload: { reviewId, force: true, adminUserId },
-    // NO dedupeKey — see docstring.
+    payload: { reviewId, adminUserId },
   });
 }

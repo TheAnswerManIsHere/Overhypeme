@@ -995,6 +995,13 @@
       "when": 1787400000000,
       "tag": "0141_wording_lock",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1787500000000,
+      "tag": "0142_gag_example_sets",
+      "breakpoints": true
     }
   ]
 }

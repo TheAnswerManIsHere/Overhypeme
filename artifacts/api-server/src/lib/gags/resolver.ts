@@ -25,8 +25,10 @@ import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   visualPromptStrategyOverrideSchema,
   type FactEnrichment,
+  type PerKind,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
+import { emptyExamples, loadExamples } from "./examples";
 
 export type GagContent = VisualPromptStrategyOverride;
 
@@ -110,8 +112,12 @@ export interface AvailableGag {
   gagId: number;
   slot: number;
   content: GagContent;
-  /** The approved example render; null only on a gag carried over by migration 0139. */
-  exampleAttemptId: number | null;
+  /**
+   * The approved example render per subject kind (plan PLAN_GAG_EXAMPLES.md):
+   * all three, except on a gag approved before example sets (Q11), which may
+   * have fewer or none.
+   */
+  examples: PerKind<number | null>;
 }
 
 /**
@@ -137,12 +143,16 @@ export async function availableGags(factId: number, executor: Executor = db): Pr
       sql`${factGagsTable.approvedContent} IS NOT NULL`,
     ))
     .orderBy(asc(factGagsTable.slot));
-  return rows.map(({ gag }) => ({
-    gagId: gag.id,
-    slot: gag.slot,
-    content: normaliseGagContent(gag.approvedContent)!,
-    exampleAttemptId: gag.approvedExampleAttemptId ?? null,
-  }));
+  const examples = await loadExamples(rows.map(({ gag }) => gag.id), executor);
+  return rows.map(({ gag }) => {
+    const set = (examples.get(gag.id) ?? emptyExamples()).approved;
+    return {
+      gagId: gag.id,
+      slot: gag.slot,
+      content: normaliseGagContent(gag.approvedContent)!,
+      examples: { male: set.male?.attemptId ?? null, female: set.female?.attemptId ?? null, pet: set.pet?.attemptId ?? null },
+    };
+  });
 }
 
 export class GagNotAvailableError extends Error {

@@ -45,7 +45,7 @@ import {
   saveGagContent,
 } from "../lib/gags/gagStore";
 import { buildFactGagsView } from "../lib/gags/gagView";
-import { enqueueGagDefaultBatch, runGagScenarios } from "../lib/reviewRenderScenarios";
+import { drawGagKinds, enqueueGagIterationRender } from "../lib/reviewRenderScenarios";
 import { enqueueLiveVisualConcepts, liveVisualConcepts, LiveDraftRefused } from "../lib/visualConceptJobs";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
@@ -101,7 +101,10 @@ router.post("/admin/facts/:factId/gags", requireAdmin, async (req: Authenticated
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagCreateBodySchema, req, res);
   if (!body) return;
-  await respond(res, p.factId, () => createGag(p.factId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null }, body.slot));
+  await respond(res, p.factId, async () => {
+    const gag = await createGag(p.factId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null }, body.slot);
+    await enqueueGagIterationRender(gag.id, req.user.id);
+  });
 });
 
 router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -109,7 +112,10 @@ router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: Authent
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagSaveBodySchema, req, res);
   if (!body) return;
-  await respond(res, p.factId, () => saveGagContent(p.factId, p.gagId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null }));
+  await respond(res, p.factId, async () => {
+    await saveGagContent(p.factId, p.gagId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    await enqueueGagIterationRender(p.gagId, req.user.id);
+  });
 });
 
 router.post("/admin/facts/:factId/gags/:gagId/discard", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -117,7 +123,10 @@ router.post("/admin/facts/:factId/gags/:gagId/discard", requireAdmin, async (req
   if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
   const body = parse(gagScopeBodySchema, req, res);
   if (!body) return;
-  await respond(res, p.factId, () => discardGagChange(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null }));
+  await respond(res, p.factId, async () => {
+    const gag = await discardGagChange(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
+    if (gag.removedAt == null) await enqueueGagIterationRender(p.gagId, req.user.id);
+  });
 });
 
 router.post("/admin/facts/:factId/gags/:gagId/remove", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -181,9 +190,7 @@ router.post("/admin/facts/:factId/gags/:gagId/renders", requireAdmin, async (req
   if (!body) return;
   await respond(res, p.factId, async () => {
     await assertCanRunGagRenders(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
-    const result = body.scenarios
-      ? await runGagScenarios(p.gagId, body.scenarios, req.user.id)
-      : await enqueueGagDefaultBatch(p.gagId, { force: true, adminUserId: req.user.id });
+    const result = await drawGagKinds(p.gagId, body.kinds, { adminUserId: req.user.id, redraw: body.redraw === true });
     if ("error" in result) throw new GagError("REVIEW_NOT_EDITABLE", `The renders could not start: ${result.error}.`);
   });
 });
