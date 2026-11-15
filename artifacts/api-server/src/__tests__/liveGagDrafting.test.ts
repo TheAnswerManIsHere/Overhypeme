@@ -247,3 +247,49 @@ describe("one owner per generation (plan section F)", () => {
     assert.equal(after.visualConceptOwner, `review:${reviewId}`);
   });
 });
+
+describe("a fact is never left drafting with no job that can end it (Codex, PR #958 round 1)", () => {
+  const decline = async (reviewId: number) =>
+    db.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "production_rejected" }).where(eq(pendingReviewsTable.id, reviewId));
+
+  it("a second draft after a declined refresh gets its own job, while the first is still unfinished", async () => {
+    const { factId } = await liveFact();
+    assert.equal((await request(app).post(`/api/admin/facts/${factId}/gags/ideas`).send({})).status, 202);
+    const first = await liveJob(factId);
+    const reviewId = await openRefresh(factId);
+    await decline(reviewId);
+
+    const again = await request(app).post(`/api/admin/facts/${factId}/gags/ideas`).send({});
+    assert.equal(again.status, 202, JSON.stringify(again.body));
+    const second = await liveJob(factId);
+    assert.notEqual(second.owner, first.owner, "the accepted request has a job carrying its own owner");
+
+    // The old job finishing writes nothing; the new one lands and clears "drafting".
+    await runVisualConceptsJob(first, { generate: stub("OLD") });
+    assert.equal((await factRow(factId)).visualConceptStatus, "pending");
+    await runVisualConceptsJob(second, { generate: stub("NEW") });
+    const after = await factRow(factId);
+    assert.equal(after.visualConceptStatus, "ok");
+    assert.deepEqual(titles(after.visualConceptCandidates), ["NEW 1", "NEW 2", "NEW 3"]);
+    assert.equal((await request(app).post(`/api/admin/facts/${factId}/gags/ideas`).send({})).status, 202, "and another request is accepted afterwards");
+  });
+
+  it("a refresh declined while its ideas were still generating leaves the live fact free to draft", async () => {
+    const { factId } = await liveFact();
+    const reviewId = await openRefresh(factId);
+    // The review's generation is queued: the fact reads pending under the review.
+    await db.update(factsTable).set({ visualConceptStatus: "pending", visualConceptOwner: `review:${reviewId}` }).where(eq(factsTable.id, factId));
+    await decline(reviewId);
+
+    const shown = await request(app).get(`/api/admin/facts/${factId}/gags/ideas`);
+    assert.notEqual(shown.body.status, "pending", "the live fact does not read as drafting");
+    const drafted = await request(app).post(`/api/admin/facts/${factId}/gags/ideas`).send({});
+    assert.equal(drafted.status, 202, JSON.stringify(drafted.body));
+
+    await runVisualConceptsJob({ reviewId, factId }, { generate: stub("REVIEW") });
+    const after = await factRow(factId);
+    assert.equal(after.visualConceptStatus, "pending", "the declined review's job changes nothing");
+    assert.match(after.visualConceptOwner ?? "", /^live:/);
+  });
+});
+

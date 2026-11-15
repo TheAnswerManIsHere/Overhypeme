@@ -132,8 +132,9 @@ export class LiveDraftRefused extends Error {
   }
 }
 
-export function liveConceptsDedupeKey(factId: number): string {
-  return `fact_visual_concepts:live:${factId}`;
+/** One live draft, one job: keyed by the draft's owner, never shared across drafts (Codex, PR #958 round 1). */
+export function liveConceptsDedupeKey(owner: string): string {
+  return `fact_visual_concepts:${owner}`;
 }
 
 /**
@@ -145,8 +146,8 @@ export function liveConceptsDedupeKey(factId: number): string {
  * and the draft then writes nothing.
  */
 export async function enqueueLiveVisualConcepts(factId: number): Promise<EnqueueJobResult> {
-  // One compare-and-set: the fact is live, no review is open and nothing is
-  // drafting, and this request takes ownership, all in a single write, so a
+  // One compare-and-set: the fact is live, no review is open and no live
+  // draft is working, and this request takes ownership, all in a single write, so a
   // review opened or another draft started in between cannot be overwritten.
   const owner = liveConceptOwner(randomUUID());
   const [claimed] = await db
@@ -155,7 +156,10 @@ export async function enqueueLiveVisualConcepts(factId: number): Promise<Enqueue
     .where(and(
       eq(factsTable.id, factId),
       eq(factsTable.isActive, true),
-      sql`${factsTable.visualConceptStatus} IS DISTINCT FROM 'pending'`,
+      // Only a live draft's "working" blocks another: a review's leftover
+      // (its refresh declined while its ideas were queued) has no job that
+      // will ever end it, and no review is open to own it.
+      sql`(${factsTable.visualConceptStatus} IS DISTINCT FROM 'pending' OR ${factsTable.visualConceptOwner} IS NULL OR ${factsTable.visualConceptOwner} NOT LIKE 'live:%')`,
       sql`NOT EXISTS (SELECT 1 FROM ${pendingReviewsTable} WHERE ${pendingReviewsTable.stagingFactId} = ${factsTable.id} AND ${pendingReviewsTable.status} = 'pending')`,
     ))
     .returning({ id: factsTable.id });
@@ -163,7 +167,7 @@ export async function enqueueLiveVisualConcepts(factId: number): Promise<Enqueue
   return enqueueJob({
     queue: FACT_VISUAL_CONCEPTS_QUEUE,
     payload: { reviewId: null, factId, owner, candidateVersionId: null, moderatorDraftScene: null, moderatorDraftBubbles: null },
-    dedupeKey: liveConceptsDedupeKey(factId),
+    dedupeKey: liveConceptsDedupeKey(owner),
   });
 }
 
@@ -524,8 +528,12 @@ export async function buildVisualConceptsResponse(review: ConceptsRow & { id: nu
  * draft wrote them and its inputs (the fact, its classification, every gag,
  * the engine) are unchanged; a review's leftover candidates read as stale.
  */
-export async function buildLiveVisualConceptsResponse(fact: ConceptsRow & { id: number }): Promise<VisualConceptsResponse> {
-  return assembleConceptsResponse(fact, async (blob) => {
+export async function buildLiveVisualConceptsResponse(fact: ConceptsRow & { id: number; visualConceptOwner: string | null }): Promise<VisualConceptsResponse> {
+  // "Working" on the live fact means a live draft is: a review's leftover
+  // pending has no job that will end it (Codex, PR #958 round 1).
+  const liveWorking = fact.visualConceptStatus !== "pending" || (fact.visualConceptOwner?.startsWith("live:") ?? false);
+  const row = liveWorking ? fact : { ...fact, visualConceptStatus: null };
+  return assembleConceptsResponse(row, async (blob) => {
     if (blob.source !== "live_fact" || blob.reviewId != null) return "review_mismatch";
     const resolved = await resolveLiveConceptCycle(fact.id);
     if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) return "input_hash_mismatch";
@@ -540,6 +548,7 @@ export async function liveVisualConcepts(factId: number): Promise<VisualConcepts
       id: factsTable.id,
       visualConceptStatus: factsTable.visualConceptStatus,
       visualConceptCandidates: factsTable.visualConceptCandidates,
+      visualConceptOwner: factsTable.visualConceptOwner,
       humorNote: factsTable.humorNote,
       humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
       humorNoteApprovedAt: factsTable.humorNoteApprovedAt,

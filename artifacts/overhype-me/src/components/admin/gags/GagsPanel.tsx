@@ -527,14 +527,15 @@ function NewGagCard({
   const storeKey = `${factId}:new`;
   const [draft, setDraft] = useState<VisualPromptStrategyOverride>(() => readStoredDraft(storeKey, NEW_BASE) ?? EMPTY_VISUAL_STRATEGY_OVERRIDE);
   const s = useGagSave(subjectNames);
-  const [saved, setSaved] = useState(false);
   const save = async () => {
     const r = await s.run(draft, null, (c) => gagApi.create(factId, c, reviewId), setDraft);
-    if (r?.ok) { setSaved(true); onView(r.view); }
+    // Cleared here, before the parent closes this card: an effect would not
+    // run once the card is gone (Codex, PR #958 round 1). A failed save keeps it.
+    if (r?.ok) { clearStoredDraft(storeKey); onView(r.view); }
   };
   const hasScene = useMemo(() => !!draft.coreSceneOverride?.trim(), [draft]);
   const typed = !sameContent(draft, EMPTY_VISUAL_STRATEGY_OVERRIDE);
-  useStoredDraft(storeKey, NEW_BASE, draft, typed && !saved);
+  useStoredDraft(storeKey, NEW_BASE, draft, typed);
   useEffect(() => { reportUnsaved("new", typed || s.busy); }, [reportUnsaved, typed, s.busy]);
   useEffect(() => () => reportUnsaved("new", false), [reportUnsaved]);
   return (

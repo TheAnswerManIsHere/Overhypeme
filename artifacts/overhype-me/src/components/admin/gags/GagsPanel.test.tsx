@@ -272,6 +272,21 @@ describe("GagsPanel", () => {
       expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} changed elsewhere.");
     });
 
+    it("a new gag, once saved, leaves no draft behind (Codex, PR #958 round 1)", async () => {
+      const after = view([gag({ id: 1, slot: 1, isDefault: true }), gag({ id: 2, slot: 2, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} saved as a new gag.") })]);
+      stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]), { after });
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      fireEvent.click(await screen.findByTestId("gag-add"));
+      fireEvent.change(within(screen.getByTestId("gag-new")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} saved as a new gag." } });
+      fireEvent.click(screen.getByTestId("gag-new-save"));
+      await waitFor(() => expect(screen.queryByTestId("gag-new")).toBeNull());
+      expect(window.localStorage.getItem("gag-draft::5:new")).toBeNull();
+      first.unmount();
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      await screen.findAllByTestId("gag-card");
+      expect(screen.queryByTestId("gag-new")).toBeNull();
+    });
+
     it("a new gag's draft reopens its card", async () => {
       stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
       const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
