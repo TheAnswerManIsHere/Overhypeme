@@ -169,8 +169,9 @@ describe("comparison helpers", () => {
 });
 
 describe("allowlist + per-path validation", () => {
-  it("exposes exactly the 11 overridable paths", () => {
-    assert.equal(OVERRIDABLE_PATH_KEYS.length, 11);
+  it("exposes exactly the 12 overridable paths", () => {
+    assert.equal(OVERRIDABLE_PATH_KEYS.length, 12);
+    assert.equal(OVERRIDABLE_PATH_KEYS.includes("/characters"), true);
     assert.equal(OVERRIDABLE_PATH_KEYS.includes("/primaryArchetype"), true);
     assert.equal(OVERRIDABLE_PATH_KEYS.includes("/adminReviewNotes"), true);
     assert.equal(OVERRIDABLE_PATH_KEYS.includes("/suggestedHashtags" as never), false);
