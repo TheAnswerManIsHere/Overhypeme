@@ -209,6 +209,11 @@ describe("migration 0139: every gag in one place", () => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      // Reverses run newest first: 0142's example table depends on fact_gags.
+      // Its own reverse is tested in migration0142.gagExampleSets.test.ts and
+      // refuses on other files' example sets in this shared database, so the
+      // table is dropped directly here.
+      await client.query("DROP TABLE IF EXISTS fact_gag_examples");
       await client.query(REVERSE_SQL);
       const f = await client.query("SELECT id, enrichment FROM facts WHERE text LIKE $1", [P + "%"]);
       const byId = new Map(f.rows.map((r: { id: number; enrichment: Record<string, unknown> }) => [r.id, r.enrichment]));

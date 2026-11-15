@@ -2,7 +2,7 @@
  * The database rules for gags (migration 0139; plan
  * docs/plans/PLAN_THREE_GAGS.md, Testing Plan item 4), by raw SQL so nothing
  * in the application stands between the statement and the rule:
- *   - a fourth gag, a duplicate live slot, an approved version with no example
+ *   - a fourth gag, a duplicate live slot, an approved version with no example set
  *     outside the migration's carried-over marker, an empty scene, and a
  *     refresh-only operation with no owning review are refused;
  *   - a fact cannot be activated without an approved gag, and the last
@@ -68,9 +68,9 @@ describe("fact_gags: rules the database enforces", () => {
     await exec("INSERT INTO fact_gags (fact_id, slot, pending_content) VALUES ($1, 2, $2::jsonb)", [factId, GAG]);
   });
 
-  it("refuses an approved version with no example unless carried over, an empty scene, and a gag with no version", async () => {
+  it("refuses an approved version without its male, female and pet examples unless grandfathered, an empty scene, and a gag with no version", async () => {
     const { factId } = await makeFact("shape", { gags: 0, active: false });
-    await assert.rejects(exec("INSERT INTO fact_gags (fact_id, slot, approved_content) VALUES ($1, 1, $2::jsonb)", [factId, GAG]), /fact_gags_approved_has_example/);
+    await assert.rejects(exec("INSERT INTO fact_gags (fact_id, slot, approved_content) VALUES ($1, 1, $2::jsonb)", [factId, GAG]), /without its male, female and pet examples/);
     await assert.rejects(exec(`INSERT INTO fact_gags (fact_id, slot, pending_content) VALUES ($1, 1, '{"coreSceneOverride":"  "}'::jsonb)`, [factId]), /fact_gags_pending_scene_nonempty/);
     await assert.rejects(exec(`INSERT INTO fact_gags (fact_id, slot, pending_content) VALUES ($1, 1, '{"coreSceneOverride":42}'::jsonb)`, [factId]), /fact_gags_pending_scene_nonempty/);
     await assert.rejects(exec("INSERT INTO fact_gags (fact_id, slot) VALUES ($1, 1)", [factId]), /fact_gags_has_a_version/);

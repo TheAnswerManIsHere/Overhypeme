@@ -654,14 +654,14 @@ async function approveForProduction(
   const enrichment = enrichmentResult.enrichment;
 
   // An approved gag (blocking): a fact goes live only with at least one gag
-  // whose test render a moderator approved as its example (plan
-  // docs/plans/PLAN_THREE_GAGS.md). Advisory pre-check for a clean 409;
+  // whose male, female and pet examples a moderator approved (plans
+  // PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md, section D). Advisory pre-check for a clean 409;
   // activateFact re-checks in the activating transaction, and the live-fact
   // trigger at commit. Gags still pending stay hidden and can be finished later.
   if (!(await hasApprovedGag(db, stagingFact.id))) {
     const gaps = await exampleSetGaps(stagingFact.id, reviewId);
     res.status(409).json({
-      error: `Approve a gag's male, female and pet examples before approving for production. ${describeExampleSetGaps(gaps)}`,
+      error: describeExampleSetGaps(gaps),
       code: "CONCEPT_MISSING",
       gaps,
     });
@@ -1214,8 +1214,8 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
 
 // ─── Back to Visual Concept: Step 3 (production_review) → Step 2 (concept_review) ─
 //
-// Re-approval clears any prior Step-3 scenario attempts before force-creating a
-// fresh batch, so in-flight jobs can finish without remaining the active grid.
+// Renders already drawn stay on the review: re-approval draws only gags whose
+// content has no render yet, and reuses the rest (plan PLAN_GAG_EXAMPLES.md).
 router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }

@@ -123,8 +123,10 @@ export const factGagExamplesTable = pgTable("fact_gag_examples", {
 }, (t) => [
   uniqueIndex("UQ_fact_gag_examples_gag_kind_stage").on(t.gagId, t.subjectKind, t.stage),
   index("IDX_fact_gag_examples_attempt").on(t.attemptId),
-  check("fact_gag_examples_kind", sql`${t.subjectKind} IN ('male', 'female', 'pet')`),
-  check("fact_gag_examples_stage", sql`${t.stage} IN ('approved', 'pending')`),
+  // Written in the form Postgres prints after a dump and restore, so a restored
+  // database compares equal to a built one (the image_provenance precedent).
+  check("fact_gag_examples_kind", sql`((subject_kind)::text = ANY (ARRAY[('male'::character varying)::text, ('female'::character varying)::text, ('pet'::character varying)::text]))`),
+  check("fact_gag_examples_stage", sql`((stage)::text = ANY (ARRAY[('approved'::character varying)::text, ('pending'::character varying)::text]))`),
 ]);
 
 export type FactGagExample = typeof factGagExamplesTable.$inferSelect;

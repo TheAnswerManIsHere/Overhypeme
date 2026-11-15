@@ -386,7 +386,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     approvedContent: "shape:visualStrategyOverride",
     approvedExampleAttemptId: "ref:image_prompt_attempts",
     approvedCarriedOver: "keep",
-    approvedBeforeExampleSets: "keep",
+    // 0142: left to its default, false; the committed fixture predates it, and
+    // its gags are carried over (approvedCarriedOver), which grandfathers them too.
+    approvedBeforeExampleSets: "drop",
     approvedBy: "map-user",
     approvedAt: "keep",
     pendingContent: "shape:visualStrategyOverride",

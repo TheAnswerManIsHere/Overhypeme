@@ -4,10 +4,11 @@
  *   POST /admin/reviews/:id/back-to-visual-concept
  *
  * Covers the gag gate's distinct 409 codes, the stale-but-saved allowance, the
- * atomic compare-and-set (concurrent approvals → exactly one force batch), and
- * the Step-3 → Step-2 bounce. Renders are only ENQUEUED (no worker in tests), so
- * we assert on the force `review_render_scenarios_prepare` job row (no dedupe key)
- * rather than finished images. Seeds under the `t_avc_` user prefix.
+ * atomic compare-and-set (concurrent approvals → exactly one iteration-render
+ * job), and the Step-3 → Step-2 bounce. Renders are only ENQUEUED (no worker in
+ * tests), so we assert on the `review_render_scenarios_prepare` job row rather
+ * than finished images. Since plan PLAN_GAG_EXAMPLES.md the job draws only new
+ * or changed gags' male renders, and existing renders are kept for reuse. Seeds under the `t_avc_` user prefix.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -264,19 +265,18 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
 });
 
 describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concurrency", () => {
-  it("advances to production_review and force-enqueues a no-dedupe prepare job", async () => {
+  it("advances to production_review and enqueues one iteration-render job", async () => {
     const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok" });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.workflowStage, "production_review");
-    assert.equal(res.body.forceRenderBatch, true);
+    assert.equal(typeof res.body.renderPrepareJobId, "number");
 
     const [row] = await db.select({ stage: pendingReviewsTable.workflowStage }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(row!.stage, "production_review");
 
     const jobs = await prepareJobsFor(reviewId);
-    assert.equal(jobs.length, 1, "exactly one force prepare job");
-    assert.equal(jobs[0]!.dedupeKey, null, "force job has NO dedupe key");
+    assert.equal(jobs.length, 1, "exactly one iteration-render job");
   });
 
   it("stale-but-saved concept still advances (visualConcepts.current false is allowed)", async () => {
@@ -332,7 +332,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
     }
   });
 
-  it("two concurrent approvals → exactly one advances, one 409s, exactly one force batch", async () => {
+  it("two concurrent approvals → exactly one advances, one 409s, exactly one iteration-render job", async () => {
     const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok" });
     const [a, b] = await Promise.all([
       request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({}),
@@ -344,7 +344,7 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
     assert.equal(loser.body.code, "CONCEPT_STAGE_ALREADY_ADVANCED");
 
     const jobs = await prepareJobsFor(reviewId);
-    assert.equal(jobs.length, 1, "exactly one force prepare job despite two approvals");
+    assert.equal(jobs.length, 1, "exactly one iteration-render job despite two approvals");
   });
 });
 
@@ -361,7 +361,7 @@ describe("POST /admin/reviews/:id/back-to-visual-concept", () => {
     assert.equal(res.status, 409);
   });
 
-  it("bounces production_review → concept_review; re-approval clears prior renders and force-creates a fresh batch", async () => {
+  it("bounces production_review → concept_review; re-approval keeps prior renders for reuse and enqueues the iteration job", async () => {
     const { reviewId, stagingFactId } = await seedReview({ submittedById: adminId, stage: "production_review", visualConceptStatus: "ok" });
     assert.ok(stagingFactId);
     const priorAttemptId = await seedReviewRenderAttempt(reviewId, stagingFactId);
@@ -372,17 +372,14 @@ describe("POST /admin/reviews/:id/back-to-visual-concept", () => {
 
     const reApprove = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(reApprove.status, 200);
-    assert.equal(reApprove.body.forceRenderBatch, true);
-    assert.equal(reApprove.body.clearedRenderAttempts, 1);
 
     const [priorAttempt] = await db
       .select({ reviewId: imagePromptAttemptsTable.reviewId })
       .from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.id, priorAttemptId));
-    assert.equal(priorAttempt!.reviewId, null, "the superseded render is detached from the active review grid");
+    assert.equal(priorAttempt!.reviewId, reviewId, "an existing render stays on the review, so an unchanged gag reuses it");
 
     const jobs = await prepareJobsFor(reviewId);
-    assert.ok(jobs.length >= 1, "re-approval scheduled a fresh force prepare job");
-    assert.ok(jobs.every((j) => j.dedupeKey === null), "all force jobs are keyless");
+    assert.ok(jobs.length >= 1, "re-approval scheduled the iteration-render job");
   });
 });

@@ -71,13 +71,6 @@ async function addGag(factId: number, kind: "approved" | "pending" = "approved")
     : { factId, slot: 1, pendingContent: GAG });
 }
 
-// These fixtures seed a production_review WITHOUT any Step-2 render scenarios, so
-// the (new) admin-waivable visual-render gate would 409 on approval. Tests that
-// exercise the *approval* path (not the gate itself) waive all required scenarios.
-const WAIVE_ALL_REQUIRED = {
-  waiveVisualRenderIssues: true,
-  waivedScenarioKeys: ["generic_t2i", "i2i_male_default", "i2i_female_default"],
-};
 
 const USER_PREFIX = "t_routes_rv_";
 
@@ -455,7 +448,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/provisional-approve`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parent.id, ...WAIVE_ALL_REQUIRED });
+      .send({ parentFactId: parent.id });
     assert.equal(res.status, 200);
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, res.body.stagingFactId));
     assert.equal(fact.parentId, parent.id);
@@ -811,11 +804,10 @@ describe("POST /admin/reviews/:id/approve-variant", () => {
 
 // ── Approval renderability gating (no synchronous preflight) ──────────────
 //
-// Approval makes NO planner/compiler call of its own: renderability is gated
-// entirely by the Step-2 required-render check (required scenarios must be
-// fresh + successful, or explicitly waived). These tests pin that contract,
-// including the intentionally-changed edge behavior that a waiver is now a
-// true override with no hidden second renderability veto.
+// Approval makes NO planner/compiler call of its own: renderability is shown
+// by each gag's approved male, female and pet examples (plan
+// PLAN_GAG_EXAMPLES.md, section D), which replaced the review-wide render
+// check and its waiver. These tests pin that contract.
 describe("approval renderability gating", () => {
   // A review that has finished prep: it owns an inactive staging fact carrying
   // the effective enrichment, and sits at production_review — the precondition
@@ -858,14 +850,14 @@ describe("approval renderability gating", () => {
     return { reviewId: review.id, parentId: parent.id, stagingFactId: staging.id };
   }
 
-  it("approves via waiver WITHOUT invoking the visual planner, and records the waiver", async () => {
+  it("approves WITHOUT invoking the visual planner", async () => {
     const { reviewId, parentId } = await seedPendingReviewWithParent();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
     // Guard the core of this change: the approve path must make NO planner call.
     // If it does, the seam throws and the request fails — so a green 200 proves
-    // renderability came from the (waived) required-render gate, not a re-check.
+    // renderability came from the gag's examples, not a re-check.
     let plannerCalled = false;
     __setPlanGeneratorForTest(async () => {
       plannerCalled = true;
@@ -875,7 +867,7 @@ describe("approval renderability gating", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-variant`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
+      .send({ parentFactId: parentId });
 
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.success, true);
@@ -883,29 +875,28 @@ describe("approval renderability gating", () => {
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.status, "approved");
-    // Waiver is a true override now — and it stays audited.
-    assert.ok(r.visualRenderApprovalWaiver, "the waiver snapshot must be recorded");
+    assert.equal(r.visualRenderApprovalWaiver, null, "no waiver exists any more");
   });
 
-  it("blocks approval (409 visual_render_incomplete) when required renders are missing and unwaived", async () => {
-    const { reviewId, parentId } = await seedPendingReviewWithParent();
+  it("blocks approval (409 CONCEPT_MISSING) while the only gag lacks its examples, naming the missing kinds", async () => {
+    const { reviewId, parentId, stagingFactId } = await seedPendingReviewWithParent();
+    await db.delete(factGagsTable).where(eq(factGagsTable.factId, stagingFactId));
+    await addGag(stagingFactId, "pending");
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
-    // No render attempts seeded → required scenarios are "missing". Without a
-    // waiver the gate must 409 rather than let an unvalidated fact ship — this
-    // is the guarantee that makes dropping the preflight safe.
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-variant`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId }); // no waiver
+      .send({ parentFactId: parentId, waiveVisualRenderIssues: true });
 
-    assert.equal(res.status, 409);
-    assert.equal(res.body.error, "visual_render_incomplete");
-    assert.ok(Array.isArray(res.body.problems) && res.body.problems.length > 0, "the blocking problems must be named");
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal(res.body.code, "CONCEPT_MISSING");
+    assert.equal(res.body.error, "Gag 1 needs male, female and pet examples.");
+    assert.deepEqual(res.body.gaps, [{ slot: 1, missing: ["male", "female", "pet"] }]);
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(r.status, "pending", "an unvalidated fact must NOT be approved");
+    assert.equal(r.status, "pending", "a fact without an offered gag must NOT be approved; a waiver flag is ignored");
   });
 
 });
@@ -932,7 +923,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(res.status, 200);
     assert.equal(res.body.factId, stagingFactId);
 
@@ -947,7 +938,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const again = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(again.status, 200);
     assert.equal(again.body.alreadyApproved, true);
     assert.equal(again.body.factId, stagingFactId);
@@ -992,7 +983,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(res.status, 200);
 
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
@@ -1016,7 +1007,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ enrichment: { ...VALID_APPROVAL_ENRICHMENT, visualComplexity: "high" }, ...WAIVE_ALL_REQUIRED });
+      .send({ enrichment: { ...VALID_APPROVAL_ENRICHMENT, visualComplexity: "high" } });
     assert.equal(res.status, 200, JSON.stringify(res.body));
 
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
@@ -1043,7 +1034,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(res.status, 409, JSON.stringify(res.body));
 
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
@@ -1077,7 +1068,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
 
     const [after] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
@@ -1101,10 +1092,10 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const blocked = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
     assert.equal(blocked.body.code, "CONCEPT_MISSING");
-    assert.equal(blocked.body.error, "Approve a test render for at least one gag before approving for production.");
+    assert.equal(blocked.body.error, "Approve each gag's male, female and pet examples before approving for production.");
     const [stillInactive] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
     assert.equal(stillInactive.isActive, false, "a fact with no approved gag must not go live");
 
@@ -1113,7 +1104,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const ok = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
     const [live] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
     assert.equal(live.isActive, true);

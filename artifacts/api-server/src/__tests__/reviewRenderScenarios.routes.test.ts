@@ -1,12 +1,12 @@
 /**
- * Integration tests for the Step-2 render-scenario routes + the admin-waivable
- * approval gate (routes/reviews.ts + lib/reviewRenderScenarios.ts):
- *   GET  /admin/reviews/:id/render-scenarios
- *   POST /admin/reviews/:id/render-scenarios
- *   POST /admin/reviews/:id/approve-for-production   (visual-render gate)
+ * Integration tests for moderation enrichment edits and a gag's kind renders
+ * (lib/reviewRenderScenarios.ts). The review-wide scenario grid, its routes
+ * and the waivable visual-render gate were retired by plan
+ * PLAN_GAG_EXAMPLES.md: renders are per gag and per kind (male, female, pet),
+ * and a changed input draws afresh rather than marking an old render stale.
  *
- * No worker runs in tests, so we assert enqueued attempts/jobs + derived grid
- * state rather than finished images. fal uploads are stubbed off the network.
+ * No worker runs in tests, so we assert enqueued attempts rather than
+ * finished images. fal uploads are stubbed off the network.
  * Seeds rows under the `t_rrs_` user prefix.
  */
 
@@ -20,12 +20,11 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, factGagsTable, pendingReviewsTable, imagePromptAttemptsTable, asyncJobsTable, enrichmentOverrideHistoryTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
-import { defaultIdentityPolicyForRenderMode, validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import { type FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import adminRouter from "../routes/admin.js";
-import { ensureDefaultReviewRenders } from "../lib/reviewRenderScenarios.js";
-import { buildScenarioInputHash } from "../lib/factRenderScenarios.js";
+import { drawGagKinds } from "../lib/reviewRenderScenarios.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -49,9 +48,7 @@ const ENRICHMENT: FactEnrichment = {
   semanticEntities: [],
 };
 
-// A fact reaching production_review has an approved gag (fact_gags, migration
-// 0139). Without it, approval 409s on CONCEPT_MISSING before ever reaching the
-// visual-render gate under test.
+// A fact reaching production_review has an approved gag (fact_gags, migration 0139).
 const GAG = {
   version: 1,
   coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
@@ -72,6 +69,7 @@ function makeApp(): Express {
 }
 
 const insertedFactIds: number[] = [];
+const gagOf = new Map<number, number>();
 
 async function createUser(isAdmin: boolean): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
@@ -95,6 +93,7 @@ async function seedReview(submittedById: string, stage = "production_review"): P
   }).returning({ id: factsTable.id });
   insertedFactIds.push(fact!.id);
   await db.insert(factGagsTable).values({ factId: fact!.id, slot: 1, approvedContent: GAG, approvedCarriedOver: true });
+  gagOf.set(fact!.id, (await db.select({ id: factGagsTable.id }).from(factGagsTable).where(eq(factGagsTable.factId, fact!.id)))[0]!.id);
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: "{NAME} bench-presses the Earth.", submittedById, matchingSimilarity: 0,
     status: "pending", workflowStage: stage as never, stagingFactId: fact!.id,
@@ -143,122 +142,6 @@ after(async () => {
   ));
 });
 
-describe("GET /admin/reviews/:id/render-scenarios", () => {
-  it("returns the scenario grid (3 required + 1 non-human card) for admins", async () => {
-    const reviewId = await seedReview(plainId);
-    const res = await request(makeApp())
-      .get(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${adminSid}`);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.reviewId, reviewId);
-    assert.equal(res.body.cards.length, 4);
-    const byKey = Object.fromEntries(res.body.cards.map((c: { key: string }) => [c.key, c]));
-    assert.equal(byKey["generic_t2i"].status, "missing");
-    // The non-human card is "skipped" (not applicable, not auto-run) with applicability.
-    const nh = res.body.cards.find((c: { key: string }) => c.key.startsWith("i2i_nonhuman"));
-    assert.equal(nh.status, "skipped");
-    assert.equal(nh.applicability.autoRun, false);
-  });
-
-  it("rejects non-admins", async () => {
-    const reviewId = await seedReview(plainId);
-    const res = await request(makeApp())
-      .get(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${plainSid}`);
-    assert.equal(res.status, 403);
-  });
-});
-
-describe("POST /admin/reviews/:id/render-scenarios", () => {
-  it("enqueues only the requested scenarios (202) and records attempts", async () => {
-    const reviewId = await seedReview(plainId);
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["generic_t2i"] });
-    assert.equal(res.status, 202);
-    assert.equal(res.body.enqueued.length, 1);
-    assert.equal(res.body.enqueued[0].scenarioKey, "generic_t2i");
-
-    const attempts = await db.select().from(imagePromptAttemptsTable)
-      .where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    assert.equal(attempts.length, 1);
-    assert.equal(attempts[0]!.reviewRenderScenarioKey, "generic_t2i");
-    assert.ok(attempts[0]!.reviewRenderInputHash, "input hash recorded");
-  });
-
-  it("hashes the t2i scenario with the SAME gender-matched subject the render uses", async () => {
-    const reviewId = await seedReview(plainId);
-    await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["generic_t2i"] });
-
-    const [attempt] = await db.select().from(imagePromptAttemptsTable)
-      .where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    // The default t2i scenario renders a neutral protagonist (Alex/they), not
-    // the historical David/he brand default…
-    assert.match(attempt!.renderedFactText!, /Alex Franklin/);
-    // …and the stored input hash must be computed from that SAME rendered text,
-    // or staleness/idempotency compares against inputs no render ever used. Hash
-    // against the VALIDATED enrichment (what the real route hashes), not the raw
-    // pre-parse literal — the schema transform normalizes VSO's optional fields
-    // to explicit keys, which changes the canonical (sorted-key) hash input.
-    // The render input is the classification with the gag joined in (fact_gags).
-    const validated = validateEnrichment({ ...ENRICHMENT, visualPromptStrategyOverride: GAG });
-    assert.ok(validated.ok, "fixture enrichment must validate");
-    const expectedHash = buildScenarioInputHash({
-      stagingFactId: attempt!.factId!,
-      scenarioKey: "generic_t2i",
-      subjectRenderMode: "t2i_fallback",
-      renderedFactText: attempt!.renderedFactText!,
-      enrichment: validated.ok ? validated.data : ENRICHMENT,
-      referenceIdentityType: null,
-      referenceAssetVersion: null,
-      renderControls: { aspectRatio: "portrait", contentMode: "sfw", fallbackSubjectGender: "neutral" },
-      lookStyleId: null,
-      styleSuffixVersion: null,
-      identityPolicy: defaultIdentityPolicyForRenderMode("t2i_fallback"),
-      actualImageEngineId: "gpt-image-2-6",
-    });
-    assert.equal(attempt!.reviewRenderInputHash, expectedHash);
-
-    // A just-enqueued attempt is NOT stale — the live grid recomputes the same hash.
-    const grid = await request(makeApp())
-      .get(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${adminSid}`);
-    const t2i = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
-    assert.equal(t2i.stale, false);
-  });
-
-  it("rejects invalid scenario keys (400)", async () => {
-    const reviewId = await seedReview(plainId);
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["not_a_scenario"] });
-    assert.equal(res.status, 400);
-  });
-
-  it("refuses to render from a non-production_review stage (409)", async () => {
-    const reviewId = await seedReview(plainId, "prep_pending");
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["generic_t2i"] });
-    assert.equal(res.status, 409);
-  });
-
-  it("rejects non-admins (403)", async () => {
-    const reviewId = await seedReview(plainId);
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${plainSid}`)
-      .send({ scenarios: ["generic_t2i"] });
-    assert.equal(res.status, 403);
-  });
-});
-
 describe("moderation enrichment edits via fact override endpoints", () => {
   it("a per-field override PUT persists to the staging fact and flips prior renders stale", async () => {
     const reviewId = await seedReview(plainId);
@@ -266,11 +149,14 @@ describe("moderation enrichment edits via fact override endpoints", () => {
       .select({ stagingFactId: pendingReviewsTable.stagingFactId })
       .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId)).limit(1);
 
-    // Enqueue a render against the ORIGINAL enrichment so there's a tile to stale.
-    await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["generic_t2i"] });
+    const gagId = gagOf.get(stagingFactId as number)!;
+    // A male render against the ORIGINAL enrichment; drawing again reuses it.
+    const first = await drawGagKinds(gagId, ["male"], { adminUserId: adminId });
+    assert.ok(!("error" in first), JSON.stringify(first));
+    assert.equal(first.enqueued.length, 1);
+    const again = await drawGagKinds(gagId, ["male"], { adminUserId: adminId });
+    assert.ok(!("error" in again));
+    assert.equal(again.enqueued.length, 0, "the same input reuses its render");
 
     // Per-field override (visualComplexity medium → high) — the moderation
     // modal's tracked-field write path, identical to Edit Fact. The seed is a
@@ -296,12 +182,10 @@ describe("moderation enrichment edits via fact override endpoints", () => {
     assert.equal(ov.value, "high");
     assert.equal(ov.overriddenFrom, "medium");
 
-    // The earlier render now reads as stale against the saved effective enrichment.
-    const grid = await request(makeApp())
-      .get(`/admin/reviews/${reviewId}/render-scenarios`)
-      .set("authorization", `Bearer ${adminSid}`);
-    const t2i = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
-    assert.equal(t2i.stale, true, "the pre-override render is stale after the enrichment edit");
+    // The earlier render no longer matches the input: drawing now makes a new one.
+    const after = await drawGagKinds(gagId, ["male"], { adminUserId: adminId });
+    assert.ok(!("error" in after));
+    assert.equal(after.enqueued.length, 1, "the pre-override render is not reused after the enrichment edit");
   });
 
   it("rejects non-admins (403) on the staging-fact override PUT", async () => {
@@ -327,65 +211,4 @@ describe("moderation enrichment edits via fact override endpoints", () => {
   });
 });
 
-describe("ensureDefaultReviewRenders idempotency", () => {
-  it("enqueues the default batch once per input hash", async () => {
-    const reviewId = await seedReview(plainId);
-    const first = await ensureDefaultReviewRenders(reviewId);
-    // 3 required scenarios attempted (generic_t2i + i2i male + i2i female). All
-    // default references now ship, so each enqueues a real attempt (the stubbed
-    // fal upload keeps the i2i reference resolution off-network). Non-human does
-    // not auto-run.
-    assert.equal(first.enqueued.length, 3);
-    const afterFirst = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    assert.equal(afterFirst.length, 3);
-
-    const second = await ensureDefaultReviewRenders(reviewId);
-    assert.equal(second.enqueued.length, 0, "re-run enqueues nothing for the same input hash");
-    const afterSecond = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    assert.equal(afterSecond.length, 3, "no duplicate attempts");
-
-    // Every required scenario resolved its reference and enqueued cleanly — none
-    // failed with reference_asset_unavailable now that all assets are present.
-    for (const a of afterSecond) {
-      assert.ok(
-        !a.error?.includes("reference_asset_unavailable"),
-        `scenario ${a.reviewRenderScenarioKey} unexpectedly missing its reference: ${a.error}`,
-      );
-    }
-  });
-
-  it("does NOT enqueue paid renders once the review has left production_review", async () => {
-    const reviewId = await seedReview(plainId, "production_rejected");
-    const { enqueued } = await ensureDefaultReviewRenders(reviewId);
-    assert.equal(enqueued.length, 0, "a resolved/rejected review must not auto-render");
-    const attempts = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    assert.equal(attempts.length, 0);
-  });
-});
-
-describe("approval visual-render gate (admin-waivable)", () => {
-  it("blocks approval naming the missing required scenarios (409)", async () => {
-    const reviewId = await seedReview(plainId);
-    // The required-render gate is the only renderability gate on approval — it
-    // 409s on missing required scenarios; no planner stub is involved.
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/approve-for-production`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({});
-    assert.equal(res.status, 409);
-    assert.equal(res.body.error, "visual_render_incomplete");
-    const keys = res.body.problems.map((p: { scenarioKey: string }) => p.scenarioKey).sort();
-    assert.deepEqual(keys, ["generic_t2i", "i2i_female_default", "i2i_male_default"]);
-  });
-
-  it("rejects a partial waiver that doesn't name every problem (409)", async () => {
-    const reviewId = await seedReview(plainId);
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/approve-for-production`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ waiveVisualRenderIssues: true, waivedScenarioKeys: ["generic_t2i"] });
-    assert.equal(res.status, 409);
-    assert.equal(res.body.error, "visual_render_incomplete");
-  });
-});
 });

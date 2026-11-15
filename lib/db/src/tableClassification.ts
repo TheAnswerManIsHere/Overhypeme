@@ -142,6 +142,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   external_links: { class: "product" },
   fact_enrichment_versions: { class: "product" },
   fact_gags: { class: "product" },
+  fact_gag_examples: { class: "product" },
   fact_hashtags: { class: "product" },
   fact_text_edit_history: { class: "product" },
   facts: { class: "product" },

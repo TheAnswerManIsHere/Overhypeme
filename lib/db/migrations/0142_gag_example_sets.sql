@@ -34,8 +34,10 @@ CREATE TABLE IF NOT EXISTS "fact_gag_examples" (
   "attempt_id" bigint NOT NULL REFERENCES "image_prompt_attempts"("id"),
   "approved_by" varchar REFERENCES "users"("id") ON DELETE SET NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "fact_gag_examples_kind" CHECK ("subject_kind" IN ('male', 'female', 'pet')),
-  CONSTRAINT "fact_gag_examples_stage" CHECK ("stage" IN ('approved', 'pending'))
+  -- The checks are written as Postgres prints them after a dump and restore,
+  -- so a restored database compares equal to a built one.
+  CONSTRAINT "fact_gag_examples_kind" CHECK ((subject_kind)::text = ANY (ARRAY[('male'::character varying)::text, ('female'::character varying)::text, ('pet'::character varying)::text])),
+  CONSTRAINT "fact_gag_examples_stage" CHECK ((stage)::text = ANY (ARRAY[('approved'::character varying)::text, ('pending'::character varying)::text]))
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "UQ_fact_gag_examples_gag_kind_stage"
   ON "fact_gag_examples" ("gag_id", "subject_kind", "stage");--> statement-breakpoint

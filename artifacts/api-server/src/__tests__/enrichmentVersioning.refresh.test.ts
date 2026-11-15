@@ -62,7 +62,9 @@ import {
   resolveReviewCycleEnrichment,
 } from "../lib/moderationStaging.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
-import { runReviewScenarios } from "../lib/reviewRenderScenarios.js";
+import { drawGagKinds } from "../lib/reviewRenderScenarios.js";
+import { loadGags } from "../lib/gags/resolver.js";
+import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -120,10 +122,6 @@ const MANUAL_OVERRIDES = {
 
 const AI_MEME_SENTINEL = { male: ["/objects/m1.png"], female: [], neutral: [] };
 
-const WAIVE_ALL_REQUIRED = {
-  waiveVisualRenderIssues: true,
-  waivedScenarioKeys: ["generic_t2i", "i2i_male_default", "i2i_female_default"],
-};
 
 // Minimal valid plan output for the render preflight / preview compiler.
 function makePlanOutput(rating: "strong" | "poor" = "strong") {
@@ -684,8 +682,12 @@ describe("candidate isolation across readers", () => {
       "single render must snapshot the CANDIDATE, not the active enrichment",
     );
 
-    // Scenario runner (the grid's render path).
-    const run = await runReviewScenarios(reviewId, ["generic_t2i"], adminId);
+    // A gag's kind render (the Test Renders path).
+    const [gag] = await loadGags(fact.id);
+    assert.ok(gag, "the refresh cycle's fact has a gag");
+    __setReferenceFalUploadForTest(async () => "https://fal.test/ref.jpg");
+    const run = await drawGagKinds(gag!.id, ["male"], { adminUserId: adminId, redraw: true })
+      .finally(() => __setReferenceFalUploadForTest(null));
     assert.ok(!("error" in run), JSON.stringify(run));
     const [scenarioAttempt] = await db.select().from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.id, run.enqueued[0].attemptId));
@@ -721,7 +723,7 @@ describe("refresh approve → promote", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.refreshPromoted, true);
     assert.equal(res.body.factId, fact.id);
@@ -776,7 +778,7 @@ describe("refresh approve → promote", () => {
     const again = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(again.status, 200);
     assert.equal(again.body.alreadyApproved, true);
   });
@@ -794,7 +796,7 @@ describe("refresh approve → promote", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(res.status, 409, JSON.stringify(res.body));
     assert.equal(res.body.code, "REFRESH_STALE_TEXT");
 
@@ -817,7 +819,7 @@ describe("refresh approve → promote", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(res.status, 400);
   });
 });
@@ -967,7 +969,7 @@ describe("processing signature stamping (PR3)", () => {
     const approve = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(approve.status, 200, JSON.stringify(approve.body));
     const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
     assert.deepEqual(f.lastProcessedSignature, sig, "promote copied the candidate's classify-time signature");
@@ -1054,7 +1056,7 @@ describe("generic fact-enrichment guards", () => {
     const approve = await request(makeApp())
       .post(`/admin/reviews/${b.reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(approve.status, 200, JSON.stringify(approve.body));
     let classifiedB = false;
     const resB = await runEnrichmentForFact(factB.id, {
