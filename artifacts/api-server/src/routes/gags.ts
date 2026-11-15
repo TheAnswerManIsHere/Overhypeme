@@ -16,11 +16,13 @@
  *   POST /api/admin/facts/:factId/gags/:gagId/approve          approve a render as its example
  *   POST /api/admin/facts/:factId/gags/:gagId/remove           remove it
  *   GET  /api/admin/gags/:gagId/renders/:renderJobId/image     a render's image
+ *   GET  /api/admin/facts/:factId/gags/ideas                   a live fact's drafted ideas
+ *   POST /api/admin/facts/:factId/gags/ideas                   Draft more gags (live fact)
  */
 import { Readable } from "node:stream";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
-import { db, imagePromptAttemptsTable } from "@workspace/db";
+import { db, factsTable, imagePromptAttemptsTable } from "@workspace/db";
 import {
   gagApproveBodySchema,
   gagCreateBodySchema,
@@ -42,6 +44,7 @@ import {
 } from "../lib/gags/gagStore";
 import { buildFactGagsView } from "../lib/gags/gagView";
 import { enqueueGagDefaultBatch, runGagScenarios } from "../lib/reviewRenderScenarios";
+import { buildLiveVisualConceptsResponse, enqueueLiveVisualConcepts, LiveDraftRefused } from "../lib/visualConceptJobs";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 
@@ -129,6 +132,49 @@ router.post("/admin/facts/:factId/gags/:gagId/approve", requireAdmin, async (req
   const body = parse(gagApproveBodySchema, req, res);
   if (!body) return;
   await respond(res, p.factId, () => approveGagRender(p.factId, p.gagId, body.attemptId, { adminId: req.user.id, reviewId: body.reviewId ?? null }));
+});
+
+// Draft more gags on a live fact (plan docs/plans/PLAN_THREE_GAGS.md,
+// increment 2): the gag writer outside a review. The drafted ideas are read
+// here and used on a gag through the routes above, as in a review.
+async function liveIdeas(factId: number) {
+  const [fact] = await db
+    .select({
+      id: factsTable.id,
+      visualConceptStatus: factsTable.visualConceptStatus,
+      visualConceptCandidates: factsTable.visualConceptCandidates,
+      humorNote: factsTable.humorNote,
+      humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
+      humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
+    })
+    .from(factsTable)
+    .where(eq(factsTable.id, factId))
+    .limit(1);
+  return fact ? buildLiveVisualConceptsResponse(fact) : null;
+}
+
+router.get("/admin/facts/:factId/gags/ideas", requireAdmin, async (req: Request, res: Response) => {
+  const p = ids(req);
+  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
+  const ideas = await liveIdeas(p.factId);
+  if (!ideas) { res.status(404).json({ error: "Fact not found" }); return; }
+  res.json(ideas);
+});
+
+// Spends money (one gag-writer call), so only ever on this explicit request.
+router.post("/admin/facts/:factId/gags/ideas", requireAdmin, async (req: Request, res: Response) => {
+  const p = ids(req);
+  if (!p) { res.status(400).json({ error: "Invalid id" }); return; }
+  try {
+    await enqueueLiveVisualConcepts(p.factId);
+  } catch (err) {
+    if (err instanceof LiveDraftRefused) {
+      res.status(err.code === "FACT_NOT_FOUND" ? 404 : 409).json({ error: err.message, code: err.code });
+      return;
+    }
+    throw err;
+  }
+  res.status(202).json(await liveIdeas(p.factId));
 });
 
 // Run a gag's test renders: the default batch, or the named scenarios again.

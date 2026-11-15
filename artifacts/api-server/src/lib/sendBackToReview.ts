@@ -27,6 +27,7 @@ import type { EnrichmentOverrides } from "@workspace/api-zod";
 import { findInFlightRefreshCandidate, hashFactText } from "./enrichmentVersioning";
 import { enqueueJob } from "./asyncJobs";
 import { logger } from "./logger";
+import { claimConceptsForReview } from "./visualConceptOwner";
 
 export type SendBackToReviewErrorCode =
   | "FACT_NOT_FOUND"
@@ -158,6 +159,9 @@ export async function sendFactBackToReview(args: {
 
       // The fact stays live (isActive untouched); the pill shows prep running.
       await tx.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
+      // The review takes the fact's gag ideas: a Draft more gags request still
+      // running writes nothing once this commits (plan PLAN_THREE_GAGS.md, F).
+      await claimConceptsForReview(tx, factId, review.id);
 
       return { reviewId: review.id, candidateVersionId: candidate.id, versionNo: nextVersionNo };
     });

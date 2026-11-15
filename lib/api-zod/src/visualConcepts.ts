@@ -59,8 +59,12 @@ export const CANDIDATE_SCENE_MAX_CHARS = 1500;
  * v3: the gag writer (plan docs/plans/PLAN_GAG_GENERATOR.md): the locked
  * prompt on GPT-6 Astra, a REQUIRED `jokeRead`, and scenes written with the
  * stand-in name "Alex" that the server tokenizes before validation.
+ * v4: every gag the fact has is in the request (plan
+ * docs/plans/PLAN_THREE_GAGS.md, increment 2), and the input hash covers the
+ * same frozen list, so a change to any gag stales the candidates. The locked
+ * system prompt is unchanged.
  */
-export const VISUAL_CONCEPTS_PROMPT_VERSION = 3 as const;
+export const VISUAL_CONCEPTS_PROMPT_VERSION = 4 as const;
 
 /** The approved humor note's length cap (plain prose, never shown to end users). */
 export const HUMOR_NOTE_MAX_CHARS = 1500;
@@ -327,15 +331,18 @@ export const visualConceptProvenanceSchema = z.object({
 });
 export type VisualConceptProvenance = z.infer<typeof visualConceptProvenanceSchema>;
 
-export const VISUAL_CONCEPT_SOURCE_VALUES = ["staging_fact", "candidate_version"] as const;
+/** Where a generation read its fact: a first-time review's staging fact, a
+ *  refresh's candidate version, or a live fact outside any review (Draft more
+ *  gags, plan PLAN_THREE_GAGS.md increment 2). */
+export const VISUAL_CONCEPT_SOURCE_VALUES = ["staging_fact", "candidate_version", "live_fact"] as const;
 export type VisualConceptSource = (typeof VISUAL_CONCEPT_SOURCE_VALUES)[number];
 
 export const visualConceptCandidatesBlobSchema = z.object({
   candidates: z.array(storedCandidateConceptSchema),
   generatedAt: z.string(),
   provenance: visualConceptProvenanceSchema,
-  /** The review cycle these candidates were drafted for. */
-  reviewId: z.number(),
+  /** The review cycle these candidates were drafted for; null for a live draft. */
+  reviewId: z.number().nullable(),
   /** The candidate enrichment version (refresh cycles) or null (first-time). */
   candidateVersionId: z.number().nullable(),
   source: z.enum(VISUAL_CONCEPT_SOURCE_VALUES),

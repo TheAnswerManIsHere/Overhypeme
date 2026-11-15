@@ -386,7 +386,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     });
   }
 
-  it("the job sends the saved note, the live saved gag, the render policy and the draft with its bubbles", async () => {
+  it("the job sends the saved note, the fact's gags, the render policy and the draft with its bubbles", async () => {
     const live = { ...ENRICHMENT, visualPromptStrategyOverride: { version: 1, coreSceneOverride: "{NAME} lifts the moon (gag A).", bubbles: [{ type: "speech", entity: "subject", text: "Light." }], violencePolicyOverride: { mode: "soften", intensity: "strong" } } } as unknown as FactEnrichment;
     const { reviewId, factId } = await seedReview(adminId, "concept_review", live);
     await db.update(factsTable).set({ humorNote: "Alex lifts what nobody can.", humorNoteApprovedBy: adminId, humorNoteApprovedAt: new Date() }).where(eq(factsTable.id, factId));
@@ -399,14 +399,15 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     assert.ok(seen);
     const got = seen as unknown as Parameters<VisualConceptsJobDeps["generate"]>[0];
     assert.equal(got.humorNote, "Alex lifts what nobody can.");
-    assert.equal(got.savedGag?.scene, "{NAME} lifts the moon (gag A).");
-    assert.equal(got.savedGag?.bubbles[0]?.text, "Light.");
+    assert.equal(got.existingGags.length, 1);
+    assert.equal(got.existingGags[0]?.scene, "{NAME} lifts the moon (gag A).");
+    assert.equal(got.existingGags[0]?.bubbles[0]?.text, "Light.");
     assert.equal(got.draft?.scene, "{NAME} juggles planets (draft C).");
     assert.equal(got.draft?.bubbles[0]?.text, "Easy.");
     assert.equal(got.renderPolicy.violence.mode, "soften");
   });
 
-  it("a refresh sends the live fact's approved gag, never the refresh candidate's", async () => {
+  it("a refresh sends each gag's version being worked on: the review's pending change over the approved one (plan PLAN_THREE_GAGS.md, increment 2)", async () => {
     // The gag holds an approved version A and, inside the refresh, a pending change B.
     const { reviewId, factId } = await seedReview(adminId, "concept_review");
     const [v] = await db.insert(factEnrichmentVersionsTable).values({ factId, versionNo: 1, status: "candidate", source: "refresh_candidate", enrichment: ENRICHMENT as never } as never).returning({ id: factEnrichmentVersionsTable.id });
@@ -419,7 +420,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     let seen: Parameters<VisualConceptsJobDeps["generate"]>[0] | null = null;
     await runVisualConceptsJob({ reviewId, factId, moderatorDraftScene: "{NAME} draft C." }, { generate: async (input) => { seen = input; return stubGenerate()(input); } });
     const got = seen as unknown as Parameters<VisualConceptsJobDeps["generate"]>[0];
-    assert.equal(got.savedGag?.scene, "{NAME} approved gag A.");
+    assert.deepEqual(got.existingGags.map((g) => g.scene), ["{NAME} refresh candidate B."]);
     assert.equal(got.draft?.scene, "{NAME} draft C.");
     assert.equal((got.enrichment as unknown as { visualPromptStrategyOverride: { coreSceneOverride: string } }).visualPromptStrategyOverride.coreSceneOverride, "{NAME} refresh candidate B.", "the review works on the gag's pending change");
   });

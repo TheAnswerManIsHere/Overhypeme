@@ -27,6 +27,7 @@ import { factsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { findUnresolvedReviewForStagingFact } from "./moderationStaging";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs, type PrepDispatchResult } from "./firstTimeStagingPrep";
 import { logger } from "./logger";
+import { claimConceptsForReview } from "./visualConceptOwner";
 
 export type ResubmitForModerationErrorCode =
   | "FACT_NOT_FOUND"
@@ -116,6 +117,9 @@ export async function resubmitInactiveFactForModeration(args: {
         stagingFactId: factId,
       })
       .returning({ id: pendingReviewsTable.id });
+
+    // The review takes the fact's gag ideas (plan PLAN_THREE_GAGS.md, F).
+    await claimConceptsForReview(tx, factId, review!.id);
 
     await prepareFirstTimeStagingPrep(tx, {
       review: { id: review!.id, submittedText: fact.text, submittedById: null, stagingFactId: factId },

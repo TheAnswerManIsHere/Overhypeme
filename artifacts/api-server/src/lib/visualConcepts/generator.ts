@@ -7,7 +7,8 @@
  * - The request is built here, for a gag writer, from the review cycle's
  *   effective enrichment: the caption with the stand-in name "Alex", the
  *   approved humor note, what references mean, the joke mechanism, the
- *   violence and text limits, the saved gag and the moderator's working draft.
+ *   violence and text limits, every gag the fact already has and the
+ *   moderator's working draft.
  *   It no longer reuses the render planner's context blocks.
  * - The model writes "Alex"; every scene and bubble line is converted to a
  *   token template by the existing tokenizer before the existing validation,
@@ -87,8 +88,12 @@ export interface GenerateVisualConceptsInput {
   renderPolicy: RenderPolicy;
   /** The fact's approved humor note, or null. */
   humorNote: string | null;
-  /** The fact's saved, approved gag: the live fact's, also during a refresh. */
-  savedGag: ContextGag | null;
+  /**
+   * Every gag the fact already has, in slot order (plan PLAN_THREE_GAGS.md,
+   * increment 2): the version being worked on (a pending change, else the
+   * approved version), leaving out a gag marked for removal. Empty when none.
+   */
+  existingGags: ContextGag[];
   /** The moderator's unsaved working draft (Regenerate). */
   draft: ContextGag | null;
 }
@@ -238,7 +243,17 @@ export function buildVisualConceptsUserMessage(input: GenerateVisualConceptsInpu
     `Text in the picture: ${text}${t.guidance ? ` Moderator guidance: ${t.guidance}` : ""}`,
   ]);
 
-  if (input.savedGag?.scene.trim()) blocks.push(gagLines("GAG THIS FACT ALREADY HAS (do not repeat its staging or payoff):", input.savedGag));
+  // The fact's existing gags. One gag keeps the v3 wording; several are
+  // listed together, numbered, under the same instruction (the locked system
+  // prompt already speaks of "existing gags").
+  const existing = input.existingGags.filter((g) => g.scene.trim());
+  if (existing.length === 1) {
+    blocks.push(gagLines("GAG THIS FACT ALREADY HAS (do not repeat its staging or payoff):", existing[0]!));
+  } else if (existing.length > 1) {
+    const lines = [`GAGS THIS FACT ALREADY HAS (${existing.length}; do not repeat the staging or payoff of any of them):`];
+    existing.forEach((g, i) => lines.push(...gagLines(`Gag ${i + 1}:`, g)));
+    blocks.push(lines);
+  }
   if (input.draft?.scene.trim()) blocks.push(gagLines("MODERATOR'S WORKING DRAFT (propose alternatives to it):", input.draft));
 
   return blocks.map((b) => b.join("\n")).join("\n\n");
