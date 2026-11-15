@@ -25,6 +25,8 @@ import {
   type ImagePromptGenerationInput,
   type PlanExpectations,
   type FactSubtype,
+  activeBubbleSpeakers,
+  type FactCharacter,
 } from "@workspace/api-zod";
 import { callUtilityLLM, UTILITY_LLM_TIMEOUT_MS } from "../utilityLLM";
 import {
@@ -363,6 +365,21 @@ function moderatorSceneLines(input: ImagePromptContextInput, opts: ImagePromptCo
   ];
 }
 
+/** The FACT CHARACTERS naming-context block (planner and candidate concepts,
+ *  beside semantic entities). Emitted only when the list is non-empty, so a fact
+ *  with no characters gets a byte-identical context. */
+export function factCharacterLines(characters: readonly FactCharacter[]): string[] {
+  const items = characters.map(
+    (c, i) => `  ${i + 1}. label="${c.label}" (${c.kind}${c.ofSubject ? ", the subject's own" : ""})`,
+  );
+  return [
+    "",
+    "FACT CHARACTERS (naming context — the people and animals this fact names besides the subject, with their exact labels; this is NOT a cast list):",
+    ...items,
+    "If the scene includes any of these characters, refer to them by EXACTLY the label above (in secondaryCharacters, and as any speech/thought bubble speaker). You need not include any of them — include only those the scene calls for.",
+  ];
+}
+
 /** The moderator-bubble staging block (runtime planner only; gated by
  *  `includeModeratorBubbles`). Bubbles apply when present (presence-based —
  *  the enable toggle was retired); text is token-rendered when a render subject
@@ -377,10 +394,16 @@ function moderatorBubbleLines(input: ImagePromptContextInput, opts: ImagePromptC
   const items = bubbles
     .map((b) => `[${b.type} — ${b.entity.trim()}: "${render(b.text.trim())}"]`)
     .join(", ");
+  const speakers = activeBubbleSpeakers(bubbles);
   return [
     "",
     `MODERATOR BUBBLE DIRECTIVES (compiler-owned; do NOT restate): ${bubbles.length} bubble(s): ${items}.`,
     "Stage the scene so each character's pose and expression are compatible with speaking/thinking, and leave clear headroom near each for the balloon. The compiler renders the balloons and their text — do not describe balloons, tails, or bubble text in your plan.",
+    ...(speakers.length > 0
+      ? [
+          `Every speaker above other than the subject MUST appear in visualPlan.secondaryCharacters with label EXACTLY as written (${speakers.map((sp) => `"${sp}"`).join(", ")}) and a concrete visualRole, so the balloon can be attached to them.`,
+        ]
+      : []),
   ];
 }
 
@@ -442,6 +465,11 @@ export function buildImagePromptContextBlocks(
         )
         .join("\n")
     : "  (no capitalization-sensitive entities flagged by enrichment)";
+
+  // FACT CHARACTERS — naming context, never a cast list (PLAN_BUBBLE_SPEAKERS.md,
+  // F): who the fact names besides the subject, under the exact labels a bubble
+  // speaker stores. The gag still decides who appears.
+  const factCharacters = e.characters ?? [];
 
   const examplesBlock = strategy.visualizationExamples
     .map((ex, i) => {
@@ -560,6 +588,9 @@ export function buildImagePromptContextBlocks(
       "SEMANTIC ENTITY INTERPRETATION (hard visual context — DO NOT override; treat as the locked meaning of the surface term in this fact):",
       semanticEntitiesBlock,
     );
+  }
+  if (opts.includeSemanticEntities && factCharacters.length > 0) {
+    lines.push(...factCharacterLines(factCharacters));
   }
   // The echo-back directives instruct the model to populate visualPlan.* /
   // compiledPrompt.* — the RENDER PLANNER's output schema. They are meaningless
@@ -707,7 +738,7 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     "- coreScene: REQUIRED, non-empty. ONE tight paragraph of what is literally happening (subject + action + key objects). Concrete visuals only.",
     "- subjectDetails: ADDITIVE deltas — pose, expression, apparent age/body presentation, wardrobe, distinctive features the core scene does NOT already state. May be EMPTY when a moderator-authored Concept already covers the subject; otherwise (AI-authored scene) supply ≥1. For an age transform, visibly describe the transformed life stage (proportions, skin, hair).",
     "- subjectTreatment.roleInScene: a CONCRETE visible role/action — what the subject visibly is and does in the image (\"the newborn baby gripping the steering wheel and driving\"), NOT an abstract label (\"protagonist\", \"the hero\").",
-    "- secondaryCharacters: list each non-subject person, animal, crowd, or entity that must appear, as { label, visualRole }. label = short relationship/name/type (\"mother\", \"referee\", \"crowd\", \"sharks\"). visualRole = the CONCRETE visible role — position, action/reaction, and relationship to the subject — NOT a bare relationship word: write \"adult woman seated in the front passenger seat, looking surprised at the baby driver\", not \"his mother\". Empty array when the subject is alone or no secondary entity must appear.",
+    "- secondaryCharacters: list each non-subject person, animal, crowd, or entity that must appear, as { label, visualRole }. label = short relationship/name/type (\"mother\", \"referee\", \"crowd\", \"sharks\"); when the character is one listed under FACT CHARACTERS or speaks in a MODERATOR BUBBLE DIRECTIVE, label = EXACTLY that label, character for character. visualRole = the CONCRETE visible role — position, action/reaction, and relationship to the subject — NOT a bare relationship word: write \"adult woman seated in the front passenger seat, looking surprised at the baby driver\", not \"his mother\". Empty array when the subject is alone or no secondary entity must appear.",
     "- Central action / role relationship: when the taxonomy/frame indicates the subject is the sole active agent, the subject performs the central action and secondary characters do NOT take over that role. For co-action, crowd-reaction, role-reversal, causal, or symbolic scenes, preserve the intended role relationship instead of forcing sole-agent behavior. The hospital-baby example is only a diagnostic — apply the same role/action reasoning to ALL multi-character, active-action, role-reversal, crowd, nonhuman, and subject-as-object facts; do not overfit to babies, cars, mothers, or hospitals.",
     "- environment: ADDITIVE deltas — setting, background, props, scale the core scene omits. May be EMPTY when a moderator-authored Concept already covers the setting; otherwise supply ≥1.",
     "- lightingAndStyle: physical light, mood, and scene palette ONLY. Do NOT name a rendering medium or artistic style (\"anime\", \"oil painting\", \"photorealistic rendering\", \"cel-shaded\", …) — the selected style is compiler-owned and emitted as its own RENDER STYLE section.",

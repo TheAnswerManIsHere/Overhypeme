@@ -586,3 +586,58 @@ describe("expectationsFromInput — Concept presence gates the planner's detail 
     assert.deepEqual(result.visualPlan.subjectDetails, []);
   });
 });
+
+// ─── Bubble speakers (PLAN_BUBBLE_SPEAKERS.md, F) ─────────────────────────────
+
+describe("buildImagePromptUserMessage — fact characters and bubble speakers", () => {
+  const withEnrichment = (extra: Record<string, unknown>): ImagePromptGenerationInput => {
+    const base = makeInput();
+    return { ...base, enrichment: { ...(base.enrichment as object), ...extra } } as unknown as ImagePromptGenerationInput;
+  };
+
+  it("emits no FACT CHARACTERS block when the list is empty (byte-identical context)", () => {
+    const a = buildImagePromptUserMessage(makeInput());
+    const b = buildImagePromptUserMessage(withEnrichment({ characters: [] }));
+    assert.equal(a, b);
+    assert.ok(!a.includes("FACT CHARACTERS (naming context"));
+  });
+
+  it("gives the list as naming context, never as a cast list", () => {
+    const msg = buildImagePromptUserMessage(withEnrichment({
+      characters: [
+        { label: "mom", kind: "person", ofSubject: true },
+        { label: "dog", kind: "animal", ofSubject: false },
+      ],
+    }));
+    assert.match(msg, /FACT CHARACTERS \(naming context/);
+    assert.match(msg, /this is NOT a cast list/);
+    assert.match(msg, /label="mom" \(person, the subject's own\)/);
+    assert.match(msg, /label="dog" \(animal\)/);
+    assert.match(msg, /You need not include any of them/);
+  });
+
+  it("requires every non-subject bubble speaker in secondaryCharacters under its exact label", () => {
+    const msg = buildImagePromptUserMessage(withEnrichment({
+      visualPromptStrategyOverride: {
+        version: 1, requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+        compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+        bubbles: [
+          { type: "speech", entity: "subject", text: "Buckle up, mom" },
+          { type: "speech", entity: "mom", text: "Will do." },
+        ],
+      },
+    }));
+    assert.match(msg, /MUST appear in visualPlan\.secondaryCharacters with label EXACTLY as written \("mom"\)/);
+  });
+
+  it("subject-only bubbles add no speaker instruction", () => {
+    const msg = buildImagePromptUserMessage(withEnrichment({
+      visualPromptStrategyOverride: {
+        version: 1, requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+        compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+        bubbles: [{ type: "speech", entity: "subject", text: "Easy." }],
+      },
+    }));
+    assert.ok(!msg.includes("MUST appear in visualPlan.secondaryCharacters"));
+  });
+});
