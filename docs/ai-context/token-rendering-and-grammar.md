@@ -178,12 +178,15 @@ The authoritative server-side `hasPronouns` detector for storage is
 `{NAME_POSSESSIVE}` alone as pronoun-bearing. Do not import the frontend
 `hasPronouns` from `render-fact.ts` (that one is client-oriented).
 
-Stored rows created under the old contract are repaired by targeted, idempotent,
-dry-run-default backfills:
-`artifacts/api-server/scripts/backfill-collapse-name-subject-pairs.ts` (name
-pairs) and `artifacts/api-server/scripts/backfill-expand-subject-contractions.ts`
-(subject contractions — including the legacy `{He's}`/`{he's}` token; pure
-transform in `artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts`).
+Stored rows created under the old contract were repaired by one-off backfill
+scripts (name pairs, subject contractions, verb conjugation, identical branches,
+re-tokenising). A fact's wording is now locked once accepted, and the database
+refuses any change to it (`facts_text_is_locked`, migration 0141;
+`moderation-workflow.md`, *The wording locks at triage*), so those scripts could
+only fail and were removed (in git history before PR #960's follow-up). A future
+repair to stored wording is its own migration that lifts the rule, on David's
+say; the subject-contraction transform it would reuse stays, tested, in
+`artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts`.
 
 ## Retiring `They's`
 
@@ -303,9 +306,9 @@ patches the one bad sentence is a known failure pattern (see
 - `artifacts/overhype-me/src/lib/render-fact.ts` (+ `@/lib/pronouns`) — the
   renderer, pronoun maps, article agreement, `{NAME_POSSESSIVE}` +
   subject-contraction fallback.
-- `artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts` +
-  `artifacts/api-server/scripts/backfill-expand-subject-contractions.ts` — the
-  `They's` backfill.
+- `artifacts/api-server/src/lib/expandSubjectContractionBackfill.ts` — the
+  `They's` repair transform, for a future migration (its script was removed
+  with the wording lock).
 
 ## Testing expectations
 
