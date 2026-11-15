@@ -34,6 +34,7 @@ const AI: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
   aiGenerationId: "gen-1",
 };
 

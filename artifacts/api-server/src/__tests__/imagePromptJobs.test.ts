@@ -43,6 +43,7 @@ const VALID_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 let userId: string;
@@ -229,6 +230,7 @@ function handlerEnrichment(override?: Record<string, unknown>): FactEnrichment {
     adminReviewNotes: "",
     culturalReferences: [],
     semanticEntities: [],
+    characters: [],
     ...(override
       ? {
           visualPromptStrategyOverride: {

@@ -48,6 +48,7 @@ import { engineById } from "./engineInterpreter";
 import { logger } from "./logger";
 import { stripGag } from "./gags/resolver";
 import { stripSubjectNameSemanticEntities } from "./renderCanonical";
+import { attachCharacters, extractFactCharacters, type PriorCharacters } from "./factCharacters";
 // The subject/app-name hashtag denylist now lives in the shared hashtag module
 // (it is a general hashtag concern, not enrichment-only). Re-exported below so
 // existing `import { stripDeniedHashtags } from "./factEnrichment"` keeps working.
@@ -63,6 +64,12 @@ export class EnrichmentError extends Error {
 export interface EnrichInput {
   /** The fact (template) text to classify. */
   factText: string;
+  /**
+   * The fact's previous AI baseline character list, when re-classifying. Kept
+   * (with its marker) if this run's character call fails, so a re-enrichment
+   * never replaces a really-extracted list with an empty one.
+   */
+  priorCharacters?: PriorCharacters;
 }
 
 type UserMessage = { role: "user"; content: string };
@@ -387,7 +394,7 @@ export async function enrichFact(input: EnrichInput): Promise<FactEnrichment> {
     return response.choices[0]?.message?.content ?? "{}";
   };
 
-  return enrichFactWithModel(input, callModel, {
+  const classified = await enrichFactWithModel(input, callModel, {
     promptDiagnostics: {
       source: resolution.source,
       hash: resolution.hash,
@@ -396,6 +403,13 @@ export async function enrichFact(input: EnrichInput): Promise<FactEnrichment> {
       matchesCodeDefault: resolution.matchesCodeDefault,
     },
   });
+
+  // The fact's characters (the bubble-speaker list): its own versioned call on
+  // the same engine settings. A failure never fails enrichment — see
+  // `attachCharacters` for what is kept.
+  return attachCharacters(classified, input.priorCharacters, () =>
+    extractFactCharacters(input.factText, settings),
+  );
 }
 
 // ─── Persistence helpers ────────────────────────────────────────────────────

@@ -12,11 +12,12 @@
 
 import { eq } from "drizzle-orm";
 import { db, factsTable } from "@workspace/db";
-import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import { validateEnrichment, type EnrichmentOverrides, type FactEnrichment } from "@workspace/api-zod";
 import { registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { enrichFact, EnrichmentError, materializeEnrichment } from "./factEnrichment";
 import { isEnrichmentAdminEdited } from "./taxonomyHealth";
 import { renderCanonical } from "./renderCanonical";
+import { charactersOverrideOnly } from "./factCharacters";
 import { logger } from "./logger";
 
 export const FACT_ENRICHMENT_BACKFILL_QUEUE = "fact_enrichment_backfill";
@@ -28,15 +29,32 @@ export interface FactEnrichmentBackfillPayload {
   reason?: string;
 }
 
+/** Seam: classification is a network call, so tests inject a stub. */
+export interface FactEnrichmentBackfillDeps {
+  classify: typeof enrichFact;
+}
+
 export const factEnrichmentBackfillHandler: JobHandler = {
-  async run(payload: unknown): Promise<HandlerResult> {
+  run: (payload: unknown) => runFactEnrichmentBackfill(payload),
+};
+
+export async function runFactEnrichmentBackfill(
+  payload: unknown,
+  deps: FactEnrichmentBackfillDeps = { classify: enrichFact },
+): Promise<HandlerResult> {
+  {
     const p = payload as FactEnrichmentBackfillPayload;
     if (typeof p?.factId !== "number") {
       return { ok: false, error: "fact_enrichment_backfill: payload missing factId" };
     }
 
     const [row] = await db
-      .select({ id: factsTable.id, text: factsTable.text, enrichment: factsTable.enrichment })
+      .select({
+        id: factsTable.id,
+        text: factsTable.text,
+        enrichment: factsTable.enrichment,
+        enrichmentAiDerived: factsTable.enrichmentAiDerived,
+      })
       .from(factsTable)
       .where(eq(factsTable.id, p.factId))
       .limit(1);
@@ -65,7 +83,10 @@ export const factEnrichmentBackfillHandler: JobHandler = {
 
     let next: FactEnrichment;
     try {
-      next = await enrichFact({ factText: renderedText });
+      next = await deps.classify({
+        factText: renderedText,
+        priorCharacters: (row.enrichmentAiDerived ?? null) as FactEnrichment | null,
+      });
     } catch (err) {
       const msg = err instanceof EnrichmentError ? err.message : err instanceof Error ? err.message : String(err);
       logger.warn({ err, factId: p.factId }, "[fact_enrichment_backfill] enrichFact failed");
@@ -73,13 +94,22 @@ export const factEnrichmentBackfillHandler: JobHandler = {
     }
 
     // Manual field-overrides intentionally reset here — this path only reaches
-    // re-enrich when the row is not admin-edited or force is set. The fact's
-    // gags live in fact_gags (migration 0139) and are not touched.
-    const { columns } = materializeEnrichment({ aiDerived: next, overrides: {} });
-    await db
-      .update(factsTable)
-      .set(columns)
-      .where(eq(factsTable.id, p.factId));
+    // re-enrich when the row is not admin-edited or force is set — EXCEPT a
+    // moderator's character correction, which re-enrichment must never wipe
+    // (PLAN_BUBBLE_SPEAKERS.md, E). It is re-read under the row lock so one
+    // saved during the classifier call survives too. The fact's gags live in
+    // fact_gags (migration 0139) and are not touched.
+    await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ enrichmentOverrides: factsTable.enrichmentOverrides })
+        .from(factsTable)
+        .where(eq(factsTable.id, p.factId))
+        .for("update")
+        .limit(1);
+      const kept = charactersOverrideOnly((locked?.enrichmentOverrides ?? {}) as EnrichmentOverrides);
+      const { columns } = materializeEnrichment({ aiDerived: next, overrides: kept });
+      await tx.update(factsTable).set(columns).where(eq(factsTable.id, p.factId));
+    });
 
     return {
       ok: true,
@@ -90,8 +120,8 @@ export const factEnrichmentBackfillHandler: JobHandler = {
         confidence: next.taxonomyConfidence,
       },
     };
-  },
-};
+  }
+}
 
 export function registerFactEnrichmentBackfillHandler(): void {
   registerJobHandler(FACT_ENRICHMENT_BACKFILL_QUEUE, factEnrichmentBackfillHandler);

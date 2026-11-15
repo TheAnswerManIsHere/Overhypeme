@@ -63,6 +63,7 @@ const VALID: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 // A different valid blob to confirm projection columns are re-synced on PATCH.

@@ -51,6 +51,7 @@ const VALID_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 const insertedFactIds: number[] = [];

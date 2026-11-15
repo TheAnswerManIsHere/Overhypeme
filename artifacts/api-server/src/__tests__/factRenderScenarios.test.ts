@@ -34,6 +34,7 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 function baseHashInputs(): ScenarioHashInputs {

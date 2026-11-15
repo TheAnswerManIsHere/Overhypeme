@@ -79,6 +79,7 @@ export const EMPTY_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 /**

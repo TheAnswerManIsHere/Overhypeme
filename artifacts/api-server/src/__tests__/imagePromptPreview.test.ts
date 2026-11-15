@@ -75,6 +75,7 @@ const VALID_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [SHARK_WEEK_CULTURAL_REF],
   semanticEntities: [EARTH_ENTITY],
+  characters: [],
 };
 
 // A full ImagePromptGenerationOutput the stubbed generator returns. The route

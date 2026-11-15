@@ -54,6 +54,7 @@ const VALID_APPROVAL_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 } as FactEnrichment;
 
 // A fact's gag lives in fact_gags (migration 0139), not in its enrichment.

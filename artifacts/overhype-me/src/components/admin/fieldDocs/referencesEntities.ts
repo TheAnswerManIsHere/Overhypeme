@@ -499,6 +499,42 @@ export const REFERENCES_ENTITIES_FIELD_DOCS: FieldDoc[] = [
     authoredStatus: "code-derived",
   },
   {
+    key: "characters",
+    label: "Characters",
+    hint: "Every person or animal the fact names besides the subject — the choices offered as a bubble's speaker.",
+    whatItIs: [
+      "The fact's cast, minus the subject: for \"When Alex was born, he drove his mom home from the hospital\" it is one character, label \"mom\", a person, a relation of the subject. The subject is never listed — it is always available as \"Alex (the subject)\".",
+      "A label is exactly what a speech or thought bubble stores when this character is picked as its speaker, so it follows the bubble-speaker rules: plain text, no personalization token, never the word \"subject\", and unique within the list.",
+      "\"Relation of the subject\" decides how the speaker dropdown shows it: \"Alex's mom\" when ticked, \"the referee\" when not.",
+    ],
+    howDerived: [
+      "A dedicated, versioned call made right after classification (its own prompt and response schema, so the main classification is untouched) reads the fact as rendered with the stand-in name and lists every person or animal it names besides the subject. The stand-in name is stripped if returned.",
+      "A successful call stamps an extraction marker, even for an empty list. A failed call leaves no marker on a fact that has never had a list — Taxonomy Health counts it as missing and \"Fill character lists\" retries it — and keeps the previous list on a fact that already had one.",
+      "A moderator correction replaces the whole list and survives re-enrichment, refreshes and both bulk re-enrich jobs; only the field's own reset clears it.",
+    ],
+    renderImpact: [
+      "The planner receives the list as naming context: these are the people and animals the fact names, with their labels; if it includes any of them it must use exactly that label, and it need not include any.",
+      "It never forces a character into a gag. Who appears is the gag's choice; a character appears because the gag's scene, its Scene Role Assignments or a bubble calls for them.",
+      "In the render-input hash when non-empty, so editing the list flips that fact's render-scenario tiles stale.",
+    ],
+    workedExamples: [
+      {
+        scenario: '"When {NAME} was born, {SUBJ} drove {POSS} mom home from the hospital."',
+        input: 'label "mom", kind person, relation of the subject ✓',
+        outcome: 'The bubble speaker dropdown offers "Alex (the subject)" and "Alex\'s mom"; a bubble from mom stores "mom".',
+      },
+      {
+        scenario: "The AI missed a character, or named one awkwardly.",
+        input: 'Add or rename the row (e.g. "mother" → "mom")',
+        outcome: "Saved as a correction that re-enrichment keeps. Bubbles already saved with the old label keep it and show as not in the list.",
+      },
+    ],
+    effect: "render-affecting",
+    staleBehavior: "marks-render-stale",
+    sourceRefs: [TAXONOMY_SCHEMAS, PLANNER_BLOCKS, STALE_HASH],
+    authoredStatus: "code-derived",
+  },
+  {
     key: "ent.surfaceText",
     label: "Surface text",
     labelSuffix: "(verbatim case)",

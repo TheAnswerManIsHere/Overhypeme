@@ -38,6 +38,7 @@ const VALID_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 } as FactEnrichment;
 
 async function createUser(): Promise<string> {

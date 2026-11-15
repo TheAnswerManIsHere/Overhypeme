@@ -87,6 +87,7 @@ const ACTIVE_AI_BASELINE: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 // The "new pipeline" baseline the refresh classifier returns — distinguishable
