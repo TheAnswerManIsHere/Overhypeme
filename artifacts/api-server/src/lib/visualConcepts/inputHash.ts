@@ -61,6 +61,16 @@ export interface VisualConceptHashInputs {
   gags: HashedContextGag[];
 }
 
+/**
+ * The render projection minus what the Visual Idea writer never reads: the
+ * fact character list reaches only the render planner (PLAN_BUBBLE_SPEAKERS.md,
+ * F), so filling or correcting it must not mark Visual Ideas out of date.
+ */
+function visualIdeaAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
+  const { characters: _notRead, ...rest } = renderAffectingEnrichment(e);
+  return rest;
+}
+
 export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): string {
   const canonical = {
     conceptPromptVersion: VISUAL_CONCEPTS_PROMPT_VERSION,
@@ -69,7 +79,7 @@ export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): st
     candidateVersionId: inputs.candidateVersionId,
     source: inputs.source,
     factText: inputs.factText,
-    enrichment: renderAffectingEnrichment(inputs.enrichment),
+    enrichment: visualIdeaAffectingEnrichment(inputs.enrichment),
     systemPromptHash: inputs.systemPromptHash,
     engineId: inputs.engineId,
     model: inputs.model,
