@@ -119,7 +119,12 @@ function useReviews(status: string, page: number, query: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Only the most recent request may write state: a slow earlier request (an
+  // older search, tab or page) must not overwrite the results of a newer one.
+  const latestRequest = useRef(0);
+
   const load = useCallback(async () => {
+    const requestId = ++latestRequest.current;
     setLoading(true);
     setError("");
     try {
@@ -127,11 +132,12 @@ function useReviews(status: string, page: number, query: string) {
         credentials: "include",
       });
       if (!r.ok) throw new Error("Failed to load reviews");
-      setData(await r.json() as ReviewsResponse);
+      const body = await r.json() as ReviewsResponse;
+      if (requestId === latestRequest.current) setData(body);
     } catch (e) {
-      setError(String(e));
+      if (requestId === latestRequest.current) setError(String(e));
     } finally {
-      setLoading(false);
+      if (requestId === latestRequest.current) setLoading(false);
     }
   }, [status, page, query]);
 
