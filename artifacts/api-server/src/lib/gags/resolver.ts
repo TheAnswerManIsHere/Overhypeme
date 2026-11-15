@@ -118,7 +118,12 @@ export interface AvailableGag {
  * The gags a caller without moderator rights may be offered, default first:
  * the approved versions of a LIVE fact's non-removed gags, in slot order. A
  * pending change is never offered; the approved version keeps being served
- * while one waits. Empty for an inactive fact.
+ * while one waits. Empty for an inactive fact. A refresh's picks and removals
+ * change it only at promotion.
+ *
+ * Phase 7's contract (plan PLAN_THREE_GAGS.md, decisions 13 and 15): its
+ * picker lists exactly these, offers a choice wherever there is more than
+ * one, and draws through `resolveOfferedGag`. Tested in availableGags.test.ts.
  */
 export async function availableGags(factId: number, executor: Executor = db): Promise<AvailableGag[]> {
   const rows = await executor
