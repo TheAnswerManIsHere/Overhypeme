@@ -719,12 +719,15 @@ approved by David 2026-11-13, and `docs/plans/PLAN_THREE_GAGS.md` increment 2).*
   is not live, and while a generation is still working.
 - **One owner per generation** (migration 0140, `lib/visualConceptOwner.ts`).
   `facts.visual_concept_owner` names the generation that may write the fact's
-  candidates and their status: `review:<id>` or `live:<id>`. Success, failure
-  and abandonment write only while that owner holds the fact. Opening a review
-  (a refresh, a resubmission) and enqueueing its generation take ownership and
-  clear a live draft's leftovers, so a live draft that finishes afterwards
-  writes nothing. A fact no generation has claimed (null) is a review's to
-  write, as before the column existed.
+  candidates and their status: `review:<id>` or `live:<id>`. Every write of
+  that state (working, ready, failed) goes through `ownedFact`, so it lands
+  only while that owner holds the fact. Opening a review (a refresh, a
+  resubmission) and enqueueing its generation take ownership and clear a live
+  draft's leftovers, so a live draft that finishes afterwards writes nothing;
+  a live draft takes ownership in one conditional write that also checks the
+  fact is live, no review is open and nothing is drafting. The migration
+  backfilled each fact with an open review to that review; a fact no
+  generation has claimed (null) is written by none.
 
 AI-drafted picks to avoid blank-page authoring (`lib/api-zod/src/visualConcepts.ts`,
 Slice 2A / PRs #163, #166). The planner drafts exactly **3**

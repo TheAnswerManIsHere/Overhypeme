@@ -45,6 +45,7 @@ import {
   type HandlerResult,
 } from "./asyncJobs";
 import { logger } from "./logger";
+import { ownedFact, reviewConceptOwner } from "./visualConceptOwner";
 
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
@@ -405,7 +406,7 @@ export async function runEnrichmentForCandidateVersion(
         "[refresh] failed to enqueue visual concepts (enrichment kept; status → failed)",
       );
       try {
-        await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(eq(factsTable.id, v0.factId));
+        await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(v0.factId, reviewConceptOwner(advancedReviewId)));
       } catch (statusErr) {
         logger.error(
           { err: statusErr, reviewId: advancedReviewId, versionId },

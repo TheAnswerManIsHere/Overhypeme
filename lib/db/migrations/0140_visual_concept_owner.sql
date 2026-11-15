@@ -9,9 +9,23 @@
 -- it, and opening a review takes ownership, so a live draft finishing after a
 -- review opened cannot overwrite the review's candidates or status.
 --
--- Additive and nullable: a fact with no owner recorded (every fact today) is
--- written by a review cycle's generation as before. Nothing is backfilled.
+-- Additive and nullable. Backfill: a fact with an open review is owned by
+-- that review (its latest, as openReviewForFact reads it), so its generation
+-- in flight at deploy still lands; a job queued before owners existed derives
+-- the same 'review:<id>'. A fact with no open review has no generation
+-- running, and stays null until one claims it. Idempotent: only null owners
+-- are filled.
 -- Reversal: ALTER TABLE facts DROP COLUMN visual_concept_owner (no data in it
 -- outlives the generation it names).
 
-ALTER TABLE facts ADD COLUMN IF NOT EXISTS visual_concept_owner varchar(64);
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS visual_concept_owner varchar(64);--> statement-breakpoint
+UPDATE facts f
+   SET visual_concept_owner = 'review:' || r.id
+  FROM (
+    SELECT DISTINCT ON (staging_fact_id) staging_fact_id, id
+      FROM pending_reviews
+     WHERE status = 'pending' AND staging_fact_id IS NOT NULL
+     ORDER BY staging_fact_id, id DESC
+  ) r
+ WHERE f.id = r.staging_fact_id
+   AND f.visual_concept_owner IS NULL;

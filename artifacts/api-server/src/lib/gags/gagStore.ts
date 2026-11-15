@@ -234,6 +234,13 @@ export async function saveGagContent(factId: number, gagId: number, rawContent: 
   });
 }
 
+/** A gag's review ownership (`pending_review_id` and who and when), kept as it is or cleared together. */
+function reviewOwnership(gag: FactGag, keep: boolean): Pick<FactGag, "pendingReviewId" | "pendingBy" | "pendingAt"> {
+  return keep
+    ? { pendingReviewId: gag.pendingReviewId, pendingBy: gag.pendingBy, pendingAt: gag.pendingAt }
+    : { pendingReviewId: null, pendingBy: null, pendingAt: null };
+}
+
 /**
  * Drop a gag's pending change (and its picked example); the approved version
  * is untouched. A gag with nothing approved is removed instead. A removal
@@ -253,9 +260,7 @@ export async function discardGagChange(factId: number, gagId: number, actor: Gag
           pendingContent: null,
           pendingExampleAttemptId: null,
           // A removal marked in the refresh keeps its review.
-          pendingReviewId: gag.pendingRemove ? gag.pendingReviewId : null,
-          pendingBy: gag.pendingRemove ? gag.pendingBy : null,
-          pendingAt: gag.pendingRemove ? gag.pendingAt : null,
+          ...reviewOwnership(gag, gag.pendingRemove),
           updatedAt: now,
         },
     ).where(eq(factGagsTable.id, gagId)).returning();
@@ -276,13 +281,10 @@ export async function keepGag(factId: number, gagId: number, actor: GagActor): P
     await resolveScope(tx, factId, actor);
     const gag = await lockGag(tx, factId, gagId);
     if (!gag.pendingRemove) throw new GagError("NOT_MARKED_FOR_REMOVAL", "This gag is not marked for removal.");
-    const stillPending = gag.pendingContent != null || gag.pendingExampleAttemptId != null;
     const [updated] = await tx.update(factGagsTable).set({
       pendingRemove: false,
       // The review still owns a change or pick it made; otherwise it owns nothing here.
-      pendingReviewId: stillPending ? gag.pendingReviewId : null,
-      pendingBy: stillPending ? gag.pendingBy : null,
-      pendingAt: stillPending ? gag.pendingAt : null,
+      ...reviewOwnership(gag, gag.pendingContent != null || gag.pendingExampleAttemptId != null),
       updatedAt: new Date(),
     }).where(eq(factGagsTable.id, gagId)).returning();
     return updated!;

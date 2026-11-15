@@ -33,7 +33,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, pendingReviewsTable, type AsyncJobRow } from "@workspace/db/schema";
 import {
@@ -107,13 +107,9 @@ export async function enqueueVisualConceptsForReview(args: {
   moderatorDraftScene?: string | null;
   moderatorDraftBubbles?: Array<Pick<VisualStrategyBubble, "type" | "entity" | "text">> | null;
 }): Promise<EnqueueJobResult> {
-  // The review takes the fact's candidate state (a live draft's is cleared),
-  // then marks it working.
-  await claimConceptsForReview(db, args.factId, args.reviewId);
-  await db
-    .update(factsTable)
-    .set({ visualConceptStatus: "pending" })
-    .where(eq(factsTable.id, args.factId));
+  // The review takes the fact's candidate state (a live draft's is cleared)
+  // and marks it working, in one write.
+  await claimConceptsForReview(db, args.factId, args.reviewId, { markPending: true });
   return enqueueJob({
     queue: FACT_VISUAL_CONCEPTS_QUEUE,
     payload: {
@@ -149,27 +145,39 @@ export function liveConceptsDedupeKey(factId: number): string {
  * and the draft then writes nothing.
  */
 export async function enqueueLiveVisualConcepts(factId: number): Promise<EnqueueJobResult> {
-  const [fact] = await db
-    .select({ isActive: factsTable.isActive, status: factsTable.visualConceptStatus })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .limit(1);
-  if (!fact) throw new LiveDraftRefused("FACT_NOT_FOUND", "Fact not found.");
-  if (!fact.isActive) throw new LiveDraftRefused("FACT_NOT_LIVE", "Draft more gags is for a live fact. A fact in moderation gets its ideas in its review.");
-  if (await openReviewForFact(factId)) {
-    throw new LiveDraftRefused("REVIEW_OPEN", "This fact has an open review. Draft its gags in the review.");
-  }
-  if (fact.status === "pending") throw new LiveDraftRefused("IDEAS_PENDING", "Gag ideas are already being drafted for this fact.");
+  // One compare-and-set: the fact is live, no review is open and nothing is
+  // drafting, and this request takes ownership, all in a single write, so a
+  // review opened or another draft started in between cannot be overwritten.
   const owner = liveConceptOwner(randomUUID());
-  await db
+  const [claimed] = await db
     .update(factsTable)
     .set({ visualConceptOwner: owner, visualConceptStatus: "pending" })
-    .where(eq(factsTable.id, factId));
+    .where(and(
+      eq(factsTable.id, factId),
+      eq(factsTable.isActive, true),
+      sql`${factsTable.visualConceptStatus} IS DISTINCT FROM 'pending'`,
+      sql`NOT EXISTS (SELECT 1 FROM ${pendingReviewsTable} WHERE ${pendingReviewsTable.stagingFactId} = ${factsTable.id} AND ${pendingReviewsTable.status} = 'pending')`,
+    ))
+    .returning({ id: factsTable.id });
+  if (!claimed) throw await liveDraftRefusal(factId);
   return enqueueJob({
     queue: FACT_VISUAL_CONCEPTS_QUEUE,
     payload: { reviewId: null, factId, owner, candidateVersionId: null, moderatorDraftScene: null, moderatorDraftBubbles: null },
     dedupeKey: liveConceptsDedupeKey(factId),
   });
+}
+
+/** Why a live draft could not take the fact, read after the refused claim. */
+async function liveDraftRefusal(factId: number): Promise<LiveDraftRefused> {
+  const [fact] = await db
+    .select({ isActive: factsTable.isActive, status: factsTable.visualConceptStatus })
+    .from(factsTable)
+    .where(eq(factsTable.id, factId))
+    .limit(1);
+  if (!fact) return new LiveDraftRefused("FACT_NOT_FOUND", "Fact not found.");
+  if (!fact.isActive) return new LiveDraftRefused("FACT_NOT_LIVE", "Draft more gags is for a live fact. A fact in moderation gets its ideas in its review.");
+  if (await openReviewForFact(factId)) return new LiveDraftRefused("REVIEW_OPEN", "This fact has an open review. Draft its gags in the review.");
+  return new LiveDraftRefused("IDEAS_PENDING", "Gag ideas are already being drafted for this fact.");
 }
 
 // ─── Review-cycle resolution (shared by handler + endpoint staleness) ────────
@@ -303,12 +311,11 @@ export async function runVisualConceptsJob(
   deps: VisualConceptsJobDeps = { generate: generateVisualConcepts },
 ): Promise<HandlerResult> {
   const { reviewId, factId } = payload;
-  const live = reviewId == null;
-  if (typeof factId !== "number" || (!live && typeof reviewId !== "number")) {
-    return { ok: false, error: "fact_visual_concepts payload missing reviewId/factId" };
-  }
   const owner = jobOwner(payload);
-  if (owner == null) return { ok: false, error: "fact_visual_concepts live payload missing its owner" };
+  if (typeof factId !== "number" || owner == null) {
+    return { ok: false, error: "fact_visual_concepts payload missing its fact or owner" };
+  }
+  const live = reviewId == null;
 
   const resolved = live ? await resolveLiveConceptCycle(factId) : await resolveVisualConceptCycle(reviewId);
   if (!resolved.ok) {
@@ -432,77 +439,34 @@ export function registerVisualConceptJobHandlers(): void {
 // ─── Normalized review-detail response (server-computed `current`) ───────────
 
 /**
- * The `visualConcepts` block for a live fact's Draft more gags (plan
- * PLAN_THREE_GAGS.md, increment 2). Candidates are current only when a live
- * draft wrote them and its inputs (the fact, its classification, every gag,
- * the engine) are unchanged; a review's leftover candidates read as stale.
- */
-export async function buildLiveVisualConceptsResponse(fact: {
-  id: number;
-  visualConceptStatus: string | null;
-  visualConceptCandidates: unknown;
-  humorNote?: string | null;
-  humorNoteApprovedBy?: string | null;
-  humorNoteApprovedAt?: Date | null;
-}): Promise<VisualConceptsResponse> {
-  const status = (fact.visualConceptStatus as VisualConceptsResponse["status"]) ?? null;
-  const savedNote = fact.humorNote?.trim() || null;
-  const humorNote = savedNote
-    ? { text: savedNote, approvedBy: fact.humorNoteApprovedBy ?? null, approvedAt: (fact.humorNoteApprovedAt ?? new Date(0)).toISOString() }
-    : null;
-  let failureReason: string | undefined;
-  if (status === "failed") {
-    const settings = await resolveVisualConceptsLLMSettings();
-    if (settings.unusableReason) {
-      failureReason = new VisualConceptsEngineUnusable(settings.unusableReason, settings.provenance.engineId).message;
-    }
-  }
-  const parsed = visualConceptCandidatesBlobSchema.safeParse(fact.visualConceptCandidates);
-  if (!parsed.success) return { status, candidates: [], current: false, humorNote, ...(failureReason ? { failureReason } : {}) };
-  const blob = parsed.data;
-  let staleReason: VisualConceptStaleReason | undefined;
-  if (blob.source !== "live_fact" || blob.reviewId != null) {
-    staleReason = "review_mismatch";
-  } else {
-    const resolved = await resolveLiveConceptCycle(fact.id);
-    if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) staleReason = "input_hash_mismatch";
-  }
-  if (staleReason === undefined && savedNote) {
-    const under = blob.humorNoteUsed?.trim() ?? "";
-    const read = blob.jokeRead?.trim() ?? "";
-    if (savedNote !== under && savedNote !== read) staleReason = "humor_note_changed";
-  }
-  return {
-    status,
-    candidates: blob.candidates,
-    current: staleReason === undefined,
-    ...(staleReason ? { staleReason } : {}),
-    generatedAt: blob.generatedAt,
-    ...(blob.jokeRead ? { jokeRead: blob.jokeRead } : {}),
-    humorNote,
-    ...(failureReason ? { failureReason } : {}),
-  };
-}
-
-/**
  * Build the `visualConcepts` block the review-detail endpoint returns. The
  * server computes whether the stored candidates are CURRENT for the review by
  * comparing the stored reviewId / candidateVersionId / inputHash to the review's
  * live state — the FE never recomputes hashes.
  */
-export async function buildVisualConceptsResponse(review: {
-  id: number;
-  candidateVersionId: number | null;
+/** The fact columns a `visualConcepts` block is built from. */
+export interface ConceptsRow {
   visualConceptStatus: string | null;
   visualConceptCandidates: unknown;
   humorNote?: string | null;
   humorNoteApprovedBy?: string | null;
   humorNoteApprovedAt?: Date | null;
-}): Promise<VisualConceptsResponse> {
-  const status = (review.visualConceptStatus as VisualConceptsResponse["status"]) ?? null;
-  const savedNote = review.humorNote?.trim() || null;
+}
+
+/**
+ * The `visualConcepts` block, shared by a review and by a live fact's Draft
+ * more gags: everything but the one question that differs between them,
+ * whether the stored candidates were drafted for this cycle and its inputs,
+ * which `staleness` answers.
+ */
+async function assembleConceptsResponse(
+  row: ConceptsRow,
+  staleness: (blob: VisualConceptCandidatesBlob) => Promise<VisualConceptStaleReason | undefined>,
+): Promise<VisualConceptsResponse> {
+  const status = (row.visualConceptStatus as VisualConceptsResponse["status"]) ?? null;
+  const savedNote = row.humorNote?.trim() || null;
   const humorNote = savedNote
-    ? { text: savedNote, approvedBy: review.humorNoteApprovedBy ?? null, approvedAt: (review.humorNoteApprovedAt ?? new Date(0)).toISOString() }
+    ? { text: savedNote, approvedBy: row.humorNoteApprovedBy ?? null, approvedAt: (row.humorNoteApprovedAt ?? new Date(0)).toISOString() }
     : null;
   // A failure the moderator can act on: the gag writer's engine is unusable.
   // Resolving it is a read that never throws, so this screen keeps loading.
@@ -514,24 +478,14 @@ export async function buildVisualConceptsResponse(review: {
     }
   }
 
-  const parsed = visualConceptCandidatesBlobSchema.safeParse(review.visualConceptCandidates);
+  const parsed = visualConceptCandidatesBlobSchema.safeParse(row.visualConceptCandidates);
   if (!parsed.success) {
     // No usable blob (never generated, or shape drift). Report status only.
     return { status, candidates: [], current: false, humorNote, ...(failureReason ? { failureReason } : {}) };
   }
   const blob = parsed.data;
 
-  let staleReason: VisualConceptStaleReason | undefined;
-  if (blob.reviewId !== review.id) {
-    staleReason = "review_mismatch";
-  } else if (blob.candidateVersionId !== review.candidateVersionId) {
-    staleReason = "candidate_version_mismatch";
-  } else {
-    const resolved = await resolveVisualConceptCycle(review.id);
-    if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) {
-      staleReason = "input_hash_mismatch";
-    }
-  }
+  let staleReason = await staleness(blob);
   // The approved note is kept out of the input hash, so confirming a correct
   // read does not stale the gags it was confirmed beside. A saved note that
   // differs from both the note these gags were written under and their own
@@ -552,4 +506,46 @@ export async function buildVisualConceptsResponse(review: {
     humorNote,
     ...(failureReason ? { failureReason } : {}),
   };
+}
+
+export async function buildVisualConceptsResponse(review: ConceptsRow & { id: number; candidateVersionId: number | null }): Promise<VisualConceptsResponse> {
+  return assembleConceptsResponse(review, async (blob) => {
+    if (blob.reviewId !== review.id) return "review_mismatch";
+    if (blob.candidateVersionId !== review.candidateVersionId) return "candidate_version_mismatch";
+    const resolved = await resolveVisualConceptCycle(review.id);
+    if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) return "input_hash_mismatch";
+    return undefined;
+  });
+}
+
+/**
+ * The `visualConcepts` block for a live fact's Draft more gags (plan
+ * PLAN_THREE_GAGS.md, increment 2). Candidates are current only when a live
+ * draft wrote them and its inputs (the fact, its classification, every gag,
+ * the engine) are unchanged; a review's leftover candidates read as stale.
+ */
+export async function buildLiveVisualConceptsResponse(fact: ConceptsRow & { id: number }): Promise<VisualConceptsResponse> {
+  return assembleConceptsResponse(fact, async (blob) => {
+    if (blob.source !== "live_fact" || blob.reviewId != null) return "review_mismatch";
+    const resolved = await resolveLiveConceptCycle(fact.id);
+    if (!resolved.ok || blob.inputHash !== (await computeCurrentInputHash(resolved.cycle))) return "input_hash_mismatch";
+    return undefined;
+  });
+}
+
+/** A live fact's drafted ideas, or null when the fact does not exist. */
+export async function liveVisualConcepts(factId: number): Promise<VisualConceptsResponse | null> {
+  const [fact] = await db
+    .select({
+      id: factsTable.id,
+      visualConceptStatus: factsTable.visualConceptStatus,
+      visualConceptCandidates: factsTable.visualConceptCandidates,
+      humorNote: factsTable.humorNote,
+      humorNoteApprovedBy: factsTable.humorNoteApprovedBy,
+      humorNoteApprovedAt: factsTable.humorNoteApprovedAt,
+    })
+    .from(factsTable)
+    .where(eq(factsTable.id, factId))
+    .limit(1);
+  return fact ? buildLiveVisualConceptsResponse(fact) : null;
 }

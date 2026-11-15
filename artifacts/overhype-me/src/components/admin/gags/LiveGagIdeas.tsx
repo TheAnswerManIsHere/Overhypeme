@@ -9,20 +9,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FactGagsView, VisualConceptsResponse } from "@workspace/api-zod";
 import { VisualConceptCandidates } from "../VisualConceptCandidates";
+import { gagApi } from "./gagApi";
 import { useGagIdeaActions } from "./useGagIdeaActions";
 
 const POLL_MS = 2000;
 
-async function readIdeas(factId: number, method: "GET" | "POST"): Promise<{ ok: true; ideas: VisualConceptsResponse } | { ok: false; error: string }> {
-  try {
-    const r = await fetch(`/api/admin/facts/${factId}/gags/ideas`, { method, credentials: "include" });
-    const data = (await r.json().catch(() => null)) as (VisualConceptsResponse & { error?: string }) | null;
-    if (!r.ok || !data) return { ok: false, error: data?.error ?? `Request failed (${r.status}).` };
-    return { ok: true, ideas: data };
-  } catch {
-    return { ok: false, error: "Network error: could not reach the server." };
-  }
-}
 
 export function LiveGagIdeas({
   factId,
@@ -54,7 +45,7 @@ export function LiveGagIdeas({
   const latest = useRef(0);
   const request = useCallback(async (method: "GET" | "POST") => {
     const n = ++latest.current;
-    const r = await readIdeas(factId, method);
+    const r = method === "GET" ? await gagApi.ideas(factId) : await gagApi.draftIdeas(factId);
     if (n !== latest.current) return;
     if (r.ok) setIdeas(r.ideas);
     else setError(r.error);
@@ -72,7 +63,15 @@ export function LiveGagIdeas({
     const t = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(t);
   }, [live, pending, load]);
-  useEffect(() => { if (live && ideas) void load(); }, [gagsView]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keyed on the gags' content, not the view object: the panel hands over a
+  // new view on every poll while a render draws.
+  const gagsKey = gagsView ? JSON.stringify(gagsView.gags.map((g) => [g.id, g.approvedContent, g.pendingContent, g.pendingRemove])) : "";
+  const seenGags = useRef(gagsKey);
+  useEffect(() => {
+    if (seenGags.current === gagsKey) return;
+    seenGags.current = gagsKey;
+    if (live && ideas) void load();
+  }, [gagsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!live) return null;
 

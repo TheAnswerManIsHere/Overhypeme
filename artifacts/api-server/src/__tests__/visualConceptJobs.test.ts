@@ -119,6 +119,8 @@ async function seedReview(
     status: "pending", workflowStage: stage as never, stagingFactId: fact!.id,
     enrichment, enrichmentStatus: "ok",
   }).returning({ id: pendingReviewsTable.id });
+  // The review owns the fact's ideas, as every enqueue path claims it (migration 0140).
+  await db.update(factsTable).set({ visualConceptOwner: `review:${review!.id}` }).where(eq(factsTable.id, fact!.id));
   return { reviewId: review!.id, factId: fact!.id };
 }
 
