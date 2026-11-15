@@ -2,10 +2,8 @@
 
 > How a fact gets into Overhype.me in the first place — the two ways a fact
 > is submitted (a signed-in user writes one, or an admin/external system
-> imports a batch) and the one funnel both feed into. **[Variants](../ai-context/glossary.md#variant)** are not a
-> third source of facts; they're how near-duplicate wordings get organized,
-> and they're covered here because applying that link is a decision made on
-> the way in. What happens once a fact is in the queue is
+> imports a batch) and the one funnel both feed into. What happens once a
+> fact is in the queue is
 > [`3-moderation.md`](./3-moderation.md)'s chapter, not this one.
 >
 > Deep spec: [`moderation-workflow.md`](../ai-context/moderation-workflow.md#the-ingestion-funnel--one-entrance).
@@ -24,19 +22,8 @@ chapter doesn't cover it.) That single funnel is what lets
 [`3-moderation.md`](./3-moderation.md) describe one review process and mean it for
 every fact, regardless of how it arrived.
 
-**Variants ride that same funnel rather than bypassing it.** A [variant](../ai-context/glossary.md#variant) is an
-alternate phrasing of a fact that's already live, and it exists to solve a
-clutter problem: near-duplicate wordings of the same joke shouldn't each take
-up their own slot in the catalogue, but a reader should still be able to pick
-the phrasing that lands best for them. A fact becomes a variant by being
-*linked* to an existing fact — a decision a moderator makes at [Triage](../ai-context/glossary.md#triage) on a
-flagged near-duplicate, or an admin makes when writing one directly. Either
-way the fact itself is submitted, reviewed, and published like any other. See
-*Variants* below.
-
 This chapter covers the two entrances themselves — what a [submitter](../ai-context/glossary.md#submitter) sees, what
-an importer sends — plus how and where the variant link gets applied, and the
-cheap, pre-review checks each route runs before a fact ever reaches a human.
+an importer sends — and the cheap, pre-review checks each route runs before a fact ever reaches a human.
 What happens after that hand-off ([triage](../ai-context/glossary.md#triage), [enrichment](../ai-context/glossary.md#enrichment), the [Visual Concept](../ai-context/glossary.md#visual-concept) and
 [Test Renders](../ai-context/glossary.md#test-renders) gates, publication) belongs to [moderation](../ai-context/glossary.md#moderation) and taxonomy, and
 this chapter links out rather than repeating it.
@@ -124,78 +111,21 @@ An imported fact is exactly as unpublished as a hand-submitted one; it
 still has to clear every gate in [`3-moderation.md`](./3-moderation.md) before
 it goes live.
 
-### Variants: organizing near-duplicate wordings
+### Near-duplicates: one fact per joke
 
-A [variant](../ai-context/glossary.md#variant) is an alternate phrasing of a joke that's already live, linked to
-that joke — its **[root](../ai-context/glossary.md#root)** — by a parent reference. The link buys exactly two
-things: near-duplicate wordings stop competing for the same space in the
-catalogue, and a reader who prefers a different phrasing can pick one.
-Everything else about a variant is ordinary-fact machinery.
-
-**Where the link gets applied.** Three places, and all are a decision by
-staff, never by the submitting user:
-
-- **At Triage, on any submission carrying a similarity match.** The duplicate
-  check attaches its nearest match to the submission whenever it finds one
-  with positive confidence — not only when that match was strong enough to
-  show the submitter a duplicate warning. The moderator's triage screen shows
-  **Prep as Variant of #N** whenever a match is attached, so the moderator is
-  making this call on more candidates than the submitter ever saw flagged;
-  choosing it accepts the submission and records the matched fact as its
-  parent. This is the path the clutter problem is actually named after: a
-  reworded near-duplicate becomes an alternate phrasing of the fact it echoes,
-  instead of either a rejection or a second near-identical entry in the feed.
-- **From the [Facts editor](../ai-context/glossary.md#facts-editor), writing a new variant.** An admin can write a
-  variant directly against a specific root. That's an authoring convenience,
-  not a separate kind of content: the text goes through the same grammar
-  normalization as a fresh fact, and it enters at the same first review step
-  as anything else.
-- **From the Facts editor, reparenting an existing fact.** An admin can also
-  set (or clear) the **Parent ID** field on a fact that already exists,
-  turning an already-published root into a variant of another root, or a
-  variant back into a root. Unlike the other two, this doesn't go through
-  review — it's a direct edit to a live fact, gated only by the same
-  active-root invariant activation enforces.
-
-The first two both run **a variant through review like any other fact** — it
-earns its own classification, its own Visual Concept, and its own images, and
-none of that carries over from its parent. Reparenting is different: it acts
-on a fact that already cleared review, so nothing re-runs — only the parent
-link changes. In every case the parent link is revalidated before the fact can
-actually go (or stay) live: see
-[`moderation-workflow.md`'s activation chokepoint](../ai-context/moderation-workflow.md#the-activation-chokepoint--one-exit).
-
-**What the grouping changes.** Variants are kept out of the main fact list and
-the home-page hero, so a root and its rewordings never crowd each other on
-those surfaces. The "more facts you'll like" rail keeps them out of its own
-fact's group (a variant never recommends its own siblings or root) but not
-globally — see *Boundaries* below for the gap. On the root fact's own page
-variants are listed under **Alternate Phrasings**, each linking to its own
-fact page; a variant's page carries a banner back to its root. The grouping is
-one level deep — a variant of a variant isn't allowed, so a new variant's
-target always has to be a root.
-
-**What the grouping deliberately does not change.** A variant is otherwise a
-fully independent fact: its own page, its own votes and score, its own
-comments and memes, its own classification and Visual Concept, inheriting no
-metadata from its root. That independence was a deliberate call — see
-[Variants are independent facts](../ai-context/decisions.md#2026-07-24--variants-are-independent-facts--parent_id-is-kinship--showhide-only-never-metadata-inheritance).
-The practical consequence is that a variant is not a cheap alias for the same
-row: it goes through the same paid moderation prep, and the engagement it
-earns (votes, comments, rank) is its own rather than the root's.
-
-**What a reader can and can't do.** Readers pick among the alternate phrasings
-a moderator or admin has already approved; they can't write or edit one
-themselves. (Personalizing a fact to a name and pronoun set is a different,
-always-available thing that works on any fact — see
-[`1-personalization-and-grammar.md`](./1-personalization-and-grammar.md).) A user
-who wants a wording that doesn't exist yet submits it like any other fact; it
-becomes a variant only if a moderator links it at Triage.
+The duplicate check attaches its nearest match to a submission whenever it
+finds one with positive confidence — not only when that match was strong
+enough to show the submitter a warning — so a moderator at
+[Triage](../ai-context/glossary.md#triage) sees more candidates than the
+submitter ever saw flagged. The moderator has two choices: reject the
+submission as a duplicate, or accept it as a fact of its own. A different
+wording of a joke that's already live is the same joke, so the usual call is
+the first. Every fact stands alone: nothing links one fact to another, and
+each fact earns its own classification, gags, images, votes and comments.
 
 ### Underneath: one funnel, one cost gate
 
-Every route in — the submit route, both import routes, and the admin variant
-route — calls the same function to create a pending review row, and nothing
+Every route in — the submit route and both import routes — calls the same function to create a pending review row, and nothing
 else in the codebase does. That row starts at the very first stage
 of the review pipeline; no route can hand a fact a head start.
 The **[moderation-prep pipeline](../ai-context/glossary.md#moderation-prep)** — AI classification, no
@@ -207,9 +137,7 @@ pass, the duplicate check, hashtag suggestions — do call utility models;
 gated at Triage is the paid moderation-prep pipeline specifically, not every
 model call ever made about the fact.) Intake itself is just: normalize the
 grammar and queue the review — a duplicate check runs on some routes (the
-submitter's own advisory check, the import routes' exact-text dedupe) but
-not all of them; the admin variant route, for one, does neither, since an
-admin writing a variant has already decided what it's a variant of.
+submitter's own advisory check, the import routes' exact-text dedupe).
 See [`moderation-workflow.md`](../ai-context/moderation-workflow.md#why-staged-moderation-exists)
 for what happens from there, and
 [`moderation-workflow.md`'s ingestion-funnel section](../ai-context/moderation-workflow.md#the-ingestion-funnel--one-entrance)
@@ -218,8 +146,8 @@ for the funnel itself.
 ## Why it works this way
 
 - **One funnel, so "every fact gets reviewed" is actually true.** If
-  submission, import, and the admin variant route each wrote to the facts table
-  in their own way, "nothing goes live without review" would be three separate
+  submission and import each wrote to the facts table
+  in their own way, "nothing goes live without review" would be separate
   promises to keep in sync instead of one function to trust. Routing every
   route through the same primitive means a change to how review starts —
   a new required field, a new starting stage — only has to be made once and
@@ -230,8 +158,8 @@ for the funnel itself.
   make, not a machine — if the check catches it and finishes in time, the
   submitter sees the possible match and decides whether to send it anyway,
   and a moderator sees the same flag at Triage. Blocking automatically would
-  either reject real variants or need the exact wording match bulk import
-  uses, which is far too blunt for something a human wrote from scratch. It
+  either reject jokes that only look alike or need the exact wording match
+  bulk import uses, which is far too blunt for something a human wrote from scratch. It
   runs best-effort rather than being made to block Submit for the same
   reason it isn't a hard gate at all — the cost of occasionally missing a
   flag is lower than the cost of holding up every submission on an AI call
@@ -246,17 +174,6 @@ for the funnel itself.
   the insert, not as a database constraint, so it guards sequential runs —
   two imports racing at the exact same instant could each pass it before
   either has written anything; see *Boundaries* below.)
-- **Variants are a grouping decision, not a lighter kind of fact.** The link
-  could have been built as a wording swap stored on the root — one fact, several
-  strings — which would have made an alternate phrasing free. It wasn't, because
-  a rewording is still a different joke to classify and to picture: the same
-  concept phrased differently can want a different image, a different
-  classification, its own memes. So the link does the one job it's good at —
-  keeping near-duplicates from cluttering the browse surfaces while leaving the
-  wording choice available — and stops there. The cost of that choice is real
-  and accepted: each variant is separately reviewed, separately prepped (paid),
-  and accumulates its own votes and comments rather than pooling them with its
-  root.
 - **Grammar normalization runs again at the server, even though the client
   already showed a preview of it.** The preview is for the submitter's
   benefit; the server-side pass is what actually determines what gets
@@ -284,28 +201,6 @@ for the funnel itself.
   the check before either has inserted, and both queue.
 - **A submitter's own pending facts are protected from flooding the review
   queue** — see `artifacts/api-server/src/lib/rateLimit.ts` for how.
-- **The variant grouping is applied per surface, not globally, and even
-  "excludes variants" is a per-branch guarantee, not a per-surface one.** The
-  main fact list and the hero filter to root facts outright. The related
-  rail only excludes a fact's own group (its root and siblings) — its
-  tag-overlap ranking branch has no root-only filter, so a variant belonging
-  to a *different* root can still surface there on a shared hashtag; only the
-  fallback (no-hashtag-overlap) branch is root-only. The **Fact of the Day**
-  email picks from every active fact, so a variant can go out as the day's
-  fact on its own. Your library's submitted/liked lists also include variants —
-  arguably correct there, since they're that user's own submissions, but it's
-  the same unfiltered read. Any new surface that lists facts has to opt into
-  whatever filtering it wants; there's no shared root-only filter to inherit.
-- **A near-duplicate match can point at a fact that is itself a variant, and
-  Triage sees it more often than a submitter's duplicate warning would
-  suggest.** The duplicate check searches every active fact, variants
-  included, and attaches its nearest match whenever confidence is positive —
-  not only when that match was strong enough to warn the submitter. So Triage
-  can offer *Prep as Variant of #N* where #N is a variant, on submissions the
-  submitter never saw flagged at all. Nothing refuses either case at that
-  point — the one-level-deep rule is enforced at the final activation gate,
-  after the fact has already been through paid prep, and the moderator has to
-  re-parent it to the root to get it live.
 
 ## Going deeper
 
@@ -324,4 +219,5 @@ for the funnel itself.
 gates a queued fact walks through before it can go live.
 
 *Verified against `b720d6f` (2026-08-08) · claim inventory in PR #355. The
-variants section re-verified against `60827dc` (2026-08-09).*
+near-duplicate section rewritten when the link between facts was retired
+(2026-11-15).*

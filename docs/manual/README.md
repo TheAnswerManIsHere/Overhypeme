@@ -265,7 +265,7 @@ In reading order. A chapter file appears only once it holds real content, so
 | # | Chapter | Covers | Status |
 | --- | --- | --- | --- |
 | 1 | [`1-personalization-and-grammar.md`](./1-personalization-and-grammar.md) | **Personalize** — tokens, pronouns, verb conjugation: how a fact adapts to whoever is reading it | ✅ written |
-| 2 | [`2-content-lifecycle.md`](./2-content-lifecycle.md) | **Submit** — the two ways a fact is submitted (user submission, admin/API-key bulk import), the one funnel they hand off into review through, and how variants group near-duplicate wordings | ✅ written |
+| 2 | [`2-content-lifecycle.md`](./2-content-lifecycle.md) | **Submit** — the two ways a fact is submitted (user submission, admin/API-key bulk import), the one funnel they hand off into review through, and what happens to a near-duplicate | ✅ written |
 | 3 | [`3-moderation.md`](./3-moderation.md) | **Moderate** — the three human gates, approvals, overrides, and taking a fact down | ✅ written |
 | 4 | [`4-taxonomy-and-enrichment.md`](./4-taxonomy-and-enrichment.md) | **Enrich** — classification, hashtags, enrichment versioning, staleness | ✅ written |
 | 5 | [`5-visual-pipeline.md`](./5-visual-pipeline.md) | **Render** — the shared image machinery: Visual Concept, planner, compiler, render modes, frozen inputs | ✅ written |

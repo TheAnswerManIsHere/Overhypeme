@@ -547,17 +547,14 @@ KITT work a launch phase needs and a second app would need identically;
   David reported it recurring, and diagnosis found an unrelated cause (a
   silently-failed Stripe sync with no visible failure state). See the newer
   decision and failure-pattern entries in "In-progress slices" below.
-- **Variant independence: `parent_id` is kinship, never metadata inheritance**
-  (PR #256). A variant now classifies from its own text only, owns its own
-  stock/AI images (generation included, not just display), and the three
+- **Bulk media backfill on a durable queue** (PR #256). The three
   bulk-backfill routes run through a new durable async queue (`fact_pexels` /
   `fact_ai_meme_backfill` lanes) instead of blocking the request. A bounded
   repeated-failure circuit breaker protects bulk-send-back from an unbounded
   retry loop on a persistently-failing fact. New Bulk Media Backfill admin
-  panel. See
-  [`decisions.md`](./decisions.md#2026-07-24--variants-are-independent-facts--parent_id-is-kinship--showhide-only-never-metadata-inheritance),
-  [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#variants-are-independent-facts),
-  and [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
+  panel. (The same PR's rule for linked facts was retired with the link
+  itself on 2026-11-15, [`docs/retired/README.md`](../retired/README.md).) See
+  [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
 - **Engineering deferred-work backlog + a 9-CVE dependency patch sweep**
   (PR #245, #246). New process infrastructure: a single durable backlog for
   deferred engineering/security/maintenance work
@@ -572,8 +569,8 @@ KITT work a launch phase needs and a second app would need identically;
   converged after 11 rounds, CI green except one open policy call below; **not
   yet merged**). `facts.is_active` now defaults `false`; `activateFact` is the
   sole `is_active` false→true writer, backstopped by a DB CHECK requiring a
-  non-empty Visual Concept; every ingestion path (manual submit, bulk import,
-  variant creation) funnels through `createTriageReview` into Stage-1 triage;
+  non-empty Visual Concept; every ingestion path (manual submit, bulk import)
+  funnels through `createTriageReview` into Stage-1 triage;
   the admin Active toggle is deactivate-only, and a new
   `resubmit-for-moderation` route puts a deactivated fact back through the same
   review pipeline under its existing id. See
