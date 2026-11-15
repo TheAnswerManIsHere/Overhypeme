@@ -5,7 +5,8 @@ import {
   factHashtagsTable,
 } from "@workspace/db/schema";
 import { eq, sql, gt } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
 import { seedImagePromptConfig } from "./imagePromptConfig";
@@ -621,25 +622,22 @@ export async function seedIfEmpty(): Promise<void> {
 
   logger.info({ count: SEED_FACTS.length }, "[seed] Production database is empty — seeding facts");
 
-  // Facts are born inactive and only go live with a non-empty Visual Concept
-  // (Phase-2 fact-lifecycle closure + DB CHECK). The startup seed inserts live
-  // starter facts, so each carries a valid placeholder enrichment + concept and
-  // its projected taxonomy columns.
+  // Facts are born inactive and only go live with an approved gag (Phase-2
+  // fact-lifecycle closure; since migration 0139 the deferred trigger
+  // enforce_live_fact_has_approved_gag). The startup seed inserts live starter
+  // facts, so each carries a valid placeholder enrichment, its projected
+  // taxonomy columns, and a placeholder gag, inserted together.
   const seedEnrichment = buildPlaceholderFactEnrichment();
 
   for (const item of SEED_FACTS) {
-    const [fact] = await db
-      .insert(factsTable)
-      .values({
-        text: item.text,
-        isActive: true,
-        enrichment: seedEnrichment,
-        primaryArchetype: seedEnrichment.primaryArchetype,
-        subtype: seedEnrichment.subtype,
-        overhypeFit: seedEnrichment.overhypeFit,
-        adultSuitability: seedEnrichment.adultSuitability,
-      })
-      .returning({ id: factsTable.id });
+    const fact = await insertLiveFact({
+      text: item.text,
+      enrichment: seedEnrichment,
+      primaryArchetype: seedEnrichment.primaryArchetype,
+      subtype: seedEnrichment.subtype,
+      overhypeFit: seedEnrichment.overhypeFit,
+      adultSuitability: seedEnrichment.adultSuitability,
+    }, buildPlaceholderGag());
 
     for (const tagName of item.hashtags) {
       const existing = await db

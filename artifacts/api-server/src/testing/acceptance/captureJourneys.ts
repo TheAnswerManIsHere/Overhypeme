@@ -73,19 +73,13 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
       const candidate = (prepared.visualConcepts.candidates as any[]).find((c) => c.tokenValid);
       if (!candidate) throw new JourneyError("pr229", "pick a Visual Concept", "no token-valid candidate");
 
-      const fact = await admin.json<any>("pr229", "GET", `/api/admin/facts/${stagingFactId}`);
-      const enrichment = structuredClone(fact.enrichment);
       const vso = {
-        ...(enrichment.visualPromptStrategyOverride ?? {
-          version: 1,
-          requiredVisualDetails: [],
-          forbiddenVisualDetails: [],
-          roleBindings: [],
-          bubbles: [],
-          compositionGuidance: [],
-          styleAgnosticPromptAdditions: [],
-          negativePromptAdditions: [],
-        }),
+        version: 1,
+        requiredVisualDetails: [],
+        forbiddenVisualDetails: [],
+        compositionGuidance: [],
+        styleAgnosticPromptAdditions: [],
+        negativePromptAdditions: [],
         coreSceneOverride: candidate.sceneDescription,
         roleBindings: [{ ...SUBJECT_ONLY_ROLE }],
         bubbles: [{ ...MAILMAN_BUBBLE }],
@@ -105,8 +99,8 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
         else if (r.path === "bubbles[0].text") vso.bubbles[0]!.text = r.value;
         else if (r.path === "bubbles[0].entity") vso.bubbles[0]!.entity = r.value;
       }
-      enrichment.visualPromptStrategyOverride = vso;
-      await admin.json("pr229", "PATCH", `/api/admin/facts/${stagingFactId}/enrichment`, { enrichment });
+      // Saved as the fact's first gag (fact_gags, migration 0139).
+      await admin.json("pr229", "POST", `/api/admin/facts/${stagingFactId}/gags`, { content: vso, reviewId });
       Object.assign(pr229, { stagingFactId, savedBubble: vso.bubbles[0], roleBindings: vso.roleBindings ?? [] });
       log("pr229: the mailman bubble saved; approving the concept");
 

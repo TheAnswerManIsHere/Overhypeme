@@ -27,6 +27,7 @@ import type { EnrichmentOverrides } from "@workspace/api-zod";
 import { findInFlightRefreshCandidate, hashFactText } from "./enrichmentVersioning";
 import { enqueueJob } from "./asyncJobs";
 import { logger } from "./logger";
+import { claimConceptsForReview } from "./visualConceptOwner";
 
 export type SendBackToReviewErrorCode =
   | "FACT_NOT_FOUND"
@@ -115,10 +116,9 @@ export async function sendFactBackToReview(args: {
       // layers from the ACTIVE version and only the AI baseline is regenerated.
       // `clearOverrides` wipes the CANDIDATE's seed only — the fact's own
       // override layers are never touched here.
-      const seedVisualOverride = clearOverrides
-        ? null
-        : ((fact.enrichment as { visualPromptStrategyOverride?: unknown } | null | undefined)
-            ?.visualPromptStrategyOverride ?? null);
+      // The fact's gags are not part of the candidate (fact_gags, migration
+      // 0139): inside the refresh they are changed through its review.
+      const seedVisualOverride = null;
 
       // Circular-FK insert order: candidate first (source_review_id null), then
       // the review pointing at it, then backfill the candidate's back-pointer.
@@ -159,6 +159,9 @@ export async function sendFactBackToReview(args: {
 
       // The fact stays live (isActive untouched); the pill shows prep running.
       await tx.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
+      // The review takes the fact's gag ideas: a Draft more gags request still
+      // running writes nothing once this commits (plan PLAN_THREE_GAGS.md, F).
+      await claimConceptsForReview(tx, factId, review.id);
 
       return { reviewId: review.id, candidateVersionId: candidate.id, versionNo: nextVersionNo };
     });

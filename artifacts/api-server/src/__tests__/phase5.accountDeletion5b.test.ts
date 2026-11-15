@@ -10,7 +10,8 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { accountDeletionRequestsTable, commentsTable, factsTable, reactionsTable, usersTable } from "@workspace/db/schema";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 import { eq, like } from "drizzle-orm";
 
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -65,9 +66,7 @@ const factIds: number[] = [];
 /** A member's own pending request, with one approved comment of theirs on a fact. */
 async function memberLeavingWithComment(): Promise<{ userId: string; commentId: number; factId: number }> {
   const userId = await createUser({ onboarded: true });
-  const [fact] = await db.insert(factsTable)
-    .values({ text: `${PREFIX}{NAME} commented`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}commented` })
-    .returning();
+  const fact = await insertLiveFact({ text: `${PREFIX}{NAME} commented`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}commented` }, buildPlaceholderGag());
   factIds.push(fact!.id);
   const [comment] = await db.insert(commentsTable).values({ factId: fact!.id, authorId: userId, text: `${PREFIX}comment`, status: "approved" } as never).returning();
   await acceptAccountDeletion(userId, { requestedBy: "self", kick: false });

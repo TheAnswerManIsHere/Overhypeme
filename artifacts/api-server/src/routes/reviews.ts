@@ -31,6 +31,8 @@ import {
   canApproveVisualConcept,
   canProductionApprove,
   canReject,
+  SUBMISSION_TEXT_MAX_CHARS,
+  SUBMISSION_TEXT_MIN_CHARS,
   RENDER_SCENARIO_KEYS,
   RENDER_SCENARIO_DESCRIPTORS,
   REFERENCE_IDENTITY_TYPES,
@@ -56,8 +58,6 @@ import {
   applyOverrideReset,
   applyOverrideUpsert,
   serializeResolved,
-  stampOverrideProvenance,
-  type VisualOverride,
 } from "../lib/enrichmentOverrideLayers";
 import { materializeEnrichment } from "../lib/factEnrichment";
 import {
@@ -65,7 +65,9 @@ import {
   ConceptMissingError,
   ParentNotActiveError,
   ActivationConflictError,
+  hasApprovedGag,
 } from "../lib/factActivation";
+import { refreshLeavesApprovedGag, cancelReviewGagOps } from "../lib/gags/gagStore";
 import {
   isOverridablePath,
   overrideValuesEqual,
@@ -95,6 +97,8 @@ import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../l
 import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
+import { editTriageWording, lockReview, WordingError, withdrawForWording, type WordingDuplicate } from "../lib/reviewWording";
+import { checkDuplicateInternal } from "./ai";
 
 // Re-export the plan-generator test seam (owned by the shared preview helper).
 // Approval no longer runs any synchronous planner call — its renderability
@@ -124,7 +128,7 @@ function requireAuth(req: Request, res: Response, next: () => void): void {
 // ─── Submit for Review ────────────────────────────────────────────────────────
 
 const SubmitReviewBody = z.object({
-  text: z.string().min(10).max(2000),
+  text: z.string().min(SUBMISSION_TEXT_MIN_CHARS).max(SUBMISSION_TEXT_MAX_CHARS),
   matchingFactId: z.number().int().optional(),
   matchingSimilarity: z.number().int().min(0).max(100).optional(),
   isDuplicate: z.boolean().optional(),
@@ -561,11 +565,11 @@ async function approveRefreshCandidateForProduction(
   const enrichmentResult = resolveApprovalEnrichment(candidate.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
 
-  // Required Visual Concept (blocking): the promoted candidate cannot reach production
-  // without a non-empty Visual Concept — same publish-time backstop as the first-time
-  // production approval, applied to the candidate blob being promoted.
-  if (!enrichmentResult.enrichment.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
-    res.status(409).json({ error: "Save a non-empty Visual Concept before promoting this refresh.", code: "CONCEPT_MISSING" });
+  // A live fact keeps an approved gag: advisory pre-check for a clean 409 (the
+  // promotion re-checks under the fact lock, and the live-fact trigger at
+  // commit). Gags this refresh approved count; ones it removes do not.
+  if (!(await refreshLeavesApprovedGag(stagingFact.id, review.id))) {
+    res.status(409).json({ error: "This refresh would leave the fact without an approved gag.", code: "CONCEPT_MISSING" });
     return;
   }
 
@@ -693,12 +697,13 @@ async function approveForProduction(
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
   const enrichment = enrichmentResult.enrichment;
 
-  // Required Visual Concept (blocking): a fact cannot be released to production without
-  // a non-empty Visual Concept for the image/video engines. This is the publish-time
-  // backstop for the Step-2 gate — it catches a stale/pre-existing production_review row
-  // promoted directly (via a stale tab or a resumed cycle) that never passed Step 2.
-  if (!enrichment.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
-    res.status(409).json({ error: "Save a non-empty Visual Concept before approving for production.", code: "CONCEPT_MISSING" });
+  // An approved gag (blocking): a fact goes live only with at least one gag
+  // whose test render a moderator approved as its example (plan
+  // docs/plans/PLAN_THREE_GAGS.md). Advisory pre-check for a clean 409;
+  // activateFact re-checks in the activating transaction, and the live-fact
+  // trigger at commit. Gags still pending stay hidden and can be finished later.
+  if (!(await hasApprovedGag(db, stagingFact.id))) {
+    res.status(409).json({ error: "Approve a test render for at least one gag before approving for production.", code: "CONCEPT_MISSING" });
     return;
   }
 
@@ -740,10 +745,9 @@ async function approveForProduction(
   // old override-wipe bug.
   const canonicalText = stagingFact.canonicalText ?? renderCanonical(stagingFact.text);
 
-  // The render/enrichment gate above validated THIS exact wording. A concurrent
-  // approved-fact-text edit (which locks the same fact row) could re-word the
-  // staging fact between that gate and this activation, so the activation is a
-  // compare-and-set: activate ONLY while the fact is still inactive AND its text
+  // The render/enrichment gate above validated THIS exact wording. A fact's
+  // wording can no longer change (facts_text_is_locked), so the text half of
+  // this guard is now belt and braces; the activation stays a compare-and-set: activate ONLY while the fact is still inactive AND its text
   // is still the wording we validated, and approve the review ONLY while it is
   // still the same first-time production_review cycle. Either mismatch fails
   // CLOSED — nothing is activated, tagged, approved, embedded, or notified.
@@ -883,6 +887,13 @@ const ProvisionalApproveBody = z.object({
   adminNote: z.string().max(500).optional(),
 });
 
+/** Acceptance found the review resolved once it held the row's lock. */
+class ReviewNoLongerEligible extends Error {
+  constructor(readonly stage: string, readonly status: string) {
+    super(`Review is ${stage} (${status})`);
+  }
+}
+
 router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -941,20 +952,38 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   }
 
   // Create-or-reuse the staging fact and move the review into prep, in one
-  // transaction (the shared first-time-staging-prep primitive, reused by the
-  // staging branch of the approved-fact-text edit). If the post-commit ensure
+  // transaction (the shared first-time-staging-prep primitive). If the post-commit ensure
   // fails, the staging fact + prep_pending state remain, so a later re-click
   // recovers without creating a duplicate fact.
   let stagingFactId = 0;
-  await db.transaction(async (tx) => {
-    const { factId } = await prepareFirstTimeStagingPrep(tx, {
-      review: { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: review.stagingFactId },
-      parentFactId: parentFactId ?? null,
-      reviewedById: req.user.id,
-      adminNote,
+  try {
+    await db.transaction(async (tx) => {
+      // The review row is locked first, the same lock a triage wording edit
+      // takes, and its wording is read under it: the fact is created with the
+      // wording as it stands at acceptance, and an edit racing this one either
+      // lands before it or is refused (plan PLAN_THREE_GAGS.md, increment 3).
+      const locked = await lockReview(tx, review.id);
+      if (!locked) throw new Error(`Review ${review.id} disappeared during acceptance.`);
+      // The eligibility read above was unlocked: re-check it on the locked row,
+      // so a withdrawal (or any other resolution) committed since then wins.
+      if (!canProvisionallyApprove(locked.workflowStage as ReviewWorkflowStage, locked.status)) {
+        throw new ReviewNoLongerEligible(locked.workflowStage, locked.status);
+      }
+      const { factId } = await prepareFirstTimeStagingPrep(tx, {
+        review: { id: review.id, submittedText: locked.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked.stagingFactId },
+        parentFactId: parentFactId ?? null,
+        reviewedById: req.user.id,
+        adminNote,
+      });
+      stagingFactId = factId;
     });
-    stagingFactId = factId;
-  });
+  } catch (err) {
+    if (err instanceof ReviewNoLongerEligible) {
+      res.status(409).json({ error: `Cannot provisionally approve a review in stage ${err.stage} (${err.status}).` });
+      return;
+    }
+    throw err;
+  }
 
   // Ensure the durable enrichment job (deduped; it gates the advance to
   // concept_review).
@@ -963,6 +992,75 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
 
   res.json({ success: true, stagingFactId, workflowStage: "prep_pending", prepDispatch });
+});
+
+// ─── The wording: edited at triage, withdrawn after it ───────────────────────
+// Plan docs/plans/PLAN_THREE_GAGS.md, increment 3 (lib/reviewWording.ts).
+
+const WordingBody = z.object({ text: z.string() });
+
+/** The duplicate match for edited wording: the embedding and LLM check a submission uses. A seam for tests. */
+const defaultWordingDuplicate = async (text: string, reviewId: number): Promise<WordingDuplicate> => {
+  const match = await checkDuplicateInternal(text, { excludeReviewId: reviewId });
+  return { matchingFactId: match.matchingFactId ?? null, matchingSimilarity: match.confidence ?? 0 };
+};
+let wordingDuplicate = defaultWordingDuplicate;
+export function __setWordingDuplicateForTest(fn: ((text: string, reviewId: number) => Promise<WordingDuplicate>) | null): void {
+  wordingDuplicate = fn ?? defaultWordingDuplicate;
+}
+const WithdrawBody = z.object({ note: z.string().max(500).optional() });
+
+function sendWordingError(res: Response, err: unknown): boolean {
+  if (err instanceof WordingError) {
+    res.status(err.status).json({ error: err.message, code: err.code });
+    return true;
+  }
+  return false;
+}
+
+router.post("/admin/reviews/:id/wording", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = WordingBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
+  try {
+    const review = await editTriageWording(id, body.data.text, req.user.id, (text) => wordingDuplicate(text, id));
+    // The matched fact's text, so the screen redraws its duplicate card.
+    const [matchingFact] = review.matchingFactId != null
+      ? await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, review.matchingFactId), eq(factsTable.isActive, true))).limit(1)
+      : [];
+    res.json({
+      success: true,
+      submittedText: review.submittedText,
+      submittedTextOriginal: review.submittedTextOriginal,
+      matchingFactId: review.matchingFactId,
+      matchingSimilarity: review.matchingSimilarity,
+      matchingFact: matchingFact ?? null,
+    });
+  } catch (err) {
+    if (!sendWordingError(res, err)) throw err;
+  }
+});
+
+router.post("/admin/reviews/:id/withdraw", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = WithdrawBody.safeParse(req.body ?? {});
+  if (!body.success) { res.status(400).json({ error: "Invalid note." }); return; }
+  try {
+    const review = await withdrawForWording(id, req.user.id, body.data.note ?? null);
+    if (review.submittedById) {
+      await logActivity({
+        userId: review.submittedById,
+        actionType: "review_rejected",
+        message: "A moderator withdrew your submission because its wording needs replacing. You're welcome to submit the corrected wording as a new fact.",
+        metadata: { reviewId: review.id, withdrawn: true },
+      });
+    }
+    res.json({ success: true, workflowStage: review.workflowStage });
+  } catch (err) {
+    if (!sendWordingError(res, err)) throw err;
+  }
 });
 
 // ─── Reject Review (admin) ────────────────────────────────────────────────────
@@ -1039,9 +1137,15 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
           eq(factEnrichmentVersionsTable.status, "candidate"),
         ));
       if (review.stagingFactId != null) {
+        // Fact row first, then its gags: the lock order every gag write uses.
+        await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, review.stagingFactId)).for("update");
         // Clear the "prep running" pill; the active enrichment itself was never touched.
         await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, review.stagingFactId));
       }
+      // The declined refresh's gag decisions are cancelled: its example picks
+      // and removals never land, and a later review cannot apply them. Draft
+      // content it saved is kept (plan docs/plans/PLAN_THREE_GAGS.md, section D).
+      await cancelReviewGagOps(tx, id);
     }
   });
 
@@ -1315,9 +1419,8 @@ function sendCandidateEditError(res: Response, err: CandidateEditError): void {
   res.status(err.code === "REVIEW_NOT_FOUND" ? 404 : 409).json({ error: err.message, code: err.code });
 }
 
-/** Persist a re-materialized candidate: the four layer columns, nothing else.
- * `visual_override` stays canonical with `enrichment.visualPromptStrategyOverride`
- * by construction (both come from the same materializeEnrichment output). */
+/** Persist a re-materialized candidate: the layer columns, nothing else. A
+ * candidate holds no gag (migration 0139), so `visual_override` stays null. */
 type ReviewsDbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 async function persistCandidateLayers(
   tx: ReviewsDbTx,
@@ -1330,8 +1433,7 @@ async function persistCandidateLayers(
       enrichment: columns.enrichment,
       enrichmentAiDerived: columns.enrichmentAiDerived,
       enrichmentOverrides: columns.enrichmentOverrides,
-      visualOverride: (columns.enrichment as { visualPromptStrategyOverride?: VisualOverride })
-        .visualPromptStrategyOverride ?? null,
+      visualOverride: null,
     })
     .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
 }
@@ -1371,11 +1473,6 @@ router.put("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req: A
     const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
       const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
       const aiDerived = ctx.layers.aiDerived!; // write intent guarantees a classified candidate
-      // Required Visual Concept (blocking) — same invariant as the candidate
-      // PATCH; this is a separate tracked-field write path and needs its own gate.
-      if (!ctx.layers.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
-        return { status: 400, body: { error: "visual_concept_required" } };
-      }
       const result = applyOverrideUpsert({
         layers: { ...ctx.layers, aiDerived },
         path,
@@ -1385,11 +1482,7 @@ router.put("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req: A
         adminId,
       });
       if (!result.ok) return { status: result.status, body: { error: result.error } };
-      const { columns } = materializeEnrichment({
-        aiDerived,
-        overrides: result.overrides,
-        visualPromptStrategyOverride: ctx.layers.visualPromptStrategyOverride,
-      });
+      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides });
       await persistCandidateLayers(tx, ctx.review.candidateVersionId, columns);
       return {
         status: 200,
@@ -1417,17 +1510,8 @@ router.delete("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req
     const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
       const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
       const aiDerived = ctx.layers.aiDerived!;
-      // Required Visual Concept (blocking) — same invariant as the PUT handler
-      // above; a reset is still a save and must not bypass the gate.
-      if (!ctx.layers.visualPromptStrategyOverride?.coreSceneOverride?.trim()) {
-        return { status: 400, body: { error: "visual_concept_required" } };
-      }
       const result = applyOverrideReset({ layers: { ...ctx.layers, aiDerived }, path: path as OverridablePath | null });
-      const { columns } = materializeEnrichment({
-        aiDerived,
-        overrides: result.overrides,
-        visualPromptStrategyOverride: ctx.layers.visualPromptStrategyOverride,
-      });
+      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides });
       await persistCandidateLayers(tx, ctx.review.candidateVersionId, columns);
       return {
         status: 200,
@@ -1442,82 +1526,16 @@ router.delete("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req
   }
 });
 
-// PATCH /admin/reviews/:id/candidate-enrichment — persist the moderator
-// visual-strategy override ON THE CANDIDATE. Tracked fields are rejected (400,
-// same as the fact PATCH) and suggestedHashtags are pinned to the candidate's
-// persisted baseline regardless of the body.
-router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const parsed = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
-  if (!parsed.ok) { res.status(400).json({ error: `Invalid enrichment: ${parsed.error}` }); return; }
-  const submitted = parsed.data;
-
-  // §10 rendered-text budget gate (same as the fact enrichment PATCH): a new
-  // save whose Concept + additions would overflow the engine prompt is rejected
-  // here, not silently dropped at compile.
-  const submittedVso = (submitted as { visualPromptStrategyOverride?: VisualPromptStrategyOverride }).visualPromptStrategyOverride;
-  if (submittedVso) {
-    // Presence-based (the enable toggle was retired): validate whenever a VSO is submitted.
-    const budget = validateVisualStrategyOverridePersistence(submittedVso);
-    if (!budget.ok) {
-      res.status(400).json({ error: "visual_strategy_override_over_budget", details: budget.errors });
-      return;
-    }
-  }
-
-  const actorLabel = req.user.displayName ?? req.user.email ?? null;
-
-  try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
-      const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
-      const aiDerived = ctx.layers.aiDerived!;
-
-      // Reject any attempt to change a tracked field through PATCH.
-      const changed = OVERRIDABLE_PATH_KEYS.filter((p) => {
-        const field = pathToField(p);
-        return !overrideValuesEqual(
-          (submitted as Record<string, unknown>)[field],
-          (ctx.layers.effective as unknown as Record<string, unknown>)[field],
-        );
-      });
-      if (changed.length > 0) {
-        return {
-          status: 400,
-          body: {
-            error: `Tracked field(s) ${changed.map((p) => OVERRIDABLE_PATHS[p].label).join(", ")} must be changed via the candidate override endpoint (PUT/DELETE /admin/reviews/${id}/candidate-overrides), not PATCH`,
-            trackedPaths: changed,
-          },
-        };
-      }
-
-      // Required Visual Concept (blocking): a moderator's candidate-enrichment save must carry
-      // a non-empty Visual Concept — including when the override is absent entirely. The client
-      // mirrors this (draftHasConcept gates save-and-continue); this is the server backstop.
-      // Placed after the write-guard (loadCandidateEditingContext) and tracked-field checks so
-      // it never shadows them.
-      if (!submittedVso?.coreSceneOverride?.trim()) {
-        return { status: 400, body: { error: "visual_concept_required" } };
-      }
-
-      // suggestedHashtags PINNED: keep the candidate's persisted baseline
-      // (never the submitted draft) — refresh moderation never edits tags.
-      const stamped = stampOverrideProvenance(
-        { ...aiDerived, visualPromptStrategyOverride: submitted.visualPromptStrategyOverride } as FactEnrichment,
-        ctx.layers.effective,
-        actorLabel,
-      );
-      const visualPromptStrategyOverride = (stamped as { visualPromptStrategyOverride?: VisualOverride }).visualPromptStrategyOverride;
-      const { columns } = materializeEnrichment({ aiDerived, overrides: ctx.layers.overrides, visualPromptStrategyOverride });
-      await persistCandidateLayers(tx, ctx.review.candidateVersionId, columns);
-      return { status: 200, body: { success: true, enrichment: columns.enrichment } };
-    });
-    res.status(out.status).json(out.body);
-  } catch (err) {
-    if (err instanceof CandidateEditError) { sendCandidateEditError(res, err); return; }
-    logger.error({ err, reviewId: id }, "[PATCH /admin/reviews/:id/candidate-enrichment] failed");
-    res.status(500).json({ error: "Failed to save candidate enrichment" });
-  }
+// PATCH /admin/reviews/:id/candidate-enrichment — RETIRED (migration 0139).
+// It saved the visual-strategy override onto a refresh candidate. A fact's gags
+// now live in fact_gags and, inside a refresh, are changed through the
+// review's own gag routes (/admin/facts/:id/gags with the review id), so a
+// candidate holds no gag and this route has nothing to write.
+router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, (_req: AuthenticatedRequest, res: Response) => {
+  res.status(410).json({
+    error: "A refresh's gags are saved through /admin/facts/:id/gags with the review id.",
+    code: "CANDIDATE_ENRICHMENT_RETIRED",
+  });
 });
 
 // ─── Moderation render-review tools (production_review) ────────────────────────
@@ -1579,8 +1597,9 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     return;
   }
 
-  // Resolve enrichment through the review-cycle resolver: a refresh cycle
-  // previews its CANDIDATE version; a first-time cycle uses the staging fact.
+  // Resolve the render input through the review-cycle resolver: a refresh
+  // cycle previews its CANDIDATE classification, a first-time cycle the
+  // staging fact's, each with the fact's primary working gag.
   const cycle = await resolveReviewCycleEnrichment(review);
   if (!cycle) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
 
@@ -1631,12 +1650,14 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     ...resolved.renderControls,
     mirrorToLegacyStorage: false,
     reviewRenderSubject: { name: resolved.renderedSubject.name, pronouns: resolved.renderedSubject.pronouns },
-    reviewAudit: { reviewId: id, adminUserId: req.user.id },
+    reviewAudit: { reviewId: id, adminUserId: req.user.id, ...(cycle.gagId != null ? { gagId: cycle.gagId } : {}) },
   };
 
   const { renderJobId, attemptId } = await buildAndEnqueueImagePromptAttempt({
     factId: review.stagingFactId,
     userId: null, // not user-owned — provenance lives in reviewAudit / requestId
+    // The review's primary gag, the one the render input above carries.
+    gagId: cycle.gagId,
     enrichment: ev.data,
     renderedFactText: resolved.renderedFactText,
     analysis: resolved.analysis,
@@ -1875,7 +1896,7 @@ router.get("/admin/reviews/:id/render-scenarios/:scenarioKey/attempts/:attemptId
   const keyParsed = renderScenarioKeySchema.safeParse(req.params["scenarioKey"]);
   if (!keyParsed.success) { res.status(400).json({ error: "Invalid scenario key" }); return; }
 
-  const diag = await getScenarioAttemptDiagnostics(id, keyParsed.data, attemptId);
+  const diag = await getScenarioAttemptDiagnostics(keyParsed.data, attemptId, { reviewId: id });
   if (!diag) { res.status(404).json({ error: "attempt_not_found" }); return; }
   res.json(diag);
 });

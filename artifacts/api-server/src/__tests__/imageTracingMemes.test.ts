@@ -13,7 +13,8 @@ import express from "express";
 import { db } from "@workspace/db";
 import { factsTable, imageProvenanceTable, memesTable, usersTable } from "@workspace/db/schema";
 import { eq, inArray, like, or } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import storageRouter from "../routes/storage.js";
 import adminProvenanceRouter from "../routes/adminProvenance.js";
@@ -64,9 +65,7 @@ describe("a meme traces back to how it was made, from its link or from the pictu
       { id: memberId, email: `${memberId}@test.local`, displayName: "Alex", pronouns: "they/them", membershipTier: "legendary" },
       { id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true },
     ]);
-    const [fact] = await db.insert(factsTable)
-      .values({ text: `${P} {NAME} {outruns|outrun} the sunrise.`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${P} They outrun the sunrise.` })
-      .returning();
+    const fact = await insertLiveFact({ text: `${P} {NAME} {outruns|outrun} the sunrise.`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${P} They outrun the sunrise.` }, buildPlaceholderGag());
     factId = fact!.id;
   });
 

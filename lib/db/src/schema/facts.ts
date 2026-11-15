@@ -36,10 +36,10 @@ export const factsTable = pgTable("facts", {
   hasPronouns: boolean("has_pronouns").notNull().default(false),
   // Facts are born INACTIVE (Phase 2 fact-lifecycle closure): the only transition
   // to active is the moderation activation chokepoint (activateFact, reached only
-  // via approveForProduction after the full pipeline + a non-empty Visual Concept).
-  // A DB CHECK constraint (facts_active_requires_concept) enforces the concept gate
-  // even against raw SQL. Every insert that wants a live fact must say so explicitly
-  // AND carry a valid concept.
+  // via approveForProduction after the full pipeline + an approved gag). A
+  // deferred constraint trigger (enforce_live_fact_has_approved_gag, migration
+  // 0139) enforces it even against raw SQL: a fact may be active only while it
+  // has a non-removed gag with an approved version in fact_gags.
   isActive: boolean("is_active").notNull().default(false),
   /** Who may see this once adult content exists (launch Phase 5, 0121): 'general' | 'adult'. Read by nothing yet. */
   audience: varchar("audience", { length: 10 }).notNull().default("general"),
@@ -71,6 +71,22 @@ export const factsTable = pgTable("facts", {
    * gen through the queue. Mirrors `enrichment_status`.
    */
   visualConceptStatus: varchar("visual_concept_status", { length: 16 }),
+  /**
+   * Which generation owns the candidate gags and their status (migration
+   * 0140, plan PLAN_THREE_GAGS.md increment 2): 'review:<id>' for a review
+   * cycle, 'live:<id>' for a Draft more gags request on a live fact. A
+   * generation writes only while it holds this; opening a review takes it.
+   * Null on facts no generation has claimed since the column was added, which
+   * a review cycle's generation may write.
+   */
+  visualConceptOwner: varchar("visual_concept_owner", { length: 64 }),
+  /**
+   * Set when this fact's submission was withdrawn because its wording needs
+   * replacing (migration 0141): the fact can never go live
+   * (facts_withdrawn_stays_inactive). Its text, like every fact's, never
+   * changes (the facts_text_is_locked trigger).
+   */
+  wordingWithdrawnAt: timestamp("wording_withdrawn_at", { withTimezone: true }),
   /**
    * The approved humor note (migration 0137, plan PLAN_GAG_GENERATOR.md): why
    * this fact is funny and what a picture must preserve, in plain prose that
@@ -163,16 +179,14 @@ export const factsTable = pgTable("facts", {
   check("facts_audience_check", sql`${table.audience} IN ('general','adult')`),
   // The partial `IDX_facts_eval_golden` (WHERE eval_golden) is migration-only —
   // drizzle-kit's partial-index detection is brittle (see imagePromptAttempts.ts).
-  // Keep the lifecycle backstop in the schema model as well as the
-  // hand-authored migration. Otherwise drizzle-kit push can remove it after
-  // the migration runner has recorded 0092 as applied.
+  // The rule that a live fact has an approved gag spans facts and fact_gags, so
+  // it is a deferred constraint trigger declared in migration 0139 only; it
+  // replaced the facts_active_requires_concept CHECK, which read the gag from
+  // the enrichment blob before gags moved to their own table.
+  // One home for a gag (migration 0139): neither enrichment layer may carry one.
   check(
-    "facts_active_requires_concept",
-    sql`${table.isActive} = false OR COALESCE(
-      jsonb_typeof(${table.enrichment} #> '{visualPromptStrategyOverride,coreSceneOverride}') = 'string'
-      AND (${table.enrichment} #>> '{visualPromptStrategyOverride,coreSceneOverride}') ~ '\\S',
-      false
-    )`,
+    "facts_enrichment_holds_no_gag",
+    sql`NOT coalesce(${table.enrichment} ? 'visualPromptStrategyOverride', false) AND NOT coalesce(${table.enrichmentAiDerived} ? 'visualPromptStrategyOverride', false)`,
   ),
 ]);
 

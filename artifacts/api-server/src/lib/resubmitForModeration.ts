@@ -27,12 +27,14 @@ import { factsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { findUnresolvedReviewForStagingFact } from "./moderationStaging";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs, type PrepDispatchResult } from "./firstTimeStagingPrep";
 import { logger } from "./logger";
+import { claimConceptsForReview } from "./visualConceptOwner";
 
 export type ResubmitForModerationErrorCode =
   | "FACT_NOT_FOUND"
   | "ALREADY_ACTIVE"
   | "REVIEW_ALREADY_IN_PROGRESS"
-  | "ORPHANED_PARENT";
+  | "ORPHANED_PARENT"
+  | "WORDING_WITHDRAWN";
 
 /** Typed failure from `resubmitInactiveFactForModeration`; the caller maps codes to HTTP. */
 export class ResubmitForModerationError extends Error {
@@ -64,7 +66,7 @@ export async function resubmitInactiveFactForModeration(args: {
     // concurrent activation of this exact fact (unlikely — it's inactive —
     // but not impossible if two admins act at once) could race this check.
     const [fact] = await tx
-      .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive, parentId: factsTable.parentId })
+      .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive, parentId: factsTable.parentId, wordingWithdrawnAt: factsTable.wordingWithdrawnAt })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
       .for("update")
@@ -76,6 +78,14 @@ export async function resubmitInactiveFactForModeration(args: {
       throw new ResubmitForModerationError(
         "ALREADY_ACTIVE",
         "This fact is already live — use Send Back to Review to refresh it instead.",
+      );
+    }
+    // A submission withdrawn because its wording needs replacing never goes
+    // live (migration 0141): its corrected wording is a new fact.
+    if (fact.wordingWithdrawnAt != null) {
+      throw new ResubmitForModerationError(
+        "WORDING_WITHDRAWN",
+        "This submission was withdrawn because its wording needs replacing. Submit the corrected wording as a new fact.",
       );
     }
     const existing = await findUnresolvedReviewForStagingFact(factId, tx);
@@ -116,6 +126,9 @@ export async function resubmitInactiveFactForModeration(args: {
         stagingFactId: factId,
       })
       .returning({ id: pendingReviewsTable.id });
+
+    // The review takes the fact's gag ideas (plan PLAN_THREE_GAGS.md, F).
+    await claimConceptsForReview(tx, factId, review!.id);
 
     await prepareFirstTimeStagingPrep(tx, {
       review: { id: review!.id, submittedText: fact.text, submittedById: null, stagingFactId: factId },

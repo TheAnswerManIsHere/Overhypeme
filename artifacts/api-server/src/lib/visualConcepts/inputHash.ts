@@ -13,9 +13,10 @@
  * Reuses the render-scenario projection so "what stales candidates" tracks "what
  * stales renders". That projection includes the ENTIRE visualPromptStrategyOverride
  * — so saved bubble edits conservatively stale candidate ideas exactly as saved
- * core-scene edits do (deliberate, Option A of the bubble plan §E6). Since the
- * gag writer (prompt v3) the request carries the saved gag and its bubbles as
- * context, and the approved humor note is kept out of this hash on purpose
+ * core-scene edits do (deliberate, Option A of the bubble plan §E6). Since
+ * migration 0139 a fact's gags live in fact_gags, not the enrichment, so the
+ * hash carries them itself: every gag the request lists (prompt v4). The
+ * approved humor note is kept out of this hash on purpose
  * (visualConceptJobs.ts, buildVisualConceptsResponse).
  */
 
@@ -32,8 +33,15 @@ export function hashText(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/** A gag as the writer is shown it: its scene and bubbles, as stored (with tokens). */
+export interface HashedContextGag {
+  scene: string;
+  bubbles: Array<{ type: string; entity: string; text: string }>;
+}
+
 export interface VisualConceptHashInputs {
-  reviewId: number;
+  /** The review cycle; null for a live draft (Draft more gags). */
+  reviewId: number | null;
   candidateVersionId: number | null;
   source: VisualConceptSource;
   factText: string;
@@ -44,6 +52,13 @@ export interface VisualConceptHashInputs {
   engineId: string;
   model: string | null;
   reasoningEffort: string | null;
+  /**
+   * Every gag the fact has, in slot order: the same frozen list the request
+   * carries (plan PLAN_THREE_GAGS.md increment 2), so a change to any gag
+   * stales the candidates, as a saved gag edit did when the gag lived in the
+   * enrichment.
+   */
+  gags: HashedContextGag[];
 }
 
 export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): string {
@@ -59,6 +74,10 @@ export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): st
     engineId: inputs.engineId,
     model: inputs.model,
     reasoningEffort: inputs.reasoningEffort,
+    gags: inputs.gags.map((g) => ({
+      scene: g.scene,
+      bubbles: g.bubbles.map((b) => ({ type: b.type, entity: b.entity, text: b.text })),
+    })),
   };
   return createHash("sha256").update(stableStringify(canonical)).digest("hex");
 }

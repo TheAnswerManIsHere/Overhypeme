@@ -30,14 +30,17 @@ triage_pending ──reject──> triage_rejected
 prep_pending ──prep abandon──> prep_failed ──retry──> prep_pending
       │ prep ok (enqueues Visual-Idea candidates; NO renders yet)
       ▼
-concept_review                                        ← Step 2: Visual Concept gate
-      │  approve the visual gag        ↑ back to visual concept
-      │  (saved coreScene + ideas OK → force-enqueue the default render batch)
+concept_review                                        ← Step 2: Gags gate
+      │  approve the gags              ↑ back to gags
+      │  (a saved gag + ideas OK → force-enqueue the default render batch)
       ▼
 production_review                                     ← Step 3: Test Renders gate
       │ production approve
       ▼
 production_approved   (fact is now live)
+
+prep_pending · prep_failed · concept_review · production_review
+      ──Withdraw: wording needs replacing──> production_rejected (first-time only)
 ```
 
 **Rejection only happens at `triage_pending`.** Once a first-time submission
@@ -45,13 +48,14 @@ clears triage, there is no reject path — a failed prep, an unfinished Visual
 Concept, or a render that isn't ready just leaves the candidate parked
 (`prep_failed` / pending `concept_review` / pending `production_review`) until
 an admin resolves the underlying issue (retry prep, fix the concept, fix the
-render). It is the admin's job to get it unstuck, not to reject it. The one
-exception is a **refresh cycle** (re-reviewing an already-live fact) — see
-below.
+render). It is the admin's job to get it unstuck, not to reject it. Two
+exceptions: a **refresh cycle** (re-reviewing an already-live fact), and
+**Withdraw: wording needs replacing** — see *Rejection paths* below.
 
-Stages group in the UI as **Needs first pass → Prep → Visual Concept →
-Test Renders → Resolved**. The wizard shows three steps: **Triage → Visual
-Concept → Test Renders**. Rejection reasons (`review_reason`): `duplicate | spam
+Stages group in the UI as **Needs first pass → Prep → Gags →
+Test Renders → Resolved**. The wizard shows three steps: **Triage → Gags →
+Test Renders** (the Gags step was called Visual Concept until plan
+`docs/plans/PLAN_THREE_GAGS.md`). Rejection reasons (`review_reason`): `duplicate | spam
 | offensive | lame`.
 
 **Three gates, not two.** Enrichment success now lands at `concept_review`
@@ -101,21 +105,24 @@ A fact can only become `is_active = true` through `activateFact`
 (`approveForProduction`). Inside the activating transaction it re-reads and
 re-validates, atomically with the flip:
 
-- the fact still carries a non-empty Visual Concept
-  (`enrichment.visualPromptStrategyOverride.coreSceneOverride`), and
+- the fact has an approved gag (`fact_gags`, migration 0139: a gag is
+  approved when a moderator approves one of its test renders as its example),
+  and
 - a variant's parent is still an active root (`is_active = true AND parent_id IS
   NULL`), locked `FOR UPDATE` so a concurrent deactivate of that exact parent
   can't race the check.
 
-A DB CHECK constraint, `facts_active_requires_concept`, backstops this at the
-schema level — no writer, present or future, can create a live fact without a
-concept even by accident.
+A deferred constraint trigger, `facts_live_requires_approved_gag` (with its
+twin on `fact_gags`, so removing or un-approving the last approved gag of a live
+fact fails too), backstops this at the schema level — no writer, present or
+future, can leave a live fact without an approved gag even by accident. It
+replaced the `facts_active_requires_concept` CHECK when gags moved out of the
+enrichment.
 
 **The invariant holds for the fact's lifetime, not just at activation.** An
 active variant's parent must stay an active root for as long as the variant is
 live — so every write path that can flip a root `is_active = false` (the admin
-PATCH deactivate, both DELETE paths, an approved-text edit that also
-deactivates) cascades the deactivation to that root's active children in the
+PATCH deactivate and both DELETE paths) cascades the deactivation to that root's active children in the
 same transaction (`cascadeDeactivateActiveChildren`), rather than leaving them
 stranded under an inactive/missing parent.
 
@@ -147,6 +154,42 @@ picking a reason) or **provisionally accepts**, which creates/reuses the staging
 fact and enqueues prep. **No paid enrichment/render work runs before this
 point.**
 
+### The wording locks at triage
+
+A fact's wording is edited **only at triage** and never changes once the
+submission is accepted (plan `docs/plans/PLAN_THREE_GAGS.md`, increment 3;
+David, 2026-11-14: *"If it's a new fact and it's in moderation, an admin should
+be able to edit it before any enrichment happens. Once it's locked, that's it.
+Locking should be the very first thing that happens as part of step 1."*).
+
+- **The triage edit** — `POST /admin/reviews/:id/wording`
+  (`lib/reviewWording.ts`, `editTriageWording`): allowed only while the review
+  is `triage_pending` with no staging fact. The wording is validated like a
+  submission (10–2,000 characters, token grammar), the duplicate match is
+  recomputed for it, and the review keeps the wording as submitted
+  (`submitted_text_original`, set at the first edit) and who edited it, when
+  (`wording_edited_by`, `wording_edited_at`). The moderation screen shows the
+  wording in an editable box at triage and holds acceptance while an edit is
+  unsaved.
+- **Acceptance locks it first.** Provisional approval takes the review row's
+  lock (`lockReview`) and creates the staging fact from the wording it reads
+  under that lock; the triage edit takes the same lock and re-checks the
+  stage, so an edit either lands before acceptance or is refused
+  (`WORDING_LOCKED`), never overwritten by wording read earlier.
+- **The database holds it.** Trigger `facts_text_is_locked` (migration 0141)
+  refuses any `UPDATE` that changes `facts.text`. A token or normalisation
+  repair that would rewrite stored text needs its own migration that lifts the
+  rule, on David's say. `PATCH /admin/facts/:id` refuses a changed wording with
+  `WORDING_LOCKED` (an unchanged or normalisation-equal wording is ignored);
+  the confirmation-gated approved-text edit and the staging-fact text edit
+  that re-ran prep are gone. Past entries in the text-edit history
+  (`fact_text_edit_history`) stay readable in the Facts editor.
+- **Replacing a wording.** A live fact: deactivate it (soft delete, which also
+  deactivates its active variants; its memes are kept) and submit the
+  corrected wording as a new fact, with no transferred votes, comments or
+  shares. A submission past triage: **Withdraw** (below), then submit the
+  corrected wording, which enters triage as a new fact.
+
 ## Enrichment (the "prep" stage)
 
 `prep_pending` runs the async prep jobs against the staging fact: **enrichment**
@@ -156,27 +199,32 @@ preparation. On terminal failure the review moves to
 `prep_failed` — retryable only; a first-time submission is never rejected here,
 it stays pending until the retry succeeds.
 
-## Visual Concept review ("Step 2", `concept_review`)
+## Gags review ("Step 2", `concept_review`)
 
-The mandatory human gate on the **Visual Concept** — the authoritative scene
-description of how the gag works (see [`visual-pipeline.md`](./visual-pipeline.md))
-— **before any render spend**. In `concept_review` the moderator:
+The mandatory human gate on the fact's **gags** — each one a
+[Visual Concept](./glossary.md#visual-concept), the authoritative scene
+description of one way the joke works (see [`visual-pipeline.md`](./visual-pipeline.md))
+— **before any render spend**. A fact has one to three gags (plan
+`docs/plans/PLAN_THREE_GAGS.md`); the second and third are optional. In
+`concept_review` the moderator, in the **Gags panel**:
 
-- accepts an AI-drafted Visual-Idea candidate, edits it, or writes a new concept,
+- writes or edits a gag, or uses an AI-drafted Visual Idea on one —
+  **instead of the default gag**, **as an additional gag**, or **in place of
+  gag N** — each saved as that gag's pending change,
 - tunes the enrichment via the embedded **Enrichment Editor** (Advanced Options),
 - inspects the **Runtime Compiled Prompt** preview,
-- then **approves the visual gag** (advances to Step 3, force-firing renders)
+- then **approves the gags** (advances to Step 3, force-firing renders)
   or sends it back to prep. (A first-time submission is never rejected here —
   see **Rejection paths** below.)
 
-The Visual Concept is edited in the prominent **`VisualConceptCard`** (the single
-scene-editing surface — it was removed from the Advanced Options panel), and it is
-**required**: a blank concept blocks the enrichment/candidate save itself
-(`400 visual_concept_required`), not just the gag approval.
+A gag is saved through the gag routes (`/api/admin/facts/:id/gags`), and a
+blank scene can't be saved (`fact_gags_pending_scene_nonempty`). The enrichment
+no longer carries a gag: a save that sends one is refused (`GAG_IN_ENRICHMENT`),
+and the candidate PATCH that saved a refresh's gag is retired (`410`).
 
 **Visual Ideas are a blocking prep artifact here**, not best-effort: the gag
-gate requires a saved, non-empty `visualPromptStrategyOverride.coreSceneOverride`
-**and** terminal-OK generated ideas (`facts.visual_concept_status === "ok"`).
+gate requires a saved gag with a non-empty scene **and** terminal-OK generated
+ideas (`facts.visual_concept_status === "ok"`).
 A stale-but-saved concept is allowed (the *saved* concept, not the AI candidate
 cards, is the approved artifact). Re-prep/regenerate is blocked while ideas are
 `pending` so a new cycle can't coalesce onto a stale in-flight concept job.
@@ -188,9 +236,12 @@ no-dedupe-key batch). All taxonomy/enrichment knobs stay exposed for render
 tweaking. The moderator:
 
 - inspects the **test-render** meme grid and the **Runtime Compiled Prompt**,
-- tweaks enrichment/concept and re-runs renders as needed,
-- then **production-approves** (existing render/waiver gate), or **sends the
-  fact back to Visual Concept** (Step 3 → Step 2), which supersedes the
+- tweaks enrichment and gags and re-runs renders as needed; each gag in the
+  Gags panel has its own renders, and **Approve this render** makes a finished,
+  current render that gag's **example**, which approves it,
+- then **production-approves** (existing render/waiver gate; a first-time fact
+  also needs at least one gag with an example, `CONCEPT_MISSING` otherwise),
+  or **sends the fact back to Gags** (Step 3 → Step 2), which supersedes the
   in-flight renders; re-approval force-creates a fresh batch. (A first-time
   submission is never rejected here — a render that isn't working is the
   admin's job to fix, per **Rejection paths** below.)
@@ -236,16 +287,24 @@ hard-deleted) and the fact keeps its current taxonomy/enrichment until a
 future refresh is promoted. See
 [`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#versioning-model).
 
+**Gags in a refresh** (plan `docs/plans/PLAN_THREE_GAGS.md`): gags are written
+as the last step of a refresh, inside its review — while a refresh is open, a
+fact's gags can't be changed from the Facts editor. The live fact's approved
+gags stay offered to users throughout. A change saved in the review, a render
+picked as its example, or a removal is owned by the review and lands when the
+refresh is promoted; declining the refresh discards them. A refresh can be
+promoted only if the fact keeps at least one approved gag afterwards.
+
 ## Rejection paths
 
 **A fact can only ever be rejected at `triage_pending`.** Rejection means "not
 worthy of being in the database" — it is a first-time-submission-only concept.
 
 - `triage_rejected` — rejected at first pass (no paid work spent). **This is
-  the only rejection path, period.** Once triage passes, `canReject`
+  the only rejection path for what a fact is.** Once triage passes, `canReject`
   (`lib/api-zod/src/moderationWorkflow.ts`) refuses every other stage for a
   first-time submission — the route 409s and the UI hides the Reject button —
-  so a stuck candidate (`prep_failed`, an unresolved Visual Concept, a render
+  so a stuck candidate (`prep_failed`, an unfinished gag, a render
   that isn't ready) stays pending until an admin resolves it.
 - `production_rejected` — reachable **only** via a **refresh cycle's** decline
   ("don't promote this update"), which is a *distinct concept from rejection*:
@@ -253,8 +312,23 @@ worthy of being in the database" — it is a first-time-submission-only concept.
   triage, so it is never judged for database-worthiness again. Declining one
   never sets a `rejectionReason` (duplicate/spam/offensive/lame — those judge
   the fact, not the update) and never touches the live fact; it just doesn't
-  get promoted. A refresh always starts past triage by design, so this is the
-  only way `production_rejected` is reached.
+  get promoted. A refresh always starts past triage by design.
+- **Withdraw: wording needs replacing** — `POST /admin/reviews/:id/withdraw`
+  (`lib/reviewWording.ts`, `withdrawForWording`), the one way a first-time
+  submission ends after triage. Available from acceptance until production
+  approval (`prep_pending`, `prep_failed`, `concept_review`,
+  `production_review`), never on a refresh, which is declined instead. It sets
+  the review `rejected` / `production_rejected` with `withdrawn_at` /
+  `withdrawn_by` (the note goes to `production_rejection_note`), so the
+  submission leaves the queue and the submitter's pending count; it stamps the
+  staging fact's `wording_withdrawn_at`, and CHECK
+  `facts_withdrawn_stays_inactive` keeps that fact inactive for good. Resubmit
+  for moderation refuses it (`WORDING_WITHDRAWN`), and a prep result or stale
+  action arriving afterwards finds a resolved review. The submitter's activity
+  feed says the wording needs replacing and invites a new submission. The
+  moderation screen offers it behind a confirmation on the triage step's
+  wording card. The rule that a moderator fixes rather than rejects stays for
+  every other reason.
 
 ## Retry and failure states
 

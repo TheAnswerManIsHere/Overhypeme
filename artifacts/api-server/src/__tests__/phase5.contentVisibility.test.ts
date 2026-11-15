@@ -14,7 +14,8 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { factsTable, memesTable, uploadImageMetadataTable, userAiImagesTable, usersTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
 import usersRouter from "../routes/users.js";
@@ -41,10 +42,7 @@ async function createUser(name: string): Promise<string> {
 }
 
 async function createFact(gallery: Record<string, string[]> | null = null): Promise<number> {
-  const [row] = await db
-    .insert(factsTable)
-    .values({ text: `${PREFIX}{NAME} folds time`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}They fold time`, aiMemeImages: gallery })
-    .returning();
+  const row = await insertLiveFact({ text: `${PREFIX}{NAME} folds time`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}They fold time`, aiMemeImages: gallery }, buildPlaceholderGag());
   factIds.push(row!.id);
   return row!.id;
 }

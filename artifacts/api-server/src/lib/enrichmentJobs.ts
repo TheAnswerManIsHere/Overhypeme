@@ -45,6 +45,7 @@ import {
   type HandlerResult,
 } from "./asyncJobs";
 import { logger } from "./logger";
+import { ownedFact, reviewConceptOwner } from "./visualConceptOwner";
 
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
@@ -73,16 +74,6 @@ async function loadPendingReviewEnrichment(reviewId: number): Promise<FactEnrich
   return validated.ok ? validated.data : null;
 }
 
-/**
- * Re-classification regenerates the whole enrichment blob from the LLM, which
- * does NOT know about the moderator-authored `visualPromptStrategyOverride`
- * (Phase 2). Carry it forward verbatim (including its server-owned
- * updatedBy/updatedAt) so re-running AI never wipes a moderator's work.
- */
-function withPreservedOverride(fresh: FactEnrichment, prior: unknown): FactEnrichment {
-  const ov = (prior as { visualPromptStrategyOverride?: unknown } | null | undefined)?.visualPromptStrategyOverride;
-  return ov ? ({ ...fresh, visualPromptStrategyOverride: ov } as FactEnrichment) : fresh;
-}
 
 // ─── "enrichment" handler — classify only ──────────────────────────────────
 
@@ -114,7 +105,6 @@ async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> 
       .where(eq(pendingReviewsTable.id, reviewId));
     return { ok: false, error: `classify: ${msg}` };
   }
-  enrichment = withPreservedOverride(enrichment, reviewRow.enrichment);
 
   await db
     .update(pendingReviewsTable)
@@ -139,8 +129,8 @@ export async function runEnrichmentForFact(
 ): Promise<HandlerResult> {
   // Load the fact text (a variant is classified from its own text only, same
   // as a root) plus the override layers so re-classification stays STICKY: a
-  // fresh AI baseline is computed but the manual overrides (and the moderator
-  // visual override) are preserved.
+  // fresh AI baseline is computed but the manual overrides are preserved (the
+  // fact's gags live in fact_gags and are untouched).
   const [factRow] = await db
     .select({
       text: factsTable.text,
@@ -200,14 +190,11 @@ export async function runEnrichmentForFact(
   }
 
   // STICKY re-enrich: keep the existing overrides untouched (never refresh their
-  // `overriddenFrom` — that is what lets us detect a baseline change), preserve
-  // the moderator visual override, and rematerialize against the fresh baseline.
+  // `overriddenFrom` — that is what lets us detect a baseline change) and
+  // rematerialize against the fresh baseline. The fact's gags live in fact_gags
+  // and are not touched by re-classification.
   const overrides = (factRow.enrichmentOverrides ?? {}) as EnrichmentOverrides;
   const priorAiDerived = (factRow.enrichmentAiDerived ?? null) as FactEnrichment | null;
-  const visualPromptStrategyOverride = (factRow.enrichment as
-    | { visualPromptStrategyOverride?: FactEnrichment["visualPromptStrategyOverride"] }
-    | null
-    | undefined)?.visualPromptStrategyOverride;
 
   // Audit only the not-changed → changed transitions (no per-re-enrich spam).
   const before = priorAiDerived ? computeBaselineChangedPaths(priorAiDerived, overrides) : [];
@@ -217,7 +204,6 @@ export async function runEnrichmentForFact(
   const { columns } = materializeEnrichment({
     aiDerived: freshAiDerived,
     overrides,
-    visualPromptStrategyOverride,
   });
 
   // Transactional RE-check before the write (mirrors the candidate job's
@@ -354,10 +340,7 @@ export async function runEnrichmentForCandidateVersion(
   }
 
   const overrides = (v0.overrides ?? {}) as EnrichmentOverrides;
-  const visualPromptStrategyOverride = (v0.visualOverride ?? undefined) as
-    | FactEnrichment["visualPromptStrategyOverride"]
-    | undefined;
-  const { columns } = materializeEnrichment({ aiDerived: freshAiDerived, overrides, visualPromptStrategyOverride });
+  const { columns } = materializeEnrichment({ aiDerived: freshAiDerived, overrides });
 
   // ── Phase 3: transactional recheck + write ──
   const { advancedReviewId } = await db.transaction(async (tx): Promise<{ advancedReviewId: number | null }> => {
@@ -382,7 +365,8 @@ export async function runEnrichmentForCandidateVersion(
         enrichment: columns.enrichment,
         enrichmentAiDerived: columns.enrichmentAiDerived,
         enrichmentOverrides: columns.enrichmentOverrides,
-        visualOverride: visualPromptStrategyOverride ?? null,
+        // Gags live in fact_gags (migration 0139); a candidate holds none.
+        visualOverride: null,
         factTextHash,
         // Captured before classify (above). Promote copies this onto
         // facts.last_processed_signature (permissive: candidate's classify-time
@@ -422,7 +406,7 @@ export async function runEnrichmentForCandidateVersion(
         "[refresh] failed to enqueue visual concepts (enrichment kept; status → failed)",
       );
       try {
-        await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(eq(factsTable.id, v0.factId));
+        await db.update(factsTable).set({ visualConceptStatus: "failed" }).where(ownedFact(v0.factId, reviewConceptOwner(advancedReviewId)));
       } catch (statusErr) {
         logger.error(
           { err: statusErr, reviewId: advancedReviewId, versionId },

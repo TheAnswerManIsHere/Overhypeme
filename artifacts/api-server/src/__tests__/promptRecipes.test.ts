@@ -26,6 +26,10 @@ const OTHER = `${P}-nb`;
 const engineIds: string[] = [];
 let adminId = "";
 
+// One wrapper scopes the file-level hooks to this file: with test isolation off,
+// a root-level before runs when the shard starts, and another file's cleanup of
+// test engines then removed this file's before its tests ran.
+describe("prompt recipes (file)", () => {
 before(async () => {
   for (const [family, src] of [[FAMILY, "gpt-image-2-6"], [FAMILY, "gpt-image-2-6-edit"], [OTHER, "nano-banana-2-1"]] as const) {
     const def = ALL_ENGINES.find((e) => e.id === src)!;
@@ -168,4 +172,5 @@ describe("an attempt records the wording its caller froze (Codex, PR #926 round 
       await db.delete(factsTable).where(eq(factsTable.id, fact!.id));
     }
   });
+});
 });

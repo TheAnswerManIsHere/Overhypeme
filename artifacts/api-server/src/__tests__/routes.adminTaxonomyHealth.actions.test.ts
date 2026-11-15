@@ -19,9 +19,10 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 
 import { db, factsTable, usersTable } from "@workspace/db";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable, factEnrichmentVersionsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
-import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
+import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderGag } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -52,7 +53,6 @@ function validEnrichment(overrides: Record<string, unknown> = {}): Record<string
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
-    visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
     ...overrides,
   };
 }
@@ -80,16 +80,18 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     enrichment: Record<string, unknown> | null,
     cols: Partial<Record<"primaryArchetype" | "subtype" | "overhypeFit" | "adultSuitability", string>>,
   ): Promise<number> {
-    const [r] = await db
-      .insert(factsTable)
-      // A fully-missing enrichment blob can no longer satisfy the DB's
-      // facts_active_requires_concept CHECK, so this fixture models it as an
-      // inactive (never-activated) fact — matching the new invariant that an
-      // active fact always carries a concept.
-      .values({ text, submittedById: adminUserId, enrichment, isActive: enrichment != null, ...cols })
-      .returning({ id: factsTable.id });
-    factIds.push(r!.id);
-    return r!.id;
+    // A live fact needs an approved gag (fact_gags, migration 0139); a
+    // fully-missing enrichment is modelled as an inactive (never-activated) fact.
+    if (enrichment == null) {
+      const [r] = await db.insert(factsTable)
+        .values({ text, submittedById: adminUserId, enrichment, isActive: false, ...cols })
+        .returning({ id: factsTable.id });
+      factIds.push(r!.id);
+      return r!.id;
+    }
+    const r = await insertLiveFact({ text, submittedById: adminUserId, enrichment, ...cols } as never, buildPlaceholderGag());
+    factIds.push(r.id);
+    return r.id;
   }
 
   before(async () => {
@@ -304,17 +306,13 @@ describe("/admin/taxonomy-health — actions & filters", () => {
       MATCHING_COLS,
     );
     // Stale-enrichment but signature is CURRENT → NOT stale-for-reprocess → INCLUDED.
-    const [b] = await db
-      .insert(factsTable)
-      .values({
+    const b = await insertLiveFact({
         text: TEXT("stale not reprocess"),
         submittedById: adminUserId,
-        isActive: true,
         enrichment: validEnrichment({ classificationPromptVersion: "v0-prehistoric" }),
         lastProcessedSignature: currentSig,
         ...MATCHING_COLS,
-      })
-      .returning({ id: factsTable.id });
+      }, buildPlaceholderGag());
     factIds.push(b!.id);
 
     const res = await request(app)
@@ -330,10 +328,7 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   });
 
   it("refreshInReview is true for a fact with an in-flight refresh candidate, false otherwise", async () => {
-    const [f] = await db
-      .insert(factsTable)
-      .values({ text: TEXT("in-flight refresh fact"), submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS })
-      .returning({ id: factsTable.id });
+    const f = await insertLiveFact({ text: TEXT("in-flight refresh fact"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS }, buildPlaceholderGag());
     factIds.push(f!.id);
     await db.insert(factEnrichmentVersionsTable).values({
       factId: f!.id,
@@ -355,10 +350,7 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   });
 
   it("repeatedFailure is true after 3 consecutive terminal fact_send_back failures, false once a later success clears the streak", async () => {
-    const [f] = await db
-      .insert(factsTable)
-      .values({ text: TEXT("repeated failure fact"), submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS })
-      .returning({ id: factsTable.id });
+    const f = await insertLiveFact({ text: TEXT("repeated failure fact"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS }, buildPlaceholderGag());
     factIds.push(f!.id);
 
     // dedupeKey uniqueness only applies to non-terminal (pending/processing)
@@ -400,10 +392,7 @@ describe("/admin/taxonomy-health — actions & filters", () => {
   });
 
   it("once the fact_send_back job Send selected queued for a 3-strike fact finishes, repeatedFailure is false for it", async () => {
-    const [f] = await db
-      .insert(factsTable)
-      .values({ text: TEXT("3-strike send selected"), submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS })
-      .returning({ id: factsTable.id });
+    const f = await insertLiveFact({ text: TEXT("3-strike send selected"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS }, buildPlaceholderGag());
     factIds.push(f!.id);
     for (let i = 0; i < 3; i++) {
       const [row] = await db

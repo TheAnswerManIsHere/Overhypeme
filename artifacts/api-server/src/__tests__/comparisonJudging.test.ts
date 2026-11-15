@@ -474,15 +474,16 @@ async function v2Blind(setId: number): Promise<{ body: { set: { judgingEdition: 
 }
 
 describe("second edition: what a panel is judged against", () => {
-  it("a new set is judged on the second edition; its panels show the frozen fact and gag, never the prompt, and a later edit to the fact changes nothing", async () => {
+  it("a new set is judged on the second edition; its panels show the frozen fact and gag, never the prompt", async () => {
     const { setId, panels } = await renderedSet("v2-frozen", { edition: 2 });
     const [set] = await db.select().from(comparisonSetsTable).where(eq(comparisonSetsTable.id, setId));
     assert.equal(set!.judgingEdition, 2, "every set made from now on");
     for (const p of panels) {
       await db.update(comparisonPanelsTable).set({ frozenFactText: "Alex lifts a mountain", frozenGag: "Alex holds a mountain overhead like a barbell", compiledPrompt: { imagePrompt: "SECRET PROMPT TEXT" } }).where(eq(comparisonPanelsTable.id, p.id));
     }
-    await db.update(factsTable).set({ text: `${P} {NAME} was edited after preparation` }).where(eq(factsTable.id, factId));
-    try {
+    // A fact's wording never changes (migration 0141), so the panels' frozen
+    // wording, set differently above, is what the payload must carry.
+    {
       const { body, t2i, i2i } = await v2Blind(setId);
       assert.equal(body.set.judgingEdition, 2);
       for (const p of [t2i, i2i]) {
@@ -493,8 +494,6 @@ describe("second edition: what a panel is judged against", () => {
       assert.ok(!JSON.stringify(body).includes("SECRET PROMPT TEXT"), "no prompt text anywhere in the payload");
       assert.deepEqual(t2i.categories, ["visualQuality", "gagFidelity", "realism"], "no photo, no style: three categories");
       assert.deepEqual(i2i.categories, ["visualQuality", "gagFidelity", "realism", "likeness"], "a supplied photo asks Likeness");
-    } finally {
-      await db.update(factsTable).set({ text: `${P} {NAME} lifts a mountain` }).where(eq(factsTable.id, factId));
     }
   });
 

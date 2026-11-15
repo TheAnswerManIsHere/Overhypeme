@@ -11,7 +11,7 @@
  * means no route can independently forget a pass, validate before
  * normalizing, or derive metadata from stale text.
  *
- * @purpose The normalize-validate step every new-text template ingress shares, in two variants: the pending-review variant, which the submission, variant and import routes run and which stops at validation, and the storage variant, which the approved-text edit and the legacy-fixture builder run to also derive canonical text, split index and hasPronouns from the final text.
+ * @purpose The normalize-validate step every new-text template ingress shares, in two variants: the pending-review variant, which the submission, variant and import routes run and which stops at validation, and the storage variant, which the Facts PATCH (to compare a submitted wording with the locked one) and the legacy-fixture builder run to also derive canonical text, split index and hasPronouns from the final text.
  * @subsystem token-rendering
  */
 

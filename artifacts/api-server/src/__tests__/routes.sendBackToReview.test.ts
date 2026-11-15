@@ -22,6 +22,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import {
   usersTable,
   factsTable,
@@ -85,18 +86,14 @@ async function seedActiveFact(): Promise<typeof factsTable.$inferSelect> {
   const { columns } = materializeEnrichment({
     aiDerived: AI_BASELINE,
     overrides: MANUAL_OVERRIDES,
-    visualPromptStrategyOverride: AI_BASELINE.visualPromptStrategyOverride,
   });
-  const [fact] = await db
-    .insert(factsTable)
-    .values({
-      text: "{NAME} bench-presses the Earth.",
-      submittedById: adminId,
-      isActive: true,
-      ...columns,
-      enrichmentStatus: "ok",
-    } as typeof factsTable.$inferInsert)
-    .returning();
+  // The fact's gag lives in fact_gags (migration 0139), approved.
+  const { gags: _gags, ...fact } = await insertLiveFact({
+    text: "{NAME} bench-presses the Earth.",
+    submittedById: adminId,
+    ...columns,
+    enrichmentStatus: "ok",
+  } as Omit<typeof factsTable.$inferInsert, "isActive">, AI_BASELINE.visualPromptStrategyOverride!);
   insertedFactIds.push(fact.id);
   return fact;
 }
@@ -207,9 +204,7 @@ describe("POST /admin/facts/:id/send-back-to-review", () => {
 
   it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
     const root = await seedActiveFact();
-    const [variant] = await db.insert(factsTable)
-      .values({ text: "{NAME} variant", submittedById: adminId, isActive: true, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() })
-      .returning();
+    const variant = await insertLiveFact({ text: "{NAME} variant", submittedById: adminId, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() }, AI_BASELINE.visualPromptStrategyOverride!);
     insertedFactIds.push(variant.id);
     const res = await request(makeApp())
       .post(`/admin/facts/${root.id}/send-back-to-review`)

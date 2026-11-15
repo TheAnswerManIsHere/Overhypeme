@@ -199,7 +199,10 @@ export interface RenderScenarioCard {
 }
 
 export interface RenderScenarioGrid {
+  /** The review the grid was read for; 0 for a gag's grid read outside a review. */
   reviewId: number;
+  /** The gag whose renders these are (since migration 0139 renders belong to a gag); null when there is none. */
+  gagId: number | null;
   cards: RenderScenarioCard[];
   tally: {
     requested: number;

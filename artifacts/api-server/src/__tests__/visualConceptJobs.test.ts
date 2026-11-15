@@ -19,7 +19,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, adminConfigTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, adminConfigTable, factEnrichmentVersionsTable, factGagsTable } from "@workspace/db/schema";
 import { ALL_ENGINES } from "../lib/engines/index.js";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import {
@@ -105,15 +105,22 @@ async function seedReview(
   stage = "production_review",
   enrichment: FactEnrichment = ENRICHMENT,
 ): Promise<{ reviewId: number; factId: number }> {
+  // The gag lives in fact_gags (migration 0139): a first-time submission's
+  // saved gag is a new gag's pending version.
+  const { visualPromptStrategyOverride: gag, ...classification } = enrichment as FactEnrichment & { visualPromptStrategyOverride?: unknown };
+  enrichment = classification as FactEnrichment;
   const [fact] = await db.insert(factsTable).values({
     text: FACT_TEXT, submittedById, isActive: false, enrichment,
   }).returning({ id: factsTable.id });
   insertedFactIds.push(fact!.id);
+  if (gag) await db.insert(factGagsTable).values({ factId: fact!.id, slot: 1, pendingContent: gag as never });
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: FACT_TEXT, submittedById, matchingSimilarity: 0,
     status: "pending", workflowStage: stage as never, stagingFactId: fact!.id,
     enrichment, enrichmentStatus: "ok",
   }).returning({ id: pendingReviewsTable.id });
+  // The review owns the fact's ideas, as every enqueue path claims it (migration 0140).
+  await db.update(factsTable).set({ visualConceptOwner: `review:${review!.id}` }).where(eq(factsTable.id, fact!.id));
   return { reviewId: review!.id, factId: fact!.id };
 }
 
@@ -259,12 +266,13 @@ describe("buildVisualConceptsResponse — server-computed current flag", () => {
       assert.equal((await buildVisualConceptsResponse(review)).current, true, "fresh ideas are current");
 
       // A save that rewrites the same enrichment unchanged leaves the ideas current.
-      await db.update(factsTable).set({ enrichment: { ...original } }).where(eq(factsTable.id, factId));
+      const saveGag = (e: FactEnrichment) => db.update(factGagsTable)
+        .set({ pendingContent: (e as unknown as { visualPromptStrategyOverride: unknown }).visualPromptStrategyOverride as never })
+        .where(eq(factGagsTable.factId, factId));
+      await saveGag(original);
       assert.equal((await buildVisualConceptsResponse(review)).current, true, "an unchanged re-save does not stale");
 
-      await db.update(factsTable)
-        .set({ enrichment: withOverride({ bubbles: [{ type: "speech", entity: "subject", text: "Heavy." }], ...edit }) })
-        .where(eq(factsTable.id, factId));
+      await saveGag(withOverride({ bubbles: [{ type: "speech", entity: "subject", text: "Heavy." }], ...edit }));
       const stale = await buildVisualConceptsResponse(review);
       assert.equal(stale.current, false);
       assert.equal(stale.staleReason, "input_hash_mismatch");
@@ -380,7 +388,7 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     });
   }
 
-  it("the job sends the saved note, the live saved gag, the render policy and the draft with its bubbles", async () => {
+  it("the job sends the saved note, the fact's gags, the render policy and the draft with its bubbles", async () => {
     const live = { ...ENRICHMENT, visualPromptStrategyOverride: { version: 1, coreSceneOverride: "{NAME} lifts the moon (gag A).", bubbles: [{ type: "speech", entity: "subject", text: "Light." }], violencePolicyOverride: { mode: "soften", intensity: "strong" } } } as unknown as FactEnrichment;
     const { reviewId, factId } = await seedReview(adminId, "concept_review", live);
     await db.update(factsTable).set({ humorNote: "Alex lifts what nobody can.", humorNoteApprovedBy: adminId, humorNoteApprovedAt: new Date() }).where(eq(factsTable.id, factId));
@@ -393,25 +401,30 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     assert.ok(seen);
     const got = seen as unknown as Parameters<VisualConceptsJobDeps["generate"]>[0];
     assert.equal(got.humorNote, "Alex lifts what nobody can.");
-    assert.equal(got.savedGag?.scene, "{NAME} lifts the moon (gag A).");
-    assert.equal(got.savedGag?.bubbles[0]?.text, "Light.");
+    assert.equal(got.existingGags.length, 1);
+    assert.equal(got.existingGags[0]?.scene, "{NAME} lifts the moon (gag A).");
+    assert.equal(got.existingGags[0]?.bubbles[0]?.text, "Light.");
     assert.equal(got.draft?.scene, "{NAME} juggles planets (draft C).");
     assert.equal(got.draft?.bubbles[0]?.text, "Easy.");
     assert.equal(got.renderPolicy.violence.mode, "soften");
   });
 
-  it("a refresh sends the live fact's approved gag, never the refresh candidate's", async () => {
-    const live = { ...ENRICHMENT, visualPromptStrategyOverride: { version: 1, coreSceneOverride: "{NAME} approved gag A." } } as unknown as FactEnrichment;
-    const { reviewId, factId } = await seedReview(adminId, "concept_review", live);
-    const candidate = { ...ENRICHMENT, visualPromptStrategyOverride: { version: 1, coreSceneOverride: "{NAME} refresh candidate B." } };
-    const [v] = await db.insert(factEnrichmentVersionsTable).values({ factId, versionNo: 1, status: "candidate", source: "refresh_candidate", enrichment: candidate as never } as never).returning({ id: factEnrichmentVersionsTable.id });
+  it("a refresh sends each gag's version being worked on: the review's pending change over the approved one (plan PLAN_THREE_GAGS.md, increment 2)", async () => {
+    // The gag holds an approved version A and, inside the refresh, a pending change B.
+    const { reviewId, factId } = await seedReview(adminId, "concept_review");
+    const [v] = await db.insert(factEnrichmentVersionsTable).values({ factId, versionNo: 1, status: "candidate", source: "refresh_candidate", enrichment: ENRICHMENT as never } as never).returning({ id: factEnrichmentVersionsTable.id });
     await db.update(pendingReviewsTable).set({ candidateVersionId: v!.id }).where(eq(pendingReviewsTable.id, reviewId));
+    await db.insert(factGagsTable).values({
+      factId, slot: 1,
+      approvedContent: { version: 1, coreSceneOverride: "{NAME} approved gag A." } as never, approvedCarriedOver: true,
+      pendingContent: { version: 1, coreSceneOverride: "{NAME} refresh candidate B." } as never, pendingReviewId: reviewId,
+    });
     let seen: Parameters<VisualConceptsJobDeps["generate"]>[0] | null = null;
     await runVisualConceptsJob({ reviewId, factId, moderatorDraftScene: "{NAME} draft C." }, { generate: async (input) => { seen = input; return stubGenerate()(input); } });
     const got = seen as unknown as Parameters<VisualConceptsJobDeps["generate"]>[0];
-    assert.equal(got.savedGag?.scene, "{NAME} approved gag A.");
+    assert.deepEqual(got.existingGags.map((g) => g.scene), ["{NAME} refresh candidate B."]);
     assert.equal(got.draft?.scene, "{NAME} draft C.");
-    assert.equal((got.enrichment as unknown as { visualPromptStrategyOverride: { coreSceneOverride: string } }).visualPromptStrategyOverride.coreSceneOverride, "{NAME} refresh candidate B.", "meanings and policy come from the review's effective enrichment");
+    assert.equal((got.enrichment as unknown as { visualPromptStrategyOverride: { coreSceneOverride: string } }).visualPromptStrategyOverride.coreSceneOverride, "{NAME} refresh candidate B.", "the review works on the gag's pending change");
   });
 
   it("stores the joke read, and the response carries it with no saved note", async () => {
@@ -449,11 +462,12 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     assert.equal((await note(factId)).text, "A corrected reading.", "a generation never writes the note");
   });
 
-  it("a changed fact still marks the gags out of date whatever the note says", async () => {
+  it("a changed gag still marks the ideas out of date whatever the note says", async () => {
+    // A fact's wording never changes (migration 0141); its gags do.
     const { reviewId, factId } = await seedReview(adminId, "concept_review");
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "Read.") });
     await db.update(factsTable).set({ humorNote: "Read." }).where(eq(factsTable.id, factId));
-    await db.update(factsTable).set({ text: `${FACT_TEXT} Edited.` }).where(eq(factsTable.id, factId));
+    await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: { version: 1, coreSceneOverride: "{NAME} a gag saved after the ideas." } as never });
     const r = await response(reviewId, factId);
     assert.equal(r.current, false);
     assert.equal(r.staleReason, "input_hash_mismatch");

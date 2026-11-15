@@ -27,10 +27,12 @@ import type { Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, asyncJobsTable } from "@workspace/db/schema";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { usersTable, factsTable, factGagsTable, asyncJobsTable } from "@workspace/db/schema";
 import { and, count, eq, gte, inArray, like, ne } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
+  buildPlaceholderGag,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   type FactEnrichment,
 } from "@workspace/api-zod";
@@ -325,19 +327,20 @@ describe("admin bulk backfill routes", () => {
       ...CLASSIFIED,
       primaryArchetype: "object_logic_impossibility",
       subtype: "mechanical_contradiction",
-      visualPromptStrategyOverride: concept,
     } as FactEnrichment);
-    const [fact] = await db.insert(factsTable).values({
+    const fact = await insertLiveFact({
       text: `${FACT_TEXT_PREFIX}${randomUUID()}`,
-      isActive: true,
       ...seeded,
-    }).returning({ id: factsTable.id });
-    const factId = fact!.id;
+    }, concept);
+    const factId = fact.id;
+    const readConcept = async () => (await db
+      .select({ approvedContent: factGagsTable.approvedContent })
+      .from(factGagsTable).where(and(eq(factGagsTable.factId, factId), eq(factGagsTable.slot, 1))))[0]?.approvedContent as
+      { coreSceneOverride?: string } | undefined;
     const readBack = async () => (await db
       .select({ enrichment: factsTable.enrichment, primaryArchetype: factsTable.primaryArchetype })
       .from(factsTable).where(eq(factsTable.id, factId)))[0]!;
-    const before = await readBack();
-    const conceptBefore = (before.enrichment as FactEnrichment).visualPromptStrategyOverride;
+    const conceptBefore = await readConcept();
     assert.equal(conceptBefore?.coreSceneOverride, concept.coreSceneOverride, "precondition: the concept is stored");
 
     // force=true snapshots EVERY active fact into a detached loop. Other files'
@@ -377,7 +380,7 @@ describe("admin bulk backfill routes", () => {
     const after = await readBack();
     assert.equal(after.primaryArchetype, "superhuman_physical_feat", "the loop must have re-classified this fact");
     assert.deepEqual(
-      (after.enrichment as FactEnrichment).visualPromptStrategyOverride,
+      await readConcept(),
       conceptBefore,
       "the moderator's Visual Concept must survive re-classification",
     );

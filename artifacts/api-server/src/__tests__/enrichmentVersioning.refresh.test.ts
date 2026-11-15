@@ -32,6 +32,7 @@ import { db } from "@workspace/db";
 import {
   usersTable,
   factsTable,
+  factGagsTable,
   pendingReviewsTable,
   factEnrichmentVersionsTable,
   activityFeedTable,
@@ -42,7 +43,9 @@ import {
   adminConfigTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment, currentProcessingSignature, type FactEnrichment, type ProcessingSignature } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag, currentProcessingSignature, type FactEnrichment, type ProcessingSignature } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import gagsRouter from "../routes/gags.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
@@ -208,6 +211,7 @@ function makeApp(): Express {
   app.use(express.json());
   app.use(authMiddleware);
   app.use(reviewsRouter);
+  app.use(gagsRouter);
   app.use(adminRouter);
   app.use(adminImagePromptRouter);
   return app;
@@ -254,21 +258,17 @@ async function seedActiveFact(opts: { text?: string } = {}): Promise<typeof fact
   const { columns } = materializeEnrichment({
     aiDerived: ACTIVE_AI_BASELINE,
     overrides: MANUAL_OVERRIDES,
-    visualPromptStrategyOverride: LIVE_FACT_SAVED_CONCEPT,
   });
-  const [fact] = await db
-    .insert(factsTable)
-    .values({
-      text: opts.text ?? "{NAME} bench-presses the Earth.",
-      submittedById: submitterId,
-      isActive: true,
-      ...columns,
-      enrichmentStatus: "ok",
-      aiMemeImages: AI_MEME_SENTINEL,
-      upvotes: 7,
-      score: 7,
-    } as typeof factsTable.$inferInsert)
-    .returning();
+  // The live fact's gag lives in fact_gags (migration 0139), approved.
+  const { gags: _gags, ...fact } = await insertLiveFact({
+    text: opts.text ?? "{NAME} bench-presses the Earth.",
+    submittedById: submitterId,
+    ...columns,
+    enrichmentStatus: "ok",
+    aiMemeImages: AI_MEME_SENTINEL,
+    upvotes: 7,
+    score: 7,
+  } as Omit<typeof factsTable.$inferInsert, "isActive">, LIVE_FACT_SAVED_CONCEPT);
   insertedFactIds.push(fact.id);
   return fact;
 }
@@ -290,24 +290,25 @@ async function seedReadyRefreshCycle(fact: { id: number }): Promise<{ reviewId: 
   return { reviewId, candidateVersionId };
 }
 
-/** Author a moderator Visual Concept on a refresh candidate (required to promote —
- *  presence-based, no enable toggle). Sends the candidate's CURRENT enrichment (so
- *  tracked fields match) with only the VSO added. Kept OUT of seedReadyRefreshCycle so
- *  shape-comparison tests still see a scene-less candidate. */
+/** Change the fact's gag inside the refresh review (the gags step of a refresh):
+ *  a pending change owned by that review, saved through the gag route. Kept OUT
+ *  of seedReadyRefreshCycle so other tests see a refresh that changes no gag. */
 async function authorConceptForCycle(reviewId: number, candidateVersionId: number): Promise<void> {
-  const [ver] = await db.select({ enrichment: factEnrichmentVersionsTable.enrichment })
+  const [ver] = await db.select({ factId: factEnrichmentVersionsTable.factId })
     .from(factEnrichmentVersionsTable).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
+  const [gag] = await db.select({ id: factGagsTable.id }).from(factGagsTable)
+    .where(and(eq(factGagsTable.factId, ver.factId), eq(factGagsTable.slot, 1)));
   const res = await request(makeApp())
-    .patch(`/admin/reviews/${reviewId}/candidate-enrichment`)
+    .put(`/admin/facts/${ver.factId}/gags/${gag.id}`)
     .set("authorization", `Bearer ${adminSid}`)
-    .send({ enrichment: {
-      ...(ver.enrichment as FactEnrichment),
-      visualPromptStrategyOverride: {
+    .send({
+      reviewId,
+      content: {
         version: 1, coreSceneOverride: "{NAME} lifts the planet overhead in a packed stadium.",
         requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
         bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
       },
-    } });
+    });
   assert.equal(res.status, 200, `authorConceptForCycle: ${JSON.stringify(res.body)}`);
 }
 
@@ -436,9 +437,7 @@ describe("sendFactBackToReview", () => {
 
   it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
     const root = await seedActiveFact();
-    const [variant] = await db.insert(factsTable)
-      .values({ text: "{NAME} variant", submittedById: submitterId, isActive: true, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() })
-      .returning();
+    const variant = await insertLiveFact({ text: "{NAME} variant", submittedById: submitterId, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
     insertedFactIds.push(variant.id);
     const result = await sendFactBackToReview({ factId: root.id, adminId });
     assert.equal(typeof result.candidateVersionId, "number");
@@ -489,22 +488,20 @@ describe("runEnrichmentForCandidateVersion", () => {
     assert.equal(concepts.length, 1, "concepts enqueued at Step 2");
   });
 
-  it("a fact whose stored visual override lacks its list fields refreshes through the route and the queued job, keeping the override word for word", async () => {
+  it("a fact whose gag lacks its list fields refreshes through the route and the queued job, leaving the gag word for word and the candidate holding none", async () => {
     // A legacy stored override: Concept + one required detail, every other list absent.
     const legacyOverride = {
       version: 1,
       coreSceneOverride: "{NAME} bench-presses the Earth in a stadium.",
       requiredVisualDetails: ["a tiny red cape"],
     };
-    const { columns } = materializeEnrichment({ aiDerived: ACTIVE_AI_BASELINE, overrides: MANUAL_OVERRIDES, visualPromptStrategyOverride: LIVE_FACT_SAVED_CONCEPT });
-    const [fact] = await db.insert(factsTable).values({
+    const { columns } = materializeEnrichment({ aiDerived: ACTIVE_AI_BASELINE, overrides: MANUAL_OVERRIDES });
+    const fact = await insertLiveFact({
       text: "{NAME} bench-presses the Earth.",
       submittedById: submitterId,
-      isActive: true,
       ...columns,
-      enrichment: { ...(columns.enrichment as FactEnrichment), visualPromptStrategyOverride: legacyOverride },
       enrichmentStatus: "ok",
-    } as unknown as typeof factsTable.$inferInsert).returning();
+    } as Omit<typeof factsTable.$inferInsert, "isActive">, legacyOverride);
     insertedFactIds.push(fact.id);
 
     const res = await request(makeApp())
@@ -534,10 +531,11 @@ describe("runEnrichmentForCandidateVersion", () => {
     assert.equal(review.workflowStage, "concept_review");
     const [candidate] = await db.select().from(factEnrichmentVersionsTable)
       .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
-    // The candidate may fill the absent lists with empty defaults; the authored text must be untouched.
-    const kept = (candidate.enrichment as FactEnrichment).visualPromptStrategyOverride;
-    assert.equal(kept?.coreSceneOverride, legacyOverride.coreSceneOverride);
-    assert.deepEqual(kept?.requiredVisualDetails, legacyOverride.requiredVisualDetails);
+    // A refresh never carries the gag: the candidate holds none, and the gag row is untouched.
+    assert.equal((candidate.enrichment as FactEnrichment).visualPromptStrategyOverride, undefined);
+    assert.equal(candidate.visualOverride, null);
+    const [g] = await db.select().from(factGagsTable).where(eq(factGagsTable.factId, fact.id));
+    assert.deepEqual(g.approvedContent, legacyOverride);
   });
 
   it("COST GUARD phase 1: skips classification when the cycle was already resolved", async () => {
@@ -630,7 +628,9 @@ describe("candidate isolation across readers", () => {
 
     const firstTime = await resolveReviewCycleEnrichment({ stagingFactId: fact.id, candidateVersionId: null });
     assert.equal(firstTime?.source, "staging_fact");
-    assert.deepEqual(firstTime?.rawEnrichment, fact.enrichment);
+    assert.deepEqual(firstTime?.classification, fact.enrichment);
+    // The render input joins the fact's primary gag (fact_gags) onto the classification.
+    assert.deepEqual(firstTime?.rawEnrichment, { ...(fact.enrichment as object), visualPromptStrategyOverride: LIVE_FACT_SAVED_CONCEPT });
     assert.ok(candidateVersionId);
   });
 
@@ -788,8 +788,10 @@ describe("refresh approve → promote", () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
     await authorConceptForCycle(reviewId, candidateVersionId);
-    // The fact's text is edited AFTER the candidate was classified against it.
-    await db.update(factsTable).set({ text: "{NAME} bench-presses the Moon." }).where(eq(factsTable.id, fact.id));
+    // A fact's wording never changes (migration 0141), so the drift this
+    // backstop guards against is planted on the candidate's recorded hash.
+    await assert.rejects(db.update(factsTable).set({ text: "{NAME} bench-presses the Moon." }).where(eq(factsTable.id, fact.id)), "the database refuses the edit itself");
+    await db.update(factEnrichmentVersionsTable).set({ factTextHash: "stale-hash" }).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
 
     __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
     const res = await request(makeApp())

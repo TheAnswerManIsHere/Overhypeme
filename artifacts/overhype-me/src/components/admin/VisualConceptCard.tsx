@@ -74,8 +74,7 @@ export function VisualConceptCard({
           Describe the picture: subject, action, setting, objects, composition. This wins over the AI's
           scene. Don't write engine instructions ("preserve identity", "use the reference photo",
           "no logos") — the compiler owns those and will flag them; describe only the visible scene.
-          <strong className="text-foreground"> Required</strong> — a fact can't be saved or approved for
-          production without it.
+          <strong className="text-foreground"> Required</strong> — a gag can't be saved without it.
         </p>
       </div>
 
@@ -129,7 +128,7 @@ export function VisualConceptCard({
           </p>
         ) : (
           <p className="text-[11px] text-muted-foreground">
-            Saved with the Visual Strategy draft below — test renders flag stale automatically.
+            Saved with this gag — its test renders flag stale automatically.
           </p>
         )}
         <p className="text-[10px] text-muted-foreground shrink-0">

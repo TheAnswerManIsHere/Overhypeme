@@ -13,9 +13,10 @@
 ## Current source of truth
 
 For a moderated render, the **moderator-authored "Visual Concept (Core Scene)" is
-authoritative** when present. It is stored at
-`enrichment.visualPromptStrategyOverride.coreSceneOverride`
-(`lib/api-zod/src/visualStrategyOverride.ts`), capped at 1500 chars, carries
+authoritative** when present. It is a [gag](./glossary.md#gag)'s
+`coreSceneOverride`, stored in `fact_gags` since migration 0139 (plan
+`docs/plans/PLAN_THREE_GAGS.md`; the schema is
+`lib/api-zod/src/visualStrategyOverride.ts`), capped at 1500 chars, carries
 `{NAME}`/pronoun tokens, and is canonicalized + token-validated on save. It is
 consumed **deterministically** in two places:
 
@@ -574,11 +575,58 @@ or `nano-banana-2-edit` by string. Now:
   adapted to the two chosen engines through their recipes' baselines
   (*Prompt recipes*), not by a second compiler.
 
-## Visual Concept
+## Gags: where the Visual Concept lives (migration 0139)
 
-The authoritative human-authored scene (above). A moderator authors it directly,
-or **picks a candidate** (next section) which becomes the `coreSceneOverride` via
-the same cap/token rules — "no new write surface."
+A fact has one to three [gags](./glossary.md#gag), each a `fact_gags` row in
+slot 1-3 holding a whole Visual Strategy Override; every gag follows the same
+rules whatever its slot (plan `docs/plans/PLAN_THREE_GAGS.md`, David
+2026-11-14). The enrichment holds none: a CHECK on `facts.enrichment` and on an
+open refresh candidate's enrichment refuses one, and a render's input is the
+classification joined with one gag's content (`gagRenderInput`,
+`lib/gags/resolver.ts`).
+
+- **Versions.** A gag has an approved version (offered to users on a live fact)
+  and may carry a pending change. Saving writes the pending change; it changes
+  nothing users get until a moderator approves one of its test renders as the
+  gag's **example** (`approveGagRender`), which makes it the approved version.
+  The render must be finished, unstyled and drawn from exactly that content.
+- **Renders belong to a gag.** `image_prompt_attempts.gag_id` names the gag each
+  test render drew; grids, staleness and enqueue all read the gag's render
+  target (`loadGagRenderTarget`, `reviewRenderScenarios.ts`), so they cannot
+  drift from the render.
+- **Refreshes.** While a refresh is open a fact's gags change only inside its
+  review, as its last step: a pick or a removal there waits on the gag
+  (`pending_review_id`) and lands at promotion (`applyReviewGagOps`); declining
+  discards it. The live fact's approved gags stay offered throughout. **Keep
+  this gag** (`keepGag`) cancels a removal marked there and touches nothing
+  else, whether the gag is approved with no change, approved with a change and
+  a picked example, or never approved; **Discard the saved change** drops only
+  the change and its pick, leaving a removal mark alone (increment 2; Codex,
+  PR #956 round 4).
+- **The rule the database holds.** A live fact always has an approved gag
+  (deferred constraint triggers `facts_live_requires_approved_gag` and
+  `fact_gags_live_fact_keeps_approved_gag`).
+- **Default gag.** Anything that draws a fact's picture without a picker uses
+  the lowest-slot approved gag (`primaryGag`). Where more than one gag is
+  available, users choose with a picker: launch Phase 7 builds it with the user
+  AI-picture flow (David, 2026-11-14, plan decisions 13 and 15).
+- **The list Phase 7 reads.** `availableGags(factId)`: a live fact's approved
+  versions, default first then slot order, never a new gag or a pending change,
+  a refresh's picks and removals only after promotion; and
+  `resolveOfferedGag(factId, gagId | null)`, the one way a non-moderator caller
+  picks a gag (no name: the default; a name not available: refused, never
+  replaced). Stored content reaches both through `normaliseGagContent`, the one
+  reader that fills an older stored shape's lists and never refuses (Codex,
+  PR #956 round 3). Contract tests: `availableGags.test.ts`.
+- **Unsaved edits are kept in the browser.** A gag card's unsaved edit is kept
+  in `localStorage` with the server version it was typed against, restored
+  only while that version is unchanged, and cleared on save, undo or cancel; a
+  new gag's draft reopens its card.
+
+A moderator authors a gag directly in the **Gags panel**
+(`components/admin/gags/GagsPanel.tsx`, on the moderation review and the Facts
+editor), or **uses a candidate** (next section) on a gag, via the same cap and
+token rules.
 
 ## Visual Strategy Override authoring (auto-tokenize on Save)
 
@@ -589,11 +637,9 @@ changed rendered-text field through the shared tokenizer core (see
 [`token-rendering-and-grammar.md`](./token-rendering-and-grammar.md#shared-core-fact-submission-and-admin-visual-concept-authoring-pr-206))
 and **shows the tokenized result in the field** before it persists — not a
 silent swap, mirroring the fact-submission write→preview→confirm pattern. This
-is the ONE save path (`tokenizeAndSaveVisualOverride` in
-`useFactEnrichmentEditing.ts`) every VSO surface calls — the Visual Concept
-card, the full override panel, and the Facts-page save all route through it,
-and it always persists the *whole* current enrichment so a concurrent hashtag
-edit is never dropped.
+is the ONE save path every gag save takes (`tokenizeGag` in
+`components/admin/gags/gagApi.ts`, then the gag route); it sends only the
+fields changed since the version the edit started from.
 
 **Authoring rule (load-bearing):** name ONLY the main subject; refer to every
 other character by role, never by name ("the bartender", not a second real
@@ -616,10 +662,9 @@ editor and no longer canonicalizes a typed token — it's a label field, not
 rendered prose.
 
 **Any field the tokenizer can't cleanly resolve blocks persistence** and
-surfaces a field-specific red-bordered error (`vsoTokenizeErrors`) instead of
-silently saving something wrong; both the Visual Concept card and the override
-panel disable entirely while a batch tokenize round trip is in flight
-(`vsoTokenizing`), so no edit can race it.
+surfaces a field-specific red-bordered error on that field instead of
+silently saving something wrong; the gag's card disables while its tokenize
+and save round trip is in flight, so no edit can race it.
 
 **Activation is presence-based — there is no `enabled` field.** The override
 object no longer carries an `enabled` boolean (retired). Every sub-field applies
@@ -631,21 +676,18 @@ compiler-side gates were converted from `ov?.enabled` to a plain presence check
 `imagePromptGeneration.ts`). Stored rows that still have a legacy `enabled` key
 parse cleanly — Zod strips the unknown field — so no migration was needed.
 
-**The Visual Concept (core scene) is REQUIRED, and the card is its single
-editing surface.** The core-scene field was removed from the Advanced Options
-`VisualStrategyOverridePanel`; the prominent `VisualConceptCard` is now the only
-place it is edited, on both the Moderation Step-2 flow and the Facts page. A
-blank `coreSceneOverride` **blocks admin save** (the enrichment PATCH and the
-review-candidate PATCH reject it `400 visual_concept_required`) **and blocks
-production approval** (`CONCEPT_MISSING` on the approve-visual-concept and
-first-time/refresh production-approval paths). Rationale: the image
-engines need a concrete scene to make a meme, so a fact can't be released
-without one.
+**The Visual Concept (core scene) is REQUIRED for every gag.** Each gag's card
+leads with its `VisualConceptCard`, with its bubbles and "More art direction"
+(the `VisualStrategyOverridePanel`) below. A gag with a blank scene can't be
+saved (`fact_gags_*_scene_nonempty`), and a fact can't go live, or stay live,
+without an approved gag (`CONCEPT_MISSING` on first-time production approval;
+`GAG_REQUIRED` on a refresh promotion that would leave none). Rationale: the
+image engines need a concrete scene to make a meme.
 
 ## Candidate Visual Concepts
 
-**The gag writer (prompt version 3, plan `docs/plans/PLAN_GAG_GENERATOR.md`,
-approved by David 2026-11-13).**
+**The gag writer (prompt version 4; plan `docs/plans/PLAN_GAG_GENERATOR.md`,
+approved by David 2026-11-13, and `docs/plans/PLAN_THREE_GAGS.md` increment 2).**
 - **Engine and prompt.** The candidates are drafted by the `openai-gag-writer`
   engine (GPT-6 Astra, medium effort since 2026-11-14: high took 100–211 s a call), chosen and
   configured in code ([decisions.md, 2026-11-14](./decisions.md#2026-11-14--ai-call-settings-live-in-code-never-in-database-rows)). Migration 0137 had pointed the retired
@@ -666,7 +708,11 @@ approved by David 2026-11-13).**
   - what references mean, in plain lines;
   - the joke mechanism;
   - the violence and text limits from `resolveRenderPolicy`;
-  - the live fact's saved gag (during a refresh too, never the candidate's);
+  - every gag the fact already has, in slot order: each one's version being
+    worked on (its pending change, else its approved version), a gag marked
+    for removal left out (`contextGagsFor`). One gag keeps the v3 wording ("GAG
+    THIS FACT ALREADY HAS"); several are listed together, numbered. The locked
+    system prompt is unchanged;
   - the moderator's draft with its bubbles.
 - **The stand-in name.** The model writes "Alex". Every scene and bubble line
   is then converted by `tokenizePlainTextToTemplate` (`visual_strategy`,
@@ -678,10 +724,31 @@ approved by David 2026-11-13).**
   `facts.humor_note` (with who approved it and when) is written only by a
   moderator, through `PUT /admin/reviews/:id/humor-note`: That's right, or a
   correction.
-- **Freshness.** The note is kept out of the input hash. A saved note that
-  matches neither the note the gags were written under nor their own read
-  marks them `humor_note_changed`. So confirming a read keeps its gags
-  usable, and a correction asks for Regenerate.
+- **Freshness.** The input hash covers the same frozen list of gags the
+  request carried, so a change to any gag stales the candidates, as a saved
+  gag edit did when the gag lived in the enrichment. The note is kept out of
+  the input hash. A saved note that matches neither the note the gags were
+  written under nor their own read marks them `humor_note_changed`. So
+  confirming a read keeps its gags usable, and a correction asks for
+  Regenerate.
+- **Draft more gags on a live fact** (`POST /admin/facts/:id/gags/ideas`, the
+  Facts editor's `LiveGagIdeas`): the same engine, prompt, validation and
+  latest-only store, run outside a review, reading the live fact. Refused while
+  a review is open (its own generation owns the fact's ideas), for a fact that
+  is not live, and while a live draft is still working. A "working" status
+  left by a closed review does not block it, and opening a review clears a
+  live draft's ideas.
+- **One owner per generation** (migration 0140, `lib/visualConceptOwner.ts`).
+  `facts.visual_concept_owner` names the generation that may write the fact's
+  candidates and their status: `review:<id>` or `live:<id>`. Every write of
+  that state (working, ready, failed) goes through `ownedFact`, so it lands
+  only while that owner holds the fact. Opening a review (a refresh, a
+  resubmission) and enqueueing its generation take ownership and clear a live
+  draft's leftovers, so a live draft that finishes afterwards writes nothing;
+  a live draft takes ownership in one conditional write that also checks the
+  fact is live, no review is open and nothing is drafting. The migration
+  backfilled each fact with an open review to that review; a fact no
+  generation has claimed (null) is written by none.
 
 AI-drafted picks to avoid blank-page authoring (`lib/api-zod/src/visualConcepts.ts`,
 Slice 2A / PRs #163, #166). The planner drafts exactly **3**
@@ -692,20 +759,13 @@ via `withCandidateConceptDraft` (scene → `coreSceneOverride`, bubbles →
 `bubbles`; unrelated VSO fields preserved; never merged; atomic — one invalid
 bubble makes the whole concept unpickable).
 
-**Picking is blocked while unrelated Visual-Strategy edits are unsaved**
-(`computeCandidatePickBlockedReason`, `components/admin/candidatePickGate.ts`).
-A pick only replaces the scene + bubbles fields — so an unsaved draft edit to
-any *other* field (role bindings, required details, …) would let a pick land
-on a VSO shape the candidate's own preflight (below) never accounted for. The
-gate gives clear copy ("Save or discard your current Visual Strategy
-changes…") rather than silently risking that mismatch. Scene/bubble-only
-dirtiness (typing in the Concept box, a previous pick) stays pickable — only
-*other*-field drift blocks.
-**Gotcha:** a MISSING override (nothing persisted yet) must normalize to the
-same stripped shape as the empty scaffold `withCoreSceneOverride`/`withBubbles`
-create on a moderator's first edit, or the comparison wrongly treats a fresh
-empty-arrays draft as "different from nothing" and blocks picking on the very
-first keystroke (Codex P2, PR #229).
+**Using an idea waits while any gag card holds unsaved edits, or while an
+idea is being saved.** Using one saves it at once onto a gag, replacing that
+gag's saved scene and bubbles and keeping its other fields, and the card then
+shows the new saved version, so typed edits would be lost. The idea cards show
+"Save or undo your gag edits first", and the panel locks while the save is in
+flight (Codex, PR #956 round 3). `candidatePickGate.ts`, which held this rule
+when a pick only filled a browser draft, went with that draft in increment 1.
 
 **Candidate bubble contract (prompt version 2):** `bubbles` is REQUIRED on
 the strict wire (`[]` = the normal no-bubble case; strict Structured Outputs

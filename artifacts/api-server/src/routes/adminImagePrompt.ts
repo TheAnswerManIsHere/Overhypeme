@@ -26,6 +26,7 @@ import { ImagePromptError } from "../lib/imagePrompt/generator";
 import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
 import { liveRecipeForEngine } from "../lib/imagePrompt/recipeStore";
 import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
+import { gagRenderInput, loadGags, primaryGag, workingContent, type GagContent } from "../lib/gags/resolver";
 import { currentImageEngineIds } from "../lib/imageEngineRouting.js";
 import { RenderStyleRefusedError } from "../lib/imagePrompt/styleResolution.js";
 import { NoUsablePhotoError, resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
@@ -63,6 +64,22 @@ interface PreviewBody {
   // protagonist when omitted/blank.
   previewName?: string;
   previewPronouns?: string;
+  /** Preview this gag (its working content) instead of the fact's primary gag (fact_gags, migration 0139). */
+  gagId?: number;
+}
+
+/**
+ * The gag content a preview draws: the named gag's working content (it must be
+ * one of this fact's non-removed gags), else none, so the caller keeps its own
+ * default (the review's primary working gag, or the fact's primary gag).
+ */
+async function chosenGagContent(factId: number, gagId: number | undefined, fallback: "working" | "published"): Promise<GagContent | null | "not_found"> {
+  if (typeof gagId === "number") {
+    const gag = (await loadGags(factId)).find((g) => g.id === gagId);
+    return gag ? workingContent(gag) ?? "not_found" : "not_found";
+  }
+  if (fallback === "published") return (await primaryGag(factId))?.content ?? null;
+  return null;
 }
 
 router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, res: Response): Promise<void> => {
@@ -113,7 +130,11 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
         res.status(400).json({ error: "staging_fact_missing", reviewId: targetReviewId });
         return;
       }
-      const ev = validateEnrichment(cycle.rawEnrichment);
+      const chosen = await chosenGagContent(cycle.factId, body.gagId, "working");
+      if (chosen === "not_found") { res.status(400).json({ error: "gag_not_found", gagId: body.gagId }); return; }
+      const ev = validateEnrichment(chosen && cycle.classification && typeof cycle.classification === "object"
+        ? gagRenderInput(cycle.classification as FactEnrichment, chosen)
+        : cycle.rawEnrichment);
       if (!ev.ok) {
         res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
         return;
@@ -141,7 +162,14 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       res.status(400).json({ error: "fact_not_found", factId });
       return;
     }
-    const ev = validateEnrichment(factRow.enrichment);
+    // The render input: the fact's classification with a gag joined in
+    // (fact_gags, migration 0139) — the named gag's working content, else the
+    // fact's primary gag (its approved version where it has one).
+    const chosen = await chosenGagContent(factId, body.gagId, "published");
+    if (chosen === "not_found") { res.status(400).json({ error: "gag_not_found", gagId: body.gagId }); return; }
+    const ev = validateEnrichment(chosen && factRow.enrichment && typeof factRow.enrichment === "object"
+      ? gagRenderInput(factRow.enrichment as FactEnrichment, chosen)
+      : factRow.enrichment);
     if (!ev.ok) {
       res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
       return;

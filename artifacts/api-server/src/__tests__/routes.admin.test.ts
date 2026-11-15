@@ -38,7 +38,9 @@ import {
   asyncJobsTable,
   membershipEntitlementsTable,
   membershipHistoryTable,
+  factGagsTable,
 } from "@workspace/db/schema";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { like, eq, inArray, or, and } from "drizzle-orm";
 
 import {
@@ -49,11 +51,10 @@ import {
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
 import { createSession, type SessionData, BOOTSTRAP_ADMIN_EMAIL } from "../lib/auth.js";
-import { hashFactText } from "../lib/enrichmentVersioning.js";
 import {
-  APPROVED_FACT_TEXT_EDIT_PHRASE,
   FACT_TEXT_EDIT_CODES,
   buildPlaceholderFactEnrichment,
+  buildPlaceholderGag,
   computeProcessingSignatureStaleness,
 } from "@workspace/api-zod";
 import { currentProcessingSignatureFromConfig } from "../lib/processingSignature.js";
@@ -132,13 +133,11 @@ async function createTestFact(
   opts: { parentId?: number; isActive?: boolean } = {},
 ): Promise<number> {
   const active = opts.isActive ?? true;
-  const [fact] = await db.insert(factsTable).values({
-    text,
-    parentId: opts.parentId,
-    isActive: active,
-    // Active facts require a non-empty Visual Concept (Phase 2 CHECK constraint).
-    enrichment: active ? buildPlaceholderFactEnrichment() : undefined,
-  }).returning({ id: factsTable.id });
+  if (active) {
+    const fact = await insertLiveFact({ text, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
+    return fact.id;
+  }
+  const [fact] = await db.insert(factsTable).values({ text, parentId: opts.parentId, isActive: false }).returning({ id: factsTable.id });
   return fact!.id;
 }
 
@@ -156,12 +155,13 @@ async function createTestFact(
 async function createDeactivatedFact(text: string): Promise<number> {
   const id = await createTestFact(text);
   await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, id));
-  const [row] = await db.select({ isActive: factsTable.isActive, enrichment: factsTable.enrichment })
+  const [row] = await db.select({ isActive: factsTable.isActive })
     .from(factsTable).where(eq(factsTable.id, id));
   assert.equal(row.isActive, false, "precondition: the fact must be deactivated");
+  const [gag] = await db.select({ approvedContent: factGagsTable.approvedContent })
+    .from(factGagsTable).where(and(eq(factGagsTable.factId, id), eq(factGagsTable.slot, 1)));
   assert.ok(
-    (row.enrichment as { visualPromptStrategyOverride?: { coreSceneOverride?: string } } | null)
-      ?.visualPromptStrategyOverride?.coreSceneOverride?.trim(),
+    (gag?.approvedContent as { coreSceneOverride?: string } | null)?.coreSceneOverride?.trim(),
     "precondition: a deactivated fact must RETAIN its Visual Concept, or this fixture is not the real state",
   );
   return id;
@@ -523,69 +523,31 @@ describe("PATCH /admin/facts/:id", () => {
     assert.equal(res.body.error, "admin_required");
   });
 
-  it("normalizes text and recomputes canonicalText/splitTokenIndex/hasPronouns from the normalized text", async () => {
-    // A live fact is protected, so a text change now requires the confirmation
-    // envelope (approved-fact-text lock). Normalization/derived-metadata is the
-    // same on the confirmed path.
+  it("refuses a change to a fact's wording, confirmed or not, and writes nothing (plan PLAN_THREE_GAGS.md, increment 3)", async () => {
     const original = `${FACT_PREFIX}${randomUUID()} original text`;
     const factId = await createTestFact(original);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${factId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({
-        text: "{Subj} keeps it locked in {POSS} back yard.",
-        confirmTextEdit: {
-          phrase: APPROVED_FACT_TEXT_EDIT_PHRASE,
-          reason: "UAT: verifying normalization on the confirmed path.",
-          expectedOldTextHash: hashFactText(original),
-        },
-      });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-    assert.equal(res.body.fact.text, "{Subj} {keeps|keep} it locked in {POSS} back yard.");
-
+    for (const body of [
+      { text: "{Subj} keeps it locked in {POSS} back yard." },
+      { text: "{Subj} keeps it locked in {POSS} back yard.", confirmTextEdit: { phrase: "anything", reason: "a long enough reason here", expectedOldTextHash: "x" } },
+      { text: "bad token {FOO}" },
+    ]) {
+      const res = await request(makeApp()).patch(`/admin/facts/${factId}`).set("authorization", `Bearer ${adminSid}`).send(body);
+      assert.equal(res.status, 409, JSON.stringify(res.body));
+      assert.equal(res.body.code, "WORDING_LOCKED");
+    }
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
-    assert.ok(row);
-    assert.equal(row.text, "{Subj} {keeps|keep} it locked in {POSS} back yard.");
-    assert.equal(row.hasPronouns, true);
-    assert.ok(row.canonicalText);
-    assert.equal(typeof row.splitTokenIndex, "number");
+    assert.equal(row?.text, original);
+    await assert.rejects(db.update(factsTable).set({ text: "edited around the route" }).where(eq(factsTable.id, factId)), "the database refuses it too");
   });
 
-  it("a confirmed edit on a VARIANT (parentId set) commits normally — the embed/image-pipeline dispatch is no longer root-only (variant independence, site 6)", async () => {
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} variant-edit root`);
-    const original = `${FACT_PREFIX}${randomUUID()} variant original text`;
-    const variantId = await createTestFact(original, { parentId: rootId });
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${variantId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({
-        text: "{Subj} keeps it locked as a variant.",
-        confirmTextEdit: {
-          phrase: APPROVED_FACT_TEXT_EDIT_PHRASE,
-          reason: "verifying the confirmed-edit dispatch runs for a variant too.",
-          expectedOldTextHash: hashFactText(original),
-        },
-      });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, variantId));
-    assert.equal(row?.parentId, rootId, "still a variant — the dispatch decision is no longer gated on this");
-  });
-
-  it("validates before updating — rejects grammar-invalid text with 422 and does not write it", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} original text`;
+  it("accepts a PATCH that carries the stored wording unchanged, applying its other fields", async () => {
+    const original = `${FACT_PREFIX}${randomUUID()} unchanged text`;
     const factId = await createTestFact(original);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${factId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: "bad token {FOO}" });
-    assert.equal(res.status, 422);
-    assert.match(res.body.error, /grammar validation failed/);
-
+    const res = await request(makeApp()).patch(`/admin/facts/${factId}`).set("authorization", `Bearer ${adminSid}`).send({ text: original, useCase: "unit-test" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
-    assert.ok(row);
-    assert.equal(row.text, original, "text must not change on grammar-invalid update");
+    assert.equal(row?.text, original);
+    assert.equal(row?.useCase, "unit-test");
   });
 
   it("rejects pointing an ACTIVE fact's parentId at a fact that isn't an active root", async () => {
@@ -673,7 +635,7 @@ describe("PATCH /admin/facts/:id", () => {
   });
 
   // The reparent guards above run through the non-text PATCH branch. A PATCH
-  // that ALSO carries `text` forks into confirmedFactTextEdit.ts instead — a
+  // that ALSO carries `text` (unchanged: a fact's wording is locked) is still — a
   // separate write path that used to apply `parentId` completely unguarded
   // (Codex round 6). These mirror the same three scenarios through that path,
   // sending back the fact's own unchanged text (the no-op-text branch, which
@@ -777,7 +739,7 @@ describe("PATCH /admin/facts/:id", () => {
     assert.notEqual(row.upvotes, 4242, "the co-submitted field must not have been written either");
   });
 
-  // A PATCH carrying `text` forks into confirmedFactTextEdit.ts — the same
+  // A PATCH carrying `text` unchanged takes the same path —
   // second write path that used to apply `parentId` unguarded (Codex round 6).
   // The activation guard sits ahead of that fork, and this is what holds it
   // there.
@@ -1263,167 +1225,6 @@ describe("POST /admin/facts/import-csv — byte cap", () => {
 });
 
 // ── PATCH /admin/facts/:id — the approved-fact-text lock over HTTP ────────────
-
-describe("PATCH /admin/facts/:id — approved text lock", () => {
-  async function insertReview(stagingFactId: number, workflowStage: string): Promise<number> {
-    const [rev] = await db.insert(pendingReviewsTable).values({
-      submittedText: "x",
-      status: "pending",
-      stagingFactId,
-      workflowStage,
-      candidateVersionId: null,
-      submittedById: adminUserId,
-    } as typeof pendingReviewsTable.$inferInsert).returning({ id: pendingReviewsTable.id });
-    return rev!.id;
-  }
-
-  function confirmFor(oldText: string) {
-    return {
-      phrase: APPROVED_FACT_TEXT_EDIT_PHRASE,
-      reason: "verifying the confirmed edit over HTTP.",
-      expectedOldTextHash: hashFactText(oldText),
-    };
-  }
-
-  it("answers 409 REQUIRES_CONFIRMATION with the impact for changed text on a live fact, and 200 once confirmed", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} live original`;
-    const factId = await createTestFact(original);
-    const newText = `${FACT_PREFIX}${randomUUID()} live reworded`;
-
-    const unconfirmed = await request(makeApp())
-      .patch(`/admin/facts/${factId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: newText });
-    assert.equal(unconfirmed.status, 409);
-    assert.equal(unconfirmed.body.code, FACT_TEXT_EDIT_CODES.REQUIRES_CONFIRMATION);
-    assert.equal(unconfirmed.body.impact.protected, true);
-    assert.equal(unconfirmed.body.impact.protectionReason, "active");
-    assert.equal(unconfirmed.body.impact.currentStoredText, original);
-    assert.equal(unconfirmed.body.impact.normalizedProposedText, newText);
-    assert.equal(unconfirmed.body.impact.expectedOldTextHash, hashFactText(original));
-    const [untouched] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, factId));
-    assert.equal(untouched?.text, original, "an unconfirmed edit must not write");
-
-    const confirmed = await request(makeApp())
-      .patch(`/admin/facts/${factId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: newText, confirmTextEdit: confirmFor(original) });
-    assert.equal(confirmed.status, 200);
-    const [stored] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, factId));
-    assert.equal(stored?.text, newText, "the confirmed edit must be stored");
-  });
-
-  it("restarts prep on an inactive staging fact at concept_review: 200, review to prep_pending, one enrichment job queued", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} staging original`;
-    const factId = await createTestFact(original, { isActive: false });
-    jobFactIds.push(factId);
-    const reviewId = await insertReview(factId, "concept_review");
-    const newText = `${FACT_PREFIX}${randomUUID()} staging reworded`;
-
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${factId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: newText });
-    assert.equal(res.status, 200);
-
-    const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, factId));
-    assert.equal(fact?.text, newText);
-    const [review] = await db.select({ stage: pendingReviewsTable.workflowStage })
-      .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
-    assert.equal(review?.stage, "prep_pending");
-    const jobs = await db.select({ status: asyncJobsTable.status }).from(asyncJobsTable)
-      .where(eq(asyncJobsTable.dedupeKey, `enrichment:fact:${factId}`));
-    assert.equal(jobs.length, 1, "exactly one enrichment job must be queued");
-    assert.ok(["pending", "processing"].includes(jobs[0]!.status), "and it must be nonterminal");
-  });
-
-  async function rootWithReviewingVariant(): Promise<{ rootId: number; variantId: number; original: string }> {
-    const original = `${FACT_PREFIX}${randomUUID()} root original`;
-    const rootId = await createTestFact(original);
-    const variantId = await createTestFact(`${FACT_PREFIX}${randomUUID()} variant staging`, { parentId: rootId, isActive: false });
-    await insertReview(variantId, "concept_review");
-    return { rootId, variantId, original };
-  }
-
-  it("a confirmed text edit on a live root returns 200 and stores the new text while its variant has a pending concept_review review", async () => {
-    const { rootId, original } = await rootWithReviewingVariant();
-    const newText = `${FACT_PREFIX}${randomUUID()} root reworded`;
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${rootId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: newText, confirmTextEdit: confirmFor(original) });
-    assert.equal(res.status, 200);
-    const [stored] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, rootId));
-    assert.equal(stored?.text, newText);
-  });
-
-  it("an unconfirmed edit of that root answers 409 with an impact whose refreshInFlight is false", async () => {
-    const { rootId } = await rootWithReviewingVariant();
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${rootId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: `${FACT_PREFIX}${randomUUID()} root reworded` });
-    assert.equal(res.status, 409);
-    assert.equal(res.body.code, FACT_TEXT_EDIT_CODES.REQUIRES_CONFIRMATION);
-    assert.equal(res.body.impact.refreshInFlight, false, "a variant mid-review is not a refresh in flight on the root");
-  });
-
-  it("a confirmed text edit on a root returns 200 and stores the new text while its variant has a nonterminal enrichment job", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} root original`;
-    const rootId = await createTestFact(original);
-    const variantId = await createTestFact(`${FACT_PREFIX}${randomUUID()} variant live`, { parentId: rootId });
-    jobFactIds.push(variantId);
-    await db.insert(asyncJobsTable).values({
-      queue: "enrichment",
-      payload: { factId: variantId },
-      dedupeKey: `enrichment:fact:${variantId}`,
-      status: "processing",
-    } as typeof asyncJobsTable.$inferInsert);
-    await insertReview(variantId, "prep_pending");
-
-    const newText = `${FACT_PREFIX}${randomUUID()} root reworded`;
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${rootId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: newText, confirmTextEdit: confirmFor(original) });
-    assert.equal(res.status, 200);
-    const [stored] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, rootId));
-    assert.equal(stored?.text, newText);
-  });
-
-  it("leaves each variant's lastProcessedSignature and enrichment unchanged, and not stale for reprocess, after a confirmed root edit", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} root original`;
-    const rootId = await createTestFact(original);
-    const signature = await currentProcessingSignatureFromConfig();
-    const variantIds = [
-      await createTestFact(`${FACT_PREFIX}${randomUUID()} variant one`, { parentId: rootId }),
-      await createTestFact(`${FACT_PREFIX}${randomUUID()} variant two`, { parentId: rootId }),
-    ];
-    await db.update(factsTable).set({ lastProcessedSignature: signature as unknown as Record<string, unknown> })
-      .where(inArray(factsTable.id, variantIds));
-    const snapshot = async () => (await db
-      .select({ id: factsTable.id, sig: factsTable.lastProcessedSignature, enrichment: factsTable.enrichment })
-      .from(factsTable).where(inArray(factsTable.id, variantIds)).orderBy(factsTable.id));
-    const before = await snapshot();
-    for (const v of before) {
-      assert.equal(computeProcessingSignatureStaleness(v.sig, signature).stale, false, "precondition: variants start fresh");
-    }
-
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${rootId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: `${FACT_PREFIX}${randomUUID()} root reworded`, confirmTextEdit: confirmFor(original) });
-    assert.equal(res.status, 200);
-
-    const after = await snapshot();
-    assert.deepEqual(after, before, "a root edit must not touch any variant's signature or enrichment");
-    for (const v of after) {
-      assert.equal(computeProcessingSignatureStaleness(v.sig, signature).stale, false, "and no variant becomes stale");
-    }
-  });
-});
-
-// ── Membership: admin grants, effective tier, grace-sweep status ──────────────
 
 describe("admin lifetime grants", () => {
   // adminLabel() falls back to the email when the actor has no display name.

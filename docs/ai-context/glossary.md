@@ -372,10 +372,42 @@ builder's example media, `hero_examples`, went in launch Phase 4.)
 
 ### Visual gag
 
-How the joke works *as a picture* — what a moderator is approving when they
-"approve the visual gag" at the [Visual Concept](#visual-concept) gate. This
-gate is deliberately free: approving the gag is what unlocks render spend, so
-no test render has run yet at the moment of the decision.
+How the joke works *as a picture*. Since migration 0139 (plan
+`docs/plans/PLAN_THREE_GAGS.md`) a fact has one to three, each its own
+[gag](#gag) record. Approving the gags at the Gags step (`concept_review`) is
+deliberately free: it unlocks render spend, so no test render has run yet at
+the moment of the decision. What reaches users is decided later, gag by gag,
+when a moderator approves a test render as a gag's [example](#example).
+→ [moderation-workflow](./moderation-workflow.md)
+
+### Gag
+
+One way of making a fact's joke visible: a [Visual Concept](#visual-concept)
+with its bubbles and art direction (a [Visual Strategy
+Override](#visual-strategy-override)), stored in its own `fact_gags` row in
+slot 1, 2 or 3. Every gag follows the same rules whatever its slot. It has an
+**approved version**, offered to users on a live fact, and may carry a
+**pending change** (a new gag, or an edit to one), which changes nothing users
+get until a test render of it is approved as the gag's example. A live fact
+always keeps at least one approved gag, which the database enforces. During a
+refresh a fact's gags change only inside that refresh's review, and a pick or
+removal made there lands when the refresh is promoted.
+→ [visual-pipeline](./visual-pipeline.md)
+
+### Default gag
+
+A live fact's lowest-slot approved gag: what anything that draws the fact's
+picture without a picker uses. Where more than one gag is approved, users get
+a picker (launch Phase 7, which rebuilds the user AI-picture flow).
+→ [visual-pipeline](./visual-pipeline.md)
+
+### Example
+
+The test render a moderator approved for a gag ("Approve this render"); it is
+what approves the gag. One unstyled example per approved gag is required
+([product strategy](./product-strategy.md#gags-and-examples)). A gag approved
+before migration 0139 carries no example on record and is marked "no example
+yet".
 → [moderation-workflow](./moderation-workflow.md)
 
 ### Joke read
@@ -604,19 +636,22 @@ path to automatic promotion.
 
 ### Visual Concept
 
-The moderator-authored (or AI-drafted-then-picked) plain-English scene
-description that is the **authoritative** picture for a render. Stored at
-`enrichment.visualPromptStrategyOverride.coreSceneOverride`. The compiled
-prompt always opens with it verbatim; everything the pipeline adds afterward
-is mechanical setup or additive detail. A fact **cannot be published without
-one** — the database itself refuses.
+The moderator-authored (or AI-drafted-then-used) plain-English scene
+description that is the **authoritative** picture for a render: a
+[gag](#gag)'s `coreSceneOverride`, in `fact_gags` since migration 0139 (it was
+`enrichment.visualPromptStrategyOverride.coreSceneOverride` before). The
+compiled prompt always opens with it verbatim; everything the pipeline adds
+afterward is mechanical setup or additive detail. A fact **cannot be live
+without an approved gag** — the database itself refuses.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Candidate Visual Concepts
 
 AI-drafted `{title, whyItWorks, sceneDescription}` options shown to a moderator
-to avoid blank-page authoring; picking one adopts it **whole**, never
-partially merged into what's already there.
+to avoid blank-page authoring. A moderator uses one **whole** on a gag —
+instead of the default gag, as an additional gag, or in place of a named one —
+never partially merged into what's already there; it is saved as that gag's
+pending change.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Visual planner
@@ -664,7 +699,8 @@ retired no-photo `generic_t2i` stays only on old renders); each attempt is a dur
 ### Visual Strategy Override
 
 The moderator-authored block that carries the [Visual Concept](#visual-concept)
-plus the rest of the scene controls exposed under Advanced Options. Authored in
+plus the rest of a [gag](#gag)'s scene controls ("More art direction" in the
+gag's card). It is a gag's content, never part of the enrichment. Authored in
 plain English and auto-tokenized on save.
 → [visual-pipeline](./visual-pipeline.md)
 

@@ -65,11 +65,10 @@ So, for **every** metadata layer:
 - **Enrichment classifies a variant on its own text only** — the root's wording
   is not passed as classifier context. Consequence (intended): **re-wording a
   root does not invalidate or re-enrich its variants.** Their enrichment depends
-  on their own text, nothing else. This retires the dependency machinery that
-  existed only to protect the old model: `factTextEditProtection.ts`'s
-  `loadDirectVariantDependencies` (blocks a root text edit while a variant is
-  mid-cycle) and `confirmedFactTextEdit.ts`'s child-signature clearing on a
-  confirmed root edit — both go away with it, not just go unused.
+  on their own text, nothing else. (A fact's wording no longer changes at all
+  once accepted, `moderation-workflow.md`, *The wording locks at triage*; the
+  dependency machinery that protected the old model went first, and the
+  approved-text edit itself went with the lock.)
 - The only legitimate cross-references are **structural, not metadata**: the
   `parent_id` link itself, show/hide grouping, lifecycle guards that reference
   kinship (`HAS_ACTIVE_VARIANTS`, "a variant's parent must be an active root"),

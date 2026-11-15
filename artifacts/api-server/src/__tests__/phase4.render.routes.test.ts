@@ -17,7 +17,8 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, transientRendersTable, imageProvenanceTable } from "@workspace/db/schema";
 import { eq, like, and, gt, inArray } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import renderRouter from "../routes/render.js";
 import { composeMeme } from "../lib/memeComposite.js";
@@ -50,16 +51,12 @@ const insertedFactIds: number[] = [];
 
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
   const prefixedText = `${FACT_TEXT_PREFIX}${text}`;
-  const [row] = await db
-    .insert(factsTable)
-    .values({
+  const row = await insertLiveFact({
       text: prefixedText,
       submittedById: opts.submittedById,
-      isActive: true,
       enrichment: buildPlaceholderFactEnrichment(),
       canonicalText: prefixedText,
-    })
-    .returning();
+    }, buildPlaceholderGag());
   insertedFactIds.push(row.id);
   return row.id;
 }

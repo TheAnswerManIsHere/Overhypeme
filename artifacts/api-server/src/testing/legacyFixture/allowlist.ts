@@ -234,6 +234,11 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     splitTokenIndex: "fact-derived",
     visualConceptCandidates: "shape:visualConceptCandidatesBlob",
     visualConceptStatus: "keep",
+    // 0140: which generation owns the candidates; null (no owner) is how every
+    // fact read before the column existed, and the committed fixture predates it.
+    visualConceptOwner: "drop",
+    // 0141: set only by a withdrawal; the committed fixture predates it.
+    wordingWithdrawnAt: "drop",
     // 0137: the approved humor note is moderator prose about the joke; its approver maps like any user.
     // Prose, like the blob's jokeRead and humorNoteUsed: the same text gets the same placeholder, so
     // a note equal to either still reads equal after a scrub and the gags keep their freshness.
@@ -284,6 +289,12 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     productionRejectionNote: "prose",
     visualRenderApprovalWaiver: "shape:visualRenderApprovalWaiver",
     candidateVersionId: "ref:fact_enrichment_versions",
+    // 0141: triage wording edits and withdrawals; the committed fixture predates them.
+    submittedTextOriginal: "drop",
+    wordingEditedBy: "map-user",
+    wordingEditedAt: "drop",
+    withdrawnAt: "drop",
+    withdrawnBy: "map-user",
     createdAt: "keep",
     reviewedAt: "keep",
   }),
@@ -353,6 +364,8 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     reviewReferenceAssetVersion: "keep",
     reviewReferenceIdentityType: "keep",
     reviewRenderBatchId: "synthetic:opaque-id",
+    // 0139: the gag the attempt drew (a plain value; fact_gags is exported below).
+    gagId: "keep",
     // The eval lane is dropped with eval_runs (D2).
     moderatorRating: "drop",
     failureTag: "drop",
@@ -362,6 +375,28 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     evalRunId: "drop",
     evalScenarioKey: "drop",
     evalInputHash: "drop",
+    createdAt: "keep",
+    updatedAt: "keep",
+  }),
+  // 0139: a fact's gags. Loaded after the attempts their examples point at.
+  include(s.factGagsTable, {
+    id: "keep",
+    factId: "ref:facts",
+    slot: "keep",
+    approvedContent: "shape:visualStrategyOverride",
+    approvedExampleAttemptId: "ref:image_prompt_attempts",
+    approvedCarriedOver: "keep",
+    approvedBy: "map-user",
+    approvedAt: "keep",
+    pendingContent: "shape:visualStrategyOverride",
+    pendingReviewId: "ref:pending_reviews",
+    pendingExampleAttemptId: "ref:image_prompt_attempts",
+    pendingRemove: "keep",
+    pendingBy: "map-user",
+    pendingAt: "keep",
+    removedAt: "keep",
+    removedBy: "map-user",
+    createdBy: "map-user",
     createdAt: "keep",
     updatedAt: "keep",
   }),

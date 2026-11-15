@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 
 import { testDatabaseRefusal } from "@workspace/db/test-database";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderFactEnrichment, type FactEnrichment } from "@workspace/api-zod";
 
 import { KEPT_FACT_TEXT, SENTINELS as S } from "./legacyFixtureSentinels";
@@ -32,7 +33,7 @@ const { db } = await import("@workspace/db");
 const t = await import("@workspace/db/schema");
 const { aiBackgroundKey, uploadKey } = await import("../../lib/storageKeys");
 const { hashFactText } = await import("../../lib/enrichmentVersioning");
-const { computeScenarioInputHash, loadReviewRenderContext } = await import("../../lib/reviewRenderScenarios");
+const { computeScenarioInputHash, loadGagRenderTarget } = await import("../../lib/reviewRenderScenarios");
 const { computeCurrentInputHash, resolveVisualConceptCycle } = await import("../../lib/visualConceptJobs");
 
 const at = new Date("2026-01-02T03:04:05Z");
@@ -66,7 +67,7 @@ await db.insert(t.activityFeedTable).values({ userId, actionType: "comment_appro
 await db.insert(t.searchHistoryTable).values({ userId, query: S.searchQuery });
 
 // ── The catalogue ──
-const placeholderEnrichment = buildPlaceholderFactEnrichment(S.coreScene);
+const placeholderEnrichment = buildPlaceholderFactEnrichment();
 const enrichment: FactEnrichment = {
   ...placeholderEnrichment,
   adminReviewNotes: S.adminReviewNotes,
@@ -75,43 +76,43 @@ const enrichment: FactEnrichment = {
     visualReferent: S.entityReferent, capitalizationSignal: "not_relevant", materiallyAffectsVisualPrompt: true,
     requiresAdminReview: false, confidence: 0.9, notes: "",
   }],
-  visualPromptStrategyOverride: {
-    ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-    coreSceneOverride: S.coreScene,
-    roleBindings: [{ entity: "subject", visualRole: S.roleVisual }],
-    bubbles: [{ type: "speech", entity: "subject", text: S.bubbleText }],
-    updatedBy: S.adminEmail,
-    updatedAt: "2026-01-01T00:00:00Z",
-    // The retired enable toggle older blobs still carry (seen on dev, 2026-10-13).
-    ...({ enabled: true } as object),
-  },
 };
-// A partial state the emptiness rule must keep: a blank core scene and a half-filled bubble (Astra round 2).
-const partialEnrichment: FactEnrichment = {
-  ...placeholderEnrichment,
-  visualPromptStrategyOverride: {
-    ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-    coreSceneOverride: "",
-    bubbles: [{ type: "speech", entity: "subject", text: "" }],
-  },
+const activeGag = {
+  ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  coreSceneOverride: S.coreScene,
+  roleBindings: [{ entity: "subject", visualRole: S.roleVisual }],
+  bubbles: [{ type: "speech", entity: "subject", text: S.bubbleText }],
+  updatedBy: S.adminEmail,
+  updatedAt: "2026-01-01T00:00:00Z",
+  // The retired enable toggle older blobs still carry (seen on dev, 2026-10-13).
+  ...({ enabled: true } as object),
+};
+// A partial state the emptiness rule must keep: a half-filled bubble (Astra round 2). A blank core
+// scene is no longer a state a gag can hold (fact_gags_pending_scene_nonempty, migration 0139).
+const partialEnrichment: FactEnrichment = { ...placeholderEnrichment };
+const partialGag = {
+  ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  coreSceneOverride: "{NAME} waits in line.",
+  bubbles: [{ type: "speech", entity: "subject", text: "" }],
 };
 const overrides = {
   "/overhypeFit": { value: "strong", overriddenFrom: "questionable", createdAt: "2026-01-01T00:00:00Z", createdBy: adminId, reason: S.overrideReason },
   "/adminReviewNotes": { value: S.overrideNote, overriddenFrom: S.adminReviewNotes, createdAt: "2026-01-01T00:00:00Z", createdBy: adminId },
 };
 
-const [activeFact] = await db.insert(t.factsTable).values({
-  text: KEPT_FACT_TEXT, submittedById: userId, isActive: true, canonicalText: "Alex counted to infinity, twice, and the second time it was backwards.",
-  hasPronouns: false, enrichment, enrichmentAiDerived: { ...placeholderEnrichment, adminReviewNotes: S.adminReviewNotes, visualPromptStrategyOverride: undefined },
+const activeFact = await insertLiveFact({
+  text: KEPT_FACT_TEXT, submittedById: userId, canonicalText: "Alex counted to infinity, twice, and the second time it was backwards.",
+  hasPronouns: false, enrichment, enrichmentAiDerived: { ...placeholderEnrichment, adminReviewNotes: S.adminReviewNotes },
   enrichmentOverrides: overrides,
   aiScenePrompts: { fact_type: "action", male: S.scenePrompt, female: S.scenePrompt, neutral: "" },
   embedding: Array.from({ length: 384 }, (_, i) => (i % 7) / 10),
   createdAt: at,
-}).returning({ id: t.factsTable.id });
+}, activeGag);
 const [pendingFact] = await db.insert(t.factsTable).values({
   text: S.pendingFactText, submittedById: userId, isActive: false, canonicalText: S.pendingFactText.replace("{NAME}", "Alex"),
   hasPronouns: false, enrichment: partialEnrichment, enrichmentAiDerived: partialEnrichment, createdAt: at,
 }).returning({ id: t.factsTable.id });
+await db.insert(t.factGagsTable).values({ factId: pendingFact!.id, slot: 1, pendingContent: partialGag });
 
 // The live text on rows that do not own it (Codex round 1): an inactive duplicate fact, and a rejected
 // duplicate submission linked to no fact. Plan D4: neither keeps the text.
@@ -216,15 +217,15 @@ await db.insert(t.userAiImagesTable).values([
 ]);
 
 const reviewRender = (hash: string) => ({
-  ...attemptBase, reviewId: refresh!.id, reviewRenderScenarioKey: "generic_t2i", reviewRenderInputHash: hash,
+  ...attemptBase, reviewId: refresh!.id, gagId: activeFact.gags[0]!.id, reviewRenderScenarioKey: "generic_t2i", reviewRenderInputHash: hash,
   renderJobId: randomUUID(), renderControls: {
     aspectRatio: "landscape", contentMode: "sfw", fallbackSubjectGender: "male", mirrorToLegacyStorage: false,
-    reviewAudit: { reviewId: refresh!.id, adminUserId: adminId }, reviewRenderSubject: { name: S.reviewSubjectName, pronouns: "he/him" },
+    reviewAudit: { reviewId: refresh!.id, adminUserId: adminId, gagId: activeFact.gags[0]!.id }, reviewRenderSubject: { name: S.reviewSubjectName, pronouns: "he/him" },
   },
   renderedFactText: `${S.reviewSubjectName} counted to infinity, twice, and the second time it was backwards.`,
 });
-const ctx = await loadReviewRenderContext(refresh!.id);
-const currentHash = ctx.ok ? computeScenarioInputHash("generic_t2i", ctx.ctx.stagingFactId, ctx.ctx.factText, ctx.ctx.enrichment, ctx.ctx.imageEngines) : "unavailable";
+const loaded = await loadGagRenderTarget(activeFact.gags[0]!.id);
+const currentHash = loaded.ok ? computeScenarioInputHash("generic_t2i", loaded.target.stagingFactId, loaded.target.factText, loaded.target.enrichment, loaded.target.imageEngines) : "unavailable";
 const [currentRender] = await db.insert(t.imagePromptAttemptsTable).values(reviewRender(currentHash)).returning({ id: t.imagePromptAttemptsTable.id });
 const [staleRender] = await db.insert(t.imagePromptAttemptsTable).values(reviewRender("zqx".padEnd(64, "0"))).returning({ id: t.imagePromptAttemptsTable.id });
 const reviewRenderPath = `/objects/ai-bg-v2/${activeFact!.id}/${currentRender!.id}-1767000000001.png`;
@@ -299,6 +300,6 @@ console.log(JSON.stringify({
   approvedReviewId: approved!.id, refreshReviewId: refresh!.id, submissionReviewId: submission!.id, versionId: version!.id,
   userAttemptId: userAttempt!.id, currentRenderId: currentRender!.id, staleRenderId: staleRender!.id,
   legacyBackground, newerPath, uploadPath, profilePath, matchedPath,
-  renderContextOk: ctx.ok, conceptCycleOk: cycle.ok,
+  renderContextOk: loaded.ok, conceptCycleOk: cycle.ok,
 }));
 process.exit(0);

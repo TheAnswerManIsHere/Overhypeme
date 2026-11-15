@@ -11,7 +11,8 @@ import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { usersTable, factsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import {
   runFactAiMemeBackfillJob,
@@ -24,17 +25,16 @@ const insertedFactIds: number[] = [];
 let adminId: string;
 
 async function seedFact(overrides: Partial<typeof factsTable.$inferInsert> = {}): Promise<number> {
-  const [fact] = await db
-    .insert(factsTable)
-    .values({
-      text: `{NAME} does something #${randomUUID().slice(0, 8)}.`,
-      submittedById: adminId,
-      isActive: true,
-      // Active facts require a non-empty Visual Concept (facts_active_requires_concept CHECK).
-      enrichment: buildPlaceholderFactEnrichment(),
-      ...overrides,
-    } as typeof factsTable.$inferInsert)
-    .returning({ id: factsTable.id });
+  const { isActive = true, ...rest } = overrides;
+  const values = {
+    text: `{NAME} does something #${randomUUID().slice(0, 8)}.`,
+    submittedById: adminId,
+    enrichment: buildPlaceholderFactEnrichment(),
+    ...rest,
+  } as Omit<typeof factsTable.$inferInsert, "isActive">;
+  const fact = isActive
+    ? await insertLiveFact(values, buildPlaceholderGag())
+    : (await db.insert(factsTable).values({ ...values, isActive: false }).returning({ id: factsTable.id }))[0];
   insertedFactIds.push(fact!.id);
   return fact!.id;
 }

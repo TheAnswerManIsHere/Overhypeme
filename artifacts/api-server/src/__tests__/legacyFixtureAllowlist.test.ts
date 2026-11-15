@@ -132,7 +132,7 @@ describe("the scrub primitives", () => {
   });
 
   it("keeps a blank core scene and a half-filled bubble as they are (Astra round 2)", () => {
-    const e = buildPlaceholderFactEnrichment("x");
+    const e = buildPlaceholderFactEnrichment();
     const partial = { ...e, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "", bubbles: [{ type: "speech", entity: "subject", text: "" }] } };
     const out = SHAPES.factEnrichment.transform(partial, ctx(), {}) as typeof partial;
     assert.equal(out.visualPromptStrategyOverride.coreSceneOverride, "");
@@ -147,7 +147,7 @@ describe("the scrub primitives", () => {
   });
 
   it("keeps a legacy row the validator refuses refused: an over-long label and a token in a label (dev dry run, 2026-10-13)", () => {
-    const e = buildPlaceholderFactEnrichment("x");
+    const e = buildPlaceholderFactEnrichment();
     const vso = (entity: string) => ({ ...e, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, roleBindings: [{ entity, visualRole: "zqx role" }] } });
     for (const entity of ["{NAME}", "z".repeat(61)]) {
       const src = vso(entity);
@@ -177,7 +177,7 @@ describe("the scrub primitives", () => {
   });
 
   it("stops on a key the shape does not describe, naming the path and never the value", () => {
-    const e = { ...buildPlaceholderFactEnrichment("x"), zqxUnknownField: "zqx private value" };
+    const e = { ...buildPlaceholderFactEnrichment(), zqxUnknownField: "zqx private value" };
     assert.throws(
       () => SHAPES.factEnrichment.transform(e, ctx(), {}),
       (err: unknown) => err instanceof ShapeStop && /zqxUnknownField/.test(err.message) && !/zqx private value/.test(err.message),

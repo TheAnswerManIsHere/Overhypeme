@@ -189,15 +189,23 @@ with an initial password and tier.
 
 **Facts:** `/admin/facts` is the broader "all facts" surface — search,
 an active/inactive/both filter, taxonomy-override and
-needs-review quick filters, a full per-fact edit panel (text, taxonomy
-fields), a "Resubmit for Moderation" action that puts a fact back through
+needs-review quick filters, a full per-fact edit panel (taxonomy fields and
+counts; the wording is shown read-only, since a fact's wording never changes
+once accepted at triage — a wrong one is replaced by deactivating the fact and
+submitting the corrected wording as a new fact, `moderation-workflow.md`,
+*The wording locks at triage*; past wording edits stay listed read-only), a "Resubmit for Moderation" action that puts a fact back through
 the review pipeline, and soft/hard delete. A separate Utilities tab
 handles bulk import (paste, file upload, several formats) and triggers a
 background enrichment-backfill job for previously unenriched facts.
 
 **Memes:** **there is no dedicated "all memes" browse/edit admin page.**
-The only meme-facing admin surfaces are the Visual Concept flow (covered
-elsewhere) and the legal/safety quarantine path, which currently has no
+The only meme-facing admin surfaces are the Gags panel (a fact's one to three
+gags, each with its example, editor and test renders; on the moderation
+review's Gags and Test Renders steps and in the Facts editor's Visual Taxonomy
+Enrichment section, where a live fact with no open review also gets **Draft
+more gags**, the gag writer's ideas outside a review; plan
+`docs/plans/PLAN_THREE_GAGS.md`, covered in
+[`visual-pipeline.md`](./visual-pipeline.md)) and the legal/safety quarantine path, which currently has no
 purpose-built UI of its own — access is config-only, through the generic
 `admin_config` editor above.
 

@@ -277,7 +277,7 @@ const renderControlsProjection = z.object({
   referenceImageUrl: z.string().nullable().optional(),
   mirrorToLegacyStorage: z.boolean().optional(),
   reviewRenderSubject: z.object({ name: z.string(), pronouns: z.string().nullable() }).optional(),
-  reviewAudit: z.object({ reviewId: z.number(), adminUserId: z.string() }).optional(),
+  reviewAudit: z.object({ reviewId: z.number().nullable(), adminUserId: z.string(), gagId: z.number().optional() }).optional(),
   promptIdentity: z.object({
     version: z.number(),
     name: z.string(),

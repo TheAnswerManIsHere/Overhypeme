@@ -8,10 +8,12 @@
  * recording, submitter notification). This helper is the last-line, in-transaction
  * assertion of the two invariants that must hold at the instant of activation:
  *
- *   1. Concept present — the fact carries a non-empty Visual Concept
- *      (`enrichment.visualPromptStrategyOverride.coreSceneOverride`), re-read
- *      inside the activating transaction so a concurrent edit can't race the
- *      pre-flight check (and mirrored by the DB CHECK `facts_active_requires_concept`).
+ *   1. An approved gag — the fact has a non-removed gag with an approved
+ *      version in `fact_gags` (since migration 0139; plan
+ *      docs/plans/PLAN_THREE_GAGS.md), re-read inside the activating
+ *      transaction after the fact row is locked, so a concurrent gag change
+ *      can't race the pre-flight check (and mirrored by the deferred trigger
+ *      `enforce_live_fact_has_approved_gag`, which holds against raw SQL too).
  *   2. Parent is an active root — when activating a VARIANT, its parent is re-read
  *      in the same transaction and must still be an active root
  *      (`is_active = true AND parent_id IS NULL`); otherwise a variant could go
@@ -19,21 +21,21 @@
  *      caller trusted a stale `stagingFact.parentId`).
  *
  * It is deliberately NOT a standalone activation API: on its own it would let any
- * concept-bearing inactive row (e.g. a staging fact parked in `concept_review`) go
+ * inactive row with an approved gag (e.g. a staging fact parked in `production_review`) go
  * live while skipping the rest of `approveForProduction`. Keep the single-caller
  * invariant intact.
  */
 
-import { and, eq, isNull } from "drizzle-orm";
-import { db, factsTable } from "@workspace/db";
-import { overrideValuesEqual, type FactEnrichment } from "@workspace/api-zod";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { db, factsTable, factGagsTable } from "@workspace/db";
+import { overrideValuesEqual } from "@workspace/api-zod";
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/** The fact has no non-empty Visual Concept at activation time. */
+/** The fact has no approved gag at activation time. */
 export class ConceptMissingError extends Error {
   constructor(public readonly factId: number) {
-    super(`Fact #${factId} cannot be activated without a non-empty Visual Concept.`);
+    super(`Fact #${factId} cannot be activated without an approved gag.`);
     this.name = "ConceptMissingError";
   }
 }
@@ -58,11 +60,14 @@ export class ActivationConflictError extends Error {
   }
 }
 
-/** Non-empty (trimmed) Visual Concept scene, or null. */
-function coreScene(enrichment: unknown): string | null {
-  const scene = (enrichment as FactEnrichment | null)?.visualPromptStrategyOverride?.coreSceneOverride;
-  const trimmed = typeof scene === "string" ? scene.trim() : "";
-  return trimmed.length > 0 ? trimmed : null;
+/** Whether the fact has a non-removed gag with an approved version. Call with the fact row locked. */
+export async function hasApprovedGag(tx: DbExecutor, factId: number): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: factGagsTable.id })
+    .from(factGagsTable)
+    .where(and(eq(factGagsTable.factId, factId), isNull(factGagsTable.removedAt), sql`${factGagsTable.approvedContent} IS NOT NULL`))
+    .limit(1);
+  return !!row;
 }
 
 /**
@@ -89,7 +94,7 @@ export async function activateFact(
   tx: DbExecutor,
   { factId, parentId, expectedText, expectedEnrichment }: { factId: number; parentId?: number | null; expectedText: string; expectedEnrichment?: unknown },
 ): Promise<{ id: number }> {
-  // 1. Re-read the row inside the tx and assert the concept is still present.
+  // 1. Lock and re-read the row inside the tx, then assert an approved gag.
   // `FOR UPDATE` locks the fact row for the rest of this transaction: without
   // it, a concurrent admin edit to the enrichment could commit between this
   // read and the activation UPDATE below (which never re-checks enrichment,
@@ -104,7 +109,7 @@ export async function activateFact(
     .where(eq(factsTable.id, factId))
     .for("update")
     .limit(1);
-  if (!row || coreScene(row.enrichment) == null) {
+  if (!row || !(await hasApprovedGag(tx, factId))) {
     throw new ConceptMissingError(factId);
   }
   if (expectedEnrichment !== undefined && !overrideValuesEqual(row.enrichment, expectedEnrichment)) {
@@ -162,10 +167,9 @@ export type ReparentGuardFailure =
  * Mirrors `activateFact`'s own parent revalidation exactly (same active-root
  * definition, same `FOR UPDATE` lock) so that editing an active fact's
  * `parentId` can't reintroduce the orphan/stranded-variant states activation
- * itself already prevents. Two call sites exist because `PATCH
- * /admin/facts/:id` forks into two independent write paths depending on
- * whether `text` is present (see confirmedFactTextEdit.ts) — this is the one
- * piece of PATCH validation both paths must share.
+ * itself already prevents. Its caller is `PATCH /admin/facts/:id`; a fact's
+ * wording is locked once accepted (migration 0141), so that route has one
+ * write path.
  */
 export async function assertReparentAllowed(
   tx: DbExecutor,

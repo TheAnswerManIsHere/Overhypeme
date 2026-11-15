@@ -5,22 +5,27 @@
  *
  * Same reason as `apiStubs.ts`: the dev stack's database holds no fact and no
  * review, and making either takes the AI pipeline. Only reads are stubbed. A
- * SAVE is never stubbed: the enrichment PATCH reaches the real server, whose
- * prompt-budget gate refuses an over-budget Visual Concept before it looks the
- * fact up (`routes/admin.ts`, PATCH /admin/facts/:id/enrichment), so the
- * refusal a test reads is the server's own.
+ * SAVE is never stubbed: a gag save reaches the real server, whose prompt-budget
+ * gate refuses an over-budget Visual Concept before it looks the fact up
+ * (`lib/gags/gagStore.ts`, `validateGagContent` ahead of the transaction), so
+ * the refusal a test reads is the server's own.
  *
  * Shapes follow the server's serializers (`routes/admin.ts`,
  * `routes/reviews.ts`) and the page's own interfaces
  * (`pages/admin/facts.tsx`, `pages/admin/moderation.tsx`).
  */
 import type { Page, Route } from "@playwright/test";
-import type { FactEnrichment, VisualPromptStrategyOverride } from "@workspace/api-zod";
+import type { FactEnrichment, FactGagsView, GagView, VisualPromptStrategyOverride } from "@workspace/api-zod";
 import { factDetail } from "./apiStubs";
 
 const CREATED = "2026-10-01T12:00:00.000Z";
 
-/** A complete enrichment blob with a Visual Concept, as a prepped fact carries it. */
+/**
+ * A complete enrichment blob with a Visual Concept: the stubs below serve the
+ * classification as the fact's enrichment and the concept as its one gag
+ * (GET /api/admin/facts/:id/gags), as the server holds them since migration
+ * 0139 (plan docs/plans/PLAN_THREE_GAGS.md).
+ */
 export function enrichmentWithConcept(concept: string): FactEnrichment {
   const override: VisualPromptStrategyOverride = {
     version: 1,
@@ -112,8 +117,42 @@ const EMPTY_OVERRIDE_SUMMARY = {
   baselineChangedPaths: [],
   invalidPaths: [],
   crossFieldInvalid: false,
-  hasVisualStrategyOverride: true,
+  hasVisualStrategyOverride: false,
 };
+
+/** The stubbed gag's id: one per fact, so a fact's id doubles as it. */
+const gagIdFor = (factId: number) => factId;
+
+/** Split a test's enrichment into what the server serves: the classification, and the gag. */
+function splitGag(enrichment: FactEnrichment | null): { classification: FactEnrichment | null; gag: VisualPromptStrategyOverride | null } {
+  if (!enrichment) return { classification: null, gag: null };
+  const { visualPromptStrategyOverride, ...rest } = enrichment;
+  return { classification: rest as FactEnrichment, gag: visualPromptStrategyOverride?.coreSceneOverride?.trim() ? visualPromptStrategyOverride : null };
+}
+
+/** GET /api/admin/facts/:id/gags for a fact with at most one gag: approved on a live fact, new on a staging one. */
+export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStrategyOverride | null, review: FactGagsView["review"] = null): FactGagsView {
+  const gags: GagView[] = gag
+    ? [{
+        id: gagIdFor(factId),
+        slot: 1,
+        state: isActive ? "approved" : "new",
+        availableToUsers: isActive,
+        isDefault: isActive,
+        approvedContent: isActive ? gag : null,
+        approvedExample: null,
+        carriedOver: isActive,
+        approvedAt: isActive ? CREATED : null,
+        pendingContent: isActive ? null : gag,
+        pendingReviewId: null,
+        pendingExample: null,
+        pendingRemove: false,
+        refreshedSinceApproval: false,
+        renders: { reviewId: review?.id ?? 0, gagId: gagIdFor(factId), cards: [], tally: { requested: 0, done: 0, rendering: 0, queued: 0, failed: 0, blocked: 0, skipped: 0, stale: 0 } },
+      }]
+    : [];
+  return { factId, isActive, review, frozenOutsideReview: false, gags, maxGags: 3 };
+}
 
 function json(route: Route, body: unknown, status = 200): Promise<void> {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -126,7 +165,7 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
  */
 export async function stubAdminFacts(
   page: Page,
-  facts: { row: AdminFactRow; enrichment: FactEnrichment | null; listed?: boolean }[],
+  facts: { row: AdminFactRow; enrichment: FactEnrichment | null; listed?: boolean; review?: FactGagsView["review"] }[],
 ): Promise<void> {
   const byId = new Map(facts.map((f) => [f.row.id, f]));
   const listed = facts.filter((f) => f.listed !== false).map((f) => f.row);
@@ -142,10 +181,13 @@ export async function stubAdminFacts(
     const m = /\/api\/admin\/facts\/(\d+)(\/[a-z-]+)?$/.exec(url.pathname)!;
     const entry = byId.get(Number(m[1]));
     if (!entry) return json(route, { error: "Fact not found" }, 404);
-    const { row, enrichment } = entry;
+    const { row } = entry;
+    const { classification: enrichment, gag } = splitGag(entry.enrichment);
     switch (m[2] ?? "") {
       case "":
         return json(route, { ...row, enrichment, enrichmentStatus: row.enrichmentStatus ?? null });
+      case "/gags":
+        return json(route, gagsView(row.id, row.isActive, gag, entry.review ?? null));
       case "/enrichment-resolved":
         return json(route, { aiDerived: enrichment, overrides: {}, effective: enrichment, overrideSummary: EMPTY_OVERRIDE_SUMMARY });
       case "/enrichment-versions":
@@ -209,7 +251,7 @@ export async function stubConceptReview(
     route.request().method() === "GET"
       ? json(route, {
           ...row,
-          stagingFact: { ...stagingSlice, enrichment: review.enrichment },
+          stagingFact: { ...stagingSlice, enrichment: splitGag(review.enrichment).classification },
           visualConcepts: { status: "ok", candidates: [], current: true, generatedAt: CREATED },
         })
       : route.continue(),
@@ -218,5 +260,6 @@ export async function stubConceptReview(
     row: adminFactRow({ id: review.stagingFactId, text: review.submittedText, isActive: false }),
     enrichment: review.enrichment,
     listed: false,
+    review: { id: review.id, stage: "concept_review", refresh: false },
   }]);
 }

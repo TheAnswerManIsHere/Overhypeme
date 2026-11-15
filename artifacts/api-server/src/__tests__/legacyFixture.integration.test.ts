@@ -182,8 +182,8 @@ describe("the legacy fixture", { skip: skipReason }, () => {
     assert.notEqual(duplicateReview.submitted_text, KEPT_FACT_TEXT, "a review not of its own live fact gets a placeholder");
     assert.equal(active.text, KEPT_FACT_TEXT, "the live text of an active fact is kept");
     assert.match(pending.text, /\(case [0-9a-f]{6}\)\.$/, "a pending fact's text is a placeholder");
-    assert.equal(pending.enrichment.visualPromptStrategyOverride.coreSceneOverride, "", "a blank core scene stays blank");
-    assert.deepEqual(pending.enrichment.visualPromptStrategyOverride.bubbles, [{ type: "speech", entity: "subject", text: "" }], "a half-filled bubble stays half-filled");
+    const pendingGag = rows("fact_gags").find((g) => g.fact_id === seeded.pendingFactId)!;
+    assert.deepEqual(pendingGag.pending_content.bubbles, [{ type: "speech", entity: "subject", text: "" }], "a half-filled bubble stays half-filled");
     assert.equal(active.ai_meme_images.male[1], "", "a deleted gallery slot stays deleted");
     const ai = rows("user_ai_images");
     const gallery = active.ai_meme_images.male as string[];

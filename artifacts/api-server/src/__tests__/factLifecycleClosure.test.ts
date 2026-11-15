@@ -1,14 +1,15 @@
 /**
  * Phase 2 fact-lifecycle closure — core invariant tests.
  *
- * 1. The DB backstop: the `facts_active_requires_concept` CHECK constraint lets an
- *    active fact exist ONLY with a non-empty string Visual Concept at
- *    enrichment.visualPromptStrategyOverride.coreSceneOverride; inactive facts are
- *    unconstrained. (Raw-SQL negative tests — the true backstop below the app gate.)
+ * 1. The DB backstop (since migration 0139, the deferred trigger
+ *    enforce_live_fact_has_approved_gag: an active fact must have an approved
+ *    gag in fact_gags) is tested by raw SQL in factGags.dbRules.test.ts. It
+ *    replaced the facts_active_requires_concept CHECK on the enrichment blob.
  * 2. The activation chokepoint: activateFact is the sole is_active false->true
- *    writer. It requires the concept (ConceptMissingError), revalidates a variant's
- *    parent as an active root (ParentNotActiveError), and is a compare-and-set on
- *    the validated text (ActivationConflictError). Never activates on failure.
+ *    writer. It requires an approved gag (ConceptMissingError), revalidates a
+ *    variant's parent as an active root (ParentNotActiveError), and is a
+ *    compare-and-set on the validated text (ActivationConflictError). Never
+ *    activates on failure.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -17,8 +18,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { db, factsTable, pool } from "@workspace/db";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { db, factsTable, factGagsTable, pool } from "@workspace/db";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { eq, inArray, like, sql } from "drizzle-orm";
 
 import {
@@ -40,64 +42,27 @@ async function cleanup() {
 before(cleanup);
 after(cleanup);
 
-/** Insert a fact via raw SQL so we bypass Drizzle typing and hit the DB constraint directly. */
-async function rawInsert(text: string, isActive: boolean, enrichment: unknown): Promise<void> {
-  await db.execute(sql`
-    INSERT INTO facts (text, is_active, enrichment)
-    VALUES (${text}, ${isActive}, ${enrichment == null ? null : JSON.stringify(enrichment)}::jsonb)
-  `);
-}
-
-describe("DB CHECK — facts_active_requires_concept", () => {
-  it("ALLOWS an inactive fact with no concept", async () => {
-    await rawInsert(`${PREFIX}inactive-noconcept`, false, null);
-  });
-
-  it("ALLOWS an active fact with a non-empty concept", async () => {
-    await rawInsert(`${PREFIX}active-concept`, true, buildPlaceholderFactEnrichment("A hero stands tall."));
-  });
-
-  // The DB rejection surfaces through Drizzle's "Failed query" wrapper (the
-  // constraint name lives in err.cause), so we assert the insert rejects AND that
-  // no row landed — that combination is the CHECK doing its job (a plain
-  // text+is_active+enrichment INSERT has no other reason to fail).
-  async function assertRejectedAndNotWritten(text: string, run: () => Promise<unknown>) {
-    await assert.rejects(run);
-    const rows = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.text, text));
-    assert.equal(rows.length, 0, "the rejected row must not exist");
-  }
-
-  it("REJECTS an active fact with null enrichment", async () => {
-    await assertRejectedAndNotWritten(`${PREFIX}active-null`, () => rawInsert(`${PREFIX}active-null`, true, null));
-  });
-
-  it("REJECTS an active fact with a whitespace-only concept", async () => {
-    await assertRejectedAndNotWritten(`${PREFIX}active-ws`, () => rawInsert(`${PREFIX}active-ws`, true, buildPlaceholderFactEnrichment("   ")));
-  });
-
-  it("REJECTS an active fact whose concept is a non-string JSON scalar", async () => {
-    await assertRejectedAndNotWritten(`${PREFIX}active-num`, () => db.execute(sql`
-      INSERT INTO facts (text, is_active, enrichment)
-      VALUES (${`${PREFIX}active-num`}, true, ${'{"visualPromptStrategyOverride":{"version":1,"coreSceneOverride":42}}'}::jsonb)
-    `));
-  });
-});
-
-async function insertInactive(text: string, opts: { concept?: string | null; parentId?: number } = {}): Promise<number> {
-  const enrichment = opts.concept === null ? undefined : buildPlaceholderFactEnrichment(opts.concept ?? "A hero stands tall.");
+/**
+ * An inactive fact, with an approved gag unless `gag` says otherwise: "approved"
+ * (the default), "pending" (saved, never approved) or null (none).
+ */
+async function insertInactive(text: string, opts: { gag?: "approved" | "pending" | null; parentId?: number } = {}): Promise<number> {
+  const gag = opts.gag === undefined ? "approved" : opts.gag;
   const [row] = await db
     .insert(factsTable)
-    .values({ text, isActive: false, parentId: opts.parentId, enrichment })
+    .values({ text, isActive: false, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() })
     .returning({ id: factsTable.id });
   ids.push(row.id);
+  if (gag === "approved") {
+    await db.insert(factGagsTable).values({ factId: row.id, slot: 1, approvedContent: buildPlaceholderGag("A hero stands tall."), approvedCarriedOver: true });
+  } else if (gag === "pending") {
+    await db.insert(factGagsTable).values({ factId: row.id, slot: 1, pendingContent: buildPlaceholderGag("A hero stands tall.") });
+  }
   return row.id;
 }
 
 async function insertActive(text: string, opts: { parentId?: number } = {}): Promise<number> {
-  const [row] = await db
-    .insert(factsTable)
-    .values({ text, isActive: true, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() })
-    .returning({ id: factsTable.id });
+  const row = await insertLiveFact({ text, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
   ids.push(row.id);
   return row.id;
 }
@@ -111,9 +76,20 @@ describe("activateFact — the sole activation chokepoint", () => {
     assert.equal(row.isActive, true);
   });
 
-  it("throws ConceptMissingError and does NOT activate a conceptless fact", async () => {
+  it("throws ConceptMissingError and does NOT activate a fact with only a pending (never approved) gag", async () => {
+    const text = `${PREFIX}activate-pending-gag`;
+    const id = await insertInactive(text, { gag: "pending" });
+    await assert.rejects(
+      () => db.transaction((tx) => activateFact(tx, { factId: id, expectedText: text })),
+      (err: unknown) => err instanceof ConceptMissingError,
+    );
+    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
+    assert.equal(row.isActive, false, "must remain inactive");
+  });
+
+  it("throws ConceptMissingError and does NOT activate a fact with no gag", async () => {
     const text = `${PREFIX}activate-noconcept`;
-    const id = await insertInactive(text, { concept: null });
+    const id = await insertInactive(text, { gag: null });
     await assert.rejects(
       () => db.transaction((tx) => activateFact(tx, { factId: id, expectedText: text })),
       (err: unknown) => err instanceof ConceptMissingError,
@@ -294,6 +270,9 @@ describe("Migration 0092 backfill block — the real statements", () => {
     try {
       await client.query("BEGIN");
       await client.query('ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_active_requires_concept"');
+      // The pre-0139 world too: no live-fact trigger, gags in the enrichment.
+      await client.query('ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_enrichment_holds_no_gag"');
+      await client.query('DROP TRIGGER IF EXISTS "facts_live_requires_approved_gag" ON "facts"');
       const idByKey = new Map<string, number>();
       for (const row of seed) {
         const { rows } = await client.query<{ id: number }>(
@@ -323,7 +302,7 @@ describe("Migration 0092 backfill block — the real statements", () => {
   }
 
   it("leaves an active fact with a projection and a non-empty scene active, with its scene unchanged", async () => {
-    const enrichment = buildPlaceholderFactEnrichment("A hero stands tall.");
+    const enrichment = { ...buildPlaceholderFactEnrichment(), visualPromptStrategyOverride: buildPlaceholderGag("A hero stands tall.") };
     const result = await backfill([{ key: "has-scene", active: true, archetype: "hero", enrichment }]);
     const row = result.get("has-scene")!;
     assert.equal(row.is_active, true);
@@ -346,7 +325,7 @@ describe("Migration 0092 backfill block — the real statements", () => {
 
   it("sets is_active false on an active fact whose primary_archetype or enrichment is null", async () => {
     const result = await backfill([
-      { key: "no-archetype", active: true, archetype: null, enrichment: buildPlaceholderFactEnrichment("A hero stands tall.") },
+      { key: "no-archetype", active: true, archetype: null, enrichment: { ...buildPlaceholderFactEnrichment(), visualPromptStrategyOverride: buildPlaceholderGag("A hero stands tall.") } },
       { key: "no-enrichment", active: true, archetype: "hero", enrichment: null },
     ]);
     assert.equal(result.get("no-archetype")!.is_active, false, "no projection: deactivated, not stamped");

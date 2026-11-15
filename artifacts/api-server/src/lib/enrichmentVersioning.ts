@@ -21,7 +21,8 @@ import {
   type ReviewWorkflowStage,
 } from "@workspace/api-zod";
 import { materializeEnrichment } from "./factEnrichment";
-import { stripVisualOverride } from "./enrichmentOverrideLayers";
+import { applyReviewGagOps } from "./gags/gagStore";
+import { hasApprovedGag } from "./factActivation";
 
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -36,33 +37,7 @@ export function hashFactText(text: string): string {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-/**
- * The fact's in-flight refresh candidate, or null when none exists.
- *
- * Used as the WRITE FREEZE guard: while a refresh cycle is in review, the fact
- * enrichment write endpoints (override PUT/DELETE, PATCH, re-enrich) must 409 —
- * the moderation surfaces show the CANDIDATE, so an edit landing on the live
- * fact would change something the moderator isn't looking at, be overwritten at
- * promote, or leak to production through a rejected refresh. First-time staging
- * facts never have candidate rows, so their moderation editing is unaffected.
- */
-export async function findInFlightRefreshCandidate(
-  factId: number,
-  tx: DbTx | typeof db = db,
-): Promise<{ candidateVersionId: number; reviewId: number | null } | null> {
-  const [row] = await tx
-    .select({
-      id: factEnrichmentVersionsTable.id,
-      sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
-    })
-    .from(factEnrichmentVersionsTable)
-    .where(and(
-      eq(factEnrichmentVersionsTable.factId, factId),
-      eq(factEnrichmentVersionsTable.status, "candidate"),
-    ))
-    .limit(1);
-  return row ? { candidateVersionId: row.id, reviewId: row.sourceReviewId } : null;
-}
+export { findInFlightRefreshCandidate } from "./refreshCandidate";
 
 /** The 409 body every enrichment write path returns while a refresh is in review. */
 export function refreshInReviewErrorBody(existing: { candidateVersionId: number; reviewId: number | null }): {
@@ -131,7 +106,6 @@ export async function loadCandidateEditingContext(
   layers: {
     aiDerived: FactEnrichment | null;
     overrides: EnrichmentOverrides;
-    visualPromptStrategyOverride: FactEnrichment["visualPromptStrategyOverride"] | undefined;
     effective: FactEnrichment | null;
     enrichmentStatus: string | null;
   };
@@ -197,11 +171,8 @@ export async function loadCandidateEditingContext(
     layers: {
       // Defensive normalization mirroring loadFactOverrideState: a candidate
       // written by the job always has its pure baseline, but fall back safely.
-      aiDerived: (candidate.enrichmentAiDerived as FactEnrichment | null) ?? stripVisualOverride(effective),
+      aiDerived: (candidate.enrichmentAiDerived as FactEnrichment | null) ?? effective,
       overrides: (candidate.enrichmentOverrides ?? {}) as EnrichmentOverrides,
-      visualPromptStrategyOverride: (candidate.visualOverride ?? undefined) as
-        | FactEnrichment["visualPromptStrategyOverride"]
-        | undefined,
       effective,
       // Version rows carry no status column of their own; derived for the editor.
       enrichmentStatus: "ok",
@@ -217,7 +188,8 @@ export type PromoteCandidateErrorCode =
   | "CANDIDATE_NOT_PENDING"
   | "FACT_NOT_FOUND"
   | "ENRICHMENT_INVALID"
-  | "REFRESH_STALE_TEXT";
+  | "REFRESH_STALE_TEXT"
+  | "GAG_REQUIRED";
 
 /** Typed failure from `promoteCandidateEnrichmentVersion`; the route maps codes to HTTP. */
 export class PromoteCandidateError extends Error {
@@ -245,8 +217,8 @@ export class PromoteCandidateError extends Error {
  *     candidate was classified against, else `REFRESH_STALE_TEXT`;
  *  4. archive the prior active `facts.*` layers as a `superseded` version row
  *     (`source: 'prior_active_snapshot'`) so history is never lost;
- *  5. re-materialize the candidate's layers (baseline + overrides + visual
- *     override) and write ONLY the enrichment columns + projections +
+ *  5. re-materialize the candidate's layers (baseline + overrides) and write
+ *     ONLY the enrichment columns + projections +
  *     `last_processed_signature = candidate.signature` onto the fact. The
  *     signature is the CANDIDATE's (classify-time), not a fresh current one —
  *     permissive staleness: if the world moved on mid-review, the fact stays stale;
@@ -346,9 +318,6 @@ export async function promoteCandidateEnrichmentVersion(
     .select({ nextVersionNo: sql<number>`coalesce(max(${factEnrichmentVersionsTable.versionNo}), 0) + 1` })
     .from(factEnrichmentVersionsTable)
     .where(eq(factEnrichmentVersionsTable.factId, fact.id));
-  const priorVisualOverride =
-    (fact.enrichment as { visualPromptStrategyOverride?: unknown } | null | undefined)
-      ?.visualPromptStrategyOverride ?? null;
   await tx.insert(factEnrichmentVersionsTable).values({
     factId: fact.id,
     versionNo: nextVersionNo,
@@ -356,7 +325,9 @@ export async function promoteCandidateEnrichmentVersion(
     enrichment: fact.enrichment,
     enrichmentAiDerived: fact.enrichmentAiDerived,
     enrichmentOverrides: (fact.enrichmentOverrides ?? {}) as EnrichmentOverrides,
-    visualOverride: priorVisualOverride,
+    // A fact's gags live in fact_gags (migration 0139); history rows from
+    // before it keep the override they archived.
+    visualOverride: null,
     factTextHash: hashFactText(fact.text),
     signature: fact.lastProcessedSignature,
     source: "prior_active_snapshot",
@@ -371,9 +342,6 @@ export async function promoteCandidateEnrichmentVersion(
   const { columns, effective } = materializeEnrichment({
     aiDerived: baselineCheck.data,
     overrides: (candidate.enrichmentOverrides ?? {}) as EnrichmentOverrides,
-    visualPromptStrategyOverride: (candidate.visualOverride ?? undefined) as
-      | FactEnrichment["visualPromptStrategyOverride"]
-      | undefined,
   });
   await tx
     .update(factsTable)
@@ -384,6 +352,15 @@ export async function promoteCandidateEnrichmentVersion(
       lastProcessedSignature: candidate.signature,
     })
     .where(eq(factsTable.id, fact.id));
+
+  // 5b. This review's gag decisions land with its classification (plan
+  // docs/plans/PLAN_THREE_GAGS.md, section D): its example picks become
+  // approved versions and its removals take effect, under the fact lock taken
+  // above. The live-fact trigger re-checks at commit that an approved gag remains.
+  await applyReviewGagOps(tx, fact.id, reviewId, adminId);
+  if (fact.isActive && !(await hasApprovedGag(tx, fact.id))) {
+    throw new PromoteCandidateError("GAG_REQUIRED", "This refresh would leave the fact without an approved gag.");
+  }
 
   // 6. Retire the candidate as promoted history.
   await tx

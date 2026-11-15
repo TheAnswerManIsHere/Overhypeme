@@ -1,5 +1,5 @@
 import {
-  pgTable, bigserial, integer, varchar, text, jsonb, timestamp, index, uniqueIndex,
+  pgTable, bigserial, integer, varchar, text, jsonb, timestamp, index, uniqueIndex, check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { factsTable } from "./facts";
@@ -62,4 +62,10 @@ export const factEnrichmentVersionsTable = pgTable("fact_enrichment_versions", {
   // At most one in-flight candidate per fact. MUST cover 'candidate' only —
   // historical rejected/superseded/promoted rows must never block a new refresh.
   uniqueIndex("UQ_fev_one_candidate_per_fact").on(t.factId).where(sql`${t.status} = 'candidate'`),
+  // Since migration 0139 a gag lives only in fact_gags: an open candidate holds
+  // none (archived rows keep theirs as history).
+  check(
+    "fev_open_candidate_holds_no_gag",
+    sql`${t.status} <> 'candidate' OR (${t.visualOverride} IS NULL AND NOT coalesce(${t.enrichment} ? 'visualPromptStrategyOverride', false))`,
+  ),
 ]);

@@ -46,6 +46,7 @@ import {
 import { callUtilityLLM } from "./utilityLLM";
 import { engineById } from "./engineInterpreter";
 import { logger } from "./logger";
+import { stripGag } from "./gags/resolver";
 import { stripSubjectNameSemanticEntities } from "./renderCanonical";
 // The subject/app-name hashtag denylist now lives in the shared hashtag module
 // (it is a general hashtag concern, not enrichment-only). Re-exported below so
@@ -437,24 +438,26 @@ export interface MaterializeResult {
 
 /**
  * THE single write-shape for fact enrichment. Assembles the materialized
- * effective blob from the immutable AI baseline + manual overrides + the
- * preserved (not-refactored) visual-strategy override, and returns the exact
- * `facts` columns to persist (effective + the three layer columns + the indexed
- * projections). Every write site (PUT/DELETE overrides, PATCH notes/visual,
- * re-enrich, projection repair) funnels through here so preserved fields are
- * never lost and projection columns never drift.
+ * effective blob from the immutable AI baseline + manual overrides, and returns
+ * the exact `facts` columns to persist (effective + the three layer columns +
+ * the indexed projections). Every write site (PUT/DELETE overrides, PATCH
+ * notes, re-enrich, projection repair) funnels through here so preserved
+ * fields are never lost and projection columns never drift. A fact's gags are
+ * not part of it (fact_gags, migration 0139).
  */
 export function materializeEnrichment(input: {
   aiDerived: FactEnrichment;
   overrides: EnrichmentOverrides;
-  visualPromptStrategyOverride?: FactEnrichment["visualPromptStrategyOverride"];
 }): MaterializeResult {
-  const { effective, summary } = resolveEnrichment(input);
+  // Since migration 0139 a gag lives only in fact_gags: the stored layers never
+  // carry one (CHECK facts_enrichment_holds_no_gag), whatever a caller passed.
+  const aiDerived = stripGag(input.aiDerived);
+  const { effective, summary } = resolveEnrichment({ aiDerived, overrides: input.overrides });
   const projected = buildFactEnrichmentColumns(effective);
   return {
     columns: {
       enrichment: effective,
-      enrichmentAiDerived: input.aiDerived,
+      enrichmentAiDerived: aiDerived,
       enrichmentOverrides: input.overrides,
       enrichmentBaselineChanged: summary.baselineChangedPaths.length > 0,
       primaryArchetype: projected.primaryArchetype,
@@ -469,15 +472,10 @@ export function materializeEnrichment(input: {
 
 /**
  * Materialize the facts columns for a freshly-AI-derived blob that has no manual
- * overrides yet (review approval, backfill, first write). Splits the preserved
- * moderator visual-strategy override out of the baseline so
- * `enrichment_ai_derived` stays pure AI.
+ * overrides yet (review approval, backfill, first write).
  */
 export function materializeFromBaseline(enrichment: FactEnrichment): MaterializeResult {
-  const visualPromptStrategyOverride = enrichment.visualPromptStrategyOverride;
-  const aiDerived = { ...enrichment } as FactEnrichment;
-  delete (aiDerived as Record<string, unknown>)["visualPromptStrategyOverride"];
-  return materializeEnrichment({ aiDerived, overrides: {}, visualPromptStrategyOverride });
+  return materializeEnrichment({ aiDerived: enrichment, overrides: {} });
 }
 
 /**

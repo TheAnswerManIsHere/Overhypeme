@@ -347,7 +347,7 @@ describe("adopting production's first database with proof", () => {
     const report = await adopt(db);
     assert.deepEqual(report.reasons, []);
     assert.equal(report.verdict, "adopted");
-    assert.ok(report.structure.onlyInReference.length > 0 && report.structure.onlyInReference.every((l) => /^public: (function|trigger|trigger-mode) /.test(l)));
+    assert.ok(report.structure.onlyInReference.length > 0 && report.structure.onlyInReference.every((l) => /^public: ((function|trigger|trigger-mode) |constraint \S+ TRIGGER )/.test(l)));
     assert.ok(report.installed!.created.functions.some((f) => f.startsWith("ncmec_safety_audit_log_append_only")));
     assert.ok(report.installed!.created.triggers.includes("ncmec_safety_audit_log.ncmec_safety_audit_log_no_mutate"));
     const modes = await query<{ n: string; m: string }>(

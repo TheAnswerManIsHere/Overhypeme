@@ -18,7 +18,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, pendingReviewsTable, imagePromptAttemptsTable, asyncJobsTable, enrichmentOverrideHistoryTable } from "@workspace/db/schema";
+import { usersTable, factsTable, factGagsTable, pendingReviewsTable, imagePromptAttemptsTable, asyncJobsTable, enrichmentOverrideHistoryTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import { type FactEnrichment } from "@workspace/api-zod";
 
@@ -46,15 +46,16 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
-  // A fact reaching production_review carries a moderator Visual Concept (required to
-  // release to production — presence-based, no enable toggle). Without it, approval
-  // 409s on CONCEPT_MISSING before ever reaching the visual-render gate under test.
-  visualPromptStrategyOverride: {
-    version: 1,
-    coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
-    requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
-    bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
-  },
+};
+
+// A fact reaching production_review has an approved gag (fact_gags, migration
+// 0139). Without it, approval 409s on CONCEPT_MISSING before ever reaching the
+// visual-render gate under test.
+const GAG = {
+  version: 1,
+  coreSceneOverride: "{NAME} bench-presses the Earth overhead in a stadium.",
+  requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+  bubbles: [], compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
 };
 
 function makeApp(): Express {
@@ -92,6 +93,7 @@ async function seedReview(submittedById: string, stage = "production_review"): P
     text: "{NAME} bench-presses the Earth.", submittedById, isActive: false, enrichment: ENRICHMENT,
   }).returning({ id: factsTable.id });
   insertedFactIds.push(fact!.id);
+  await db.insert(factGagsTable).values({ factId: fact!.id, slot: 1, approvedContent: GAG, approvedCarriedOver: true });
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: "{NAME} bench-presses the Earth.", submittedById, matchingSimilarity: 0,
     status: "pending", workflowStage: stage as never, stagingFactId: fact!.id,
@@ -195,8 +197,9 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
     assert.equal(refused.status, 400);
 
     const [review] = await db.select({ stagingFactId: pendingReviewsTable.stagingFactId }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    const [gag] = await db.select({ id: factGagsTable.id }).from(factGagsTable).where(eq(factGagsTable.factId, review!.stagingFactId!));
     await db.insert(imagePromptAttemptsTable).values({
-      factId: review!.stagingFactId!, userId: null, reviewId, renderJobId: randomUUID(), requestId: `t-legacy-${randomUUID()}`,
+      factId: review!.stagingFactId!, gagId: gag!.id, userId: null, reviewId, renderJobId: randomUUID(), requestId: `t-legacy-${randomUUID()}`,
       generationMode: "t2i", subjectRenderMode: "t2i_fallback", reviewRenderScenarioKey: "generic_t2i",
       targetEngine: "nano_banana_2", sourceImageAnalysis: {}, identityPolicy: {}, renderControls: { aspectRatio: "portrait" },
       factEnrichmentSnapshot: ENRICHMENT, archetypeStrategyVersion: "v2",

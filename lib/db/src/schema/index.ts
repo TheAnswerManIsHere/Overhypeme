@@ -33,3 +33,4 @@ export * from "./comparisons";
 export * from "./promptRecipes";
 export * from "./accountDeletion";
 export * from "./imageProvenance";
+export * from "./factGags";

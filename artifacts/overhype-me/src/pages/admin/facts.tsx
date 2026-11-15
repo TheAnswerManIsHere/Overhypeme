@@ -4,9 +4,10 @@ import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, RefreshCw, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
-import type { FactEnrichment } from "@workspace/api-zod";
+import type { FactEnrichment, FactGagsView } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
-import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
+import { GagsPanel } from "@/components/admin/gags/GagsPanel";
+import { LiveGagIdeas } from "@/components/admin/gags/LiveGagIdeas";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
@@ -14,9 +15,7 @@ import { resubmitFactForModeration } from "@/components/admin/resubmitForModerat
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
 import { patchFactDraft } from "@/components/admin/patchFactDraft";
-import { ApprovedFactTextEditModal } from "@/components/admin/ApprovedFactTextEditModal";
 import { FactTextEditHistory } from "@/components/admin/FactTextEditHistory";
-import type { ApprovedFactTextEditImpact, ConfirmTextEdit } from "@workspace/api-zod";
 import {
   useFactEnrichmentEditing,
   type EnrichmentSaveResponse,
@@ -159,7 +158,6 @@ function FactEnrichmentPanel({
   // lockstep by construction.
   const {
     enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm, overrideError,
-    vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride,
   } = useFactEnrichmentEditing({
       target: { kind: "fact", factId: fact.id },
       enabled: true,
@@ -167,8 +165,19 @@ function FactEnrichmentPanel({
       onSaved,
     });
 
-  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled || vsoTokenizing;
+  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled;
   const [expanded, setExpanded] = useState(false);
+  // The Gags panel and Draft more gags (plan PLAN_THREE_GAGS.md, increment 2):
+  // the panel reports its view and unsaved edits; an idea used on a gag
+  // reloads the panel, and the panel waits while it saves.
+  const [gagsView, setGagsView] = useState<FactGagsView | null>(null);
+  const [gagsReloadKey, setGagsReloadKey] = useState(0);
+  const [gagsUnsaved, setGagsUnsaved] = useState(false);
+  const [ideaSaving, setIdeaSaving] = useState(false);
+  const onIdeaApplied = useCallback((view: FactGagsView) => {
+    setGagsView(view);
+    setGagsReloadKey((k) => k + 1);
+  }, []);
 
   return (
     <div className="rounded-sm border border-border bg-muted/20" data-testid="fact-enrichment-panel">
@@ -198,9 +207,7 @@ function FactEnrichmentPanel({
             </h3>
             <div className="flex items-center gap-3 shrink-0">
               <div className="text-xs text-muted-foreground">
-                {vsoTokenizing ? (
-                  <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Tokenizing and saving…</span>
-                ) : draft.committing ? (
+                {draft.committing ? (
                   <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
                 ) : draft.commitError ? (
                   <span className="text-destructive">Save refused</span>
@@ -214,7 +221,7 @@ function FactEnrichmentPanel({
                 <button
                   type="button"
                   onClick={draft.discard}
-                  disabled={vsoTokenizing}
+                 
                   className="text-xs text-primary underline hover:opacity-80 disabled:opacity-50 disabled:no-underline"
                 >
                   Discard changes
@@ -238,13 +245,28 @@ function FactEnrichmentPanel({
               <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
             </div>
           )}
-          {/* Visual Concept — the single prominent scene surface (the scene field
-              was removed from the Advanced Options panel below). Required + blocking. */}
-          <VisualConceptCard
-            value={enrichment?.visualPromptStrategyOverride}
-            disabled={disabled || vsoTokenizing || draft.committing || draft.loading || !enrichment}
-            tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
-            onChange={(next) => { if (!disabled && enrichment) draft.setValue({ ...enrichment, visualPromptStrategyOverride: next }); }}
+          {/* The fact's gags (plan docs/plans/PLAN_THREE_GAGS.md): each with its
+              example, editor and test renders; a change reaches users once a
+              render of it is approved. Read-only while a refresh is open. */}
+          <GagsPanel
+            factId={fact.id}
+            reviewId={null}
+            rendersEnabled
+            subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}
+            reloadKey={gagsReloadKey}
+            onView={setGagsView}
+            onUnsavedChange={setGagsUnsaved}
+            disabled={disabled || ideaSaving}
+          />
+          {/* Draft more gags (plan increment 2): the gag writer on a live
+              fact, outside any review; hidden while a review is open. */}
+          <LiveGagIdeas
+            factId={fact.id}
+            gagsView={gagsView}
+            onApplied={onIdeaApplied}
+            unsavedGagEdits={gagsUnsaved}
+            onSavingChange={setIdeaSaving}
+            disabled={disabled}
           />
           <EnrichmentEditor
             value={enrichment}
@@ -253,15 +275,13 @@ function FactEnrichmentPanel({
             onChange={(next) => { if (!disabled) draft.setValue(next); }}
             onSave={
               !disabled && draft.hasUncommittedChanges
-                ? () => void tokenizeAndSaveVisualOverride([...DEFAULT_SUBJECT_EXAMPLE_NAMES])
+                ? () => void draft.save()
                 : undefined
             }
             onRerun={disabled ? undefined : rerunWithConfirm}
             busy={busy}
             rerunBusy={jobs.rerunBusy}
             overrideContext={disabled ? undefined : overrideContext}
-            vsoTokenizing={vsoTokenizing}
-            vsoTokenizeErrors={vsoTokenizeErrors}
           />
           {overrideError && !disabled && (
             <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
@@ -274,7 +294,7 @@ function FactEnrichmentPanel({
               variant="outline"
               size="sm"
               onClick={draft.discard}
-              disabled={!draft.hasUncommittedChanges || draft.committing || vsoTokenizing}
+              disabled={!draft.hasUncommittedChanges || draft.committing}
             >
               Discard changes
             </Button>
@@ -415,13 +435,6 @@ export default function AdminFacts() {
   const [showAddVariant, setShowAddVariant] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  // Approved-fact-text lock: the confirmation modal + the pending confirmation
-  // the commit re-runs with. The commit callback owns opening/closing the modal.
-  const pendingConfirmationRef = useRef<ConfirmTextEdit | null>(null);
-  const [textEditModal, setTextEditModal] = useState<{ impact: ApprovedFactTextEditImpact } | null>(null);
-  const [textEditModalError, setTextEditModalError] = useState<string | null>(null);
-  const [textEditModalBusy, setTextEditModalBusy] = useState(false);
-
   const [importMode, setImportMode] = useState<ImportMode>("lines");
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
@@ -470,9 +483,8 @@ export default function AdminFacts() {
     commit: async (v) => {
       const sf = selectedFactRef.current;
       if (!sf) throw new Error("No fact selected.");
-      // Delta PATCH: only send `text` when it actually differs from the server
-      // baseline, so a score/use-case-only save never trips the approved-fact
-      // confirmation gate. The server compares normalized-vs-stored regardless.
+      // A fact's wording is locked once accepted (plan PLAN_THREE_GAGS.md,
+      // increment 3): the editor shows it read-only and never sends it.
       const body: Record<string, unknown> = {
         parentId: v.parentId !== null && v.parentId !== undefined && String(v.parentId) !== "" ? Number(v.parentId) : null,
         useCase: v.useCase || null,
@@ -485,42 +497,17 @@ export default function AdminFacts() {
         shareCount: Number(v.shareCount),
         submittedById: v.submittedById || null,
       };
-      if (v.text !== sf.text) body.text = v.text;
-
-      // Consume any pending confirmation (set by the modal's Confirm).
-      const confirmation = pendingConfirmationRef.current ?? undefined;
-      pendingConfirmationRef.current = null;
-
-      const result = await patchFactDraft<Fact>(sf.id, body, confirmation);
+      const result = await patchFactDraft<Fact>(sf.id, body);
       switch (result.kind) {
-        case "saved": {
+        case "saved":
           setFacts((prev) => prev.map((f) => (f.id === result.fact.id ? result.fact : f)));
           setSelectedFact(result.fact);
-          setTextEditModal(null);
-          setTextEditModalError(null);
-          let message = "Saved successfully.";
-          if (result.prepDispatch) message = "Saved. Prep restarted — enrichment and images are regenerating; re-approve the concept when ready.";
-          setSaveResult({ type: "success", message });
+          setSaveResult({ type: "success", message: "Saved successfully." });
           // Adopt the server-normalized row as the new baseline (kills a phantom
           // "unsaved change" from normalization).
           return factToEditDraft(result.fact);
-        }
-        case "confirmation_required":
-          setTextEditModal({ impact: result.impact });
-          setTextEditModalError(null);
-          throw new CommitInterruption();
-        case "stale_baseline":
-          // The stored wording moved under us. Rebase the baseline to the new
-          // server text C (Discard now returns to C), keep the draft B, and
-          // re-open the modal on the fresh C→B diff.
-          editForm.rebaseBaseline({ ...factToEditDraft(sf), text: result.impact.currentStoredText });
-          setSelectedFact({ ...sf, text: result.impact.currentStoredText });
-          setTextEditModal({ impact: result.impact });
-          setTextEditModalError(confirmation ? "The stored text changed since you opened this — review the updated diff and confirm again." : null);
-          throw new CommitInterruption();
-        case "staging_prep_in_progress":
-          setTextEditModal(null);
-          setSaveResult({ type: "error", message: "Prep is still running for this fact. Wait for it to finish, then edit." });
+        case "wording_locked":
+          setSaveResult({ type: "error", message: result.message });
           throw new CommitInterruption();
         case "error":
           throw new Error(result.message);
@@ -528,25 +515,6 @@ export default function AdminFacts() {
     },
   });
   const draft = editForm.value;
-
-  // Modal Confirm → stash the envelope + re-run the commit (which sends it and
-  // owns the outcome: close on success, re-open on a fresh stale baseline).
-  const handleTextEditConfirm = useCallback(async (confirmation: ConfirmTextEdit) => {
-    pendingConfirmationRef.current = confirmation;
-    setTextEditModalBusy(true);
-    setTextEditModalError(null);
-    try {
-      await editForm.save();
-    } finally {
-      setTextEditModalBusy(false);
-    }
-  }, [editForm]);
-
-  const handleTextEditCancel = useCallback(() => {
-    pendingConfirmationRef.current = null;
-    setTextEditModal(null);
-    setTextEditModalError(null);
-  }, []);
 
   const LIMIT = 25;
 
@@ -839,17 +807,6 @@ export default function AdminFacts() {
 
   return (
     <AdminLayout title="Facts Management">
-      {/* Approved-fact text-edit confirmation (dire-warning) modal */}
-      {textEditModal && (
-        <ApprovedFactTextEditModal
-          impact={textEditModal.impact}
-          busy={textEditModalBusy}
-          error={textEditModalError}
-          onConfirm={(c) => void handleTextEditConfirm(c)}
-          onCancel={handleTextEditCancel}
-        />
-      )}
-
       {/* Send Back to Review (stale-fact refresh) confirm modal */}
       {sendBackModal && selectedFact && (
         <SendBackToReviewModal
@@ -1151,12 +1108,12 @@ export default function AdminFacts() {
             {/* Text */}
             <div>
               <FieldLabel>Text</FieldLabel>
-              <textarea
-                value={draft.text}
-                onChange={(e) => editForm.setValue((d) => d ? { ...d, text: e.target.value } : d)}
-                rows={4}
-                className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm focus:outline-none focus:border-primary resize-none"
-              />
+              <p data-testid="fact-wording" className="text-sm bg-muted/30 rounded-sm px-3 py-2 border border-border whitespace-pre-wrap">
+                {selectedFact.text}
+              </p>
+              <p data-testid="fact-wording-locked-note" className="text-xs text-muted-foreground mt-1">
+                A fact&apos;s wording can&apos;t be changed once it&apos;s accepted. If the wording is wrong, deactivate this fact and submit the corrected wording as a new fact.
+              </p>
             </div>
 
             {/* Canonical text (read-only) */}
@@ -1380,7 +1337,7 @@ export default function AdminFacts() {
               <FactEnrichmentVersionHistory info={versionInfo} loading={versionInfoLoading} />
             </div>
 
-            {/* Approved-fact text-edit audit history (read-only) */}
+            {/* Wording edits made before the wording lock (read-only history) */}
             <div className="border-t border-border pt-3">
               <FactTextEditHistory key={selectedFact.id} factId={selectedFact.id} />
             </div>
