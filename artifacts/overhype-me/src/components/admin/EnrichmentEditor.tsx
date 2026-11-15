@@ -40,6 +40,7 @@ import { AlertTriangle, RefreshCw, Save, X, Plus, Trash2, Search, Loader2, Spark
 import { OverrideMark } from "./OverrideMark";
 import { FieldInfo, FieldLabel, ADMIN_LABEL_CLASS } from "./FieldInfo";
 import { BubbleEditor } from "./BubbleEditor";
+import { CharactersEditor } from "./CharactersEditor";
 import { fieldLabel, PATH_TO_DOC_KEY, type FieldDocKey } from "./fieldDocs";
 
 /**
@@ -1863,6 +1864,14 @@ export function EnrichmentEditor({
           commitTextOnBlur={!!oc}
         />
         {mark("/semanticEntities")}
+      </div>
+
+      <div>
+        <CharactersEditor
+          characters={e.characters ?? []}
+          onChange={(next) => setTracked("/characters", next, { characters: next })}
+        />
+        {mark("/characters")}
       </div>
 
       <div className="rounded-sm border border-border bg-muted/20 p-3 text-xs text-muted-foreground leading-snug">

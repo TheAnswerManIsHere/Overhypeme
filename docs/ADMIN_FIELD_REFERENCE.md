@@ -52,6 +52,7 @@ behavior; David's spot-check is requested.
   - [Confidence](#confidence)
   - [Requires admin review](#requires-admin-review)
   - [Semantic Entities / Visual Referents](#semantic-entities-visual-referents)
+  - [Characters](#characters)
   - [Surface text (verbatim case)](#surface-text-verbatim-case)
   - [Normalized text](#normalized-text)
   - [Entity kind](#entity-kind)
@@ -1896,6 +1897,53 @@ Pipeline: classifier detects → planner is informed → validator force-echoes 
 - `lib/api-zod/src/imagePromptGeneration.ts` `validateImagePromptPlan` — Rules 14/15: material entities/references MUST be echoed back in the visual plan; a violation triggers one corrective retry.
 - `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `composeKeyElementsDirective` — The compiler-side guarantee: resolved visualImplicationUsed / visualReferentUsed values the prose omitted are folded into "Ensure these elements are clearly visible: …".
 - `artifacts/api-server/src/lib/renderCanonical.ts` `stripSubjectNameSemanticEntities` — The subject-name defense: the personalized subject is never a semantic entity, even if an older enrichment stored it as one.
+- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
+
+### Characters
+
+*Every person or animal the fact names besides the subject — the choices offered as a bubble's speaker.*
+
+- **Effect:** Render-affecting — feeds the prompt pipeline
+- **Staleness:** Editing re-flags render scenarios as stale.
+- **Editor surface:** section-level
+
+**What it is**
+
+The fact's cast, minus the subject: for "When Alex was born, he drove his mom home from the hospital" it is one character, label "mom", a person, a relation of the subject. The subject is never listed — it is always available as "Alex (the subject)".
+
+A label is exactly what a speech or thought bubble stores when this character is picked as its speaker, so it follows the bubble-speaker rules: plain text, no personalization token, never the word "subject", and unique within the list.
+
+"Relation of the subject" decides how the speaker dropdown shows it: "Alex's mom" when ticked, "the referee" when not.
+
+**How the AI sets it**
+
+A dedicated, versioned call made right after classification (its own prompt and response schema, so the main classification is untouched) reads the fact as rendered with the stand-in name and lists every person or animal it names besides the subject. The stand-in name is stripped if returned.
+
+A successful call stamps an extraction marker, even for an empty list. A failed call leaves no marker on a fact that has never had a list — Taxonomy Health counts it as missing and "Fill character lists" retries it — and keeps the previous list on a fact that already had one.
+
+A moderator correction replaces the whole list and survives re-enrichment, refreshes and both bulk re-enrich jobs; only the field's own reset clears it.
+
+**How it affects the render**
+
+The planner receives the list as naming context: these are the people and animals the fact names, with their labels; if it includes any of them it must use exactly that label, and it need not include any.
+
+It never forces a character into a gag. Who appears is the gag's choice; a character appears because the gag's scene, its Scene Role Assignments or a bubble calls for them.
+
+In the render-input hash when non-empty, so editing the list flips that fact's render-scenario tiles stale.
+
+**Examples**
+
+- **Scenario:** "When {NAME} was born, {SUBJ} drove {POSS} mom home from the hospital."
+  - **Input:** label "mom", kind person, relation of the subject ✓
+  - **Outcome:** The bubble speaker dropdown offers "Alex (the subject)" and "Alex's mom"; a bubble from mom stores "mom".
+- **Scenario:** The AI missed a character, or named one awkwardly.
+  - **Input:** Add or rename the row (e.g. "mother" → "mom")
+  - **Outcome:** Saved as a correction that re-enrichment keeps. Bubbles already saved with the old label keep it and show as not in the list.
+
+**Sources**
+
+- `lib/api-zod/src/taxonomy.ts` `culturalReferenceSchema` — The reference/entity schemas: field shapes, max lengths, and the research-metadata fields.
+- `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where references/entities are injected into the planner message, including the materiality gate and the never-draw-a-real-logo instruction.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash includes culturalReferences and semanticEntities wholesale — editing any row field flips render-scenario tiles stale.
 
 ### Surface text (verbatim case)

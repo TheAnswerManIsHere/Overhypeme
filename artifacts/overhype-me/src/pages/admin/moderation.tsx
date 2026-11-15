@@ -1096,6 +1096,7 @@ function ReviewModal({
               {stagingFactId > 0 && (
                 <GagsPanel
                   factId={stagingFactId}
+                  characters={enrichment?.characters}
                   reviewId={review.id}
                   rendersEnabled={false}
                   subjectNames={subjectNames}
@@ -1182,6 +1183,7 @@ function ReviewModal({
               {stagingFactId > 0 && (
                 <GagsPanel
                   factId={stagingFactId}
+                  characters={enrichment?.characters}
                   reviewId={review.id}
                   rendersEnabled
                   rendersExpected

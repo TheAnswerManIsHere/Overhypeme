@@ -19,9 +19,10 @@ import {
   resolveIdentityForms,
   renderTemplateWithIdentityForms,
   possessive as possessiveShared,
+  CANONICAL_SUBJECT_NAME,
 } from "@workspace/api-zod";
 
-export const CANONICAL_NAME = "Alex";
+export const CANONICAL_NAME = CANONICAL_SUBJECT_NAME;
 
 export const possessive = possessiveShared;
 

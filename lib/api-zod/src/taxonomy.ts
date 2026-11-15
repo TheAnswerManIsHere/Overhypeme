@@ -475,6 +475,12 @@ export type SemanticEntity = z.infer<typeof semanticEntitySchema>;
  * personalization token, never the reserved word `subject`, unique in the list.
  */
 export const CHARACTER_LIST_PROMPT_VERSION = "v1";
+/**
+ * The stand-in name a fact is classified and previewed with (they/them). One
+ * definition: the server's `renderCanonical.CANONICAL_NAME` reads it, and the
+ * admin speaker dropdown shows "Alex's mom" with it.
+ */
+export const CANONICAL_SUBJECT_NAME = "Alex";
 export const MAX_FACT_CHARACTERS = 10;
 export const FACT_CHARACTER_KIND_VALUES = ["person", "animal"] as const;
 export type FactCharacterKind = (typeof FACT_CHARACTER_KIND_VALUES)[number];
