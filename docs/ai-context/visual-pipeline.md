@@ -568,21 +568,50 @@ classification joined with one gag's content (`gagRenderInput`,
 
 - **Versions.** A gag has an approved version (offered to users on a live fact)
   and may carry a pending change. Saving writes the pending change; it changes
-  nothing users get until a moderator approves one of its test renders as the
-  gag's **example** (`approveGagRender`), which makes it the approved version.
-  The render must be finished, unstyled and drawn from exactly that content.
-- **Renders belong to a gag.** `image_prompt_attempts.gag_id` names the gag each
-  test render drew; grids, staleness and enqueue all read the gag's render
-  target (`loadGagRenderTarget`, `reviewRenderScenarios.ts`), so they cannot
-  drift from the render.
+  nothing users get until a moderator approves its **male, female and pet**
+  test renders as the gag's **examples** (`approveGagRender`; plan
+  `docs/plans/PLAN_GAG_EXAMPLES.md`, migration 0142). Each render must be
+  finished, unstyled, drawn from exactly that content and of its kind's
+  scenario. Outside a refresh the third approval applies the change and its set
+  in one transaction (`applyPendingSetIfComplete`, `lib/gags/examples.ts`).
+- **Examples.** `fact_gag_examples` holds one row per gag, kind (`male`,
+  `female`, `pet`) and stage (`approved` for the version users get, `pending`
+  for picks of the change). A deferred constraint trigger
+  (`enforce_gag_example_set`) refuses at commit approved content without all
+  three kinds, unless the gag is **grandfathered** (approved before example
+  sets: `approved_before_example_sets`, or carried over by 0139), and pending
+  picks without pending content. Grandfathering ends at a gag's first complete
+  set. The old `approved_example_attempt_id` and `pending_example_attempt_id`
+  columns are unread recovery snapshots, dropped by a later migration.
+- **Renders belong to a gag, one per kind and content.** The three subject
+  kinds are the scenarios `i2i_male_default`, `i2i_female_default` and
+  `i2i_nonhuman_animal` (`SCENARIO_FOR_KIND`); generic text-to-image and
+  object/vehicle are no longer drawn. `image_prompt_attempts.gag_id` names the
+  gag each render drew, and a render is **reused** when its attempt's
+  `fact_enrichment_snapshot` equals the gag's current render input
+  (`attemptForContent`, `reviewRenderScenarios.ts`): the same content draws
+  nothing, a discard back to earlier content shows that content's render, and
+  the engine and recipe stay provenance rather than redefining reuse.
+  `drawGagKinds` draws the kinds asked for under an advisory lock per gag and
+  kind, so overlapping requests draw once; `redraw` asks for a new one anyway.
+- **What draws.** Saving a gag (an edit, an idea, a discard, a new gag) enqueues
+  one **iteration render**, male (`enqueueGagIterationRender`); approving the
+  Gags step enqueues the iteration render of each surviving new or changed gag
+  (`ensureReviewIterationRenders`) and clears nothing; **Render female and
+  pet** draws the other two (`POST /admin/facts/:id/gags/:gagId/renders`,
+  `{ kinds, redraw? }`). No paid render fires without a moderator's action.
+- **The production gate is per gag.** Approve for Production asks whether every
+  gag that will be offered has its three examples or is grandfathered, and
+  names the missing kinds (`exampleSetGaps`, `describeExampleSetGaps`). The
+  review-wide render grid, its routes and the render waiver are gone.
 - **Refreshes.** While a refresh is open a fact's gags change only inside its
-  review, as its last step: a pick or a removal there waits on the gag
-  (`pending_review_id`) and lands at promotion (`applyReviewGagOps`); declining
-  discards it. The live fact's approved gags stay offered throughout. **Keep
+  review, as its last step: picks or a removal there wait on the gag
+  (`pending_review_id`) and land at promotion (`applyReviewGagOps`; a change
+  only with its three picks); declining discards them. The live fact's approved gags stay offered throughout. **Keep
   this gag** (`keepGag`) cancels a removal marked there and touches nothing
   else, whether the gag is approved with no change, approved with a change and
-  a picked example, or never approved; **Discard the saved change** drops only
-  the change and its pick, leaving a removal mark alone (increment 2; Codex,
+  picked examples, or never approved; **Discard the saved change** drops only
+  the change and its picks, leaving a removal mark alone (increment 2; Codex,
   PR #956 round 4).
 - **The rule the database holds.** A live fact always has an approved gag
   (deferred constraint triggers `facts_live_requires_approved_gag` and

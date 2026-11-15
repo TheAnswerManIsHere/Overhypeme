@@ -65,10 +65,10 @@ by every modality) — see *Launch-critical vs deferrable work* below.
 - **An approved example picture for every approved gag is a hard gate: a
   fact cannot go live without them** (David, 2026-10-06, reshaped by the
   [product strategy](./product-strategy.md#gags-and-examples) on 2026-11-11:
-  a fact has up to three approved gags, and one unstyled example per gag is
-  required). There is no "no-example fallback"; the render-approval waiver is
-  retired for the required examples and remains an auditable override for
-  any other render scenario. Pexels is deleted
+  a fact has up to three approved gags; since 2026-11-15 each carries a male,
+  a female and a pet example, approved from its own unstyled renders, and
+  gags approved before then stay offered until they complete a set). There
+  is no "no-example fallback" and no render-approval waiver. Pexels is deleted
   entirely (it was a review aid and the source of user-facing stock
   backgrounds; both are cut).
 - Near-term focus: **reduce manual moderation toil** (faster approve, better queue

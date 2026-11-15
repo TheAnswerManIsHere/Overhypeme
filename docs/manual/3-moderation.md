@@ -280,25 +280,21 @@ or by anyone downstream, as if it did.
 
 ## Boundaries & known limitations
 
-- **Renders are a Test-Renders-step concern only** — by design, the Visual
-  Concept step never shows the render grid, because its whole point is to decide
-  the gag *before* spending on images.
-- **No render history.** A bounce discards the old batch and renders fresh; there
-  is no "compare to the previous render" view.
-- **Test renders are review aids, not hard gates — today.** A moderator can
-  approve despite missing/[stale renders](../ai-context/glossary.md#stale-render),
-  which records an [auditable waiver](../ai-context/glossary.md#waiver) — not
-  a silent skip. **Decided for launch, not yet built:** a fact's
-  [hero renders](../ai-context/glossary.md#hero-render) will be a hard gate —
-  a fact will not go live without an approved example for every approved gag
-  (a fact may have more than one gag, each needing its own unstyled
-  example), and there is no "no-hero fallback" (decided 2026-10-06, reshaped
-  by the [product strategy](../ai-context/product-strategy.md#gags-and-examples)
-  on 2026-11-11; see the [launch definition](../ai-context/launch-definition.md)). Until the launch
-  programme's image phase ships that gate, approval works as the first
-  sentence says. ([Stock images](../ai-context/glossary.md#stock-image) were a
-  further review aid until Pexels was deleted in the launch programme's cut
-  phase.)
+- **Renders start small.** Saving a gag, or approving the Gags step, draws one
+  male render of each new or changed gag and nothing else, so iterating on a gag
+  costs one picture per try; its female and pet renders are drawn only when the
+  moderator asks, once the gag works. A render is matched to its input, so a
+  gag returned to earlier content shows that content's render again rather
+  than drawing a new one.
+- **Every offered gag carries three examples.** A gag reaches users only with
+  its male, female and pet renders approved as its examples; there is no waiver
+  and no "no-hero fallback" (decided 2026-10-06, reshaped by the
+  [product strategy](../ai-context/product-strategy.md#gags-and-examples) on
+  2026-11-11 and made three examples on 2026-11-15). Gags approved before then
+  are grandfathered: they stay offered until they complete a set, which the
+  [launch definition](../ai-context/launch-definition.md) requires before Seed.
+  ([Stock images](../ai-context/glossary.md#stock-image) were a further review
+  aid until Pexels was deleted in the launch programme's cut phase.)
 - **Visual ideas can fail or be absent.** Generation is a real AI call; a failed
   or never-generated state blocks gag approval with a clear "regenerate" action
   rather than a silent block — and a required step that never ran reads as "not

@@ -104,8 +104,9 @@ credits, from the engine matched to the look
 ([product strategy](./product-strategy.md#pictures-and-engines)). Each
 fact shows **one example picture per approved gag**, and a fact may carry up to
 three approved gags ([product strategy](./product-strategy.md#gags-and-examples)).
-Gags are their own records, each approved by its example, since plan
-`docs/plans/PLAN_THREE_GAGS.md`; additional gags are optional, and **where a
+Gags are their own records, since plan `docs/plans/PLAN_THREE_GAGS.md`, each
+approved by its male, female and pet examples since plan
+`docs/plans/PLAN_GAG_EXAMPLES.md` (2026-11-15); additional gags are optional, and **where a
 fact has more than one available gag the user picks which one their AI picture
 uses** — launch Phase 7 builds that picker with the user AI-picture flow, and
 anything that draws without a picker uses the fact's default gag (David,
@@ -217,14 +218,15 @@ approved hero images. Without them, the fact cannot go live"*; reshaped by the
 [product strategy](./product-strategy.md#gags-and-examples), 2026-11-11: one
 unstyled example per approved gag is required, styled ones are optional, and
 examples are not re-rendered across the catalogue or used as meme
-backgrounds). The render-approval waiver is retired for the required
-examples; it remains an auditable override for any other render scenario.
-**Built for gags (plan `docs/plans/PLAN_THREE_GAGS.md`, increment 1):** a gag is
-approved only when a moderator approves one of its test renders as its example,
-and a first-time fact can't be approved for production without an approved
-gag. Gags approved before that plan carry no example on record ("no example
-yet") and stay live; Phase 7's publication model decides what examples public
-pages show.
+backgrounds). The render-approval waiver is gone.
+**Built (plans `docs/plans/PLAN_THREE_GAGS.md` and `PLAN_GAG_EXAMPLES.md`):** a
+gag is offered only once a moderator approves its **male, female and pet**
+test renders as its examples, the database refuses approved content without
+them, and Approve for Production names any gag missing a kind. Gags approved
+before example sets are **grandfathered**: they stay live with fewer than
+three examples until each completes its set, which readiness row 11 requires
+before Seed (David, 2026-11-15, Q11). Phase 7's publication model decides what
+examples public pages show.
 
 ## Verification is a prerequisite
 
@@ -264,6 +266,7 @@ outstanding and never becomes an earlier stage's pass.
 | 8 | Alerts reach David from five sources — an unhandled error, the site down, a background job stopped or wedged, payment webhooks failing, spend that could not be recorded — each proven by injecting its fault on the deployed site, recording for each whether the alert arrived and how long it took, how the product degraded against its design, and whether recovery needed a human; uptime check live; read-only mode works; rollback written | must | — | — | — | — |
 | 9 | UX polish pass completed across every user journey; David accepts the catalogue and a representative render sample | must | post-Seed fixes | post-Soft fixes | — | — |
 | 10 | Launch runbook with a go/no-go that reads this table | Seed go/no-go | Soft go/no-go | US go/no-go | Global go/no-go | — |
+| 11 | Every gag offered to users has its male, female and pet examples: no gag is grandfathered, counted on the production database (`fact_gags` with approved content and `approved_before_example_sets` or `approved_carried_over` set) (David, 2026-11-15, Q11) | must | — | — | — | — |
 
 **The Stripe evidence split (S7).** Stripe forbids real payment details in
 live mode, so the literal live-mode rehearsal of every adverse event is not
