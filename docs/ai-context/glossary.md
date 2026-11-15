@@ -245,7 +245,10 @@ The staged, cost-gated approval workflow for submissions, living in
 `pending_reviews` with a `review_workflow_stage`. Three human gates:
 `triage_pending → prep_pending/prep_failed → concept_review (Step 2: Visual
 Concept) → production_review (Step 3: Test Renders) →
-production_approved/production_rejected`. Renders fire only at Step 3.
+production_approved/production_rejected`. No render runs before the Gags step
+(Step 2) is approved; from then on each new or changed gag gets one male
+render, and its female and pet renders when the moderator asks
+([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 → [moderation-workflow](./moderation-workflow.md)
 
 ### Review queue
@@ -377,9 +380,9 @@ builder's example media, `hero_examples`, went in launch Phase 4.)
 
 How the joke works *as a picture*. Since migration 0139 (plan
 `docs/plans/PLAN_THREE_GAGS.md`) a fact has one to three, each its own
-[gag](#gag) record. Approving the gags at the Gags step (`concept_review`) is
-deliberately free: it unlocks render spend, so no test render has run yet at
-the moment of the decision. What reaches users is decided later, gag by gag,
+[gag](#gag) record. No test render has run when the gags are approved at the
+Gags step (`concept_review`): that approval is what starts render spend, one
+male render per new or changed gag. What reaches users is decided later, gag by gag,
 when a moderator approves a gag's male, female and pet test renders as its
 [examples](#example).
 → [moderation-workflow](./moderation-workflow.md)
@@ -411,7 +414,7 @@ a picker (launch Phase 7, which rebuilds the user AI-picture flow).
 ### Example
 
 A test render a moderator approved for a gag ("Approve this render"), one per
-subject kind: **male, female and pet** (`fact_gag_examples`, migration 0142;
+subject kind ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)): **male, female and pet** (`fact_gag_examples`, migration 0142;
 plan `docs/plans/PLAN_GAG_EXAMPLES.md`). The third approved kind is what
 approves the gag's change. A gag approved before example sets is
 grandfathered: it stays offered with fewer than three until it completes a
