@@ -256,7 +256,7 @@ function FactEnrichmentPanel({
             subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}
             reloadKey={gagsReloadKey}
             onView={setGagsView}
-            onUnsavedChange={setGagsUnsaved}
+            onUnsavedChange={(names) => setGagsUnsaved(names.length > 0)}
             disabled={disabled || ideaSaving}
           />
           {/* Draft more gags (plan increment 2): the gag writer on a live

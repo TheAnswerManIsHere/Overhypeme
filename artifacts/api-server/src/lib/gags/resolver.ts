@@ -25,10 +25,11 @@ import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   visualPromptStrategyOverrideSchema,
   type FactEnrichment,
+  mapKinds,
   type PerKind,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
-import { emptyExamples, loadExamples } from "./examples";
+import { examplesFor, loadExamples } from "./examples";
 
 export type GagContent = VisualPromptStrategyOverride;
 
@@ -145,12 +146,12 @@ export async function availableGags(factId: number, executor: Executor = db): Pr
     .orderBy(asc(factGagsTable.slot));
   const examples = await loadExamples(rows.map(({ gag }) => gag.id), executor);
   return rows.map(({ gag }) => {
-    const set = (examples.get(gag.id) ?? emptyExamples()).approved;
+    const set = examplesFor(examples, gag.id).approved;
     return {
       gagId: gag.id,
       slot: gag.slot,
       content: normaliseGagContent(gag.approvedContent)!,
-      examples: { male: set.male?.attemptId ?? null, female: set.female?.attemptId ?? null, pet: set.pet?.attemptId ?? null },
+      examples: mapKinds((k) => set[k]?.attemptId ?? null),
     };
   });
 }

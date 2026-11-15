@@ -15,11 +15,11 @@ import {
   imagePromptAttemptsTable,
   type FactGag,
 } from "@workspace/db";
-import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, type FactGagsView, type GagExample, type GagView, type PerKind } from "@workspace/api-zod";
+import { GAG_EXAMPLE_KINDS, MAX_GAGS_PER_FACT, mapKinds, type FactGagsView, type GagExample, type GagView, type PerKind } from "@workspace/api-zod";
 import { findInFlightRefreshCandidate } from "../refreshCandidate";
 import { buildGagKindCards, gagRenderImageUrl } from "../reviewRenderScenarios";
 import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
-import { emptyExamples, loadExamples, type GagExamples } from "./examples";
+import { examplesFor, isGrandfathered, loadExamples, type GagExamples } from "./examples";
 
 async function examples(ids: number[], gagIdOf: Map<number, number>): Promise<Map<number, GagExample>> {
   const out = new Map<number, GagExample>();
@@ -65,8 +65,9 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
   const ex = await examples(exampleIds, gagIdOf);
   const defaultId = fact.isActive ? gags.find((g) => g.approvedContent != null)?.id ?? null : null;
 
-  const views: GagView[] = [];
-  for (const g of gags) views.push(await viewOf(g, fact.isActive, defaultId, byGag.get(g.id) ?? emptyExamples(), ex, lastPromotion?.at ?? null));
+  // Each gag's render tiles are independent reads: the view is polled while
+  // renders draw, so they run together.
+  const views: GagView[] = await Promise.all(gags.map((g) => viewOf(g, fact.isActive, defaultId, examplesFor(byGag, g.id), ex, lastPromotion?.at ?? null)));
   return {
     factId,
     isActive: fact.isActive,
@@ -78,11 +79,7 @@ export async function buildFactGagsView(factId: number): Promise<FactGagsView | 
 }
 
 function perKind(set: GagExamples["approved"], ex: Map<number, GagExample>): PerKind<GagExample | null> {
-  return {
-    male: set.male ? ex.get(set.male.attemptId) ?? null : null,
-    female: set.female ? ex.get(set.female.attemptId) ?? null : null,
-    pet: set.pet ? ex.get(set.pet.attemptId) ?? null : null,
-  };
+  return mapKinds((k) => (set[k] ? ex.get(set[k]!.attemptId) ?? null : null));
 }
 
 async function viewOf(
@@ -103,7 +100,7 @@ async function viewOf(
     isDefault: g.id === defaultId,
     approvedContent: normaliseGagContent(g.approvedContent),
     approvedExamples: perKind(set.approved, ex),
-    grandfathered: approved && (g.approvedBeforeExampleSets || g.approvedCarriedOver),
+    grandfathered: approved && isGrandfathered(g),
     approvedAt: g.approvedAt?.toISOString() ?? null,
     pendingContent: normaliseGagContent(g.pendingContent),
     pendingReviewId: g.pendingReviewId ?? null,

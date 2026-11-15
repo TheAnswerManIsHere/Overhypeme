@@ -31,15 +31,19 @@ import {
 } from "@workspace/db";
 import {
   MAX_GAGS_PER_FACT,
+  isCompleteSet,
+  joinWithAnd,
+  kindForScenario,
+  missingKinds,
   overrideValuesEqual,
+  type GagExampleKind,
   visualPromptStrategyOverrideSchema,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
 import { findInFlightRefreshCandidate } from "../refreshCandidate";
-import { kindForScenario } from "@workspace/api-zod";
 import type { GagContent } from "./resolver";
-import { applyPendingSetIfComplete, clearPendingExamples, emptyExamples, endGrandfatheringIfComplete, isCompleteSet, loadExamples, missingKinds, putExample } from "./examples";
+import { applyPendingSetIfComplete, clearPendingExamples, endGrandfatheringIfComplete, examplesFor, loadExamples, putExample } from "./examples";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -373,7 +377,7 @@ export async function removeGag(factId: number, gagId: number, actor: GagActor):
       ));
       const examples = await loadExamples(others.map((o) => o.id), tx);
       const anotherStays = others.some((o) => o.approvedContent != null
-        || (o.pendingReviewId === refreshReviewId && isCompleteSet((examples.get(o.id) ?? emptyExamples()).pending)));
+        || (o.pendingReviewId === refreshReviewId && isCompleteSet(examplesFor(examples, o.id).pending)));
       if (!anotherStays) throw new GagError("LAST_APPROVED_GAG", "A live fact keeps at least one approved gag.");
       const [updated] = await tx.update(factGagsTable).set({
         pendingRemove: true, pendingReviewId: refreshReviewId, pendingBy: actor.adminId, pendingAt: now, updatedAt: now,
@@ -450,13 +454,13 @@ export async function refreshLeavesApprovedGag(factId: number, reviewId: number,
   if (gags.some((g) => g.approvedContent != null)) return true;
   const owned = gags.filter((g) => g.pendingReviewId === reviewId && g.pendingContent != null);
   const examples = await loadExamples(owned.map((g) => g.id), executor);
-  return owned.some((g) => isCompleteSet((examples.get(g.id) ?? emptyExamples()).pending));
+  return owned.some((g) => isCompleteSet(examplesFor(examples, g.id).pending));
 }
 
 /** A gag that would not be offered after approval, and the kinds its set still lacks. */
 export interface ExampleSetGap {
   slot: number;
-  missing: Array<"male" | "female" | "pet">;
+  missing: GagExampleKind[];
 }
 
 /**
@@ -474,7 +478,7 @@ export async function exampleSetGaps(factId: number, reviewId: number | null, ex
   const gaps: ExampleSetGap[] = [];
   for (const g of surviving) {
     if (g.approvedContent != null) continue;
-    const set = (examples.get(g.id) ?? emptyExamples()).pending;
+    const set = examplesFor(examples, g.id).pending;
     const missing = missingKinds(set);
     if (missing.length) gaps.push({ slot: g.slot, missing });
   }
@@ -484,6 +488,5 @@ export async function exampleSetGaps(factId: number, reviewId: number | null, ex
 /** The gaps in words, for a refused approval: "Gag 1 needs female and pet examples." */
 export function describeExampleSetGaps(gaps: ExampleSetGap[]): string {
   if (gaps.length === 0) return "Approve each gag's male, female and pet examples before approving for production.";
-  const join = (ks: string[]) => ks.length <= 1 ? ks.join("") : `${ks.slice(0, -1).join(", ")} and ${ks[ks.length - 1]}`;
-  return gaps.map((g) => `Gag ${g.slot} needs ${join(g.missing)} example${g.missing.length > 1 ? "s" : ""}.`).join(" ");
+  return gaps.map((g) => `Gag ${g.slot} needs ${joinWithAnd(g.missing)} example${g.missing.length > 1 ? "s" : ""}.`).join(" ");
 }

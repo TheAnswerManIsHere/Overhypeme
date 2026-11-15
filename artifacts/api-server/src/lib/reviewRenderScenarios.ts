@@ -27,6 +27,7 @@ import {
   RENDER_SCENARIO_DESCRIPTORS,
   SOURCE_IMAGE_ANALYZER_VERSION,
   GAG_EXAMPLE_KINDS,
+  mapKinds,
   ITERATION_KIND,
   SCENARIO_FOR_KIND,
   type GagExampleKind,
@@ -523,15 +524,13 @@ function cardFor(gagId: number, scenarioKey: RenderScenarioKey, attempt: ImagePr
  * content are history and are not listed.
  */
 export async function buildGagKindCards(gagId: number): Promise<PerKind<RenderScenarioCard | null>> {
-  const empty: PerKind<RenderScenarioCard | null> = { male: null, female: null, pet: null };
   const loaded = await loadGagRenderTarget(gagId);
-  if (!loaded.ok) return empty;
-  const out = { ...empty };
-  for (const kind of GAG_EXAMPLE_KINDS) {
+  if (!loaded.ok) return mapKinds(() => null);
+  const cards = await Promise.all(GAG_EXAMPLE_KINDS.map(async (kind) => {
     const scenarioKey = SCENARIO_FOR_KIND[kind];
-    out[kind] = cardFor(gagId, scenarioKey, await attemptForContent(gagId, scenarioKey, loaded.target.enrichment));
-  }
-  return out;
+    return [kind, cardFor(gagId, scenarioKey, await attemptForContent(gagId, scenarioKey, loaded.target.enrichment))] as const;
+  }));
+  return Object.fromEntries(cards) as PerKind<RenderScenarioCard | null>;
 }
 
 // ─── List-level coarse render state ──────────────────────────────────────────
@@ -566,7 +565,7 @@ export async function reviewRenderStates(reviewIds: number[]): Promise<Map<numbe
       WHERE a.review_id = ANY(ARRAY[${sql.join(reviewIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
         -- Only the three kinds a gag is shown with: renders of a retired
         -- scenario (generic, object/vehicle) are history (PLAN_GAG_EXAMPLES.md).
-        AND a.review_render_scenario_key IN ('i2i_male_default', 'i2i_female_default', 'i2i_nonhuman_animal')
+        AND a.review_render_scenario_key IN (${sql.join(GAG_EXAMPLE_KINDS.map((k) => sql`${SCENARIO_FOR_KIND[k]}`), sql`, `)})
         AND (a.gag_id IS NULL OR EXISTS (
           SELECT 1 FROM fact_gags g
           WHERE g.id = a.gag_id AND g.removed_at IS NULL

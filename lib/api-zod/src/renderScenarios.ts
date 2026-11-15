@@ -184,25 +184,9 @@ export interface RenderScenarioCard {
   evalNotes?: string | null;
 }
 
-export interface RenderScenarioGrid {
-  /** The review the grid was read for; 0 for a gag's grid read outside a review. */
-  reviewId: number;
-  /** The gag whose renders these are (since migration 0139 renders belong to a gag); null when there is none. */
-  gagId: number | null;
-  cards: RenderScenarioCard[];
-  tally: {
-    requested: number;
-    done: number;
-    rendering: number;
-    queued: number;
-    failed: number;
-    blocked: number;
-    skipped: number;
-    stale: number;
-  };
-}
-
-// ─── Approval waiver (persisted on pending_reviews.visual_render_approval_waiver) ─
+// ─── Approval waiver (pending_reviews.visual_render_approval_waiver) ──────────
+// Retired 2026-11-15 (plan PLAN_GAG_EXAMPLES.md): nothing writes a waiver any
+// more. The schema stays to read the waivers past reviews recorded.
 
 export const visualRenderWaivedScenarioSchema = z.object({
   scenarioKey: renderScenarioKeySchema,
@@ -219,9 +203,3 @@ export const visualRenderApprovalWaiverSchema = z.object({
 });
 export type VisualRenderApprovalWaiver = z.infer<typeof visualRenderApprovalWaiverSchema>;
 
-/** Approval request fields the client sends when waiving visual-render problems. */
-export const visualRenderWaiverRequestSchema = z.object({
-  waiveVisualRenderIssues: z.boolean().optional(),
-  waivedScenarioKeys: z.array(renderScenarioKeySchema).optional(),
-});
-export type VisualRenderWaiverRequest = z.infer<typeof visualRenderWaiverRequestSchema>;

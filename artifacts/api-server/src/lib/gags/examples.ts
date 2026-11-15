@@ -21,7 +21,7 @@
  */
 import { and, eq, inArray } from "drizzle-orm";
 import { db, factGagsTable, factGagExamplesTable, type FactGag, type FactGagExample } from "@workspace/db";
-import { GAG_EXAMPLE_KINDS, type GagExampleKind, type PerKind } from "@workspace/api-zod";
+import { isCompleteSet, mapKinds, type GagExampleKind, type PerKind } from "@workspace/api-zod";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor = typeof db | Tx;
@@ -34,12 +34,13 @@ export interface GagExamples {
   pending: PerKind<FactGagExample | null>;
 }
 
-function emptyPerKind<T>(): PerKind<T | null> {
-  return { male: null, female: null, pet: null };
+export function emptyExamples(): GagExamples {
+  return { approved: mapKinds(() => null), pending: mapKinds(() => null) };
 }
 
-export function emptyExamples(): GagExamples {
-  return { approved: emptyPerKind(), pending: emptyPerKind() };
+/** A gag approved before example sets (migration 0142's marker, or carried over by 0139): offered without a complete set (Q11). */
+export function isGrandfathered(gag: Pick<FactGag, "approvedBeforeExampleSets" | "approvedCarriedOver">): boolean {
+  return gag.approvedBeforeExampleSets || gag.approvedCarriedOver;
 }
 
 /** Load the examples of several gags at once. */
@@ -55,13 +56,14 @@ export async function loadExamples(gagIds: number[], executor: Executor = db): P
   return out;
 }
 
-export function isCompleteSet(set: PerKind<unknown | null>): boolean {
-  return GAG_EXAMPLE_KINDS.every((k) => set[k] != null);
+/** One gag's examples (empty sets when it has none). */
+export async function loadGagExamples(gagId: number, executor: Executor = db): Promise<GagExamples> {
+  return (await loadExamples([gagId], executor)).get(gagId) ?? emptyExamples();
 }
 
-/** The kinds a set still lacks, in display order. */
-export function missingKinds(set: PerKind<unknown | null>): GagExampleKind[] {
-  return GAG_EXAMPLE_KINDS.filter((k) => set[k] == null);
+/** A gag's examples from a batch `loadExamples` read (empty sets when it has none). */
+export function examplesFor(map: Map<number, GagExamples>, gagId: number): GagExamples {
+  return map.get(gagId) ?? emptyExamples();
 }
 
 /** Record one example, replacing any for the same gag, kind and stage. */
@@ -86,7 +88,7 @@ export async function clearPendingExamples(tx: Tx, gagIds: number[]): Promise<vo
  */
 export async function applyPendingSetIfComplete(tx: Tx, gag: FactGag, adminId: string): Promise<FactGag | null> {
   if (gag.pendingContent == null) return null;
-  const examples = (await loadExamples([gag.id], tx)).get(gag.id) ?? emptyExamples();
+  const examples = await loadGagExamples(gag.id, tx);
   if (!isCompleteSet(examples.pending)) return null;
   await tx.delete(factGagExamplesTable).where(and(eq(factGagExamplesTable.gagId, gag.id), eq(factGagExamplesTable.stage, "approved")));
   await tx.update(factGagExamplesTable).set({ stage: "approved" })
@@ -113,8 +115,8 @@ export async function applyPendingSetIfComplete(tx: Tx, gag: FactGag, adminId: s
  * grandfathered state (Q11: it lasts until the gag's first complete set).
  */
 export async function endGrandfatheringIfComplete(tx: Tx, gag: FactGag): Promise<FactGag> {
-  if (!gag.approvedBeforeExampleSets && !gag.approvedCarriedOver) return gag;
-  const examples = (await loadExamples([gag.id], tx)).get(gag.id) ?? emptyExamples();
+  if (!isGrandfathered(gag)) return gag;
+  const examples = await loadGagExamples(gag.id, tx);
   if (!isCompleteSet(examples.approved)) return gag;
   const [updated] = await tx.update(factGagsTable).set({ approvedBeforeExampleSets: false, approvedCarriedOver: false, updatedAt: new Date() })
     .where(eq(factGagsTable.id, gag.id)).returning();

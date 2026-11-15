@@ -15,6 +15,9 @@ import { AlertTriangle, CheckCircle2, Loader2, Plus, Play, RefreshCw, RotateCcw,
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   GAG_EXAMPLE_KINDS,
+  KIND_LABEL,
+  REST_KINDS,
+  joinWithAnd,
   type FactGagsView,
   type GagExample,
   type GagExampleKind,
@@ -38,16 +41,10 @@ const POLL_MS = 2000;
  */
 const PREPARE_WINDOW_MS = 60_000;
 
-const KIND_LABEL: Record<GagExampleKind, string> = { male: "Male", female: "Female", pet: "Pet" };
-
-/** The examples a set holds, in words: "Male approved; female and pet to approve". */
 export function exampleWords(set: PerKind<GagExample | null>, verb = "approved"): string {
   const have = GAG_EXAMPLE_KINDS.filter((k) => set[k] != null);
   const missing = GAG_EXAMPLE_KINDS.filter((k) => set[k] == null);
-  const list = (ks: GagExampleKind[]) => {
-    const words = ks.map((k, i) => (i === 0 ? KIND_LABEL[k] : KIND_LABEL[k].toLowerCase()));
-    return words.length <= 1 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
-  };
+  const list = (ks: GagExampleKind[]) => joinWithAnd(ks.map((k, i) => (i === 0 ? KIND_LABEL[k] : KIND_LABEL[k].toLowerCase())));
   if (missing.length === 0) return `Male, female and pet ${verb}`;
   if (have.length === 0) return `No examples ${verb} yet: male, female and pet to approve`;
   const rest = list(missing);
@@ -80,7 +77,7 @@ export interface GagsPanelProps {
    * on the saved gags waits on it (Codex, PR #956 round 2), and its warning
    * names the gag (plan PLAN_GAG_EXAMPLES.md).
    */
-  onUnsavedChange?: (unsaved: boolean, gags: string[]) => void;
+  onUnsavedChange?: (gags: string[]) => void;
   disabled?: boolean;
 }
 
@@ -115,8 +112,8 @@ export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = 
     .sort((a, b) => a.order - b.order)
     .map((x) => x.name), [unsavedKeys, slotOf]);
   const unsavedSignature = unsavedNames.join("|");
-  useEffect(() => { onUnsavedRef.current?.(unsavedNames.length > 0, unsavedNames); }, [unsavedSignature]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => { onUnsavedRef.current?.(false, []); }, []);
+  useEffect(() => { onUnsavedRef.current?.(unsavedNames); }, [unsavedSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { onUnsavedRef.current?.([]); }, []);
 
   const accept = useCallback((v: FactGagsView) => {
     setView(v);
@@ -402,7 +399,7 @@ function GagCard({
   const building = gag.pendingContent != null;
   const picks = building ? gag.pendingExamples : gag.approvedExamples;
   const notDrawn = (k: GagExampleKind) => gag.renders[k] == null || gag.renders[k]!.status === "missing";
-  const restMissing = (["female", "pet"] as const).filter(notDrawn);
+  const restMissing = REST_KINDS.filter(notDrawn);
 
   return (
     <div className="rounded-sm border-2 border-border bg-card p-4 space-y-3" data-testid="gag-card" data-gag-slot={gag.slot}>
@@ -496,10 +493,10 @@ function GagCard({
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Test renders</p>
             {!readOnly && restMissing.length > 0 && (
-              <button type="button" onClick={() => void runRenders(["female", "pet"])} disabled={locked || dirty || drawing} data-testid="gag-render-rest"
+              <button type="button" onClick={() => void runRenders([...REST_KINDS])} disabled={locked || dirty || drawing} data-testid="gag-render-rest"
                 title={dirty ? "Save your change first: renders draw the saved version." : "Once the gag works on the male render, draw its female and pet renders."}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
-                <Play className="w-3 h-3" /> {restMissing.length === 2 ? "Render female and pet" : `Render ${restMissing[0]}`}
+                <Play className="w-3 h-3" /> Render {joinWithAnd(restMissing)}
               </button>
             )}
           </div>

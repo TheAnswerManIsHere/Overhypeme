@@ -210,13 +210,13 @@ describe("GagsPanel", () => {
     render(<GagsPanel factId={5} reviewId={77} rendersEnabled={false} subjectNames={[]} onUnsavedChange={onUnsaved} />);
     const second = (await screen.findAllByTestId("gag-card"))[1]!;
     fireEvent.change(within(second).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} an unsaved edit." } });
-    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(true, ["Gag 2"]));
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["Gag 2"]));
     fireEvent.click(within(second).getByTestId("gag-undo"));
-    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(false, []));
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith([]));
     // A new gag with text typed in is unsaved work too.
     fireEvent.click(screen.getByTestId("gag-add"));
     fireEvent.change(within(screen.getByTestId("gag-new")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} typed, not saved." } });
-    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(true, ["the new gag"]));
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(["the new gag"]));
   });
 
   describe("reloading while an iteration render is on its way (Codex, PR #956 round 1)", () => {

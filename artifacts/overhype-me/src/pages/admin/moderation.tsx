@@ -17,6 +17,8 @@ import {
   type StoredCandidateConcept,
   type FactGagsView,
   canEditWording,
+  isCompleteSet,
+  joinWithAnd,
   canWithdraw,
 } from "@workspace/api-zod";
 import {
@@ -445,9 +447,7 @@ function ReviewModal({
   // (Codex, PR #956 round 2), and the warning says which gag.
   const [gagsUnsavedNames, setGagsUnsavedNames] = useState<string[]>([]);
   const gagsUnsaved = gagsUnsavedNames.length > 0;
-  const onGagsUnsavedChange = useCallback((_unsaved: boolean, names: string[]) => setGagsUnsavedNames(names), []);
-  const unsavedGagsWords = gagsUnsavedNames.length <= 1 ? (gagsUnsavedNames[0] ?? "your gag")
-    : `${gagsUnsavedNames.slice(0, -1).join(", ")} and ${gagsUnsavedNames[gagsUnsavedNames.length - 1]}`;
+  const unsavedGagsWords = joinWithAnd(gagsUnsavedNames) || "your gag";
 
   // Subject-name hint for the Gags panel's tokenizer: the moderator's active
   // render-diagnostics preview name (if set) folded in ahead of the shared
@@ -737,7 +737,7 @@ function ReviewModal({
   const gagsLive = (gagsView?.gags ?? []).filter((g) => !g.pendingRemove);
   const hasSavedGag = gagsLive.some((g) => !!(g.pendingContent ?? g.approvedContent)?.coreSceneOverride?.trim());
   const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null
-    || (g.pendingReviewId != null && g.pendingExamples.male != null && g.pendingExamples.female != null && g.pendingExamples.pet != null));
+    || (g.pendingReviewId != null && isCompleteSet(g.pendingExamples)));
   const canApproveProduction = isApprovable(enrichment)
     && (isRefreshCycle || finalHashtags.length > 0)
     && hasApprovedGag
@@ -1068,7 +1068,7 @@ function ReviewModal({
                   subjectNames={subjectNames}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
-                  onUnsavedChange={onGagsUnsavedChange}
+                  onUnsavedChange={setGagsUnsavedNames}
                   disabled={loading || ideaSaving}
                 />
               )}
@@ -1157,7 +1157,7 @@ function ReviewModal({
                   subjectNames={subjectNames}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
-                  onUnsavedChange={onGagsUnsavedChange}
+                  onUnsavedChange={setGagsUnsavedNames}
                   disabled={loading}
                 />
               )}

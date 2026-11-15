@@ -34,6 +34,32 @@ export function kindForScenario(key: string | null | undefined): GagExampleKind 
 /** The iteration render: the one kind drawn when a gag's content changes. */
 export const ITERATION_KIND: GagExampleKind = "male";
 
+/** The kinds drawn once the gag works ("Render female and pet"). */
+export const REST_KINDS: readonly GagExampleKind[] = GAG_EXAMPLE_KINDS.filter((k) => k !== ITERATION_KIND);
+
+/** Each kind in words, capitalised. */
+export const KIND_LABEL: Record<GagExampleKind, string> = { male: "Male", female: "Female", pet: "Pet" };
+
+/** One value per kind, built from the kind list so a new kind is added in one place. */
+export function mapKinds<T>(fn: (kind: GagExampleKind) => T): Record<GagExampleKind, T> {
+  return Object.fromEntries(GAG_EXAMPLE_KINDS.map((k) => [k, fn(k)])) as Record<GagExampleKind, T>;
+}
+
+/** Whether a set holds every kind. */
+export function isCompleteSet(set: Record<GagExampleKind, unknown | null>): boolean {
+  return GAG_EXAMPLE_KINDS.every((k) => set[k] != null);
+}
+
+/** The kinds a set still lacks, in display order. */
+export function missingKinds(set: Record<GagExampleKind, unknown | null>): GagExampleKind[] {
+  return GAG_EXAMPLE_KINDS.filter((k) => set[k] == null);
+}
+
+/** "a", "a and b", "a, b and c". */
+export function joinWithAnd(words: readonly string[]): string {
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
 /** The most gags a fact can have. */
 export const MAX_GAGS_PER_FACT = 3;
 
