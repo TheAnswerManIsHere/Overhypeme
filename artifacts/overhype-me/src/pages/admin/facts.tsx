@@ -245,9 +245,10 @@ function FactEnrichmentPanel({
               <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
             </div>
           )}
-          {/* The fact's gags (plan docs/plans/PLAN_THREE_GAGS.md): each with its
-              example, editor and test renders; a change reaches users once a
-              render of it is approved. Read-only while a refresh is open. */}
+          {/* The fact's gags (plans PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md):
+              each with its examples, editor and male, female and pet test
+              renders; a change reaches users once all three are approved.
+              Read-only while a refresh is open. */}
           <GagsPanel
             factId={fact.id}
             reviewId={null}

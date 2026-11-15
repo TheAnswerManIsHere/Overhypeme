@@ -1,8 +1,10 @@
 /**
- * The admin Gags panel (plan docs/plans/PLAN_THREE_GAGS.md): each gag's state
- * in words, saving a change through the tokenizer, approving a render as the
- * example, adding a gag, the read-only state during a refresh, and the
- * prompt-budget refusal shown as the server's sentences (#685).
+ * The admin Gags panel (plans docs/plans/PLAN_THREE_GAGS.md and
+ * PLAN_GAG_EXAMPLES.md): each gag's state in words, saving a change through the
+ * tokenizer, the male, female and pet tiles and approving one as that kind's
+ * example, the examples approved so far in words, "Render female and pet",
+ * adding a gag, the read-only state during a refresh, the unsaved gags named,
+ * and the prompt-budget refusal shown as the server's sentences (#685).
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { act } from "@testing-library/react";
@@ -11,13 +13,23 @@ import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   type FactGagsView,
   type GagView,
+  type GagExample,
+  type PerKind,
   type RenderScenarioCard,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { GagsPanel } from "./GagsPanel";
 
 const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
-const NO_TALLY = { requested: 0, done: 0, rendering: 0, queued: 0, failed: 0, blocked: 0, skipped: 0, stale: 0 };
+const NONE = { male: null, female: null, pet: null };
+const ex = (attemptId: number): GagExample => ({ attemptId, imageUrl: `/api/admin/gags/1/renders/${attemptId}/image` });
+function card(key: RenderScenarioCard["key"], over: Partial<RenderScenarioCard> = {}): RenderScenarioCard {
+  return {
+    key, label: key, purpose: "", referenceIdentityType: null, required: true,
+    status: "done", stale: false, latestAttemptId: 901, imageUrl: "/api/admin/gags/2/renders/j/image", message: null, applicability: null,
+    ...over,
+  };
+}
 
 function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
   return {
@@ -25,15 +37,15 @@ function gag(over: Partial<GagView> & Pick<GagView, "id" | "slot">): GagView {
     availableToUsers: true,
     isDefault: false,
     approvedContent: scene("{NAME} lifts the moon."),
-    approvedExample: null,
-    carriedOver: false,
+    approvedExamples: NONE,
+    grandfathered: false,
     approvedAt: "2026-11-01T00:00:00.000Z",
     pendingContent: null,
     pendingReviewId: null,
-    pendingExample: null,
+    pendingExamples: NONE,
     pendingRemove: false,
     refreshedSinceApproval: false,
-    renders: { reviewId: 0, gagId: over.id, cards: [], tally: NO_TALLY },
+    renders: NONE,
     ...over,
   };
 }
@@ -68,7 +80,7 @@ afterEach(() => { vi.unstubAllGlobals(); window.localStorage.clear(); });
 describe("GagsPanel", () => {
   it("says each gag's state in words, which is the default, and whether users are offered it", async () => {
     stubFetch(view([
-      gag({ id: 1, slot: 1, isDefault: true, carriedOver: true }),
+      gag({ id: 1, slot: 1, isDefault: true, grandfathered: true }),
       gag({ id: 2, slot: 2, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} juggles planets.") }),
     ]));
     render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={["Alex"]} />);
@@ -76,9 +88,10 @@ describe("GagsPanel", () => {
     expect(cards).toHaveLength(2);
     expect(within(cards[0]!).getByTestId("gag-default")).toBeTruthy();
     expect(within(cards[0]!).getByTestId("gag-availability").textContent).toBe("Offered to users");
-    expect(within(cards[0]!).getByTestId("gag-no-example")).toBeTruthy();
+    expect(within(cards[0]!).getByTestId("gag-grandfathered")).toBeTruthy();
+    expect(within(cards[0]!).getByTestId("gag-example-words").textContent).toBe("No examples approved yet: male, female and pet to approve.");
     expect(within(cards[1]!).getByTestId("gag-availability").textContent).toBe("Hidden from users");
-    expect(within(cards[1]!).getByTestId("gag-state").textContent).toMatch(/^New: hidden from users until a test render is approved/);
+    expect(within(cards[1]!).getByTestId("gag-state").textContent).toMatch(/^New: hidden from users until its male, female and pet examples are approved/);
   });
 
   it("saves a change through the tokenizer, then PUTs the tokenized gag with the review it comes from", async () => {
@@ -94,7 +107,7 @@ describe("GagsPanel", () => {
     expect(put.url).toBe("/api/admin/facts/5/gags/1");
     expect(put.body).toMatchObject({ reviewId: 77, content: { coreSceneOverride: "{NAME} lifts the sun." } });
     expect(calls.findIndex((c) => c.url === "/api/ai/tokenize-enrichment")).toBeLessThan(calls.indexOf(put));
-    await waitFor(() => expect(screen.getByTestId("gag-state").textContent).toBe("Approved, with a change waiting for its example"));
+    await waitFor(() => expect(screen.getByTestId("gag-state").textContent).toBe("Approved, with a change waiting for its male, female and pet examples"));
   });
 
   it("REGRESSION #685: an over-budget gag shows the server's budget sentences, not its code, and keeps the edit", async () => {
@@ -112,24 +125,54 @@ describe("GagsPanel", () => {
     expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe(long);
   });
 
-  it("approving a finished render sends its attempt as the gag's example", async () => {
-    const done: RenderScenarioCard = {
-      key: "generic_t2i", label: "Generic", purpose: "", referenceIdentityType: null, required: true,
-      status: "done", stale: false, latestAttemptId: 901, imageUrl: "/api/admin/gags/2/renders/j/image", message: null, applicability: null,
+  it("shows a male, a female and a pet tile; approving a finished render sends its attempt; an approved one says so", async () => {
+    const renders: PerKind<RenderScenarioCard | null> = {
+      male: card("i2i_male_default", { latestAttemptId: 901 }),
+      female: card("i2i_female_default", { latestAttemptId: 902 }),
+      pet: null,
     };
-    const stale: RenderScenarioCard = { ...done, key: "i2i_male_default", label: "Male", stale: true, latestAttemptId: 902 };
     const calls = stubFetch(view([
       gag({ id: 2, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} juggles planets."),
-        renders: { reviewId: 77, gagId: 2, cards: [done, stale], tally: NO_TALLY } }),
+        pendingExamples: { male: ex(901), female: null, pet: null }, renders }),
     ], { isActive: false }));
     render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
-    const approve = await screen.findAllByTestId("gag-approve-render");
-    expect(approve).toHaveLength(1); // the stale render cannot be approved
-    fireEvent.click(approve[0]!);
+    const tiles = await screen.findAllByTestId("gag-render");
+    expect(tiles.map((t) => t.getAttribute("data-kind"))).toEqual(["male", "female", "pet"]);
+    expect(within(tiles[0]!).getByTestId("gag-render-picked")).toBeTruthy();
+    expect(within(tiles[0]!).queryByTestId("gag-approve-render")).toBeNull();
+    expect(within(tiles[2]!).getByTestId("gag-render-status").textContent).toMatch(/Not drawn yet/);
+    expect(screen.getByTestId("gag-example-words").textContent).toMatch(/^This change: Male picked; female and pet to approve\./);
+
+    fireEvent.click(within(tiles[1]!).getByTestId("gag-approve-render"));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/approve"))).toBe(true));
     const call = calls.find((c) => c.url.endsWith("/approve"))!;
     expect(call.url).toBe("/api/admin/facts/5/gags/2/approve");
-    expect(call.body).toEqual({ attemptId: 901, reviewId: 77 });
+    expect(call.body).toEqual({ attemptId: 902, reviewId: 77 });
+  });
+
+  it("\"Render female and pet\" draws only those kinds; a tile draws its own again on request", async () => {
+    const calls = stubFetch(view([gag({ id: 1, slot: 1, isDefault: true, renders: { ...NONE, male: card("i2i_male_default") } })]));
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+    fireEvent.click(await screen.findByTestId("gag-render-rest"));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/renders"))).toBe(true));
+    expect(calls.find((c) => c.url.endsWith("/renders"))!.body).toEqual({ kinds: ["female", "pet"] });
+
+    const male = screen.getAllByTestId("gag-render").find((t) => t.getAttribute("data-kind") === "male")!;
+    fireEvent.click(within(male).getByTestId("gag-redraw-render"));
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith("/renders"))).toHaveLength(2));
+    expect(calls.filter((c) => c.url.endsWith("/renders"))[1]!.body).toEqual({ kinds: ["male"], redraw: true });
+  });
+
+  it("says which examples are approved, and offers no \"Render female and pet\" once both are drawn", async () => {
+    stubFetch(view([gag({
+      id: 1, slot: 1,
+      approvedExamples: { male: ex(1), female: ex(2), pet: ex(3) },
+      renders: { male: card("i2i_male_default"), female: card("i2i_female_default"), pet: card("i2i_nonhuman_animal") },
+    })]));
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+    expect((await screen.findByTestId("gag-example-words")).textContent).toBe("Male, female and pet approved.");
+    expect(screen.getAllByTestId("gag-example")).toHaveLength(3);
+    expect(screen.queryByTestId("gag-render-rest")).toBeNull();
   });
 
   it("adds a gag through the create route, up to the limit", async () => {
@@ -156,34 +199,31 @@ describe("GagsPanel", () => {
     expect(await screen.findByTestId("gags-frozen-note")).toBeTruthy();
     expect(screen.queryByTestId("gag-save")).toBeNull();
     expect(screen.queryByTestId("gag-remove")).toBeNull();
-    expect(screen.queryByTestId("gag-run-renders")).toBeNull();
+    expect(screen.queryByTestId("gag-render-rest")).toBeNull();
+    expect(screen.queryByTestId("gag-redraw-render")).toBeNull();
     expect(screen.queryByTestId("gag-add")).toBeNull();
   });
 
-  it("reports unsaved gag work, so an approval can wait for it (Codex, PR #956 round 2)", async () => {
-    stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
+  it("reports unsaved gag work by gag, so an approval can wait for it and name it (Codex, PR #956 round 2)", async () => {
+    stubFetch(view([gag({ id: 1, slot: 1, isDefault: true }), gag({ id: 2, slot: 2 })]));
     const onUnsaved = vi.fn();
     render(<GagsPanel factId={5} reviewId={77} rendersEnabled={false} subjectNames={[]} onUnsavedChange={onUnsaved} />);
-    const card = await screen.findByTestId("gag-card");
-    fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} an unsaved edit." } });
-    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(true));
-    fireEvent.click(within(card).getByTestId("gag-undo"));
-    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(false));
+    const second = (await screen.findAllByTestId("gag-card"))[1]!;
+    fireEvent.change(within(second).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} an unsaved edit." } });
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(true, ["Gag 2"]));
+    fireEvent.click(within(second).getByTestId("gag-undo"));
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(false, []));
     // A new gag with text typed in is unsaved work too.
     fireEvent.click(screen.getByTestId("gag-add"));
     fireEvent.change(within(screen.getByTestId("gag-new")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} typed, not saved." } });
-    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(true));
+    await waitFor(() => expect(onUnsaved).toHaveBeenLastCalledWith(true, ["the new gag"]));
   });
 
-  describe("reloading while the server prepares renders (Codex, PR #956 round 1)", () => {
-    const missing: RenderScenarioCard = {
-      key: "generic_t2i", label: "Generic", purpose: "", referenceIdentityType: null, required: true,
-      status: "missing", stale: false, latestAttemptId: null, imageUrl: null, message: null, applicability: null,
-    };
-    const done: RenderScenarioCard = { ...missing, status: "done", latestAttemptId: 950, imageUrl: "/api/admin/gags/2/renders/j/image" };
-    const pendingGag = (cards: RenderScenarioCard[]) => gag({
+  describe("reloading while an iteration render is on its way (Codex, PR #956 round 1)", () => {
+    const male = card("i2i_male_default", { latestAttemptId: 950 });
+    const pendingGag = (m: RenderScenarioCard | null) => gag({
       id: 2, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null,
-      pendingContent: scene("{NAME} juggles planets."), renders: { reviewId: 77, gagId: 2, cards, tally: NO_TALLY },
+      pendingContent: scene("{NAME} juggles planets."), renders: { ...NONE, male: m },
     });
     /** GET answers each view in turn, then repeats the last. */
     function stubSequence(views: FactGagsView[]) {
@@ -199,9 +239,9 @@ describe("GagsPanel", () => {
     }
     afterEach(() => vi.useRealTimers());
 
-    it("at Test Renders, a first view with only missing renders reloads until the batch appears, and offers its approval", async () => {
+    it("at Test Renders, a gag with no male render yet reloads until it appears, and offers its approval", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      const gets = stubSequence([view([pendingGag([missing])], { isActive: false }), view([pendingGag([done])], { isActive: false })]);
+      const gets = stubSequence([view([pendingGag(null)], { isActive: false }), view([pendingGag(male)], { isActive: false })]);
       render(<GagsPanel factId={5} reviewId={77} rendersEnabled rendersExpected subjectNames={[]} />);
       await screen.findByTestId("gag-card");
       expect(screen.queryByTestId("gag-approve-render")).toBeNull();
@@ -210,19 +250,18 @@ describe("GagsPanel", () => {
       expect(await screen.findByTestId("gag-approve-render")).toBeTruthy();
     });
 
-    it("on re-approval, a previous batch's finished renders do not stop the reloading inside the prepare window", async () => {
+    it("keeps reloading while a render is drawing", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      const old: RenderScenarioCard = { ...done, latestAttemptId: 900 };
-      const gets = stubSequence([view([pendingGag([old])], { isActive: false }), view([pendingGag([{ ...done, status: "queued", imageUrl: null }])], { isActive: false })]);
-      render(<GagsPanel factId={5} reviewId={77} rendersEnabled rendersExpected subjectNames={[]} />);
+      const gets = stubSequence([view([pendingGag({ ...male, status: "queued", imageUrl: null })], { isActive: false })]);
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
       await screen.findByTestId("gag-card");
-      await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
-      expect(gets.mock.calls.length).toBeGreaterThanOrEqual(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(4500); });
+      expect(gets.mock.calls.length).toBeGreaterThanOrEqual(3);
     });
 
-    it("in the Facts editor, a never-run gag's missing renders do not make the panel poll", async () => {
+    it("in the Facts editor, a gag never drawn does not make the panel poll until an action asks for a render", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      const gets = stubSequence([view([pendingGag([missing])])]);
+      const gets = stubSequence([view([pendingGag(null)])]);
       render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
       await screen.findByTestId("gag-card");
       await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });

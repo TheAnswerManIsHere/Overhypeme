@@ -13,8 +13,6 @@ import {
   REVIEW_WORKFLOW_STAGE_DISPLAY,
   type ReviewWorkflowStage,
   type RenderReviewState,
-  type RenderScenarioKey,
-  RENDER_SCENARIO_DESCRIPTORS,
   type VisualConceptsResponse,
   type StoredCandidateConcept,
   type FactGagsView,
@@ -31,7 +29,7 @@ import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEd
 import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
+import { FinalHashtagsEditor } from "@/components/admin/FinalHashtagsEditor";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
 import { SubmissionWording, type WordingSaved } from "@/components/admin/SubmissionWording";
@@ -298,12 +296,6 @@ interface ReviewDetail extends Review {
   visualConcepts?: VisualConceptsResponse;
 }
 
-/** A single visual-render problem returned by approve-for-production's 409. */
-interface VisualRenderProblem {
-  scenarioKey: RenderScenarioKey;
-  status: string;
-}
-
 /** Three-step wizard for a non-terminal review (WizardStep from the shared helper). */
 const WIZARD_STEPS: { id: WizardStep; label: string }[] = [
   { id: "triage", label: "Triage" },
@@ -407,8 +399,6 @@ function ReviewModal({
   const [note, setNote] = useState("");
   const [reason, setReason] = useState<RejectionReason | "">("");
 
-  // Visual-render approval waiver (set when approve-for-production returns 409).
-  const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
   const modalBodyRef = useRef<HTMLDivElement | null>(null);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
@@ -430,8 +420,9 @@ function ReviewModal({
   // "AI changed — review"); the Visual Strategy Override is the only untracked
   // field ... none: a fact's gags live in their own table and are edited in the
   // Gags panel (plan docs/plans/PLAN_THREE_GAGS.md). Every successful mutation
-  // bumps `gridReloadKey` so the scenario tiles recompute staleness immediately.
-  const [gridReloadKey, setGridReloadKey] = useState(0);
+  // reloads the Gags panel: a render is matched to its input, so the tiles
+  // show what the edited enrichment would draw (plan PLAN_GAG_EXAMPLES.md).
+  const [gagsReloadKey, setGagsReloadKey] = useState(0);
   const enrichEditing = useFactEnrichmentEditing({
     // Refresh cycles edit the CANDIDATE version through the review-scoped
     // endpoints; first-time cycles edit the staging fact as before.
@@ -441,7 +432,7 @@ function ReviewModal({
     // Editable in BOTH Step 2 (Visual Concept) and Step 3 (Test Renders).
     enabled: isEditableStep && stagingFactId > 0,
     editableUntrackedFields: [],
-    onAfterMutation: () => setGridReloadKey((k) => k + 1),
+    onAfterMutation: () => setGagsReloadKey((k) => k + 1),
   });
   const { enrichment, draft: enrichmentDraft, jobs } = enrichEditing;
 
@@ -449,29 +440,14 @@ function ReviewModal({
   // docs/plans/PLAN_THREE_GAGS.md). `gagsReloadKey` reloads the panel after an
   // idea is used on a gag from the Visual ideas cards.
   const [gagsView, setGagsView] = useState<FactGagsView | null>(null);
-  const [gagsReloadKey, setGagsReloadKey] = useState(0);
-  // A gag edit not yet saved (or still saving) in the Gags panel: approvals act
-  // on the saved gags, so they wait for it (Codex, PR #956 round 2).
-  const [gagsUnsaved, setGagsUnsaved] = useState(false);
-
-  // The review grid shows the gate gag's renders, and a rerun there draws the
-  // gate gag as the server picks it at click time. Re-read the grid whenever
-  // the gags' saved state changes (which exist, what is approved, picked or
-  // marked for removal, their content, their latest renders) so what it shows
-  // and what a run draws stay the same gag. Keyed on that state, never on each
-  // panel load, which polls (Codex, PR #956 round 3).
-  const gagsSignature = useMemo(() => gagsView == null ? null : JSON.stringify(gagsView.gags.map((g) => [
-    g.id, g.slot, g.pendingRemove, g.approvedContent, g.pendingContent,
-    g.approvedExample?.attemptId ?? null, g.pendingExample?.attemptId ?? null,
-    g.renders.cards.map((c) => c.latestAttemptId),
-  ])), [gagsView]);
-  const lastGagsSignature = useRef<string | null>(null);
-  useEffect(() => {
-    if (gagsSignature == null) return;
-    const previous = lastGagsSignature.current;
-    lastGagsSignature.current = gagsSignature;
-    if (previous != null && previous !== gagsSignature) setGridReloadKey((k) => k + 1);
-  }, [gagsSignature]);
+  // The gags with an edit not yet saved (or still saving) in the Gags panel,
+  // named ("Gag 2"): approvals act on the saved gags, so they wait for it
+  // (Codex, PR #956 round 2), and the warning says which gag.
+  const [gagsUnsavedNames, setGagsUnsavedNames] = useState<string[]>([]);
+  const gagsUnsaved = gagsUnsavedNames.length > 0;
+  const onGagsUnsavedChange = useCallback((_unsaved: boolean, names: string[]) => setGagsUnsavedNames(names), []);
+  const unsavedGagsWords = gagsUnsavedNames.length <= 1 ? (gagsUnsavedNames[0] ?? "your gag")
+    : `${gagsUnsavedNames.slice(0, -1).join(", ")} and ${gagsUnsavedNames[gagsUnsavedNames.length - 1]}`;
 
   // Subject-name hint for the Gags panel's tokenizer: the moderator's active
   // render-diagnostics preview name (if set) folded in ahead of the shared
@@ -636,17 +612,9 @@ function ReviewModal({
         body: JSON.stringify(body),
       });
       if (r.ok) { onActionDone(); onClose(); return; }
-      const d = (await r.json().catch(() => ({}))) as {
-        error?: string;
-        problems?: VisualRenderProblem[];
-      };
-      // 409 visual_render_incomplete: surface the named problem scenarios and
-      // offer "Approve anyway (waive)" rather than a generic error.
-      if (r.status === 409 && d.error === "visual_render_incomplete" && Array.isArray(d.problems)) {
-        setRenderProblems(d.problems);
-        setError("");
-        return;
-      }
+      // A refused approval says why in words: CONCEPT_MISSING names each gag's
+      // missing examples ("Gag 1 needs female and pet examples.").
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
       setError(d.error ?? `Request failed (${r.status})`);
     } catch {
       setError("Network error — could not reach the server.");
@@ -674,7 +642,7 @@ function ReviewModal({
     await enrichEditing.flushOverrides();
     void runAction("reject", { rejectionReason: isRefreshCycle ? undefined : reason, adminNote: note || undefined });
   };
-  const onApproveProduction = async (waive?: boolean) => {
+  const onApproveProduction = async () => {
     // Land any in-flight per-field override write BEFORE promotion. A tracked
     // field (semantic entity, or a Revert-to-AI reset that never marks the
     // draft dirty) blurred by this very click fires an un-awaited PUT/DELETE;
@@ -710,10 +678,6 @@ function ReviewModal({
       // Refresh approval never attaches/rewrites discovery tags — send none.
       ...(isRefreshCycle ? {} : { hashtags: finalHashtags }),
     };
-    if (waive && renderProblems) {
-      body.waiveVisualRenderIssues = true;
-      body.waivedScenarioKeys = renderProblems.map((p) => p.scenarioKey);
-    }
     void runAction("approve-for-production", body);
   };
 
@@ -753,7 +717,7 @@ function ReviewModal({
         headers: { "Content-Type": "application/json" }, body: "{}",
       });
       const d = (await r.json().catch(() => ({}))) as { error?: string; workflowStage?: ReviewWorkflowStage };
-      if (r.ok && d.workflowStage) { setRenderProblems(null); applyTransition(d.workflowStage, "concept"); return; }
+      if (r.ok && d.workflowStage) { applyTransition(d.workflowStage, "concept"); return; }
       setError(d.error ?? `Could not send back to Visual Concept (${r.status}).`);
     } catch {
       setError("Network error — could not send back to Visual Concept.");
@@ -764,14 +728,16 @@ function ReviewModal({
 
   // A first-time fact can't ship without discovery tags; a refresh keeps the
   // live fact's existing tags, so the gate doesn't apply (the server skips it too).
-  // ── Gag gates (plan docs/plans/PLAN_THREE_GAGS.md) ──
+  // ── Gag gates (plans PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md) ──
   // Approving the Gags step needs a saved gag; approving for production needs
-  // a gag that will be approved once the decision lands: one approved already,
-  // or (inside a refresh) one whose example is picked to land at promotion. The
-  // server enforces both; these only keep the buttons honest.
+  // a gag that will be offered once the decision lands: one approved already
+  // (with its male, female and pet examples, or grandfathered), or, inside a
+  // refresh, one whose three picks land at promotion. The server enforces both
+  // and names what is missing; these only keep the buttons honest.
   const gagsLive = (gagsView?.gags ?? []).filter((g) => !g.pendingRemove);
   const hasSavedGag = gagsLive.some((g) => !!(g.pendingContent ?? g.approvedContent)?.coreSceneOverride?.trim());
-  const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null || g.pendingExample != null);
+  const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null
+    || (g.pendingReviewId != null && g.pendingExamples.male != null && g.pendingExamples.female != null && g.pendingExamples.pet != null));
   const canApproveProduction = isApprovable(enrichment)
     && (isRefreshCycle || finalHashtags.length > 0)
     && hasApprovedGag
@@ -1088,7 +1054,8 @@ function ReviewModal({
               <p className="text-xs text-muted-foreground">
                 Write, edit or use an idea for each gag: the plain-language description of how the joke works
                 visually. A fact can have up to three. Approving them spends nothing yet; it unlocks the test
-                renders in the next step, where approving a render makes it that gag's example.
+                renders in the next step. Each saved gag gets one male test render to judge it by; once it
+                works, render its female and pet versions and approve all three as its examples.
               </p>
 
               {/* The fact's gags (plan docs/plans/PLAN_THREE_GAGS.md): each one's
@@ -1101,7 +1068,7 @@ function ReviewModal({
                   subjectNames={subjectNames}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
-                  onUnsavedChange={setGagsUnsaved}
+                  onUnsavedChange={onGagsUnsavedChange}
                   disabled={loading || ideaSaving}
                 />
               )}
@@ -1111,7 +1078,7 @@ function ReviewModal({
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
                 disabled={loading || !gagsView || ideaSaving}
-                pickBlockedReason={gagsUnsaved ? "Save or undo your gag edits first: using an idea replaces that gag's saved version." : null}
+                pickBlockedReason={gagsUnsaved ? `Save or undo your edits to ${unsavedGagsWords} first: using an idea replaces that gag's saved version.` : null}
                 actions={conceptActions}
                 onGenerate={onGenerateConcepts}
                 onSaveNote={onSaveHumorNote}
@@ -1166,19 +1133,21 @@ function ReviewModal({
                 </p>
               )}
 
-              <FactVisualReviewGrid
-                reviewId={review.id}
-                enrichment={enrichment}
-                reloadKey={gridReloadKey}
-                finalHashtags={finalHashtags}
-                onFinalHashtagsChange={onFinalHashtagsChange}
-                hideFinalHashtags={isRefreshCycle}
-                onRunScenarios={onRendersEnqueued}
-              />
+              {/* The tags that ship with the fact: a section of its own (plan
+                  PLAN_GAG_EXAMPLES.md). A refresh keeps the live fact's tags. */}
+              {!isRefreshCycle && (
+                <div className="rounded-sm border border-border bg-card p-3" data-testid="final-hashtags-section">
+                  <FinalHashtagsEditor
+                    finalHashtags={finalHashtags}
+                    onFinalHashtagsChange={onFinalHashtagsChange}
+                    aiSuggestions={enrichment?.suggestedHashtags ?? []}
+                  />
+                </div>
+              )}
 
-              {/* Every gag, editable here too, with its own test renders:
-                  approving a render makes it that gag's example (plan
-                  docs/plans/PLAN_THREE_GAGS.md). */}
+              {/* Every gag, editable here too, with its male, female and pet
+                  test renders: approving all three makes them that gag's
+                  examples (plan docs/plans/PLAN_GAG_EXAMPLES.md). */}
               {stagingFactId > 0 && (
                 <GagsPanel
                   factId={stagingFactId}
@@ -1188,7 +1157,7 @@ function ReviewModal({
                   subjectNames={subjectNames}
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
-                  onUnsavedChange={setGagsUnsaved}
+                  onUnsavedChange={onGagsUnsavedChange}
                   disabled={loading}
                 />
               )}
@@ -1228,29 +1197,6 @@ function ReviewModal({
             <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
               <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
               <p className="text-sm text-destructive">{error}</p>
-            </div>
-          )}
-
-          {/* ── Visual-render incomplete (409): named problems + waive option ── */}
-          {renderProblems && (
-            <div
-              className="rounded-sm border border-amber-500/50 bg-amber-500/10 px-3 py-3 space-y-2"
-              data-testid="visual-render-incomplete"
-            >
-              <p className="text-sm font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 shrink-0" /> Visual review is incomplete
-              </p>
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                These required test renders still have problems. Run or rerun them in Visual review, or approve
-                anyway to publish with the issues waived.
-              </p>
-              <ul className="space-y-1">
-                {renderProblems.map((p) => (
-                  <li key={p.scenarioKey} className="text-xs text-amber-700 dark:text-amber-300 font-mono">
-                    {RENDER_SCENARIO_DESCRIPTORS[p.scenarioKey]?.label ?? p.scenarioKey} — {p.status}
-                  </li>
-                ))}
-              </ul>
             </div>
           )}
 
@@ -1352,7 +1298,7 @@ function ReviewModal({
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     {gagsUnsaved
-                      ? "Save or undo your gag edits first: approving uses the saved gags."
+                      ? `Save or undo your edits to ${unsavedGagsWords} first: approving uses the saved gags.`
                       : !hasSavedGag
                       ? "Approve is locked until a gag is saved. Write one above (or use an idea) and save it."
                       : ideasPending
@@ -1363,7 +1309,7 @@ function ReviewModal({
               </div>
             )}
 
-            {/* Step 3 (Test Renders): approve for production (with waiver path). */}
+            {/* Step 3 (Test Renders): approve for production. */}
             {!isResolved && step === "render" && isProductionReview && (
               <div className="space-y-3">
                 {/* Rejection Reason + note live here too, right above the buttons —
@@ -1376,20 +1322,12 @@ function ReviewModal({
                     className="gap-2" data-testid="back-to-visual-concept">
                     <ChevronLeft className="w-4 h-4" /> Back to Gags
                   </Button>
-                  {renderProblems ? (
-                    <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading}
-                      title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
-                      className="bg-amber-600 hover:bg-amber-700 text-white gap-2 disabled:opacity-50"
-                      data-testid="approve-anyway-waive">
-                      <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Anyway" : "Approve Anyway"} (Waive {renderProblems.length})
-                    </Button>
-                  ) : (
-                    <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading}
-                      title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
-                      className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
-                      <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : "Approve for Production"}
-                    </Button>
-                  )}
+                  <Button onClick={() => void onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading}
+                    title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
+                    className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
+                    data-testid="approve-for-production">
+                    <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : "Approve for Production"}
+                  </Button>
                   {canRejectNow && (
                     <Button variant="outline" onClick={onReject} isLoading={loading}
                       className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
@@ -1402,12 +1340,12 @@ function ReviewModal({
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     {!isApprovable(enrichment)
-                      ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. Approval also requires the required test renders above to be fresh and successful (or explicitly waived)."
+                      ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually."
                       : gagsUnsaved
-                      ? "Save or undo your gag edits first: approving uses the saved gags."
+                      ? `Save or undo your edits to ${unsavedGagsWords} first: approving uses the saved gags.`
                       : !hasApprovedGag
-                      ? "Approve is locked until a gag has an example: run its test renders above and approve one."
-                      : "Approve is locked until there's at least one hashtag. Add a tag under Final hashtags (above the test renders) — clearing them all is usually a mistake."}
+                      ? "Approve is locked until a gag has its male, female and pet examples: render them above and approve all three."
+                      : "Approve is locked until there's at least one hashtag. Add a tag under Final hashtags (above the gags) — clearing them all is usually a mistake."}
                   </p>
                 )}
               </div>

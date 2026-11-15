@@ -298,7 +298,7 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     label: "Visualization Difficulty",
     hint: "The AI's rating of how hard this fact is to visualize.",
     whatItIs: [
-      "A low/medium/high rating of visualization difficulty. High-complexity facts (abstract, wordplay-heavy, ambiguous) are where AI renders most often miss — the admin UI shows a \"Hard to visualize\" warning for them in both the editor and the Step-2 visual review summary.",
+      "A low/medium/high rating of visualization difficulty. High-complexity facts (abstract, wordplay-heavy, ambiguous) are where AI renders most often miss — the admin UI shows a \"Hard to visualize\" warning for them in the enrichment editor.",
     ],
     howDerived: ["The classifier rates difficulty per its prompt definitions: low = straightforward, medium = needs interpretation but has clear anchors, high = abstract/wordplay/ambiguous."],
     renderImpact: [
@@ -308,9 +308,9 @@ export const CLASSIFICATION_FIELD_DOCS: FieldDoc[] = [
     values: valuesFrom(VISUAL_COMPLEXITY_VALUES, VISUAL_COMPLEXITY_DOCS),
     workedExamples: [
       {
-        scenario: 'The Step-2 "How the AI read this fact" summary shows a warning.',
+        scenario: "A fact the classifier rates hard to draw.",
         input: "visualComplexity: high",
-        outcome: "\"Hard to visualize (high complexity).\" appears — your cue to scrutinize the test renders.",
+        outcome: "Nothing blocks; expect a gag's male test render to need more iterations before it works, and judge it closely.",
       },
     ],
     effect: "advisory-only",

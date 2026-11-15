@@ -7,7 +7,7 @@ import {
   collectRenderedTextEntries,
   setRenderedTextAtPath,
   type FactGagsView,
-  type RenderScenarioKey,
+  type GagExampleKind,
   type VisualConceptsResponse,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
@@ -67,8 +67,13 @@ export const gagApi = {
   draftIdeas: (factId: number) => ideas("POST", factId),
   approve: (factId: number, gagId: number, attemptId: number, reviewId: number | null) =>
     call("POST", `${base(factId)}/${gagId}/approve`, { attemptId, ...scope(reviewId) }),
-  runRenders: (factId: number, gagId: number, reviewId: number | null, scenarios?: RenderScenarioKey[]) =>
-    call("POST", `${base(factId)}/${gagId}/renders`, { ...(scenarios ? { scenarios } : {}), ...scope(reviewId) }),
+  /**
+   * Draw renders of the gag's current content for these kinds (plan
+   * PLAN_GAG_EXAMPLES.md): a kind with a render of this content already is
+   * reused unless `redraw` asks for a new one.
+   */
+  runRenders: (factId: number, gagId: number, reviewId: number | null, kinds: GagExampleKind[], redraw = false) =>
+    call("POST", `${base(factId)}/${gagId}/renders`, { kinds, ...(redraw ? { redraw: true } : {}), ...scope(reviewId) }),
 };
 
 export type TokenizeResult =
