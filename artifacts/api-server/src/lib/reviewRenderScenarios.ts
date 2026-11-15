@@ -19,12 +19,13 @@ import { db, imagePromptAttemptsTable, pendingReviewsTable, factsTable, type Ima
 import {
   defaultIdentityPolicyForRenderMode,
   validateEnrichment,
+  ACTIVE_RENDER_SCENARIO_KEYS,
   RENDER_SCENARIO_DESCRIPTORS,
+  RENDER_SCENARIO_KEYS,
   REQUIRED_RENDER_SCENARIO_KEYS,
   SOURCE_IMAGE_ANALYZER_VERSION,
   type ContentMode,
   type FactEnrichment,
-  type FallbackSubjectGender,
   type NonHumanApplicability,
   type ReferenceIdentityType,
   type RenderScenarioCard,
@@ -53,7 +54,7 @@ import {
   buildRenderStatusPayload,
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
-import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
+import { defaultPreviewSubjectForReference, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
 import { resolveReviewCycleEnrichment } from "./moderationStaging";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
@@ -64,31 +65,19 @@ export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 // ─── Canonical default render controls (must match enqueue + hash + grid) ────
 
-export function defaultScenarioRenderControls(scenarioKey: RenderScenarioKey): {
+/**
+ * The render controls every scenario render uses. The sample subject's name
+ * and pronouns no longer ride here as a "fallback gender": they come from the
+ * scenario's reference photo (`defaultPreviewSubjectForReference`), so the
+ * wife's photo renders as Susan Franklin, she/her (compiler review, Phase 2).
+ */
+export function defaultScenarioRenderControls(): {
   aspectRatio: string;
   contentMode: ContentMode;
-  fallbackSubjectGender: FallbackSubjectGender | null;
 } {
-  const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
-  const mode = desc.subjectRenderMode;
-  // t2i: always neutral (Alex Franklin / they/them) so the protagonist is gender-agnostic.
-  // i2i: the reference image IS the visual subject, but the rendered fact text still
-  // substitutes a name + pronouns. Derive them from the reference's known gender so
-  // the text is coherent ("Susan Franklin … her gold pants" for the female reference,
-  // not the incoherent "David Franklin … his gold pants"). Male / non-human references
-  // keep null → David Franklin / he/him (historical default).
-  let fallbackSubjectGender: FallbackSubjectGender | null;
-  if (mode === "t2i_fallback") {
-    fallbackSubjectGender = "neutral";
-  } else if (desc.referenceIdentityType === "female") {
-    fallbackSubjectGender = "female";
-  } else {
-    fallbackSubjectGender = null;
-  }
   return {
     aspectRatio: "portrait",
     contentMode: "sfw",
-    fallbackSubjectGender,
   };
 }
 
@@ -129,10 +118,10 @@ export function computeScenarioInputHash(
   const referenceAssetVersion = referenceIdentityType
     ? (DEFAULT_REFERENCE_ASSET_VERSION[referenceIdentityType] ?? "1")
     : null;
-  const renderControls = defaultScenarioRenderControls(scenarioKey);
+  const renderControls = defaultScenarioRenderControls();
   // Hash the SAME sampled subject the render path resolves (gender-matched name
   // + pronouns), or staleness/idempotency compares against text no render uses.
-  const subject = defaultPreviewSubjectForGender(renderControls.fallbackSubjectGender);
+  const subject = defaultPreviewSubjectForReference(desc.referenceIdentityType);
   return buildScenarioInputHash({
     stagingFactId,
     scenarioKey,
@@ -214,8 +203,8 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
   const desc = RENDER_SCENARIO_DESCRIPTORS[args.scenarioKey];
   const mode = desc.subjectRenderMode;
   const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment, args.imageEngines);
-  const renderControls = defaultScenarioRenderControls(args.scenarioKey);
-  const subject = defaultPreviewSubjectForGender(renderControls.fallbackSubjectGender);
+  const renderControls = defaultScenarioRenderControls();
+  const subject = defaultPreviewSubjectForReference(desc.referenceIdentityType);
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)
     .values({
@@ -274,13 +263,14 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
     analysis = syntheticAnalysisForReference(desc.referenceIdentityType);
   }
 
-  const renderControls = defaultScenarioRenderControls(args.scenarioKey);
+  const renderControls = defaultScenarioRenderControls();
   const resolved = await resolveRenderReviewInput(args.factText, args.enrichment, {
     subjectRenderMode: mode,
     sourceImageAnalysis: analysis,
     referenceImageUrl,
     lookStyleId: null,
     renderControls,
+    referenceIdentityType: desc.referenceIdentityType,
   });
 
   const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment, args.imageEngines);
@@ -477,9 +467,10 @@ async function buildCard(
   scenarioKey: RenderScenarioKey,
   ctx: ReviewRenderContext,
   applicability: NonHumanApplicability | null,
+  prefetched?: ImagePromptAttempt,
 ): Promise<RenderScenarioCard> {
   const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
-  const attempt = await latestAttemptForScenario(reviewId, scenarioKey);
+  const attempt = prefetched ?? (await latestAttemptForScenario(reviewId, scenarioKey));
   const currentHash = computeScenarioInputHash(scenarioKey, ctx.stagingFactId, ctx.factText, ctx.enrichment, ctx.imageEngines);
 
   let status: RenderScenarioStatus;
@@ -556,8 +547,17 @@ export async function buildReviewScenarioGrid(
     skipped: cards.filter((c) => c.status === "skipped").length,
     stale: cards.filter((c) => c.stale).length,
   };
+  // A retired scenario (the no-photo render; every picture now starts from a
+  // photo) is never offered or required, but a render it already made stays
+  // viewable: its card follows the live ones, outside the tally, never rerun.
+  for (const key of RENDER_SCENARIO_KEYS) {
+    if (!RENDER_SCENARIO_DESCRIPTORS[key].retired) continue;
+    const stored = await latestAttemptForScenario(reviewId, key);
+    if (stored) cards.push({ ...(await buildCard(reviewId, key, ctx, null, stored)), stale: false });
+  }
   return { reviewId, cards, tally };
 }
+
 
 // ─── List-level coarse render state ──────────────────────────────────────────
 
@@ -585,7 +585,7 @@ export async function reviewRenderStates(reviewIds: number[]): Promise<Map<numbe
         a.review_id, a.error, a.generated_image_object_path
       FROM image_prompt_attempts a
       WHERE a.review_id = ANY(ARRAY[${sql.join(reviewIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
-        AND a.review_render_scenario_key IS NOT NULL
+        AND a.review_render_scenario_key = ANY(ARRAY[${sql.join(ACTIVE_RENDER_SCENARIO_KEYS.map((k) => sql`${k}`), sql`, `)}]::text[])
       ORDER BY a.review_id, a.review_render_scenario_key, a.created_at DESC
     ) latest
     GROUP BY latest.review_id

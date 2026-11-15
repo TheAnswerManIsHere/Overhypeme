@@ -122,17 +122,18 @@ export function operations(photoSha256: string): Operation[] {
     { key: "enrichment", journey: "3", description: "the fact enrichment classifier", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You are the fact enrichment classifier"), usable: parsesAsObject, min: 1, required: always },
     // The gag writer (PR #936): the locked prompt's opening line.
     { key: "visual-concepts", journey: "3", description: "the gag writer", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You write visual gags for Overhype.me."), usable: parsesAsObject, min: 1, required: always },
-    { key: "image-prompts", journey: "3", description: "the image-prompt generator (three review renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 3, required: always },
+    { key: "image-prompts", journey: "3", description: "the image-prompt generator (two review renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 2, required: always },
     {
       key: "image-renders",
       journey: "3",
-      description: "image generation (three review renders)",
+      description: "image generation (two review renders, each from a photo)",
       kind: "fal.subscribe",
-      // The engines a render with no look is routed to (compiler review, Phase 1): GPT Image 2.6.
-      target: /^openai\/gpt-image-2\.6\/sunburst\/(text-to-image|edit)$/,
+      // The engine a render with no look is routed to (compiler review, Phase 1),
+      // and every picture starts from a photo (Phase 2): GPT Image 2.6's edit.
+      target: /^openai\/gpt-image-2\.6\/sunburst\/edit$/,
       matches: (r) => typeof r?.input?.prompt === "string" && r.input.prompt.length > 0,
       usable: (r) => typeof (r?.data?.images?.[0]?.url ?? r?.data?.image?.url) === "string",
-      min: 3,
+      min: 2,
       required: always,
     },
     { key: "reference-uploads", journey: "3", description: "reference images uploaded for the image-to-image renders", kind: "fal.storage.upload", target: /./, matches: (r) => r?.sha256 !== photoSha256, usable: always, min: 1, required: always },

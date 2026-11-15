@@ -13,6 +13,25 @@
 
 ---
 
+### 2026-11-14 · Every picture starts from a photo; there is no picture without one
+- **Decision:** No part of the product draws a picture without a reference
+  photo. The no-photo render mode is refused at the queue and in the worker;
+  the analysis of an unusable photo asks for a better one; the planner's brief
+  and the compiler lose the mode; moderation's required renders are David's
+  photo and his wife's, with the cat conditional; the comparison and
+  evaluation draw photo panels only; the legacy AI-background generator is
+  retired. Stored no-photo attempts, panels and pictures are kept and stay
+  readable; nothing is migrated.
+- **Why:** David, 2026-11-14: *"There will be no future concept of 'no
+  picture'. The entire point of this site is that it's about bringing the
+  user into the fact. Anything other than that doesn't serve the function of
+  the software. For example images, we're going to use me, my wife, and my
+  cat."*
+- **Reference:** the compiler review, Phase 2 (`docs/plans/PLAN_COMPILER_REVIEW.md`,
+  Issue #955); [`visual-pipeline.md`](./visual-pipeline.md), *Every picture
+  starts from a photo*.
+- **Revisit if:** David reopens it.
+
 ### 2026-11-14 · The stored AI settings and the engines table are deleted; a read-only page shows the values
 - **Decision:** migration 0138 deletes the retired AI-setting rows from `admin_config` and drops the `engines` table. Engines exist only in the code catalogue (`artifacts/api-server/src/lib/engines/`): every reader, from the image routing and the three model resolvers to the Eval page and the prompt tuner, reads an engine's record from code (`engineById`, `imageEngines` in `engineInterpreter.ts`), and the boot-time reconciler that copied the catalogue into the table is deleted. An engine's on/off, tier and order are fields of its code definition, so switching one off is a code change. The admin console gains a read-only **AI Settings** page (`/admin/ai`) showing, from code, each AI step's model, its parameters as the request sends them ("not sent" where the model accepts none), and every system prompt. It has no controls.
 - **Why:** David, 2026-11-14: *"Why are we maintaining the old database entries? Shouldn't we clean that up? It's just detritus at this point. On the admin screen, instead of a configuration page that lets you SET the values, we should have a page that SHOWS the values."* Then, asked whether the engine table itself should go: option 1, remove it all. The stored copies had been kept only so a revert of PR #946 restored the old behaviour; once it merged and verified, that was not worth a second copy that could only drift from the code. History tables keep the engine id as plain text with no foreign key, so dropping the table loses no history.

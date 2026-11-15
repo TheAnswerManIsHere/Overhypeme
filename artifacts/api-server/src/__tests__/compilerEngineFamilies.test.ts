@@ -17,7 +17,11 @@ import { recipeBudgetProblems } from "../lib/imagePrompt/promptBudget.js";
 import { markRecipe, segmentsOf } from "../lib/imagePrompt/recipeHighlight.js";
 
 type Case = { args: Parameters<typeof compileForSubjectRenderMode>[0]; prompt: string; engineNotes: string | null };
-const corpus = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
+// The corpus was captured with three modes; no-photo renders are retired
+// (compiler review, Phase 2), so its no-photo cases are kept as the record and
+// not compiled.
+const captured = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
+const corpus = { cases: captured.cases.filter((c) => c.args.input.subjectRenderMode !== "t2i_fallback") };
 
 const GPT = "gpt-image-2-6";
 const NB21 = "nano-banana-2-1";

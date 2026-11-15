@@ -298,7 +298,7 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
       sourceImageAnalysis: desc.referenceIdentityType ? syntheticAnalysisForReference(desc.referenceIdentityType as ReferenceIdentityType) : undefined,
       referenceImageUrl: reference?.url ?? null,
       lookStyleId,
-      renderControls: defaultScenarioRenderControls(panel.scenarioKey as RenderScenarioKey),
+      renderControls: defaultScenarioRenderControls(),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

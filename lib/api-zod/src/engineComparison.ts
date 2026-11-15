@@ -4,7 +4,7 @@
  * Shared by the admin routes and the admin page.
  */
 import { z } from "zod";
-import { RENDER_SCENARIO_KEYS, renderScenarioKeySchema, type RenderScenarioKey } from "./renderScenarios";
+import { ACTIVE_RENDER_SCENARIO_KEYS, renderScenarioKeySchema, type RenderScenarioKey } from "./renderScenarios";
 
 /**
  * The six engine families David shortlisted (2026-11-06), the control last;
@@ -19,10 +19,14 @@ export const COMPARISON_DEFAULT_FAMILIES = [
   "nano-banana-2",
 ] as const;
 
-/** The plan's rounds: round 1 is every scenario unstyled, round 2 the stylisation round. */
+/**
+ * The plan's rounds: round 1 is every scenario still run, unstyled; round 2
+ * the stylisation round. Every picture starts from a photo (compiler review,
+ * Phase 2), so the retired no-photo scenario is in neither.
+ */
 export const COMPARISON_ROUND_PRESETS: Record<1 | 2, { scenarioKeys: readonly RenderScenarioKey[]; lookStyleIds: readonly string[] }> = {
-  1: { scenarioKeys: RENDER_SCENARIO_KEYS, lookStyleIds: ["none"] },
-  2: { scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: ["anime", "3d-cartoon", "caricature"] },
+  1: { scenarioKeys: ACTIVE_RENDER_SCENARIO_KEYS, lookStyleIds: ["none"] },
+  2: { scenarioKeys: ["i2i_male_default", "i2i_female_default"], lookStyleIds: ["anime", "3d-cartoon", "caricature"] },
 };
 
 /**

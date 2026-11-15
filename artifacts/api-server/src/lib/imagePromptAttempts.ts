@@ -117,9 +117,23 @@ export interface BuildImagePromptAttemptArgs {
  * Returns the `renderJobId` (for `GET /memes/ai/renders/:renderJobId` polling)
  * and the numeric `attemptId`.
  */
+/**
+ * A picture with no reference photo is never made (compiler review, Phase 2;
+ * David, 2026-11-14: "There will be no future concept of 'no picture'").
+ * Thrown before anything is stored.
+ */
+export class NoPhotoRenderRefusedError extends Error {
+  readonly code = "no_photo_render_retired";
+  constructor() {
+    super("a picture without a reference photo is no longer made: every picture starts from a photo");
+    this.name = "NoPhotoRenderRefusedError";
+  }
+}
+
 export async function buildAndEnqueueImagePromptAttempt(
   args: BuildImagePromptAttemptArgs,
 ): Promise<{ renderJobId: string; attemptId: number }> {
+  if (args.subjectRenderMode === "t2i_fallback") throw new NoPhotoRenderRefusedError();
   const generationMode = generationModeFromSubjectRenderMode(args.subjectRenderMode);
   // The look is resolved once and frozen on the attempt (the shared resolver
   // has normally done it already); an unusable look throws

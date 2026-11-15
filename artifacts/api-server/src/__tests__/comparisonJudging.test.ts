@@ -1,8 +1,8 @@
 // Launch Phase 8, increment 3: blind judging and results against the test
 // database (plan PLAN_PHASE8_ENGINE_EVALUATION.md, *Proposed Design* E and
 // *Testing Plan*, "Blind view"). Seeds two engine families under a `t-cj-`
-// prefix, one fact, and a set of two panels (generic_t2i and
-// i2i_male_default) whose four cells are marked rendered directly: judging
+// prefix, one fact, and a set of two panels (a stored no-photo generic_t2i
+// panel and i2i_male_default) whose four cells are marked rendered directly: judging
 // needs stored images, not a run.
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -21,7 +21,7 @@ import {
   lookStylesTable,
   usersTable,
 } from "@workspace/db/schema";
-import { eq, inArray, like } from "drizzle-orm";
+import { and, eq, inArray, like } from "drizzle-orm";
 
 import adminComparisonRouter, { __setBlindImageStorageForTest } from "../routes/adminComparison.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -71,9 +71,17 @@ const app = () => buildTestApp({ kind: "authenticated", userId: adminId }, admin
 async function renderedSet(label: string, opts: { missingT2i?: boolean; lookStyleIds?: string[]; edition?: 1 | 2 } = {}): Promise<{ setId: number; panels: Array<{ id: number; imageMode: string }>; cells: Array<{ id: number; panelId: number; engineId: string }> }> {
   const { setId } = await createComparisonSet({
     label: `${P} ${label}`, round: 1, factIds: [factId],
-    scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: opts.lookStyleIds ?? ["none"],
+    scenarioKeys: ["i2i_female_default", "i2i_male_default"], lookStyleIds: opts.lookStyleIds ?? ["none"],
     engineFamilies: [FAMILIES.gpt, FAMILIES.flux],
   }, adminId);
+  // A set made before every picture started from a photo: its no-photo panel
+  // stays stored, and judging and results still read it (compiler review,
+  // Phase 2). No new set can hold one, so it is written as stored.
+  const [legacy] = await db.select().from(comparisonPanelsTable).where(and(eq(comparisonPanelsTable.setId, setId), eq(comparisonPanelsTable.scenarioKey, "i2i_female_default")));
+  await db.update(comparisonPanelsTable).set({ scenarioKey: "generic_t2i", imageMode: "t2i", referenceIdentityType: null, referenceAssetVersion: null, referenceImageUrl: null }).where(eq(comparisonPanelsTable.id, legacy!.id));
+  for (const c of await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, legacy!.id))) {
+    await db.update(comparisonCellsTable).set({ engineId: c.engineId.replace(/-i2i$/, "-t2i") }).where(eq(comparisonCellsTable.id, c.id));
+  }
   // A new set is judged on the second edition; the tests written for the first say so.
   if ((opts.edition ?? 1) === 1) await db.update(comparisonSetsTable).set({ judgingEdition: 1 }).where(eq(comparisonSetsTable.id, setId));
   const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));

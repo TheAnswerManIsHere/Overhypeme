@@ -44,12 +44,11 @@ import {
   compileForSubjectRenderMode,
   compileNanoBanana2HumanI2I,
   compileNanoBanana2NonhumanI2I,
-  compileNanoBanana2T2I,
 } from "./compilers/nanoBanana2";
 import { RENDER_STYLE_COPY_MAX_CHARS } from "./styleResolution";
 import { BASELINE_RECIPE, type ResolvedRecipe } from "./recipe";
 
-export type SubjectRenderModeKey = "human_identity_i2i" | "nonhuman_subject_i2i" | "t2i_fallback";
+export type SubjectRenderModeKey = "human_identity_i2i" | "nonhuman_subject_i2i";
 
 export interface RequiredPromptBudgetMeasurement {
   /** Measured fixed-required prompt length per mode. */
@@ -95,15 +94,15 @@ const MAX_FIXED_POLICY: RenderPolicy = {
   violence: { mode: "allow", intensity: "strong" },
 };
 
-function fixedShapeArgs(mode: SubjectRenderModeKey, gender?: "male" | "female" | "neutral", recipe: ResolvedRecipe = BASELINE_RECIPE, stylePrompt = "S".repeat(RENDER_STYLE_COPY_MAX_CHARS)) {
+function fixedShapeArgs(mode: SubjectRenderModeKey, recipe: ResolvedRecipe = BASELINE_RECIPE, stylePrompt = "S".repeat(RENDER_STYLE_COPY_MAX_CHARS)) {
   const input = {
     subjectRenderMode: mode,
     stylePrompt,
-    referenceImageUrl: mode === "t2i_fallback" ? null : "https://example.com/ref.png",
+    referenceImageUrl: "https://example.com/ref.png",
     // A violence-relevant fact so the fixed violence-allow line emits.
     factText: "Subject destroys a tank.",
     enrichment: { modifiers: ["violence"] },
-    renderControls: { aspectRatio: "portrait", contentMode: "sfw", ...(gender ? { fallbackSubjectGender: gender } : {}) },
+    renderControls: { aspectRatio: "portrait", contentMode: "sfw" },
     renderPolicy: MAX_FIXED_POLICY,
   } as unknown as ImagePromptGenerationInput;
   return {
@@ -125,21 +124,19 @@ export function measureRequiredPromptBudget(recipe: ResolvedRecipe = BASELINE_RE
   // The baseline keeps the one measurement its pinned number was derived from
   // (deliberately by identity); any other recipe is also measured with no look.
   const styles = recipe === BASELINE_RECIPE ? ["S".repeat(RENDER_STYLE_COPY_MAX_CHARS)] : ["S".repeat(RENDER_STYLE_COPY_MAX_CHARS), ""];
-  const longest = (compile: (a: ReturnType<typeof fixedShapeArgs>) => { imagePrompt: string }, mode: SubjectRenderModeKey, gender?: "neutral") =>
-    Math.max(...styles.map((s) => compile(fixedShapeArgs(mode, gender, recipe, s)).imagePrompt.length));
+  const longest = (compile: (a: ReturnType<typeof fixedShapeArgs>) => { imagePrompt: string }, mode: SubjectRenderModeKey) =>
+    Math.max(...styles.map((s) => compile(fixedShapeArgs(mode, recipe, s)).imagePrompt.length));
   const human = longest(compileNanoBanana2HumanI2I, "human_identity_i2i");
   const nonhuman = longest(compileNanoBanana2NonhumanI2I, "nonhuman_subject_i2i");
-  const t2i = longest(compileNanoBanana2T2I, "t2i_fallback", "neutral");
-  const perMode = { human_identity_i2i: human, nonhuman_subject_i2i: nonhuman, t2i_fallback: t2i };
-  return { perMode, worstCase: Math.max(human, nonhuman, t2i) };
+  const perMode = { human_identity_i2i: human, nonhuman_subject_i2i: nonhuman };
+  return { perMode, worstCase: Math.max(human, nonhuman) };
 }
 
 // ─── Moderator-additions emission (Codex P1, PR#224) ─────────────────────────
 
-const ADDITIONS_MODES: ReadonlyArray<{ mode: SubjectRenderModeKey; gender?: "male" | "female" | "neutral" }> = [
+const ADDITIONS_MODES: ReadonlyArray<{ mode: SubjectRenderModeKey }> = [
   { mode: "human_identity_i2i" },
   { mode: "nonhuman_subject_i2i" },
-  { mode: "t2i_fallback", gender: "neutral" },
 ];
 
 /**
@@ -162,7 +159,7 @@ function projectAdditionsOverride(ov: VisualPromptStrategyOverride): VisualPromp
 }
 
 function compileWithOverride(
-  entry: { mode: SubjectRenderModeKey; gender?: "male" | "female" | "neutral" },
+  entry: { mode: SubjectRenderModeKey },
   ov: VisualPromptStrategyOverride,
   recipe: ResolvedRecipe = BASELINE_RECIPE,
   shape: { modifiers?: string[]; plan?: (vp: VisualPlan) => VisualPlan } = {},
@@ -171,13 +168,12 @@ function compileWithOverride(
   const input = {
     subjectRenderMode: entry.mode,
     stylePrompt: "", // identical across the two runs → cancels out of the delta
-    referenceImageUrl: entry.mode === "t2i_fallback" ? null : "https://example.com/ref.png",
+    referenceImageUrl: "https://example.com/ref.png",
     factText: "",
     enrichment,
     renderControls: {
       aspectRatio: "portrait",
       contentMode: "sfw",
-      ...(entry.gender ? { fallbackSubjectGender: entry.gender } : {}),
     },
     // Effective policy resolved from the override, so a moderator policy guidance
     // line is emitted (and thus measured) exactly as it will render.

@@ -23,7 +23,7 @@ function stubRenderFetch(pollSeq: unknown[]) {
 
 const BODY: RenderControlsBody = {
   lookStyleId: null,
-  renderControls: { aspectRatio: "portrait", contentMode: "sfw", negativeSpacePreference: "auto", fallbackSubjectGender: "neutral" },
+  renderControls: { aspectRatio: "portrait", contentMode: "sfw", negativeSpacePreference: "auto" },
   identityPolicyOverrides: { preservePhysique: false },
   meta: { name: "David Franklin", pronouns: "he/him", aspectRatio: "portrait", fallbackGender: "neutral", style: "(none)", contentMode: "sfw" },
 };

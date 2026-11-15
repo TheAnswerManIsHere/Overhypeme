@@ -7,13 +7,15 @@
  * server share one source of truth and can't drift.
  *
  * A "scenario" is one default test render the moderator reviews in Step 2:
- *   - generic_t2i               text-to-image, no reference (the generic case)
+ *   - generic_t2i               RETIRED: no reference photo. Every picture now
+ *                               starts from a photo; the key stays so its stored
+ *                               renders still read.
  *   - i2i_male_default          image-to-image with the default male reference
  *   - i2i_female_default        image-to-image with the default female reference
  *   - i2i_nonhuman_animal       image-to-image with a non-human animal reference
  *   - i2i_nonhuman_object_vehicle  …with a non-human object/vehicle reference
  *
- * The first three are REQUIRED (always attempted). The two non-human scenarios
+ * The two human scenarios are REQUIRED (always attempted). The two non-human scenarios
  * are OPTIONAL/conditional — see `resolveNonHumanScenarioApplicability` server
  * side; they auto-run only on a high-confidence non-human-subject signal and are
  * otherwise manually forceable.
@@ -101,16 +103,23 @@ export interface RenderScenarioDescriptor {
   referenceIdentityType: ReferenceIdentityType | null;
   /** Required scenarios are always attempted and gate approval. */
   required: boolean;
+  /**
+   * A retired scenario is never offered, run or required; its key stays so
+   * its stored attempts still read (compiler review, Phase 2: there is no
+   * picture without a photo, David 2026-11-14).
+   */
+  retired?: boolean;
 }
 
 export const RENDER_SCENARIO_DESCRIPTORS: Record<RenderScenarioKey, RenderScenarioDescriptor> = {
   generic_t2i: {
     key: "generic_t2i",
-    label: "Generic (text-to-image)",
-    purpose: "How the fact renders with no reference photo — the generic, no-upload case.",
+    label: "Generic (text-to-image, retired)",
+    purpose: "Retired: a picture with no reference photo. Kept so its stored renders still read.",
     subjectRenderMode: "t2i_fallback",
     referenceIdentityType: null,
-    required: true,
+    required: false,
+    retired: true,
   },
   i2i_male_default: {
     key: "i2i_male_default",
@@ -148,6 +157,11 @@ export const RENDER_SCENARIO_DESCRIPTORS: Record<RenderScenarioKey, RenderScenar
 
 export const REQUIRED_RENDER_SCENARIO_KEYS: readonly RenderScenarioKey[] = RENDER_SCENARIO_KEYS.filter(
   (k) => RENDER_SCENARIO_DESCRIPTORS[k].required,
+);
+
+/** The scenarios that can still be run: every key but the retired ones. */
+export const ACTIVE_RENDER_SCENARIO_KEYS: readonly RenderScenarioKey[] = RENDER_SCENARIO_KEYS.filter(
+  (k) => !RENDER_SCENARIO_DESCRIPTORS[k].retired,
 );
 
 export const NONHUMAN_RENDER_SCENARIO_KEYS: readonly RenderScenarioKey[] = [

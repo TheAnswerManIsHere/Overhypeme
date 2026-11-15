@@ -59,7 +59,6 @@ export const RECIPE_PIECES = [
   // ── Section labels (order fixed; the words are editable) ───────────────────
   label("coreScene", "CORE SCENE"),
   label("identityReference", "IDENTITY & REFERENCE", "On a picture made from a supplied photo."),
-  label("renderTask", "RENDER TASK", "On a picture made with no photo."),
   label("subjectBinding", "SUBJECT BINDING"),
   label("subjectRealization", "SUBJECT REALIZATION"),
   label("roleDetails", "ROLE DETAILS"),
@@ -96,16 +95,6 @@ export const RECIPE_PIECES = [
     key: "identity.object", label: "Identity: a pet's or object's photo", group: "identity",
     when: "On every picture made from a photo of a pet or an object.", slots: [],
     text: "Image-to-image edit using the reference image as the visual identity source for the uploaded subject. The uploaded subject visually represents the named subject in the fact. Preserve the uploaded subject's recognizable visual identity. Do not replace the subject with a human.",
-  },
-  {
-    key: "identity.none", label: "Render task: no photo", group: "identity",
-    when: "On every picture made with no photo.", slots: [],
-    text: "Text-to-image generation: render an original protagonist that fits the scene.",
-  },
-  {
-    key: "identity.gender", label: "Render task: the protagonist's gender", group: "identity",
-    when: "With no photo, when a gender is set for the protagonist.", slots: ["gender"],
-    text: "Render a {gender} protagonist.",
   },
 
   // ── Subject binding ─────────────────────────────────────────────────────────

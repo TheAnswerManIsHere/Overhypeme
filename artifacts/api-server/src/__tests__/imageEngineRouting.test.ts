@@ -231,7 +231,7 @@ describe("a render is routed by its look, resolved once at queue time (compiler 
       sourceImageAnalysis: syntheticAnalysisForReference("male"),
       referenceImageUrl: "https://example.com/ref.png",
       lookStyleId,
-      renderControls: defaultScenarioRenderControls("i2i_male_default"),
+      renderControls: defaultScenarioRenderControls(),
     });
     const { attemptId } = await buildAndEnqueueImagePromptAttempt({
       factId: fact!.id, userId: null, enrichment: ENRICHMENT, renderedFactText: resolved.renderedFactText,

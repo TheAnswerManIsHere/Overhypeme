@@ -111,7 +111,7 @@ beforeEach(() => {
   __setComparisonImageStoreForTest(async (cell) => `/objects/comparison/cell-${cell.id}.png`);
   __setPlanGeneratorForTest(async (input) => {
     if (failPlanner) throw new Error("planner down");
-    return makeStubPlan((input as { subjectRenderMode: string }).subjectRenderMode === "t2i_fallback" ? "t2i_fallback" : "human_identity_i2i", "A protagonist lifts a mountain.") as never;
+    void input; return makeStubPlan("human_identity_i2i", "A protagonist lifts a mountain.") as never;
   });
   CELL_POLL.intervalMs = 0;
 });
@@ -125,7 +125,7 @@ function generate(label: string, token = randomUUID()): EvaluationCreate {
     description: `${P} ${label}`,
     selection: {
       kind: "engine", factIds: [activeFact], engineFamilies: [FAMILIES.gpt, FAMILIES.flux] as never,
-      scenarioKeys: ["generic_t2i", "i2i_male_default"] as never, lookStyleIds: ["none"],
+      scenarioKeys: ["i2i_female_default", "i2i_male_default"] as never, lookStyleIds: ["none"],
     },
   };
 }

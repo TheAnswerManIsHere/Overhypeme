@@ -97,7 +97,7 @@ describe("prompt recipe versions", () => {
 
 describe("promotion", () => {
   it("makes a version live for its family only, needs a second confirmation for a policy change, and promoting null restores the baseline", async () => {
-    const v = await save({ "identity.none": "Draw an original protagonist." }, "t2i wording");
+    const v = await save({ "identity.object": "Keep the pet in the photo recognisable." }, "pet wording");
     const ok = await promote({ versionId: v.body.version.id });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
     assert.equal((await liveRecipeVersionIds([FAMILY, OTHER])).get(FAMILY), v.body.version.id);
@@ -113,7 +113,7 @@ describe("promotion", () => {
     const confirmed = await promote({ versionId: policy.body.version.id, confirmPolicy: true });
     assert.equal(confirmed.status, 200);
 
-    const foreign = await save({ "identity.none": "Other family." }, "x", OTHER);
+    const foreign = await save({ "identity.object": "Other family." }, "x", OTHER);
     assert.equal((await promote({ versionId: foreign.body.version.id })).status, 409, "a version of another family is refused");
 
     const restore = await promote({ versionId: null, confirmPolicy: true });
@@ -150,7 +150,7 @@ describe("an attempt records the wording its caller froze (Codex, PR #926 round 
     const enqueue = (extra: Record<string, unknown>) => buildAndEnqueueImagePromptAttempt({
       factId: fact!.id, userId: null, enrichment: VALID_ENRICHMENT as never, renderedFactText: "Alex lifts a car",
       analysis: syntheticAnalysisForReference("male"), subjectRenderMode: "human_identity_i2i",
-      identityPolicy: defaultIdentityPolicyForRenderMode("human_identity_i2i"), renderControls: defaultScenarioRenderControls("i2i_male_default") as never,
+      identityPolicy: defaultIdentityPolicyForRenderMode("human_identity_i2i"), renderControls: defaultScenarioRenderControls() as never,
       imageEngineId: `${FAMILY}-i2i`, ...extra,
     });
     const ids: number[] = [];

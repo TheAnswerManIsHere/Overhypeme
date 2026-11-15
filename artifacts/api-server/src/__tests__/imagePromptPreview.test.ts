@@ -338,25 +338,19 @@ describe("image-prompt preview — nonhuman i2i", () => {
   });
 });
 
-describe("image-prompt preview — t2i fallback", () => {
-  it("surfaces fallback gender and bakes it into the prompt", async () => {
+describe("image-prompt preview — no picture without a photo", () => {
+  it("refuses the retired no-photo mode, naming why, and never plans", async () => {
     const factId = await seedFact();
-    __setPlanGeneratorForTest(
-      async () => makeOutput({ subjectRenderMode: "t2i_fallback", promptText: "A protagonist lifts a mountain." }) as never,
-    );
+    let planned = false;
+    __setPlanGeneratorForTest(async () => { planned = true; return makeOutput() as never; });
 
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
-      .send({
-        factId,
-        subjectRenderMode: "t2i_fallback",
-        renderControls: { fallbackSubjectGender: "female", aspectRatio: "portrait", contentMode: "sfw" },
-      });
+      .send({ factId, subjectRenderMode: "t2i_fallback", renderControls: { aspectRatio: "portrait", contentMode: "sfw" } });
 
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.inputSummary.generationMode, "t2i");
-    assert.equal(res.body.inputSummary.fallbackSubjectGender, "female");
-    assert.match(String(res.body.compiledPrompt.imagePrompt).toLowerCase(), /female/);
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(res.body.error, "no_usable_photo");
+    assert.equal(planned, false);
   });
 });
 
@@ -547,38 +541,13 @@ describe("image-prompt preview — CORE SCENE source", () => {
 describe("image-prompt preview — look style copy per generation mode", () => {
   it("refuses a look that does not exist with a 400, never treating it as no look", async () => {
     const factId = await seedFact();
-    __setPlanGeneratorForTest(async () => makeOutput({ subjectRenderMode: "t2i_fallback", promptText: "A protagonist lifts a mountain." }) as never);
+    __setPlanGeneratorForTest(async () => makeOutput() as never);
     const res = await request(adminApp())
       .post("/api/admin/image-prompt/preview")
-      .send({ factId, subjectRenderMode: "t2i_fallback", lookStyleId: "no-such-look-style", renderControls: { fallbackSubjectGender: "female" } });
+      .send({ factId, subjectRenderMode: "human_identity_i2i", lookStyleId: "no-such-look-style" });
     assert.equal(res.status, 400, JSON.stringify(res.body));
     assert.equal(res.body.error, "look_style_unavailable");
     assert.equal(res.body.reason, "not_found");
-  });
-
-  it("t2i_fallback compiles the style's declarative promptSuffix, not its promptSuffixReference", async () => {
-    const factId = await seedFact();
-    const styleId = await seedStyle();
-    __setPlanGeneratorForTest(
-      async () => makeOutput({ subjectRenderMode: "t2i_fallback", promptText: "A protagonist lifts a mountain." }) as never,
-    );
-
-    const res = await request(adminApp())
-      .post("/api/admin/image-prompt/preview")
-      .send({
-        factId,
-        subjectRenderMode: "t2i_fallback",
-        lookStyleId: styleId,
-        renderControls: { fallbackSubjectGender: "female" },
-      });
-
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.inputSummary.styleSource, "selected_look_style");
-    assert.equal(res.body.inputSummary.stylePrompt, ", cinematic test style suffix");
-    // A chosen look routes to Nano Banana 2.1, whose shape writes no section labels.
-    const prompt = String(res.body.compiledPrompt.imagePrompt);
-    assert.match(prompt, /cinematic test style suffix/);
-    assert.doesNotMatch(prompt, /reimagined in cinematic test style/);
   });
 });
 

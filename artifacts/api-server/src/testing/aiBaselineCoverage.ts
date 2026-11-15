@@ -6,11 +6,12 @@
 
 /**
  * The review renders the baseline exists to cover (sub-plan D4: one Nano Banana
- * render per required scenario). Named here rather than read from the product's
+ * render per required scenario: David's photo and his wife's, since every
+ * picture starts from a photo). Named here rather than read from the product's
  * list, so a change that narrows the required set breaks the journey instead of
  * shrinking what it checks (#654 round 3).
  */
-export const BASELINE_RENDER_SCENARIOS = ["generic_t2i", "i2i_male_default", "i2i_female_default"] as const;
+export const BASELINE_RENDER_SCENARIOS = ["i2i_male_default", "i2i_female_default"] as const;
 
 /** Why a review's render cards do not cover the baseline: an expected scenario is absent or not required. Empty when they do. */
 export function renderCoverageProblems(cards: Array<{ key: string; required?: boolean }>): string[] {

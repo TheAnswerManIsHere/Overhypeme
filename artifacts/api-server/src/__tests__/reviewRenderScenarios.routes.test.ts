@@ -20,12 +20,11 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable, imagePromptAttemptsTable, asyncJobsTable, enrichmentOverrideHistoryTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
-import { defaultIdentityPolicyForRenderMode, validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import { type FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import adminRouter from "../routes/admin.js";
 import { ensureDefaultReviewRenders } from "../lib/reviewRenderScenarios.js";
-import { buildScenarioInputHash } from "../lib/factRenderScenarios.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -142,16 +141,18 @@ after(async () => {
 });
 
 describe("GET /admin/reviews/:id/render-scenarios", () => {
-  it("returns the scenario grid (3 required + 1 non-human card) for admins", async () => {
+  it("returns the scenario grid (David and his wife required + 1 non-human card) for admins", async () => {
     const reviewId = await seedReview(plainId);
     const res = await request(makeApp())
       .get(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 200);
     assert.equal(res.body.reviewId, reviewId);
-    assert.equal(res.body.cards.length, 4);
+    assert.equal(res.body.cards.length, 3);
     const byKey = Object.fromEntries(res.body.cards.map((c: { key: string }) => [c.key, c]));
-    assert.equal(byKey["generic_t2i"].status, "missing");
+    assert.equal(byKey["i2i_male_default"].status, "missing");
+    assert.equal(byKey["i2i_female_default"].status, "missing");
+    assert.equal(byKey["generic_t2i"], undefined, "the retired no-photo scenario is not offered");
     // The non-human card is "skipped" (not applicable, not auto-run) with applicability.
     const nh = res.body.cards.find((c: { key: string }) => c.key.startsWith("i2i_nonhuman"));
     assert.equal(nh.status, "skipped");
@@ -173,59 +174,60 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["generic_t2i"] });
+      .send({ scenarios: ["i2i_female_default"] });
     assert.equal(res.status, 202);
     assert.equal(res.body.enqueued.length, 1);
-    assert.equal(res.body.enqueued[0].scenarioKey, "generic_t2i");
+    assert.equal(res.body.enqueued[0].scenarioKey, "i2i_female_default");
 
     const attempts = await db.select().from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.reviewId, reviewId));
     assert.equal(attempts.length, 1);
-    assert.equal(attempts[0]!.reviewRenderScenarioKey, "generic_t2i");
+    assert.equal(attempts[0]!.reviewRenderScenarioKey, "i2i_female_default");
     assert.ok(attempts[0]!.reviewRenderInputHash, "input hash recorded");
   });
 
-  it("hashes the t2i scenario with the SAME gender-matched subject the render uses", async () => {
+  it("refuses the retired no-photo scenario (400), and a render it already made stays on the grid", async () => {
+    const reviewId = await seedReview(plainId);
+    const refused = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/render-scenarios`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ scenarios: ["generic_t2i"] });
+    assert.equal(refused.status, 400);
+
+    const [review] = await db.select({ stagingFactId: pendingReviewsTable.stagingFactId }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    await db.insert(imagePromptAttemptsTable).values({
+      factId: review!.stagingFactId!, userId: null, reviewId, renderJobId: randomUUID(), requestId: `t-legacy-${randomUUID()}`,
+      generationMode: "t2i", subjectRenderMode: "t2i_fallback", reviewRenderScenarioKey: "generic_t2i",
+      targetEngine: "nano_banana_2", sourceImageAnalysis: {}, identityPolicy: {}, renderControls: { aspectRatio: "portrait" },
+      factEnrichmentSnapshot: ENRICHMENT, archetypeStrategyVersion: "v2",
+      renderedFactText: "Alex Franklin lifts a mountain.", generatedImageObjectPath: "/objects/legacy.png",
+    } as never);
+    const grid = await request(makeApp()).get(`/admin/reviews/${reviewId}/render-scenarios`).set("authorization", `Bearer ${adminSid}`);
+    const legacy = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
+    assert.ok(legacy, "the stored no-photo render is still shown");
+    assert.equal(legacy.required, false);
+    assert.equal(grid.body.tally.requested, 3, "and is not counted as owed work");
+  });
+
+  it("renders the wife's scenario as Susan Franklin, and hashes it with that same subject", async () => {
     const reviewId = await seedReview(plainId);
     await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["generic_t2i"] });
+      .send({ scenarios: ["i2i_female_default"] });
 
     const [attempt] = await db.select().from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    // The default t2i scenario renders a neutral protagonist (Alex/they), not
-    // the historical David/he brand default…
-    assert.match(attempt!.renderedFactText!, /Alex Franklin/);
-    // …and the stored input hash must be computed from that SAME rendered text,
-    // or staleness/idempotency compares against inputs no render ever used. Hash
-    // against the VALIDATED enrichment (what the real route hashes), not the raw
-    // pre-parse literal — the schema transform normalizes VSO's optional fields
-    // to explicit keys, which changes the canonical (sorted-key) hash input.
-    const validated = validateEnrichment(ENRICHMENT);
-    assert.ok(validated.ok, "fixture enrichment must validate");
-    const expectedHash = buildScenarioInputHash({
-      stagingFactId: attempt!.factId!,
-      scenarioKey: "generic_t2i",
-      subjectRenderMode: "t2i_fallback",
-      renderedFactText: attempt!.renderedFactText!,
-      enrichment: validated.ok ? validated.data : ENRICHMENT,
-      referenceIdentityType: null,
-      referenceAssetVersion: null,
-      renderControls: { aspectRatio: "portrait", contentMode: "sfw", fallbackSubjectGender: "neutral" },
-      lookStyleId: null,
-      styleSuffixVersion: null,
-      identityPolicy: defaultIdentityPolicyForRenderMode("t2i_fallback"),
-      actualImageEngineId: "gpt-image-2-6",
-    });
-    assert.equal(attempt!.reviewRenderInputHash, expectedHash);
+    assert.match(attempt!.renderedFactText!, /Susan Franklin/);
+    assert.equal(attempt!.subjectRenderMode, "human_identity_i2i");
 
-    // A just-enqueued attempt is NOT stale — the live grid recomputes the same hash.
+    // A just-enqueued attempt is NOT stale: the live grid recomputes the same
+    // hash from the same subject, so staleness compares like with like.
     const grid = await request(makeApp())
       .get(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${adminSid}`);
-    const t2i = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
-    assert.equal(t2i.stale, false);
+    const wife = grid.body.cards.find((c: { key: string }) => c.key === "i2i_female_default");
+    assert.equal(wife.stale, false);
   });
 
   it("rejects invalid scenario keys (400)", async () => {
@@ -242,7 +244,7 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["generic_t2i"] });
+      .send({ scenarios: ["i2i_female_default"] });
     assert.equal(res.status, 409);
   });
 
@@ -251,7 +253,7 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${plainSid}`)
-      .send({ scenarios: ["generic_t2i"] });
+      .send({ scenarios: ["i2i_female_default"] });
     assert.equal(res.status, 403);
   });
 });
@@ -267,7 +269,7 @@ describe("moderation enrichment edits via fact override endpoints", () => {
     await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ scenarios: ["generic_t2i"] });
+      .send({ scenarios: ["i2i_female_default"] });
 
     // Per-field override (visualComplexity medium → high) — the moderation
     // modal's tracked-field write path, identical to Edit Fact. The seed is a
@@ -297,8 +299,8 @@ describe("moderation enrichment edits via fact override endpoints", () => {
     const grid = await request(makeApp())
       .get(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${adminSid}`);
-    const t2i = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
-    assert.equal(t2i.stale, true, "the pre-override render is stale after the enrichment edit");
+    const wife = grid.body.cards.find((c: { key: string }) => c.key === "i2i_female_default");
+    assert.equal(wife.stale, true, "the pre-override render is stale after the enrichment edit");
   });
 
   it("rejects non-admins (403) on the staging-fact override PUT", async () => {
@@ -328,18 +330,18 @@ describe("ensureDefaultReviewRenders idempotency", () => {
   it("enqueues the default batch once per input hash", async () => {
     const reviewId = await seedReview(plainId);
     const first = await ensureDefaultReviewRenders(reviewId);
-    // 3 required scenarios attempted (generic_t2i + i2i male + i2i female). All
+    // 2 required scenarios attempted (David's photo and his wife's). All
     // default references now ship, so each enqueues a real attempt (the stubbed
     // fal upload keeps the i2i reference resolution off-network). Non-human does
     // not auto-run.
-    assert.equal(first.enqueued.length, 3);
+    assert.equal(first.enqueued.length, 2);
     const afterFirst = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    assert.equal(afterFirst.length, 3);
+    assert.equal(afterFirst.length, 2);
 
     const second = await ensureDefaultReviewRenders(reviewId);
     assert.equal(second.enqueued.length, 0, "re-run enqueues nothing for the same input hash");
     const afterSecond = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.reviewId, reviewId));
-    assert.equal(afterSecond.length, 3, "no duplicate attempts");
+    assert.equal(afterSecond.length, 2, "no duplicate attempts");
 
     // Every required scenario resolved its reference and enqueued cleanly — none
     // failed with reference_asset_unavailable now that all assets are present.
@@ -372,7 +374,7 @@ describe("approval visual-render gate (admin-waivable)", () => {
     assert.equal(res.status, 409);
     assert.equal(res.body.error, "visual_render_incomplete");
     const keys = res.body.problems.map((p: { scenarioKey: string }) => p.scenarioKey).sort();
-    assert.deepEqual(keys, ["generic_t2i", "i2i_female_default", "i2i_male_default"]);
+    assert.deepEqual(keys, ["i2i_female_default", "i2i_male_default"]);
   });
 
   it("rejects a partial waiver that doesn't name every problem (409)", async () => {
@@ -380,7 +382,7 @@ describe("approval visual-render gate (admin-waivable)", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ waiveVisualRenderIssues: true, waivedScenarioKeys: ["generic_t2i"] });
+      .send({ waiveVisualRenderIssues: true, waivedScenarioKeys: ["i2i_male_default"] });
     assert.equal(res.status, 409);
     assert.equal(res.body.error, "visual_render_incomplete");
   });
