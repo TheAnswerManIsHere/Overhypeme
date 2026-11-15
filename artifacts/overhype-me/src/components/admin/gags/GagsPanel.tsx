@@ -301,6 +301,8 @@ function GagCard({
     if (!window.confirm(`Remove gag ${gag.slot}? Users will no longer be offered it.`)) return;
     done(await s.act(() => gagApi.remove(factId, gag.id, reviewId)));
   };
+  // Cancel a refresh's removal of this gag: only the mark goes; its change and pick stay.
+  const keep = async () => done(await s.act(() => gagApi.keep(factId, gag.id, reviewId)));
   const runRenders = async () => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId)));
   const approve = async (card: RenderScenarioCard) => {
     if (card.latestAttemptId == null) return;
@@ -382,6 +384,12 @@ function GagCard({
             <button type="button" onClick={() => void discard()} disabled={locked} data-testid="gag-discard"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
               <RotateCcw className="w-3.5 h-3.5" /> Discard the saved change
+            </button>
+          )}
+          {gag.pendingRemove && (
+            <button type="button" onClick={() => void keep()} disabled={locked} data-testid="gag-keep"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
+              <RotateCcw className="w-3.5 h-3.5" /> Keep this gag
             </button>
           )}
           {!gag.pendingRemove && (

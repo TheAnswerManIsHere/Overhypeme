@@ -229,4 +229,17 @@ describe("GagsPanel", () => {
       expect(gets).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("offers Keep this gag on a gag the refresh marked for removal, and sends only that", async () => {
+    const marked = gag({ id: 1, slot: 1, pendingRemove: true, pendingReviewId: 77 });
+    const calls = stubFetch(view([marked, gag({ id: 2, slot: 2 })], { review: { id: 77, stage: "concept_review", refresh: true }, frozenOutsideReview: true }),
+      { after: view([gag({ id: 1, slot: 1 }), gag({ id: 2, slot: 2 })], { review: { id: 77, stage: "concept_review", refresh: true }, frozenOutsideReview: true }) });
+    render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
+    const cards = await screen.findAllByTestId("gag-card");
+    expect(within(cards[0]!).queryByTestId("gag-remove")).toBeNull();
+    fireEvent.click(within(cards[0]!).getByTestId("gag-keep"));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url === "/api/admin/facts/5/gags/1/keep")).toBe(true));
+    expect(calls.find((c) => c.url.endsWith("/keep"))!.body).toEqual({ reviewId: 77 });
+    await waitFor(() => expect(screen.queryByTestId("gag-keep")).toBeNull());
+  });
 });

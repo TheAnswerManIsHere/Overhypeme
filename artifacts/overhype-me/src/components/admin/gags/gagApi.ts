@@ -47,6 +47,8 @@ export const gagApi = {
     call("POST", `${base(factId)}/${gagId}/discard`, scope(reviewId)),
   remove: (factId: number, gagId: number, reviewId: number | null) =>
     call("POST", `${base(factId)}/${gagId}/remove`, scope(reviewId)),
+  keep: (factId: number, gagId: number, reviewId: number | null) =>
+    call("POST", `${base(factId)}/${gagId}/keep`, scope(reviewId)),
   approve: (factId: number, gagId: number, attemptId: number, reviewId: number | null) =>
     call("POST", `${base(factId)}/${gagId}/approve`, { attemptId, ...scope(reviewId) }),
   runRenders: (factId: number, gagId: number, reviewId: number | null, scenarios?: RenderScenarioKey[]) =>

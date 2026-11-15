@@ -51,7 +51,8 @@ export type GagErrorCode =
   | "RENDER_NOT_APPROVABLE"
   | "CONTENT_CHANGED"
   | "LAST_APPROVED_GAG"
-  | "NOTHING_PENDING";
+  | "NOTHING_PENDING"
+  | "NOT_MARKED_FOR_REMOVAL";
 
 export class GagError extends Error {
   constructor(public readonly code: GagErrorCode, message: string, public readonly status = 409, public readonly details?: unknown) {
@@ -233,17 +234,57 @@ export async function saveGagContent(factId: number, gagId: number, rawContent: 
   });
 }
 
-/** Drop a gag's pending change; the approved version is untouched. A gag with nothing approved is removed instead. */
+/**
+ * Drop a gag's pending change (and its picked example); the approved version
+ * is untouched. A gag with nothing approved is removed instead. A removal
+ * marked in a refresh is not this action's: it stays, and "Keep this gag"
+ * cancels it (keepGag), so each button does only what it says.
+ */
 export async function discardGagChange(factId: number, gagId: number, actor: GagActor): Promise<FactGag> {
   return db.transaction(async (tx) => {
     await lockFact(tx, factId);
     await resolveScope(tx, factId, actor);
     const gag = await lockGag(tx, factId, gagId);
-    if (gag.pendingContent == null && !gag.pendingRemove) throw new GagError("NOTHING_PENDING", "This gag has no pending change.");
+    if (gag.pendingContent == null && gag.pendingExampleAttemptId == null) throw new GagError("NOTHING_PENDING", "This gag has no pending change.");
+    const now = new Date();
     const [updated] = await tx.update(factGagsTable).set(gag.approvedContent == null
-      ? { removedAt: new Date(), removedBy: actor.adminId, pendingExampleAttemptId: null, pendingRemove: false, updatedAt: new Date() }
-      : { pendingContent: null, pendingExampleAttemptId: null, pendingRemove: false, pendingReviewId: null, pendingBy: null, pendingAt: null, updatedAt: new Date() },
+      ? { removedAt: now, removedBy: actor.adminId, pendingExampleAttemptId: null, pendingRemove: false, updatedAt: now }
+      : {
+          pendingContent: null,
+          pendingExampleAttemptId: null,
+          // A removal marked in the refresh keeps its review.
+          pendingReviewId: gag.pendingRemove ? gag.pendingReviewId : null,
+          pendingBy: gag.pendingRemove ? gag.pendingBy : null,
+          pendingAt: gag.pendingRemove ? gag.pendingAt : null,
+          updatedAt: now,
+        },
     ).where(eq(factGagsTable.id, gagId)).returning();
+    return updated!;
+  });
+}
+
+/**
+ * Keep a gag a refresh marked for removal: clear only the removal mark (plan
+ * PLAN_THREE_GAGS.md; Codex, PR #956 round 4, recorded for increment 2). Its
+ * approved version, its pending change and its picked example stay exactly
+ * as they were before Remove was pressed, in each case: approved with no
+ * change, approved with a change, and never approved.
+ */
+export async function keepGag(factId: number, gagId: number, actor: GagActor): Promise<FactGag> {
+  return db.transaction(async (tx) => {
+    await lockFact(tx, factId);
+    await resolveScope(tx, factId, actor);
+    const gag = await lockGag(tx, factId, gagId);
+    if (!gag.pendingRemove) throw new GagError("NOT_MARKED_FOR_REMOVAL", "This gag is not marked for removal.");
+    const stillPending = gag.pendingContent != null || gag.pendingExampleAttemptId != null;
+    const [updated] = await tx.update(factGagsTable).set({
+      pendingRemove: false,
+      // The review still owns a change or pick it made; otherwise it owns nothing here.
+      pendingReviewId: stillPending ? gag.pendingReviewId : null,
+      pendingBy: stillPending ? gag.pendingBy : null,
+      pendingAt: stillPending ? gag.pendingAt : null,
+      updatedAt: new Date(),
+    }).where(eq(factGagsTable.id, gagId)).returning();
     return updated!;
   });
 }
