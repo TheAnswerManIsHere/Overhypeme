@@ -257,25 +257,25 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
     assert.equal(hist.some((h) => h.path === "/overhypeFit" && h.action === "baseline_reenriched"), true);
   });
 
-  it("classifies a variant from its OWN text only — no parent text or parentId reaches the classifier (variant independence, site 3)", async () => {
+  it("classifies a fact from its OWN text only — another fact's text never reaches the classifier", async () => {
     // Active facts require a non-empty Visual Concept (facts_active_requires_concept
     // CHECK) — AI deliberately never carries visualPromptStrategyOverride (see
     // its own comment above), so this must supply SAVED_CONCEPT directly, same
     // as seedFact() does for every other test in this file.
-    const rootRow = { id: await seedFact(AI, SAVED_CONCEPT, { text: `${TEXT_PREFIX}${randomUUID()} ROOT_DISTINCTIVE_MARKER` }) };
-    const variantText = `${TEXT_PREFIX}${randomUUID()} VARIANT_DISTINCTIVE_MARKER`;
-    const variantRow = { id: await seedFact(AI, SAVED_CONCEPT, { text: variantText, parentId: rootRow.id }) };
+    await seedFact(AI, SAVED_CONCEPT, { text: `${TEXT_PREFIX}${randomUUID()} OTHER_DISTINCTIVE_MARKER` });
+    const ownText = `${TEXT_PREFIX}${randomUUID()} OWN_DISTINCTIVE_MARKER`;
+    const ownId = await seedFact(AI, SAVED_CONCEPT, { text: ownText });
 
     let capturedFactText: string | undefined;
-    const result = await runEnrichmentForFact(variantRow.id, {
+    const result = await runEnrichmentForFact(ownId, {
       classify: async (input) => {
         capturedFactText = input.factText;
-        return { ...AI, aiGenerationId: "gen-variant" };
+        return { ...AI, aiGenerationId: "gen-own" };
       },
     });
     assert.equal(result.ok, true);
-    assert.ok(capturedFactText?.includes("VARIANT_DISTINCTIVE_MARKER"), "the variant's own text must reach the classifier");
-    assert.ok(!capturedFactText?.includes("ROOT_DISTINCTIVE_MARKER"), "the root's text must never be concatenated in");
+    assert.ok(capturedFactText?.includes("OWN_DISTINCTIVE_MARKER"), "the fact's own text must reach the classifier");
+    assert.ok(!capturedFactText?.includes("OTHER_DISTINCTIVE_MARKER"), "another fact's text must never be concatenated in");
   });
 });
 

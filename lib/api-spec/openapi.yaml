@@ -254,7 +254,7 @@ paths:
       description: |
         Returns facts that share hashtags with the given fact, scored by
         tag-overlap count, broken by Wilson score descending. The given
-        fact and (if it is a parent) its variants are excluded. If the
+        fact is excluded. If the
         given fact has no hashtags or there are not enough overlapping
         candidates, the response is padded with top-Wilson-score facts.
       parameters:
@@ -1163,9 +1163,6 @@ components:
           type: string
           enum: [up, down]
           nullable: true
-        useCase:
-          type: string
-          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -1179,13 +1176,6 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/ExternalLink"
-            parentId:
-              type: integer
-              nullable: true
-            variants:
-              type: array
-              items:
-                $ref: "#/components/schemas/FactSummary"
 
     FactListResponse:
       type: object

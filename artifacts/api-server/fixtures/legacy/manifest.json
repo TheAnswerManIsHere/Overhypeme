@@ -17,30 +17,30 @@
     "fal_pricing_cache": 9,
     "users": 26,
     "admin_config": 47,
-    "facts": 53,
+    "facts": 49,
     "hashtags": 45,
-    "fact_hashtags": 132,
-    "pending_reviews": 102,
-    "fact_enrichment_versions": 64,
+    "fact_hashtags": 115,
+    "pending_reviews": 89,
+    "fact_enrichment_versions": 54,
     "enrichment_override_history": 206,
     "fact_text_edit_history": 0,
-    "image_prompt_attempts": 110,
-    "memes": 65,
+    "image_prompt_attempts": 104,
+    "memes": 64,
     "upload_image_metadata": 45,
     "user_ai_images": 111,
     "comments": 9,
-    "reactions": 19,
+    "reactions": 18,
     "external_links": 0,
     "membership_entitlements": 1,
     "membership_history": 13,
     "user_generation_costs": 42,
-    "fact_gags": 50
+    "fact_gags": 46
   },
   "excludedByPredicate": {
     "membership_entitlements": 0,
     "membership_history": 0
   },
-  "keptFactTexts": 44,
+  "keptFactTexts": 40,
   "placeholderFactTexts": 9,
   "embeddingBackfillPredicateCount": 0,
   "placeholders": [
@@ -5112,168 +5112,6 @@
       "height": 64
     },
     {
-      "path": "/objects/ai-backgrounds/ba/62-male-fixture-0271.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/b0/62-male-fixture-0272.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/28/62-male-fixture-0273.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/8e/62-female-fixture-0274.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/f3/62-female-fixture-0275.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/68/62-female-fixture-0276.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/65/62-neutral-fixture-0277.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/90/62-neutral-fixture-0278.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/7b/62-neutral-fixture-0279.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "62"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
       "path": "/objects/ai-backgrounds/91/63-male-fixture-0280.png",
       "kind": "ai-background",
       "ext": "png",
@@ -5637,168 +5475,6 @@
           "role": "ai-tracking-generic",
           "table": "user_ai_images",
           "row": "15"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/b6/65-male-fixture-0298.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/48/65-male-fixture-0299.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/f9/65-male-fixture-0300.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/59/65-female-fixture-0301.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/eb/65-female-fixture-0302.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/ca/65-female-fixture-0303.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/df/65-neutral-fixture-0304.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/50/65-neutral-fixture-0305.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/ee/65-neutral-fixture-0306.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "65"
         }
       ],
       "width": 64,
@@ -6285,330 +5961,6 @@
           "role": "fact-gallery",
           "table": "facts",
           "row": "68"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/04/20735-male-fixture-0334.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/8f/20735-male-fixture-0335.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/5e/20735-male-fixture-0336.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/06/20735-female-fixture-0337.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/ef/20735-female-fixture-0338.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/53/20735-female-fixture-0339.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/71/20735-neutral-fixture-0340.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/33/20735-neutral-fixture-0341.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/a4/20735-neutral-fixture-0342.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "20735"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/4a/22587-male-fixture-0343.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/4b/22587-male-fixture-0344.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/7c/22587-male-fixture-0345.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/7c/22587-female-fixture-0346.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/a9/22587-female-fixture-0347.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/95/22587-female-fixture-0348.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/70/22587-neutral-fixture-0349.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/6e/22587-neutral-fixture-0350.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-backgrounds/46/22587-neutral-fixture-0351.jpg",
-      "kind": "ai-background",
-      "ext": "jpg",
-      "acl": {
-        "owner": "system",
-        "visibility": "public"
-      },
-      "roles": [
-        {
-          "role": "fact-gallery",
-          "table": "facts",
-          "row": "22587"
         }
       ],
       "width": 64,
@@ -7896,96 +7248,6 @@
           "role": "attempt-output",
           "table": "image_prompt_attempts",
           "row": "265"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-bg-v2/62/266-0436.png",
-      "kind": "ai-bg-v2",
-      "ext": "png",
-      "acl": null,
-      "roles": [
-        {
-          "role": "attempt-output",
-          "table": "image_prompt_attempts",
-          "row": "266"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-bg-v2/62/267-0437.png",
-      "kind": "ai-bg-v2",
-      "ext": "png",
-      "acl": null,
-      "roles": [
-        {
-          "role": "attempt-output",
-          "table": "image_prompt_attempts",
-          "row": "267"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-bg-v2/62/268-0438.png",
-      "kind": "ai-bg-v2",
-      "ext": "png",
-      "acl": null,
-      "roles": [
-        {
-          "role": "attempt-output",
-          "table": "image_prompt_attempts",
-          "row": "268"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-bg-v2/62/269-0439.png",
-      "kind": "ai-bg-v2",
-      "ext": "png",
-      "acl": null,
-      "roles": [
-        {
-          "role": "attempt-output",
-          "table": "image_prompt_attempts",
-          "row": "269"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-bg-v2/62/270-0440.png",
-      "kind": "ai-bg-v2",
-      "ext": "png",
-      "acl": null,
-      "roles": [
-        {
-          "role": "attempt-output",
-          "table": "image_prompt_attempts",
-          "row": "270"
-        }
-      ],
-      "width": 64,
-      "height": 64
-    },
-    {
-      "path": "/objects/ai-bg-v2/62/271-0441.png",
-      "kind": "ai-bg-v2",
-      "ext": "png",
-      "acl": null,
-      "roles": [
-        {
-          "role": "attempt-output",
-          "table": "image_prompt_attempts",
-          "row": "271"
         }
       ],
       "width": 64,
@@ -10686,10 +9948,6 @@
       "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
     },
     {
-      "slug": "a81e898baaaa",
-      "owner": "d77448e6-fc0c-444a-86e5-5c000447a61e"
-    },
-    {
       "slug": "a62e02733e22",
       "owner": "6d29704a-3872-4ef0-909e-4db3a52c4099"
     }
@@ -10765,12 +10023,6 @@
       "257": "stale",
       "258": "stale",
       "259": "stale",
-      "266": "current",
-      "267": "current",
-      "268": "current",
-      "269": "stale",
-      "270": "stale",
-      "271": "stale",
       "272": "stale",
       "273": "stale",
       "274": "stale",
@@ -10810,7 +10062,6 @@
       "151": "current",
       "152": "current",
       "153": "current",
-      "154": "current",
       "155": "current",
       "156": "current",
       "157": "current",
@@ -10837,12 +10088,9 @@
       "178": "current",
       "179": "current",
       "180": "current",
-      "181": "current",
       "182": "current",
       "183": "current",
       "184": "current",
-      "185": "current",
-      "186": "current",
       "187": "current",
       "192": "current",
       "193": "current",
@@ -10851,27 +10099,17 @@
       "196": "current",
       "197": "current",
       "198": "current",
-      "199": "current",
-      "200": "current",
       "201": "current",
       "202": "current",
       "203": "current",
       "204": "current",
       "205": "current",
       "206": "current",
-      "207": "current",
-      "208": "current",
       "209": "current",
-      "210": "current",
-      "211": "current",
       "212": "current"
     },
     "conceptBlobs": {
       "3": {
-        "current": false,
-        "staleReason": "review_mismatch"
-      },
-      "4": {
         "current": false,
         "staleReason": "review_mismatch"
       },
@@ -10892,14 +10130,6 @@
         "staleReason": "review_mismatch"
       },
       "9": {
-        "current": false,
-        "staleReason": "review_mismatch"
-      },
-      "4914": {
-        "current": false,
-        "staleReason": "review_mismatch"
-      },
-      "5138": {
         "current": false,
         "staleReason": "review_mismatch"
       },
@@ -10948,10 +10178,6 @@
         "staleReason": "input_hash_mismatch"
       },
       "6832": {
-        "current": false,
-        "staleReason": "input_hash_mismatch"
-      },
-      "6833": {
         "current": false,
         "staleReason": "input_hash_mismatch"
       },
@@ -11063,10 +10289,6 @@
         "current": false,
         "staleReason": "input_hash_mismatch"
       },
-      "6861": {
-        "current": false,
-        "staleReason": "input_hash_mismatch"
-      },
       "6862": {
         "current": false,
         "staleReason": "review_mismatch"
@@ -11078,14 +10300,6 @@
       "6864": {
         "current": false,
         "staleReason": "input_hash_mismatch"
-      },
-      "6865": {
-        "current": false,
-        "staleReason": "review_mismatch"
-      },
-      "6866": {
-        "current": false,
-        "staleReason": "review_mismatch"
       },
       "6867": {
         "current": false,
@@ -11119,14 +10333,6 @@
         "current": true,
         "staleReason": null
       },
-      "6879": {
-        "current": false,
-        "staleReason": "review_mismatch"
-      },
-      "6880": {
-        "current": false,
-        "staleReason": "review_mismatch"
-      },
       "6881": {
         "current": false,
         "staleReason": "review_mismatch"
@@ -11155,25 +10361,9 @@
         "current": true,
         "staleReason": null
       },
-      "6888": {
-        "current": false,
-        "staleReason": "review_mismatch"
-      },
-      "6889": {
-        "current": false,
-        "staleReason": "review_mismatch"
-      },
       "6890": {
         "current": false,
         "staleReason": "review_mismatch"
-      },
-      "6891": {
-        "current": true,
-        "staleReason": null
-      },
-      "6892": {
-        "current": true,
-        "staleReason": null
       },
       "6893": {
         "current": true,
@@ -11183,18 +10373,18 @@
   },
   "predicateCounts": {
     "renderAttempts": {
-      "stale": 68,
+      "stale": 65,
       "no-context": 21,
-      "current": 14
+      "current": 11
     },
     "candidateTextHash": {
-      "current": 63,
+      "current": 53,
       "stale": 1
     },
     "conceptBlobs": {
-      "stale:review_mismatch": 30,
-      "stale:input_hash_mismatch": 40,
-      "current": 8
+      "stale:review_mismatch": 21,
+      "stale:input_hash_mismatch": 38,
+      "current": 6
     }
   },
   "checks": {
@@ -11273,23 +10463,23 @@
     "fal_pricing_cache.ndjson": "95d9026ea8aa6e8c4fc2a85a108f7a6dfe70768726ef743d3de059b06049ccec",
     "users.ndjson": "3b36e70de0eb2d05a25777069e8855b51cec9bc1c4902e480d1b42f5a929d918",
     "admin_config.ndjson": "f0a5750fd10ada3897e06d8c2e3c98fc088b30cefb7dd8392767ce4a3b810d5b",
-    "facts.ndjson": "395706c3bedaa90c3da072e1756c4feda620fec931add167fdd304a3e1cd6582",
-    "hashtags.ndjson": "f1a20855fd0ae428dddd38b8a6aab1262373c90d3140dd033aff4dcf90e2182e",
-    "fact_hashtags.ndjson": "0a3dd9ae348b8b40e31c395e5c3b7488829cc03e97aed3cfe8821ff360f20237",
-    "pending_reviews.ndjson": "76ef9c13241f7f9ee256661cdd75b9212229db5163b22172a7bcf56b4aeaf74e",
-    "fact_enrichment_versions.ndjson": "b6aa7d514bb5df627adb1e0f061c322fcad1659936c6df886cfe6842bcb1d719",
+    "facts.ndjson": "4ce82085fdc58ce364e40e5d9ecb575ca734d9d24e4b58364e7544eff774d954",
+    "hashtags.ndjson": "e68d2771250406c39ce2fbf6b6deaaa27dc6a100b4f90a7ac4ce737df055802e",
+    "fact_hashtags.ndjson": "8da29fe6ebbb80bc2d9d3e17447b0f1ce9cd094f1649ee36fa04694b425e7f62",
+    "pending_reviews.ndjson": "ad2e3b93c0df09853f005e0174498a4e7fd2c3df0c669861d73d59c20ac3012d",
+    "fact_enrichment_versions.ndjson": "1d6b259281109160632fa7fc1df51027c5b0034357687b9a44ce173416e27bb0",
     "enrichment_override_history.ndjson": "f352cef14d74908c56329fc009c1355ea85641b20897d3842ad043c059db8d79",
     "fact_text_edit_history.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "image_prompt_attempts.ndjson": "814b2db30707a2b16e2e16602fbc1088005af865226b3815d3eb5c40c5c82b5c",
-    "memes.ndjson": "a39eec8a57f9572a3122bbc245f89648368d820600e0f9555be000d2adcb8f6e",
+    "image_prompt_attempts.ndjson": "3049917c8b23e7baaa76df9606179c7675885274e88898526fce2d094fcbd6d4",
+    "memes.ndjson": "8e63f3ac18ce7d97b18478e5cc22b2d02c54571dea1fd38decc468135dfbab7e",
     "upload_image_metadata.ndjson": "04d30941e6919d506f5b9c996523fbdd975e13f8b97a5d6bf6b41a80ab522406",
     "user_ai_images.ndjson": "a6a6acf3475687e4830d03954a14605e647c3f8df707a71c88128e843bf113f1",
     "comments.ndjson": "cbe22b157c367c4a3e4e7ade6345593f230b2c48d10d596a9155a94d30e09a69",
-    "reactions.ndjson": "07f11d97ead5b7149beb390ca30d56d7d51c75ce290ff5c480c43d8586cf8ab0",
+    "reactions.ndjson": "f83055b27e337cbb348c2b92dc14fd473b4574bfd0a0035797a110874c8370fa",
     "external_links.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "membership_entitlements.ndjson": "b77f4bdd62d4c7f6c55202e6c45c5ae83f79a74948bedb2bdf2ee2e30382f3a0",
     "membership_history.ndjson": "c92540762edf80b47f52ff118dd701bd44b93fb2f8c340839f25ee3e874a011f",
     "user_generation_costs.ndjson": "d4dbd39b97eddd8fae6fe21645d8738381c14597c0d6889a31ced0e26f6f8c72",
-    "fact_gags.ndjson": "28f9708c364c6c395e13a71ef3f3eb0e574f5a8fdd73ea871a0b68ebcb5c540f"
+    "fact_gags.ndjson": "9aed1e36a36c025a6469735fa77b3b5c67082272a7952d35f7a5f32762b937fc"
   }
 }

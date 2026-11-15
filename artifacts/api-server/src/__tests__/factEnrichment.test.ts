@@ -3,8 +3,8 @@
  *
  * Unit-tests the shared validation/normalization (@workspace/api-zod) and the
  * service's parse → validate → corrective-retry orchestration (no live network,
- * model caller injected). One DB-backed test confirms a fact and its variant
- * each store their own independent enrichment.
+ * model caller injected). One DB-backed test confirms two facts each store
+ * their own enrichment columns.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -369,16 +369,16 @@ describe("stripDeniedHashtags", () => {
   });
 });
 
-describe("facts table — fact + variant store independent enrichment", () => {
+describe("facts table — each fact stores its own enrichment", () => {
   const insertedIds: number[] = [];
 
   after(async () => {
     if (insertedIds.length) await db.delete(factsTable).where(inArray(factsTable.id, insertedIds));
   });
 
-  it("persists distinct enrichment on a parent fact and its variant", async () => {
-    const parentEnrichment: FactEnrichment = { ...VALID };
-    const variantEnrichment: FactEnrichment = {
+  it("persists distinct enrichment on two facts", async () => {
+    const firstEnrichment: FactEnrichment = { ...VALID };
+    const secondEnrichment: FactEnrichment = {
       ...VALID,
       primaryArchetype: "object_logic_impossibility",
       subtype: "mechanical_contradiction",
@@ -387,26 +387,24 @@ describe("facts table — fact + variant store independent enrichment", () => {
       suggestedHashtags: ["impossible", "doors", "legendary"],
     };
 
-    const [parent] = await db.insert(factsTable).values({
-      text: "t_enrich parent fact",
-      ...buildFactEnrichmentColumns(parentEnrichment),
+    const [first] = await db.insert(factsTable).values({
+      text: "t_enrich first fact",
+      ...buildFactEnrichmentColumns(firstEnrichment),
     }).returning();
-    insertedIds.push(parent.id);
+    insertedIds.push(first.id);
 
-    const [variant] = await db.insert(factsTable).values({
-      text: "t_enrich variant fact",
-      parentId: parent.id,
-      ...buildFactEnrichmentColumns(variantEnrichment),
+    const [second] = await db.insert(factsTable).values({
+      text: "t_enrich second fact",
+      ...buildFactEnrichmentColumns(secondEnrichment),
     }).returning();
-    insertedIds.push(variant.id);
+    insertedIds.push(second.id);
 
-    const [pRow] = await db.select().from(factsTable).where(eq(factsTable.id, parent.id));
-    const [vRow] = await db.select().from(factsTable).where(eq(factsTable.id, variant.id));
+    const [aRow] = await db.select().from(factsTable).where(eq(factsTable.id, first.id));
+    const [bRow] = await db.select().from(factsTable).where(eq(factsTable.id, second.id));
 
-    assert.equal(pRow.primaryArchetype, "superhuman_physical_feat");
-    assert.equal(vRow.primaryArchetype, "object_logic_impossibility");
-    assert.equal(vRow.parentId, parent.id);
-    assert.notDeepEqual(pRow.enrichment, vRow.enrichment);
-    assert.equal((vRow.enrichment as FactEnrichment).adultSuitability, "requires_review");
+    assert.equal(aRow.primaryArchetype, "superhuman_physical_feat");
+    assert.equal(bRow.primaryArchetype, "object_logic_impossibility");
+    assert.notDeepEqual(aRow.enrichment, bRow.enrichment);
+    assert.equal((bRow.enrichment as FactEnrichment).adultSuitability, "requires_review");
   });
 });

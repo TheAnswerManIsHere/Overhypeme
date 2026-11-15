@@ -62,8 +62,6 @@ export interface AdminFactRow {
   id: number;
   text: string;
   canonicalText: string | null;
-  parentId: number | null;
-  useCase: string | null;
   isActive: boolean;
   hasEmbedding: boolean;
   upvotes: number;
@@ -81,14 +79,11 @@ export interface AdminFactRow {
   hasEnrichment?: boolean;
   hasEnrichmentOverrides?: boolean;
   enrichmentBaselineChanged?: boolean;
-  variants?: AdminFactRow[];
 }
 
 export function adminFactRow(overrides: Partial<AdminFactRow> & Pick<AdminFactRow, "id" | "text">): AdminFactRow {
   return {
     canonicalText: null,
-    parentId: null,
-    useCase: null,
     isActive: true,
     hasEmbedding: true,
     upvotes: 12,
@@ -106,7 +101,6 @@ export function adminFactRow(overrides: Partial<AdminFactRow> & Pick<AdminFactRo
     hasEnrichment: true,
     hasEnrichmentOverrides: false,
     enrichmentBaselineChanged: false,
-    variants: [],
     ...overrides,
   };
 }
@@ -204,7 +198,7 @@ export async function stubAdminFacts(
     const id = Number(/\/api\/facts\/(\d+)/.exec(route.request().url())![1]);
     const entry = byId.get(id);
     if (!entry) return json(route, { error: "Fact not found" }, 404);
-    return json(route, factDetail({ id, text: entry.row.text, parentId: entry.row.parentId, variants: [] }));
+    return json(route, factDetail({ id, text: entry.row.text }));
   });
 }
 

@@ -45,14 +45,13 @@ let adminId: string;
 let adminSid: string;
 const insertedFactIds: number[] = [];
 
-async function seedInactiveFact(opts: { parentId?: number } = {}): Promise<typeof factsTable.$inferSelect> {
+async function seedInactiveFact(): Promise<typeof factsTable.$inferSelect> {
   const [fact] = await db
     .insert(factsTable)
     .values({
       text: `{NAME} does a deactivated thing ${randomUUID()}.`,
       submittedById: adminId,
       isActive: false,
-      parentId: opts.parentId,
       enrichment: buildPlaceholderFactEnrichment(),
     })
     .returning();
@@ -132,22 +131,6 @@ describe("POST /admin/facts/:id/resubmit-for-moderation", () => {
     assert.equal(jobs.length, 1, "exactly one fact-backed enrichment job");
   });
 
-  it("preserves the variant's parentId on the review row", async () => {
-    const root = await seedInactiveFact();
-    const variant = await seedInactiveFact({ parentId: root.id });
-    const res = await request(makeApp())
-      .post(`/admin/facts/${variant.id}/resubmit-for-moderation`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({});
-    assert.equal(res.status, 200);
-
-    const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, res.body.reviewId));
-    assert.equal(review.parentFactId, root.id);
-
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, variant.id));
-    assert.equal(row.parentId, root.id, "the fact's own parentId is untouched — activateFact revalidates it later");
-  });
-
   it("404 for a missing fact; 409 ALREADY_ACTIVE", async () => {
     const missing = await request(makeApp())
       .post("/admin/facts/999999999/resubmit-for-moderation")
@@ -163,25 +146,6 @@ describe("POST /admin/facts/:id/resubmit-for-moderation", () => {
       .send({});
     assert.equal(res.status, 409);
     assert.equal(res.body.code, "ALREADY_ACTIVE");
-  });
-
-  it("409 ORPHANED_PARENT when the variant's parent row no longer exists (hard-delete orphan)", async () => {
-    const root = await seedInactiveFact();
-    const variant = await seedInactiveFact({ parentId: root.id });
-    // Simulate the orphan state a hard delete leaves: facts.parent_id has no
-    // FK, so deleting the root leaves the variant's parent_id dangling.
-    await db.delete(factsTable).where(eq(factsTable.id, root.id));
-    insertedFactIds.splice(insertedFactIds.indexOf(root.id), 1);
-
-    const res = await request(makeApp())
-      .post(`/admin/facts/${variant.id}/resubmit-for-moderation`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({});
-    assert.equal(res.status, 409, JSON.stringify(res.body));
-    assert.equal(res.body.code, "ORPHANED_PARENT");
-
-    const reviews = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.stagingFactId, variant.id));
-    assert.equal(reviews.length, 0, "no review must have been written");
   });
 
   it("409 REVIEW_ALREADY_IN_PROGRESS naming the in-flight review on a second click", async () => {

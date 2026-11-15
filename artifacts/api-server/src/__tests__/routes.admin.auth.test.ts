@@ -80,8 +80,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "post",   path: "/admin/facts/:id/send-back-to-review" },
   { method: "post",   path: "/admin/facts/:id/resubmit-for-moderation" },
   { method: "get",    path: "/admin/facts/:id/enrichment-versions" },
-  { method: "post",   path: "/admin/facts/:id/variants" },
-  { method: "delete", path: "/admin/facts/variants/:variantId" },
   { method: "post",   path: "/admin/facts/import" },
   { method: "post",   path: "/admin/facts/import-csv" },
   { method: "get",    path: "/admin/comments/pending" },
@@ -131,7 +129,6 @@ const UNAUTHENTICATED_ADMIN_FILE_PATHS: ReadonlySet<string> = new Set([
 
 function concretize(path: string): string {
   return path
-    .replace(/:variantId\b/g, "test-variant-id")
     .replace(/:key\b/g, "test-key")
     .replace(/:id\b/g, "test-id");
 }
@@ -386,7 +383,7 @@ describe("admin bulk backfill routes", () => {
     );
   });
 
-  it("backfill-ai-memes enqueues one durable job per active fact missing AI meme images, root or variant", async () => {
+  it("backfill-ai-memes enqueues one durable job per active fact missing AI meme images", async () => {
     const mkFact = async (label: string, over: Partial<typeof factsTable.$inferInsert> = {}) => {
       const row = await insertLiveFact({
         text: `${FACT_TEXT_PREFIX}${label} ${randomUUID()}`,
@@ -395,16 +392,16 @@ describe("admin bulk backfill routes", () => {
       }, buildPlaceholderGag());
       return row.id;
     };
-    const rootId = await mkFact("root");
-    const variantId = await mkFact("variant", { parentId: rootId });
+    const firstId = await mkFact("first");
+    const secondId = await mkFact("second");
     const hasImagesId = await mkFact("has-images", { aiMemeImages: { male: ["has.png"], female: [], neutral: [] } });
 
     const res = await request(adminApp).post("/api/admin/facts/backfill-ai-memes");
     assert.equal(res.status, 202);
     assert.equal(res.body.success, true);
     const queuedFactIds = (res.body.jobs as Array<{ factId: number }>).map((j) => j.factId);
-    assert.ok(queuedFactIds.includes(rootId), "the root must be queued");
-    assert.ok(queuedFactIds.includes(variantId), "the variant must be queued too");
+    assert.ok(queuedFactIds.includes(firstId), "the first fact must be queued");
+    assert.ok(queuedFactIds.includes(secondId), "the second fact must be queued too");
     assert.ok(!queuedFactIds.includes(hasImagesId), "a fact that already has AI meme images must not be queued");
 
     const jobs = await db
@@ -412,11 +409,11 @@ describe("admin bulk backfill routes", () => {
       .from(asyncJobsTable)
       .where(and(
         eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE),
-        inArray(asyncJobsTable.dedupeKey, [rootId, variantId, hasImagesId].map(factAiMemeBackfillDedupeKey)),
+        inArray(asyncJobsTable.dedupeKey, [firstId, secondId, hasImagesId].map(factAiMemeBackfillDedupeKey)),
       ));
     assert.deepEqual(
       jobs.map((j) => j.dedupeKey).sort(),
-      [rootId, variantId].map(factAiMemeBackfillDedupeKey).sort(),
+      [firstId, secondId].map(factAiMemeBackfillDedupeKey).sort(),
       "exactly one durable job per missing fact, none for the fact with images",
     );
     assert.ok(jobs.every((j) => j.status === "pending"));

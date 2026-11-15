@@ -6,8 +6,7 @@
  *    gag in fact_gags) is tested by raw SQL in factGags.dbRules.test.ts. It
  *    replaced the facts_active_requires_concept CHECK on the enrichment blob.
  * 2. The activation chokepoint: activateFact is the sole is_active false->true
- *    writer. It requires an approved gag (ConceptMissingError), revalidates a
- *    variant's parent as an active root (ParentNotActiveError), and is a
+ *    writer. It requires an approved gag (ConceptMissingError) and is a
  *    compare-and-set on the validated text (ActivationConflictError). Never
  *    activates on failure.
  */
@@ -20,14 +19,11 @@ import { fileURLToPath } from "node:url";
 
 import { db, factsTable, factGagsTable, pool } from "@workspace/db";
 import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
-import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { eq, inArray, like, sql } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 
 import {
   activateFact,
-  cascadeDeactivateActiveChildren,
   ConceptMissingError,
-  ParentNotActiveError,
   ActivationConflictError,
 } from "../lib/factActivation.js";
 
@@ -46,11 +42,11 @@ after(cleanup);
  * An inactive fact, with an approved gag unless `gag` says otherwise: "approved"
  * (the default), "pending" (saved, never approved) or null (none).
  */
-async function insertInactive(text: string, opts: { gag?: "approved" | "pending" | null; parentId?: number } = {}): Promise<number> {
+async function insertInactive(text: string, opts: { gag?: "approved" | "pending" | null } = {}): Promise<number> {
   const gag = opts.gag === undefined ? "approved" : opts.gag;
   const [row] = await db
     .insert(factsTable)
-    .values({ text, isActive: false, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() })
+    .values({ text, isActive: false, enrichment: buildPlaceholderFactEnrichment() })
     .returning({ id: factsTable.id });
   ids.push(row.id);
   if (gag === "approved") {
@@ -58,12 +54,6 @@ async function insertInactive(text: string, opts: { gag?: "approved" | "pending"
   } else if (gag === "pending") {
     await db.insert(factGagsTable).values({ factId: row.id, slot: 1, pendingContent: buildPlaceholderGag("A hero stands tall.") });
   }
-  return row.id;
-}
-
-async function insertActive(text: string, opts: { parentId?: number } = {}): Promise<number> {
-  const row = await insertLiveFact({ text, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
-  ids.push(row.id);
   return row.id;
 }
 
@@ -96,18 +86,6 @@ describe("activateFact — the sole activation chokepoint", () => {
     );
     const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id));
     assert.equal(row.isActive, false, "must remain inactive");
-  });
-
-  it("throws ParentNotActiveError when a variant's parent is inactive (not an active root)", async () => {
-    const parentId = await insertInactive(`${PREFIX}inactive-parent`); // parent stays inactive
-    const text = `${PREFIX}variant-orphan`;
-    const variantId = await insertInactive(text, { parentId });
-    await assert.rejects(
-      () => db.transaction((tx) => activateFact(tx, { factId: variantId, parentId, expectedText: text })),
-      (err: unknown) => err instanceof ParentNotActiveError,
-    );
-    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, variantId));
-    assert.equal(row.isActive, false);
   });
 
   it("throws ActivationConflictError when the text changed under it (compare-and-set)", async () => {
@@ -144,105 +122,6 @@ describe("activateFact — the sole activation chokepoint", () => {
   });
 });
 
-describe("cascadeDeactivateActiveChildren", () => {
-  it("deactivates only the currently-active children of the given fact", async () => {
-    const rootId = await insertActive(`${PREFIX}cascade-root`);
-    const activeChild = await insertActive(`${PREFIX}cascade-active-child`, { parentId: rootId });
-    const alreadyInactiveChild = await insertInactive(`${PREFIX}cascade-inactive-child`, { parentId: rootId });
-    const unrelated = await insertActive(`${PREFIX}cascade-unrelated`);
-
-    const count = await db.transaction((tx) => cascadeDeactivateActiveChildren(tx, rootId));
-    assert.equal(count, 1, "only the one active child should be reported deactivated");
-
-    const rows = await db
-      .select({ id: factsTable.id, isActive: factsTable.isActive })
-      .from(factsTable)
-      .where(inArray(factsTable.id, [rootId, activeChild, alreadyInactiveChild, unrelated]));
-    const byId = new Map(rows.map((r) => [r.id, r.isActive]));
-    assert.equal(byId.get(rootId), true, "the root itself is untouched by the cascade call");
-    assert.equal(byId.get(activeChild), false, "the active child is deactivated");
-    assert.equal(byId.get(alreadyInactiveChild), false, "the already-inactive child is unaffected (still false)");
-    assert.equal(byId.get(unrelated), true, "an unrelated active fact is untouched");
-  });
-
-  it("is a harmless no-op when called on a variant (which has no children)", async () => {
-    const rootId = await insertActive(`${PREFIX}cascade-noop-root`);
-    const variantId = await insertActive(`${PREFIX}cascade-noop-variant`, { parentId: rootId });
-    const count = await db.transaction((tx) => cascadeDeactivateActiveChildren(tx, variantId));
-    assert.equal(count, 0);
-  });
-});
-
-describe("PATCH /admin/facts/:id — deactivating a root cascades to active variants", () => {
-  it("cascades: deactivating an active root also deactivates its active children", async () => {
-    const rootId = await insertActive(`${PREFIX}patch-cascade-root`);
-    const childId = await insertActive(`${PREFIX}patch-cascade-child`, { parentId: rootId });
-
-    // Exercise the exact write shape the admin.ts PATCH branch uses: update the
-    // target then cascade in the same transaction when isActive is set false.
-    await db.transaction(async (tx) => {
-      await tx.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, rootId));
-      await cascadeDeactivateActiveChildren(tx, rootId);
-    });
-
-    const rows = await db
-      .select({ id: factsTable.id, isActive: factsTable.isActive })
-      .from(factsTable)
-      .where(inArray(factsTable.id, [rootId, childId]));
-    const byId = new Map(rows.map((r) => [r.id, r.isActive]));
-    assert.equal(byId.get(rootId), false);
-    assert.equal(byId.get(childId), false, "the variant must not be left active under an inactive root");
-  });
-});
-
-describe("Migration 0092 orphan sweep — NOT EXISTS(active root parent)", () => {
-  const sweepSql = sql`
-    UPDATE "facts" AS f SET "is_active" = false
-    WHERE f."is_active" = true
-      AND f."parent_id" IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM "facts" AS p
-        WHERE p."id" = f."parent_id" AND p."is_active" = true AND p."parent_id" IS NULL
-      )
-  `;
-
-  it("deactivates an active variant whose parent row no longer exists (hard-deleted)", async () => {
-    const rootId = await insertInactive(`${PREFIX}sweep-deleted-root`);
-    const variantId = await insertActive(`${PREFIX}sweep-orphan-variant`, { parentId: rootId });
-    // Hard-delete the parent, orphaning the variant's parent_id (no FK enforces referential integrity here).
-    await db.delete(factsTable).where(eq(factsTable.id, rootId));
-    ids.splice(ids.indexOf(rootId), 1);
-
-    await db.execute(sweepSql);
-
-    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, variantId));
-    assert.equal(row.isActive, false, "an orphaned (parent-deleted) active variant must be swept inactive");
-  });
-
-  it("deactivates an active variant whose parent is inactive", async () => {
-    const rootId = await insertInactive(`${PREFIX}sweep-inactive-root`);
-    const variantId = await insertActive(`${PREFIX}sweep-inactive-parent-variant`, { parentId: rootId });
-
-    await db.execute(sweepSql);
-
-    const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, variantId));
-    assert.equal(row.isActive, false);
-  });
-
-  it("leaves an active variant under an active root untouched", async () => {
-    const rootId = await insertActive(`${PREFIX}sweep-active-root`);
-    const variantId = await insertActive(`${PREFIX}sweep-active-variant`, { parentId: rootId });
-
-    await db.execute(sweepSql);
-
-    const rows = await db
-      .select({ id: factsTable.id, isActive: factsTable.isActive })
-      .from(factsTable)
-      .where(inArray(factsTable.id, [rootId, variantId]));
-    for (const r of rows) assert.equal(r.isActive, true);
-  });
-});
-
 describe("Migration 0092 backfill block — the real statements", () => {
   // Runs the migration's own first DO block (grandfather deactivation, orphan
   // sweep and sentinel stamp), not a copy of it, so a change to the migration's
@@ -263,7 +142,8 @@ describe("Migration 0092 backfill block — the real statements", () => {
   /**
    * Seeds the pre-0092 world (active facts the CHECK would now refuse), runs the
    * backfill block, reads the rows back, and rolls everything back — including
-   * the dropped CHECK, since DDL is transactional in PostgreSQL.
+   * the dropped CHECK and the re-added parent link, since DDL is transactional
+   * in PostgreSQL.
    */
   async function backfill(seed: Array<{ key: string; active: boolean; archetype: string | null; enrichment: unknown }>) {
     const client = await pool.connect();
@@ -273,6 +153,8 @@ describe("Migration 0092 backfill block — the real statements", () => {
       // The pre-0139 world too: no live-fact trigger, gags in the enrichment.
       await client.query('ALTER TABLE "facts" DROP CONSTRAINT IF EXISTS "facts_enrichment_holds_no_gag"');
       await client.query('DROP TRIGGER IF EXISTS "facts_live_requires_approved_gag" ON "facts"');
+      // ...and the pre-0142 parent link the block's orphan sweep reads.
+      await client.query('ALTER TABLE "facts" ADD COLUMN IF NOT EXISTS "parent_id" integer');
       const idByKey = new Map<string, number>();
       for (const row of seed) {
         const { rows } = await client.query<{ id: number }>(

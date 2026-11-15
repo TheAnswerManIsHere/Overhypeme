@@ -23,7 +23,5 @@ export interface FactSummary {
   submittedByImage?: string | null;
   /** @nullable */
   userRating?: FactSummaryUserRating;
-  /** @nullable */
-  useCase?: string | null;
   createdAt: Date;
 }

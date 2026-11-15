@@ -108,64 +108,17 @@ test.describe("Public described screens", () => {
     await expect(card.getByText(/makes onions cry/i)).not.toHaveCSS("color", orange);
   });
 
-  // PR256 step 1 — a variant with no images of its own shows none, not its root's.
-  test("a variant with no images of its own shows no AI images on its fact page or in its meme builder", async ({ page }) => {
-    const rootImages = {
-      male: ["/api/storage/objects/e2e/root-ai-male.png"],
-      female: ["/api/storage/objects/e2e/root-ai-female.png"],
-      neutral: ["/api/storage/objects/e2e/root-ai-neutral.png"],
-    };
-    const requested = await stubPublicFacts(page, {
-      facts: [
-        factDetail({ id: 521, text: "{NAME} makes onions cry.", aiMemeImages: rootImages }),
-        factDetail({ id: 522, text: "{NAME} makes onions weep.", parentId: 521, aiMemeImages: null }),
-      ],
-    });
-    const rootImagePaths = Object.values(rootImages).flat();
-    // A builder waits for a complete identity (#719); this test is about images, not the sheet.
-    await seedIdentity(page);
-    const imageRequests: string[] = [];
-    page.on("request", (r) => {
-      if (r.resourceType() === "image") imageRequests.push(new URL(r.url()).pathname);
-    });
-
-    await page.goto("/facts/522");
-    await expect(page.getByText("View Original Fact #521")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Memes from this fact" })).toBeVisible();
-    await expect(page.getByText("No community memes yet. Be the first!")).toBeVisible();
-
-    await openImageStep(page, 522);
-    // Nothing of the root's is offered. The AI source went with PuLID (launch Phase 4,
-    // removal 3) and the stock source with Pexels (removal 6), so the step has one
-    // source -- the viewer's own photo (this logged-out viewer is asked to sign up for it)
-    // -- and no source switcher at all.
-    await expect(page.getByText("Sign up to create a meme using your photo")).toBeVisible();
-    await expect(page.getByRole("tablist", { name: "Source" })).toHaveCount(0);
-    await expect(page.getByRole("tab", { name: /ai you|stock/i })).toHaveCount(0);
-    const rendered = await page.locator("img").evaluateAll((els) => els.map((e) => new URL((e as HTMLImageElement).src).pathname));
-    for (const p of rootImagePaths) {
-      expect(rendered, `the variant's pages must not render the root's AI image ${p}`).not.toContain(p);
-      expect(imageRequests, `the variant's pages must not load the root's AI image ${p}`).not.toContain(p);
-    }
-    expect(
-      requested.filter((u) => new URL(u).pathname.startsWith("/api/facts/521")),
-      "the variant's pages must not read the root fact",
-    ).toEqual([]);
-  });
-
-  // PR256 R2 — the public feed and a root fact's detail page, every section present.
-  test("the public feed and a root fact's detail page show every section", async ({ page }) => {
+  // PR256 R2 — the public feed and a fact's detail page, every section present.
+  test("the public feed and a fact's detail page show every section", async ({ page }) => {
     const root = factDetail({
       id: 531,
       text: "{NAME} does not sleep. {Subj} {waits|wait}.",
       hashtags: ["legend", "night"],
       commentCount: 0,
-      variants: [{ ...factDetail({ id: 532, text: "{NAME} never sleeps.", parentId: 531 }) }],
     });
-    const variant = factDetail({ id: 532, text: "{NAME} never sleeps.", parentId: 531, useCase: "short" });
     const other = factDetail({ id: 533, text: "{NAME} can divide by zero.", hashtags: ["math"] });
     await stubPublicFacts(page, {
-      facts: [root, variant, other],
+      facts: [root, other],
       memes: { 531: [memeItem({ id: 5311, factId: 531, permalinkSlug: "e2e-root-meme" })] },
       related: { 531: [other] },
       images: ["/api/memes/e2e-root-meme/image"],
@@ -191,8 +144,10 @@ test.describe("Public described screens", () => {
     await expect(page.getByRole("combobox", { name: "Sort memes" })).toHaveValue("top");
     await expect(page.locator('img[src$="/api/memes/e2e-root-meme/image"]')).toBeVisible();
     await expect(page.getByText(/comments \(0\)/i)).toBeVisible();
-    await expect(page.getByRole("heading", { name: /alternate phrasings \(1\)/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: "More facts you'll like" })).toBeVisible();
+    // Variants are retired (plan PLAN_RETIRE_VARIANTS.md): no Alternate Phrasings section, no "Variant of" banner.
+    await expect(page.getByRole("heading", { name: /alternate phrasings/i })).toHaveCount(0);
+    await expect(page.getByText(/variant of/i)).toHaveCount(0);
     await expect(page.getByText("View Original Fact")).toHaveCount(0);
     await expect(page.getByText("Something broke")).toHaveCount(0);
   });

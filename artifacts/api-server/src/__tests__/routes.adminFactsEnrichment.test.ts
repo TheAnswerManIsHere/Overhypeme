@@ -156,35 +156,23 @@ describe("GET /admin/facts/:id", () => {
   });
 });
 
-describe("GET /admin/facts — variant hierarchy", () => {
-  it("nests variants under their root, paginates by root, and groups search matches under the parent", async () => {
-    const marker = `zzhier${randomUUID().replace(/-/g, "").slice(0, 10)}`;
-    const rootId = await insertFact({ text: `${marker} root fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
-    const v1 = await insertFact({ text: `${marker} variant one`, parentId: rootId, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
-    const v2 = await insertFact({ text: `${marker} variant two`, parentId: rootId, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
+describe("GET /admin/facts — a flat list", () => {
+  it("lists every matching fact as its own row, counts each one, and carries no nesting", async () => {
+    const marker = `zzflat${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+    const a = await insertFact({ text: `${marker} first fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
+    const b = await insertFact({ text: `${marker} second fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
+    await insertFact({ text: `zzother${randomUUID().slice(0, 8)} unrelated`, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
 
     const res = await request(adminApp).get(`/api/admin/facts?search=${marker}`);
     assert.equal(res.status, 200);
-    const facts = res.body.facts as Array<{ id: number; variants?: Array<{ id: number }> }>;
-    // Only the root is a top-level entry; total counts roots, not variants.
-    assert.deepEqual(facts.map((f) => f.id), [rootId]);
-    assert.equal(res.body.total, 1);
-    // Both variants are nested under the root, not listed as top-level rows.
-    assert.deepEqual((facts[0].variants ?? []).map((v) => v.id).sort(), [v1, v2].sort());
-    assert.equal(facts.some((f) => f.id === v1 || f.id === v2), false);
-  });
-
-  it("surfaces the parent root when only a variant's text matches the search", async () => {
-    const marker = `zzhier${randomUUID().replace(/-/g, "").slice(0, 10)}`;
-    const rare = `zzonly${randomUUID().replace(/-/g, "").slice(0, 10)}`;
-    const rootId = await insertFact({ text: `${marker} plain root`, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
-    const v = await insertFact({ text: `${marker} ${rare} special variant`, parentId: rootId, isActive: true, enrichment: buildPlaceholderFactEnrichment() });
-
-    const res = await request(adminApp).get(`/api/admin/facts?search=${rare}`);
-    assert.equal(res.status, 200);
-    const facts = res.body.facts as Array<{ id: number; variants?: Array<{ id: number }> }>;
-    assert.deepEqual(facts.map((f) => f.id), [rootId]);            // parent pulled in for context
-    assert.deepEqual((facts[0].variants ?? []).map((x) => x.id), [v]); // only the matching variant
+    const facts = res.body.facts as Array<Record<string, unknown>>;
+    assert.deepEqual(facts.map((f) => f.id).sort(), [a, b].sort());
+    assert.equal(res.body.total, 2);
+    for (const f of facts) {
+      assert.equal("variants" in f, false, "no nested list");
+      assert.equal("parentId" in f, false, "no parent link");
+      assert.equal("useCase" in f, false, "no use-case label");
+    }
   });
 });
 

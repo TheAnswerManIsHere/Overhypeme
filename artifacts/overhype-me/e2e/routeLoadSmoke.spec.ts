@@ -229,7 +229,6 @@ async function stubFactWrites(page: Page, rows: AdminFactRow[], history = new Ma
       const body = req.postDataJSON() as { enrichment: unknown };
       return fulfill(route, { success: true, enrichment: body.enrichment });
     }
-    if (method === "POST" && sub === "/variants") return fulfill(route, { success: true, queued: true, reviewId: 4241 }, 201);
     if (method === "POST" && sub === "/resubmit-for-moderation") {
       return fulfill(route, { success: true, workflowStage: "prep_pending", reviewId: 4242, factId: row.id });
     }
@@ -241,7 +240,7 @@ async function stubFactWrites(page: Page, rows: AdminFactRow[], history = new Ma
     if (text !== undefined && text.trim() !== row.text) {
       return fulfill(route, { error: "A fact's wording can't be changed once it is accepted.", code: "WORDING_LOCKED" }, 409);
     }
-    Object.assign(row, rest, { parentId: row.parentId });
+    Object.assign(row, rest);
     return fulfill(route, { success: true, fact: row });
   });
   return { patches };
@@ -326,10 +325,9 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(entry.getByText(`→ ${LIVE}`, { exact: true }), "the history shows the wording it became").toBeVisible();
   });
 
-  test("PR242 5, 6, 9, 10, 13 — a variant is queued not published; Resubmit shows on inactive facts and Send Back on active ones", async ({ page }) => {
+  test("PR242 9, 10, 13 — Resubmit shows on inactive facts and Send Back on active ones; no variant controls", async ({ page }) => {
     const ROOT = "{NAME} w1 juggles thunderstorms.";
     const INACTIVE = "{NAME} w1 once out-stared a glacier.";
-    const VARIANT = "{NAME} w1 juggles thunderstorms one-handed.";
     const root = adminFactRow({ id: 96301, text: ROOT });
     const inactive = adminFactRow({ id: 96302, text: INACTIVE, isActive: false });
     await stubAdminFacts(page, [
@@ -344,20 +342,9 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     // Steps 13 and 9: an active fact shows Send Back to Review, and no Resubmit.
     await expect(page.getByTestId("send-back-button"), "PR242 steps 9/13: an active fact shows Send Back to Review").toHaveText("Send Back to Review");
     await expect(page.getByTestId("resubmit-for-moderation-button"), "PR242 step 13: no Resubmit for Moderation button on an active fact").toHaveCount(0);
-
-    // Step 5: adding a variant queues it — the alert says so and nothing appears yet.
-    await page.getByRole("button", { name: "Add variant" }).click();
-    await page.getByPlaceholder("Variant text…").fill(VARIANT);
-    let alertText = "";
-    page.once("dialog", (d) => { alertText = d.message(); void d.accept(); });
-    await page.getByRole("button", { name: "Add", exact: true }).click();
-    await expect.poll(() => alertText, { message: "PR242 step 5: an alert follows the save" }).not.toBe("");
-    expect(alertText, "PR242 step 5: the alert reads Variant queued for review").toMatch(
-      /^Variant queued for review\. It'll appear under this fact once it's approved through moderation\./,
-    );
-    await expect(page.getByText("Variants (0)", { exact: true }), "PR242 step 5: the variant does not appear instantly").toBeVisible();
-    await expect(page.getByText(VARIANT, { exact: true }), "PR242 step 5: the variant text is nowhere on the page").toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Expand variants" }), "PR242 step 6: not nested under the parent before approval").toHaveCount(0);
+    // Variants are retired (plan PLAN_RETIRE_VARIANTS.md): no way to add one, and no nesting in the list.
+    await expect(page.getByRole("button", { name: /add variant/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /expand variants/i })).toHaveCount(0);
 
     // Steps 9 and 10: an inactive fact shows Resubmit for Moderation, and resubmitting names the review and Stage 1.
     await selectFact(page, 96302, INACTIVE);
@@ -378,13 +365,6 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
       "PR242 step 10: the message reads Resubmitted for moderation — Review #… is back in the queue at Stage 1",
     ).toHaveText(/^Resubmitted for moderation — Review #4242 is back in the queue at Stage 1\./);
 
-    // Step 6: once approved, the variant is listed nested under its parent row.
-    root.variants = [adminFactRow({ id: 96303, text: VARIANT, parentId: 96301 })];
-    await page.reload();
-    await page.getByRole("button", { name: "Expand variants" }).click();
-    const variantRow = page.locator("div.cursor-pointer").filter({ hasText: VARIANT });
-    await expect(variantRow, "PR242 step 6: after approval the variant appears nested under its parent").toContainText("variant");
-    await expect(variantRow, "PR242 step 6: the nested row is indented under the parent").toHaveClass(/pl-10/);
   });
 
   test("PR242 2, 3 — a bulk import is queued for moderation, never imported, and stays out of the live Facts list", async ({ page }) => {

@@ -1541,7 +1541,7 @@ export const getListRelatedFactsUrl = (
 /**
  * Returns facts that share hashtags with the given fact, scored by
  * tag-overlap count, broken by Wilson score descending. The given
- * fact and (if it is a parent) its variants are excluded. If the
+ * fact is excluded. If the
  * given fact has no hashtags or there are not enough overlapping
  * candidates, the response is padded with top-Wilson-score facts.
  * @summary List facts similar to the given fact

@@ -27,7 +27,6 @@ export interface AiMemeImages {
 /** GET /api/facts/:id as the server sends it: the typed detail plus the image fields it adds. */
 export type FactDetailBody = FactDetail & {
   rank?: number;
-  useCase?: string | null;
   aiMemeImages?: AiMemeImages | null;
 };
 
@@ -81,9 +80,6 @@ export function factDetail(overrides: Partial<FactDetailBody> & Pick<FactDetailB
     ...factSummary(overrides),
     rank: 1,
     links: [],
-    variants: [],
-    parentId: null,
-    useCase: null,
     aiMemeImages: null,
     ...overrides,
   };
@@ -148,7 +144,7 @@ export interface PublicFactStubs {
 export async function stubPublicFacts(page: Page, stubs: PublicFactStubs): Promise<string[]> {
   const requested: string[] = [];
   const byId = new Map(stubs.facts.map((f) => [f.id, f]));
-  const roots = stubs.facts.filter((f) => !f.parentId);
+  const roots = stubs.facts;
 
   await page.route(/\/api\/facts(\?.*)?$/, (route) => {
     requested.push(route.request().url());

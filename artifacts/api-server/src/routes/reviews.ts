@@ -61,7 +61,6 @@ import { materializeEnrichment } from "../lib/factEnrichment";
 import {
   activateFact,
   ConceptMissingError,
-  ParentNotActiveError,
   ActivationConflictError,
   hasApprovedGag,
 } from "../lib/factActivation";
@@ -232,7 +231,7 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     userId: req.user.id,
     actionType: "review_submitted",
     message: isDuplicateFlagged
-      ? `You submitted a fact for admin review — flagged as a possible variant at ${matchingSimilarity}% similarity.`
+      ? `You submitted a fact for admin review — flagged as a possible duplicate at ${matchingSimilarity}% similarity.`
       : `You submitted a fact for admin review. You'll be notified when it's approved or declined.`,
     metadata: { reviewId: review.id, matchingFactId, text: text.slice(0, 120) },
   });
@@ -421,11 +420,6 @@ const ReviewDecisionBody = z.object({
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
   rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]).optional(),
-});
-const ApproveVariantBody = z.object({
-  parentFactId: z.number().int().positive(),
-  adminNote: z.string().max(500).optional(),
-  hashtags: z.array(z.string()).max(50).optional(),
 });
 
 /**
@@ -646,9 +640,9 @@ async function approveRefreshCandidateForProduction(
 async function approveForProduction(
   req: AuthenticatedRequest,
   res: Response,
-  opts: { reviewId: number; adminNote: string | null; parentFactIdOverride?: number; hashtags?: string[] },
+  opts: { reviewId: number; adminNote: string | null; hashtags?: string[] },
 ): Promise<void> {
-  const { reviewId, adminNote, parentFactIdOverride } = opts;
+  const { reviewId, adminNote } = opts;
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
@@ -669,17 +663,6 @@ async function approveForProduction(
 
   const [stagingFact] = await db.select().from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
   if (!stagingFact) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
-
-  // Variant-at-approval (optional): set/confirm the parent when an override is given.
-  let parentId = stagingFact.parentId;
-  if (parentFactIdOverride != null && parentFactIdOverride !== parentId) {
-    const [parentFact] = await db.select({ id: factsTable.id })
-      .from(factsTable)
-      .where(and(eq(factsTable.id, parentFactIdOverride), eq(factsTable.isActive, true)))
-      .limit(1);
-    if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactIdOverride} not found or inactive` }); return; }
-    parentId = parentFactIdOverride;
-  }
 
   // Legacy clients (pre-override-model bundles) sent their flattened enrichment
   // blob on every approve. It is IGNORED — accepting it would re-baseline the
@@ -763,15 +746,15 @@ async function approveForProduction(
   let reviewStateConflict = false;
   try {
     await db.transaction(async (tx) => {
-      // Sole activation chokepoint: re-reads the concept + revalidates the parent
-      // (active root) in-tx and does the compare-and-set flip. `expectedEnrichment`
+      // Sole activation chokepoint: re-reads the approved gag in-tx and does the
+      // compare-and-set flip. `expectedEnrichment`
       // CASes on the RAW staging-fact enrichment the render gate validated above
       // (not the Zod-normalized `enrichment` variable), so a concurrent Visual
       // Concept edit between the render gate and this activation is caught rather
       // than silently publishing unreviewed enrichment. Throws
-      // ConceptMissingError / ParentNotActiveError / ActivationConflictError —
+      // ConceptMissingError / ActivationConflictError —
       // never activates on failure.
-      await activateFact(tx, { factId: stagingFact.id, parentId, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
+      await activateFact(tx, { factId: stagingFact.id, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
 
       const reviewed = await tx.update(pendingReviewsTable).set({
         status: "approved",
@@ -809,11 +792,6 @@ async function approveForProduction(
       res.status(409).json({ error: "Save a non-empty Visual Concept before approving for production.", code: "CONCEPT_MISSING" });
       return;
     }
-    if (err instanceof ParentNotActiveError) {
-      logger.warn({ reviewId, factId: stagingFact.id, parentId: err.parentId }, "[moderation] approval aborted: parent no longer an active root");
-      res.status(409).json({ error: `Fact #${err.parentId} is no longer an active root, so this variant can't be activated under it. Re-parent it or promote it to a root, then approve again.`, code: "PARENT_NOT_ACTIVE" });
-      return;
-    }
     if (reviewStateConflict) {
       logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: review state changed during approval");
       res.status(409).json({ error: "This review's state changed while you were approving it. Reload the review and retry.", code: "REVIEW_STATE_CHANGED_DURING_APPROVAL" });
@@ -832,10 +810,8 @@ async function approveForProduction(
     await logActivity({
       userId: review.submittedById,
       actionType: "review_approved",
-      message: parentId != null
-        ? `Your submitted fact was approved as a variant of fact #${parentId} and added to the database!`
-        : `Your submitted fact was approved by an admin and added to the database!`,
-      metadata: { reviewId, factId: stagingFact.id, parentFactId: parentId, adminNote },
+      message: `Your submitted fact was approved by an admin and added to the database!`,
+      metadata: { reviewId, factId: stagingFact.id, adminNote },
     });
 
     if (submitter?.email) {
@@ -849,7 +825,7 @@ async function approveForProduction(
     }
   }
 
-  res.json({ success: true, factId: stagingFact.id, hashtags: finalTags, ...(parentId != null ? { parentFactId: parentId } : {}) });
+  res.json({ success: true, factId: stagingFact.id, hashtags: finalTags });
 }
 
 router.post("/admin/reviews/:id/approve-for-production", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -873,25 +849,13 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
   await approveForProduction(req, res, { reviewId: id, adminNote, hashtags });
 });
 
-// Back-compat: variant approval. The variant link is normally chosen at
-// provisional approval; a parentFactId here re-confirms / sets it at activation.
-router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const bodyParsed = ApproveVariantBody.safeParse(req.body);
-  if (!bodyParsed.success) { res.status(400).json({ error: "parentFactId is required" }); return; }
-  await approveForProduction(req, res, { reviewId: id, adminNote: bodyParsed.data.adminNote ?? null, parentFactIdOverride: bodyParsed.data.parentFactId, hashtags: bodyParsed.data.hashtags });
-});
-
 // ─── Provisional approval (admin) — first gate ────────────────────────────────
 //
 // "This fact is worth implementing." Creates the inactive staging fact and
 // starts paid prep (enrichment). This
-// is the ONLY place enrichment spend begins. Optional `parentFactId` accepts the
-// candidate as a variant — the variant still gets its OWN enrichment.
+// is the ONLY place enrichment spend begins.
 
 const ProvisionalApproveBody = z.object({
-  parentFactId: z.number().int().positive().optional(),
   adminNote: z.string().max(500).optional(),
 });
 
@@ -912,12 +876,6 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-
-  // Variant parent: an explicit body override wins; otherwise default to the
-  // parent the review has carried since ingestion (createTriageReview). This is
-  // how a variant submission threads its parent from Stage 1 into the staging
-  // fact (and on to activation, where activateFact revalidates it as an active root).
-  const parentFactId = bodyParsed.data.parentFactId ?? review.parentFactId ?? undefined;
 
   // Idempotent re-click while prep is already running: DON'T just return
   // "alreadyPrepping" — ENSURE the durable jobs still exist (heals a stranded
@@ -950,15 +908,6 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
     }
   }
 
-  // Verify the parent fact (variant case) exists and is active.
-  if (parentFactId != null) {
-    const [parentFact] = await db.select({ id: factsTable.id })
-      .from(factsTable)
-      .where(and(eq(factsTable.id, parentFactId), eq(factsTable.isActive, true)))
-      .limit(1);
-    if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactId} not found or inactive` }); return; }
-  }
-
   // Create-or-reuse the staging fact and move the review into prep, in one
   // transaction (the shared first-time-staging-prep primitive). If the post-commit ensure
   // fails, the staging fact + prep_pending state remain, so a later re-click
@@ -979,7 +928,6 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
       }
       const { factId } = await prepareFirstTimeStagingPrep(tx, {
         review: { id: review.id, submittedText: locked.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked.stagingFactId },
-        parentFactId: parentFactId ?? null,
         reviewedById: req.user.id,
         adminNote,
       });
@@ -997,7 +945,7 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   // concept_review).
   const prepDispatch = await ensureFirstTimeStagingPrepJobs(stagingFactId);
 
-  logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
+  logger.info({ reviewId: id, stagingFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
 
   res.json({ success: true, stagingFactId, workflowStage: "prep_pending", prepDispatch });
 });

@@ -2,7 +2,7 @@
  * Integration tests for GET /facts/hero in routes/facts.ts.
  *
  * The hero endpoint surfaces the home-page billboard via a weighted-random
- * pick from the top-50 wilson-ranked active root facts.  It honors a
+ * pick from the top-50 wilson-ranked active facts.  It honors a
  * client-supplied `?exclude=id1,id2` query param for short-list de-dup,
  * additionally excludes anything already shown when called by an
  * authenticated user, and persists `last_seen_as_hero_at` into
@@ -26,7 +26,7 @@
  * prefix.  The before/after hooks delete those users; user_fact_preferences
  * cascades on user delete.
  *
- * Hero-pool seeding: this suite seeds a small set of its OWN active root facts
+ * Hero-pool seeding: this suite seeds a small set of its OWN active facts
  * (submitter NULL, so they pass the route's test-user filter and count as
  * "real") in the outer `before`, and deletes them in the outer `after`. The
  * pool the hero endpoint draws from must be non-empty for these assertions, and
@@ -156,7 +156,7 @@ describe("GET /facts/hero — ranking sanity", () => {
     const top50 = await db
       .select({ id: factsTable.id })
       .from(factsTable)
-      .where(and(eq(factsTable.isActive, true), isNull(factsTable.parentId), notTestUserFact))
+      .where(and(eq(factsTable.isActive, true), notTestUserFact))
       .orderBy(desc(factsTable.wilsonScore))
       .limit(50);
     const top50Ids = new Set(top50.map((r) => r.id));
@@ -183,7 +183,7 @@ describe("GET /facts/hero — exclude param", () => {
     const top2 = await db
       .select({ id: factsTable.id })
       .from(factsTable)
-      .where(and(eq(factsTable.isActive, true), isNull(factsTable.parentId), notTestUserFact))
+      .where(and(eq(factsTable.isActive, true), notTestUserFact))
       .orderBy(desc(factsTable.wilsonScore))
       .limit(2);
     assert.ok(top2.length >= 2, "DB must have at least 2 real active facts to test exclusion");
@@ -277,9 +277,9 @@ describe("GET /facts/hero — auth-side persistence", () => {
 
 describe("GET /facts/hero — fallback / epsilon floor", () => {
   it("still returns a fact when the candidate pool is exhausted by the exclude list", async () => {
-    // Build an exclude list of the top-100 active root facts (the server
+    // Build an exclude list of the top-100 active facts (the server
     // slices `?exclude` at 100 ids regardless).  When the DB holds ≤100
-    // active root facts in total, the route's first SELECT returns zero rows
+    // active facts in total, the route's first SELECT returns zero rows
     // and the fallback re-query without exclusions takes over; when there
     // are >100, the route still returns a fact from positions 101+.  Either
     // way the contract is the same: the endpoint must respond 200 with a
@@ -287,7 +287,7 @@ describe("GET /facts/hero — fallback / epsilon floor", () => {
     const top = await db
       .select({ id: factsTable.id })
       .from(factsTable)
-      .where(and(eq(factsTable.isActive, true), isNull(factsTable.parentId)))
+      .where(eq(factsTable.isActive, true))
       .orderBy(desc(factsTable.wilsonScore))
       .limit(100);
     const exclude = top.map((r) => r.id).join(",");

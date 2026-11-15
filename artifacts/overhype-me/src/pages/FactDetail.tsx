@@ -8,15 +8,14 @@ import { FactComments } from "@/components/facts/FactComments";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, AlertCircle, GitBranch, ArrowLeft, Flame } from "lucide-react";
+import { AlertCircle, Flame } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
-import { useAskBefore, useAskBeforeSignedIn, useIdentityGate } from "@/hooks/use-identity-gate";
+import { useAskBefore, useIdentityGate } from "@/hooks/use-identity-gate";
 
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
@@ -56,86 +55,6 @@ async function fetchMemes(factId: number, visibility: "community" | "my-public" 
   if (!res.ok) throw new Error("Failed to fetch memes");
   return res.json() as Promise<{ memes: MemeItem[] }>;
 }
-
-function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }) {
-  const { isAuthenticated } = useAuth();
-  const [, setLocation] = useLocation();
-  const { rateFact } = useAppMutations();
-  const askBeforeSignedIn = useAskBeforeSignedIn();
-
-  const { data: fact, isLoading } = useGetFact(id, {
-    query: { queryKey: getGetFactQueryKey(id), enabled: true }
-  });
-
-  const handleRate = (type: "up" | "down") => {
-    askBeforeSignedIn(`/login?from=/facts/${id}`, () => {
-      const newRating = fact?.userRating === type ? "none" : type;
-      rateFact.mutate({ factId: id, data: { rating: newRating } });
-    });
-  };
-
-  if (isLoading || !fact) {
-    return (
-      <div className="bg-card border-l-4 border-primary/30 p-6 animate-pulse rounded-sm">
-        <div className="h-6 bg-muted rounded w-3/4 mb-4" />
-        <div className="h-4 bg-muted rounded w-1/2" />
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <FactCard
-        fact={fact}
-        size="variant"
-        headerSlot={useCase ? (
-          <span className="inline-block mb-4 text-xs font-bold font-display tracking-widest uppercase text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-sm">
-            {useCase.replace(/_/g, " ")}
-          </span>
-        ) : undefined}
-        actionsSlot={
-          <div className="flex items-center gap-3 flex-wrap">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => handleRate("up")}
-              className={cn("gap-2", fact.userRating === "up" && "bg-primary/20 text-primary border-primary")}
-              disabled={rateFact.isPending}
-            >
-              <ThumbsUp className={cn("w-4 h-4", fact.userRating === "up" && "fill-current")} />
-              <span>{fact.upvotes}</span>
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => handleRate("down")}
-              className={cn("gap-2", fact.userRating === "down" && "bg-destructive/20 text-destructive border-destructive")}
-              disabled={rateFact.isPending}
-            >
-              <ThumbsDown className={cn("w-4 h-4", fact.userRating === "down" && "fill-current")} />
-              <span>{fact.downvotes}</span>
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              // The one builder, on this phrasing's own route, which asks first (#851).
-              onClick={() => setLocation(`/facts/${id}/meme`)}
-              className="gap-2"
-            >
-              <Flame className="w-4 h-4" />
-              MAKE MEME
-            </Button>
-            <Link href={`/facts/${id}`} className="ml-auto text-xs text-muted-foreground hover:text-primary transition-colors font-medium underline underline-offset-4">
-              View discussion →
-            </Link>
-          </div>
-        }
-      />
-    </>
-  );
-}
-
-// ── FactDetail ────────────────────────────────────────────────────────────────
 
 export default function FactDetail() {
   const [, params] = useRoute("/facts/:id/:sub?");
@@ -266,8 +185,6 @@ export default function FactDetail() {
   if (factLoading || !contentReady) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
 
-  const isVariant = !!fact.parentId;
-
   return (
     <Layout>
       {showMemeStudio && (
@@ -299,24 +216,6 @@ export default function FactDetail() {
         </Suspense>
       )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
-
-        {/* Parent fact button — prominent banner when this fact is a variant */}
-        {isVariant && (
-          <Link href={`/facts/${fact.parentId}`}>
-            <div className="mb-8 flex items-center gap-4 bg-primary/10 border-2 border-primary/40 hover:border-primary hover:bg-primary/15 transition-all p-5 rounded-sm cursor-pointer group">
-              <div className="shrink-0 w-12 h-12 bg-primary/20 border-2 border-primary/40 group-hover:border-primary rounded-sm flex items-center justify-center transition-colors">
-                <ArrowLeft className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <p className="text-xs font-display uppercase tracking-widest text-primary/70 mb-0.5">Variant of</p>
-                <p className="text-lg font-bold font-display uppercase tracking-wide text-primary group-hover:underline underline-offset-4">
-                  View Original Fact #{fact.parentId}
-                </p>
-              </div>
-              <GitBranch className="w-6 h-6 text-primary/40 ml-auto" />
-            </div>
-          </Link>
-        )}
 
         {/* Main Fact Card — same FactCard primitive used in the feed and
             on TopFacts, with size="detail" for h1/larger padding/no Link wrap.
@@ -522,21 +421,6 @@ export default function FactDetail() {
 
         {/* Comments — list first, composer at bottom (variant="detail") */}
         <FactComments fact={fact} variant="detail" />
-
-        {/* Variants — only shown on root (parent) facts, never on variants themselves */}
-        {!isVariant && fact.variants && fact.variants.length > 0 && (
-          <div className="mt-16">
-            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2 mb-8 flex items-center gap-3">
-              <GitBranch className="w-6 h-6 text-primary" />
-              Alternate Phrasings ({fact.variants.length})
-            </h3>
-            <div className="space-y-6">
-              {fact.variants.map(v => (
-                <VariantFactCard key={v.id} id={v.id} useCase={v.useCase ?? null} />
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Related facts — convert share-arrival traffic into session traffic */}
         {relatedFactsData?.facts && relatedFactsData.facts.length > 0 && (

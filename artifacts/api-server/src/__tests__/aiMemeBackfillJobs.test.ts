@@ -1,6 +1,6 @@
 /**
- * Unit tests for the `fact_ai_meme_backfill` async-job handler (variant-
- * independence tasks 15/16 — the new durable AI-meme backfill queue).
+ * Unit tests for the `fact_ai_meme_backfill` async-job handler (the durable
+ * AI-meme backfill queue).
  *
  *   • enqueue writes a stable dedupe key and a "pending" status (unless a
  *     prior attempt is genuinely mid-flight)
