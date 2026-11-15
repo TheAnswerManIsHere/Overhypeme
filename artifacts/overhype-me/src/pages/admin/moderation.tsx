@@ -6,7 +6,7 @@ import {
   CheckCircle, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
   ExternalLink, ClipboardList, Loader2, AlertTriangle, GitBranch,
   MessageSquare, Trash2, User, Sparkles, RefreshCw, Rocket,
-  CheckCheck, SlidersHorizontal, Wand2,
+  CheckCheck, SlidersHorizontal, Wand2, Search,
 } from "lucide-react";
 import {
   type FactEnrichment,
@@ -114,26 +114,32 @@ interface ReviewsResponse {
   limit: number;
 }
 
-function useReviews(status: string, page: number) {
+function useReviews(status: string, page: number, query: string) {
   const [data, setData] = useState<ReviewsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Only the most recent request may write state: a slow earlier request (an
+  // older search, tab or page) must not overwrite the results of a newer one.
+  const latestRequest = useRef(0);
+
   const load = useCallback(async () => {
+    const requestId = ++latestRequest.current;
     setLoading(true);
     setError("");
     try {
-      const r = await fetch(`/api/admin/reviews?status=${status}&page=${page}&limit=20`, {
+      const r = await fetch(`/api/admin/reviews?status=${status}&page=${page}&limit=20&q=${encodeURIComponent(query)}`, {
         credentials: "include",
       });
       if (!r.ok) throw new Error("Failed to load reviews");
-      setData(await r.json() as ReviewsResponse);
+      const body = await r.json() as ReviewsResponse;
+      if (requestId === latestRequest.current) setData(body);
     } catch (e) {
-      setError(String(e));
+      if (requestId === latestRequest.current) setError(String(e));
     } finally {
-      setLoading(false);
+      if (requestId === latestRequest.current) setLoading(false);
     }
-  }, [status, page]);
+  }, [status, page, query]);
 
   return { data, loading, error, load };
 }
@@ -1427,6 +1433,10 @@ function ReviewModal({
 function FactReviewsPanel() {
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected" | "all">("pending");
   const [page, setPage] = useState(1);
+  // `searchInput` is what's typed; `search` is what the list is filtered by,
+  // applied after a short pause so each keystroke isn't a request.
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
   const [actionMsg, setActionMsg] = useState("");
   const [duplicateThreshold, setDuplicateThreshold] = useState(80);
@@ -1444,7 +1454,18 @@ function FactReviewsPanel() {
       .catch(() => {});
   }, []);
 
-  const { data, loading, error, load } = useReviews(statusFilter, page);
+  const { data, loading, error, load } = useReviews(statusFilter, page, search);
+
+  useEffect(() => {
+    const trimmed = searchInput.trim();
+    if (trimmed === search) return;
+    const h = setTimeout(() => {
+      setSearch(trimmed);
+      setPage(1);
+      setInitialized(false);
+    }, 300);
+    return () => clearTimeout(h);
+  }, [searchInput, search]);
 
   const [initialized, setInitialized] = useState(false);
   if (!initialized) { setInitialized(true); void load(); }
@@ -1493,6 +1514,19 @@ function FactReviewsPanel() {
 
   return (
     <div className="space-y-4">
+      <div className="relative">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search reviews by fact text or review number…"
+          aria-label="Search reviews"
+          data-testid="moderation-search"
+          className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap">
         {FILTERS.map((f) => (
           <button key={f.value} onClick={() => handleFilterChange(f.value)}
@@ -1536,7 +1570,10 @@ function FactReviewsPanel() {
       {data && data.reviews.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>No {statusFilter === "all" ? "" : statusFilter} reviews found.</p>
+          <p>
+            No {statusFilter === "all" ? "" : statusFilter} reviews found
+            {search ? <> matching &ldquo;{search}&rdquo;</> : null}.
+          </p>
         </div>
       )}
 

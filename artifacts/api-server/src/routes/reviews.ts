@@ -11,7 +11,7 @@ import {
   hashtagsTable, factHashtagsTable, imagePromptAttemptsTable,
   factEnrichmentVersionsTable,
 } from "@workspace/db/schema";
-import { eq, desc, sql, and, count, inArray, isNull } from "drizzle-orm";
+import { eq, desc, sql, and, or, ilike, count, inArray, isNull } from "drizzle-orm";
 import { requireAdmin } from "./admin";
 import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -258,7 +258,19 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "20"), 10)));
   const offset = (page - 1) * limit;
 
-  const whereClause = status === "all" ? undefined : eq(pendingReviewsTable.status, status);
+  // Optional search: case-insensitive substring of the submitted wording, plus an
+  // exact review-number match when the query is digits ("6891" or "#6891").
+  // LIKE wildcards in the query are escaped so they match literally.
+  const q = String(req.query["q"] ?? "").trim().slice(0, 200);
+  const idMatch = /^#?(\d{1,9})$/.exec(q);
+  const searchClause = q === ""
+    ? undefined
+    : or(
+        ilike(pendingReviewsTable.submittedText, `%${q.replace(/[\\%_]/g, "\\$&")}%`),
+        idMatch ? eq(pendingReviewsTable.id, parseInt(idMatch[1]!, 10)) : undefined,
+      );
+  const statusClause = status === "all" ? undefined : eq(pendingReviewsTable.status, status);
+  const whereClause = and(statusClause, searchClause);
 
   const [reviews, [{ total }]] = await Promise.all([
     db.select().from(pendingReviewsTable)
