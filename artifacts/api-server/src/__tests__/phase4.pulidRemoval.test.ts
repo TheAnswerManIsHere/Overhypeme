@@ -30,7 +30,8 @@ import {
   adminConfigTable,
 } from "@workspace/db/schema";
 import { eq, inArray, like, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -81,10 +82,7 @@ before(async () => {
     emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
   });
   adminSid = await bearer(adminId);
-  const [fact] = await db
-    .insert(factsTable)
-    .values({ text: "{NAME} outstared a lighthouse.", submittedById: adminId, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
-    .returning({ id: factsTable.id });
+  const fact = await insertLiveFact({ text: "{NAME} outstared a lighthouse.", submittedById: adminId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
   factId = fact!.id;
   factIds.push(factId);
 });

@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 import { db } from "@workspace/db";
+import { insertLiveFacts } from "@workspace/db/live-fact-fixture";
 import {
   asyncJobsTable,
   comparisonCellsTable,
@@ -65,7 +66,7 @@ const fakeFal: ComparisonFal = {
   async result(_e, requestId) { return { images: [{ url: `https://vendor.test/${requestId}.png` }] }; },
 };
 
-const ACTIVE_ENRICHMENT = { ...VALID_ENRICHMENT, visualPromptStrategyOverride: { version: 1, coreSceneOverride: "{NAME} lifts a whole mountain overhead." } };
+const ACTIVE_GAG = { version: 1, coreSceneOverride: "{NAME} lifts a whole mountain overhead." };
 
 // One wrapper scopes the file-level hooks to this file: with test isolation off,
 // a root-level beforeEach would install this file's fakes for every other file
@@ -80,12 +81,14 @@ before(async () => {
   }
   adminId = `${P}-admin`;
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true });
-  const facts = await db.insert(factsTable).values([
-    { text: `${P} zebra {NAME} lifts a mountain`, isActive: true, enrichment: ACTIVE_ENRICHMENT as never },
-    { text: `${P} zebra {NAME} is not live yet`, isActive: false, enrichment: VALID_ENRICHMENT as never },
-    { text: `${P} zebra {NAME} has a broken enrichment`, isActive: true, enrichment: { visualPromptStrategyOverride: { coreSceneOverride: "x" } } as never },
-  ]).returning({ id: factsTable.id });
-  [activeFact, inactiveFact, brokenFact] = facts.map((f) => f.id) as [number, number, number];
+  // A live fact's gag lives in fact_gags (migration 0139).
+  const live = await insertLiveFacts([
+    { fact: { text: `${P} zebra {NAME} lifts a mountain`, enrichment: VALID_ENRICHMENT as never }, gag: ACTIVE_GAG as never },
+    { fact: { text: `${P} zebra {NAME} has a broken enrichment`, enrichment: {} as never }, gag: { version: 1, coreSceneOverride: "x" } as never },
+  ]);
+  const [inactive] = await db.insert(factsTable).values({ text: `${P} zebra {NAME} is not live yet`, isActive: false, enrichment: VALID_ENRICHMENT as never }).returning({ id: factsTable.id });
+  [activeFact, brokenFact] = live.map((f) => f.id) as [number, number];
+  inactiveFact = inactive!.id;
 });
 
 after(async () => {

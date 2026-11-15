@@ -209,9 +209,12 @@ export async function structure(
 
 /**
  * The kinds of reference-only line adoption may create (amendment 4): a
- * function, a trigger, and that trigger's firing mode. Only in `public`.
+ * function, a trigger, and that trigger's firing mode. Only in `public`. A
+ * constraint trigger (CREATE CONSTRAINT TRIGGER, as migration 0139's gag rule
+ * is) also has a constraint line, which recreating the trigger restores, so
+ * that line is creatable too; any other constraint is not.
  */
-const CREATABLE_LINE = /^public: (function|trigger|trigger-mode) /;
+const CREATABLE_LINE = /^public: ((function|trigger|trigger-mode) |constraint \S+ TRIGGER )/;
 
 interface FunctionDef { sig: string; def: string }
 interface TriggerDef { table: string; name: string; def: string; mode: string }

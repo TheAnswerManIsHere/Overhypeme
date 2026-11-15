@@ -23,7 +23,8 @@ import sharp from "sharp";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, memesTable } from "@workspace/db/schema";
 import { inArray, like } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment, MEME_ASPECT_RATIOS } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag, MEME_ASPECT_RATIOS } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
 import { canViewMeme } from "../lib/memeVisibility.js";
@@ -89,10 +90,7 @@ before(async () => {
     { id: otherId, email: `${otherId}@nope.test`, isActive: true },
     { id: adminId, email: `${adminId}@nope.test`, isActive: true, isAdmin: true },
   ]);
-  const [fact] = await db
-    .insert(factsTable)
-    .values({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
-    .returning({ id: factsTable.id });
+  const fact = await insertLiveFact({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
   factId = fact.id;
 
   const base = {

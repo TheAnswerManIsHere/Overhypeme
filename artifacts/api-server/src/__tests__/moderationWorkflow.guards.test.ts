@@ -29,7 +29,7 @@ import {
 describe("moderationWorkflow — concept_review stage", () => {
   it("is a first-class stage value with display metadata", () => {
     assert.ok(REVIEW_WORKFLOW_STAGE_VALUES.includes("concept_review"));
-    assert.equal(REVIEW_WORKFLOW_STAGE_DISPLAY.concept_review.label, "Visual Concept");
+    assert.equal(REVIEW_WORKFLOW_STAGE_DISPLAY.concept_review.label, "Gags");
     // production_review label was repurposed to the render step.
     assert.equal(REVIEW_WORKFLOW_STAGE_DISPLAY.production_review.label, "Test Renders");
   });

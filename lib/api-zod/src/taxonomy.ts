@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   visualPromptStrategyOverrideSchema,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  type VisualPromptStrategyOverride,
 } from "./visualStrategyOverride";
 
 // ─── Primary archetypes ────────────────────────────────────────────────────
@@ -591,16 +592,13 @@ export type FactEnrichment = z.infer<typeof factEnrichmentSchema>;
 export const PLACEHOLDER_CORE_SCENE_OVERRIDE = "{NAME} stands there confidently.";
 
 /**
- * A minimal, schema-valid `FactEnrichment` carrying the placeholder Visual
- * Concept. Facts are born inactive and may only go live with a non-empty concept
- * (Phase-2 fact-lifecycle closure + DB CHECK), so any seed/fixture that inserts a
- * LIVE fact must attach a valid enrichment with a concept — this is the shared
- * one. It's a real, renderable placeholder (not junk): full valid taxonomy plus
- * the sentinel core scene.
+ * A minimal, schema-valid `FactEnrichment`: a fact's classification with a full
+ * valid taxonomy. Since migration 0139 a fact's gags live in their own table
+ * (fact_gags), never in the enrichment, so this carries no visual-strategy
+ * override; a seed or fixture that wants a LIVE fact pairs it with
+ * `buildPlaceholderGag()` through `insertLiveFact` (@workspace/db/live-fact-fixture).
  */
-export function buildPlaceholderFactEnrichment(
-  coreSceneOverride: string = PLACEHOLDER_CORE_SCENE_OVERRIDE,
-): FactEnrichment {
+export function buildPlaceholderFactEnrichment(): FactEnrichment {
   return {
     primaryArchetype: "mundane_act_made_legendary",
     subtype: "domestic_task_mythologized",
@@ -615,11 +613,18 @@ export function buildPlaceholderFactEnrichment(
     adminReviewNotes: "",
     culturalReferences: [],
     semanticEntities: [],
-    visualPromptStrategyOverride: {
-      ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-      coreSceneOverride,
-    },
   };
+}
+
+/**
+ * A gag's content for seeds and fixtures: the empty visual-strategy override
+ * with the placeholder (or a given) scene. A real, renderable placeholder, not
+ * junk; visibly generic and greppable so it is obvious it wants replacing.
+ */
+export function buildPlaceholderGag(
+  coreSceneOverride: string = PLACEHOLDER_CORE_SCENE_OVERRIDE,
+): VisualPromptStrategyOverride {
+  return { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride };
 }
 
 export type EnrichmentValidationResult =

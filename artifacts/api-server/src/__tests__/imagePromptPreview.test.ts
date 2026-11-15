@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 
 import request from "supertest";
 
-import { db } from "@workspace/db";
+import { db, factGagsTable } from "@workspace/db";
 import { usersTable, factsTable, lookStylesTable } from "@workspace/db/schema";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { eq, inArray, like } from "drizzle-orm";
@@ -178,15 +178,22 @@ async function createUser(opts: { isAdmin?: boolean } = {}): Promise<string> {
   return id;
 }
 
+/** A fact; a gag in the given enrichment is stored as its slot-1 gag (fact_gags, migration 0139). */
 async function seedFact(opts: { text?: string; enrichment?: unknown } = {}): Promise<number> {
+  const { visualPromptStrategyOverride: gag, ...classification } = (opts.enrichment ?? VALID_ENRICHMENT) as Record<string, unknown>;
   const [row] = await db
     .insert(factsTable)
     .values({
       text: opts.text ?? `${FACT_TEXT_PREFIX}{NAME} bench-presses the Earth during Shark Week.`,
-      enrichment: (opts.enrichment ?? VALID_ENRICHMENT) as FactEnrichment,
+      enrichment: classification as FactEnrichment,
     })
     .returning({ id: factsTable.id });
   insertedFactIds.push(row!.id);
+  // A gag always has a scene now (fact_gags CHECK); a bubble-only fixture gets a plain one.
+  if (gag) await db.insert(factGagsTable).values({
+    factId: row!.id, slot: 1,
+    pendingContent: { coreSceneOverride: "{NAME} stands in a kitchen.", ...(gag as Record<string, unknown>) },
+  });
   return row!.id;
 }
 

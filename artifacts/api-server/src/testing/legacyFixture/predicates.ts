@@ -5,9 +5,11 @@
  * Three readers compare a stored hash with one they compute from database
  * state at read time:
  *
- * - render staleness — `isAttemptStale` (factRenderScenarios.ts:192-194), the
- *   stored `review_render_input_hash` against `computeScenarioInputHash` over
- *   the review's cycle (reviewRenderScenarios.ts:119-148, 461-480);
+ * - render staleness — `isAttemptStale` (factRenderScenarios.ts), the stored
+ *   `review_render_input_hash` against `computeScenarioInputHash` over the
+ *   attempt's gag's render target (reviewRenderScenarios.ts,
+ *   `loadGagRenderTarget`); an attempt made before gags had their own table
+ *   names no gag and reads as "no-context" on both sides;
  * - candidate promotion — the stored `fact_enrichment_versions.fact_text_hash`
  *   against `hashFactText(fact.text)` (enrichmentVersioning.ts:335);
  * - visual-concept freshness — `buildVisualConceptsResponse`
@@ -26,7 +28,7 @@ import { db, pool } from "@workspace/db";
 import { factEnrichmentVersionsTable, factsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
 
 import { hashFactText } from "../../lib/enrichmentVersioning";
-import { computeScenarioInputHash, loadReviewRenderContext } from "../../lib/reviewRenderScenarios";
+import { computeScenarioInputHash, loadGagRenderTarget } from "../../lib/reviewRenderScenarios";
 import { buildVisualConceptsResponse, computeCurrentInputHash, resolveVisualConceptCycle } from "../../lib/visualConceptJobs";
 import type { RenderScenarioKey } from "@workspace/api-zod";
 
@@ -43,14 +45,16 @@ export interface PredicateRecord {
 
 export const emptyPredicateRecord = (): PredicateRecord => ({ renderAttempts: {}, candidateTextHash: {}, conceptBlobs: {} });
 
-/** The render grid's current input hash for a review's scenario, its context loaded once per review. */
-function renderHasher(): (reviewId: number, scenarioKey: string) => Promise<{ ok: true; hash: string } | { ok: false; reason: string }> {
-  const contexts = new Map<number, Awaited<ReturnType<typeof loadReviewRenderContext>>>();
-  return async (reviewId, scenarioKey) => {
-    if (!contexts.has(reviewId)) contexts.set(reviewId, await loadReviewRenderContext(reviewId));
-    const loaded = contexts.get(reviewId)!;
+/** The render grid's current input hash for a gag's scenario, its target loaded once per gag. */
+function renderHasher(): (gagId: number | null, scenarioKey: string) => Promise<{ ok: true; hash: string } | { ok: false; reason: string }> {
+  const targets = new Map<number, Awaited<ReturnType<typeof loadGagRenderTarget>>>();
+  return async (gagId, scenarioKey) => {
+    if (gagId == null) return { ok: false, reason: "no_gag" };
+    if (!targets.has(gagId)) targets.set(gagId, await loadGagRenderTarget(gagId));
+    const loaded = targets.get(gagId)!;
     if (!loaded.ok) return { ok: false, reason: loaded.reason };
-    return { ok: true, hash: computeScenarioInputHash(scenarioKey as RenderScenarioKey, loaded.ctx.stagingFactId, loaded.ctx.factText, loaded.ctx.enrichment, loaded.ctx.imageEngines) };
+    const t = loaded.target;
+    return { ok: true, hash: computeScenarioInputHash(scenarioKey as RenderScenarioKey, t.stagingFactId, t.factText, t.enrichment, t.imageEngines) };
   };
 }
 
@@ -99,16 +103,16 @@ export async function evaluatePredicates(): Promise<PredicateRecord> {
   const attempts = await db
     .select({
       id: imagePromptAttemptsTable.id,
-      reviewId: imagePromptAttemptsTable.reviewId,
+      gagId: imagePromptAttemptsTable.gagId,
       scenarioKey: imagePromptAttemptsTable.reviewRenderScenarioKey,
       hash: imagePromptAttemptsTable.reviewRenderInputHash,
     })
     .from(imagePromptAttemptsTable)
-    .where(and(isNotNull(imagePromptAttemptsTable.reviewId), isNotNull(imagePromptAttemptsTable.reviewRenderInputHash)));
+    .where(and(isNotNull(imagePromptAttemptsTable.reviewRenderScenarioKey), isNotNull(imagePromptAttemptsTable.reviewRenderInputHash)));
   const currentHash = renderHasher();
   for (const a of attempts) {
-    if (a.reviewId == null || a.scenarioKey == null) continue;
-    const current = await currentHash(a.reviewId, a.scenarioKey);
+    if (a.scenarioKey == null) continue;
+    const current = await currentHash(a.gagId, a.scenarioKey);
     out.renderAttempts[String(a.id)] = !current.ok ? "no-context" : a.hash === current.hash ? "current" : "stale";
   }
 
@@ -162,14 +166,14 @@ export async function restorePredicates(expected: PredicateRecord): Promise<stri
   for (const [id, outcome] of Object.entries(expected.renderAttempts)) {
     if (outcome !== "current") continue;
     const [a] = await db
-      .select({ reviewId: imagePromptAttemptsTable.reviewId, scenarioKey: imagePromptAttemptsTable.reviewRenderScenarioKey })
+      .select({ gagId: imagePromptAttemptsTable.gagId, scenarioKey: imagePromptAttemptsTable.reviewRenderScenarioKey })
       .from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.id, Number(id)));
-    if (!a || a.reviewId == null || a.scenarioKey == null) {
+    if (!a || a.scenarioKey == null) {
       problems.push(`render attempt ${id}: missing from the load`);
       continue;
     }
-    const current = await currentHash(a.reviewId, a.scenarioKey);
+    const current = await currentHash(a.gagId, a.scenarioKey);
     if (!current.ok) {
       problems.push(`render attempt ${id}: its review has no render context on the fixture (${current.reason})`);
       continue;

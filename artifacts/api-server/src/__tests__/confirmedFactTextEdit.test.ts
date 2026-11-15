@@ -16,7 +16,8 @@ import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, factTextEditHistoryTable } from "@workspace/db/schema";
 import { eq, inArray } from "drizzle-orm";
-import { APPROVED_FACT_TEXT_EDIT_PHRASE, buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { APPROVED_FACT_TEXT_EDIT_PHRASE, buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit.js";
 import { hashFactText } from "../lib/enrichmentVersioning.js";
@@ -28,10 +29,11 @@ let adminId: string;
 const SIG = { engineRevision: 1, codeVersions: {} } as unknown as Record<string, unknown>;
 
 async function seedFact(text: string, overrides: Partial<typeof factsTable.$inferInsert> = {}): Promise<number> {
-  const [f] = await db
-    .insert(factsTable)
-    .values({ text, submittedById: adminId, isActive: true, enrichment: buildPlaceholderFactEnrichment(), enrichmentStatus: "ok", lastProcessedSignature: SIG, ...overrides } as typeof factsTable.$inferInsert)
-    .returning({ id: factsTable.id });
+  const { isActive = true, ...rest } = overrides;
+  const values = { text, submittedById: adminId, enrichment: buildPlaceholderFactEnrichment(), enrichmentStatus: "ok" as const, lastProcessedSignature: SIG, ...rest };
+  const f = isActive
+    ? await insertLiveFact(values, buildPlaceholderGag())
+    : (await db.insert(factsTable).values({ ...values, isActive: false }).returning({ id: factsTable.id }))[0];
   factIds.push(f!.id);
   return f!.id;
 }

@@ -20,9 +20,11 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 
 import { db, factsTable, usersTable } from "@workspace/db";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment, CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment,
+  buildPlaceholderGag, CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter, { pickSendBackTargets } from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -48,7 +50,6 @@ function validEnrichment(overrides: Record<string, unknown> = {}): Record<string
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
-    visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
     ...overrides,
   };
 }
@@ -67,10 +68,7 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
   const jobIds: number[] = [];
 
   async function insertStaleFact(text: string, cols: Record<string, unknown> = {}): Promise<number> {
-    const [r] = await db
-      .insert(factsTable)
-      .values({ text, submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS, ...cols })
-      .returning({ id: factsTable.id });
+    const r = await insertLiveFact({ text, submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS, ...cols }, buildPlaceholderGag());
     factIds.push(r!.id);
     return r!.id;
   }
@@ -162,10 +160,7 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
 
   it("all_stale: a stale root with an active variant is eligible — variants classify from their own text, so a root refresh can't invalidate them", async () => {
     const rootId = await insertStaleFact(TEXT("variant root eligible"));
-    const [variant] = await db
-      .insert(factsTable)
-      .values({ text: TEXT("variant child"), submittedById: adminUserId, isActive: true, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() })
-      .returning({ id: factsTable.id });
+    const variant = await insertLiveFact({ text: TEXT("variant child"), submittedById: adminUserId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
     factIds.push(variant!.id);
     // Calls the picker directly with a batchLimit far past the real corpus
     // size, rather than going through the HTTP endpoint's hardcoded 50-item
@@ -189,19 +184,16 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
   let nextLowId = -1_000_000 - Math.floor(Math.random() * 1_000_000) * 100;
   async function insertStaleFactInsideBatch(text: string): Promise<number> {
     const id = nextLowId--;
-    await db.insert(factsTable).values({
-      id, text, submittedById: adminUserId, isActive: true, enrichment: validEnrichment(), ...MATCHING_COLS,
-    });
+    await insertLiveFact({
+      id, text, submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS,
+    }, buildPlaceholderGag());
     factIds.push(id);
     return id;
   }
 
   it("all_stale through the endpoint enqueues a stale root that has an active variant", async () => {
     const rootId = await insertStaleFactInsideBatch(TEXT("endpoint variant root"));
-    const [variant] = await db
-      .insert(factsTable)
-      .values({ text: TEXT("endpoint variant child"), submittedById: adminUserId, isActive: true, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() })
-      .returning({ id: factsTable.id });
+    const variant = await insertLiveFact({ text: TEXT("endpoint variant child"), submittedById: adminUserId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
     factIds.push(variant!.id);
 
     const res = await request(app).post("/api/admin/taxonomy-health/actions/bulk-send-back").send({ scope: "all_stale" });
@@ -277,14 +269,11 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
   it("selected: an active but non-stale fact (current signature stamped) → not_applicable", async () => {
     const summaryRes = await request(app).get("/api/admin/taxonomy-health/summary");
     const currentSig = currentProcessingSignature(summaryRes.body.engineRevision as number);
-    const [fresh] = await db
-      .insert(factsTable)
-      .values({
-        text: TEXT("not stale"), submittedById: adminUserId, isActive: true,
+    const fresh = await insertLiveFact({
+        text: TEXT("not stale"), submittedById: adminUserId,
         enrichment: validEnrichment(), lastProcessedSignature: currentSig,
         ...MATCHING_COLS,
-      })
-      .returning({ id: factsTable.id });
+      }, buildPlaceholderGag());
     factIds.push(fresh!.id);
     const res = await request(app)
       .post("/api/admin/taxonomy-health/actions/bulk-send-back")
@@ -310,10 +299,7 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
 
   it("selected: a stale root with an active variant still enqueues — variants classify from their own text, so a root refresh can't invalidate them", async () => {
     const rootId = await insertStaleFact(TEXT("selected variant root"));
-    const [variant] = await db
-      .insert(factsTable)
-      .values({ text: TEXT("selected variant child"), submittedById: adminUserId, isActive: true, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() })
-      .returning({ id: factsTable.id });
+    const variant = await insertLiveFact({ text: TEXT("selected variant child"), submittedById: adminUserId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
     factIds.push(variant!.id);
     const res = await request(app)
       .post("/api/admin/taxonomy-health/actions/bulk-send-back")

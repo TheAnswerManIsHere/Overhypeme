@@ -18,7 +18,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable, imagePromptAttemptsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, factGagsTable, pendingReviewsTable, asyncJobsTable, imagePromptAttemptsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import {
   type FactEnrichment,
@@ -50,11 +50,12 @@ function enrichmentWithConcept(coreScene: string | null): FactEnrichment {
     adminReviewNotes: "",
     culturalReferences: [],
     semanticEntities: [],
-    visualPromptStrategyOverride: {
-      ...EMPTY_VISUAL_STRATEGY_OVERRIDE,
-      coreSceneOverride: coreScene ?? "",
-    },
   } as FactEnrichment;
+}
+
+/** A gag's content (fact_gags, migration 0139). */
+function gag(coreScene: string, extra: Record<string, unknown> = {}) {
+  return { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: coreScene, ...extra };
 }
 
 const insertedFactIds: number[] = [];
@@ -92,6 +93,8 @@ async function seedReview(opts: {
   submittedById: string;
   stage: string;
   enrichment?: unknown;
+  /** The staging fact's saved gag (pending content); null for none. */
+  gag?: Record<string, unknown> | null;
   visualConceptStatus?: "pending" | "ok" | "failed" | null;
   withStaging?: boolean;
 }): Promise<{ reviewId: number; stagingFactId: number | null }> {
@@ -109,6 +112,8 @@ async function seedReview(opts: {
       .returning({ id: factsTable.id });
     stagingFactId = fact!.id;
     insertedFactIds.push(stagingFactId);
+    const content = opts.gag === undefined ? gag("A hero hoists the planet overhead.") : opts.gag;
+    if (content) await db.insert(factGagsTable).values({ factId: stagingFactId, slot: 1, pendingContent: content });
   }
   const [review] = await db
     .insert(pendingReviewsTable)
@@ -155,7 +160,7 @@ async function seedReviewRenderAttempt(reviewId: number, factId: number): Promis
         mirrorToLegacyStorage: false,
         reviewAudit: { reviewId, adminUserId: adminId },
       },
-      factEnrichmentSnapshot: enrichmentWithConcept("A prior concept."),
+      factEnrichmentSnapshot: { ...enrichmentWithConcept("A prior concept."), visualPromptStrategyOverride: gag("A prior concept.") },
       renderedFactText: "Alex Franklin bench-presses the Earth.",
       archetypeStrategyVersion: "v2",
       generatedImageObjectPath: "review-renders/test.png",
@@ -222,19 +227,17 @@ describe("POST /admin/reviews/:id/approve-visual-concept — preconditions", () 
     assert.equal(res.body.code, "CONCEPT_STAGE_ALREADY_ADVANCED");
   });
 
-  it("succeeds with a non-empty saved Visual Concept (presence-based — no enable toggle)", async () => {
+  it("succeeds with a saved gag", async () => {
     const { reviewId } = await seedReview({
       submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok",
-      enrichment: enrichmentWithConcept("A hero hoists the planet overhead."),
+      gag: gag("A hero hoists the planet overhead."),
     });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 200);
   });
 
-  it("409 CONCEPT_MISSING when the concept is blank", async () => {
-    const blank = enrichmentWithConcept("A hero hoists the planet.");
-    (blank.visualPromptStrategyOverride as { coreSceneOverride: string }).coreSceneOverride = "   ";
-    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok", enrichment: blank });
+  it("409 CONCEPT_MISSING when no gag is saved", async () => {
+    const { reviewId } = await seedReview({ submittedById: adminId, stage: "concept_review", visualConceptStatus: "ok", gag: null });
     const res = await request(makeApp()).post(`/admin/reviews/${reviewId}/approve-visual-concept`).set("authorization", `Bearer ${adminSid}`).send({});
     assert.equal(res.status, 409);
     assert.equal(res.body.code, "CONCEPT_MISSING");
@@ -296,24 +299,15 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
         timeoutMs: 180_000, promptVersion: 1, fallbackReason: null,
       },
     });
-    const saved = (partial: Record<string, unknown>): FactEnrichment => {
-      const base = enrichmentWithConcept("A hero hoists the planet overhead.");
-      return {
-        ...base,
-        visualPromptStrategyOverride: {
-          ...base.visualPromptStrategyOverride,
-          bubbles: [{ type: "speech", entity: "subject", text: "Heavy." }],
-          ...partial,
-        },
-      } as FactEnrichment;
-    };
+    const saved = (partial: Record<string, unknown>) =>
+      gag("A hero hoists the planet overhead.", { bubbles: [{ type: "speech", entity: "subject", text: "Heavy." }], ...partial });
     const edits: Array<[string, Record<string, unknown>]> = [
       ["Concept", { coreSceneOverride: "A hero hoists the planet over a crowded stadium." }],
       ["bubble", { bubbles: [{ type: "speech", entity: "subject", text: "Still got it." }] }],
     ];
     for (const [what, edit] of edits) {
       const { reviewId, stagingFactId } = await seedReview({
-        submittedById: adminId, stage: "concept_review", enrichment: saved({}),
+        submittedById: adminId, stage: "concept_review", gag: saved({}),
       });
       assert.ok(stagingFactId);
       await runVisualConceptsJob({ reviewId, factId: stagingFactId }, { generate });
@@ -323,8 +317,8 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
       assert.equal(fresh.body.visualConcepts.status, "ok");
       assert.equal(fresh.body.visualConcepts.current, true, `${what}: ideas current before the save`);
 
-      // The save: the staging fact's enrichment changes (Concept / bubble only).
-      await db.update(factsTable).set({ enrichment: saved(edit) }).where(eq(factsTable.id, stagingFactId));
+      // The save: the staging fact's gag changes (Concept / bubble only).
+      await db.update(factGagsTable).set({ pendingContent: saved(edit) }).where(eq(factGagsTable.factId, stagingFactId));
       const stale = await request(makeApp()).get(`/admin/reviews/${reviewId}`).set("authorization", `Bearer ${adminSid}`);
       assert.equal(stale.body.visualConcepts.current, false, `${what}: ideas read stale after the save`);
 

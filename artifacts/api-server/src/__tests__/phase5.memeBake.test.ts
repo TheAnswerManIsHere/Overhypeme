@@ -13,7 +13,8 @@ import { db } from "@workspace/db";
 import { factsTable, imageProvenanceTable, memesTable, usersTable } from "@workspace/db/schema";
 import { and, eq, inArray, like } from "drizzle-orm";
 import { createHash } from "node:crypto";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
 import { createMemeRecord, type MemeAuthorizationDecisions } from "../lib/createMemeRecord.js";
@@ -35,10 +36,7 @@ async function createUser(): Promise<string> {
 }
 
 async function createFact(): Promise<number> {
-  const [row] = await db
-    .insert(factsTable)
-    .values({ text: `${PREFIX}{NAME} bakes the sun`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}They bake the sun` })
-    .returning();
+  const row = await insertLiveFact({ text: `${PREFIX}{NAME} bakes the sun`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}They bake the sun` }, buildPlaceholderGag());
   factIds.push(row!.id);
   return row!.id;
 }

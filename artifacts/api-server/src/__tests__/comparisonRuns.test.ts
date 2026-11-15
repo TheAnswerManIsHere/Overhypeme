@@ -18,6 +18,7 @@ import {
   comparisonReservationsTable,
   comparisonRunsTable,
   comparisonSetsTable,
+  factGagsTable,
   factsTable,
   usersTable,
   type ComparisonCell,
@@ -261,12 +262,12 @@ describe("a comparison run end to end, with fakes", () => {
 
   it("freezes the fact's approved gag, rendered for the panel's subject, so a later edit changes nothing", async () => {
     const { EMPTY_VISUAL_STRATEGY_OVERRIDE } = await import("@workspace/api-zod");
-    const withGag = { ...VALID_ENRICHMENT, visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} hoists a mountain overhead like a barbell." } };
-    await db.update(factsTable).set({ enrichment: withGag as never }).where(eq(factsTable.id, factId));
+    const gag = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} hoists a mountain overhead like a barbell." };
+    const [row] = await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: gag as never }).returning({ id: factGagsTable.id });
     try {
       const setId = await newSet("gag");
       await drain((await start(setId, "prepare")).body.run.id);
-      await db.update(factsTable).set({ enrichment: VALID_ENRICHMENT as never }).where(eq(factsTable.id, factId));
+      await db.update(factGagsTable).set({ pendingContent: { ...gag, coreSceneOverride: "{NAME} does something else." } as never }).where(eq(factGagsTable.id, row!.id));
       const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
       assert.ok(panels.length > 0 && panels.every((p) => p.state === "prepared"), JSON.stringify(panels.map((p) => [p.state, p.error])));
       for (const p of panels) {
@@ -274,7 +275,7 @@ describe("a comparison run end to end, with fakes", () => {
         assert.doesNotMatch(String(p.frozenGag), /\{NAME\}/, "rendered for the panel's subject");
       }
     } finally {
-      await db.update(factsTable).set({ enrichment: VALID_ENRICHMENT as never }).where(eq(factsTable.id, factId));
+      await db.delete(factGagsTable).where(eq(factGagsTable.id, row!.id));
     }
   });
 

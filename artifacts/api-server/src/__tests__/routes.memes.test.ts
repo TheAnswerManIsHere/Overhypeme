@@ -22,7 +22,8 @@ import {
   memesTable,
 } from "@workspace/db/schema";
 import { eq, like, inArray } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import memesRouter from "../routes/memes.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -56,10 +57,7 @@ async function bearerForUser(userId: string): Promise<string> {
 const insertedFactIds: number[] = [];
 
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
-  const [row] = await db
-    .insert(factsTable)
-    .values({ text, submittedById: opts.submittedById, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: text })
-    .returning();
+  const row = await insertLiveFact({ text, submittedById: opts.submittedById, enrichment: buildPlaceholderFactEnrichment(), canonicalText: text }, buildPlaceholderGag());
   insertedFactIds.push(row.id);
   return row.id;
 }

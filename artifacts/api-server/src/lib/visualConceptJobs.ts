@@ -49,6 +49,7 @@ import {
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
 import { resolveReviewCycleEnrichment } from "./moderationStaging";
+import { primaryGag } from "./gags/resolver";
 import { generateVisualConcepts, resolveVisualConceptsLLMSettings, VisualConceptsEngineUnusable, type ContextGag } from "./visualConcepts/generator";
 import { buildVisualConceptInputHash, hashText } from "./visualConcepts/inputHash";
 import { getVisualConceptsSystem } from "./visualConceptsConfig";
@@ -221,19 +222,18 @@ export async function runVisualConceptsJob(
   const draftScene = payload.moderatorDraftScene?.trim() ?? "";
   const draft: ContextGag | null = draftScene ? { scene: draftScene, bubbles: payload.moderatorDraftBubbles ?? [] } : null;
 
-  // The fact row holds the approved humor note and the live, approved gag.
-  // During a refresh the cycle's enrichment is the candidate version's, so the
-  // saved gag is read from the fact itself, never from the candidate.
+  // The fact row holds the approved humor note; the saved gag is the fact's
+  // primary gag (fact_gags, migration 0139): its approved version where it has
+  // one, so during a refresh it is the live gag, never a change pending in the
+  // review; on a first-time submission, the gag the moderator has saved.
   const [fact] = await db
-    .select({ humorNote: factsTable.humorNote, enrichment: factsTable.enrichment })
+    .select({ humorNote: factsTable.humorNote })
     .from(factsTable)
     .where(eq(factsTable.id, cycle.stagingFactId))
     .limit(1);
-  const liveOverride = validateEnrichment(fact?.enrichment).ok
-    ? (fact!.enrichment as FactEnrichment).visualPromptStrategyOverride
-    : undefined;
-  const savedScene = liveOverride?.coreSceneOverride?.trim() ?? "";
-  const savedGag: ContextGag | null = savedScene ? { scene: savedScene, bubbles: liveOverride?.bubbles ?? [] } : null;
+  const live = await primaryGag(cycle.stagingFactId);
+  const savedScene = live?.content.coreSceneOverride?.trim() ?? "";
+  const savedGag: ContextGag | null = savedScene ? { scene: savedScene, bubbles: live?.content.bubbles ?? [] } : null;
   const humorNote = fact?.humorNote?.trim() || null;
 
   let result;

@@ -319,19 +319,14 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     // The count stays in the journey's evidence.
     const withBubbles = (prepared.visualConcepts.candidates as any[]).filter((c) => (c.bubbles ?? []).length > 0).length;
 
-    const fact = await admin.json<any>("3", "GET", `/api/admin/facts/${stagingFactId}`);
-    const enrichment = structuredClone(fact.enrichment);
     const vso = {
-      ...(enrichment.visualPromptStrategyOverride ?? {
-        version: 1,
-        requiredVisualDetails: [],
-        forbiddenVisualDetails: [],
-        roleBindings: [],
-        bubbles: [],
-        compositionGuidance: [],
-        styleAgnosticPromptAdditions: [],
-        negativePromptAdditions: [],
-      }),
+      version: 1,
+      requiredVisualDetails: [],
+      forbiddenVisualDetails: [],
+      roleBindings: [],
+      compositionGuidance: [],
+      styleAgnosticPromptAdditions: [],
+      negativePromptAdditions: [],
       coreSceneOverride: candidate.sceneDescription,
       bubbles: (candidate.bubbles ?? []).map(({ type, entity, text }: any) => ({ type, entity, text })),
     };
@@ -355,10 +350,10 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       if (r.path === "coreSceneOverride") vso.coreSceneOverride = r.value;
       else if (m) vso.bubbles[Number(m[1])][m[2]] = r.value;
     }
-    enrichment.visualPromptStrategyOverride = vso;
-    await admin.json("3", "PATCH", `/api/admin/facts/${stagingFactId}/enrichment`, { enrichment });
+    // The picked candidate becomes the fact's first gag (fact_gags, migration 0139).
+    await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags`, { content: vso, reviewId });
     await admin.json("3", "POST", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});
-    log("journey 3: Visual Concept saved and approved; review renders running");
+    log("journey 3: the gag saved and the gags step approved; its test renders running");
 
     const renders = await poll(
       "3",
@@ -388,6 +383,11 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       const img = await readImage(admin, "3", `the ${card.key} render image`, card.imageUrl);
       renderImages.push({ key: card.key, format: img.format, width: img.width, height: img.height });
     }
+    // Approving one of the gag's test renders makes it the gag's example and
+    // the gag approved; a fact goes live only with an approved gag.
+    const t2iCard = (required as Array<{ key: string; latestAttemptId?: number | null }>).find((c) => c.key === "generic_t2i") ?? required[0];
+    if (renders.gagId == null || t2iCard?.latestAttemptId == null) throw new JourneyError("3", "approve a render as the gag's example", "the grid names no gag or render");
+    await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags/${renders.gagId}/approve`, { attemptId: t2iCard.latestAttemptId, reviewId });
     const approved = await admin.json<{ factId: number }>("3", "POST", `/api/admin/reviews/${reviewId}/approve-for-production`, {
       hashtags: hashtags.length > 0 ? hashtags : ["baseline"],
       adminNote: "AI baseline",

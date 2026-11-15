@@ -47,8 +47,12 @@ export type RenderControlsWithRefs = RenderControls & {
    * "Alex" for a null-user attempt. See `resolveAttemptIdentity`.
    */
   reviewRenderSubject?: { name: string; pronouns: string | null };
-  /** Provenance for an admin-triggered moderation render (review + admin actor). */
-  reviewAudit?: { reviewId: number; adminUserId: string };
+  /**
+   * Provenance for an admin-triggered moderation render: the admin actor, the
+   * gag it drew, and the open review it was made in (null for a live fact with
+   * no review open, since gags are worked on outside reviews too).
+   */
+  reviewAudit?: { reviewId: number | null; adminUserId: string; gagId?: number };
 };
 
 export interface BuildImagePromptAttemptArgs {
@@ -91,13 +95,19 @@ export interface BuildImagePromptAttemptArgs {
    * scenario grid (see factRenderScenarios.ts / reviewRenderScenarios.ts).
    */
   scenario?: {
-    reviewId: number;
+    reviewId: number | null;
     scenarioKey: string;
     inputHash: string;
     referenceAssetVersion?: string | null;
     referenceIdentityType?: string | null;
     batchId?: string | null;
   };
+  /**
+   * The gag this attempt draws (migration 0139). Set by every moderation render
+   * of a gag; `enrichment` above is then that gag's render input
+   * (lib/gags/resolver.ts, `gagRenderInput`).
+   */
+  gagId?: number | null;
   /**
    * Eval-run render-scenario metadata (Slice 2B). Set ONLY for controlled
    * eval-run renders of the golden set — mutually exclusive with `scenario`
@@ -157,6 +167,7 @@ export async function buildAndEnqueueImagePromptAttempt(
       renderedFactText: args.renderedFactText,
       archetypeStrategyVersion: "v2",
       reviewId: args.scenario?.reviewId ?? null,
+      gagId: args.gagId ?? null,
       reviewRenderScenarioKey: args.scenario?.scenarioKey ?? null,
       reviewRenderInputHash: args.scenario?.inputHash ?? null,
       reviewReferenceAssetVersion: args.scenario?.referenceAssetVersion ?? null,

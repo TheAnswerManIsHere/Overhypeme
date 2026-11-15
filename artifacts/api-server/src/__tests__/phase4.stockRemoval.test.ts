@@ -33,7 +33,8 @@ import {
   featurePermissionsMigrationLogTable,
 } from "@workspace/db/schema";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -77,10 +78,7 @@ before(async () => {
     isAdmin: true,
   };
   adminSid = await createSession(data, adminId);
-  const [fact] = await db
-    .insert(factsTable)
-    .values({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
-    .returning({ id: factsTable.id });
+  const fact = await insertLiveFact({ text: `${PREFIX}fact`, canonicalText: `${PREFIX}fact`, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
   factId = fact.id;
 });
 

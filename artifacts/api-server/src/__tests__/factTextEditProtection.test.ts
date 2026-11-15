@@ -15,7 +15,8 @@ import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable } from "@workspace/db/schema";
 import { eq, inArray } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import {
   resolveFactTextProtection,
@@ -27,16 +28,16 @@ const factIds: number[] = [];
 let adminId: string;
 
 async function seedFact(overrides: Partial<typeof factsTable.$inferInsert> = {}): Promise<number> {
-  const [fact] = await db
-    .insert(factsTable)
-    .values({
-      text: `{NAME} does a thing #${randomUUID().slice(0, 8)}.`,
-      submittedById: adminId,
-      isActive: false,
-      enrichment: buildPlaceholderFactEnrichment(),
-      ...overrides,
-    } as typeof factsTable.$inferInsert)
-    .returning({ id: factsTable.id });
+  const { isActive = false, ...rest } = overrides;
+  const values = {
+    text: `{NAME} does a thing #${randomUUID().slice(0, 8)}.`,
+    submittedById: adminId,
+    enrichment: buildPlaceholderFactEnrichment(),
+    ...rest,
+  } as Omit<typeof factsTable.$inferInsert, "isActive">;
+  const fact = isActive
+    ? await insertLiveFact(values, buildPlaceholderGag())
+    : (await db.insert(factsTable).values({ ...values, isActive: false }).returning({ id: factsTable.id }))[0];
   factIds.push(fact!.id);
   return fact!.id;
 }

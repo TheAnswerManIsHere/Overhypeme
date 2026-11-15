@@ -33,7 +33,8 @@
     "external_links": 0,
     "membership_entitlements": 1,
     "membership_history": 13,
-    "user_generation_costs": 42
+    "user_generation_costs": 42,
+    "fact_gags": 50
   },
   "excludedByPredicate": {
     "membership_entitlements": 0,
@@ -10699,23 +10700,23 @@
       "123": "stale",
       "124": "stale",
       "125": "stale",
-      "126": "stale",
-      "127": "stale",
-      "128": "stale",
+      "126": "no-context",
+      "127": "no-context",
+      "128": "no-context",
       "129": "stale",
       "130": "stale",
-      "148": "stale",
-      "149": "stale",
-      "150": "stale",
+      "148": "no-context",
+      "149": "no-context",
+      "150": "no-context",
       "151": "no-context",
       "152": "no-context",
       "153": "no-context",
       "154": "stale",
       "155": "stale",
       "156": "stale",
-      "157": "stale",
-      "158": "stale",
-      "159": "stale",
+      "157": "no-context",
+      "158": "no-context",
+      "159": "no-context",
       "160": "no-context",
       "161": "no-context",
       "162": "no-context",
@@ -10764,6 +10765,9 @@
       "257": "stale",
       "258": "stale",
       "259": "stale",
+      "266": "current",
+      "267": "current",
+      "268": "current",
       "269": "stale",
       "270": "stale",
       "271": "stale",
@@ -11179,9 +11183,9 @@
   },
   "predicateCounts": {
     "renderAttempts": {
-      "stale": 77,
-      "no-context": 12,
-      "current": 11
+      "stale": 68,
+      "no-context": 21,
+      "current": 14
     },
     "candidateTextHash": {
       "current": 63,
@@ -11269,14 +11273,14 @@
     "fal_pricing_cache.ndjson": "95d9026ea8aa6e8c4fc2a85a108f7a6dfe70768726ef743d3de059b06049ccec",
     "users.ndjson": "3b36e70de0eb2d05a25777069e8855b51cec9bc1c4902e480d1b42f5a929d918",
     "admin_config.ndjson": "f0a5750fd10ada3897e06d8c2e3c98fc088b30cefb7dd8392767ce4a3b810d5b",
-    "facts.ndjson": "f9a05a268db1cea5ae88e17c86fd8f288e45b01bd0d77e6947150de8682ccbac",
+    "facts.ndjson": "395706c3bedaa90c3da072e1756c4feda620fec931add167fdd304a3e1cd6582",
     "hashtags.ndjson": "f1a20855fd0ae428dddd38b8a6aab1262373c90d3140dd033aff4dcf90e2182e",
     "fact_hashtags.ndjson": "0a3dd9ae348b8b40e31c395e5c3b7488829cc03e97aed3cfe8821ff360f20237",
     "pending_reviews.ndjson": "76ef9c13241f7f9ee256661cdd75b9212229db5163b22172a7bcf56b4aeaf74e",
-    "fact_enrichment_versions.ndjson": "ad4b146109618701eab8d12302a2c9df180d526ceeb79cc9ad2e3057b2bc50d5",
+    "fact_enrichment_versions.ndjson": "b6aa7d514bb5df627adb1e0f061c322fcad1659936c6df886cfe6842bcb1d719",
     "enrichment_override_history.ndjson": "f352cef14d74908c56329fc009c1355ea85641b20897d3842ad043c059db8d79",
     "fact_text_edit_history.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "image_prompt_attempts.ndjson": "df413a4fa4a3e77843d64afb1db0de09bab9027d7f9fd631223312d576a08c45",
+    "image_prompt_attempts.ndjson": "814b2db30707a2b16e2e16602fbc1088005af865226b3815d3eb5c40c5c82b5c",
     "memes.ndjson": "a39eec8a57f9572a3122bbc245f89648368d820600e0f9555be000d2adcb8f6e",
     "upload_image_metadata.ndjson": "04d30941e6919d506f5b9c996523fbdd975e13f8b97a5d6bf6b41a80ab522406",
     "user_ai_images.ndjson": "a6a6acf3475687e4830d03954a14605e647c3f8df707a71c88128e843bf113f1",
@@ -11285,6 +11289,7 @@
     "external_links.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "membership_entitlements.ndjson": "b77f4bdd62d4c7f6c55202e6c45c5ae83f79a74948bedb2bdf2ee2e30382f3a0",
     "membership_history.ndjson": "c92540762edf80b47f52ff118dd701bd44b93fb2f8c340839f25ee3e874a011f",
-    "user_generation_costs.ndjson": "d4dbd39b97eddd8fae6fe21645d8738381c14597c0d6889a31ced0e26f6f8c72"
+    "user_generation_costs.ndjson": "d4dbd39b97eddd8fae6fe21645d8738381c14597c0d6889a31ced0e26f6f8c72",
+    "fact_gags.ndjson": "28f9708c364c6c395e13a71ef3f3eb0e574f5a8fdd73ea871a0b68ebcb5c540f"
   }
 }

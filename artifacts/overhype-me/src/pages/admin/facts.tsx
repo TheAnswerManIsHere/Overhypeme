@@ -6,7 +6,7 @@ import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, RefreshCw, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
-import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
+import { GagsPanel } from "@/components/admin/gags/GagsPanel";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
@@ -159,7 +159,6 @@ function FactEnrichmentPanel({
   // lockstep by construction.
   const {
     enrichment, enrichmentStatus, draft, overrideContext, jobs, rerunWithConfirm, overrideError,
-    vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride,
   } = useFactEnrichmentEditing({
       target: { kind: "fact", factId: fact.id },
       enabled: true,
@@ -167,7 +166,7 @@ function FactEnrichmentPanel({
       onSaved,
     });
 
-  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled || vsoTokenizing;
+  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled;
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -198,9 +197,7 @@ function FactEnrichmentPanel({
             </h3>
             <div className="flex items-center gap-3 shrink-0">
               <div className="text-xs text-muted-foreground">
-                {vsoTokenizing ? (
-                  <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Tokenizing and saving…</span>
-                ) : draft.committing ? (
+                {draft.committing ? (
                   <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
                 ) : draft.commitError ? (
                   <span className="text-destructive">Save refused</span>
@@ -214,7 +211,7 @@ function FactEnrichmentPanel({
                 <button
                   type="button"
                   onClick={draft.discard}
-                  disabled={vsoTokenizing}
+                 
                   className="text-xs text-primary underline hover:opacity-80 disabled:opacity-50 disabled:no-underline"
                 >
                   Discard changes
@@ -238,13 +235,15 @@ function FactEnrichmentPanel({
               <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
             </div>
           )}
-          {/* Visual Concept — the single prominent scene surface (the scene field
-              was removed from the Advanced Options panel below). Required + blocking. */}
-          <VisualConceptCard
-            value={enrichment?.visualPromptStrategyOverride}
-            disabled={disabled || vsoTokenizing || draft.committing || draft.loading || !enrichment}
-            tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
-            onChange={(next) => { if (!disabled && enrichment) draft.setValue({ ...enrichment, visualPromptStrategyOverride: next }); }}
+          {/* The fact's gags (plan docs/plans/PLAN_THREE_GAGS.md): each with its
+              example, editor and test renders; a change reaches users once a
+              render of it is approved. Read-only while a refresh is open. */}
+          <GagsPanel
+            factId={fact.id}
+            reviewId={null}
+            rendersEnabled
+            subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}
+            disabled={disabled}
           />
           <EnrichmentEditor
             value={enrichment}
@@ -253,15 +252,13 @@ function FactEnrichmentPanel({
             onChange={(next) => { if (!disabled) draft.setValue(next); }}
             onSave={
               !disabled && draft.hasUncommittedChanges
-                ? () => void tokenizeAndSaveVisualOverride([...DEFAULT_SUBJECT_EXAMPLE_NAMES])
+                ? () => void draft.save()
                 : undefined
             }
             onRerun={disabled ? undefined : rerunWithConfirm}
             busy={busy}
             rerunBusy={jobs.rerunBusy}
             overrideContext={disabled ? undefined : overrideContext}
-            vsoTokenizing={vsoTokenizing}
-            vsoTokenizeErrors={vsoTokenizeErrors}
           />
           {overrideError && !disabled && (
             <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
@@ -274,7 +271,7 @@ function FactEnrichmentPanel({
               variant="outline"
               size="sm"
               onClick={draft.discard}
-              disabled={!draft.hasUncommittedChanges || draft.committing || vsoTokenizing}
+              disabled={!draft.hasUncommittedChanges || draft.committing}
             >
               Discard changes
             </Button>

@@ -134,6 +134,16 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   recipeVersionId: bigint("recipe_version_id", { mode: "number" }).references(() => promptRecipeVersionsTable.id, { onDelete: "restrict" }),
   /** The endpoint settings the request builder chose (purpose, size, aspect), as sent. */
   requestSettings: jsonb("request_settings"),
+  /**
+   * The gag this attempt drew (migration 0139). Null on every attempt made
+   * before gags had their own table; those drew the fact's only gag, whose
+   * content is in `fact_enrichment_snapshot`. The snapshot stays the exact
+   * content rendered either way. A plain value, no foreign key: a gag row is
+   * never deleted except with its fact, which deletes its attempts too, and
+   * fact_gags already points back here for its example, so a key both ways
+   * would make the pair impossible to insert in either order.
+   */
+  gagId: bigint("gag_id", { mode: "number" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -145,6 +155,8 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   index("IDX_ipa_review_scenario_created").on(t.reviewId, t.reviewRenderScenarioKey, t.createdAt.desc()),
   // Idempotency lookup (has this exact input already been rendered for this review?).
   index("IDX_ipa_review_input_hash").on(t.reviewId, t.reviewRenderInputHash),
+  // Latest attempt per gag and scenario (the per-gag render grid).
+  index("IDX_ipa_gag_scenario_created").on(t.gagId, t.reviewRenderScenarioKey, t.createdAt.desc()),
   // Eval-dashboard grouping indexes (IDX_ipa_eval_run_fact_created,
   // IDX_ipa_eval_fact_run_created) are partial (WHERE eval_run_id IS NOT NULL) and
   // live in the migration SQL only — drizzle-kit partial-index detection is brittle.

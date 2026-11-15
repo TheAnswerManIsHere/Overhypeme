@@ -9,7 +9,8 @@ import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import { factsTable, uploadImageMetadataTable, userAiImagesTable, usersTable, type ImagePromptAttempt } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import { mirrorToLegacyStorage } from "../lib/imagePromptJobs.js";
 import { logger } from "../lib/logger.js";
@@ -32,10 +33,7 @@ describe("a generated fact background is mirrored, never recorded as an upload (
   it("lands in the fact's gallery and the account's AI images, with no upload row and nothing swallowed", async () => {
     const userId = `${PREFIX}${randomUUID()}`;
     await db.insert(usersTable).values({ id: userId, email: `${userId}@test.local`, displayName: "Tester", pronouns: "they/them" });
-    const [fact] = await db
-      .insert(factsTable)
-      .values({ text: `${PREFIX}fact {NAME}`, isActive: true, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}fact` })
-      .returning();
+    const fact = await insertLiveFact({ text: `${PREFIX}fact {NAME}`, enrichment: buildPlaceholderFactEnrichment(), canonicalText: `${PREFIX}fact` }, buildPlaceholderGag());
     factIds.push(fact!.id);
     const storedPath = `/objects/ai-bg-v2/${PREFIX}${fact!.id}/1-${Date.now()}.png`;
     const attempt = { id: 1, factId: fact!.id, userId, renderControls: {} } as unknown as ImagePromptAttempt;

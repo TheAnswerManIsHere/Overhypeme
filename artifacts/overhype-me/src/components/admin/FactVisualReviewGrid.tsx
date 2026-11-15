@@ -160,10 +160,16 @@ export function FactVisualReviewGrid({
     [runScenarios, onRunScenarios],
   );
 
-  // Re-fetch when the parent signals a saved enrichment. The hook's poll loop is
-  // idle once every tile is terminal, so a stale-recompute needs this nudge.
+  // Re-fetch when the parent signals a saved change (a gag's content, or which
+  // gag the grid stands for). The hook's poll loop is idle once every tile is
+  // terminal, so a stale-recompute needs this nudge. Until the re-read lands,
+  // the tiles may show a gag a run would not draw, so the run controls wait
+  // (Codex, PR #956 round 3).
+  const [reloading, setReloading] = useState(0);
   useEffect(() => {
-    if (reloadKey > 0) void refresh();
+    if (reloadKey <= 0) return;
+    setReloading((n) => n + 1);
+    void refresh().finally(() => setReloading((n) => n - 1));
   }, [reloadKey, refresh]);
 
   const cards = grid?.cards ?? [];
@@ -237,7 +243,7 @@ export function FactVisualReviewGrid({
           <button
             type="button"
             onClick={runSelected}
-            disabled={selected.size === 0}
+            disabled={selected.size === 0 || reloading > 0}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
             data-testid="run-selected"
           >
@@ -276,7 +282,7 @@ export function FactVisualReviewGrid({
       {grid && cards.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="render-scenario-cards">
           {cards.map((card) => (
-            <FactRenderScenarioTile key={card.key} reviewId={reviewId} card={card} onRun={runAndNotify} />
+            <FactRenderScenarioTile key={card.key} reviewId={reviewId} card={card} onRun={runAndNotify} disabled={reloading > 0} />
           ))}
         </div>
       )}

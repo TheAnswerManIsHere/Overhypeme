@@ -33,7 +33,8 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { usersTable, factsTable, reactionsTable, externalLinksTable } from "@workspace/db/schema";
 import { eq, like, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
 
 import { createApp } from "../app.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -99,12 +100,10 @@ before(async () => {
     isAdmin: true,
   };
   adminSid = await createSession(data, adminId);
-  const [f] = await db.insert(factsTable).values({
-    text: "{NAME} out-pruned the orphans.", submittedById: adminId, isActive: true,
-    // Active facts require a non-empty Visual Concept (Phase 2 CHECK constraint).
+  const f = await insertLiveFact({
+    text: "{NAME} out-pruned the orphans.", submittedById: adminId, // Active facts require a non-empty Visual Concept (Phase 2 CHECK constraint).
     enrichment: buildPlaceholderFactEnrichment(),
-  })
-    .returning({ id: factsTable.id });
+  }, buildPlaceholderGag());
   factId = f!.id;
 });
 

@@ -18,22 +18,23 @@ import {
   type VisualConceptsResponse,
   type StoredCandidateConcept,
   withCandidateConceptDraft,
+  EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  type FactGagsView,
 } from "@workspace/api-zod";
 import {
   deriveModerationQueueState,
   stageToWizardStep,
   type WizardStep,
 } from "@/components/admin/moderationQueueState";
-import { computeCandidatePickBlockedReason } from "@/components/admin/candidatePickGate";
-import { EnrichmentEditor, EnrichmentSummary, isApprovable, withCoreSceneOverride } from "@/components/admin/EnrichmentEditor";
+import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
 import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEditing";
 import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
-import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
-import { BubbleEditor } from "@/components/admin/BubbleEditor";
-import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
+import { VisualConceptCandidates, type ConceptAction } from "@/components/admin/VisualConceptCandidates";
+import { GagsPanel } from "@/components/admin/gags/GagsPanel";
+import { gagApi } from "@/components/admin/gags/gagApi";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
@@ -297,7 +298,7 @@ interface VisualRenderProblem {
 /** Three-step wizard for a non-terminal review (WizardStep from the shared helper). */
 const WIZARD_STEPS: { id: WizardStep; label: string }[] = [
   { id: "triage", label: "Triage" },
-  { id: "concept", label: "Visual Concept" },
+  { id: "concept", label: "Gags" },
   { id: "render", label: "Test Renders" },
 ];
 
@@ -340,23 +341,25 @@ function StepIndicator({ step }: { step: WizardStep }) {
  * a three-step wizard for non-terminal reviews:
  *
  *  - Step 1 "Triage": keep/reject decision + duplicate context + submitter info.
- *  - Step 2 "Visual Concept": Visual-Idea candidates + Visual Concept card +
- *    Advanced Options (enrichment / strategy / prompt diagnostics). NO renders
- *    yet — "Approve the visual gag" advances to Step 3 and force-fires renders.
- *  - Step 3 "Test Renders": output-first scenario grid + Advanced Options; final
- *    "Approve for Production" (existing render gate) or "Back to Visual Concept".
+ *  - Step 2 "Gags": the Gags panel (each gag's scene, bubbles and art
+ *    direction; plan docs/plans/PLAN_THREE_GAGS.md) + Visual-Idea candidates,
+ *    each usable on a gag + Advanced Options (enrichment / prompt diagnostics).
+ *    NO renders yet — "Approve the Gags" advances to Step 3 and fires renders.
+ *  - Step 3 "Test Renders": output-first scenario grid + the Gags panel with each
+ *    gag's renders, where approving a render makes it that gag's example; final
+ *    "Approve for Production" (existing render gate) or "Back to Gags".
  *
  * Stage mapping:
  *  - triage_pending     → Step 1 only (provisional approve / variant / reject —
  *    the ONLY stage a first-time submission can be rejected from).
  *  - prep_pending        → Step 1 + LIVE prep status, polled until terminal (rule 8).
  *  - prep_failed         → Step 1 + retry prep. Stays pending until it succeeds.
- *  - concept_review      → Step 2 default (approve the visual gag / send back).
- *  - production_review   → Step 3 default (approve for production / back to concept).
+ *  - concept_review      → Step 2 default (approve the gags / send back).
+ *  - production_review   → Step 3 default (approve for production / back to gags).
  *  - resolved            → read-only summary + link to the live fact.
  *
  * Once triage passes, a first-time candidate is never rejected again — a
- * failed prep, an unfinished Visual Concept, or a render that isn't ready
+ * failed prep, an unfinished gag, or a render that isn't ready
  * just leaves it pending until an admin resolves it. A refresh cycle (an
  * already-live fact) is the one exception: its "reject" ("don't promote
  * this refresh") is available from any of these stages via `canRejectNow`.
@@ -406,9 +409,9 @@ function ReviewModal({
   // Edit Fact screen, so the two flows stay in lockstep): tracked fields persist
   // instantly as per-field overrides on the staging fact (chips / Revert to AI /
   // "AI changed — review"); the Visual Strategy Override is the only untracked
-  // field this surface may save, through the localStorage-backed draft (an
-  // accidentally closed modal never loses work). Every successful mutation bumps
-  // `gridReloadKey` so the scenario tiles recompute staleness immediately.
+  // field ... none: a fact's gags live in their own table and are edited in the
+  // Gags panel (plan docs/plans/PLAN_THREE_GAGS.md). Every successful mutation
+  // bumps `gridReloadKey` so the scenario tiles recompute staleness immediately.
   const [gridReloadKey, setGridReloadKey] = useState(0);
   const enrichEditing = useFactEnrichmentEditing({
     // Refresh cycles edit the CANDIDATE version through the review-scoped
@@ -418,12 +421,43 @@ function ReviewModal({
       : { kind: "fact", factId: stagingFactId },
     // Editable in BOTH Step 2 (Visual Concept) and Step 3 (Test Renders).
     enabled: isEditableStep && stagingFactId > 0,
-    editableUntrackedFields: ["visualPromptStrategyOverride"],
+    editableUntrackedFields: [],
     onAfterMutation: () => setGridReloadKey((k) => k + 1),
   });
-  const { enrichment, draft: enrichmentDraft, jobs, vsoTokenizing, vsoTokenizeErrors, tokenizeAndSaveVisualOverride, getServerVisualOverride } = enrichEditing;
+  const { enrichment, draft: enrichmentDraft, jobs } = enrichEditing;
 
-  // Subject-name hint for tokenizeAndSaveVisualOverride: the moderator's active
+  // The fact's gags, as the Gags panel last loaded them (plan
+  // docs/plans/PLAN_THREE_GAGS.md). `gagsReloadKey` reloads the panel after an
+  // idea is used on a gag from the Visual ideas cards.
+  const [gagsView, setGagsView] = useState<FactGagsView | null>(null);
+  const [gagsReloadKey, setGagsReloadKey] = useState(0);
+  // A gag edit not yet saved (or still saving) in the Gags panel: approvals act
+  // on the saved gags, so they wait for it (Codex, PR #956 round 2).
+  const [gagsUnsaved, setGagsUnsaved] = useState(false);
+  // A visual idea being saved onto a gag: the panel's drafts would be replaced
+  // by its response, so editing waits for it (Codex, PR #956 round 3).
+  const [ideaSaving, setIdeaSaving] = useState(false);
+
+  // The review grid shows the gate gag's renders, and a rerun there draws the
+  // gate gag as the server picks it at click time. Re-read the grid whenever
+  // the gags' saved state changes (which exist, what is approved, picked or
+  // marked for removal, their content, their latest renders) so what it shows
+  // and what a run draws stay the same gag. Keyed on that state, never on each
+  // panel load, which polls (Codex, PR #956 round 3).
+  const gagsSignature = useMemo(() => gagsView == null ? null : JSON.stringify(gagsView.gags.map((g) => [
+    g.id, g.slot, g.pendingRemove, g.approvedContent, g.pendingContent,
+    g.approvedExample?.attemptId ?? null, g.pendingExample?.attemptId ?? null,
+    g.renders.cards.map((c) => c.latestAttemptId),
+  ])), [gagsView]);
+  const lastGagsSignature = useRef<string | null>(null);
+  useEffect(() => {
+    if (gagsSignature == null) return;
+    const previous = lastGagsSignature.current;
+    lastGagsSignature.current = gagsSignature;
+    if (previous != null && previous !== gagsSignature) setGridReloadKey((k) => k + 1);
+  }, [gagsSignature]);
+
+  // Subject-name hint for the Gags panel's tokenizer: the moderator's active
   // render-diagnostics preview name (if set) folded in ahead of the shared
   // defaults, so the tokenizer preferentially recognizes whatever name is
   // actually being tested right now.
@@ -512,10 +546,10 @@ function ReviewModal({
   // optimistically flip the local status to "pending" so the picker shows
   // "working" immediately, then let polling reconcile.
   const onGenerateConcepts = useCallback(async (): Promise<void> => {
-    const coreSceneDraft = enrichment?.visualPromptStrategyOverride?.coreSceneOverride?.trim() || null;
-    const bubblesDraft = coreSceneDraft
-      ? (enrichment?.visualPromptStrategyOverride?.bubbles ?? []).map(({ type, entity, text }) => ({ type, entity, text }))
-      : null;
+    // The gag writer reads the fact's saved gags itself; an unsaved edit in a
+    // gag card is not sent.
+    const coreSceneDraft = null;
+    const bubblesDraft = null;
     setError("");
     // Optimistic "pending" for instant feedback; loadDetail() in finally
     // reconciles against the real server state, so a rejected POST (409 stale
@@ -537,7 +571,7 @@ function ReviewModal({
     } finally {
       void loadDetail();
     }
-  }, [review.id, enrichment, loadDetail]);
+  }, [review.id, loadDetail]);
 
   // PUT the humor note (confirm or correction). Returns an error message, or
   // null when saved; the panel shows "Saving…" and keeps the text on failure.
@@ -560,24 +594,54 @@ function ReviewModal({
     }
   }, [review.id, loadDetail]);
 
-  const onPickConcept = useCallback((concept: StoredCandidateConcept) => {
-    if (!enrichment) return;
-    // The SAME pure helper the server preflighted this candidate through:
-    // preserves unrelated VSO fields, replaces scene + bubbles, auto-enables.
-    enrichmentDraft.setValue({
-      ...enrichment,
-      visualPromptStrategyOverride: withCandidateConceptDraft(enrichment.visualPromptStrategyOverride, concept),
+  // Using a visual idea on a gag saves it as that gag's change (plan
+  // docs/plans/PLAN_THREE_GAGS.md): in place of the default gag, as an
+  // additional gag, or in place of a named one. It reaches users only once a
+  // test render of it is approved as the gag's example.
+  const applyIdea = useCallback(async (run: () => ReturnType<typeof gagApi.load>) => {
+    setError("");
+    setIdeaSaving(true);
+    try {
+      const r = await run();
+      if (!r.ok) { setError(r.error); return; }
+      setGagsView(r.view);
+      setGagsReloadKey((k) => k + 1);
+    } finally {
+      setIdeaSaving(false);
+    }
+  }, []);
+  const conceptActions = useMemo((): ConceptAction[] => {
+    if (!gagsView || stagingFactId <= 0) return [];
+    const live = gagsView.gags.filter((g) => !g.pendingRemove);
+    const contentOf = (g: (typeof live)[number]) => g.pendingContent ?? g.approvedContent ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
+    const first = live.find((g) => g.isDefault) ?? live[0];
+    const actions: ConceptAction[] = [];
+    if (!first) {
+      actions.push({ key: "first", label: "Use as the first gag", run: (c) => applyIdea(() => gagApi.create(stagingFactId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), review.id)) });
+      return actions;
+    }
+    actions.push({
+      key: "default",
+      label: "Use this instead of the current default gag",
+      run: (c) => applyIdea(() => gagApi.save(stagingFactId, first.id, withCandidateConceptDraft(contentOf(first), c), review.id)),
     });
-  }, [enrichment, enrichmentDraft]);
-
-  // See computeCandidatePickBlockedReason (top of file) for the full
-  // rationale — unsaved edits to Visual-Strategy fields OTHER than the
-  // scene/bubbles a pick would replace block "Use as draft" until saved or
-  // discarded.
-  const pickBlockedReason = useMemo(
-    () => (enrichment ? computeCandidatePickBlockedReason(enrichment.visualPromptStrategyOverride, getServerVisualOverride()) : null),
-    [enrichment, getServerVisualOverride],
-  );
+    if (gagsView.gags.length < gagsView.maxGags) {
+      actions.push({
+        key: "additional",
+        label: "Use as an additional gag",
+        run: (c) => applyIdea(() => gagApi.create(stagingFactId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), review.id)),
+      });
+    }
+    for (const g of live) {
+      if (g.id === first.id) continue;
+      actions.push({
+        key: `replace-${g.slot}`,
+        label: `Replace gag ${g.slot}`,
+        run: (c) => applyIdea(() => gagApi.save(stagingFactId, g.id, withCandidateConceptDraft(contentOf(g), c), review.id)),
+      });
+    }
+    return actions;
+  }, [gagsView, stagingFactId, review.id, applyIdea]);
 
   const runAction = useCallback(async (path: string, body: Record<string, unknown>): Promise<void> => {
     setLoading(true); setError("");
@@ -652,8 +716,8 @@ function ReviewModal({
     if (enrichmentDraft.isDirty()) {
       setError(
         isRefreshCycle
-          ? "You have unsaved Visual Strategy Override edits — Save or Discard them before promoting (approval promotes the saved candidate)."
-          : "You have unsaved Visual Strategy Override edits — Save or Discard them before approving (approval publishes the saved staging fact).",
+          ? "You have unsaved enrichment edits — Save or Discard them before promoting (approval promotes the saved candidate)."
+          : "You have unsaved enrichment edits — Save or Discard them before approving (approval publishes the saved staging fact).",
       );
       return;
     }
@@ -697,17 +761,6 @@ function ReviewModal({
     }
   }, [review.id, applyTransition]);
 
-  // Save the dirty Visual Concept draft first, then approve the gag — but ONLY if
-  // the save succeeded. The server gates on the PERSISTED coreSceneOverride, so we
-  // must never advance on a browser-only draft. Tokenizes on the same click.
-  const onSaveConceptAndApprove = useCallback(async (): Promise<void> => {
-    if (enrichmentDraft.hasUncommittedChanges) {
-      const ok = await tokenizeAndSaveVisualOverride(subjectNames);
-      if (!ok) return; // blocked (tokenize error) or save() surfaced its own error
-    }
-    await onApproveVisualConcept();
-  }, [enrichmentDraft, tokenizeAndSaveVisualOverride, subjectNames, onApproveVisualConcept]);
-
   const onBackToVisualConcept = useCallback(async (): Promise<void> => {
     setLoading(true); setError("");
     try {
@@ -727,32 +780,26 @@ function ReviewModal({
 
   // A first-time fact can't ship without discovery tags; a refresh keeps the
   // live fact's existing tags, so the gate doesn't apply (the server skips it too).
-  // ── Step-2 (Visual Concept) gag-gate derivation ──
-  // `enrichment` from the hook is the DRAFT value; when the draft is clean it
-  // equals the persisted enrichment, so a clean non-empty concept == a SAVED one.
-  // Presence-based (the enable toggle was retired): a concept is present whenever
-  // its core scene is non-empty.
-  const conceptOverride = enrichment?.visualPromptStrategyOverride;
-  const draftHasConcept = !!conceptOverride?.coreSceneOverride?.trim();
-
-  // Production release requires a Visual Concept (presence-based) — the client
-  // affordance mirrors the server publish gate so a blank-scene row shows a
-  // disabled Approve/Promote instead of a button that fails on click.
+  // ── Gag gates (plan docs/plans/PLAN_THREE_GAGS.md) ──
+  // Approving the Gags step needs a saved gag; approving for production needs
+  // a gag that will be approved once the decision lands: one approved already,
+  // or (inside a refresh) one whose example is picked to land at promotion. The
+  // server enforces both; these only keep the buttons honest.
+  const gagsLive = (gagsView?.gags ?? []).filter((g) => !g.pendingRemove);
+  const hasSavedGag = gagsLive.some((g) => !!(g.pendingContent ?? g.approvedContent)?.coreSceneOverride?.trim());
+  const hasApprovedGag = gagsLive.some((g) => g.approvedContent != null || g.pendingExample != null);
   const canApproveProduction = isApprovable(enrichment)
     && (isRefreshCycle || finalHashtags.length > 0)
-    && draftHasConcept;
-  const conceptDirty = enrichmentDraft.hasUncommittedChanges;
+    && hasApprovedGag
+    && !gagsUnsaved;
   const ideasPending = visualConceptStatus === "pending";
   const ideasFailed = visualConceptStatus === "failed";
   const ideasTerminalOk = visualConceptStatus === "ok";
   // The AI candidate cards are stale relative to the current enrichment input,
   // but a SAVED concept is what drives renders — so this is non-blocking.
-  const ideasStaleButSaved = ideasTerminalOk && detail?.visualConcepts?.current === false && draftHasConcept;
-  // "Approve the visual gag": enabled only with a SAVED (clean) non-empty concept
-  // AND terminal-OK ideas. When dirty, the primary action is Save & Continue,
-  // which needs a non-empty concept in the draft to persist.
-  const canApproveGag = !conceptDirty && draftHasConcept && ideasTerminalOk;
-  const canSaveConceptAndContinue = conceptDirty && draftHasConcept;
+  const ideasStaleButSaved = ideasTerminalOk && detail?.visualConcepts?.current === false && hasSavedGag;
+  // "Approve the gags": enabled with a saved gag AND terminal-OK ideas.
+  const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved;
   // Refresh cycles reject the CANDIDATE, not the fact — the label says so.
   const rejectLabel = isRefreshCycle ? "Don't Promote Refresh" : "Reject";
   // A first-time submission can only be rejected during triage (Step 1) —
@@ -882,17 +929,15 @@ function ReviewModal({
         <div className="flex items-center justify-between gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2" data-testid="enrichment-unsaved">
           <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            {vsoTokenizing
-              ? "Tokenizing and saving…"
-              : enrichmentDraft.committing
+            {enrichmentDraft.committing
               ? "Saving to server…"
-              : `Unsaved changes (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to persist your Visual Concept / render inputs.`}
+              : `Unsaved changes (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to persist your render inputs.`}
           </p>
           <div className="flex items-center gap-3 shrink-0">
             <button
               type="button"
-              onClick={() => void tokenizeAndSaveVisualOverride(subjectNames)}
-              disabled={enrichmentDraft.committing || vsoTokenizing}
+              onClick={() => void enrichmentDraft.save()}
+              disabled={enrichmentDraft.committing}
               className="text-xs font-bold px-2 py-1 rounded-sm border border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
               data-testid="enrichment-save"
             >
@@ -901,7 +946,7 @@ function ReviewModal({
             <button
               type="button"
               onClick={enrichmentDraft.discard}
-              disabled={vsoTokenizing}
+             
               className="text-xs text-primary underline hover:opacity-80 disabled:opacity-50 disabled:no-underline"
             >
               Discard
@@ -921,12 +966,6 @@ function ReviewModal({
           <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
         </div>
       )}
-      {vsoTokenizeErrors[""] && (
-        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-          <p className="text-sm text-destructive">{vsoTokenizeErrors[""]}</p>
-        </div>
-      )}
     </>
   );
 
@@ -944,7 +983,7 @@ function ReviewModal({
         status={enrichEditing.enrichmentStatus}
         factText={review.submittedText}
         onChange={(next) => enrichmentDraft.setValue(next)}
-        onSave={enrichmentDraft.hasUncommittedChanges ? () => void tokenizeAndSaveVisualOverride(subjectNames) : undefined}
+        onSave={enrichmentDraft.hasUncommittedChanges ? () => void enrichmentDraft.save() : undefined}
         // Deliberately NO onRerun at Step 2/3 (refresh AND first-time): the
         // generic job guard skips review-backed facts outside prep, so the button
         // could only strand the status on "classifying…". Re-classification lives
@@ -954,8 +993,6 @@ function ReviewModal({
         rerunBusy={jobs.rerunBusy}
         hideHashtags
         overrideContext={enrichEditing.overrideContext}
-        vsoTokenizing={vsoTokenizing}
-        vsoTokenizeErrors={vsoTokenizeErrors}
       />
       {jobs.error && (
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
@@ -1033,7 +1070,7 @@ function ReviewModal({
               )}
               {isConceptReview && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Prep is complete. Go to <strong>Visual Concept</strong> to review the visual gag and approve it.
+                  Prep is complete. Go to <strong>Gags</strong> to review the gags and approve them.
                 </p>
               )}
               {isProductionReview && (
@@ -1058,43 +1095,33 @@ function ReviewModal({
               )}
 
               <p className="text-xs text-muted-foreground">
-                Accept, edit, or write the Visual Concept — the plain-language description of how the gag works
-                visually. Approving the gag spends nothing yet; it unlocks the test renders in the next step.
+                Write, edit or use an idea for each gag: the plain-language description of how the joke works
+                visually. A fact can have up to three. Approving them spends nothing yet; it unlocks the test
+                renders in the next step, where approving a render makes it that gag's example.
               </p>
 
-              {/* Visual concept — the moderator's primary lever and the single
-                  scene-editing surface: describe the picture in plain language
-                  and the planner/compiler realize it. Rides the same override
-                  draft as everything else; required before save/approve. */}
-              <VisualConceptCard
-                value={enrichment?.visualPromptStrategyOverride}
-                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
-                tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
-                onChange={(next) => {
-                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
-                }}
-              />
+              {/* The fact's gags (plan docs/plans/PLAN_THREE_GAGS.md): each one's
+                  scene, bubbles and art direction, saved as that gag's change. */}
+              {stagingFactId > 0 && (
+                <GagsPanel
+                  factId={stagingFactId}
+                  reviewId={review.id}
+                  rendersEnabled={false}
+                  subjectNames={subjectNames}
+                  reloadKey={gagsReloadKey}
+                  onView={setGagsView}
+                  onUnsavedChange={setGagsUnsaved}
+                  disabled={loading || ideaSaving}
+                />
+              )}
 
-              {/* Speech & thought bubbles — first-class placement beside the
-                  Concept; the SAME shared component renders in Advanced
-                  Options, editing the same draft. */}
-              <BubbleEditor
-                firstClass
-                value={enrichment?.visualPromptStrategyOverride}
-                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
-                fieldErrors={vsoTokenizeErrors}
-                onChange={(next) => {
-                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
-                }}
-              />
-
-              {/* Candidate Visual ideas — REQUIRED gate in Step 2: picking one
-                  fills the concept + bubbles above (draft only; still Save). */}
+              {/* Visual ideas — REQUIRED gate in Step 2: each card offers the
+                  ways to use it on a gag. */}
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
-                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
-                pickBlockedReason={pickBlockedReason}
-                onPick={onPickConcept}
+                disabled={loading || !gagsView || ideaSaving}
+                pickBlockedReason={gagsUnsaved ? "Save or undo your gag edits first: using an idea replaces that gag's saved version." : null}
+                actions={conceptActions}
                 onGenerate={onGenerateConcepts}
                 onSaveNote={onSaveHumorNote}
               />
@@ -1125,8 +1152,8 @@ function ReviewModal({
               {ideasStaleButSaved && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="ideas-stale-note">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                  Visual ideas were generated before your latest Visual Concept edit. You can regenerate them, but the
-                  saved Visual Concept above is what will drive renders.
+                  Visual ideas were generated before your latest gag edit. You can regenerate them, but the saved
+                  gags above are what will drive renders.
                 </p>
               )}
 
@@ -1158,17 +1185,22 @@ function ReviewModal({
                 onRunScenarios={onRendersEnqueued}
               />
 
-              {/* The Visual Concept is editable right here in Test Renders (the single
-                  card surface) so a moderator can tune the authoritative scene after a
-                  bad render without navigating back to Step 2. */}
-              <VisualConceptCard
-                value={enrichment?.visualPromptStrategyOverride}
-                disabled={!enrichment || loading || enrichmentDraft.committing || vsoTokenizing}
-                tokenizeError={vsoTokenizeErrors["coreSceneOverride"]}
-                onChange={(next) => {
-                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
-                }}
-              />
+              {/* Every gag, editable here too, with its own test renders:
+                  approving a render makes it that gag's example (plan
+                  docs/plans/PLAN_THREE_GAGS.md). */}
+              {stagingFactId > 0 && (
+                <GagsPanel
+                  factId={stagingFactId}
+                  reviewId={review.id}
+                  rendersEnabled
+                  rendersExpected
+                  subjectNames={subjectNames}
+                  reloadKey={gagsReloadKey}
+                  onView={setGagsView}
+                  onUnsavedChange={setGagsUnsaved}
+                  disabled={loading}
+                />
+              )}
 
               {DraftSaveBar}
               {AdvancedOptions}
@@ -1287,7 +1319,7 @@ function ReviewModal({
               <div className="flex flex-wrap gap-3">
                 <Button onClick={() => setStep(isConceptReview ? "concept" : "render")} disabled={loading}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
-                  {isConceptReview ? "Continue to Visual Concept" : "Continue to Test Renders"} <ChevronRight className="w-4 h-4" />
+                  {isConceptReview ? "Continue to Gags" : "Continue to Test Renders"} <ChevronRight className="w-4 h-4" />
                 </Button>
                 {canRejectNow && (
                   <Button variant="outline" onClick={onReject} isLoading={loading}
@@ -1307,39 +1339,31 @@ function ReviewModal({
               <div className="space-y-3">
                 {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading || vsoTokenizing} className="gap-2">
+                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
                     <ChevronLeft className="w-4 h-4" /> Back to Triage
                   </Button>
-                  {conceptDirty ? (
-                    <Button onClick={() => void onSaveConceptAndApprove()} isLoading={loading || enrichmentDraft.committing || vsoTokenizing}
-                      disabled={!canSaveConceptAndContinue || loading || enrichmentDraft.committing || vsoTokenizing}
-                      title={canSaveConceptAndContinue ? undefined : "Write or pick a Visual Concept first"}
-                      className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
-                      data-testid="save-concept-and-continue">
-                      <ChevronRight className="w-4 h-4" /> {vsoTokenizing ? "Tokenizing and saving…" : "Save Visual Concept & Continue"}
-                    </Button>
-                  ) : (
-                    <Button onClick={() => void onApproveVisualConcept()} isLoading={loading}
-                      disabled={!canApproveGag || loading || vsoTokenizing}
-                      title={canApproveGag ? undefined : "Approve is disabled — see the note below"}
-                      className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
-                      data-testid="approve-visual-gag">
-                      <Wand2 className="w-4 h-4" /> Approve the Visual Gag
-                    </Button>
-                  )}
+                  <Button onClick={() => void onApproveVisualConcept()} isLoading={loading}
+                    disabled={!canApproveGag || loading}
+                    title={canApproveGag ? undefined : "Approve is disabled — see the note below"}
+                    className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
+                    data-testid="approve-visual-gag">
+                    <Wand2 className="w-4 h-4" /> Approve the Gags
+                  </Button>
                   {canRejectNow && (
-                    <Button variant="outline" onClick={onReject} isLoading={loading} disabled={vsoTokenizing}
+                    <Button variant="outline" onClick={onReject} isLoading={loading}
                       className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
                       <XCircle className="w-4 h-4" /> {rejectLabel}
                     </Button>
                   )}
-                  <Button variant="outline" onClick={onClose} disabled={loading || vsoTokenizing}>Cancel</Button>
+                  <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
                 </div>
-                {!conceptDirty && !canApproveGag && (
+                {!canApproveGag && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    {!draftHasConcept
-                      ? "Approve is locked until a Visual Concept is saved. Write one above (or pick an idea) and Save."
+                    {gagsUnsaved
+                      ? "Save or undo your gag edits first: approving uses the saved gags."
+                      : !hasSavedGag
+                      ? "Approve is locked until a gag is saved. Write one above (or use an idea) and save it."
                       : ideasPending
                       ? "Approve is locked while visual ideas are still generating — this updates live."
                       : "Approve is locked until visual ideas have been generated. Regenerate them above."}
@@ -1357,37 +1381,41 @@ function ReviewModal({
                     fixes it; it is never rejected past triage. */}
                 {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading || vsoTokenizing}
+                  <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading}
                     className="gap-2" data-testid="back-to-visual-concept">
-                    <ChevronLeft className="w-4 h-4" /> Back to Visual Concept
+                    <ChevronLeft className="w-4 h-4" /> Back to Gags
                   </Button>
                   {renderProblems ? (
-                    <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading || vsoTokenizing}
+                    <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading}
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-amber-600 hover:bg-amber-700 text-white gap-2 disabled:opacity-50"
                       data-testid="approve-anyway-waive">
                       <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Anyway" : "Approve Anyway"} (Waive {renderProblems.length})
                     </Button>
                   ) : (
-                    <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading || vsoTokenizing}
+                    <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading}
                       title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
                       <Rocket className="w-4 h-4" /> {isRefreshCycle ? "Promote Refresh" : "Approve for Production"}
                     </Button>
                   )}
                   {canRejectNow && (
-                    <Button variant="outline" onClick={onReject} isLoading={loading} disabled={vsoTokenizing}
+                    <Button variant="outline" onClick={onReject} isLoading={loading}
                       className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
                       <XCircle className="w-4 h-4" /> {rejectLabel}
                     </Button>
                   )}
-                  <Button variant="outline" onClick={onClose} disabled={loading || vsoTokenizing}>Cancel</Button>
+                  <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
                 </div>
                 {!canApproveProduction && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     {!isApprovable(enrichment)
                       ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. Approval also requires the required test renders above to be fresh and successful (or explicitly waived)."
+                      : gagsUnsaved
+                      ? "Save or undo your gag edits first: approving uses the saved gags."
+                      : !hasApprovedGag
+                      ? "Approve is locked until a gag has an example: run its test renders above and approve one."
                       : "Approve is locked until there's at least one hashtag. Add a tag under Final hashtags (above the test renders) — clearing them all is usually a mistake."}
                   </p>
                 )}

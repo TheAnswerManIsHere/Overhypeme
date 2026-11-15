@@ -14,7 +14,8 @@ import {
   commentsTable, memesTable, externalLinksTable, pendingReviewsTable,
 } from "@workspace/db/schema";
 import { sql, eq } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag } from "@workspace/api-zod";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 
 // Facts are born inactive and only go live with a non-empty Visual Concept
 // (Phase-2 fact-lifecycle closure + DB CHECK). This dev reseed inserts live
@@ -126,20 +127,17 @@ for (const item of SEED_FACTS) {
   const canonicalText = renderCanonical(item.text);
   const hasPronouns = HAS_PRONOUN_RE.test(item.text);
 
-  const [fact] = await db
-    .insert(factsTable)
-    .values({
-      text: item.text,
-      canonicalText,
-      hasPronouns,
-      isActive: true,
-      enrichment: RESEED_ENRICHMENT,
-      primaryArchetype: RESEED_ENRICHMENT.primaryArchetype,
-      subtype: RESEED_ENRICHMENT.subtype,
-      overhypeFit: RESEED_ENRICHMENT.overhypeFit,
-      adultSuitability: RESEED_ENRICHMENT.adultSuitability,
-    })
-    .returning({ id: factsTable.id });
+  // A live fact needs an approved gag in the same transaction (migration 0139).
+  const fact = await insertLiveFact({
+    text: item.text,
+    canonicalText,
+    hasPronouns,
+    enrichment: RESEED_ENRICHMENT,
+    primaryArchetype: RESEED_ENRICHMENT.primaryArchetype,
+    subtype: RESEED_ENRICHMENT.subtype,
+    overhypeFit: RESEED_ENRICHMENT.overhypeFit,
+    adultSuitability: RESEED_ENRICHMENT.adultSuitability,
+  }, buildPlaceholderGag());
 
   for (const tag of item.hashtags) {
     const tagId = tagMap.get(tag);

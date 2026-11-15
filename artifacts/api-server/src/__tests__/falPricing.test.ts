@@ -129,6 +129,11 @@ function uninstallFetchStub(): void {
 
 // ── Env / lifecycle ────────────────────────────────────────────────────────────
 
+// One wrapper scopes the file-level hooks to this file: with test isolation off,
+// a root-level hook runs for every file in the shard, so the fetch stub reached
+// other files' tests ("fetch called but no stub configured").
+describe("fal pricing", () => {
+
 let originalApiKey: string | undefined;
 
 before(() => {
@@ -462,4 +467,5 @@ describe("falPriceableEndpointIds and warm-up pacing", () => {
     assert.equal(times.length, 3, "the bare model id was not fetched");
     for (let i = 1; i < times.length; i++) assert.ok(times[i]! - times[i - 1]! >= 35, `gap ${i}: ${times[i]! - times[i - 1]!}ms`);
   });
+});
 });

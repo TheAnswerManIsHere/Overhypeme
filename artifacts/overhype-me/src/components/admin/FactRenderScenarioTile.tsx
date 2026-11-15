@@ -292,11 +292,14 @@ export function FactRenderScenarioTile({
   reviewId,
   card,
   onRun,
+  disabled = false,
 }: {
   reviewId: number;
   card: RenderScenarioCard;
   /** Enqueue this scenario; `force` is used for the "Run anyway" on a skipped tile. */
   onRun: (keys: RenderScenarioKey[], force?: boolean) => void;
+  /** The grid is re-reading after a gag change: what it shows may not be what a run would draw. */
+  disabled?: boolean;
 }) {
   const active = card.status === "queued" || card.status === "rendering";
   const chip = card.referenceIdentityType ? REFERENCE_CHIP_LABEL[card.referenceIdentityType] : "Text-to-image";
@@ -394,7 +397,8 @@ export function FactRenderScenarioTile({
           <button
             type="button"
             onClick={() => onRun([card.key], true)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-sm border border-border hover:bg-muted text-foreground"
+            disabled={disabled}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-sm border border-border hover:bg-muted text-foreground disabled:opacity-50"
             data-testid="render-scenario-run-anyway"
           >
             <Play className="w-3 h-3" /> Run anyway
@@ -407,7 +411,8 @@ export function FactRenderScenarioTile({
         <button
           type="button"
           onClick={() => onRun([card.key], false)}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-sm border border-border hover:bg-muted text-foreground self-start"
+          disabled={disabled}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-sm border border-border hover:bg-muted text-foreground self-start disabled:opacity-50"
           data-testid="render-scenario-rerun"
         >
           <RefreshCw className="w-3 h-3" /> {card.status === "missing" ? "Render" : "Rerun"}

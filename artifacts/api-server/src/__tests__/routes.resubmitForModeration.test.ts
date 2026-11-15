@@ -21,9 +21,10 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
+import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { usersTable, factsTable, pendingReviewsTable, asyncJobsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like, sql } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment, UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
+import { buildPlaceholderFactEnrichment, buildPlaceholderGag, UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -154,9 +155,7 @@ describe("POST /admin/facts/:id/resubmit-for-moderation", () => {
       .send({});
     assert.equal(missing.status, 404);
 
-    const [active] = await db.insert(factsTable)
-      .values({ text: `{NAME} still live ${randomUUID()}`, submittedById: adminId, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
-      .returning();
+    const active = await insertLiveFact({ text: `{NAME} still live ${randomUUID()}`, submittedById: adminId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
     insertedFactIds.push(active.id);
     const res = await request(makeApp())
       .post(`/admin/facts/${active.id}/resubmit-for-moderation`)
@@ -237,9 +236,7 @@ describe("POST /admin/facts/:id/resubmit-for-moderation", () => {
   });
 
   it("the 409 ALREADY_ACTIVE error tells the admin to use Send Back to Review to refresh it instead", async () => {
-    const [active] = await db.insert(factsTable)
-      .values({ text: `{NAME} still live ${randomUUID()}`, submittedById: adminId, isActive: true, enrichment: buildPlaceholderFactEnrichment() })
-      .returning();
+    const active = await insertLiveFact({ text: `{NAME} still live ${randomUUID()}`, submittedById: adminId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
     insertedFactIds.push(active.id);
     const res = await request(makeApp())
       .post(`/admin/facts/${active.id}/resubmit-for-moderation`)
