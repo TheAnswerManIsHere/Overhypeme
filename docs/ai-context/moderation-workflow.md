@@ -61,7 +61,7 @@ Test Renders** (the Gags step was called Visual Concept until plan
 **Three gates, not two.** Enrichment success now lands at `concept_review`
 (Step 2), NOT `production_review`, and enqueues **no renders**. The moderator
 must evaluate/approve the **Visual Concept** — the core description of how the
-gag works visually — on every fact before any render spend. "Approve the visual
+gag works visually — on every fact before the full render spend. "Approve the visual
 gag" advances `concept_review → production_review` via an atomic compare-and-set
 and enqueues the male iteration render of each new or changed gag, keeping
 any render already drawn for the same content. Saving a gag draws its male
@@ -208,7 +208,8 @@ it stays pending until the retry succeeds.
 The mandatory human gate on the fact's **gags** — each one a
 [Visual Concept](./glossary.md#visual-concept), the authoritative scene
 description of one way the joke works (see [`visual-pipeline.md`](./visual-pipeline.md))
-— **before any render spend**. A fact has one to three gags (plan
+— before the full render spend: here each saved gag version draws only one
+male render to judge it by ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)). A fact has one to three gags (plan
 `docs/plans/PLAN_THREE_GAGS.md`); the second and third are optional. In
 `concept_review` the moderator, in the **Gags panel**:
 

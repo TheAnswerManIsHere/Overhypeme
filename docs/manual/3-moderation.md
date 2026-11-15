@@ -25,12 +25,14 @@ cannot be created directly. A
 moderator walks it through three gates — **[Triage](../ai-context/glossary.md#triage)**, **[Visual Concept](../ai-context/glossary.md#visual-concept)**, and
 **[Test Renders](../ai-context/glossary.md#test-renders)** — and only a fact that clears all three goes live. The whole
 design exists to answer two questions cheaply and in order: *does this fact
-deserve to exist?*, then *does its joke work as a picture?*, and only then to
-spend the (real, per-image) money on rendering it.
+deserve to exist?*, then *does its joke work as a picture?*, spending one
+picture per saved version of a gag to judge that, and only then to spend the
+rest of the (real, per-image) money on rendering it.
 
 Going live is gated just as strictly on the way out: a fact cannot be
-published, by any code path, without a saved, non-empty Visual Concept — the
-database itself refuses to store an active fact without one.
+published, by any code path, without an approved gag, and a gag is offered
+only with its approved male, female and pet examples — the database itself
+refuses both ([decision](../ai-context/decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 
 ## How it works
 
@@ -254,9 +256,12 @@ or by anyone downstream, as if it did.
   a single bundled "visual review" step, and renders fired the instant
   classification finished. But with a strong [visual planner](../ai-context/glossary.md#visual-planner), the concept became
   *the* description of how a gag works as a picture — so it now deserves a human
-  eval on every fact, and renders shouldn't fire until that eval passes. That's
-  why the flow was split into an explicit **Visual Concept** gate before **Test
-  Renders**. → [Visual Concept is a mandatory human gate before any render spend](../ai-context/decisions.md)
+  eval on every fact, and the full set of renders shouldn't be drawn until that
+  eval passes. That's why the flow was split into an explicit **Visual Concept**
+  gate before **Test Renders**; since 2026-11-15 the gate itself draws one male
+  render per saved gag version, so the moderator judges each gag by a picture.
+  → [Visual Concept is a mandatory human gate before any render spend](../ai-context/decisions.md#2026-07--visual-concept-is-a-mandatory-human-gate-before-any-render-spend-three-step-moderation),
+  [amended 2026-11-15](../ai-context/decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)
 
 - **The *saved* concept is the contract, not the AI's suggestions.** Approval
   checks the persisted scene, never an unsaved draft or the AI candidate cards —
