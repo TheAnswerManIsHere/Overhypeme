@@ -449,6 +449,81 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
     await db.transaction((tx) => applyReviewGagOps(tx, factId, reviewId, adminId));
     assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "with no pick, promotion approves nothing");
   });
+
+  describe("keeping a gag the refresh marked for removal (Codex, PR #956 round 4; increment 2)", () => {
+    /** A live fact with a second approved gag, so either can be marked for removal. */
+    async function twoGags() {
+      const { factId, gagId } = await liveFact();
+      const second = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag.") });
+      const secondId = (second.body.gags as Array<{ id: number; slot: number }>).find((g) => g.slot === 2)!.id;
+      const content = scene("{NAME} a second gag.");
+      await request(app).post(url(factId, `/${secondId}/approve`)).send({ attemptId: await render(factId, secondId, content) });
+      return { factId, gagId, secondId };
+    }
+    const snapshot = async (gagId: number) => {
+      const g = await gagRow(gagId);
+      return { approvedContent: g.approvedContent, pendingContent: g.pendingContent, pendingExampleAttemptId: g.pendingExampleAttemptId, pendingReviewId: g.pendingReviewId, removedAt: g.removedAt };
+    };
+
+    it("an approved gag with no change: Keep restores it exactly", async () => {
+      const { factId, gagId } = await twoGags();
+      const reviewId = await openRefresh(factId);
+      const before = await snapshot(gagId);
+      assert.equal((await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId })).status, 200);
+      const kept = await request(app).post(url(factId, `/${gagId}/keep`)).send({ reviewId });
+      assert.equal(kept.status, 200, JSON.stringify(kept.body));
+      assert.equal((await gagRow(gagId)).pendingRemove, false);
+      assert.deepEqual(await snapshot(gagId), before);
+      await db.transaction((tx) => applyReviewGagOps(tx, factId, reviewId, adminId));
+      assert.equal((await availableGags(factId)).length, 2, "promotion removes nothing");
+    });
+
+    it("an approved gag with a change and a picked example: Keep leaves both; Discard leaves the removal mark", async () => {
+      const { factId, gagId } = await twoGags();
+      const reviewId = await openRefresh(factId);
+      const change = scene("{NAME} the refresh's change.");
+      await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId });
+      await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change), reviewId });
+      const before = await snapshot(gagId);
+      assert.notEqual(before.pendingExampleAttemptId, null);
+      await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
+      await request(app).post(url(factId, `/${gagId}/keep`)).send({ reviewId });
+      assert.deepEqual(await snapshot(gagId), before, "the change and its pick survive");
+
+      await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
+      const discarded = await request(app).post(url(factId, `/${gagId}/discard`)).send({ reviewId });
+      assert.equal(discarded.status, 200, JSON.stringify(discarded.body));
+      const row = await gagRow(gagId);
+      assert.equal(row.pendingContent, null, "discard drops the change");
+      assert.equal(row.pendingRemove, true, "and only the change: the removal stays marked");
+    });
+
+    it("a gag never approved, added in the refresh: Keep keeps it, never deletes it", async () => {
+      const { factId, secondId } = await twoGags();
+      const reviewId = await openRefresh(factId);
+      const added = await request(app).post(url(factId)).send({ content: scene("{NAME} added in the refresh."), reviewId });
+      assert.equal(added.status, 200, JSON.stringify(added.body));
+      const newId = (added.body.gags as Array<{ id: number; slot: number }>).find((g) => g.slot === 3)!.id;
+      const before = await snapshot(newId);
+      await request(app).post(url(factId, `/${newId}/remove`)).send({ reviewId });
+      const kept = await request(app).post(url(factId, `/${newId}/keep`)).send({ reviewId });
+      assert.equal(kept.status, 200, JSON.stringify(kept.body));
+      assert.deepEqual(await snapshot(newId), before);
+      assert.equal((await gagRow(newId)).removedAt, null);
+      assert.ok(secondId > 0);
+    });
+
+    it("refuses Keep on a gag not marked, and from outside the review", async () => {
+      const { factId, gagId } = await twoGags();
+      const reviewId = await openRefresh(factId);
+      const unmarked = await request(app).post(url(factId, `/${gagId}/keep`)).send({ reviewId });
+      assert.equal(unmarked.body.code, "NOT_MARKED_FOR_REMOVAL");
+      await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
+      const outside = await request(app).post(url(factId, `/${gagId}/keep`)).send({});
+      assert.equal(outside.status, 409);
+      assert.equal((await gagRow(gagId)).pendingRemove, true);
+    });
+  });
 });
 
 describe("gag routes: only admins", () => {

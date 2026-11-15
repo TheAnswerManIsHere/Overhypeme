@@ -17,8 +17,6 @@ import {
   RENDER_SCENARIO_DESCRIPTORS,
   type VisualConceptsResponse,
   type StoredCandidateConcept,
-  withCandidateConceptDraft,
-  EMPTY_VISUAL_STRATEGY_OVERRIDE,
   type FactGagsView,
 } from "@workspace/api-zod";
 import {
@@ -32,9 +30,9 @@ import { RefreshReviewBadge } from "@/components/admin/RefreshReviewBadge";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
-import { VisualConceptCandidates, type ConceptAction } from "@/components/admin/VisualConceptCandidates";
+import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
-import { gagApi } from "@/components/admin/gags/gagApi";
+import { useGagIdeaActions } from "@/components/admin/gags/useGagIdeaActions";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
@@ -434,9 +432,6 @@ function ReviewModal({
   // A gag edit not yet saved (or still saving) in the Gags panel: approvals act
   // on the saved gags, so they wait for it (Codex, PR #956 round 2).
   const [gagsUnsaved, setGagsUnsaved] = useState(false);
-  // A visual idea being saved onto a gag: the panel's drafts would be replaced
-  // by its response, so editing waits for it (Codex, PR #956 round 3).
-  const [ideaSaving, setIdeaSaving] = useState(false);
 
   // The review grid shows the gate gag's renders, and a rerun there draws the
   // gate gag as the server picks it at click time. Re-read the grid whenever
@@ -596,52 +591,19 @@ function ReviewModal({
 
   // Using a visual idea on a gag saves it as that gag's change (plan
   // docs/plans/PLAN_THREE_GAGS.md): in place of the default gag, as an
-  // additional gag, or in place of a named one. It reaches users only once a
-  // test render of it is approved as the gag's example.
-  const applyIdea = useCallback(async (run: () => ReturnType<typeof gagApi.load>) => {
-    setError("");
-    setIdeaSaving(true);
-    try {
-      const r = await run();
-      if (!r.ok) { setError(r.error); return; }
-      setGagsView(r.view);
-      setGagsReloadKey((k) => k + 1);
-    } finally {
-      setIdeaSaving(false);
-    }
+  // additional gag, or in place of a named one. The Facts editor's Draft more
+  // gags offers the same actions (useGagIdeaActions).
+  const onIdeaApplied = useCallback((view: FactGagsView) => {
+    setGagsView(view);
+    setGagsReloadKey((k) => k + 1);
   }, []);
-  const conceptActions = useMemo((): ConceptAction[] => {
-    if (!gagsView || stagingFactId <= 0) return [];
-    const live = gagsView.gags.filter((g) => !g.pendingRemove);
-    const contentOf = (g: (typeof live)[number]) => g.pendingContent ?? g.approvedContent ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
-    const first = live.find((g) => g.isDefault) ?? live[0];
-    const actions: ConceptAction[] = [];
-    if (!first) {
-      actions.push({ key: "first", label: "Use as the first gag", run: (c) => applyIdea(() => gagApi.create(stagingFactId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), review.id)) });
-      return actions;
-    }
-    actions.push({
-      key: "default",
-      label: "Use this instead of the current default gag",
-      run: (c) => applyIdea(() => gagApi.save(stagingFactId, first.id, withCandidateConceptDraft(contentOf(first), c), review.id)),
-    });
-    if (gagsView.gags.length < gagsView.maxGags) {
-      actions.push({
-        key: "additional",
-        label: "Use as an additional gag",
-        run: (c) => applyIdea(() => gagApi.create(stagingFactId, withCandidateConceptDraft(EMPTY_VISUAL_STRATEGY_OVERRIDE, c), review.id)),
-      });
-    }
-    for (const g of live) {
-      if (g.id === first.id) continue;
-      actions.push({
-        key: `replace-${g.slot}`,
-        label: `Replace gag ${g.slot}`,
-        run: (c) => applyIdea(() => gagApi.save(stagingFactId, g.id, withCandidateConceptDraft(contentOf(g), c), review.id)),
-      });
-    }
-    return actions;
-  }, [gagsView, stagingFactId, review.id, applyIdea]);
+  const { actions: conceptActions, saving: ideaSaving } = useGagIdeaActions({
+    factId: stagingFactId,
+    reviewId: review.id,
+    gagsView,
+    onApplied: onIdeaApplied,
+    onError: setError,
+  });
 
   const runAction = useCallback(async (path: string, body: Record<string, unknown>): Promise<void> => {
     setLoading(true); setError("");

@@ -310,6 +310,8 @@ describe("POST /admin/reviews/:id/approve-visual-concept — happy path + concur
         submittedById: adminId, stage: "concept_review", gag: saved({}),
       });
       assert.ok(stagingFactId);
+      // The review owns the fact's ideas, as every enqueue path claims it (migration 0140).
+      await db.update(factsTable).set({ visualConceptOwner: `review:${reviewId}` }).where(eq(factsTable.id, stagingFactId));
       await runVisualConceptsJob({ reviewId, factId: stagingFactId }, { generate });
 
       const fresh = await request(makeApp()).get(`/admin/reviews/${reviewId}`).set("authorization", `Bearer ${adminSid}`);

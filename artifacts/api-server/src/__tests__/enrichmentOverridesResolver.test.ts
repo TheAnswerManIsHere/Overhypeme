@@ -138,36 +138,13 @@ describe("resolveEnrichment", () => {
 // is why the collector itself is guarded too. Imported from the api-server lib
 // rather than api-zod deliberately: this pins the caller, not the resolver.
 describe("serializeResolved — the caller that bypasses resolveEnrichment (#579)", () => {
-  const serializeWith = (visual: unknown) =>
-    serializeResolved({
-      aiDerived: null,
-      overrides: {},
-      effective: null,
-      enrichmentStatus: "ready",
-      visualPromptStrategyOverride: visual as FactEnrichment["visualPromptStrategyOverride"],
-    }) as { overrideSummary: { hasVisualStrategyOverride: boolean } };
-
-  it("does not crash on a legacy visual override when there is no AI baseline", () => {
-    // The #579 regression is that this returns at all rather than throwing.
-    const out = serializeWith({ version: 1, coreSceneOverride: "{NAME} stands there confidently." });
-    assert.equal(typeof out.overrideSummary.hasVisualStrategyOverride, "boolean");
-  });
-
-  // Regression — #584, on the bypassing caller specifically: this path computes
-  // the signal itself rather than reading the resolver's, so it needs its own
-  // proof that a Visual-Concept-only blob does not raise it.
-  it("does not raise the signal for a Visual-Concept-only blob (no AI baseline)", () => {
-    const out = serializeWith({ version: 1, coreSceneOverride: "{NAME} stands there confidently." });
+  // Since migration 0139 no override layer carries a gag (they live in
+  // fact_gags), so the no-baseline path returns, and never raises the signal.
+  it("returns with no AI baseline, and reports no visual strategy override", () => {
+    const out = serializeResolved({ aiDerived: null, overrides: {}, effective: null, enrichmentStatus: "ready" }) as {
+      overrideSummary: { hasVisualStrategyOverride: boolean };
+    };
     assert.equal(out.overrideSummary.hasVisualStrategyOverride, false);
-  });
-
-  it("still raises the signal when that same blob carries real override content", () => {
-    const out = serializeWith({
-      version: 1,
-      coreSceneOverride: "{NAME} stands there confidently.",
-      bubbles: [{ type: "speech", entity: "subject", text: "Not again." }],
-    });
-    assert.equal(out.overrideSummary.hasVisualStrategyOverride, true);
   });
 });
 

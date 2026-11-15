@@ -72,6 +72,15 @@ export const factsTable = pgTable("facts", {
    */
   visualConceptStatus: varchar("visual_concept_status", { length: 16 }),
   /**
+   * Which generation owns the candidate gags and their status (migration
+   * 0140, plan PLAN_THREE_GAGS.md increment 2): 'review:<id>' for a review
+   * cycle, 'live:<id>' for a Draft more gags request on a live fact. A
+   * generation writes only while it holds this; opening a review takes it.
+   * Null on facts no generation has claimed since the column was added, which
+   * a review cycle's generation may write.
+   */
+  visualConceptOwner: varchar("visual_concept_owner", { length: 64 }),
+  /**
    * The approved humor note (migration 0137, plan PLAN_GAG_GENERATOR.md): why
    * this fact is funny and what a picture must preserve, in plain prose that
    * names the subject "Alex". Written only by a moderator's confirm or

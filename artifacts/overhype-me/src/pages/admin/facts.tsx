@@ -4,9 +4,10 @@ import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, RefreshCw, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
-import type { FactEnrichment } from "@workspace/api-zod";
+import type { FactEnrichment, FactGagsView } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
+import { LiveGagIdeas } from "@/components/admin/gags/LiveGagIdeas";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
 import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
@@ -168,6 +169,17 @@ function FactEnrichmentPanel({
 
   const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || disabled;
   const [expanded, setExpanded] = useState(false);
+  // The Gags panel and Draft more gags (plan PLAN_THREE_GAGS.md, increment 2):
+  // the panel reports its view and unsaved edits; an idea used on a gag
+  // reloads the panel, and the panel waits while it saves.
+  const [gagsView, setGagsView] = useState<FactGagsView | null>(null);
+  const [gagsReloadKey, setGagsReloadKey] = useState(0);
+  const [gagsUnsaved, setGagsUnsaved] = useState(false);
+  const [ideaSaving, setIdeaSaving] = useState(false);
+  const onIdeaApplied = useCallback((view: FactGagsView) => {
+    setGagsView(view);
+    setGagsReloadKey((k) => k + 1);
+  }, []);
 
   return (
     <div className="rounded-sm border border-border bg-muted/20" data-testid="fact-enrichment-panel">
@@ -243,6 +255,19 @@ function FactEnrichmentPanel({
             reviewId={null}
             rendersEnabled
             subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}
+            reloadKey={gagsReloadKey}
+            onView={setGagsView}
+            onUnsavedChange={setGagsUnsaved}
+            disabled={disabled || ideaSaving}
+          />
+          {/* Draft more gags (plan increment 2): the gag writer on a live
+              fact, outside any review; hidden while a review is open. */}
+          <LiveGagIdeas
+            factId={fact.id}
+            gagsView={gagsView}
+            onApplied={onIdeaApplied}
+            unsavedGagEdits={gagsUnsaved}
+            onSavingChange={setIdeaSaving}
             disabled={disabled}
           />
           <EnrichmentEditor

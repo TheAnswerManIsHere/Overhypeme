@@ -17,7 +17,6 @@ import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import {
   isOverridablePath,
-  hasRenderableVisualStrategyOverrideContent,
   overrideValuesEqual,
   pathToField,
   resolveEnrichment,
@@ -31,83 +30,22 @@ import {
 
 // Transaction type, inferred from the db.transaction callback parameter.
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export type VisualOverride = FactEnrichment["visualPromptStrategyOverride"];
 
 /**
- * The three override layers (+ derived effective) of an enrichment record —
- * a live fact's columns or a refresh candidate version's columns.
+ * The override layers (+ derived effective) of an enrichment record — a live
+ * fact's columns or a refresh candidate version's columns. A fact's gags live
+ * in fact_gags (migration 0139), so no layer carries one.
  */
 export interface OverrideLayers {
   aiDerived: FactEnrichment | null;
   overrides: EnrichmentOverrides;
-  visualPromptStrategyOverride: VisualOverride | undefined;
   effective: FactEnrichment | null;
   enrichmentStatus: string | null;
 }
 
-// Order-independent serialization: jsonb does NOT preserve object key order on
-// the DB round-trip, so a plain JSON.stringify would falsely flag "changed".
-// Sorts object keys recursively while preserving array order (reordering a list
-// IS a real change).
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (value && typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    // Drop undefined-valued keys: jsonb drops them on the DB round-trip, so the
-    // in-memory (freshly-parsed) object and the stored one must compare equal.
-    const keys = Object.keys(o).filter((k) => o[k] !== undefined).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(value ?? null);
-}
-
-/**
- * Stamp the moderator visual-strategy override's server-owned provenance
- * (updatedBy/updatedAt) when its content changed vs the prior stored override;
- * otherwise preserve the prior provenance verbatim. These fields are never set
- * by the client or the AI. Returns the enrichment unchanged when there is no
- * override. (Content comparison ignores the provenance fields themselves.)
- *
- * `actorLabel` is a human-readable label (display name, or email as a
- * fallback) — NEVER the raw admin user id. This field is rendered directly in
- * admin UI ("Last edited by …"), so it must already be interpretable; there is
- * no read-time join to resolve it later.
- */
-export function stampOverrideProvenance(
-  next: FactEnrichment,
-  prior: unknown,
-  actorLabel: string | null,
-): FactEnrichment {
-  const ov = (next as { visualPromptStrategyOverride?: Record<string, unknown> }).visualPromptStrategyOverride;
-  if (!ov) return next;
-  const priorOv = (prior as { visualPromptStrategyOverride?: Record<string, unknown> } | null | undefined)
-    ?.visualPromptStrategyOverride;
-  const stripProvenance = (o: Record<string, unknown> | undefined) => {
-    if (!o) return null;
-    const { updatedBy: _b, updatedAt: _a, ...rest } = o;
-    return stableStringify(rest);
-  };
-  const changed = stripProvenance(ov) !== stripProvenance(priorOv);
-  const provenance = changed
-    ? { updatedBy: actorLabel ?? undefined, updatedAt: new Date().toISOString() }
-    : { updatedBy: priorOv?.["updatedBy"] as string | undefined, updatedAt: priorOv?.["updatedAt"] as string | undefined };
-  return {
-    ...next,
-    visualPromptStrategyOverride: { ...ov, ...provenance },
-  } as FactEnrichment;
-}
-
-/** Recover a best-effort pure AI baseline from an effective blob (strips the
- * moderator visual override) for legacy rows that predate enrichment_ai_derived. */
-export function stripVisualOverride(enrichment: FactEnrichment | null | undefined): FactEnrichment | null {
-  if (!enrichment) return null;
-  const copy = { ...enrichment } as FactEnrichment;
-  delete (copy as Record<string, unknown>)["visualPromptStrategyOverride"];
-  return copy;
-}
-
-/** Load the three override layers for a LIVE fact, normalizing legacy rows (a
- * null enrichment_ai_derived derives its baseline from the current effective). */
+/** Load the override layers for a LIVE fact, normalizing legacy rows (a null
+ * enrichment_ai_derived takes the current effective as its baseline; an
+ * enrichment cannot hold a gag since migration 0139). */
 export async function loadFactOverrideState(
   executor: typeof db | DbTx,
   factId: number,
@@ -126,11 +64,9 @@ export async function loadFactOverrideState(
   const [row] = forUpdate ? await base.for("update") : await base;
   if (!row) return null;
   const effective = (row.enrichment ?? null) as FactEnrichment | null;
-  const visualPromptStrategyOverride = (effective as { visualPromptStrategyOverride?: VisualOverride } | null)
-    ?.visualPromptStrategyOverride;
-  const aiDerived = (row.enrichmentAiDerived as FactEnrichment | null) ?? stripVisualOverride(effective);
+  const aiDerived = (row.enrichmentAiDerived as FactEnrichment | null) ?? effective;
   const overrides = (row.enrichmentOverrides ?? {}) as EnrichmentOverrides;
-  return { aiDerived, overrides, visualPromptStrategyOverride, effective, enrichmentStatus: row.enrichmentStatus ?? null };
+  return { aiDerived, overrides, effective, enrichmentStatus: row.enrichmentStatus ?? null };
 }
 
 /** Ensure the EFFECTIVE subtype is valid for the EFFECTIVE archetype, creating
@@ -172,7 +108,6 @@ export function serializeResolved(s: {
   overrides: EnrichmentOverrides;
   effective: FactEnrichment | null;
   enrichmentStatus: string | null;
-  visualPromptStrategyOverride?: VisualOverride;
 }): Record<string, unknown> {
   if (!s.aiDerived) {
     return {
@@ -182,9 +117,7 @@ export function serializeResolved(s: {
       overrideSummary: {
         hasOverrides: false, overriddenPaths: [], baselineChangedPaths: [],
         invalidPaths: [], crossFieldInvalid: false,
-        hasVisualStrategyOverride: s.visualPromptStrategyOverride
-          ? hasRenderableVisualStrategyOverrideContent(s.visualPromptStrategyOverride)
-          : false,
+        hasVisualStrategyOverride: false,
       },
       enrichmentStatus: s.enrichmentStatus,
     };
@@ -192,7 +125,6 @@ export function serializeResolved(s: {
   const { effective, summary } = resolveEnrichment({
     aiDerived: s.aiDerived,
     overrides: s.overrides,
-    visualPromptStrategyOverride: s.visualPromptStrategyOverride,
   });
   return {
     aiDerived: s.aiDerived,
@@ -288,7 +220,7 @@ export function applyOverrideUpsert(args: {
 
   // Validate the full assembled effective before persisting — never knowingly
   // store an invalid combination and lean on runtime fallback.
-  const resolved = resolveEnrichment({ aiDerived, overrides, visualPromptStrategyOverride: layers.visualPromptStrategyOverride });
+  const resolved = resolveEnrichment({ aiDerived, overrides });
   if (resolved.summary.crossFieldInvalid || resolved.summary.invalidPaths.length > 0) {
     return { ok: false, status: 400, error: "This override would produce an invalid enrichment" };
   }

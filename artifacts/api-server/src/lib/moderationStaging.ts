@@ -22,6 +22,7 @@ import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
 import { enqueueJob } from "./asyncJobs";
 import { logger } from "./logger";
+import { claimConceptsForReview, ownedFact, reviewConceptOwner } from "./visualConceptOwner";
 import { gagRenderInput, primaryWorkingGag } from "./gags/resolver";
 
 // Queue name owned by visualConceptJobs.ts (kept as a literal for the same
@@ -353,13 +354,10 @@ export async function advanceReviewForStagingFactEnrichment(args: {
   // visualConceptJobs and create a cycle.
   if (nextStage === "concept_review") {
     try {
-      await db
-        .update(factsTable)
-        .set({ visualConceptStatus: "pending" })
-        .where(eq(factsTable.id, args.factId));
+      await claimConceptsForReview(db, args.factId, review.id, { markPending: true });
       await enqueueJob({
         queue: FACT_VISUAL_CONCEPTS_QUEUE,
-        payload: { reviewId: review.id, factId: args.factId, candidateVersionId: null, moderatorDraftScene: null },
+        payload: { reviewId: review.id, factId: args.factId, owner: reviewConceptOwner(review.id), candidateVersionId: null, moderatorDraftScene: null },
         dedupeKey: `fact_visual_concepts:review:${review.id}`,
       });
     } catch (err) {
@@ -373,7 +371,7 @@ export async function advanceReviewForStagingFactEnrichment(args: {
         await db
           .update(factsTable)
           .set({ visualConceptStatus: "failed" })
-          .where(eq(factsTable.id, args.factId));
+          .where(ownedFact(args.factId, reviewConceptOwner(review.id)));
       } catch (statusErr) {
         logger.error(
           { err: statusErr, reviewId: review.id },

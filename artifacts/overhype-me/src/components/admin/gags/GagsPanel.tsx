@@ -67,7 +67,8 @@ function sameContent(a: unknown, b: unknown): boolean {
 export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false }: GagsPanelProps) {
   const [view, setView] = useState<FactGagsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  // A new gag's draft kept from before a reload opens the new-gag card again.
+  const [adding, setAdding] = useState(() => hasStoredNewGagDraft(factId));
   const onViewRef = useRef(onView);
   onViewRef.current = onView;
 
@@ -264,6 +265,45 @@ function stateWords(g: GagView): string {
   return "Approved";
 }
 
+/**
+ * An unsaved gag edit kept in the browser, so closing the review or stepping
+ * back does not lose it (the old Visual Concept editor's safety net; build
+ * report, PR #956). Stored with the server version it was typed against: a
+ * draft is restored only while that version is unchanged, and cleared once
+ * it is saved, undone or overtaken.
+ */
+const draftKey = (key: string) => `gag-draft::${key}`;
+
+function readStoredDraft(key: string, base: string): VisualPromptStrategyOverride | null {
+  try {
+    const raw = window.localStorage.getItem(draftKey(key));
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as { base?: string; draft?: VisualPromptStrategyOverride };
+    if (stored.base !== base || !stored.draft) {
+      window.localStorage.removeItem(draftKey(key));
+      return null;
+    }
+    return stored.draft;
+  } catch {
+    return null;
+  }
+}
+
+function clearStoredDraft(key: string): void {
+  try { window.localStorage.removeItem(draftKey(key)); } catch { /* nothing kept */ }
+}
+
+function useStoredDraft(key: string, base: string, draft: VisualPromptStrategyOverride, unsaved: boolean): void {
+  useEffect(() => {
+    try {
+      if (unsaved) window.localStorage.setItem(draftKey(key), JSON.stringify({ base, draft }));
+      else window.localStorage.removeItem(draftKey(key));
+    } catch {
+      // Storage full or blocked: the edit simply isn't kept across a reload.
+    }
+  }, [key, base, draft, unsaved]);
+}
+
 function GagCard({
   factId,
   reviewId,
@@ -284,11 +324,22 @@ function GagCard({
   reportUnsaved: (key: string, unsaved: boolean) => void;
 }) {
   const working = gag.pendingContent ?? gag.approvedContent ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
-  const [draft, setDraft] = useState<VisualPromptStrategyOverride>(working);
-  // A new server version replaces the draft (a save, a discard, an idea used on this gag).
   const workingKey = JSON.stringify(working);
-  useEffect(() => { setDraft(JSON.parse(workingKey) as VisualPromptStrategyOverride); }, [workingKey]);
+  const storeKey = `${factId}:${gag.id}`;
+  // An edit kept from before a reload or a closed review comes back, if the
+  // gag is still as it was when the edit was typed.
+  const [draft, setDraft] = useState<VisualPromptStrategyOverride>(() => readStoredDraft(storeKey, workingKey) ?? working);
+  // A new server version replaces the draft (a save, a discard, an idea used on this gag).
+  const seenKey = useRef(workingKey);
+  useEffect(() => {
+    if (seenKey.current === workingKey) return;
+    seenKey.current = workingKey;
+    setDraft(JSON.parse(workingKey) as VisualPromptStrategyOverride);
+  }, [workingKey]);
   const dirty = !sameContent(draft, working);
+  // Kept while the edit is unsaved, locked or not: a lock (a refresh, a step
+  // change in flight) is not a save (Codex, PR #958 round 2).
+  useStoredDraft(storeKey, workingKey, draft, dirty);
   const s = useGagSave(subjectNames);
   const unsavedKey = `gag-${gag.id}`;
   useEffect(() => { reportUnsaved(unsavedKey, dirty || s.busy); }, [reportUnsaved, unsavedKey, dirty, s.busy]);
@@ -301,6 +352,8 @@ function GagCard({
     if (!window.confirm(`Remove gag ${gag.slot}? Users will no longer be offered it.`)) return;
     done(await s.act(() => gagApi.remove(factId, gag.id, reviewId)));
   };
+  // Cancel a refresh's removal of this gag: only the mark goes; its change and pick stay.
+  const keep = async () => done(await s.act(() => gagApi.keep(factId, gag.id, reviewId)));
   const runRenders = async () => done(await s.act(() => gagApi.runRenders(factId, gag.id, reviewId)));
   const approve = async (card: RenderScenarioCard) => {
     if (card.latestAttemptId == null) return;
@@ -384,6 +437,12 @@ function GagCard({
               <RotateCcw className="w-3.5 h-3.5" /> Discard the saved change
             </button>
           )}
+          {gag.pendingRemove && (
+            <button type="button" onClick={() => void keep()} disabled={locked} data-testid="gag-keep"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">
+              <RotateCcw className="w-3.5 h-3.5" /> Keep this gag
+            </button>
+          )}
           {!gag.pendingRemove && (
             <button type="button" onClick={() => void remove()} disabled={locked} data-testid="gag-remove"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-destructive/50 text-destructive rounded-sm hover:bg-destructive/10 disabled:opacity-40">
@@ -444,6 +503,14 @@ function RenderTile({ card, canApprove, onApprove }: { card: RenderScenarioCard;
   );
 }
 
+/** A new gag's draft has no server version to be typed against. */
+const NEW_BASE = "new";
+
+/** Whether a new gag's draft is kept from before, so the panel opens it again. */
+export function hasStoredNewGagDraft(factId: number): boolean {
+  return readStoredDraft(`${factId}:new`, NEW_BASE) != null;
+}
+
 function NewGagCard({
   factId,
   reviewId,
@@ -459,14 +526,18 @@ function NewGagCard({
   onView: (v: FactGagsView) => void;
   reportUnsaved: (key: string, unsaved: boolean) => void;
 }) {
-  const [draft, setDraft] = useState<VisualPromptStrategyOverride>(EMPTY_VISUAL_STRATEGY_OVERRIDE);
+  const storeKey = `${factId}:new`;
+  const [draft, setDraft] = useState<VisualPromptStrategyOverride>(() => readStoredDraft(storeKey, NEW_BASE) ?? EMPTY_VISUAL_STRATEGY_OVERRIDE);
   const s = useGagSave(subjectNames);
   const save = async () => {
     const r = await s.run(draft, null, (c) => gagApi.create(factId, c, reviewId), setDraft);
-    if (r?.ok) onView(r.view);
+    // Cleared here, before the parent closes this card: an effect would not
+    // run once the card is gone (Codex, PR #958 round 1). A failed save keeps it.
+    if (r?.ok) { clearStoredDraft(storeKey); onView(r.view); }
   };
   const hasScene = useMemo(() => !!draft.coreSceneOverride?.trim(), [draft]);
   const typed = !sameContent(draft, EMPTY_VISUAL_STRATEGY_OVERRIDE);
+  useStoredDraft(storeKey, NEW_BASE, draft, typed);
   useEffect(() => { reportUnsaved("new", typed || s.busy); }, [reportUnsaved, typed, s.busy]);
   useEffect(() => () => reportUnsaved("new", false), [reportUnsaved]);
   return (
@@ -479,7 +550,7 @@ function NewGagCard({
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-primary/50 text-primary rounded-sm hover:bg-primary/10 disabled:opacity-40">
           {s.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save gag
         </button>
-        <button type="button" onClick={onCancel} disabled={s.busy}
+        <button type="button" onClick={() => { clearStoredDraft(storeKey); onCancel(); }} disabled={s.busy}
           className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground disabled:opacity-40">Cancel</button>
       </div>
     </div>

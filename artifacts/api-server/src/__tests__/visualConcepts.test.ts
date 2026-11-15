@@ -75,7 +75,7 @@ const keepTokens = async (t: string) => ({ template: t });
 
 const POLICY = { supportingText: { mode: "allow" }, violence: { mode: "allow", intensity: "strong" } } as const;
 function input(over: Partial<GenerateVisualConceptsInput> = {}): GenerateVisualConceptsInput {
-  return { factText: "{NAME} bench-presses the Earth.", enrichment: ENRICHMENT, renderPolicy: POLICY as never, humorNote: null, savedGag: null, draft: null, ...over };
+  return { factText: "{NAME} bench-presses the Earth.", enrichment: ENRICHMENT, renderPolicy: POLICY as never, humorNote: null, existingGags: [], draft: null, ...over };
 }
 
 function conceptWire(
@@ -163,12 +163,24 @@ describe("buildVisualConceptsUserMessage — the gag-writer request (PLAN_GAG_GE
     assert.ok(!bare.includes("APPROVED HUMOR NOTE") && !bare.includes("ALREADY HAS") && !bare.includes("WORKING DRAFT"));
     const msg = buildVisualConceptsUserMessage(input({
       humorNote: "Alex's strength is the joke; the planet stays round.",
-      savedGag: { scene: "{NAME} presses the Earth on a bench.", bubbles: [] },
+      existingGags: [{ scene: "{NAME} presses the Earth on a bench.", bubbles: [] }],
       draft: { scene: "{NAME} spots for Atlas.", bubbles: [{ type: "speech", entity: "subject", text: "One more rep, {Subj}." }] },
     }));
     assert.match(msg, /APPROVED HUMOR NOTE[^\n]*\nAlex's strength is the joke/);
     assert.match(msg, /GAG THIS FACT ALREADY HAS[^\n]*\nAlex presses the Earth on a bench\./);
     assert.match(msg, /MODERATOR'S WORKING DRAFT[^\n]*\nAlex spots for Atlas\.\n- speech bubble, Alex: "One more rep, They\."/);
+  });
+
+  it("lists every gag the fact has, numbered, when it has more than one (plan PLAN_THREE_GAGS.md, increment 2)", () => {
+    const msg = buildVisualConceptsUserMessage(input({
+      existingGags: [
+        { scene: "{NAME} presses the Earth on a bench.", bubbles: [] },
+        { scene: "{NAME} curls the Moon.", bubbles: [{ type: "thought", entity: "subject", text: "Warm-up." }] },
+        { scene: "   ", bubbles: [] },
+      ],
+    }));
+    assert.match(msg, /GAGS THIS FACT ALREADY HAS \(2; do not repeat the staging or payoff of any of them\):\nGag 1:\nAlex presses the Earth on a bench\.\nGag 2:\nAlex curls the Moon\.\n- thought bubble, Alex: "Warm-up\."/);
+    assert.ok(!msg.includes("GAG THIS FACT ALREADY HAS"), "the single-gag wording is for one gag only");
   });
 });
 

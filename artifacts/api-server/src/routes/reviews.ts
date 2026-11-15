@@ -54,8 +54,6 @@ import {
   applyOverrideReset,
   applyOverrideUpsert,
   serializeResolved,
-  stampOverrideProvenance,
-  type VisualOverride,
 } from "../lib/enrichmentOverrideLayers";
 import { materializeEnrichment } from "../lib/factEnrichment";
 import {
