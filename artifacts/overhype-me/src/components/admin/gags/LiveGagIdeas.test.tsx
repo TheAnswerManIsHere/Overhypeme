@@ -94,4 +94,24 @@ describe("LiveGagIdeas", () => {
     expect(buttons.length).toBeGreaterThan(0);
     expect(buttons.every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
   });
+
+  it("a slow connection still gets the ideas through: polls never cancel each other (Codex, PR #958 round 2)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let gets = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
+      if (String(url).endsWith("/gags/ideas") && (init?.method ?? "GET") === "GET") {
+        gets++;
+        // Every read takes longer than the two-second poll interval.
+        await new Promise((r) => setTimeout(r, 3000));
+        return json(gets === 1 ? { status: "pending", current: false, candidates: [], humorNote: null } : ready);
+      }
+      return json(VIEW);
+    }));
+    render(<LiveGagIdeas factId={5} gagsView={VIEW} onApplied={() => {}} unsavedGagEdits={false} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+    await screen.findByTestId("visual-concepts-pending");
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    expect(screen.getByTestId("visual-concepts-cards")).toBeTruthy();
+  });
 });

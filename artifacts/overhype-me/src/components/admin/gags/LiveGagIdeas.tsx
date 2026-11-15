@@ -40,13 +40,30 @@ export function LiveGagIdeas({
   const { actions, saving } = useGagIdeaActions({ factId, reviewId: null, gagsView, onApplied, onError: setError });
   useEffect(() => { onSavingChange?.(saving); }, [saving, onSavingChange]);
 
-  // Only the latest request's answer is kept: a read that started before
-  // Draft was pressed must not overwrite the "working" the press returned.
-  const latest = useRef(0);
+  // A read that started before Draft was pressed must not overwrite the
+  // "working" the press returned, so a read is dropped only when a press
+  // began after it. Reads never cancel each other: while one is in flight the
+  // next poll tick skips, so a slow connection still gets its answers through
+  // (Codex, PR #958 round 2).
+  const presses = useRef(0);
+  const reading = useRef(false);
   const request = useCallback(async (method: "GET" | "POST") => {
-    const n = ++latest.current;
-    const r = method === "GET" ? await gagApi.ideas(factId) : await gagApi.draftIdeas(factId);
-    if (n !== latest.current) return;
+    let r;
+    if (method === "POST") {
+      const press = ++presses.current;
+      r = await gagApi.draftIdeas(factId);
+      if (press !== presses.current) return;
+    } else {
+      if (reading.current) return;
+      reading.current = true;
+      const press = presses.current;
+      try {
+        r = await gagApi.ideas(factId);
+      } finally {
+        reading.current = false;
+      }
+      if (press !== presses.current) return;
+    }
     if (r.ok) setIdeas(r.ideas);
     else setError(r.error);
   }, [factId]);

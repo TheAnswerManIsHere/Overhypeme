@@ -272,6 +272,32 @@ describe("GagsPanel", () => {
       expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} changed elsewhere.");
     });
 
+    it("an edit survives the panel being locked, as Back to Gags does, then closed (Codex, PR #958 round 2)", async () => {
+      stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      fireEvent.change(within(await screen.findByTestId("gag-card")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} typed before Back." } });
+      first.rerender(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} disabled />);
+      await act(async () => {});
+      first.unmount();
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const again = await screen.findByTestId("gag-card");
+      expect((within(again).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} typed before Back.");
+    });
+
+    it("a kept edit survives opening the gag read-only, then comes back when editable", async () => {
+      stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      fireEvent.change(within(await screen.findByTestId("gag-card")).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} kept while frozen." } });
+      first.unmount();
+      const locked = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} disabled />);
+      await screen.findByTestId("gag-card");
+      await act(async () => {});
+      locked.unmount();
+      render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} />);
+      const again = await screen.findByTestId("gag-card");
+      expect((within(again).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} kept while frozen.");
+    });
+
     it("a new gag, once saved, leaves no draft behind (Codex, PR #958 round 1)", async () => {
       const after = view([gag({ id: 1, slot: 1, isDefault: true }), gag({ id: 2, slot: 2, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} saved as a new gag.") })]);
       stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]), { after });

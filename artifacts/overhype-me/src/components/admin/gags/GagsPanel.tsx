@@ -337,7 +337,9 @@ function GagCard({
     setDraft(JSON.parse(workingKey) as VisualPromptStrategyOverride);
   }, [workingKey]);
   const dirty = !sameContent(draft, working);
-  useStoredDraft(storeKey, workingKey, draft, dirty && !readOnly);
+  // Kept while the edit is unsaved, locked or not: a lock (a refresh, a step
+  // change in flight) is not a save (Codex, PR #958 round 2).
+  useStoredDraft(storeKey, workingKey, draft, dirty);
   const s = useGagSave(subjectNames);
   const unsavedKey = `gag-${gag.id}`;
   useEffect(() => { reportUnsaved(unsavedKey, dirty || s.busy); }, [reportUnsaved, unsavedKey, dirty, s.busy]);

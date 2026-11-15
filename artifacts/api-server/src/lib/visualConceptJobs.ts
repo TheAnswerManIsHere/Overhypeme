@@ -149,26 +149,34 @@ export async function enqueueLiveVisualConcepts(factId: number): Promise<Enqueue
   // One compare-and-set: the fact is live, no review is open and no live
   // draft is working, and this request takes ownership, all in a single write, so a
   // review opened or another draft started in between cannot be overwritten.
+  // The claim and its job commit together, so a claim never stands without
+  // the job that can end it (Codex, PR #958 round 2). The job's key is this
+  // draft's own, so its insert cannot meet the queue's dedupe path, whose
+  // conflict would abort the transaction.
   const owner = liveConceptOwner(randomUUID());
-  const [claimed] = await db
-    .update(factsTable)
-    .set({ visualConceptOwner: owner, visualConceptStatus: "pending" })
-    .where(and(
-      eq(factsTable.id, factId),
-      eq(factsTable.isActive, true),
-      // Only a live draft's "working" blocks another: a review's leftover
-      // (its refresh declined while its ideas were queued) has no job that
-      // will ever end it, and no review is open to own it.
-      sql`(${factsTable.visualConceptStatus} IS DISTINCT FROM 'pending' OR ${factsTable.visualConceptOwner} IS NULL OR ${factsTable.visualConceptOwner} NOT LIKE 'live:%')`,
-      sql`NOT EXISTS (SELECT 1 FROM ${pendingReviewsTable} WHERE ${pendingReviewsTable.stagingFactId} = ${factsTable.id} AND ${pendingReviewsTable.status} = 'pending')`,
-    ))
-    .returning({ id: factsTable.id });
-  if (!claimed) throw await liveDraftRefusal(factId);
-  return enqueueJob({
-    queue: FACT_VISUAL_CONCEPTS_QUEUE,
-    payload: { reviewId: null, factId, owner, candidateVersionId: null, moderatorDraftScene: null, moderatorDraftBubbles: null },
-    dedupeKey: liveConceptsDedupeKey(owner),
+  const job = await db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(factsTable)
+      .set({ visualConceptOwner: owner, visualConceptStatus: "pending" })
+      .where(and(
+        eq(factsTable.id, factId),
+        eq(factsTable.isActive, true),
+        // Only a live draft's "working" blocks another: a review's leftover
+        // (its refresh declined while its ideas were queued) has no job that
+        // will ever end it, and no review is open to own it.
+        sql`(${factsTable.visualConceptStatus} IS DISTINCT FROM 'pending' OR ${factsTable.visualConceptOwner} IS NULL OR ${factsTable.visualConceptOwner} NOT LIKE 'live:%')`,
+        sql`NOT EXISTS (SELECT 1 FROM ${pendingReviewsTable} WHERE ${pendingReviewsTable.stagingFactId} = ${factsTable.id} AND ${pendingReviewsTable.status} = 'pending')`,
+      ))
+      .returning({ id: factsTable.id });
+    if (!claimed) return null;
+    return enqueueJob({
+      queue: FACT_VISUAL_CONCEPTS_QUEUE,
+      payload: { reviewId: null, factId, owner, candidateVersionId: null, moderatorDraftScene: null, moderatorDraftBubbles: null },
+      dedupeKey: liveConceptsDedupeKey(owner),
+    }, tx);
   });
+  if (!job) throw await liveDraftRefusal(factId);
+  return job;
 }
 
 /** Why a live draft could not take the fact, read after the refused claim. */
