@@ -9,7 +9,7 @@
  * system unchanged.
  */
 
-import { and, eq, desc, inArray } from "drizzle-orm";
+import { and, eq, desc, inArray, isNull } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { pendingReviewsTable, factsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import {
@@ -334,10 +334,26 @@ export async function advanceReviewForStagingFactEnrichment(args: {
     return;
   }
   const nextStage: ReviewWorkflowStage = args.outcome === "success" ? "concept_review" : "prep_failed";
-  await db
+  // Conditional, like every other stage transition: a review withdrawn (or
+  // otherwise resolved) since the read above stays as it is, and nothing is
+  // enqueued for it (plan PLAN_THREE_GAGS.md, increment 3).
+  const advanced = await db
     .update(pendingReviewsTable)
     .set({ workflowStage: nextStage })
-    .where(eq(pendingReviewsTable.id, review.id));
+    .where(and(
+      eq(pendingReviewsTable.id, review.id),
+      eq(pendingReviewsTable.status, "pending"),
+      eq(pendingReviewsTable.workflowStage, "prep_pending"),
+      isNull(pendingReviewsTable.candidateVersionId),
+    ))
+    .returning({ id: pendingReviewsTable.id });
+  if (advanced.length === 0) {
+    logger.info(
+      { factId: args.factId, reviewId: review.id, outcome: args.outcome },
+      "[moderation] staging enrichment outcome ignored (review changed before the advance)",
+    );
+    return;
+  }
   logger.info(
     { factId: args.factId, reviewId: review.id, nextStage },
     "[moderation] staging enrichment advanced review stage",

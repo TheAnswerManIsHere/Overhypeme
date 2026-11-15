@@ -46,6 +46,18 @@ describe("SubmissionWording", () => {
     expect(screen.queryByTestId("submission-withdraw")).toBeNull();
   });
 
+  it("locks the box while a save is in flight, so typing can't be lost to the saved wording", async () => {
+    let answer!: (v: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((r) => { answer = r; })) as unknown as typeof fetch);
+    render(<SubmissionWording {...base} editable withdrawable={false} />);
+    const box = screen.getByTestId("submission-wording-input") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "{NAME} counted to infinity. Twice." } });
+    fireEvent.click(screen.getByTestId("submission-wording-save"));
+    await waitFor(() => expect(box.readOnly).toBe(true));
+    answer({ ok: true, status: 200, json: async () => ({ submittedText: "{NAME} counted to infinity. Twice.", submittedTextOriginal: base.text, matchingFactId: null, matchingSimilarity: 0, matchingFact: null }) });
+    await waitFor(() => expect(box.readOnly).toBe(false));
+  });
+
   it("shows the server's refusal and keeps the edit", async () => {
     stubFetch(422, { error: "The wording must be between 10 and 2000 characters." });
     render(<SubmissionWording {...base} editable withdrawable={false} />);

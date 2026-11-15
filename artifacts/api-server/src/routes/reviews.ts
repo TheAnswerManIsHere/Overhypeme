@@ -883,6 +883,13 @@ const ProvisionalApproveBody = z.object({
   adminNote: z.string().max(500).optional(),
 });
 
+/** Acceptance found the review resolved once it held the row's lock. */
+class ReviewNoLongerEligible extends Error {
+  constructor(readonly stage: string, readonly status: string) {
+    super(`Review is ${stage} (${status})`);
+  }
+}
+
 router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -945,21 +952,34 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   // fails, the staging fact + prep_pending state remain, so a later re-click
   // recovers without creating a duplicate fact.
   let stagingFactId = 0;
-  await db.transaction(async (tx) => {
-    // The review row is locked first, the same lock a triage wording edit
-    // takes, and its wording is read under it: the fact is created with the
-    // wording as it stands at acceptance, and an edit racing this one either
-    // lands before it or is refused (plan PLAN_THREE_GAGS.md, increment 3).
-    const locked = await lockReview(tx, review.id);
-    if (!locked) throw new Error(`Review ${review.id} disappeared during acceptance.`);
-    const { factId } = await prepareFirstTimeStagingPrep(tx, {
-      review: { id: review.id, submittedText: locked.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked.stagingFactId },
-      parentFactId: parentFactId ?? null,
-      reviewedById: req.user.id,
-      adminNote,
+  try {
+    await db.transaction(async (tx) => {
+      // The review row is locked first, the same lock a triage wording edit
+      // takes, and its wording is read under it: the fact is created with the
+      // wording as it stands at acceptance, and an edit racing this one either
+      // lands before it or is refused (plan PLAN_THREE_GAGS.md, increment 3).
+      const locked = await lockReview(tx, review.id);
+      if (!locked) throw new Error(`Review ${review.id} disappeared during acceptance.`);
+      // The eligibility read above was unlocked: re-check it on the locked row,
+      // so a withdrawal (or any other resolution) committed since then wins.
+      if (!canProvisionallyApprove(locked.workflowStage as ReviewWorkflowStage, locked.status)) {
+        throw new ReviewNoLongerEligible(locked.workflowStage, locked.status);
+      }
+      const { factId } = await prepareFirstTimeStagingPrep(tx, {
+        review: { id: review.id, submittedText: locked.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked.stagingFactId },
+        parentFactId: parentFactId ?? null,
+        reviewedById: req.user.id,
+        adminNote,
+      });
+      stagingFactId = factId;
     });
-    stagingFactId = factId;
-  });
+  } catch (err) {
+    if (err instanceof ReviewNoLongerEligible) {
+      res.status(409).json({ error: `Cannot provisionally approve a review in stage ${err.stage} (${err.status}).` });
+      return;
+    }
+    throw err;
+  }
 
   // Ensure the durable enrichment job (deduped; it gates the advance to
   // concept_review).
@@ -976,12 +996,12 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
 const WordingBody = z.object({ text: z.string() });
 
 /** The duplicate match for edited wording: the embedding and LLM check a submission uses. A seam for tests. */
-const defaultWordingDuplicate = async (text: string): Promise<WordingDuplicate> => {
-  const match = await checkDuplicateInternal(text);
+const defaultWordingDuplicate = async (text: string, reviewId: number): Promise<WordingDuplicate> => {
+  const match = await checkDuplicateInternal(text, { excludeReviewId: reviewId });
   return { matchingFactId: match.matchingFactId ?? null, matchingSimilarity: match.confidence ?? 0 };
 };
 let wordingDuplicate = defaultWordingDuplicate;
-export function __setWordingDuplicateForTest(fn: ((text: string) => Promise<WordingDuplicate>) | null): void {
+export function __setWordingDuplicateForTest(fn: ((text: string, reviewId: number) => Promise<WordingDuplicate>) | null): void {
   wordingDuplicate = fn ?? defaultWordingDuplicate;
 }
 const WithdrawBody = z.object({ note: z.string().max(500).optional() });
@@ -1000,7 +1020,7 @@ router.post("/admin/reviews/:id/wording", requireAdmin, async (req: Authenticate
   const body = WordingBody.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
   try {
-    const review = await editTriageWording(id, body.data.text, req.user.id, (text) => wordingDuplicate(text));
+    const review = await editTriageWording(id, body.data.text, req.user.id, (text) => wordingDuplicate(text, id));
     // The matched fact's text, so the screen redraws its duplicate card.
     const [matchingFact] = review.matchingFactId != null
       ? await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, review.matchingFactId), eq(factsTable.isActive, true))).limit(1)

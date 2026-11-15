@@ -25,6 +25,8 @@ import { UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 import reviewsRouter, { __setWordingDuplicateForTest } from "../routes/reviews.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { resubmitInactiveFactForModeration, ResubmitForModerationError } from "../lib/resubmitForModeration.js";
+import { findPendingReviewWithText } from "../routes/ai.js";
+import { advanceReviewForStagingFactEnrichment } from "../lib/moderationStaging.js";
 
 const RUN = randomUUID().slice(0, 8);
 let adminId = "";
@@ -96,6 +98,27 @@ describe("the wording at triage", () => {
       assert.equal(res.body.code, "WORDING_INVALID");
     }
     assert.equal((await reviewRow(id)).submittedText, original);
+  });
+});
+
+describe("the duplicate check for an edited wording", () => {
+  it("never matches the edited submission itself, and still matches another pending submission", async () => {
+    const wording = `{NAME} matches itself ${RUN} ${randomUUID().slice(0, 6)}.`;
+    const edited = await triageReview(wording);
+    const normalized = wording.toUpperCase().trim().toLowerCase();
+    assert.equal((await findPendingReviewWithText(normalized))?.id, edited, "without the exclusion the edited review is its own match");
+    assert.equal(await findPendingReviewWithText(normalized, edited), null, "a case-only edit is not a duplicate of itself");
+    const other = await triageReview(wording);
+    assert.equal((await findPendingReviewWithText(normalized, edited))?.id, other, "another pending submission with the same wording still counts");
+  });
+
+  it("the route passes the edited review to the duplicate check", async () => {
+    const id = await triageReview();
+    let seen: number | null = null;
+    __setWordingDuplicateForTest(async (_text, reviewId) => { seen = reviewId; return { matchingFactId: null, matchingSimilarity: 0 }; });
+    await request(app).post(url(id, "wording")).send({ text: `{NAME} a different wording ${RUN}.` });
+    __setWordingDuplicateForTest(async () => { duplicateCalls++; return { matchingFactId: null, matchingSimilarity: 42 }; });
+    assert.equal(seen, id);
   });
 });
 
@@ -172,6 +195,49 @@ describe("Withdraw: wording needs replacing", () => {
     assert.equal(again.status, 409);
     assert.equal(again.body.code, "NOT_WITHDRAWABLE");
     assert.equal((await request(app).post(url(id, "approve-for-production")).send({})).status >= 400, true, "a resolved review cannot be approved");
+  });
+
+  it("stays final when prep finishes after it: the late result moves nothing", async () => {
+    const id = await triageReview();
+    assert.equal((await accept(id)).status, 200);
+    assert.equal((await request(app).post(url(id, "withdraw")).send({})).status, 200);
+    const factId = (await reviewRow(id)).stagingFactId!;
+    // A withdrawn review is resolved, so the late result finds nothing to advance.
+    await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
+    await advanceReviewForStagingFactEnrichment({ factId, outcome: "terminal_failed" });
+    const row = await reviewRow(id);
+    assert.equal(row.workflowStage, "production_rejected");
+    assert.equal(row.status, "rejected");
+  });
+
+  it("a stale acceptance re-check refuses a review withdrawn since its first read", async () => {
+    // Acceptance from prep_failed (a retry) reads the review, then locks it. A
+    // withdrawal landing between the two leaves the locked row resolved, and
+    // acceptance answers 409 rather than writing prep_pending over it.
+    const id = await triageReview();
+    assert.equal((await accept(id)).status, 200);
+    await db.update(pendingReviewsTable).set({ workflowStage: "prep_failed" }).where(eq(pendingReviewsTable.id, id));
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let lockHolder!: Promise<unknown>;
+    const lockTaken = new Promise<void>((taken) => {
+      lockHolder = db.transaction(async (tx) => {
+        await tx.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).for("update");
+        taken();
+        await held;
+        await tx.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "production_rejected", withdrawnAt: new Date(), withdrawnBy: adminId }).where(eq(pendingReviewsTable.id, id));
+      });
+    });
+    await lockTaken;
+    const retry = accept(id).then((r) => r);
+    await new Promise((r) => setTimeout(r, 100));
+    release();
+    await lockHolder;
+    const res = await retry;
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+    const row = await reviewRow(id);
+    assert.equal(row.workflowStage, "production_rejected");
+    assert.equal(row.status, "rejected");
   });
 
   it("is refused at triage, where the wording can still be edited", async () => {

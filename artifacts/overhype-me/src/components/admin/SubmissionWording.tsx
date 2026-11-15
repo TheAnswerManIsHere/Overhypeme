@@ -83,6 +83,10 @@ export function SubmissionWording({ reviewId, text, originalText, editable, with
             data-testid="submission-wording-input"
             value={value}
             onChange={(e) => { setValue(e.target.value); setError(""); }}
+            // Locked while a save is in flight, so nothing typed meanwhile is
+            // overwritten by the saved wording.
+            readOnly={busy}
+            aria-busy={busy}
             rows={3}
             maxLength={SUBMISSION_TEXT_MAX_CHARS}
             className="w-full px-3 py-2 bg-background border border-border rounded-sm text-base italic text-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
