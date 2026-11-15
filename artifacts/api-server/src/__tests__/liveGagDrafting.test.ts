@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import request from "supertest";
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray } from "drizzle-orm";
 import { db, factsTable, usersTable, factGagsTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable, factEnrichmentVersionsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
@@ -95,7 +95,7 @@ async function liveFact(...gags: VisualPromptStrategyOverride[]): Promise<{ fact
 
 const factRow = async (factId: number) => (await db.select().from(factsTable).where(eq(factsTable.id, factId)))[0]!;
 const liveJob = async (factId: number) =>
-  (await db.select().from(asyncJobsTable).where(and(eq(asyncJobsTable.queue, FACT_VISUAL_CONCEPTS_QUEUE), gte(asyncJobsTable.createdAt, START))))
+  (await db.select().from(asyncJobsTable).where(and(eq(asyncJobsTable.queue, FACT_VISUAL_CONCEPTS_QUEUE), gte(asyncJobsTable.createdAt, START))).orderBy(asc(asyncJobsTable.id)))
     .map((j) => j.payload as FactVisualConceptsJobPayload)
     .filter((p) => p.factId === factId && p.reviewId == null)
     .at(-1)!;
