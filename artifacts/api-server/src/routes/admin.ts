@@ -43,10 +43,9 @@ import {
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { enqueueFactAiMemeBackfill } from "../lib/aiMemeBackfillJobs";
-import { normalizeFactTemplateForPendingReview } from "../lib/normalizeFactTemplateForStorage";
+import { normalizeFactTemplateForPendingReview, normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
 import { cascadeDeactivateActiveChildren, assertReparentAllowed } from "../lib/factActivation";
-import { confirmedFactTextEdit } from "../lib/confirmedFactTextEdit";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
@@ -996,7 +995,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
   const body = req.body as Record<string, unknown>;
-  const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, parentId, useCase, isActive, confirmTextEdit } = body;
+  const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, parentId, useCase, isActive } = body;
 
   // Coerce the non-text column updates (shared by both paths). Text/canonical/
   // split are NEVER set here — they flow only through the locked service below.
@@ -1063,8 +1062,27 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   const reparenting = nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null;
   const reparentStaysActive = reparenting && current!.isActive && nonTextUpdates.isActive !== false;
 
-  // ── Non-text-only PATCH — unchanged behavior ──────────────────────────────
-  if (text === undefined) {
+  // ── A fact's wording is locked (plan PLAN_THREE_GAGS.md, increment 3) ─────
+  // It is edited only at triage, before the fact exists (POST
+  // /admin/reviews/:id/wording); the database refuses any later change
+  // (facts_text_is_locked). A request carrying the stored wording unchanged is
+  // treated as a non-text PATCH; one that changes it is refused.
+  if (text !== undefined) {
+    const [stored] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+    if (!stored) { res.status(404).json({ error: "Fact not found" }); return; }
+    const proposed = String(text);
+    const normalized = normalizeFactTemplateForStorage(proposed);
+    if (proposed !== stored.text && (!normalized.valid || normalized.text !== stored.text)) {
+      res.status(409).json({
+        error: "A fact's wording can't be changed once it is accepted. If the wording is wrong, deactivate this fact and submit the corrected wording as a new fact.",
+        code: FACT_TEXT_EDIT_CODES.WORDING_LOCKED,
+      });
+      return;
+    }
+  }
+
+  // ── Non-text PATCH ──────────────────────────────────────────────────────────
+  {
     if (Object.keys(nonTextUpdates).length === 0) {
       const [current] = await db.select().from(factsTable).where(eq(factsTable.id, id)).limit(1);
       if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
@@ -1083,7 +1101,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       if (reparentStaysActive) {
         // Lock `id`'s own row BEFORE checking its active children —
         // assertReparentAllowed's contract requires the target already locked
-        // by the caller (confirmedFactTextEdit's text-edit path satisfies this
+        // by the caller (the text-edit path that once locked it is retired, migration 0141;
         // incidentally, since it locks the fact row for its own CAS first; this
         // branch didn't). Without it, a concurrent activateFact activating a
         // variant UNDER `id` (which locks `id` as the parent via the same
@@ -1115,53 +1133,6 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     return;
   }
 
-  // ── Text present → the approved-fact-text lock service owns the decision ───
-  const outcome = await confirmedFactTextEdit({
-    factId: id,
-    rawText: String(text),
-    confirmation: confirmTextEdit,
-    performedBy: req.user!.id,
-    nonTextUpdates,
-  });
-
-  switch (outcome.kind) {
-    case "not_found":
-      res.status(404).json({ error: "Fact not found" });
-      return;
-    case "too_long":
-      res.status(422).json({ error: outcome.message, code: FACT_TEXT_EDIT_CODES.TOO_LONG });
-      return;
-    case "grammar_invalid":
-      res.status(422).json({ error: outcome.message, code: FACT_TEXT_EDIT_CODES.GRAMMAR_INVALID });
-      return;
-    case "invalid_confirmation":
-      res.status(422).json({ error: outcome.message, code: FACT_TEXT_EDIT_CODES.INVALID_CONFIRMATION });
-      return;
-    case "confirmation_required":
-      res.status(409).json({ error: "This fact is approved — editing its text needs explicit confirmation.", code: FACT_TEXT_EDIT_CODES.REQUIRES_CONFIRMATION, impact: outcome.impact });
-      return;
-    case "stale_baseline":
-      res.status(409).json({ error: "The stored wording changed since you opened this — review the new diff.", code: FACT_TEXT_EDIT_CODES.STALE_BASELINE, impact: outcome.impact });
-      return;
-    case "staging_prep_in_progress":
-      res.status(409).json({ error: "Prep is still running for this fact. Wait for it to finish, then edit.", code: FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS });
-      return;
-    case "reparent_rejected":
-      res.status(400).json({ error: outcome.failure.message, code: outcome.failure.code });
-      return;
-    case "no_text_change":
-      respondFactUpdate(res, outcome.fact);
-      return;
-    case "protected_committed":
-      // Confirmed edit: re-embed the fact being edited, root or variant
-      // (variant independence — a variant gets its own embedding too).
-      void embedFactAsync(outcome.fact.id, outcome.fact.text, outcome.fact.canonicalText ?? undefined);
-      respondFactUpdate(res, outcome.fact, { auditRowId: outcome.auditRowId });
-      return;
-    case "staging_restarted":
-      respondFactUpdate(res, outcome.fact, { prepDispatch: outcome.prepDispatch });
-      return;
-  }
 });
 
 // GET /admin/facts/:id/text-edit-history — the rare, dire-warning-gated edits

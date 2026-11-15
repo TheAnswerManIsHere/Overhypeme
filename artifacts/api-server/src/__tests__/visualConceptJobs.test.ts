@@ -462,11 +462,12 @@ describe("the gag writer: humor note, joke read and freshness", () => {
     assert.equal((await note(factId)).text, "A corrected reading.", "a generation never writes the note");
   });
 
-  it("a changed fact still marks the gags out of date whatever the note says", async () => {
+  it("a changed gag still marks the ideas out of date whatever the note says", async () => {
+    // A fact's wording never changes (migration 0141); its gags do.
     const { reviewId, factId } = await seedReview(adminId, "concept_review");
     await runVisualConceptsJob({ reviewId, factId }, { generate: stubGenerate("", "Read.") });
     await db.update(factsTable).set({ humorNote: "Read." }).where(eq(factsTable.id, factId));
-    await db.update(factsTable).set({ text: `${FACT_TEXT} Edited.` }).where(eq(factsTable.id, factId));
+    await db.insert(factGagsTable).values({ factId, slot: 1, pendingContent: { version: 1, coreSceneOverride: "{NAME} a gag saved after the ideas." } as never });
     const r = await response(reviewId, factId);
     assert.equal(r.current, false);
     assert.equal(r.staleReason, "input_hash_mismatch");

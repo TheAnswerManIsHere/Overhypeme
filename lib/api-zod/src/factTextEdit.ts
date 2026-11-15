@@ -43,6 +43,8 @@ export const FACT_TEXT_EDIT_CODES = {
   INVALID_CONFIRMATION: "TEXT_EDIT_INVALID_CONFIRMATION",
   GRAMMAR_INVALID: "TEXT_EDIT_GRAMMAR_INVALID",
   TOO_LONG: "TEXT_EDIT_TOO_LONG",
+  /** A fact's wording is locked once accepted at triage (plan PLAN_THREE_GAGS.md, increment 3). */
+  WORDING_LOCKED: "WORDING_LOCKED",
 } as const;
 export type FactTextEditCode = (typeof FACT_TEXT_EDIT_CODES)[keyof typeof FACT_TEXT_EDIT_CODES];
 

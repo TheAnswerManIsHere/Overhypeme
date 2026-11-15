@@ -785,8 +785,10 @@ describe("refresh approve → promote", () => {
     const fact = await seedActiveFact();
     const { reviewId, candidateVersionId } = await seedReadyRefreshCycle(fact);
     await authorConceptForCycle(reviewId, candidateVersionId);
-    // The fact's text is edited AFTER the candidate was classified against it.
-    await db.update(factsTable).set({ text: "{NAME} bench-presses the Moon." }).where(eq(factsTable.id, fact.id));
+    // A fact's wording never changes (migration 0141), so the drift this
+    // backstop guards against is planted on the candidate's recorded hash.
+    await assert.rejects(db.update(factsTable).set({ text: "{NAME} bench-presses the Moon." }).where(eq(factsTable.id, fact.id)), "the database refuses the edit itself");
+    await db.update(factEnrichmentVersionsTable).set({ factTextHash: "stale-hash" }).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
 
     __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
     const res = await request(makeApp())

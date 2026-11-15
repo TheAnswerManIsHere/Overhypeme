@@ -81,6 +81,13 @@ export const factsTable = pgTable("facts", {
    */
   visualConceptOwner: varchar("visual_concept_owner", { length: 64 }),
   /**
+   * Set when this fact's submission was withdrawn because its wording needs
+   * replacing (migration 0141): the fact can never go live
+   * (facts_withdrawn_stays_inactive). Its text, like every fact's, never
+   * changes (the facts_text_is_locked trigger).
+   */
+  wordingWithdrawnAt: timestamp("wording_withdrawn_at", { withTimezone: true }),
+  /**
    * The approved humor note (migration 0137, plan PLAN_GAG_GENERATOR.md): why
    * this fact is funny and what a picture must preserve, in plain prose that
    * names the subject "Alex". Written only by a moderator's confirm or

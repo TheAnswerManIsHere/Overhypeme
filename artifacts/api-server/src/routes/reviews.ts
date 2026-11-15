@@ -91,6 +91,8 @@ import {
 import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
+import { editTriageWording, lockReview, WordingError, withdrawForWording, type WordingDuplicate } from "../lib/reviewWording";
+import { checkDuplicateInternal } from "./ai";
 
 // Re-export the plan-generator test seam (owned by the shared preview helper).
 // Approval no longer runs any synchronous planner call — its renderability
@@ -944,8 +946,14 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   // recovers without creating a duplicate fact.
   let stagingFactId = 0;
   await db.transaction(async (tx) => {
+    // The review row is locked first, the same lock a triage wording edit
+    // takes, and its wording is read under it: the fact is created with the
+    // wording as it stands at acceptance, and an edit racing this one either
+    // lands before it or is refused (plan PLAN_THREE_GAGS.md, increment 3).
+    const locked = await lockReview(tx, review.id);
+    const lockedText = locked?.submittedText ?? review.submittedText;
     const { factId } = await prepareFirstTimeStagingPrep(tx, {
-      review: { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: review.stagingFactId },
+      review: { id: review.id, submittedText: lockedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked?.stagingFactId ?? review.stagingFactId },
       parentFactId: parentFactId ?? null,
       reviewedById: req.user.id,
       adminNote,
@@ -960,6 +968,72 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
 
   res.json({ success: true, stagingFactId, workflowStage: "prep_pending", prepDispatch });
+});
+
+// ─── The wording: edited at triage, withdrawn after it ───────────────────────
+// Plan docs/plans/PLAN_THREE_GAGS.md, increment 3 (lib/reviewWording.ts).
+
+const WordingBody = z.object({ text: z.string() });
+
+/** The duplicate match for edited wording: the embedding and LLM check a submission uses. A seam for tests. */
+let wordingDuplicate = async (text: string): Promise<WordingDuplicate> => {
+  const match = await checkDuplicateInternal(text);
+  return { matchingFactId: match.matchingFactId ?? null, matchingSimilarity: match.confidence ?? 0 };
+};
+export function __setWordingDuplicateForTest(fn: ((text: string) => Promise<WordingDuplicate>) | null): void {
+  wordingDuplicate = fn ?? (async (text) => {
+    const match = await checkDuplicateInternal(text);
+    return { matchingFactId: match.matchingFactId ?? null, matchingSimilarity: match.confidence ?? 0 };
+  });
+}
+const WithdrawBody = z.object({ note: z.string().max(500).optional() });
+
+function sendWordingError(res: Response, err: unknown): boolean {
+  if (err instanceof WordingError) {
+    res.status(err.status).json({ error: err.message, code: err.code });
+    return true;
+  }
+  return false;
+}
+
+router.post("/admin/reviews/:id/wording", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = WordingBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
+  try {
+    const review = await editTriageWording(id, body.data.text, req.user.id, (text) => wordingDuplicate(text));
+    res.json({
+      success: true,
+      submittedText: review.submittedText,
+      submittedTextOriginal: review.submittedTextOriginal,
+      matchingFactId: review.matchingFactId,
+      matchingSimilarity: review.matchingSimilarity,
+    });
+  } catch (err) {
+    if (!sendWordingError(res, err)) throw err;
+  }
+});
+
+router.post("/admin/reviews/:id/withdraw", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = WithdrawBody.safeParse(req.body ?? {});
+  if (!body.success) { res.status(400).json({ error: "Invalid note." }); return; }
+  try {
+    const review = await withdrawForWording(id, req.user.id, body.data.note ?? null);
+    if (review.submittedById) {
+      await logActivity({
+        userId: review.submittedById,
+        actionType: "review_rejected",
+        message: "A moderator withdrew your submission because its wording needs replacing. You're welcome to submit the corrected wording as a new fact.",
+        metadata: { reviewId: review.id, withdrawn: true },
+      });
+    }
+    res.json({ success: true, workflowStage: review.workflowStage });
+  } catch (err) {
+    if (!sendWordingError(res, err)) throw err;
+  }
 });
 
 // ─── Reject Review (admin) ────────────────────────────────────────────────────
