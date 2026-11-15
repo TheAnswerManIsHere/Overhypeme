@@ -21,9 +21,44 @@ import {
   pendingReviewsTable,
   type FactGag,
 } from "@workspace/db";
-import type { FactEnrichment, VisualPromptStrategyOverride } from "@workspace/api-zod";
+import {
+  EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  visualPromptStrategyOverrideSchema,
+  type FactEnrichment,
+  type VisualPromptStrategyOverride,
+} from "@workspace/api-zod";
 
 export type GagContent = VisualPromptStrategyOverride;
+
+/** The list fields the schema defaults to []: older stored gags can lack any of them. */
+const DEFAULTED_LISTS = [
+  "requiredVisualDetails",
+  "forbiddenVisualDetails",
+  "roleBindings",
+  "bubbles",
+  "compositionGuidance",
+  "styleAgnosticPromptAdditions",
+  "negativePromptAdditions",
+] as const;
+
+/**
+ * Stored gag content as a value the editors and readers can take. Migration
+ * 0139 moved every old gag byte for byte, so a stored value can be an older,
+ * shorter shape (no `roleBindings`, say): the schema fills its defaults. It
+ * never refuses: content the schema rejects (an invalid token, say) comes back
+ * as stored with its lists filled, so the moderator still sees the text to fix.
+ * Read side only; nothing stored changes (Codex, PR #956 round 3).
+ */
+export function normaliseGagContent(stored: unknown): GagContent | null {
+  if (stored == null || typeof stored !== "object" || Array.isArray(stored)) return null;
+  const parsed = visualPromptStrategyOverrideSchema.safeParse(stored);
+  if (parsed.success) return parsed.data;
+  const filled: Record<string, unknown> = { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, ...(stored as Record<string, unknown>) };
+  for (const key of DEFAULTED_LISTS) {
+    if (!Array.isArray(filled[key])) filled[key] = [];
+  }
+  return filled as GagContent;
+}
 
 type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -100,7 +135,7 @@ export async function availableGags(factId: number, executor: Executor = db): Pr
   return rows.map(({ gag }) => ({
     gagId: gag.id,
     slot: gag.slot,
-    content: gag.approvedContent as GagContent,
+    content: normaliseGagContent(gag.approvedContent)!,
     exampleAttemptId: gag.approvedExampleAttemptId ?? null,
   }));
 }

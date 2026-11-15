@@ -13,10 +13,10 @@ import {
   imagePromptAttemptsTable,
   type FactGag,
 } from "@workspace/db";
-import { MAX_GAGS_PER_FACT, type FactGagsView, type GagExample, type GagView, type VisualPromptStrategyOverride } from "@workspace/api-zod";
+import { MAX_GAGS_PER_FACT, type FactGagsView, type GagExample, type GagView } from "@workspace/api-zod";
 import { findInFlightRefreshCandidate } from "../refreshCandidate";
 import { buildGagScenarioGrid, gagRenderImageUrl } from "../reviewRenderScenarios";
-import { loadGags, openReviewForFact } from "./resolver";
+import { loadGags, normaliseGagContent, openReviewForFact } from "./resolver";
 
 async function examples(ids: number[], gagIdOf: Map<number, number>): Promise<Map<number, GagExample>> {
   const out = new Map<number, GagExample>();
@@ -86,11 +86,11 @@ async function viewOf(
     state,
     availableToUsers: factActive && approved,
     isDefault: g.id === defaultId,
-    approvedContent: (g.approvedContent as VisualPromptStrategyOverride | null) ?? null,
+    approvedContent: normaliseGagContent(g.approvedContent),
     approvedExample: g.approvedExampleAttemptId != null ? ex.get(g.approvedExampleAttemptId) ?? null : null,
     carriedOver: g.approvedCarriedOver,
     approvedAt: g.approvedAt?.toISOString() ?? null,
-    pendingContent: (g.pendingContent as VisualPromptStrategyOverride | null) ?? null,
+    pendingContent: normaliseGagContent(g.pendingContent),
     pendingReviewId: g.pendingReviewId ?? null,
     pendingExample: g.pendingExampleAttemptId != null ? ex.get(g.pendingExampleAttemptId) ?? null : null,
     pendingRemove: g.pendingRemove,

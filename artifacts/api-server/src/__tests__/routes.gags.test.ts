@@ -30,7 +30,7 @@ import {
 import gagsRouter from "../routes/gags.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
-import { availableGags, primaryGag } from "../lib/gags/resolver.js";
+import { availableGags, normaliseGagContent, primaryGag } from "../lib/gags/resolver.js";
 import { applyReviewGagOps, cancelReviewGagOps, gagContentEqual } from "../lib/gags/gagStore.js";
 import { loadGagRenderTarget, ensureDefaultReviewRenders, reviewRenderStates } from "../lib/reviewRenderScenarios.js";
 import { readFileSync } from "node:fs";
@@ -42,6 +42,7 @@ const RUN = randomUUID().slice(0, 8);
 const START = new Date();
 const scene = (text: string): VisualPromptStrategyOverride => ({ ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: text });
 const A = scene("{NAME} lifts the moon (approved).");
+const LISTS = ["requiredVisualDetails", "forbiddenVisualDetails", "roleBindings", "bubbles", "compositionGuidance", "styleAgnosticPromptAdditions", "negativePromptAdditions"] as const;
 
 let adminId = "";
 let app: ReturnType<typeof buildTestApp>;
@@ -249,6 +250,46 @@ describe("a gag the migration carried over can be approved (Codex, PR #956 round
       }
     }
     assert.ok(checked > 40, `checked ${checked}`);
+  });
+
+  it("every gag in the legacy fixture reads as editor content, the schema-refused one included", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const rows = readFileSync(path.join(here, "../../fixtures/legacy/fact_gags.ndjson"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+    let refused = 0;
+    for (const r of rows) {
+      for (const c of [r["approved_content"], r["pending_content"]]) {
+        if (c == null) continue;
+        const read = normaliseGagContent(c)!;
+        for (const key of LISTS) assert.ok(Array.isArray(read[key]), `fixture gag ${String(r["id"])}: ${key} is not a list`);
+        if (!visualPromptStrategyOverrideSchema.safeParse(c).success) {
+          refused++;
+          assert.equal(read.coreSceneOverride, (c as { coreSceneOverride?: string }).coreSceneOverride, "refused content keeps its text");
+        }
+      }
+    }
+    assert.ok(refused >= 1, "the fixture still carries schema-refused content, so the never-refuse path is exercised");
+  });
+
+  it("the Gags view fills an older stored shape's lists and returns refused content as stored (Codex, PR #956 round 3)", async () => {
+    const legacy = { version: 1, enabled: true, coreSceneOverride: "{NAME} lifts the moon (older shape)." };
+    const f = await insertLiveFact({ text: `{NAME} older shape ${RUN} ${randomUUID().slice(0, 6)}`, enrichment: buildPlaceholderFactEnrichment() }, legacy as never);
+    factIds.push(f.id);
+    const gagId = f.gags[0]!.id;
+    const refusedChange = { version: 1, coreSceneOverride: "{NAME} meets {BOGUS_TOKEN}." };
+    await db.update(factGagsTable).set({ pendingContent: refusedChange as never }).where(eq(factGagsTable.id, gagId));
+
+    const res = await request(app).get(url(f.id));
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const view = (res.body.gags as Array<{ id: number; approvedContent: Record<string, unknown>; pendingContent: Record<string, unknown> }>).find((g) => g.id === gagId)!;
+    for (const key of LISTS) {
+      assert.deepEqual(view.approvedContent[key], [], `approved ${key}`);
+      assert.deepEqual(view.pendingContent[key], [], `pending ${key}`);
+    }
+    assert.equal(view.approvedContent["coreSceneOverride"], legacy.coreSceneOverride);
+    assert.equal(view.pendingContent["coreSceneOverride"], refusedChange.coreSceneOverride, "refused content keeps its text for the moderator to fix");
+    assert.deepEqual((await gagRow(gagId)).approvedContent, legacy, "reading changes nothing stored");
+    const offered = await availableGags(f.id);
+    assert.ok(Array.isArray(offered[0]!.content.roleBindings), "the available-gags list is normalised too");
   });
 });
 

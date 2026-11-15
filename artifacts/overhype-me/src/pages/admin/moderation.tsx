@@ -434,6 +434,28 @@ function ReviewModal({
   // A gag edit not yet saved (or still saving) in the Gags panel: approvals act
   // on the saved gags, so they wait for it (Codex, PR #956 round 2).
   const [gagsUnsaved, setGagsUnsaved] = useState(false);
+  // A visual idea being saved onto a gag: the panel's drafts would be replaced
+  // by its response, so editing waits for it (Codex, PR #956 round 3).
+  const [ideaSaving, setIdeaSaving] = useState(false);
+
+  // The review grid shows the gate gag's renders, and a rerun there draws the
+  // gate gag as the server picks it at click time. Re-read the grid whenever
+  // the gags' saved state changes (which exist, what is approved, picked or
+  // marked for removal, their content, their latest renders) so what it shows
+  // and what a run draws stay the same gag. Keyed on that state, never on each
+  // panel load, which polls (Codex, PR #956 round 3).
+  const gagsSignature = useMemo(() => gagsView == null ? null : JSON.stringify(gagsView.gags.map((g) => [
+    g.id, g.slot, g.pendingRemove, g.approvedContent, g.pendingContent,
+    g.approvedExample?.attemptId ?? null, g.pendingExample?.attemptId ?? null,
+    g.renders.cards.map((c) => c.latestAttemptId),
+  ])), [gagsView]);
+  const lastGagsSignature = useRef<string | null>(null);
+  useEffect(() => {
+    if (gagsSignature == null) return;
+    const previous = lastGagsSignature.current;
+    lastGagsSignature.current = gagsSignature;
+    if (previous != null && previous !== gagsSignature) setGridReloadKey((k) => k + 1);
+  }, [gagsSignature]);
 
   // Subject-name hint for the Gags panel's tokenizer: the moderator's active
   // render-diagnostics preview name (if set) folded in ahead of the shared
@@ -578,10 +600,15 @@ function ReviewModal({
   // test render of it is approved as the gag's example.
   const applyIdea = useCallback(async (run: () => ReturnType<typeof gagApi.load>) => {
     setError("");
-    const r = await run();
-    if (!r.ok) { setError(r.error); return; }
-    setGagsView(r.view);
-    setGagsReloadKey((k) => k + 1);
+    setIdeaSaving(true);
+    try {
+      const r = await run();
+      if (!r.ok) { setError(r.error); return; }
+      setGagsView(r.view);
+      setGagsReloadKey((k) => k + 1);
+    } finally {
+      setIdeaSaving(false);
+    }
   }, []);
   const conceptActions = useMemo((): ConceptAction[] => {
     if (!gagsView || stagingFactId <= 0) return [];
@@ -1084,7 +1111,7 @@ function ReviewModal({
                   reloadKey={gagsReloadKey}
                   onView={setGagsView}
                   onUnsavedChange={setGagsUnsaved}
-                  disabled={loading}
+                  disabled={loading || ideaSaving}
                 />
               )}
 
@@ -1092,7 +1119,8 @@ function ReviewModal({
                   ways to use it on a gag. */}
               <VisualConceptCandidates
                 visualConcepts={detail?.visualConcepts}
-                disabled={loading || !gagsView}
+                disabled={loading || !gagsView || ideaSaving}
+                pickBlockedReason={gagsUnsaved ? "Save or undo your gag edits first: using an idea replaces that gag's saved version." : null}
                 actions={conceptActions}
                 onGenerate={onGenerateConcepts}
                 onSaveNote={onSaveHumorNote}

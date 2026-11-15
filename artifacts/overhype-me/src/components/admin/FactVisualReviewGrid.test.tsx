@@ -95,4 +95,33 @@ describe("FactVisualReviewGrid reloadKey", () => {
     // The re-fetch reports the tile as stale.
     await screen.findByText(/· 1 stale/);
   });
+
+  it("holds the run controls while a reload is in flight, so a run cannot draw a gag the tiles no longer show (Codex, PR #956 round 3)", async () => {
+    let release: (() => void) | null = null;
+    let getN = 0;
+    const fetchMock = vi.fn(async (url: string, opts?: RequestInit) => {
+      const method = opts?.method ?? "GET";
+      if (method === "GET" && String(url).includes("/render-scenarios")) {
+        getN += 1;
+        if (getN === 1) return json(terminalGrid(false));
+        await new Promise<void>((r) => { release = r; });
+        return json(terminalGrid(false));
+      }
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(<FactVisualReviewGrid reviewId={7} enrichment={ENRICHMENT} reloadKey={0} />);
+    await screen.findByTestId("render-scenario-cards");
+    expect((screen.getByTestId("render-scenario-rerun") as HTMLButtonElement).disabled).toBe(false);
+
+    await act(async () => {
+      rerender(<FactVisualReviewGrid reviewId={7} enrichment={ENRICHMENT} reloadKey={1} />);
+    });
+    expect((screen.getByTestId("render-scenario-rerun") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("run-selected") as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => { release?.(); });
+    await vi.waitFor(() => expect((screen.getByTestId("render-scenario-rerun") as HTMLButtonElement).disabled).toBe(false));
+  });
 });
