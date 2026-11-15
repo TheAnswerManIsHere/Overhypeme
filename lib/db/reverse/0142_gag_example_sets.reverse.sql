@@ -8,8 +8,10 @@
 -- pending_example_attempt_id untouched, so dropping the new table restores the
 -- previous state exactly. It refuses once examples have been approved or picked
 -- under the new model (a gag that completed a set, or an example row the old
--- columns do not name): reversing then would lose a moderator's work, and the
--- route is fix-forward.
+-- columns do not name), or once a migrated refresh pick was discarded or
+-- declined, or any row the restored checks would refuse (the retained columns
+-- then disagree with the current state):
+-- reversing then would lose a moderator's work, and the route is fix-forward.
 DO $$
 DECLARE
   v_new integer;
@@ -26,6 +28,10 @@ BEGIN
     SELECT e.id FROM fact_gag_examples e JOIN fact_gags g ON g.id = e.gag_id
      WHERE (e.stage = 'approved' AND e.attempt_id IS DISTINCT FROM g.approved_example_attempt_id)
         OR (e.stage = 'pending' AND e.attempt_id IS DISTINCT FROM g.pending_example_attempt_id)
+    UNION ALL
+    SELECT g.id FROM fact_gags g
+     WHERE (g.pending_example_attempt_id IS NOT NULL AND (g.pending_content IS NULL OR g.pending_review_id IS NULL))
+        OR (g.approved_content IS NOT NULL AND g.approved_example_attempt_id IS NULL AND NOT g.approved_carried_over)
   ) touched;
   IF v_new > 0 THEN
     RAISE EXCEPTION '0142 reverse refused: % gag(s) or example(s) were approved or picked under example sets; fix forward', v_new;
