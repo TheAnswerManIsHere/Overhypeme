@@ -304,10 +304,11 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(page.getByTestId("fact-wording-locked-note"), "the note says how to replace a wrong wording").toContainText("deactivate this fact and submit the corrected wording as a new fact");
 
     // A non-text edit saves at once and sends no wording.
-    await page.getByPlaceholder("e.g. one_line, meme_caption…").fill("one_line");
+    await page.getByPlaceholder("user UUID or blank").fill("e2e-submitter");
     await page.getByRole("button", { name: "Save Changes" }).click();
     await expect(page.getByText("Saved successfully.", { exact: true }), "the non-text edit saves").toBeVisible();
     expect(server.patches.at(-1)?.body, "the save sends no text").not.toHaveProperty("text");
+    expect(server.patches.at(-1)?.body, "the save carries the edited field").toHaveProperty("submittedById", "e2e-submitter");
 
     // Saving the enrichment editor saves plainly.
     const panel = page.getByTestId("fact-enrichment-panel");

@@ -11,7 +11,12 @@
  *
  *   - nothing is lost: every product and excluded-class table keeps its exact
  *     row count; configuration and runtime tables may only gain rows (seeds);
- *     no table disappears. The excluded classes are reported apart;
+ *     no table disappears. The excluded classes are reported apart. The one
+ *     declared exception is migration 0142's deletion of retired variants:
+ *     the rows it will delete are counted per table from the restored snapshot
+ *     before the boot (src/lib/retirementLosses.ts), each such table must
+ *     then hold exactly that many fewer, and the report lists them under
+ *     `intendedDeletions`, apart from `failures`;
  *   - relationships resolve: no foreign key has an orphan row;
  *   - sequences are usable: every sequence-backed column's next value is above
  *     the column's largest value, so the next insert cannot collide;
@@ -19,7 +24,8 @@
  *     (lib/db/src/tableClassification.ts) reads as it did before the boot.
  *
  * A failed rehearsal is fixed in the migration or the code, never by
- * refreshing the snapshot. The acceptance journeys run separately, over the
+ * refreshing the snapshot, and an intended deletion is declared by name and
+ * counted from the snapshot, never excused after the fact. The acceptance journeys run separately, over the
  * same dump: `acceptance-run.ts --source-dump <file>`.
  *
  * It never touches DATABASE_URL's own database: the dump is restored into a
@@ -42,6 +48,7 @@ import pg from "pg";
 import { TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
 import { adminValues, exhaustedSequences, orphans, rowCounts } from "../src/lib/databaseChecks.js";
 import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
+import { variantRetirementLosses } from "../src/lib/retirementLosses.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -102,6 +109,8 @@ async function main(): Promise<void> {
     db.on("error", () => {}); // the scratch database's drop ends it; the drop is ours
     await db.connect();
     const before = await rowCounts(db);
+    // Migration 0142's intended deletions, counted before it runs.
+    const intended = await variantRetirementLosses(db);
     const settingsBefore = await adminValues(db);
     const ledgerBefore = Number((await db.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);
     await db.end();
@@ -131,7 +140,11 @@ async function main(): Promise<void> {
         continue;
       }
       const mayGrow = entry?.class === "config" || entry?.class === "runtime";
-      if (mayGrow ? now < n : now !== n) failures.push(`lost: ${table} had ${n} rows, now ${now}`);
+      const deleted = intended.get(table) ?? 0;
+      const expected = n - deleted;
+      if (mayGrow ? now < expected : now !== expected) {
+        failures.push(`lost: ${table} had ${n} rows, now ${now}${deleted ? ` (0142 deletes ${deleted}, so ${expected} expected)` : ""}`);
+      }
       if (entry?.class === "excluded") heldBack[entry.excluded] = (heldBack[entry.excluded] ?? 0) + now;
     }
     for (const [key, value] of settingsBefore) {
@@ -154,6 +167,7 @@ async function main(): Promise<void> {
         after: [...counts.values()].reduce((a, b) => a + b, 0),
       },
       heldBack,
+      intendedDeletions: Object.fromEntries(intended),
       settingsChecked: settingsBefore.size,
     };
   } finally {
