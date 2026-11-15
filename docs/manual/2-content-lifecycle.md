@@ -121,7 +121,8 @@ submitter ever saw flagged. The moderator has two choices: reject the
 submission as a duplicate, or accept it as a fact of its own. A different
 wording of a joke that's already live is the same joke, so the usual call is
 the first. Every fact stands alone: nothing links one fact to another, and
-each fact earns its own classification, gags, images, votes and comments.
+each fact earns its own classification, gags, images, votes and comments
+([why](../ai-context/decisions.md#2026-11-15--variants-are-retired-every-fact-stands-alone-and-the-existing-ones-are-deleted)).
 
 ### Underneath: one funnel, one cost gate
 

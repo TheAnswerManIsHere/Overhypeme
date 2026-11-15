@@ -104,7 +104,7 @@ export const HELP_SEARCH_INDEX: HelpSearchEntry[] = [
     "doc": "2-content-lifecycle",
     "section": "near-duplicates-one-fact-per-joke",
     "sectionTitle": "Near-duplicates: one fact per joke",
-    "text": "Near-duplicates: one fact per joke The duplicate check attaches its nearest match to a submission whenever it finds one with positive confidence — not only when that match was strong enough to show the submitter a warning — so a moderator at Triage sees more candidates than the submitter ever saw flagged. The moderator has two choices: reject the submission as a duplicate, or accept it as a fact of its own. A different wording of a joke that's already live is the same joke, so the usual call is the first. Every fact stands alone: nothing links one fact to another, and each fact earns its own classification, gags, images, votes and comments."
+    "text": "Near-duplicates: one fact per joke The duplicate check attaches its nearest match to a submission whenever it finds one with positive confidence — not only when that match was strong enough to show the submitter a warning — so a moderator at Triage sees more candidates than the submitter ever saw flagged. The moderator has two choices: reject the submission as a duplicate, or accept it as a fact of its own. A different wording of a joke that's already live is the same joke, so the usual call is the first. Every fact stands alone: nothing links one fact to another, and each fact earns its own classification, gags, images, votes and comments ( why )."
   },
   {
     "doc": "2-content-lifecycle",

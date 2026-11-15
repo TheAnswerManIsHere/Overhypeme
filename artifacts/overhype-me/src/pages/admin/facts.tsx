@@ -414,7 +414,7 @@ export default function AdminFacts() {
     setSelectedFact((f) => (f && f.id === factId ? { ...f, ...patch } : f));
   }
 
-  // The fact text/use-case edit form follows the universal local-draft model:
+  // The fact edit form follows the universal local-draft model:
   // edits autosave to localStorage, "Save Changes" commits to the server (new
   // baseline), and "Discard" reverts to the server source of truth. The baseline
   // comes from the in-memory selected fact (the list already carries every

@@ -553,7 +553,7 @@ KITT work a launch phase needs and a second app would need identically;
   repeated-failure circuit breaker protects bulk-send-back from an unbounded
   retry loop on a persistently-failing fact. New Bulk Media Backfill admin
   panel. (The same PR's rule for linked facts was retired with the link
-  itself on 2026-11-15, [`docs/retired/README.md`](../retired/README.md).) See
+  itself on 2026-11-15, [`decisions.md`](./decisions.md#2026-11-15--variants-are-retired-every-fact-stands-alone-and-the-existing-ones-are-deleted).) See
   [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues).
 - **Engineering deferred-work backlog + a 9-CVE dependency patch sweep**
   (PR #245, #246). New process infrastructure: a single durable backlog for

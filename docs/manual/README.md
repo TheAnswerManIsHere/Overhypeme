@@ -224,7 +224,7 @@ a moderator authors the [Visual Concept](../ai-context/glossary.md#visual-concep
 soup. Later mentions stay plain text.
 
 This matters most for the ordinary English words that mean something specific
-here — *preview*, *grammar*, *recipe*, *root*, *lane*, *skipped*, *remove*,
+here — *preview*, *grammar*, *recipe*, *lane*, *skipped*, *remove*,
 *rendering* — where a reader who doesn't follow the link may never realize
 they've misread the sentence. Several of those words name **more than one**
 thing (a submit-form *Preview*, a shared link's *rich preview*, the admin

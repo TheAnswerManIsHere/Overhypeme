@@ -34,7 +34,7 @@ is either rejected at triage as a duplicate or accepted as a fact of its own
 ([`moderation-workflow.md`](./moderation-workflow.md)). The link between facts
 that once existed was retired on 2026-11-15; why, and the shape to use if
 alternate wordings are ever wanted again, are in
-[`decisions.md`](./decisions.md) and [`docs/retired/README.md`](../retired/README.md).
+[`decisions.md`](./decisions.md#2026-11-15--variants-are-retired-every-fact-stands-alone-and-the-existing-ones-are-deleted) and [`docs/retired/README.md`](../retired/README.md).
 **Do not reintroduce a link between facts.**
 
 ## Source-of-truth boundaries

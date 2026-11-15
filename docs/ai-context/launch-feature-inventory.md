@@ -139,7 +139,7 @@ routes, delete, git keeps it) · **your call**.
 | C11 | Library tabs (Liked, Submissions, My Memes, My Images, Search History, Activity) | Self-view | doc | ship, verify each tab |
 | C12 | Per-user fact image preference | Which image shows for a fact | code only | verify it's wired in UI; else delete. *Not wired; deleted 2026-10-23 with Pexels (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | C13 | Per-user AI-meme preference | Which AI background shows | code only | verify it's wired in UI; else delete. *Not wired; deleted 2026-10-23 with Pexels (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
-| C14 | Fact variants | Admin-side; queued not published | PR242/PR256 UATs | Journey I. *Retired 2026-11-15 (David, Q1): every fact stands alone; ledger [`docs/retired/README.md`](../retired/README.md)* |
+| C14 | Fact variants | Admin-side; queued not published | PR242/PR256 UATs | Journey I. *Retired 2026-11-15 (David, Q1): every fact stands alone ([decision](./decisions.md#2026-11-15--variants-are-retired-every-fact-stands-alone-and-the-existing-ones-are-deleted); ledger [`docs/retired/README.md`](../retired/README.md))* |
 
 ### Decisions — Journey C (David, 2026-10-05, partial)
 

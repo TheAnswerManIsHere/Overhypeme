@@ -54,6 +54,13 @@ BEGIN
     RETURN;
   END IF;
 
+  -- A kept submission that matched an existing fact was told it was "flagged
+  -- as a possible variant"; the word is retired, the meaning was "duplicate".
+  UPDATE activity_feed
+     SET message = replace(message, 'flagged as a possible variant at', 'flagged as a possible duplicate at')
+   WHERE message LIKE '%flagged as a possible variant at%';
+  GET DIAGNOSTICS v_activity_reworded = ROW_COUNT;
+
   LOCK TABLE facts, pending_reviews IN EXCLUSIVE MODE;
 
   CREATE TEMP TABLE retire_v ON COMMIT DROP AS
@@ -83,13 +90,6 @@ BEGIN
       OR (jsonb_typeof(a.metadata -> 'reviewId') = 'number'
           AND (a.metadata ->> 'reviewId')::numeric IN (SELECT id FROM retire_r));
   GET DIAGNOSTICS v_activity = ROW_COUNT;
-
-  -- A kept submission that matched an existing fact was told it was "flagged
-  -- as a possible variant"; the word is retired, the meaning was "duplicate".
-  UPDATE activity_feed
-     SET message = replace(message, 'flagged as a possible variant at', 'flagged as a possible duplicate at')
-   WHERE message LIKE '%flagged as a possible variant at%';
-  GET DIAGNOSTICS v_activity_reworded = ROW_COUNT;
 
   UPDATE hashtags h
      SET fact_count = greatest(h.fact_count - l.n, 0)
