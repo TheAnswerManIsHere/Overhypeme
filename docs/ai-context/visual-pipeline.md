@@ -517,7 +517,7 @@ or `nano-banana-2-edit` by string. Now:
   (missing, inactive, empty or over-long copy) throws
   `RenderStyleRefusedError` — a 400 from the preview and the admin render
   action — and is never treated as "no look". Moderation scenarios render
-  with no look, so their hash folds in the photoreal engines. Nano Banana 2
+  with no look, through the photoreal engines. Nano Banana 2
   stays in the catalogue: an attempt recorded with it still renders through it.
 - The `image_engine_t2i` and `image_engine_i2i` rows
   migration 0123 seeded were deleted by migration 0138, along with the engines
@@ -530,10 +530,11 @@ or `nano-banana-2-edit` by string. Now:
   (`attemptImageEngineId`). A null appears only on a row an older release wrote
   after 0123 ran; such a release routed by mode alone, so the null reads as that
   release's engine. A later contract migration makes the column `NOT NULL`.
-- **The moderation hash folds in the engine a render would use now**, read once
-  per review context (`currentImageEngineIds`), so changing a mode's default
-  makes that mode's older attempts read stale while each keeps saying which
-  engine drew it.
+- **A moderation render's input hash records the engine it used**
+  (`currentImageEngineIds`, read once per review context) as provenance. It
+  does not decide reuse: a gag's render is matched to its content (*Gags*,
+  below), so changing a mode's default leaves existing renders shown and
+  approvable, each still saying which engine drew it (2026-11-15).
 - **Every selection is validated, never defaulted**: an engine that is unknown,
   inactive, archived, retired, not an image engine, of the other mode, or
   without a size vocabulary is refused (`ImageEngineRoutingError`).
@@ -566,6 +567,7 @@ open refresh candidate's enrichment refuses one, and a render's input is the
 classification joined with one gag's content (`gagRenderInput`,
 `lib/gags/resolver.ts`).
 
+- **The rule:** [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates).
 - **Versions.** A gag has an approved version (offered to users on a live fact)
   and may carry a pending change. Saving writes the pending change; it changes
   nothing users get until a moderator approves its **male, female and pet**
@@ -899,11 +901,11 @@ pieces, since they are the joins the sentence de-dupe reads.
   compiles with that version, so a promotion never changes queued work; the
   admin prompt preview compiles with the routed engine's live version.
   Promotion changes wording only, never routing.
-- **Moderation freshness**: `currentImageEngineIds()` carries each mode's live
-  version, folded into the scenario hash **only when set** — recipe support alone
-  leaves every existing moderation render current; a promotion for the engine a
-  mode renders with makes that mode's renders read out of date (nothing
-  re-renders on its own).
+- **Moderation renders**: `currentImageEngineIds()` carries each mode's live
+  version into the scenario hash **only when set**, as provenance. Since
+  2026-11-15 the hash no longer marks a render out of date: a gag's render is
+  reused by content, so a promotion changes only what a new render is drawn
+  with (nothing re-renders on its own).
 - **Budget**: a version is saved only if `recipeBudgetProblems` passes — its
   fixed wording at its longest (with a chosen look and with none), plus, for
   each group of conditional lines, the most they grow beyond the baseline

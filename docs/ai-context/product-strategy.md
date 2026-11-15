@@ -26,7 +26,8 @@ about a friend, sends it, and the friend arrives and makes one.
 - Browsing and personalising any fact with any name, yours or a friend's.
 - Your own uploaded photo behind a fact.
 - One AI picture per verified account, from the best engine.
-- One example picture per approved gag on every fact, showing its visual gag.
+- Example pictures for every approved gag on every fact, showing its visual
+  gag: a male, a female and a pet one (2026-11-15, [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 
 ## What is paid
 
@@ -80,9 +81,10 @@ engine's job is to draw that gag faithfully.
   and third are optional, added at a moderator's discretion. Where a fact has
   more than one, the user picks. Built before launch at David's direction (Claude
   recommended after launch).
-- **Examples are stored per gag and per look**, so a fact can hold up to twelve
-  (three gags × unstyled and three styles). Only one unstyled example per
-  approved gag is required; styled examples are optional.
+- **Examples are stored per gag and per look.** Each approved gag requires
+  three unstyled examples, male, female and pet (David, 2026-11-15, amending
+  "only one unstyled example per approved gag";
+  [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)); styled examples are optional.
 - **One site-wide sample per style** shows what each style looks like.
 - Examples are not re-rendered across the catalogue and are not meme
   backgrounds.

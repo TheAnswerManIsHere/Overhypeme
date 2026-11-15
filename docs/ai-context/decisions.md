@@ -4693,8 +4693,9 @@
   - **D3** — **no back-migration**: pre-deploy `production_review` rows stay at
     Step 3 under the existing render/enrichment gates; the new concept gate only
     bites if an admin voluntarily bounces one back to Step 2.
-  - *(Superseded in part 2026-11-15: approving the Gags step now draws one male
-    render per new or changed gag, and re-approval keeps earlier renders for
+  - *(Superseded in part 2026-11-15: saving a gag, or approving the Gags step,
+    now draws one male render per new or changed gag, so a Step-2 save spends
+    one render; re-approval keeps earlier renders for
     reuse instead of forcing a fresh batch; see the 2026-11-15 entry on a
     gag's male, female and pet examples.)*
   - **Force batch is dedupe-safe** — the force render-prepare enqueue carries

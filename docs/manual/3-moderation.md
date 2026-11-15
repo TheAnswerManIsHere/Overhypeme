@@ -44,7 +44,8 @@ The review opens as a three-step wizard:
    the paid **[moderation prep](../ai-context/glossary.md#moderation-prep)** — [enrichment](../ai-context/glossary.md#enrichment) and visual-idea
    drafting, with no renders yet — is allowed to begin; before it,
    none of that moderation spend has happened. Test renders are a separate,
-   later spend that only unlocks once the Visual Concept is approved. (Cheap pre-submit
+   later spend: one male render each time a gag is saved, and the rest only at
+   the moderator's ask. (Cheap pre-submit
    affordances the [submitter](../ai-context/glossary.md#submitter) already used — tokenizing the fact, suggesting
    pronouns, duplicate-checking — do touch utility LLMs and embeddings; what
    Triage gates is the expensive moderation pipeline, not every LLM call ever
@@ -54,9 +55,10 @@ The review opens as a three-step wizard:
    here. The moderator works on the **Visual Concept** — the plain-language
    "describe the picture" scene that is the authoritative description of how the
    gag works visually. They can accept one of several AI-drafted idea cards, edit
-   one, or write their own, then **"approve the [visual gag](../ai-context/glossary.md#visual-gag)."** Crucially, **no
-   test renders have run yet** — this gate is deliberately free. Approving the gag
-   is what unlocks render spend.
+   one, or write their own, then **"approve the [visual gag](../ai-context/glossary.md#visual-gag)."** Spend here is
+   deliberately small: each saved gag gets one male test render to judge it
+   by, reused while its content stays the same, and nothing more is drawn until
+   the moderator asks.
 
    Writing the concept (and the rest of the [Visual Strategy Override](../ai-context/glossary.md#visual-strategy-override), in
    Advanced Options) is plain-English authoring — naming the subject naturally
@@ -64,11 +66,13 @@ The review opens as a three-step wizard:
    personalized version before it persists, so the same scene works correctly
    no matter who the fact ends up rendered for.
 
-3. **Test Renders.** On arrival, the test-render images **fire automatically**.
-   The moderator inspects the rendered memes, tweaks the concept or enrichment and
-   re-runs as needed, and finally **approves for production** (which publishes the
-   fact). From here they can also **send the fact back to Visual Concept** if
-   the gag itself needs rethinking.
+3. **Test Renders.** Each new or changed gag arrives with its male render. The
+   moderator iterates on each gag until it works, then draws its **female and
+   pet** renders, approves all three as the gag's **examples**, and finally
+   **approves for production** (which publishes the fact), which needs every
+   offered gag to have its three. From here they can also **send the fact back
+   to Visual Concept** if the gag itself needs rethinking
+   ([decision](../ai-context/decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 
 **Rejection only happens at Triage.** Once a submission clears that first
 pass, it can no longer be rejected — a failed prep, an unfinished Visual
@@ -110,14 +114,14 @@ A submission becomes a row in a review table with a coarse status
 the three gates. Provisional approval creates an **inactive "[staging fact](../ai-context/glossary.md#staging-fact)"** — a
 real catalogue row that isn't published yet — and all the paid prep (AI
 classification) runs against *that*, with no renders yet;
-test renders are a separate, later spend that only unlocks once the Visual
-Concept is approved. The live catalogue is never touched by in-progress work.
+test renders are a separate, later spend, one male render per saved gag
+version and the rest on the moderator's ask. The live catalogue is never touched by in-progress work.
 Approving for production simply flips the staging fact to live.
 
-Renders are **forced fresh** each time the gag is approved: the job that prepares
-them deliberately does not reuse any prior batch, so bouncing a fact back to the
-Visual Concept step and re-approving always re-renders from scratch — even if the
-concept text didn't change.
+Renders are **matched to their input**: a gag whose content has not changed
+keeps its render, so bouncing a fact back to the Visual Concept step and
+re-approving draws only what an edit made new. (Until 2026-11-15 every
+re-approval re-rendered from scratch.)
 
 ## The other moderation system: legal and safety
 
@@ -260,11 +264,11 @@ or by anyone downstream, as if it did.
   still-generating ideas block approval). This keeps "what the moderator approved"
   unambiguous.
 
-- **Bounce-and-re-approve renders fresh, on purpose.** Rather than track render
-  "versions" or hard-cancel in-flight jobs, a re-approval just forces a new batch;
-  superseded renders finish but are ignored. Simpler, and it never shows a
-  moderator a stale image as if it were current. (Rejected alternative: a durable
-  render-cycle token / batch table — deferred as unnecessary.)
+- **A render belongs to the content it drew.** A gag's tile shows the render of
+  its current content, so a render is never shown for content it did not draw
+  and never redrawn for content it already did. (Until 2026-11-15 a re-approval
+  forced a fresh batch and ignored the old one, which re-spent on unchanged
+  gags.)
 
 - **Existing in-flight reviews were left where they were.** Facts already at the
   render step when this shipped keep working under the old gates; the new concept

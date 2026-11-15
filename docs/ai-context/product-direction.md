@@ -62,7 +62,7 @@ by every modality) — see *Launch-critical vs deferrable work* below.
 - **Staged moderation**: no paid enrichment/render work runs at submission —
   explicit cheap human triage comes first, then paid prep against a **staging
   fact**, then production review, then approval flips the fact live.
-- **An approved example picture for every approved gag is a hard gate: a
+- **Approved example pictures for every approved gag are a hard gate: a
   fact cannot go live without them** (David, 2026-10-06, reshaped by the
   [product strategy](./product-strategy.md#gags-and-examples) on 2026-11-11:
   a fact has up to three approved gags; since 2026-11-15 each carries a male,
@@ -232,8 +232,10 @@ before proposing to reverse one.)*
 - The **two permission rails** — entitlements in the grid, privileges in code
   — and the union (never override) semantics of overlays. See *Permissions
   direction* above.
-- **An approved example per approved gag as a hard gate** on going live
-  (2026-10-06, reshaped 2026-11-11 by the [product strategy](./product-strategy.md)).
+- **Approved male, female and pet examples for every offered gag as a hard
+  gate** on going live (2026-10-06, reshaped 2026-11-11 by the
+  [product strategy](./product-strategy.md) and 2026-11-15,
+  [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 - **The [product strategy](./product-strategy.md)** of 2026-11-11.
 - **The four launch stages and the full readiness bar before Seed**; the
   Stripe evidence split; the geography rule (everyone except GDPR territories
@@ -248,5 +250,6 @@ ambiguous rather than guessing.)*
 - *(Answered 2026-10-06: the hero scenario is a hard gate, since reshaped to
   one required example per approved gag by the
   [product strategy](./product-strategy.md#gags-and-examples); every other
-  render scenario stays waivable. Decisions David makes at each launch phase
+  render scenario stayed waivable until 2026-11-15, when the waiver went and
+  every gag needs three examples, [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates). Decisions David makes at each launch phase
   boundary are listed on #628, not here.)*

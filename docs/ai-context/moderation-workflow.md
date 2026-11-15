@@ -7,7 +7,7 @@
 >
 > **Reconciliation note:** some older/spec notes call the AI-prep stages
 > `enrichment_pending` / `enrichment_failed`. The **current repo enum uses
-> `prep_pending` / `prep_failed`** (prep = enrichment + render prep). Use
+> `prep_pending` / `prep_failed`** (prep = enrichment + visual-idea drafting). Use
 > the repo names below.
 
 ## Why staged moderation exists
@@ -32,7 +32,7 @@ prep_pending ──prep abandon──> prep_failed ──retry──> prep_pendi
       ▼
 concept_review                                        ← Step 2: Gags gate
       │  approve the gags              ↑ back to gags
-      │  (a saved gag + ideas OK → force-enqueue the default render batch)
+      │  (a saved gag + ideas OK → one male render per new or changed gag)
       ▼
 production_review                                     ← Step 3: Test Renders gate
       │ production approve
@@ -63,8 +63,11 @@ Test Renders** (the Gags step was called Visual Concept until plan
 must evaluate/approve the **Visual Concept** — the core description of how the
 gag works visually — on every fact before any render spend. "Approve the visual
 gag" advances `concept_review → production_review` via an atomic compare-and-set
-and force-enqueues a fresh default render batch (no dedupe key). Renders only
-ever fire in Step 3.
+and enqueues the male iteration render of each new or changed gag, keeping
+any render already drawn for the same content. Saving a gag draws its male
+render too, so iterating at Step 2 costs one render per saved version; its
+female and pet renders are drawn at Step 3 on the moderator's ask
+([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 
 ## The ingestion funnel — one entrance
 
@@ -195,8 +198,8 @@ Locking should be the very first thing that happens as part of step 1."*).
 
 `prep_pending` runs the async prep jobs against the staging fact: **enrichment**
 (AI classification/taxonomy — see
-[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)) and render-scenario
-preparation. On terminal failure the review moves to
+[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)) and the
+visual-idea drafting; no render runs in prep. On terminal failure the review moves to
 `prep_failed` — retryable only; a first-time submission is never rejected here,
 it stays pending until the retry succeeds.
 
@@ -214,7 +217,8 @@ description of one way the joke works (see [`visual-pipeline.md`](./visual-pipel
   gag N** — each saved as that gag's pending change,
 - tunes the enrichment via the embedded **Enrichment Editor** (Advanced Options),
 - inspects the **Runtime Compiled Prompt** preview,
-- then **approves the gags** (advances to Step 3, force-firing renders)
+- then **approves the gags** (advances to Step 3, drawing one male render per
+  new or changed gag)
   or sends it back to prep. (A first-time submission is never rejected here —
   see **Rejection paths** below.)
 
@@ -232,7 +236,8 @@ cards, is the approved artifact). Re-prep/regenerate is blocked while ideas are
 
 ## Test Renders review ("Step 3", `production_review`)
 
-The render review, per gag (plan `docs/plans/PLAN_GAG_EXAMPLES.md`). Approving
+The render review, per gag (plan `docs/plans/PLAN_GAG_EXAMPLES.md`;
+[decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)). Approving
 the Gags step draws **one male render** of each new or changed gag, and nothing
 for an unchanged gag; every save of a gag does the same. A render is matched to
 its input, so the same content reuses its render and a change draws a new one.

@@ -102,8 +102,8 @@ user-facing text-to-image, and no pictures of generic people as meme
 backgrounds. **AI pictures of a real person** (yourself or a friend) cost
 credits, from the engine matched to the look
 ([product strategy](./product-strategy.md#pictures-and-engines)). Each
-fact shows **one example picture per approved gag**, and a fact may carry up to
-three approved gags ([product strategy](./product-strategy.md#gags-and-examples)).
+fact shows **example pictures for each approved gag** (a male, a female and a
+pet one), and a fact may carry up to three approved gags ([product strategy](./product-strategy.md#gags-and-examples)).
 Gags are their own records, since plan `docs/plans/PLAN_THREE_GAGS.md`, each
 approved by its male, female and pet examples since plan
 `docs/plans/PLAN_GAG_EXAMPLES.md` (2026-11-15); additional gags are optional, and **where a
@@ -210,15 +210,16 @@ a safe, easy admin entry (David, 2026-10-21;
 
 ## Hard gates that used to be waivable
 
-**An approved example picture for every approved gag is a hard gate: a fact
-cannot go live without them.** There is no "no-example fallback" (David,
+**Approved male, female and pet examples for every offered gag are a hard
+gate: a fact cannot go live without them**
+([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)). There is no "no-example fallback" (David,
 2026-10-06: *"I don't think there's any concept of a no-hero fallback on a
 fact. We should define a successful fact moderation as having confirmed,
 approved hero images. Without them, the fact cannot go live"*; reshaped by the
-[product strategy](./product-strategy.md#gags-and-examples), 2026-11-11: one
-unstyled example per approved gag is required, styled ones are optional, and
-examples are not re-rendered across the catalogue or used as meme
-backgrounds). The render-approval waiver is gone.
+[product strategy](./product-strategy.md#gags-and-examples), 2026-11-11, to one
+unstyled example per approved gag, and on 2026-11-15 to three, male, female and
+pet; styled ones are optional, and examples are not re-rendered across the
+catalogue or used as meme backgrounds). The render-approval waiver is gone.
 **Built (plans `docs/plans/PLAN_THREE_GAGS.md` and `PLAN_GAG_EXAMPLES.md`):** a
 gag is offered only once a moderator approves its **male, female and pet**
 test renders as its examples, the database refuses approved content without
