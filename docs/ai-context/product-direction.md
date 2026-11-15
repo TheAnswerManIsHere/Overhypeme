@@ -67,7 +67,8 @@ by every modality) — see *Launch-critical vs deferrable work* below.
   [product strategy](./product-strategy.md#gags-and-examples) on 2026-11-11:
   a fact has up to three approved gags; since 2026-11-15 each carries a male,
   a female and a pet example, approved from its own unstyled renders, and
-  gags approved before then stay offered until they complete a set). There
+  gags approved before then stay offered until they complete a set;
+  [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)). There
   is no "no-example fallback" and no render-approval waiver. Pexels is deleted
   entirely (it was a review aid and the source of user-facing stock
   backgrounds; both are cut).
@@ -194,7 +195,7 @@ loop are launch-critical** (sharing polish was deferrable).
   "make this about you" on every shared meme page, Open Graph previews for
   meme and fact pages, public creator pages, reactions and heat.
 - Moderation speed & tooling (cut reviewer toil), with the required
-  example-per-gag gate, up to three gags per fact, and finished speech
+  gate of male, female and pet examples per gag, up to three gags per fact, and finished speech
   bubbles.
 - Render/enrichment quality (memes that land the joke; robust versioned
   refresh; clean stale-render handling); the engine evaluation, finished as

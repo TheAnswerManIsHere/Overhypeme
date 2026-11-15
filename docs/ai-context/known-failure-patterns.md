@@ -487,7 +487,9 @@ force-enqueues `review_render_scenarios_prepare` with **no** key and guards the
 concurrent approvals yield exactly one force batch. Re-prep/regenerate is blocked
 while `visual_concept_status = "pending"` for the same reason. See
 `moderation-workflow.md` and the PR #179 decision in
-[`decisions.md`](./decisions.md).
+[`decisions.md`](./decisions.md). (Since 2026-11-15 the advance enqueues only
+the male iteration render of each new or changed gag rather than a full batch;
+the keyless enqueue and the compare-and-set are unchanged.)
 
 ## Repairing state on a caught async error races the thing it's repairing
 
