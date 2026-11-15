@@ -64,7 +64,7 @@ export function FactTextEditHistory({ factId }: { factId: number }) {
             <p className="text-xs text-destructive flex items-start gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {error}</p>
           )}
           {!loading && !error && entries?.length === 0 && (
-            <p className="text-xs text-muted-foreground italic">No approved-text edits recorded for this fact.</p>
+            <p className="text-xs text-muted-foreground italic">No wording edits recorded for this fact.</p>
           )}
           {!loading && !error && entries && entries.length > 0 && (
             <ul className="space-y-3">

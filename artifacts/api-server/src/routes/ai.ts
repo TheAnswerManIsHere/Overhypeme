@@ -2,7 +2,7 @@ import { can, principalFromRequest } from "../lib/featureAccess";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { factsTable, commentsTable, pendingReviewsTable } from "@workspace/db/schema";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, ne } from "drizzle-orm";
 import { callUtilityLLM, JUDGEMENT_REASONING_EFFORT } from "../lib/utilityLLM";
 import { z } from "zod";
 import { createRateLimiter, RATE_WINDOW_MS } from "../lib/rateLimit";
@@ -220,7 +220,29 @@ export async function llmDuplicateCheck(
   };
 }
 
-export async function checkDuplicateInternal(text: string): Promise<DuplicateCheckResult> {
+/**
+ * A pending review whose wording matches, case and surrounding space ignored,
+ * other than `excludeReviewId` (the review whose own wording is being checked).
+ */
+export async function findPendingReviewWithText(normalizedText: string, excludeReviewId?: number): Promise<{ id: number; submittedText: string } | null> {
+  const [row] = await db
+    .select({ id: pendingReviewsTable.id, submittedText: pendingReviewsTable.submittedText })
+    .from(pendingReviewsTable)
+    .where(and(
+      eq(pendingReviewsTable.status, "pending"),
+      sql`LOWER(TRIM(${pendingReviewsTable.submittedText})) = ${normalizedText}`,
+      excludeReviewId != null ? ne(pendingReviewsTable.id, excludeReviewId) : undefined,
+    ))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * `opts.excludeReviewId` leaves one pending review out of the pending-review
+ * pre-check: a submission whose wording is edited at triage is compared with
+ * other content, never with itself (plan PLAN_THREE_GAGS.md, increment 3).
+ */
+export async function checkDuplicateInternal(text: string, opts: { excludeReviewId?: number } = {}): Promise<DuplicateCheckResult> {
   const normalizedText = text.trim().toLowerCase();
 
   // Fast pre-check: exact text match against approved facts (avoids embedding round-trip).
@@ -241,14 +263,7 @@ export async function checkDuplicateInternal(text: string): Promise<DuplicateChe
   }
 
   // Fast pre-check: exact text match against pending reviews still awaiting decision.
-  const [exactReview] = await db
-    .select({ submittedText: pendingReviewsTable.submittedText })
-    .from(pendingReviewsTable)
-    .where(and(
-      eq(pendingReviewsTable.status, "pending"),
-      sql`LOWER(TRIM(${pendingReviewsTable.submittedText})) = ${normalizedText}`,
-    ))
-    .limit(1);
+  const exactReview = await findPendingReviewWithText(normalizedText, opts.excludeReviewId);
   if (exactReview) {
     return {
       isDuplicate: true,

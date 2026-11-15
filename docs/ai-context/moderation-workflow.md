@@ -38,6 +38,9 @@ production_review                                     ← Step 3: Test Renders g
       │ production approve
       ▼
 production_approved   (fact is now live)
+
+prep_pending · prep_failed · concept_review · production_review
+      ──Withdraw: wording needs replacing──> production_rejected (first-time only)
 ```
 
 **Rejection only happens at `triage_pending`.** Once a first-time submission
@@ -45,9 +48,9 @@ clears triage, there is no reject path — a failed prep, an unfinished Visual
 Concept, or a render that isn't ready just leaves the candidate parked
 (`prep_failed` / pending `concept_review` / pending `production_review`) until
 an admin resolves the underlying issue (retry prep, fix the concept, fix the
-render). It is the admin's job to get it unstuck, not to reject it. The one
-exception is a **refresh cycle** (re-reviewing an already-live fact) — see
-below.
+render). It is the admin's job to get it unstuck, not to reject it. Two
+exceptions: a **refresh cycle** (re-reviewing an already-live fact), and
+**Withdraw: wording needs replacing** — see *Rejection paths* below.
 
 Stages group in the UI as **Needs first pass → Prep → Gags →
 Test Renders → Resolved**. The wizard shows three steps: **Triage → Gags →
@@ -119,8 +122,7 @@ enrichment.
 **The invariant holds for the fact's lifetime, not just at activation.** An
 active variant's parent must stay an active root for as long as the variant is
 live — so every write path that can flip a root `is_active = false` (the admin
-PATCH deactivate, both DELETE paths, an approved-text edit that also
-deactivates) cascades the deactivation to that root's active children in the
+PATCH deactivate and both DELETE paths) cascades the deactivation to that root's active children in the
 same transaction (`cascadeDeactivateActiveChildren`), rather than leaving them
 stranded under an inactive/missing parent.
 
@@ -151,6 +153,42 @@ The cheap first pass. A moderator either rejects outright (`triage_rejected`,
 picking a reason) or **provisionally accepts**, which creates/reuses the staging
 fact and enqueues prep. **No paid enrichment/render work runs before this
 point.**
+
+### The wording locks at triage
+
+A fact's wording is edited **only at triage** and never changes once the
+submission is accepted (plan `docs/plans/PLAN_THREE_GAGS.md`, increment 3;
+David, 2026-11-14: *"If it's a new fact and it's in moderation, an admin should
+be able to edit it before any enrichment happens. Once it's locked, that's it.
+Locking should be the very first thing that happens as part of step 1."*).
+
+- **The triage edit** — `POST /admin/reviews/:id/wording`
+  (`lib/reviewWording.ts`, `editTriageWording`): allowed only while the review
+  is `triage_pending` with no staging fact. The wording is validated like a
+  submission (10–2,000 characters, token grammar), the duplicate match is
+  recomputed for it, and the review keeps the wording as submitted
+  (`submitted_text_original`, set at the first edit) and who edited it, when
+  (`wording_edited_by`, `wording_edited_at`). The moderation screen shows the
+  wording in an editable box at triage and holds acceptance while an edit is
+  unsaved.
+- **Acceptance locks it first.** Provisional approval takes the review row's
+  lock (`lockReview`) and creates the staging fact from the wording it reads
+  under that lock; the triage edit takes the same lock and re-checks the
+  stage, so an edit either lands before acceptance or is refused
+  (`WORDING_LOCKED`), never overwritten by wording read earlier.
+- **The database holds it.** Trigger `facts_text_is_locked` (migration 0141)
+  refuses any `UPDATE` that changes `facts.text`. A token or normalisation
+  repair that would rewrite stored text needs its own migration that lifts the
+  rule, on David's say. `PATCH /admin/facts/:id` refuses a changed wording with
+  `WORDING_LOCKED` (an unchanged or normalisation-equal wording is ignored);
+  the confirmation-gated approved-text edit and the staging-fact text edit
+  that re-ran prep are gone. Past entries in the text-edit history
+  (`fact_text_edit_history`) stay readable in the Facts editor.
+- **Replacing a wording.** A live fact: deactivate it (soft delete, which also
+  deactivates its active variants; its memes are kept) and submit the
+  corrected wording as a new fact, with no transferred votes, comments or
+  shares. A submission past triage: **Withdraw** (below), then submit the
+  corrected wording, which enters triage as a new fact.
 
 ## Enrichment (the "prep" stage)
 
@@ -263,7 +301,7 @@ promoted only if the fact keeps at least one approved gag afterwards.
 worthy of being in the database" — it is a first-time-submission-only concept.
 
 - `triage_rejected` — rejected at first pass (no paid work spent). **This is
-  the only rejection path, period.** Once triage passes, `canReject`
+  the only rejection path for what a fact is.** Once triage passes, `canReject`
   (`lib/api-zod/src/moderationWorkflow.ts`) refuses every other stage for a
   first-time submission — the route 409s and the UI hides the Reject button —
   so a stuck candidate (`prep_failed`, an unfinished gag, a render
@@ -274,8 +312,23 @@ worthy of being in the database" — it is a first-time-submission-only concept.
   triage, so it is never judged for database-worthiness again. Declining one
   never sets a `rejectionReason` (duplicate/spam/offensive/lame — those judge
   the fact, not the update) and never touches the live fact; it just doesn't
-  get promoted. A refresh always starts past triage by design, so this is the
-  only way `production_rejected` is reached.
+  get promoted. A refresh always starts past triage by design.
+- **Withdraw: wording needs replacing** — `POST /admin/reviews/:id/withdraw`
+  (`lib/reviewWording.ts`, `withdrawForWording`), the one way a first-time
+  submission ends after triage. Available from acceptance until production
+  approval (`prep_pending`, `prep_failed`, `concept_review`,
+  `production_review`), never on a refresh, which is declined instead. It sets
+  the review `rejected` / `production_rejected` with `withdrawn_at` /
+  `withdrawn_by` (the note goes to `production_rejection_note`), so the
+  submission leaves the queue and the submitter's pending count; it stamps the
+  staging fact's `wording_withdrawn_at`, and CHECK
+  `facts_withdrawn_stays_inactive` keeps that fact inactive for good. Resubmit
+  for moderation refuses it (`WORDING_WITHDRAWN`), and a prep result or stale
+  action arriving afterwards finds a resolved review. The submitter's activity
+  feed says the wording needs replacing and invites a new submission. The
+  moderation screen offers it behind a confirmation on the triage step's
+  wording card. The rule that a moderator fixes rather than rejects stays for
+  every other reason.
 
 ## Retry and failure states
 

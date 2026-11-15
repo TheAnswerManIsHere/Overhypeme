@@ -167,10 +167,9 @@ export type ReparentGuardFailure =
  * Mirrors `activateFact`'s own parent revalidation exactly (same active-root
  * definition, same `FOR UPDATE` lock) so that editing an active fact's
  * `parentId` can't reintroduce the orphan/stranded-variant states activation
- * itself already prevents. Two call sites exist because `PATCH
- * /admin/facts/:id` forks into two independent write paths depending on
- * whether `text` is present (see confirmedFactTextEdit.ts) — this is the one
- * piece of PATCH validation both paths must share.
+ * itself already prevents. Its caller is `PATCH /admin/facts/:id`; a fact's
+ * wording is locked once accepted (migration 0141), so that route has one
+ * write path.
  */
 export async function assertReparentAllowed(
   tx: DbExecutor,

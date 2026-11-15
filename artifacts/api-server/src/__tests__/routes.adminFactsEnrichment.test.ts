@@ -338,23 +338,19 @@ describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
     assert(validateEnrichment(row.enrichment).ok);
   });
 
-  it("discards a stale result when the classifier input drifts mid-classify (approved-fact-text lock §E)", async () => {
+  it("a fact's wording cannot drift mid-classify: the database refuses the edit (migration 0141)", async () => {
     const id = await insertFact({ enrichmentStatus: "pending", text: "original wording.", isActive: true, enrichment: buildPlaceholderFactEnrichment() });
-    // The classify stub re-words the fact mid-call (a concurrent text edit),
-    // then returns OTHER. The worker's full-input recheck must DISCARD it.
+    let refused = false;
     const result = await runEnrichmentForFact(id, {
       classify: async () => {
-        await db.update(factsTable).set({ text: "re-worded mid-classify." }).where(eq(factsTable.id, id));
+        await db.update(factsTable).set({ text: "re-worded mid-classify." }).where(eq(factsTable.id, id)).catch(() => { refused = true; });
         return { ...OTHER };
       },
     });
-    assert.equal(result.ok, true, "a drift-discard retires as a successful no-op");
+    assert.equal(refused, true, "a concurrent wording edit is refused by the database");
+    assert.equal(result.ok, true);
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    // OTHER's archetype must NOT have been written onto the re-worded fact.
-    assert.notEqual(row.primaryArchetype, "object_logic_impossibility");
-    // enrichmentStatus stays "pending" (never flipped to "ok" for a discarded result).
-    assert.equal(row.enrichmentStatus, "pending");
-    assert.equal(row.text, "re-worded mid-classify.");
+    assert.equal(row.text, "original wording.");
   });
 
   it("renders {NAME}/{SUBJ}/… tokens before passing factText to the classify stub", async () => {
