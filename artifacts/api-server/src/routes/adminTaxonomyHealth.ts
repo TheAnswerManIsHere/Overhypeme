@@ -53,6 +53,7 @@ import { enqueueJob } from "../lib/asyncJobs";
 import { FACT_ENRICHMENT_BACKFILL_QUEUE } from "../lib/factEnrichmentBackfillJob";
 import { FACT_SEND_BACK_QUEUE, sendBackGuardToSkip } from "../lib/factSendBackJob";
 import { PROJECTION_REPAIR_QUEUE } from "../lib/projectionRepairJob";
+import { FACT_CHARACTER_FILL_QUEUE, fillDedupeKey, pickCharacterFillTargets } from "../lib/factCharacterFillJob";
 import { logger } from "../lib/logger";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 
@@ -241,6 +242,7 @@ router.get("/admin/taxonomy-health/summary", requireAdmin, async (_req: Request,
       incompleteCulturalReferences: 0,
       semanticEntitiesNeedReview: 0,
       lowConfidence: 0,
+      missingCharacterList: 0,
     };
     // Every count goes through the same `matchesHealthFilter` predicate the
     // facts-list endpoint uses, so a card's number can never disagree with the
@@ -441,6 +443,55 @@ router.post(
     } catch (err) {
       logger.error({ err }, "[adminTaxonomyHealth/backfill-enrichment] failed");
       res.status(500).json({ error: "backfill_failed" });
+    }
+  },
+);
+
+// ─── POST /admin/taxonomy-health/actions/fill-characters ─────────────────
+//
+// The one-off character-list fill (PLAN_BUBBLE_SPEAKERS.md, G): queue one
+// `fact_character_fill` job per fact or open refresh candidate whose AI
+// baseline has no character-extraction marker. Re-runnable: a second run
+// queues only what is still missing (a failed call writes no marker), and a
+// job that finds the work already done records an "already current" skip.
+// Text calls only; nothing renders.
+
+router.post(
+  "/admin/taxonomy-health/actions/fill-characters",
+  requireAdmin,
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const targets = await pickCharacterFillTargets();
+      const jobs: QueuedJobDescriptor[] = [];
+      const outcomes: ActionOutcome[] = [];
+      let failed = 0;
+      for (const target of targets) {
+        try {
+          const r = await enqueueJob({
+            queue: FACT_CHARACTER_FILL_QUEUE,
+            payload: target,
+            dedupeKey: fillDedupeKey(target),
+          });
+          jobs.push({
+            factId: target.factId, jobId: r.jobId, queue: r.queue, dedupeKey: r.dedupeKey,
+            action: "fill_characters", status: r.status, deduped: !r.inserted,
+          });
+        } catch (err) {
+          logger.warn({ err, target }, "[fill-characters] enqueue failed");
+          failed++;
+          outcomes.push({ factId: target.factId, action: "fill_characters", status: "failed", error: "Could not queue the character-list job." });
+        }
+      }
+      const response: TaxonomyHealthActionResponse = {
+        mode: deriveActionMode(jobs, outcomes),
+        jobs,
+        outcomes,
+        summary: { requested: targets.length, queued: jobs.length, done: 0, failed, skipped: 0 },
+      };
+      res.json(response);
+    } catch (err) {
+      logger.error({ err }, "[adminTaxonomyHealth/fill-characters] failed");
+      res.status(500).json({ error: "fill_characters_failed" });
     }
   },
 );

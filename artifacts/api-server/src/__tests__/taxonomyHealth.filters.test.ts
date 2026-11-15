@@ -92,7 +92,7 @@ describe("matchesHealthFilter", () => {
       healthy: 0, missingEnrichment: 0, invalidEnrichment: 0, needsAdminReview: 0,
       staleEnrichmentVersion: 0, staleForReprocess: 0,
       projectionMismatch: 0, incompleteCulturalReferences: 0,
-      semanticEntitiesNeedReview: 0, lowConfidence: 0,
+      semanticEntitiesNeedReview: 0, lowConfidence: 0, missingCharacterList: 0,
     } as Omit<TaxonomyHealthSummaryCounts, "totalFacts">;
     for (const h of facts) {
       for (const [key, filter] of Object.entries(SUMMARY_COUNT_TO_FILTER) as Array<

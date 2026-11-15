@@ -69,6 +69,7 @@ const ACTION_LABEL: Record<TaxonomyHealthAction, string> = {
   re_enrich: "Re-enrich",
   repair_projections: "Repair projections",
   send_back_to_review: "Send back to review",
+  fill_characters: "Fill character list",
 };
 
 function fmtConfidence(c: number | null): string {
@@ -406,6 +407,16 @@ export default function TaxonomyHealth() {
         url: "/api/admin/taxonomy-health/actions/backfill-enrichment",
         body: { mode: "stale_only" },
         confirm: (n) => `Re-enrich ${n} stale fact${n === 1 ? "" : "s"}? This costs model calls and can take a while. Admin-edited facts are skipped automatically.`,
+      });
+    }
+    if (filter === "missing_character_list") {
+      list.push({
+        key: "fill_characters",
+        label: "Fill character lists",
+        action: "fill_characters",
+        url: "/api/admin/taxonomy-health/actions/fill-characters",
+        body: {},
+        confirm: (n) => `List the characters of ${n} live fact${n === 1 ? "" : "s"}, plus any facts in moderation and open refreshes still missing a list? One short text call per fact; no images, no renders, and nothing else on the fact changes.`,
       });
     }
     if (filter === "projection_mismatch") {

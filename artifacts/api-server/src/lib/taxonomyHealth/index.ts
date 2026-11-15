@@ -27,6 +27,7 @@ import {
   buildCapitalizationSensitiveRegex,
   computeProcessingSignatureStaleness,
   CLASSIFICATION_PROMPT_VERSION,
+  hasExtractedCharacters,
   VISUAL_STRATEGY_VERSION,
   type FactEnrichment,
   type FactTaxonomyHealth,
@@ -104,6 +105,7 @@ export function evaluateFactTaxonomyHealth(
     staleForReprocess: false,
     projectionMismatch: false,
     invalidEnrichment: false,
+    missingCharacterList: false,
   };
 
   // 1. Missing enrichment
@@ -334,6 +336,21 @@ export function evaluateFactTaxonomyHealth(
         recommendedAction: "send_back_to_review",
       });
     }
+  }
+
+  // 12. Missing character list (PLAN_BUBBLE_SPEAKERS.md, G): valid enrichment
+  // whose characters were never really extracted (no success marker — a
+  // default or a failed call never stamps one). Info severity: the bubble
+  // speaker dropdown still offers the subject and the gag's roles; the
+  // dedicated card and the "Fill character lists" action are the surface.
+  if (!hasExtractedCharacters(e)) {
+    flags.missingCharacterList = true;
+    addIssue(issues, statuses, {
+      code: "missing_character_list",
+      severity: "info",
+      message: "This fact's characters have not been listed yet, so its bubble speaker dropdown offers only the subject and each gag's own roles. Run \"Fill character lists\".",
+      recommendedAction: "fill_character_lists",
+    });
   }
 
   return finalize(fact, issues, statuses, flags, buildSummary(fact, e));

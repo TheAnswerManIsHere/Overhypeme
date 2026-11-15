@@ -40,6 +40,7 @@ const NO_FLAGS: TaxonomyHealthReviewFlags = {
   staleForReprocess: false,
   projectionMismatch: false,
   invalidEnrichment: false,
+  missingCharacterList: false,
 };
 
 function makeHealth(factId: number): FactTaxonomyHealth {

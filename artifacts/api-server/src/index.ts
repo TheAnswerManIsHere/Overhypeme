@@ -26,6 +26,7 @@ import { registerReviewRenderScenarioHandlers } from "./lib/reviewRenderScenario
 import { registerComparisonHandlers } from "./lib/comparison/runs.js";
 import { registerProjectionRepairHandler } from "./lib/projectionRepairJob.js";
 import { registerFactEnrichmentBackfillHandler } from "./lib/factEnrichmentBackfillJob.js";
+import { registerFactCharacterFillHandler } from "./lib/factCharacterFillJob.js";
 import { registerFactSendBackHandler } from "./lib/factSendBackJob.js";
 import { registerFactAiMemeBackfillHandler } from "./lib/aiMemeBackfillJobs.js";
 import { registerVisualConceptJobHandlers } from "./lib/visualConceptJobs.js";
@@ -518,6 +519,7 @@ registerEnrichmentJobHandlers();
 registerImagePromptHandlers();
 registerProjectionRepairHandler();
 registerFactEnrichmentBackfillHandler();
+registerFactCharacterFillHandler();
 registerFactSendBackHandler();
 registerFactAiMemeBackfillHandler();
 registerReviewRenderScenarioHandlers();

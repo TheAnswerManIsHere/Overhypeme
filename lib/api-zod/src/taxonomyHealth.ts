@@ -21,6 +21,7 @@ export const TAXONOMY_HEALTH_STATUS_VALUES = [
   "semantic_entities_need_review",
   "low_confidence",
   "questionable_fit",
+  "missing_character_list",
 ] as const;
 export type TaxonomyHealthStatus = (typeof TAXONOMY_HEALTH_STATUS_VALUES)[number];
 
@@ -43,6 +44,8 @@ export const TAXONOMY_HEALTH_RECOMMENDED_ACTION_VALUES = [
   "research_cultural_reference",
   "review_semantic_entity",
   "repair_projection_columns",
+  // Run the character-list fill (PLAN_BUBBLE_SPEAKERS.md, G).
+  "fill_character_lists",
   "manual_review",
   "none",
 ] as const;
@@ -163,6 +166,9 @@ export interface TaxonomyHealthReviewFlags {
   staleForReprocess: boolean;
   projectionMismatch: boolean;
   invalidEnrichment: boolean;
+  /** Valid enrichment whose character list was never really extracted (no
+   *  `charactersExtraction` marker) — the fill job's target (PLAN_BUBBLE_SPEAKERS.md, G). */
+  missingCharacterList: boolean;
 }
 
 export interface TaxonomyHealthSummary {
@@ -247,6 +253,7 @@ export interface TaxonomyHealthSummaryCounts {
   incompleteCulturalReferences: number;
   semanticEntitiesNeedReview: number;
   lowConfidence: number;
+  missingCharacterList: number;
 }
 
 // ─── Health filters — single source of truth for count + list ─────────────
@@ -274,6 +281,7 @@ export const TAXONOMY_HEALTH_FILTER_VALUES = [
   "semantic_entities_need_review",
   "low_confidence",
   "questionable_fit",
+  "missing_character_list",
 ] as const;
 export type TaxonomyHealthFilter = (typeof TAXONOMY_HEALTH_FILTER_VALUES)[number];
 
@@ -312,6 +320,8 @@ export function matchesHealthFilter(
       return health.reviewFlags.lowConfidence;
     case "questionable_fit":
       return health.statuses.includes("questionable_fit");
+    case "missing_character_list":
+      return health.reviewFlags.missingCharacterList;
     default: {
       // Exhaustiveness guard — a new filter value must add a case above.
       const _never: never = filter;
@@ -339,6 +349,7 @@ export const SUMMARY_COUNT_TO_FILTER: Record<
   incompleteCulturalReferences: "incomplete_cultural_references",
   semanticEntitiesNeedReview: "semantic_entities_need_review",
   lowConfidence: "low_confidence",
+  missingCharacterList: "missing_character_list",
 };
 
 // ─── Action response contract (observable jobs + inline outcomes) ──────────
@@ -352,6 +363,7 @@ export const TAXONOMY_HEALTH_ACTION_VALUES = [
   "re_enrich",
   "repair_projections",
   "send_back_to_review",
+  "fill_characters",
 ] as const;
 export type TaxonomyHealthAction = (typeof TAXONOMY_HEALTH_ACTION_VALUES)[number];
 
