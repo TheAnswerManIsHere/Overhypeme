@@ -6,7 +6,7 @@ import { factsTable, commentsTable, adminConfigTable, featureFlagsTable, userGen
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, getTableColumns } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
-import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
+import { backfillEmbeddings } from "../lib/embeddings";
 import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
@@ -997,8 +997,8 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   const body = req.body as Record<string, unknown>;
   const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, parentId, useCase, isActive } = body;
 
-  // Coerce the non-text column updates (shared by both paths). Text/canonical/
-  // split are NEVER set here — they flow only through the locked service below.
+  // Coerce the column updates. Text/canonical/split are never set here: a
+  // fact's wording is locked (plan PLAN_THREE_GAGS.md, increment 3).
   const nonTextUpdates: Record<string, unknown> = {};
   if (upvotes !== undefined) nonTextUpdates.upvotes = Number(upvotes);
   if (downvotes !== undefined) nonTextUpdates.downvotes = Number(downvotes);
@@ -1012,9 +1012,9 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (isActive !== undefined) nonTextUpdates.isActive = Boolean(isActive);
 
   // Fetch current state once if either guard below needs it.
-  let current: { isActive: boolean } | undefined;
-  if (nonTextUpdates.isActive === true || (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null)) {
-    [current] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+  let current: { isActive: boolean; text: string } | undefined;
+  if (text !== undefined || nonTextUpdates.isActive === true || (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null)) {
+    [current] = await db.select({ isActive: factsTable.isActive, text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
     if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
   }
 
@@ -1068,11 +1068,11 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   // (facts_text_is_locked). A request carrying the stored wording unchanged is
   // treated as a non-text PATCH; one that changes it is refused.
   if (text !== undefined) {
-    const [stored] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
-    if (!stored) { res.status(404).json({ error: "Fact not found" }); return; }
     const proposed = String(text);
-    const normalized = normalizeFactTemplateForStorage(proposed);
-    if (proposed !== stored.text && (!normalized.valid || normalized.text !== stored.text)) {
+    const stored = current!.text;
+    // Normalised only when it differs, so an unchanged wording costs nothing.
+    const normalized = proposed === stored ? null : normalizeFactTemplateForStorage(proposed);
+    if (normalized && (!normalized.valid || normalized.text !== stored)) {
       res.status(409).json({
         error: "A fact's wording can't be changed once it is accepted. If the wording is wrong, deactivate this fact and submit the corrected wording as a new fact.",
         code: FACT_TEXT_EDIT_CODES.WORDING_LOCKED,
@@ -1081,62 +1081,61 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     }
   }
 
-  // ── Non-text PATCH ──────────────────────────────────────────────────────────
-  {
-    if (Object.keys(nonTextUpdates).length === 0) {
-      const [current] = await db.select().from(factsTable).where(eq(factsTable.id, id)).limit(1);
-      if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
-      respondFactUpdate(res, current);
-      return;
-    }
-    // Deactivating a fact that's an active root with active children would
-    // strand those children active under a now-inactive parent, so cascade in
-    // the same transaction (no-op if there's nothing to cascade — see
-    // cascadeDeactivateActiveChildren).
-    const deactivating = nonTextUpdates.isActive === false;
-    type PatchTxResult =
-      | { kind: "guard"; status: number; body: Record<string, unknown> }
-      | { kind: "ok"; row: typeof factsTable.$inferSelect | undefined };
-    const result: PatchTxResult = await db.transaction(async (tx): Promise<PatchTxResult> => {
-      if (reparentStaysActive) {
-        // Lock `id`'s own row BEFORE checking its active children —
-        // assertReparentAllowed's contract requires the target already locked
-        // by the caller (the text-edit path that once locked it is retired, migration 0141;
-        // incidentally, since it locks the fact row for its own CAS first; this
-        // branch didn't). Without it, a concurrent activateFact activating a
-        // variant UNDER `id` (which locks `id` as the parent via the same
-        // FOR UPDATE primitive) can interleave between this check and the
-        // reparent UPDATE below: whichever side loses the race for `id`'s lock
-        // sees the other's committed result — either `id` already has a new
-        // parent (so activateFact's own parent-revalidation then correctly
-        // fails), or `id` already has the newly-active child (so the
-        // active-children check below, now running after the lock, correctly
-        // rejects) — instead of both proceeding on stale reads.
-        const [targetLock] = await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).for("update").limit(1);
-        if (!targetLock) {
-          return { kind: "guard", status: 404, body: { error: "Fact not found" } };
-        }
-        const failure = await assertReparentAllowed(tx, { factId: id, parentId: nonTextUpdates.parentId as number });
-        if (failure) {
-          return { kind: "guard", status: 400, body: { error: failure.message, code: failure.code } };
-        }
-      }
-      const [row] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
-      if (row && deactivating) {
-        await cascadeDeactivateActiveChildren(tx, id);
-      }
-      return { kind: "ok", row };
-    });
-    if (result.kind === "guard") { res.status(result.status).json(result.body); return; }
-    if (!result.row) { res.status(404).json({ error: "Fact not found" }); return; }
-    respondFactUpdate(res, result.row);
+  // ── The update ──────────────────────────────────────────────────────────
+  if (Object.keys(nonTextUpdates).length === 0) {
+    const [current] = await db.select().from(factsTable).where(eq(factsTable.id, id)).limit(1);
+    if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
+    respondFactUpdate(res, current);
     return;
   }
+  // Deactivating a fact that's an active root with active children would
+  // strand those children active under a now-inactive parent, so cascade in
+  // the same transaction (no-op if there's nothing to cascade — see
+  // cascadeDeactivateActiveChildren).
+  const deactivating = nonTextUpdates.isActive === false;
+  type PatchTxResult =
+    | { kind: "guard"; status: number; body: Record<string, unknown> }
+    | { kind: "ok"; row: typeof factsTable.$inferSelect | undefined };
+  const result: PatchTxResult = await db.transaction(async (tx): Promise<PatchTxResult> => {
+    if (reparentStaysActive) {
+      // Lock `id`'s own row BEFORE checking its active children —
+      // assertReparentAllowed's contract requires the target already locked
+      // by the caller (the text-edit path that once locked it is retired, migration 0141;
+      // incidentally, since it locks the fact row for its own CAS first; this
+      // branch didn't). Without it, a concurrent activateFact activating a
+      // variant UNDER `id` (which locks `id` as the parent via the same
+      // FOR UPDATE primitive) can interleave between this check and the
+      // reparent UPDATE below: whichever side loses the race for `id`'s lock
+      // sees the other's committed result — either `id` already has a new
+      // parent (so activateFact's own parent-revalidation then correctly
+      // fails), or `id` already has the newly-active child (so the
+      // active-children check below, now running after the lock, correctly
+      // rejects) — instead of both proceeding on stale reads.
+      const [targetLock] = await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).for("update").limit(1);
+      if (!targetLock) {
+        return { kind: "guard", status: 404, body: { error: "Fact not found" } };
+      }
+      const failure = await assertReparentAllowed(tx, { factId: id, parentId: nonTextUpdates.parentId as number });
+      if (failure) {
+        return { kind: "guard", status: 400, body: { error: failure.message, code: failure.code } };
+      }
+    }
+    const [row] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+    if (row && deactivating) {
+      await cascadeDeactivateActiveChildren(tx, id);
+    }
+    return { kind: "ok", row };
+  });
+  if (result.kind === "guard") { res.status(result.status).json(result.body); return; }
+  if (!result.row) { res.status(404).json({ error: "Fact not found" }); return; }
+  respondFactUpdate(res, result.row);
+  return;
 
 });
 
-// GET /admin/facts/:id/text-edit-history — the rare, dire-warning-gated edits
-// of this fact's approved text (approved-fact-text lock). Admin-only,
+// GET /admin/facts/:id/text-edit-history — the edits of this fact's approved
+// text made before a fact's wording locked at triage (plan PLAN_THREE_GAGS.md,
+// increment 3); read-only history, no new entries are written. Admin-only,
 // fact-scoped, newest-first, paginated. The actor is rendered from the joined
 // user row, with a deleted/system fallback when performed_by was set null by a
 // hard user deletion.

@@ -147,6 +147,34 @@ export function canReject(stage: ReviewWorkflowStage, status: string, isRefreshC
 }
 
 /**
+ * A submission's wording bounds: the submission form's, and the triage edit's
+ * (plan PLAN_THREE_GAGS.md, increment 3), from one place.
+ */
+export const SUBMISSION_TEXT_MIN_CHARS = 10;
+export const SUBMISSION_TEXT_MAX_CHARS = 2000;
+
+/**
+ * A submission's wording may be edited only at triage, before it is accepted
+ * (plan PLAN_THREE_GAGS.md, increment 3; David, 2026-11-14, Q6). Acceptance
+ * creates the staging fact, and from then on the wording is locked.
+ */
+export function canEditWording(stage: ReviewWorkflowStage, status: string, hasStagingFact: boolean, isRefreshCycle: boolean): boolean {
+  return status === "pending" && stage === "triage_pending" && !hasStagingFact && !isRefreshCycle;
+}
+
+/** The stages from acceptance up to production approval, where Withdraw applies. */
+export const WITHDRAWABLE_STAGES: readonly ReviewWorkflowStage[] = ["prep_pending", "prep_failed", "concept_review", "production_review"];
+
+/**
+ * Withdraw: wording needs replacing — the one way a first-time submission ends
+ * after triage (plan PLAN_THREE_GAGS.md, increment 3). A refresh is declined
+ * instead, since the live fact keeps its wording.
+ */
+export function canWithdraw(stage: ReviewWorkflowStage, status: string, isRefreshCycle: boolean): boolean {
+  return status === "pending" && !isRefreshCycle && WITHDRAWABLE_STAGES.includes(stage);
+}
+
+/**
  * Coarse, list-level render state for a Step-3 (production_review) row, derived
  * from a single aggregate SQL pass over the latest attempt per scenario. This is
  * intentionally cheaper and coarser than the modal's `buildReviewScenarioGrid`:

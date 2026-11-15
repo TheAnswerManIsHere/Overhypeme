@@ -153,9 +153,11 @@ discriminated union on `valid`.
   rows are reported and skipped, valid rows queued: partial success).
 - **`normalizeFactTemplateForStorage(text)`** — the same, plus, on success, the
   derived `facts` columns (`canonicalText`, `splitTokenIndex`, `hasPronouns`)
-  computed from the FINAL normalized text. Its one route caller is the
-  approved-text edit, `confirmedFactTextEdit` behind `PATCH /admin/facts/:id`;
-  the legacy-fixture builder
+  computed from the FINAL normalized text. Its one route caller is
+  `PATCH /admin/facts/:id`, which only compares a submitted wording with the
+  stored one, since a fact's wording is locked once accepted
+  (`moderation-workflow.md`, *The wording locks at triage*); the triage edit
+  uses the pending-review variant; the legacy-fixture builder
   (`artifacts/api-server/src/testing/legacyFixture/placeholderFacts.ts`) also
   calls it and consumes all three derived columns.
 

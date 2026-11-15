@@ -18,6 +18,8 @@ import {
   type VisualConceptsResponse,
   type StoredCandidateConcept,
   type FactGagsView,
+  canEditWording,
+  canWithdraw,
 } from "@workspace/api-zod";
 import {
   deriveModerationQueueState,
@@ -32,6 +34,7 @@ import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
 import { VisualConceptCandidates } from "@/components/admin/VisualConceptCandidates";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
+import { SubmissionWording, type WordingSaved } from "@/components/admin/SubmissionWording";
 import { useGagIdeaActions } from "@/components/admin/gags/useGagIdeaActions";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
 
@@ -73,6 +76,8 @@ interface StagingFactDetail extends StagingFactSlice {
 interface Review {
   id: number;
   submittedText: string;
+  /** The wording as submitted, when a moderator edited it at triage. */
+  submittedTextOriginal?: string | null;
   matchingFactId: number | null;
   matchingSimilarity: number;
   status: "pending" | "approved" | "rejected";
@@ -381,6 +386,16 @@ function ReviewModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showDuplicate, setShowDuplicate] = useState(false);
+  // The submission's wording and its duplicate match, which a triage edit
+  // changes in place (plan PLAN_THREE_GAGS.md, increment 3).
+  const [wording, setWording] = useState<WordingSaved>({
+    submittedText: review.submittedText,
+    submittedTextOriginal: review.submittedTextOriginal ?? null,
+    matchingFactId: review.matchingFactId,
+    matchingSimilarity: review.matchingSimilarity,
+    matchingFact: review.matchingFact,
+  });
+  const [wordingDirty, setWordingDirty] = useState(false);
 
   // Decision inputs (local; the decision POST is the commit).
   const [note, setNote] = useState("");
@@ -636,7 +651,8 @@ function ReviewModal({
 
   const onProvisionalApprove = (variant: boolean) => {
     const body: Record<string, unknown> = { adminNote: note || undefined };
-    if (variant && review.matchingFact) body.parentFactId = review.matchingFact.id;
+    if (wordingDirty) { setError("Save or undo the wording edit before accepting."); return; }
+    if (variant && wording.matchingFact) body.parentFactId = wording.matchingFact.id;
     void runAction("provisional-approve", body);
   };
   const onReject = async () => {
@@ -769,7 +785,7 @@ function ReviewModal({
   // resolves it. A refresh cycle's "reject" ("don't promote") is always
   // available since it never touches the live fact.
   const canRejectNow = stage === "triage_pending" || isRefreshCycle;
-  const matchVisible = review.matchingSimilarity >= duplicateThreshold || showDuplicate;
+  const matchVisible = wording.matchingSimilarity >= duplicateThreshold || showDuplicate;
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
 
@@ -784,8 +800,8 @@ function ReviewModal({
         </span>
         {!isRefreshCycle && review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
         <span className="flex items-center gap-2">
-          Duplicate Likelihood: <strong className="text-foreground">{review.matchingSimilarity}%</strong>
-          {review.matchingSimilarity > 0 && review.matchingSimilarity < duplicateThreshold && !showDuplicate && (
+          Duplicate Likelihood: <strong className="text-foreground">{wording.matchingSimilarity}%</strong>
+          {wording.matchingSimilarity > 0 && wording.matchingSimilarity < duplicateThreshold && !showDuplicate && (
             <button onClick={() => setShowDuplicate(true)} className="text-xs text-primary underline hover:opacity-80 font-normal">
               Show potential duplicate
             </button>
@@ -795,24 +811,31 @@ function ReviewModal({
       </div>
 
       <div className={`grid gap-4 ${matchVisible ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
-        <div className="bg-background border-2 border-border rounded-sm p-4">
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
-          <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
-        </div>
+        <SubmissionWording
+          reviewId={review.id}
+          label="Submitted Fact"
+          text={wording.submittedText}
+          originalText={wording.submittedTextOriginal}
+          editable={canEditWording(stage, review.status, review.stagingFactId != null, isRefreshCycle)}
+          withdrawable={canWithdraw(stage, review.status, isRefreshCycle)}
+          onSaved={(saved) => { setWording(saved); onActionDone(); }}
+          onDirtyChange={setWordingDirty}
+          onWithdrawn={() => { onActionDone(); onClose(); }}
+        />
         {matchVisible && (
           <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>
-              {review.matchingFact && (
-                <a href={`/facts/${review.matchingFact.id}`} target="_blank" rel="noreferrer"
+              {wording.matchingFact && (
+                <a href={`/facts/${wording.matchingFact.id}`} target="_blank" rel="noreferrer"
                   className="text-xs text-primary hover:underline flex items-center gap-1">
                   View <ExternalLink className="w-3 h-3" />
                 </a>
               )}
             </div>
-            {review.matchingFact ? (
-              <p className="text-base italic text-foreground leading-relaxed">"{review.matchingFact.text}"</p>
-            ) : review.matchingFactId != null ? (
+            {wording.matchingFact ? (
+              <p className="text-base italic text-foreground leading-relaxed">"{wording.matchingFact.text}"</p>
+            ) : wording.matchingFactId != null ? (
               <p className="text-muted-foreground text-sm italic">Original fact no longer available</p>
             ) : (
               <p className="text-muted-foreground text-sm italic">Duplicate found in pending submissions — no approved original yet</p>
@@ -1230,14 +1253,14 @@ function ReviewModal({
             {/* Triage-step decisions: provisional approve / variant / reject. */}
             {!isResolved && step === "triage" && stage === "triage_pending" && (
               <div className="flex flex-wrap gap-3">
-                <Button onClick={() => onProvisionalApprove(false)} isLoading={loading} disabled={loading}
+                <Button onClick={() => onProvisionalApprove(false)} isLoading={loading} disabled={loading || wordingDirty}
                   className="bg-green-600 hover:bg-green-700 text-white gap-2">
                   <CheckCircle2 className="w-4 h-4" /> Provisional Approve — Start Prep
                 </Button>
-                {review.matchingFact && (
-                  <Button variant="outline" onClick={() => onProvisionalApprove(true)} isLoading={loading} disabled={loading}
+                {wording.matchingFact && (
+                  <Button variant="outline" onClick={() => onProvisionalApprove(true)} isLoading={loading} disabled={loading || wordingDirty}
                     className="border-blue-500/50 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 gap-2">
-                    <GitBranch className="w-4 h-4" /> Prep as Variant of #{review.matchingFact.id}
+                    <GitBranch className="w-4 h-4" /> Prep as Variant of #{wording.matchingFact.id}
                   </Button>
                 )}
                 <Button variant="outline" onClick={onReject} isLoading={loading}
@@ -1262,7 +1285,7 @@ function ReviewModal({
 
             {!isResolved && step === "triage" && stage === "prep_failed" && (
               <div className="flex flex-wrap gap-3">
-                <Button onClick={() => onProvisionalApprove(false)} isLoading={loading} disabled={loading}
+                <Button onClick={() => onProvisionalApprove(false)} isLoading={loading} disabled={loading || wordingDirty}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   <RefreshCw className="w-4 h-4" /> Retry Prep
                 </Button>

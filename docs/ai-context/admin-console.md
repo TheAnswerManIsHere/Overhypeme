@@ -189,8 +189,11 @@ with an initial password and tier.
 
 **Facts:** `/admin/facts` is the broader "all facts" surface — search,
 an active/inactive/both filter, taxonomy-override and
-needs-review quick filters, a full per-fact edit panel (text, taxonomy
-fields), a "Resubmit for Moderation" action that puts a fact back through
+needs-review quick filters, a full per-fact edit panel (taxonomy fields and
+counts; the wording is shown read-only, since a fact's wording never changes
+once accepted at triage — a wrong one is replaced by deactivating the fact and
+submitting the corrected wording as a new fact, `moderation-workflow.md`,
+*The wording locks at triage*; past wording edits stay listed read-only), a "Resubmit for Moderation" action that puts a fact back through
 the review pipeline, and soft/hard delete. A separate Utilities tab
 handles bulk import (paste, file upload, several formats) and triggers a
 background enrichment-backfill job for previously unenriched facts.

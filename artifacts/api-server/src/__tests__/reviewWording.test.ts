@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { eq, inArray } from "drizzle-orm";
 import { db, factsTable, usersTable } from "@workspace/db";
-import { asyncJobsTable, pendingReviewsTable } from "@workspace/db/schema";
+import { activityFeedTable, asyncJobsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 
 import reviewsRouter, { __setWordingDuplicateForTest } from "../routes/reviews.js";
@@ -64,6 +64,8 @@ after(async () => {
     await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.externalId, factIds.map(String)));
     await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   }
+  // Acceptance and Withdraw write the submitter's activity feed.
+  await db.delete(activityFeedTable).where(inArray(activityFeedTable.userId, [adminId, submitterId]));
   await db.delete(usersTable).where(inArray(usersTable.id, [adminId, submitterId]));
 });
 

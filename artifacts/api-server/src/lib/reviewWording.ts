@@ -24,17 +24,10 @@
  */
 import { eq, sql } from "drizzle-orm";
 import { db, factsTable, pendingReviewsTable } from "@workspace/db";
-import type { ReviewWorkflowStage } from "@workspace/api-zod";
+import { canEditWording, canWithdraw, SUBMISSION_TEXT_MAX_CHARS, SUBMISSION_TEXT_MIN_CHARS, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { normalizeFactTemplateForPendingReview } from "./normalizeFactTemplateForStorage";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-/** The submission form's own bounds (routes/reviews.ts, SubmitReviewBody). */
-export const WORDING_MIN_CHARS = 10;
-export const WORDING_MAX_CHARS = 2000;
-
-/** The stages from acceptance up to production approval: where Withdraw applies. */
-const WITHDRAWABLE_STAGES: readonly ReviewWorkflowStage[] = ["prep_pending", "prep_failed", "concept_review", "production_review"];
 
 export class WordingError extends Error {
   constructor(
@@ -62,8 +55,8 @@ export async function lockReview(tx: Tx, reviewId: number) {
 /** Validate and normalise a proposed wording exactly as a submission is. */
 export function normaliseWording(raw: string): string {
   const trimmed = raw.trim();
-  if (trimmed.length < WORDING_MIN_CHARS || trimmed.length > WORDING_MAX_CHARS) {
-    throw new WordingError("WORDING_INVALID", `The wording must be between ${WORDING_MIN_CHARS} and ${WORDING_MAX_CHARS} characters.`, 422);
+  if (trimmed.length < SUBMISSION_TEXT_MIN_CHARS || trimmed.length > SUBMISSION_TEXT_MAX_CHARS) {
+    throw new WordingError("WORDING_INVALID", `The wording must be between ${SUBMISSION_TEXT_MIN_CHARS} and ${SUBMISSION_TEXT_MAX_CHARS} characters.`, 422);
   }
   const normalized = normalizeFactTemplateForPendingReview(trimmed);
   if (!normalized.valid) {
@@ -73,7 +66,7 @@ export function normaliseWording(raw: string): string {
 }
 
 function assertAtTriage(review: { status: string; workflowStage: string; stagingFactId: number | null; candidateVersionId: number | null }): void {
-  if (review.status !== "pending" || review.workflowStage !== "triage_pending" || review.stagingFactId != null || review.candidateVersionId != null) {
+  if (!canEditWording(review.workflowStage as ReviewWorkflowStage, review.status, review.stagingFactId != null, review.candidateVersionId != null)) {
     throw new WordingError(
       "WORDING_LOCKED",
       "The wording is locked: it can only be edited at triage, before the submission is accepted. Withdraw the submission and submit the corrected wording as a new fact.",
@@ -126,11 +119,7 @@ export async function withdrawForWording(reviewId: number, adminId: string, note
   return db.transaction(async (tx) => {
     const review = await lockReview(tx, reviewId);
     if (!review) throw new WordingError("REVIEW_NOT_FOUND", "Review not found.", 404);
-    if (
-      review.status !== "pending" ||
-      review.candidateVersionId != null ||
-      !WITHDRAWABLE_STAGES.includes(review.workflowStage as ReviewWorkflowStage)
-    ) {
+    if (!canWithdraw(review.workflowStage as ReviewWorkflowStage, review.status, review.candidateVersionId != null)) {
       throw new WordingError(
         "NOT_WITHDRAWABLE",
         review.candidateVersionId != null

@@ -1,68 +1,34 @@
-import {
-  FACT_TEXT_EDIT_CODES,
-  type ApprovedFactTextEditImpact,
-  type ConfirmTextEdit,
-  type PrepDispatchState,
-} from "@workspace/api-zod";
+import { FACT_TEXT_EDIT_CODES } from "@workspace/api-zod";
 
 /**
  * Typed client for PATCH /admin/facts/:id — turns the endpoint's success body
- * and its typed 409/422 codes into a discriminated result the Facts editor can
- * branch on without string-matching. Deliberate outcomes (confirmation needed,
- * stale baseline, blockers) are distinct from an ordinary error so the caller
- * can open the right modal instead of flashing a red "Save failed".
+ * and its typed refusal into a discriminated result the Facts editor branches
+ * on without string-matching. A fact's wording is locked once accepted (plan
+ * PLAN_THREE_GAGS.md, increment 3), so the editor never sends a changed
+ * wording; `wording_locked` is the server's answer if one arrives anyway.
  */
 export type PatchFactDraftResult<F> =
-  | { kind: "saved"; fact: F; auditRowId?: number; prepDispatch?: PrepDispatchState }
-  | { kind: "confirmation_required"; impact: ApprovedFactTextEditImpact }
-  | { kind: "stale_baseline"; impact: ApprovedFactTextEditImpact }
-  | { kind: "staging_prep_in_progress" }
+  | { kind: "saved"; fact: F }
+  | { kind: "wording_locked"; message: string }
   | { kind: "error"; message: string };
 
-export async function patchFactDraft<F>(
-  factId: number,
-  body: Record<string, unknown>,
-  confirmation?: ConfirmTextEdit,
-): Promise<PatchFactDraftResult<F>> {
+export async function patchFactDraft<F>(factId: number, body: Record<string, unknown>): Promise<PatchFactDraftResult<F>> {
   let res: Response;
   try {
     res = await fetch(`/api/admin/facts/${factId}`, {
       method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...body, ...(confirmation ? { confirmTextEdit: confirmation } : {}) }),
+      body: JSON.stringify(body),
     });
   } catch {
     return { kind: "error", message: "Network error — could not reach the server." };
   }
 
-  const data = (await res.json().catch(() => ({}))) as {
-    fact?: F;
-    auditRowId?: number;
-    prepDispatch?: PrepDispatchState;
-    impact?: ApprovedFactTextEditImpact;
-    code?: string;
-    error?: string;
-  };
-
-  if (res.ok && data.fact) {
-    return {
-      kind: "saved",
-      fact: data.fact,
-      auditRowId: data.auditRowId,
-      prepDispatch: data.prepDispatch,
-    };
-  }
-
-  switch (data.code) {
-    case FACT_TEXT_EDIT_CODES.REQUIRES_CONFIRMATION:
-      if (data.impact) return { kind: "confirmation_required", impact: data.impact };
-      break;
-    case FACT_TEXT_EDIT_CODES.STALE_BASELINE:
-      if (data.impact) return { kind: "stale_baseline", impact: data.impact };
-      break;
-    case FACT_TEXT_EDIT_CODES.STAGING_PREP_IN_PROGRESS:
-      return { kind: "staging_prep_in_progress" };
+  const data = (await res.json().catch(() => ({}))) as { fact?: F; code?: string; error?: string };
+  if (res.ok && data.fact) return { kind: "saved", fact: data.fact };
+  if (data.code === FACT_TEXT_EDIT_CODES.WORDING_LOCKED) {
+    return { kind: "wording_locked", message: data.error ?? "A fact's wording can't be changed once it is accepted." };
   }
   return { kind: "error", message: data.error ?? "Save failed" };
 }

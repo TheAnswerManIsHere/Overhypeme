@@ -716,7 +716,9 @@ approved by David 2026-11-13, and `docs/plans/PLAN_THREE_GAGS.md` increment 2).*
   Facts editor's `LiveGagIdeas`): the same engine, prompt, validation and
   latest-only store, run outside a review, reading the live fact. Refused while
   a review is open (its own generation owns the fact's ideas), for a fact that
-  is not live, and while a generation is still working.
+  is not live, and while a live draft is still working. A "working" status
+  left by a closed review does not block it, and opening a review clears a
+  live draft's ideas.
 - **One owner per generation** (migration 0140, `lib/visualConceptOwner.ts`).
   `facts.visual_concept_owner` names the generation that may write the fact's
   candidates and their status: `review:<id>` or `live:<id>`. Every write of

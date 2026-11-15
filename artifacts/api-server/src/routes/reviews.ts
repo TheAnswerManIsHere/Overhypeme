@@ -31,6 +31,8 @@ import {
   canApproveVisualConcept,
   canProductionApprove,
   canReject,
+  SUBMISSION_TEXT_MAX_CHARS,
+  SUBMISSION_TEXT_MIN_CHARS,
   RENDER_SCENARIO_KEYS,
   renderScenarioKeySchema,
   visualRenderWaiverRequestSchema,
@@ -122,7 +124,7 @@ function requireAuth(req: Request, res: Response, next: () => void): void {
 // ─── Submit for Review ────────────────────────────────────────────────────────
 
 const SubmitReviewBody = z.object({
-  text: z.string().min(10).max(2000),
+  text: z.string().min(SUBMISSION_TEXT_MIN_CHARS).max(SUBMISSION_TEXT_MAX_CHARS),
   matchingFactId: z.number().int().optional(),
   matchingSimilarity: z.number().int().min(0).max(100).optional(),
   isDuplicate: z.boolean().optional(),
@@ -739,10 +741,9 @@ async function approveForProduction(
   // old override-wipe bug.
   const canonicalText = stagingFact.canonicalText ?? renderCanonical(stagingFact.text);
 
-  // The render/enrichment gate above validated THIS exact wording. A concurrent
-  // approved-fact-text edit (which locks the same fact row) could re-word the
-  // staging fact between that gate and this activation, so the activation is a
-  // compare-and-set: activate ONLY while the fact is still inactive AND its text
+  // The render/enrichment gate above validated THIS exact wording. A fact's
+  // wording can no longer change (facts_text_is_locked), so the text half of
+  // this guard is now belt and braces; the activation stays a compare-and-set: activate ONLY while the fact is still inactive AND its text
   // is still the wording we validated, and approve the review ONLY while it is
   // still the same first-time production_review cycle. Either mismatch fails
   // CLOSED — nothing is activated, tagged, approved, embedded, or notified.
@@ -940,8 +941,7 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   }
 
   // Create-or-reuse the staging fact and move the review into prep, in one
-  // transaction (the shared first-time-staging-prep primitive, reused by the
-  // staging branch of the approved-fact-text edit). If the post-commit ensure
+  // transaction (the shared first-time-staging-prep primitive). If the post-commit ensure
   // fails, the staging fact + prep_pending state remain, so a later re-click
   // recovers without creating a duplicate fact.
   let stagingFactId = 0;
@@ -951,9 +951,9 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
     // wording as it stands at acceptance, and an edit racing this one either
     // lands before it or is refused (plan PLAN_THREE_GAGS.md, increment 3).
     const locked = await lockReview(tx, review.id);
-    const lockedText = locked?.submittedText ?? review.submittedText;
+    if (!locked) throw new Error(`Review ${review.id} disappeared during acceptance.`);
     const { factId } = await prepareFirstTimeStagingPrep(tx, {
-      review: { id: review.id, submittedText: lockedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked?.stagingFactId ?? review.stagingFactId },
+      review: { id: review.id, submittedText: locked.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked.stagingFactId },
       parentFactId: parentFactId ?? null,
       reviewedById: req.user.id,
       adminNote,
@@ -976,15 +976,13 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
 const WordingBody = z.object({ text: z.string() });
 
 /** The duplicate match for edited wording: the embedding and LLM check a submission uses. A seam for tests. */
-let wordingDuplicate = async (text: string): Promise<WordingDuplicate> => {
+const defaultWordingDuplicate = async (text: string): Promise<WordingDuplicate> => {
   const match = await checkDuplicateInternal(text);
   return { matchingFactId: match.matchingFactId ?? null, matchingSimilarity: match.confidence ?? 0 };
 };
+let wordingDuplicate = defaultWordingDuplicate;
 export function __setWordingDuplicateForTest(fn: ((text: string) => Promise<WordingDuplicate>) | null): void {
-  wordingDuplicate = fn ?? (async (text) => {
-    const match = await checkDuplicateInternal(text);
-    return { matchingFactId: match.matchingFactId ?? null, matchingSimilarity: match.confidence ?? 0 };
-  });
+  wordingDuplicate = fn ?? defaultWordingDuplicate;
 }
 const WithdrawBody = z.object({ note: z.string().max(500).optional() });
 
@@ -1003,12 +1001,17 @@ router.post("/admin/reviews/:id/wording", requireAdmin, async (req: Authenticate
   if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
   try {
     const review = await editTriageWording(id, body.data.text, req.user.id, (text) => wordingDuplicate(text));
+    // The matched fact's text, so the screen redraws its duplicate card.
+    const [matchingFact] = review.matchingFactId != null
+      ? await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, review.matchingFactId), eq(factsTable.isActive, true))).limit(1)
+      : [];
     res.json({
       success: true,
       submittedText: review.submittedText,
       submittedTextOriginal: review.submittedTextOriginal,
       matchingFactId: review.matchingFactId,
       matchingSimilarity: review.matchingSimilarity,
+      matchingFact: matchingFact ?? null,
     });
   } catch (err) {
     if (!sendWordingError(res, err)) throw err;

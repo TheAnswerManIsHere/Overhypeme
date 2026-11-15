@@ -2,9 +2,9 @@
  * Shared first-time staging prep lifecycle (Plan v4 §F).
  *
  * The single primitive for "(re)start text-derived prep for a first-time
- * staging fact", used by BOTH provisional approval and the staging branch of
- * the approved-fact-text edit — so stage transitions, statuses, enqueue order,
- * and recovery can never drift between the two.
+ * staging fact", so stage transitions, statuses, enqueue order and recovery
+ * live in one place. (The staging-fact text edit that also restarted prep went
+ * with the wording lock, plan PLAN_THREE_GAGS.md, increment 3.)
  *
  * Two phases, deliberately split so the transactional state change and the
  * (non-transactional) durable-job dispatch don't hold a DB lock across the
