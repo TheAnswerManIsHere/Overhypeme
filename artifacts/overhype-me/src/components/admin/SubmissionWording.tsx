@@ -125,7 +125,7 @@ export function SubmissionWording({ reviewId, text, originalText, editable, with
         <>
           <p className="text-base italic text-foreground leading-relaxed">"{text}"</p>
           <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="submission-wording-locked">
-            <Lock className="w-3 h-3 shrink-0" /> The wording locked when this was accepted and can't be changed.
+            <Lock className="w-3 h-3 shrink-0" /> The wording can only be changed at triage, before a submission is accepted.
             {withdrawable && " If it needs replacing, withdraw the submission and submit the corrected wording as a new fact."}
           </p>
         </>
