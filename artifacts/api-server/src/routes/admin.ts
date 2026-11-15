@@ -17,10 +17,7 @@ import {
   applyOverrideUpsert,
   loadFactOverrideState,
   serializeResolved,
-  stampOverrideProvenance,
-  stripVisualOverride,
   type OverrideLayers,
-  type VisualOverride,
 } from "../lib/enrichmentOverrideLayers";
 import { enqueueJob, USE_CONFIGURED_MAX_ATTEMPTS } from "../lib/asyncJobs";
 import { laneHealth, queueHealth, queueHealthJobs } from "../lib/queueHealth";
@@ -1445,7 +1442,7 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
 
   // Apply only the non-tracked edits: suggestedHashtags is an AI field edited
   // in place on the baseline (not tracked).
-  const baseline = state.aiDerived ?? stripVisualOverride(submitted);
+  const baseline = state.aiDerived ?? submitted;
   if (!baseline) { res.status(409).json({ error: "Fact has no enrichment baseline yet" }); return; }
   const newAiDerived = { ...baseline, suggestedHashtags: submitted.suggestedHashtags } as FactEnrichment;
 

@@ -21,7 +21,6 @@ import {
   type ReviewWorkflowStage,
 } from "@workspace/api-zod";
 import { materializeEnrichment } from "./factEnrichment";
-import { stripVisualOverride } from "./enrichmentOverrideLayers";
 import { applyReviewGagOps } from "./gags/gagStore";
 import { hasApprovedGag } from "./factActivation";
 
@@ -107,7 +106,6 @@ export async function loadCandidateEditingContext(
   layers: {
     aiDerived: FactEnrichment | null;
     overrides: EnrichmentOverrides;
-    visualPromptStrategyOverride: FactEnrichment["visualPromptStrategyOverride"] | undefined;
     effective: FactEnrichment | null;
     enrichmentStatus: string | null;
   };
@@ -173,11 +171,8 @@ export async function loadCandidateEditingContext(
     layers: {
       // Defensive normalization mirroring loadFactOverrideState: a candidate
       // written by the job always has its pure baseline, but fall back safely.
-      aiDerived: (candidate.enrichmentAiDerived as FactEnrichment | null) ?? stripVisualOverride(effective),
+      aiDerived: (candidate.enrichmentAiDerived as FactEnrichment | null) ?? effective,
       overrides: (candidate.enrichmentOverrides ?? {}) as EnrichmentOverrides,
-      visualPromptStrategyOverride: (candidate.visualOverride ?? undefined) as
-        | FactEnrichment["visualPromptStrategyOverride"]
-        | undefined,
       effective,
       // Version rows carry no status column of their own; derived for the editor.
       enrichmentStatus: "ok",
@@ -323,9 +318,6 @@ export async function promoteCandidateEnrichmentVersion(
     .select({ nextVersionNo: sql<number>`coalesce(max(${factEnrichmentVersionsTable.versionNo}), 0) + 1` })
     .from(factEnrichmentVersionsTable)
     .where(eq(factEnrichmentVersionsTable.factId, fact.id));
-  const priorVisualOverride =
-    (fact.enrichment as { visualPromptStrategyOverride?: unknown } | null | undefined)
-      ?.visualPromptStrategyOverride ?? null;
   await tx.insert(factEnrichmentVersionsTable).values({
     factId: fact.id,
     versionNo: nextVersionNo,
@@ -333,7 +325,9 @@ export async function promoteCandidateEnrichmentVersion(
     enrichment: fact.enrichment,
     enrichmentAiDerived: fact.enrichmentAiDerived,
     enrichmentOverrides: (fact.enrichmentOverrides ?? {}) as EnrichmentOverrides,
-    visualOverride: priorVisualOverride,
+    // A fact's gags live in fact_gags (migration 0139); history rows from
+    // before it keep the override they archived.
+    visualOverride: null,
     factTextHash: hashFactText(fact.text),
     signature: fact.lastProcessedSignature,
     source: "prior_active_snapshot",
