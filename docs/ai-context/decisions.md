@@ -4680,7 +4680,8 @@
 - **Decision:** Moderation gains a third gate. Enrichment success lands a review
   at a new **`concept_review`** stage (Step 2), where the human accepts/edits/
   writes the **Visual Concept** and **"approves the visual gag"** — and **no test
-  renders run until then**. Approval advances `concept_review → production_review`
+  renders run until then** *(since 2026-11-15, each saved gag version draws one
+  male render here; see D2's note below)*. Approval advances `concept_review → production_review`
   (Step 3, "Test Renders"), which is the only stage renders fire in. Sub-decisions:
   - **D1** — gag approval requires a **saved, enabled, non-empty**
     `coreSceneOverride` on the cycle's effective enrichment (not just an AI
