@@ -177,6 +177,12 @@ export interface RenderScenarioCard {
   purpose: string;
   referenceIdentityType: ReferenceIdentityType | null;
   required: boolean;
+  /**
+   * A retired scenario's stored render (the no-photo one): history to look at,
+   * never to run again or approve as a gag's example. The server sets it on
+   * every card; optional so older card constructors still type-check.
+   */
+  retired?: boolean;
   status: RenderScenarioStatus;
   /** True when the latest attempt was generated before the current tuning/config. */
   stale: boolean;

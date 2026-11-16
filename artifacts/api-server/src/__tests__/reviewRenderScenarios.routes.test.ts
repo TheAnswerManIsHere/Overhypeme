@@ -209,6 +209,7 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
     const legacy = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
     assert.ok(legacy, "the stored no-photo render is still shown");
     assert.equal(legacy.required, false);
+    assert.equal(legacy.retired, true, "the card says it is history, so no screen offers to run or approve it");
     assert.equal(grid.body.tally.requested, 3, "and is not counted as owed work");
   });
 

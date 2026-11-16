@@ -249,6 +249,14 @@ describe("a comparison run end to end, with fakes", () => {
     assert.ok(panels.every((p) => typeof p.frozenFactText === "string" && p.frozenFactText.length > 0 && !p.frozenFactText.includes("{")), JSON.stringify(panels.map((p) => p.frozenFactText)));
     const edit = panels.find((p) => p.imageMode === "i2i")!;
     assert.match(String(edit.referenceImageUrl), /^https:\/\/fal\.test\/ref-\d+\.jpg$/);
+    // Each fixed photo names its own subject in everything the panel freezes:
+    // the wife's photo renders as Susan Franklin, she/her; David's as David.
+    for (const [scenario, name, pronouns] of [["i2i_female_default", "Susan Franklin", "she/her"], ["i2i_male_default", "David Franklin", "he/him"]] as const) {
+      const panel = panels.find((p) => p.scenarioKey === scenario)!;
+      assert.match(String(panel.frozenFactText), new RegExp(name), `${scenario}: the frozen fact text`);
+      const subject = (panel.compileArgs as { renderedSubject: { name: string; pronouns: string } }).renderedSubject;
+      assert.deepEqual(subject, { name, pronouns }, `${scenario}: the subject every cell compiles with`);
+    }
     assert.deepEqual(uploadedTypes.slice(-1), ["image/jpeg"]); // the resized reference
     for (const r of await reservations(prep.body.run.id)) {
       assert.equal(r.state, "settled");

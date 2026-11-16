@@ -305,6 +305,9 @@ async function preparePanelInFlight(panel: ComparisonPanel, p: PreparePayload): 
       subjectRenderMode: desc.subjectRenderMode,
       sourceImageAnalysis: desc.referenceIdentityType ? syntheticAnalysisForReference(desc.referenceIdentityType as ReferenceIdentityType) : undefined,
       referenceImageUrl: reference?.url ?? null,
+      // The fixed photo names the sample subject: the wife's renders as Susan
+      // Franklin, she/her, never as David.
+      referenceIdentityType: desc.referenceIdentityType,
       lookStyleId,
       renderControls: defaultScenarioRenderControls(),
     });

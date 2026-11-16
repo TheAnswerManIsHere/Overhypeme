@@ -592,6 +592,7 @@ async function buildCard(
     purpose: desc.purpose,
     referenceIdentityType: desc.referenceIdentityType,
     required: desc.required,
+    retired: desc.retired === true,
     status,
     stale,
     latestAttemptId,
