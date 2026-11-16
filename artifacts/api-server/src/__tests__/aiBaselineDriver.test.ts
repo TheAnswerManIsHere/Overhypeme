@@ -1,5 +1,5 @@
 /**
- * The AI baseline driver's render coverage (#654 round 3): the three review
+ * The AI baseline driver's render coverage (#654 round 3): the two review
  * renders the baseline exists to cover must each be present, required and
  * terminal before the journey accepts their outcome. The check is named in
  * the driver, independent of the cards' own `required` flags.
@@ -13,14 +13,14 @@ const card = (key: string, status = "done", required = true) => ({ key, status, 
 const all = () => BASELINE_RENDER_SCENARIOS.map((k) => card(k));
 
 describe("the AI baseline driver's render coverage", () => {
-  it("accepts the three expected scenarios once each is required and terminal", () => {
+  it("accepts the two expected scenarios (David's photo and his wife's) once each is required and terminal", () => {
     const cards = [...all(), card("non_human_animal", "done", false)];
     assert.deepEqual(renderCoverageProblems(cards), []);
     assert.deepEqual(settledBaselineRenders(cards)?.map((c) => c.key), [...BASELINE_RENDER_SCENARIOS]);
   });
 
   it("refuses an empty grid", () => {
-    assert.equal(renderCoverageProblems([]).length, 3);
+    assert.equal(renderCoverageProblems([]).length, 2);
     assert.equal(settledBaselineRenders([]), null);
   });
 
@@ -31,8 +31,8 @@ describe("the AI baseline driver's render coverage", () => {
   });
 
   it("refuses an expected scenario marked optional", () => {
-    const cards = all().map((c) => (c.key === "generic_t2i" ? { ...c, required: false } : c));
-    assert.deepEqual(renderCoverageProblems(cards), ["generic_t2i is not required"]);
+    const cards = all().map((c) => (c.key === "i2i_female_default" ? { ...c, required: false } : c));
+    assert.deepEqual(renderCoverageProblems(cards), ["i2i_female_default is not required"]);
     assert.equal(settledBaselineRenders(cards), null);
   });
 

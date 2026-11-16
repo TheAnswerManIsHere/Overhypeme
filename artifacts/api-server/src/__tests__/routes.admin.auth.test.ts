@@ -29,7 +29,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { usersTable, factsTable, factGagsTable, asyncJobsTable } from "@workspace/db/schema";
-import { and, eq, gte, inArray, like, ne } from "drizzle-orm";
+import { and, count, eq, gte, inArray, like, ne } from "drizzle-orm";
 import {
   buildPlaceholderFactEnrichment,
   buildPlaceholderGag,
@@ -41,7 +41,7 @@ import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { buildFactEnrichmentColumns } from "../lib/factEnrichment.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
-import { FACT_AI_MEME_BACKFILL_QUEUE, factAiMemeBackfillDedupeKey } from "../lib/aiMemeBackfillJobs.js";
+import { FACT_AI_MEME_BACKFILL_QUEUE } from "../lib/aiMemeBackfillJobs.js";
 
 const USER_PREFIX = "tadminauth-";
 const FACT_TEXT_PREFIX = "tadminauth-fact ";
@@ -383,39 +383,11 @@ describe("admin bulk backfill routes", () => {
     );
   });
 
-  it("backfill-ai-memes enqueues one durable job per active fact missing AI meme images", async () => {
-    const mkFact = async (label: string, over: Partial<typeof factsTable.$inferInsert> = {}) => {
-      const row = await insertLiveFact({
-        text: `${FACT_TEXT_PREFIX}${label} ${randomUUID()}`,
-        enrichment: buildPlaceholderFactEnrichment(),
-        ...over,
-      }, buildPlaceholderGag());
-      return row.id;
-    };
-    const firstId = await mkFact("first");
-    const secondId = await mkFact("second");
-    const hasImagesId = await mkFact("has-images", { aiMemeImages: { male: ["has.png"], female: [], neutral: [] } });
-
+  it("backfill-ai-memes is retired: it answers 410 and queues nothing", async () => {
+    const [before] = await db.select({ n: count() }).from(asyncJobsTable).where(eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE));
     const res = await request(adminApp).post("/api/admin/facts/backfill-ai-memes");
-    assert.equal(res.status, 202);
-    assert.equal(res.body.success, true);
-    const queuedFactIds = (res.body.jobs as Array<{ factId: number }>).map((j) => j.factId);
-    assert.ok(queuedFactIds.includes(firstId), "the first fact must be queued");
-    assert.ok(queuedFactIds.includes(secondId), "the second fact must be queued too");
-    assert.ok(!queuedFactIds.includes(hasImagesId), "a fact that already has AI meme images must not be queued");
-
-    const jobs = await db
-      .select({ dedupeKey: asyncJobsTable.dedupeKey, status: asyncJobsTable.status })
-      .from(asyncJobsTable)
-      .where(and(
-        eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE),
-        inArray(asyncJobsTable.dedupeKey, [firstId, secondId, hasImagesId].map(factAiMemeBackfillDedupeKey)),
-      ));
-    assert.deepEqual(
-      jobs.map((j) => j.dedupeKey).sort(),
-      [firstId, secondId].map(factAiMemeBackfillDedupeKey).sort(),
-      "exactly one durable job per missing fact, none for the fact with images",
-    );
-    assert.ok(jobs.every((j) => j.status === "pending"));
+    assert.equal(res.status, 410);
+    const [afterCount] = await db.select({ n: count() }).from(asyncJobsTable).where(eq(asyncJobsTable.queue, FACT_AI_MEME_BACKFILL_QUEUE));
+    assert.equal(afterCount!.n, before!.n);
   });
 });

@@ -42,8 +42,9 @@ export interface ReferenceAssetMeta {
 }
 
 /**
- * Canonical asset registry. MALE reuses the bundled Engine-workbench photo;
- * the rest are sourced into render-references/ (licensed/synthetic — see README).
+ * Canonical asset registry, one reference photo per identity type. The example
+ * subjects David chose are himself, his wife and his cat (compiler review,
+ * Issue #950); swapping a photo bumps its `DEFAULT_REFERENCE_ASSET_VERSION`.
  */
 const REFERENCE_ASSETS: Record<ReferenceIdentityType, Omit<ReferenceAssetMeta, "version">> = {
   male: {
@@ -57,21 +58,21 @@ const REFERENCE_ASSETS: Record<ReferenceIdentityType, Omit<ReferenceAssetMeta, "
     identityType: "female",
     filePath: path.join(REFERENCES_DIR, "female.jpg"),
     contentType: "image/jpeg",
-    license: "Pending: licensed/synthetic asset to be provided.",
+    license: "Provided; see render-references/README.md.",
     source: "src/assets/render-references/female.jpg",
   },
   nonhuman_animal: {
     identityType: "nonhuman_animal",
     filePath: path.join(REFERENCES_DIR, "nonhuman-animal.jpg"),
     contentType: "image/jpeg",
-    license: "Pending: licensed/synthetic asset to be provided.",
+    license: "Provided; see render-references/README.md.",
     source: "src/assets/render-references/nonhuman-animal.jpg",
   },
   nonhuman_object_vehicle: {
     identityType: "nonhuman_object_vehicle",
     filePath: path.join(REFERENCES_DIR, "nonhuman-object-vehicle.jpg"),
     contentType: "image/jpeg",
-    license: "Pending: licensed/synthetic asset to be provided.",
+    license: "Provided; see render-references/README.md.",
     source: "src/assets/render-references/nonhuman-object-vehicle.jpg",
   },
 };

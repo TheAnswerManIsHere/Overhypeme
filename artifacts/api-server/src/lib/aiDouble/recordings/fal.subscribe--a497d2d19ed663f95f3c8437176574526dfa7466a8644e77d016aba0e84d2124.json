@@ -1,18 +1,18 @@
 {
   "kind": "fal.subscribe",
   "request": {
-    "endpoint": "openai/gpt-image-2.6/sunburst/text-to-image",
+    "endpoint": "openai/gpt-image-2.6/sunburst/edit",
     "input": {
       "prompt": ""
     }
   },
-  "fingerprint": "64e3ec025fa291c35fcde129b6168d8b42baadef3496f25aefc7bcfb996ade3a",
-  "recordedAt": "2026-11-14T22:14:18.515Z",
+  "fingerprint": "a497d2d19ed663f95f3c8437176574526dfa7466a8644e77d016aba0e84d2124",
+  "recordedAt": "2026-11-15T21:58:46.833Z",
   "clients": {
     "@fal-ai/client": "1.9.5",
     "openai": "6.33.0"
   },
-  "target": "openai/gpt-image-2.6/sunburst/text-to-image",
+  "target": "openai/gpt-image-2.6/sunburst/edit",
   "error": {
     "name": "ValidationError",
     "message": "Unprocessable Entity",
@@ -29,6 +29,17 @@
           "input": "",
           "ctx": {
             "min_length": 1
+          }
+        },
+        {
+          "type": "missing",
+          "loc": [
+            "body",
+            "image_urls"
+          ],
+          "msg": "Field required",
+          "input": {
+            "prompt": ""
           }
         }
       ]

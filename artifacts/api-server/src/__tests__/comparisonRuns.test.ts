@@ -4,7 +4,7 @@
 // once and is recorded.
 // Seeds two engine families under a `t-cr-` prefix (GPT, token-billed; FLUX,
 // flat), registered as code definitions, one enriched fact, and a set
-// of two panels (generic_t2i and i2i_male_default, unstyled) — four cells.
+// of two panels (i2i_female_default and i2i_male_default, unstyled) — four cells.
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -132,10 +132,8 @@ function installFakes(): void {
   });
   __setPlanGeneratorForTest(async (input) => {
     plannerRetries.push(llmMaxRetriesInScope());
-    return makeStubPlan(
-      (input as { subjectRenderMode: string }).subjectRenderMode === "t2i_fallback" ? "t2i_fallback" : "human_identity_i2i",
-      "A protagonist lifts a mountain.",
-    ) as never;
+    void input;
+    return makeStubPlan("human_identity_i2i", "A protagonist lifts a mountain.") as never;
   });
   CELL_POLL.intervalMs = 0;
 }
@@ -145,7 +143,7 @@ beforeEach(() => { submissions = []; statusScript = []; failStore = false; failN
 async function newSet(label: string, imageSize?: "comparison" | "final"): Promise<number> {
   const { setId } = await createComparisonSet({
     label: `${P} ${label}`, round: 1, factIds: [factId],
-    scenarioKeys: ["generic_t2i", "i2i_male_default"], lookStyleIds: ["none"],
+    scenarioKeys: ["i2i_female_default", "i2i_male_default"], lookStyleIds: ["none"],
     engineFamilies: [FAMILIES.gpt, FAMILIES.flux],
     ...(imageSize ? { imageSize } : {}),
   }, adminId);
@@ -251,6 +249,14 @@ describe("a comparison run end to end, with fakes", () => {
     assert.ok(panels.every((p) => typeof p.frozenFactText === "string" && p.frozenFactText.length > 0 && !p.frozenFactText.includes("{")), JSON.stringify(panels.map((p) => p.frozenFactText)));
     const edit = panels.find((p) => p.imageMode === "i2i")!;
     assert.match(String(edit.referenceImageUrl), /^https:\/\/fal\.test\/ref-\d+\.jpg$/);
+    // Each fixed photo names its own subject in everything the panel freezes:
+    // the wife's photo renders as Susan Franklin, she/her; David's as David.
+    for (const [scenario, name, pronouns] of [["i2i_female_default", "Susan Franklin", "she/her"], ["i2i_male_default", "David Franklin", "he/him"]] as const) {
+      const panel = panels.find((p) => p.scenarioKey === scenario)!;
+      assert.match(String(panel.frozenFactText), new RegExp(name), `${scenario}: the frozen fact text`);
+      const subject = (panel.compileArgs as { renderedSubject: { name: string; pronouns: string } }).renderedSubject;
+      assert.deepEqual(subject, { name, pronouns }, `${scenario}: the subject every cell compiles with`);
+    }
     assert.deepEqual(uploadedTypes.slice(-1), ["image/jpeg"]); // the resized reference
     for (const r of await reservations(prep.body.run.id)) {
       assert.equal(r.state, "settled");
@@ -447,23 +453,23 @@ describe("a comparison run end to end, with fakes", () => {
     const setId = await newSet("refuse");
     await drain((await start(setId, "prepare")).body.run.id);
     const render = await start(setId, "render");
-    const fluxT2i = engineIds[2]!;
-    const fluxSource = ALL_ENGINES.find((e) => e.id === "flux-3")!;
+    const fluxEdit = engineIds[3]!;
+    const fluxSource = ALL_ENGINES.find((e) => e.id === "flux-3-edit")!;
     const fluxFamily = FAMILIES.flux;
     // Engines live only in code: re-register the test clone as inactive.
-    testEngineRow(fluxSource, fluxT2i, fluxFamily, { isActive: false });
+    testEngineRow(fluxSource, fluxEdit, fluxFamily, { isActive: false });
     try {
       const before = submissions.length;
       await drain(render.body.run.id);
       const rows = await reservations(render.body.run.id);
-      const released = rows.filter((r) => r.target === fluxT2i);
-      assert.equal(released.length, 1);
-      assert.equal(released[0]!.state, "released");
-      assert.equal(submissions.length, before + 3);
+      const released = rows.filter((r) => r.target === fluxEdit);
+      assert.equal(released.length, 2, "both photo panels' FLUX cells");
+      assert.ok(released.every((r) => r.state === "released"));
+      assert.equal(submissions.length, before + 2);
       const [cell] = await db.select().from(comparisonCellsTable).where(and(eq(comparisonCellsTable.id, released[0]!.cellId!)));
       assert.match(String(cell!.error), /not rendered: it is inactive/);
     } finally {
-      testEngineRow(fluxSource, fluxT2i, fluxFamily);
+      testEngineRow(fluxSource, fluxEdit, fluxFamily);
     }
   });
 });
@@ -520,25 +526,25 @@ describe("a prompt comparison", () => {
     }
   });
 
-  it("draws a no-photo and a pet panel with each version's wording for that kind of picture (PR #927)", async () => {
+  it("draws a person and a pet panel with each version's wording for that kind of picture (PR #927)", async () => {
     const { promptRecipeVersionsTable, promptRecipePromotionsTable } = await import("@workspace/db/schema");
     const [v] = await db.insert(promptRecipeVersionsTable).values({
       engineFamily: FAMILIES.gpt, number: 1, note: "other kinds of picture",
       pieces: {
-        "identity.none": "Text-to-image generation: invent a protagonist suited to the scene.",
+        "identity.person": "Image-to-image edit: the reference photo is the person, every feature kept recognisable.",
         "identity.object": "Image-to-image edit: the reference image is the subject, kept recognisable. Never swap it for a human.",
       },
     }).returning({ id: promptRecipeVersionsTable.id });
     try {
       const { setId, cells } = await createComparisonSet({
-        label: `${P} prompt-other`, round: 1, factIds: [factId], scenarioKeys: ["generic_t2i", "i2i_nonhuman_animal"], lookStyleIds: ["none"],
+        label: `${P} prompt-other`, round: 1, factIds: [factId], scenarioKeys: ["i2i_female_default", "i2i_nonhuman_animal"], lookStyleIds: ["none"],
         engineFamilies: [FAMILIES.gpt], kind: "prompt", recipeVersionIds: [null, v!.id],
       }, adminId);
       assert.equal(cells, 4, "two kinds of picture, two versions each");
       await drain((await start(setId, "prepare")).body.run.id);
       await drain((await start(setId, "render")).body.run.id);
       const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
-      for (const [scenario, mine] of [["generic_t2i", /invent a protagonist suited to the scene/], ["i2i_nonhuman_animal", /Never swap it for a human/]] as const) {
+      for (const [scenario, mine] of [["i2i_female_default", /every feature kept recognisable/], ["i2i_nonhuman_animal", /Never swap it for a human/]] as const) {
         const panel = panels.find((p) => p.scenarioKey === scenario)!;
         assert.ok(panel.compileArgs, `${scenario}: the scene is frozen`);
         const drawn = await db.select().from(comparisonCellsTable).where(eq(comparisonCellsTable.panelId, panel.id));

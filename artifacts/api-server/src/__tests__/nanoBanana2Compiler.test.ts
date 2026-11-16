@@ -23,7 +23,6 @@ import {
   compileForSubjectRenderMode,
   compileNanoBanana2NonhumanI2I,
   compileNanoBanana2HumanI2I,
-  compileNanoBanana2T2I,
 } from "../lib/imagePrompt/compilers/nanoBanana2.js";
 import type { ImagePromptGenerationInput, VisualPlan } from "@workspace/api-zod";
 import { PROMPT_TOTAL_BUDGET } from "@workspace/api-zod";
@@ -156,10 +155,9 @@ describe("nanoBanana2 — labeled visual contract", () => {
 
 describe("nanoBanana2 — initialisms survive sentence splitting", () => {
   it("keeps 'M.C. Hammer' intact in CORE SCENE (does not shatter on abbreviation periods)", () => {
-    const out = compileNanoBanana2T2I(makeArgs({
-      subjectRenderMode: "t2i_fallback",
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
       prompt: "M.C. Hammer dances on stage in his trademark pants.",
-      fallbackSubjectGender: "male",
     }));
     assert.match(out.imagePrompt, /M\.C\. Hammer/);
     // The old splitter dropped the leading "M." and left a bare "C. Hammer".
@@ -167,10 +165,9 @@ describe("nanoBanana2 — initialisms survive sentence splitting", () => {
   });
 
   it("preserves an initialism while still splitting real sentence boundaries", () => {
-    const out = compileNanoBanana2T2I(makeArgs({
-      subjectRenderMode: "t2i_fallback",
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
       prompt: "J.R.R. Tolkien writes at a cluttered desk. A pipe rests beside the manuscript.",
-      fallbackSubjectGender: "male",
     }));
     assert.match(out.imagePrompt, /J\.R\.R\. Tolkien/);
     // Both real sentences' content survives (dedup/fit still operate per-sentence).
@@ -336,19 +333,11 @@ describe("nanoBanana2 — preamble + identity guards", () => {
     assert.equal(countOccurrences(out.imagePrompt, "do not replace the subject with a human"), 1, out.imagePrompt);
   });
 
-  it("t2i: bakes in fallback gender once, no i2i identity language, no reference url", () => {
-    const out = compileNanoBanana2T2I(makeArgs({
-      subjectRenderMode: "t2i_fallback",
-      prompt: "A protagonist lifts a mountain.",
-      fallbackSubjectGender: "female",
-    }));
-    // t2i leads with the scene; the render-task clause is brief and has no
-    // reference-photo/identity language.
-    assert.match(out.imagePrompt.toLowerCase(), /text-to-image generation: render an original protagonist/);
-    assert.match(out.imagePrompt, /RENDER TASK:/);
-    assert.match(out.imagePrompt.toLowerCase(), /female/);
-    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /reference image/);
-    assert.equal(out.referenceImageUrl, undefined);
+  it("refuses a no-photo render: every picture starts from a photo", () => {
+    assert.throws(
+      () => compileForSubjectRenderMode(makeArgs({ subjectRenderMode: "t2i_fallback", prompt: "A protagonist lifts a mountain." })),
+      /every picture starts from a photo/,
+    );
   });
 
   it("dispatches by subjectRenderMode", () => {
@@ -665,19 +654,15 @@ describe("nanoBanana2 — always-on incidental-text guard (yields to intentional
 });
 
 describe("nanoBanana2 — age-transform SUBJECT BINDING across all render modes", () => {
-  it("t2i: single-entity life-stage wording, no reference-photo vocabulary", () => {
-    const out = compileNanoBanana2T2I(makeArgs({
-      subjectRenderMode: "t2i_fallback",
-      prompt: "A baby wins a Nobel Prize.",
-      renderedSubject: { name: "David", pronouns: "he/him" },
-      fallbackSubjectGender: "male",
+  it("non-human i2i: single-entity life-stage wording for the uploaded subject", () => {
+    const out = compileNanoBanana2NonhumanI2I(makeArgs({
+      subjectRenderMode: "nonhuman_subject_i2i",
+      prompt: "A kitten wins a Nobel Prize.",
       modifiers: ["baby_child_version"],
-      visualPlan: { subjectTreatment: { ...makeVisualPlan().subjectTreatment, subjectRenderMode: "t2i_fallback" } },
+      visualPlan: { subjectTreatment: { ...makeVisualPlan().subjectTreatment, subjectRenderMode: "nonhuman_subject_i2i" } },
     }));
     assert.match(out.imagePrompt, /SUBJECT BINDING:/);
-    assert.match(out.imagePrompt.toLowerCase(), /david is a baby\/young child in this scene — the same subject rendered at that life stage, not a different individual/);
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /the reference person is/);
-    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /reference photo|reference image/);
   });
 });
 
@@ -1548,17 +1533,14 @@ describe("nanoBanana2 — moderator-authored core scene (visual concept)", () =>
 // ── PR1: Visual Concept leads; cut the crutches (compiler redesign) ──────────
 
 describe("nanoBanana2 — CORE SCENE leads + mode-aware identity", () => {
-  it("CORE SCENE is the first emitted section in all three render modes", () => {
+  it("CORE SCENE is the first emitted section in both render modes", () => {
     const human = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i", prompt: "David lifts a car.",
     }));
     const nonhuman = compileNanoBanana2NonhumanI2I(makeArgs({
       subjectRenderMode: "nonhuman_subject_i2i", prompt: "An orange cat lifts a car.",
     }));
-    const t2i = compileNanoBanana2T2I(makeArgs({
-      subjectRenderMode: "t2i_fallback", prompt: "A protagonist lifts a car.", fallbackSubjectGender: "male",
-    }));
-    for (const out of [human, nonhuman, t2i]) {
+    for (const out of [human, nonhuman]) {
       assert.match(out.imagePrompt, /^CORE SCENE:/, out.imagePrompt.slice(0, 60));
       assert.equal(out.promptBreakdown?.[0]?.id, "core_scene");
     }
@@ -1925,16 +1907,15 @@ describe("nanoBanana2 — speech & thought bubbles", () => {
     assert.ok(warnings.some((w) => w.code === "bubble_language_in_moderator_scene"));
   });
 
-  it("works in all three render modes", () => {
+  it("works in both render modes", () => {
     for (const [mode, compilerFn] of [
       ["human_identity_i2i", compileNanoBanana2HumanI2I],
       ["nonhuman_subject_i2i", compileNanoBanana2NonhumanI2I],
-      ["t2i_fallback", compileNanoBanana2T2I],
     ] as const) {
       const out = compilerFn(makeArgs({
         subjectRenderMode: mode,
         prompt: "scene",
-        referenceImageUrl: mode === "t2i_fallback" ? null : "https://example.com/ref.png",
+        referenceImageUrl: "https://example.com/ref.png",
         renderedSubject: { name: "David", pronouns: "he/him" },
         override: bubbleOverride([speech("Same in every mode.")]),
       }));

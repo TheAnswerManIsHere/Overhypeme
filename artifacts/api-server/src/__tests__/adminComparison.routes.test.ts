@@ -65,7 +65,7 @@ const body = (over: Record<string, unknown> = {}) => ({
   label: `${P} set`,
   round: 1,
   factIds: [factId],
-  scenarioKeys: ["generic_t2i", "i2i_male_default"],
+  scenarioKeys: ["i2i_nonhuman_animal", "i2i_male_default"],
   lookStyleIds: ["none", STYLE],
   engineFamilies: FAMILIES,
   ...over,
@@ -93,7 +93,7 @@ describe("admin comparison routes", () => {
     assert.equal(detail.body.aggregate.cells.expected, 8);
     const modes = detail.body.panels.map((p: { scenarioKey: string; imageMode: string; cells: Array<{ engineId: string }> }) => [p.scenarioKey, p.imageMode, p.cells.map((c) => c.engineId).sort()]);
     for (const [scenario, mode, cells] of modes) {
-      assert.equal(mode, scenario === "generic_t2i" ? "t2i" : "i2i");
+      assert.equal(mode, "i2i", `${scenario}: every picture starts from a photo`);
       assert.deepEqual(cells, FAMILIES.map((f) => `${f}-${mode}`).sort());
     }
     assert.ok(Math.abs(detail.body.estimate.preparationBoundUsd - 4 * panelPreparationBoundUsd({ model: "gpt-5.5", maxTokens: 2800, temperature: 0.4 })) < 1e-3);
@@ -146,7 +146,10 @@ describe("admin comparison routes", () => {
 
     const badFamily = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} bad`, engineFamilies: [`${P}-nope`] }));
     assert.equal(badFamily.status, 400);
-    assert.ok(badFamily.body.reasons.some((r: string) => /has 0 t2i engines/.test(r)));
+    assert.ok(badFamily.body.reasons.some((r: string) => /has 0 i2i engines/.test(r)));
+
+    const noPhoto = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} bad`, scenarioKeys: ["generic_t2i"] }));
+    assert.equal(noPhoto.status, 400);
 
     const badFact = await request(app).post("/api/admin/comparison/sets").send(body({ label: `${P} bad`, factIds: [2_000_000_000] }));
     assert.equal(badFact.status, 400);

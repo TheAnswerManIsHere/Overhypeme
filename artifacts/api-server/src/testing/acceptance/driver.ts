@@ -204,8 +204,8 @@ export interface DriveResult {
 
 export interface DriveOptions {
   /**
-   * Run with `AI_DOUBLE_FAIL=fal.subscribe:openai/gpt-image-2.6/sunburst/text-to-image`: journey 3's
-   * text-to-image render must end failed — the recorded vendor error carried
+   * Run with `AI_DOUBLE_FAIL=fal.subscribe:openai/gpt-image-2.6/sunburst/edit`: journey 3's
+   * required photo renders must end failed — the recorded vendor error carried
    * through the real render job — and the run stops there. A control, never
    * an acceptance pass.
    */
@@ -368,9 +368,10 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
     if (coverage.length > 0) throw new JourneyError("3", "the baseline's review renders", coverage.join(", "));
     const required = settledBaselineRenders(renders.cards as any[])!;
     if (options.expectRenderFailure) {
-      const t2i = required.find((c) => c.key === "generic_t2i");
+      // Both required renders draw on the one photo-edit endpoint the control fails.
+      const target = required.find((c) => c.key === "i2i_male_default");
       ev.controlRenders = required.map((c) => ({ key: c.key, status: c.status, message: c.message ?? undefined }));
-      throw new RenderFailureControl(t2i?.status === "failed", t2i);
+      throw new RenderFailureControl(required.every((c) => c.status === "failed"), target);
     }
     const notDone = required.filter((c) => c.status !== "done" || c.stale);
     if (notDone.length > 0) {
@@ -514,15 +515,15 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
 
 /** Thrown inside journey 3 under `expectRenderFailure`, to stop the run at the control's one observation. */
 class RenderFailureControl extends Error {
-  constructor(ok: boolean, t2i: { status?: string; message?: string } | undefined) {
-    super(ok ? `control: the recorded vendor error left generic_t2i failed (${t2i?.message ?? "no message"})` : `control: generic_t2i is ${t2i?.status}, expected failed`);
+  constructor(ok: boolean, target: { status?: string; message?: string } | undefined) {
+    super(ok ? `control: the recorded vendor error left the required renders failed (${target?.message ?? "no message"})` : `control: i2i_male_default is ${target?.status}, expected every required render failed`);
   }
 }
 
 function controlFrom(outcomes: Map<JourneyKey, JourneyOutcome>): DriveResult["control"] | undefined {
   const three = outcomes.get("3");
   if (!three?.error?.startsWith("control:")) return undefined;
-  const ok = three.error.startsWith("control: the recorded vendor error left generic_t2i failed");
+  const ok = three.error.startsWith("control: the recorded vendor error left the required renders failed");
   // A control never counts as a journey outcome.
   outcomes.set("3", { journey: "3", status: "not-run", evidence: {}, error: "the render-failure control stops the run here" });
   return { ok, renders: (three.evidence.controlRenders as NonNullable<DriveResult["control"]>["renders"]) ?? [], detail: three.error };
