@@ -87,7 +87,7 @@ already applied — not specifically a *second* push. A database built by
 very first `push` afterward; the mechanism only needs `migrate` then
 `push`, in that order, once. Not only across sandbox sessions, and not only
 in this repo's specific CI shape.
-2. **`pending_reviews.parent_fact_id`'s index.** Migration `0091` creates
+2. **`pending_reviews.parent_fact_id`'s index** (column and index since dropped by migration 0142). Migration `0091` creates
    `idx_pending_reviews_parent_fact` via `CREATE INDEX`, but `schema.ts`'s
    `pgTable` never declared a matching `index(...)` entry — caught by Codex
    review, not by any automated check. A `push`-built DB (any environment, not

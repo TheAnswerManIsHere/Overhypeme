@@ -25,8 +25,6 @@ export const factsTable = pgTable("facts", {
   submittedById: varchar("submitted_by_id").references(() => usersTable.id),
   /** When the submitter's account was purged and `submitted_by_id` nulled (launch Phase 5, 0117): "a former member", not "no submitter". */
   submitterDeletedAt: timestamp("submitter_deleted_at", { withTimezone: true }),
-  parentId: integer("parent_id"),
-  useCase: varchar("use_case", { length: 50 }),
   upvotes: integer("upvotes").notNull().default(0),
   downvotes: integer("downvotes").notNull().default(0),
   score: integer("score").notNull().default(0),
@@ -173,7 +171,6 @@ export const factsTable = pgTable("facts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   index("facts_wilson_score_idx").on(table.wilsonScore.desc()),
-  index("facts_parent_id_idx").on(table.parentId),
   index("facts_primary_archetype_idx").on(table.primaryArchetype),
   index("facts_adult_suitability_idx").on(table.adultSuitability),
   check("facts_audience_check", sql`${table.audience} IN ('general','adult')`),

@@ -40,15 +40,14 @@ type DbLike = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 /**
  * THE single ingestion primitive (Phase 2 fact-lifecycle closure): create a
  * Stage-1 (`triage_pending`) review. Every way a fact enters the system —
- * manual user submission, bulk import, variant creation, and any future
+ * manual user submission, bulk import, and any future
  * ingestion path (e.g. an API) — funnels through here, so a fact can never be
  * born active/enriched: it always starts at the front of the moderation pipeline
  * (triage → enrich → activate).
  *
  * Deliberately carries EVERY column the manual-submit path writes today —
  * `matchingFactId` / `matchingSimilarity` / `reason` (duplicate/near-match
- * context) and `parentFactId` (variant parent) — so refactoring manual submit
- * onto it is byte-identical. `enrichment` / `canonicalText` / hashtag-upsert /
+ * context) — so refactoring manual submit onto it is byte-identical. `enrichment` / `canonicalText` / hashtag-upsert /
  * embeddings are intentionally NOT derived here: they belong to later pipeline
  * stages (the cost gate), exactly as manual submit already defers them.
  *
@@ -63,7 +62,6 @@ export async function createTriageReview(
     submittedText: string;
     submittedById: string | null;
     hashtags: string[];
-    parentFactId?: number | null;
     matchingFactId?: number | null;
     matchingSimilarity?: number;
     reason?: (typeof pendingReviewsTable.$inferInsert)["reason"];
@@ -77,7 +75,6 @@ export async function createTriageReview(
       matchingFactId: input.matchingFactId ?? null,
       matchingSimilarity: input.matchingSimilarity ?? 0,
       hashtags: input.hashtags,
-      parentFactId: input.parentFactId ?? null,
       status: "pending",
       workflowStage: "triage_pending",
       reason: input.reason ?? null,
@@ -101,12 +98,10 @@ export interface StagingReviewRow {
  * Create the inactive staging fact for a review (idempotent): if the review
  * already points at a staging fact, that fact is returned untouched. The fact is
  * inserted with NO enrichment columns — enrichment runs asynchronously against
- * this factId and materializes them. `parentFactId` makes the staging fact a
- * variant; it inherits its own (independent) enrichment + images all the same.
+ * this factId and materializes them.
  */
 export async function ensureStagingFact(
   review: StagingReviewRow,
-  parentFactId: number | null,
   tx: DbLike = db,
 ): Promise<{ factId: number; created: boolean }> {
   if (review.stagingFactId != null) {
@@ -121,7 +116,6 @@ export async function ensureStagingFact(
       hasPronouns: PRONOUN_TOKEN_RE.test(review.submittedText),
       canonicalText: renderCanonical(review.submittedText),
       isActive: false,
-      parentId: parentFactId ?? undefined,
       splitTokenIndex: computeSplitTokenIndex(review.submittedText),
     })
     .returning({ id: factsTable.id });

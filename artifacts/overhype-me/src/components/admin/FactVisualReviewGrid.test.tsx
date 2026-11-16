@@ -36,10 +36,10 @@ function terminalGrid(stale: boolean): RenderScenarioGrid {
     gagId: 11,
     cards: [
       {
-        key: "generic_t2i",
-        label: "Generic (t2i)",
+        key: "i2i_male_default",
+        label: "Male subject (image-to-image)",
         purpose: "p",
-        referenceIdentityType: null,
+        referenceIdentityType: "male",
         required: true,
         status: "done",
         stale,

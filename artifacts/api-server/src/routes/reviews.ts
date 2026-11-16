@@ -34,6 +34,8 @@ import {
   SUBMISSION_TEXT_MAX_CHARS,
   SUBMISSION_TEXT_MIN_CHARS,
   RENDER_SCENARIO_KEYS,
+  RENDER_SCENARIO_DESCRIPTORS,
+  REFERENCE_IDENTITY_TYPES,
   renderScenarioKeySchema,
   visualRenderWaiverRequestSchema,
   type ProblematicScenarioStatus,
@@ -61,7 +63,6 @@ import { materializeEnrichment } from "../lib/factEnrichment";
 import {
   activateFact,
   ConceptMissingError,
-  ParentNotActiveError,
   ActivationConflictError,
   hasApprovedGag,
 } from "../lib/factActivation";
@@ -89,7 +90,9 @@ import {
   getScenarioAttemptDiagnostics,
   reviewRenderStates,
   enqueueForceReviewRenderPrepare,
+  syntheticAnalysisForReference,
 } from "../lib/reviewRenderScenarios";
+import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../lib/defaultReferenceResolver";
 import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
@@ -232,7 +235,7 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     userId: req.user.id,
     actionType: "review_submitted",
     message: isDuplicateFlagged
-      ? `You submitted a fact for admin review — flagged as a possible variant at ${matchingSimilarity}% similarity.`
+      ? `You submitted a fact for admin review — flagged as a possible duplicate at ${matchingSimilarity}% similarity.`
       : `You submitted a fact for admin review. You'll be notified when it's approved or declined.`,
     metadata: { reviewId: review.id, matchingFactId, text: text.slice(0, 120) },
   });
@@ -421,11 +424,6 @@ const ReviewDecisionBody = z.object({
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
   rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]).optional(),
-});
-const ApproveVariantBody = z.object({
-  parentFactId: z.number().int().positive(),
-  adminNote: z.string().max(500).optional(),
-  hashtags: z.array(z.string()).max(50).optional(),
 });
 
 /**
@@ -646,9 +644,9 @@ async function approveRefreshCandidateForProduction(
 async function approveForProduction(
   req: AuthenticatedRequest,
   res: Response,
-  opts: { reviewId: number; adminNote: string | null; parentFactIdOverride?: number; hashtags?: string[] },
+  opts: { reviewId: number; adminNote: string | null; hashtags?: string[] },
 ): Promise<void> {
-  const { reviewId, adminNote, parentFactIdOverride } = opts;
+  const { reviewId, adminNote } = opts;
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
@@ -669,17 +667,6 @@ async function approveForProduction(
 
   const [stagingFact] = await db.select().from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
   if (!stagingFact) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
-
-  // Variant-at-approval (optional): set/confirm the parent when an override is given.
-  let parentId = stagingFact.parentId;
-  if (parentFactIdOverride != null && parentFactIdOverride !== parentId) {
-    const [parentFact] = await db.select({ id: factsTable.id })
-      .from(factsTable)
-      .where(and(eq(factsTable.id, parentFactIdOverride), eq(factsTable.isActive, true)))
-      .limit(1);
-    if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactIdOverride} not found or inactive` }); return; }
-    parentId = parentFactIdOverride;
-  }
 
   // Legacy clients (pre-override-model bundles) sent their flattened enrichment
   // blob on every approve. It is IGNORED — accepting it would re-baseline the
@@ -763,15 +750,15 @@ async function approveForProduction(
   let reviewStateConflict = false;
   try {
     await db.transaction(async (tx) => {
-      // Sole activation chokepoint: re-reads the concept + revalidates the parent
-      // (active root) in-tx and does the compare-and-set flip. `expectedEnrichment`
+      // Sole activation chokepoint: re-reads the approved gag in-tx and does the
+      // compare-and-set flip. `expectedEnrichment`
       // CASes on the RAW staging-fact enrichment the render gate validated above
       // (not the Zod-normalized `enrichment` variable), so a concurrent Visual
       // Concept edit between the render gate and this activation is caught rather
       // than silently publishing unreviewed enrichment. Throws
-      // ConceptMissingError / ParentNotActiveError / ActivationConflictError —
+      // ConceptMissingError / ActivationConflictError —
       // never activates on failure.
-      await activateFact(tx, { factId: stagingFact.id, parentId, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
+      await activateFact(tx, { factId: stagingFact.id, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
 
       const reviewed = await tx.update(pendingReviewsTable).set({
         status: "approved",
@@ -809,11 +796,6 @@ async function approveForProduction(
       res.status(409).json({ error: "Save a non-empty Visual Concept before approving for production.", code: "CONCEPT_MISSING" });
       return;
     }
-    if (err instanceof ParentNotActiveError) {
-      logger.warn({ reviewId, factId: stagingFact.id, parentId: err.parentId }, "[moderation] approval aborted: parent no longer an active root");
-      res.status(409).json({ error: `Fact #${err.parentId} is no longer an active root, so this variant can't be activated under it. Re-parent it or promote it to a root, then approve again.`, code: "PARENT_NOT_ACTIVE" });
-      return;
-    }
     if (reviewStateConflict) {
       logger.warn({ reviewId, factId: stagingFact.id }, "[moderation] approval aborted: review state changed during approval");
       res.status(409).json({ error: "This review's state changed while you were approving it. Reload the review and retry.", code: "REVIEW_STATE_CHANGED_DURING_APPROVAL" });
@@ -832,10 +814,8 @@ async function approveForProduction(
     await logActivity({
       userId: review.submittedById,
       actionType: "review_approved",
-      message: parentId != null
-        ? `Your submitted fact was approved as a variant of fact #${parentId} and added to the database!`
-        : `Your submitted fact was approved by an admin and added to the database!`,
-      metadata: { reviewId, factId: stagingFact.id, parentFactId: parentId, adminNote },
+      message: `Your submitted fact was approved by an admin and added to the database!`,
+      metadata: { reviewId, factId: stagingFact.id, adminNote },
     });
 
     if (submitter?.email) {
@@ -849,7 +829,7 @@ async function approveForProduction(
     }
   }
 
-  res.json({ success: true, factId: stagingFact.id, hashtags: finalTags, ...(parentId != null ? { parentFactId: parentId } : {}) });
+  res.json({ success: true, factId: stagingFact.id, hashtags: finalTags });
 }
 
 router.post("/admin/reviews/:id/approve-for-production", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -873,25 +853,13 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
   await approveForProduction(req, res, { reviewId: id, adminNote, hashtags });
 });
 
-// Back-compat: variant approval. The variant link is normally chosen at
-// provisional approval; a parentFactId here re-confirms / sets it at activation.
-router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const bodyParsed = ApproveVariantBody.safeParse(req.body);
-  if (!bodyParsed.success) { res.status(400).json({ error: "parentFactId is required" }); return; }
-  await approveForProduction(req, res, { reviewId: id, adminNote: bodyParsed.data.adminNote ?? null, parentFactIdOverride: bodyParsed.data.parentFactId, hashtags: bodyParsed.data.hashtags });
-});
-
 // ─── Provisional approval (admin) — first gate ────────────────────────────────
 //
 // "This fact is worth implementing." Creates the inactive staging fact and
 // starts paid prep (enrichment). This
-// is the ONLY place enrichment spend begins. Optional `parentFactId` accepts the
-// candidate as a variant — the variant still gets its OWN enrichment.
+// is the ONLY place enrichment spend begins.
 
 const ProvisionalApproveBody = z.object({
-  parentFactId: z.number().int().positive().optional(),
   adminNote: z.string().max(500).optional(),
 });
 
@@ -912,12 +880,6 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-
-  // Variant parent: an explicit body override wins; otherwise default to the
-  // parent the review has carried since ingestion (createTriageReview). This is
-  // how a variant submission threads its parent from Stage 1 into the staging
-  // fact (and on to activation, where activateFact revalidates it as an active root).
-  const parentFactId = bodyParsed.data.parentFactId ?? review.parentFactId ?? undefined;
 
   // Idempotent re-click while prep is already running: DON'T just return
   // "alreadyPrepping" — ENSURE the durable jobs still exist (heals a stranded
@@ -950,15 +912,6 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
     }
   }
 
-  // Verify the parent fact (variant case) exists and is active.
-  if (parentFactId != null) {
-    const [parentFact] = await db.select({ id: factsTable.id })
-      .from(factsTable)
-      .where(and(eq(factsTable.id, parentFactId), eq(factsTable.isActive, true)))
-      .limit(1);
-    if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactId} not found or inactive` }); return; }
-  }
-
   // Create-or-reuse the staging fact and move the review into prep, in one
   // transaction (the shared first-time-staging-prep primitive). If the post-commit ensure
   // fails, the staging fact + prep_pending state remain, so a later re-click
@@ -979,7 +932,6 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
       }
       const { factId } = await prepareFirstTimeStagingPrep(tx, {
         review: { id: review.id, submittedText: locked.submittedText, submittedById: review.submittedById, submitterDeletedAt: review.submitterDeletedAt, stagingFactId: locked.stagingFactId },
-        parentFactId: parentFactId ?? null,
         reviewedById: req.user.id,
         adminNote,
       });
@@ -997,7 +949,7 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
   // concept_review).
   const prepDispatch = await ensureFirstTimeStagingPrepJobs(stagingFactId);
 
-  logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
+  logger.info({ reviewId: id, stagingFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
 
   res.json({ success: true, stagingFactId, workflowStage: "prep_pending", prepDispatch });
 });
@@ -1552,23 +1504,23 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, (_req: Aut
 //   POST /admin/reviews/:id/render               render the AI background (t2i)
 //   GET  /admin/reviews/:id/renders/:renderJobId admin-gated poll for that render
 //
-// Renders go through the SAME Nano-Banana-2 attempt pipeline production uses, but
+// Renders go through the SAME attempt pipeline production uses, but
 // are EPHEMERAL: the attempt row is kept for audit while the image is NOT mirrored
 // into the fact's shared production set (renderControls.mirrorToLegacyStorage:false).
 
-const T2I_MODE = "t2i_fallback" as const;
 const RenderReviewBody = z.object({
-  subjectRenderMode: z.enum(["human_identity_i2i", "nonhuman_subject_i2i", "t2i_fallback"]).optional(),
-  userSelectedSubjectRenderMode: z
-    .enum(["human_identity_i2i", "nonhuman_subject_i2i", "t2i_fallback"])
-    .nullish(),
+  /**
+   * The fixed reference photo to render from (compiler review, Phase 2: every
+   * picture starts from a photo). David's by default; his wife's, the pet's or
+   * the object's on request.
+   */
+  referenceIdentityType: z.enum(REFERENCE_IDENTITY_TYPES).optional(),
   lookStyleId: z.string().max(200).nullish(),
   renderControls: z
     .object({
       aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
       contentMode: z.enum(["sfw", "suggestive", "spicy"]).optional(),
       negativeSpacePreference: z.enum(["top", "bottom", "left", "right", "auto", "none"]).optional(),
-      fallbackSubjectGender: z.enum(["male", "female", "neutral"]).optional(),
     })
     .strict()
     .optional(),
@@ -1577,9 +1529,11 @@ const RenderReviewBody = z.object({
   previewPronouns: z.string().max(40).optional(),
 });
 
-// POST /admin/reviews/:id/render — kick a t2i AI-background render for the staging
-// fact using the SAME assembly the prompt preview uses, then return a renderJobId
-// the admin poll route tracks. Ephemeral: nothing mirrors onto the fact.
+// POST /admin/reviews/:id/render — a moderation test render of the staging
+// fact from one fixed reference photo, with an optional look, using the SAME
+// assembly the prompt preview uses; returns a renderJobId the admin poll route
+// tracks. Ephemeral: nothing mirrors onto the fact. The engine follows the
+// look (no look: GPT Image 2.6; a look: Nano Banana 2.1).
 router.post("/admin/reviews/:id/render", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -1590,16 +1544,7 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     return;
   }
   const body = parsed.data;
-
-  // t2i-only: review facts have no source image, so i2i would fail downstream
-  // with i2i_missing_reference_url. Reject BEFORE enqueueing any paid work.
-  if (body.subjectRenderMode && body.subjectRenderMode !== T2I_MODE) {
-    res.status(400).json({
-      error: "i2i_unavailable_in_moderation",
-      message: "Moderation renders are text-to-image only — review facts have no source image.",
-    });
-    return;
-  }
+  const referenceIdentityType = body.referenceIdentityType ?? "male";
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
@@ -1621,19 +1566,31 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
   const ev = validateEnrichment(cycle.rawEnrichment);
   if (!ev.ok) { res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error }); return; }
 
-  // Shared deterministic assembly — identical to the prompt-preview factId path,
-  // forced to t2i with a fallback gender so the generator can build a protagonist.
+  let reference;
+  try {
+    reference = await resolveDefaultReferenceUrl(referenceIdentityType);
+  } catch (err) {
+    if (err instanceof ReferenceAssetUnavailableError) {
+      res.status(409).json({ error: "reference_asset_unavailable", message: err.detail });
+      return;
+    }
+    throw err;
+  }
+
+  // Shared deterministic assembly — identical to the prompt-preview factId path.
+  const analysis = syntheticAnalysisForReference(referenceIdentityType);
   let resolved;
   try {
     resolved = await resolveRenderReviewInput(cycle.text, ev.data, {
-      subjectRenderMode: T2I_MODE,
-      userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? body.subjectRenderMode ?? null,
+      subjectRenderMode: analysis.suggestedRenderMode,
+      sourceImageAnalysis: analysis,
+      referenceImageUrl: reference.url,
+      referenceIdentityType,
       lookStyleId: body.lookStyleId ?? null,
       renderControls: {
         aspectRatio: body.renderControls?.aspectRatio,
         contentMode: body.renderControls?.contentMode,
         negativeSpacePreference: body.renderControls?.negativeSpacePreference,
-        fallbackSubjectGender: body.renderControls?.fallbackSubjectGender ?? "neutral",
       },
       identityPolicyOverrides: body.identityPolicyOverrides,
       previewName: body.previewName,
@@ -1672,7 +1629,7 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
   });
 
   logger.info(
-    { reviewId: id, stagingFactId: review.stagingFactId, adminId: req.user.id, attemptId, renderJobId },
+    { reviewId: id, stagingFactId: review.stagingFactId, adminId: req.user.id, attemptId, renderJobId, referenceIdentityType },
     "[moderation] review render enqueued",
   );
   res.status(202).json({ renderJobId, attemptId });
@@ -1756,7 +1713,9 @@ router.get("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: Requ
 });
 
 const RunScenariosBody = z.object({
-  scenarios: z.array(renderScenarioKeySchema).min(1).max(RENDER_SCENARIO_KEYS.length),
+  scenarios: z.array(renderScenarioKeySchema.refine((k) => !RENDER_SCENARIO_DESCRIPTORS[k].retired, {
+    message: "this scenario is retired: every picture starts from a photo",
+  })).min(1).max(RENDER_SCENARIO_KEYS.length),
   force: z.boolean().optional(),
 });
 

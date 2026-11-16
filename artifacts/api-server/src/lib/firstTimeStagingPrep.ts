@@ -54,12 +54,11 @@ export async function prepareFirstTimeStagingPrep(
   tx: DbLike,
   args: {
     review: StagingReviewRow;
-    parentFactId: number | null;
     reviewedById?: string | null;
     adminNote?: string | null;
   },
 ): Promise<{ factId: number }> {
-  const { factId } = await ensureStagingFact(args.review, args.parentFactId, tx);
+  const { factId } = await ensureStagingFact(args.review, tx);
   await tx.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
   await tx
     .update(pendingReviewsTable)

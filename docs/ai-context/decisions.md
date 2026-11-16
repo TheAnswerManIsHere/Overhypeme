@@ -13,6 +13,13 @@
 
 ---
 
+### 2026-11-15 · Variants are retired: every fact stands alone, and the existing ones are deleted
+- **Decision:** a fact is never linked to another. The parent link (`facts.parent_id`), the use-case label (`facts.use_case`) and the review's parent field (`pending_reviews.parent_fact_id`) are dropped, with every route, screen and guard that read or wrote them: triage's "Prep as Variant of #N", the fact page's Alternate Phrasings section and "Variant of" banner, and the Facts editor's Parent ID, use-case and add/delete-variant controls. A near-duplicate at triage is rejected as a duplicate or accepted as its own fact. Every existing variant fact is permanently deleted with what it owns (memes, comments, gags, votes and hearts, the reviews that staged or approved it, and the activity entries recording it); a submission that only matched one, or that carried a parent and never became a fact, is kept (migration 0142). Living documentation describes no variant concept; historical records (approved plans, review transcripts, past UAT and test-run records, applied migrations) stay as written.
+- **Why:** David, 2026-11-15, asking whether variants earn their keep: *"I don't want to keep variants that require modification to the taxonomy or visual pipeline … the more I think about it the more I feel like it's just added complexity and a source of confusion rather than a real benefit."* Since 2026-07-24 a variant inherited nothing, so each alternate wording of one joke cost its own moderation pass, paid prep and gags for the same picture, split votes, and showed only as Alternate Phrasings on one page. Q1, option 1: *"Let's just retire the entire concept. There's no production data we need to worry about. Delete all existing variants and remove all mention from documentation."* Q2, option 1: living documents only.
+- **Supersedes:** [Variants are independent facts](#2026-07-24--variants-are-independent-facts--parent_id-is-kinship--showhide-only-never-metadata-inheritance) (2026-07-24), and the parent clauses of [Fact lifecycle closed](#2026-07-23--fact-lifecycle-closed-one-entrance-one-exit--activation-is-moderation-only-and-deactivation-is-reversible-through-moderation-not-a-direct-toggle) (activation's active-root check, the reparent guard, cascade deactivation).
+- **Reference:** plan `docs/plans/PLAN_RETIRE_VARIANTS.md`; Issue #962; ledger `docs/retired/README.md`.
+- **Revisit if:** users ask after launch for a choice of wording. The recorded shape is alternate caption strings on one fact, sharing its gags, visual plan and votes — never a second fact linked to the first.
+
 ### 2026-11-15 · A fact's wording locks at triage; Withdraw ends a submission whose wording needs replacing
 - **Decision:** a fact's wording is edited only at triage, before the submission is accepted; acceptance locks it first, and from then on nothing changes it. The database refuses any change to `facts.text` (trigger `facts_text_is_locked`, migration 0141). The confirmation-gated edit of a live fact's text and the staging-fact text edit that re-ran prep are removed; `PATCH /admin/facts/:id` refuses a changed wording (`WORDING_LOCKED`), and past text-edit history stays readable. A live fact with a wrong wording is deactivated and the corrected wording submitted as a new fact. A first-time submission past triage gets one new ending, **Withdraw: wording needs replacing**, from acceptance until production approval: the review is terminal, its staging fact stays inactive for good (CHECK `facts_withdrawn_stays_inactive`) and cannot be resubmitted.
 - **Why:** David, 2026-11-14, Q5: *"Remove the ability to change a fact's text. If there's an issue with the fact it should be removed and a new one created."*; Q6: *"Live facts only. If it's a new fact and it's in moderation, an admin should be able to edit it before any enrichment happens. Once it's locked, that's it. Locking should be the very first thing that happens as part of step 1."* Withdraw exists because nothing could otherwise close a submission past triage: it could not be rejected there, and deleting its fact left the review parked and counted against the submitter's pending limit (plan `docs/plans/PLAN_THREE_GAGS.md`, section G).
@@ -32,6 +39,25 @@
 - **Settled with it:** a fact's wording never changes once accepted at triage (Q5, Q6); that lock is the plan's increment 3.
 - **Supersedes:** the gag stored at `enrichment.visualPromptStrategyOverride` and the `facts_active_requires_concept` CHECK (2026-07 entries below); the candidate-enrichment PATCH, retired (`410`).
 - **Reference:** Issue #943 (sequencing step 2); Issue #951 (increment 1).
+
+### 2026-11-14 · Every picture starts from a photo; there is no picture without one
+- **Decision:** No part of the product draws a picture without a reference
+  photo. The no-photo render mode is refused at the queue and in the worker;
+  the analysis of an unusable photo asks for a better one; the planner's brief
+  and the compiler lose the mode; moderation's required renders are David's
+  photo and his wife's, with the cat conditional; the comparison and
+  evaluation draw photo panels only; the legacy AI-background generator is
+  retired. Stored no-photo attempts, panels and pictures are kept and stay
+  readable; nothing is migrated.
+- **Why:** David, 2026-11-14: *"There will be no future concept of 'no
+  picture'. The entire point of this site is that it's about bringing the
+  user into the fact. Anything other than that doesn't serve the function of
+  the software. For example images, we're going to use me, my wife, and my
+  cat."*
+- **Reference:** the compiler review, Phase 2 (`docs/plans/PLAN_COMPILER_REVIEW.md`,
+  Issue #955); [`visual-pipeline.md`](./visual-pipeline.md), *Every picture
+  starts from a photo*.
+- **Revisit if:** David reopens it.
 
 ### 2026-11-14 · The stored AI settings and the engines table are deleted; a read-only page shows the values
 - **Decision:** migration 0138 deletes the retired AI-setting rows from `admin_config` and drops the `engines` table. Engines exist only in the code catalogue (`artifacts/api-server/src/lib/engines/`): every reader, from the image routing and the three model resolvers to the Eval page and the prompt tuner, reads an engine's record from code (`engineById`, `imageEngines` in `engineInterpreter.ts`), and the boot-time reconciler that copied the catalogue into the table is deleted. An engine's on/off, tier and order are fields of its code definition, so switching one off is a code change. The admin console gains a read-only **AI Settings** page (`/admin/ai`) showing, from code, each AI step's model, its parameters as the request sends them ("not sent" where the model accepts none), and every system prompt. It has no controls.
@@ -3978,6 +4004,7 @@
 ---
 
 ### 2026-07-24 · Variants are independent facts — `parent_id` is kinship + show/hide only, never metadata inheritance
+- **Superseded (2026-11-15):** variants are retired and the parent link dropped; see [Variants are retired](#2026-11-15--variants-are-retired-every-fact-stands-alone-and-the-existing-ones-are-deleted).
 - **Decision:** A variant is a fact expressing **the same concept** as its root in
   slightly different words. `facts.parent_id` exists for exactly two purposes:
   recording that kinship, and letting the UI show or hide variants. It is **not**
@@ -4129,6 +4156,7 @@
   here, so `/maintenance` doesn't lose track of them.
 
 ### 2026-07-23 · Fact lifecycle closed: one entrance, one exit — activation is moderation-only, and deactivation is reversible through moderation, not a direct toggle
+- **Superseded in part (2026-11-15):** the variant parts (activation's active-root check, the reparent guard, cascade deactivation, variant creation as an ingestion path) went with variants; see [Variants are retired](#2026-11-15--variants-are-retired-every-fact-stands-alone-and-the-existing-ones-are-deleted).
 - **Decision:** Two invariants, now enforced end-to-end (Phase 2 fact-lifecycle
   closure):
   - **One exit.** A fact can only become `is_active = true` through a single

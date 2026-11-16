@@ -102,13 +102,16 @@ function AiInterpretationSummary({ enrichment }: { enrichment: FactEnrichment | 
 
 // ── (c) Run-selected checkbox controls ───────────────────────────────────────
 
-/** The four checkbox groups. "Non-human" targets whichever non-human card shows. */
-type RunGroup = "generic_t2i" | "i2i_male_default" | "i2i_female_default" | "nonhuman";
+/**
+ * The three checkbox groups. "Non-human" targets whichever non-human card
+ * shows. Every picture starts from a photo, so there is no no-photo group
+ * (compiler review, Phase 2).
+ */
+type RunGroup = "i2i_male_default" | "i2i_female_default" | "nonhuman";
 
 const RUN_GROUP_LABELS: { id: RunGroup; label: string }[] = [
-  { id: "generic_t2i", label: "Generic (t2i)" },
-  { id: "i2i_male_default", label: "Male (i2i)" },
-  { id: "i2i_female_default", label: "Female (i2i)" },
+  { id: "i2i_male_default", label: "David (i2i)" },
+  { id: "i2i_female_default", label: "Wife (i2i)" },
   { id: "nonhuman", label: "Non-human (i2i)" },
 ];
 

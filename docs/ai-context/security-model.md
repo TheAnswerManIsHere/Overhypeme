@@ -281,7 +281,8 @@ spends real money with no upper limit.
 user generate route (removal 3; ledger
 [`docs/retired/README.md`](../retired/README.md)), the gate has no call site:
 its last one, the per-user path in `aiMemePipeline.ts`, which no live caller
-reached (the admin AI-meme backfill passes no user), went in removal 11. The
+reached (the admin AI-meme backfill passes no user), went in removal 11, and
+the generator itself was retired by the compiler review, Phase 2. The
 gate, its ledger and the
 guards below are kept for the paid generation launch Phase 7 brings back, and
 #628 Phase 11 rebuilds spend control; everything below describes the gate as

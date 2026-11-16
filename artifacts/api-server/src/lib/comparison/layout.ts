@@ -58,8 +58,17 @@ export function deriveComparisonLayout(input: LayoutInput, engines: Engine[]): L
   const reasons: string[] = [];
   const families = dedupe(input.engineFamilies);
   const byFamilyMode = new Map<string, string>();
+  for (const key of input.scenarioKeys) {
+    if (!(key in RENDER_SCENARIO_DESCRIPTORS)) reasons.push(`unknown scenario "${key}"`);
+    else if (RENDER_SCENARIO_DESCRIPTORS[key].retired) reasons.push(`scenario "${key}" is retired: every picture starts from a photo`);
+  }
+  // A family needs an engine only for the modes its panels draw: every
+  // scenario still run is photo-backed, so an edit engine alone is enough.
+  const modes = [...new Set(dedupe(input.scenarioKeys)
+    .filter((k) => k in RENDER_SCENARIO_DESCRIPTORS)
+    .map((k) => generationModeForSubjectRenderMode(RENDER_SCENARIO_DESCRIPTORS[k].subjectRenderMode)))];
   for (const family of families) {
-    for (const mode of ["t2i", "i2i"] as const) {
+    for (const mode of modes) {
       const members = engines.filter((e) => e.family === family && e.imageMode === mode);
       if (members.length !== 1) {
         reasons.push(`family "${family}" has ${members.length} ${mode} engines, not one`);
@@ -69,9 +78,6 @@ export function deriveComparisonLayout(input: LayoutInput, engines: Engine[]): L
       if (refusal) reasons.push(`${members[0]!.id}: ${refusal}`);
       else byFamilyMode.set(`${family}|${mode}`, members[0]!.id);
     }
-  }
-  for (const key of input.scenarioKeys) {
-    if (!(key in RENDER_SCENARIO_DESCRIPTORS)) reasons.push(`unknown scenario "${key}"`);
   }
   if (reasons.length) throw new ComparisonLayoutError(reasons);
 

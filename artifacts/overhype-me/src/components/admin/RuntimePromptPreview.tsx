@@ -16,7 +16,8 @@ import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangl
  * persisting an image-prompt attempt row.
  */
 
-type SubjectRenderMode = "human_identity_i2i" | "nonhuman_subject_i2i" | "t2i_fallback";
+/** Every picture starts from a photo (compiler review, Phase 2): the no-photo mode is gone. */
+type SubjectRenderMode = "human_identity_i2i" | "nonhuman_subject_i2i";
 type SourceSubjectKind =
   | "human_face"
   | "animal_subject"
@@ -28,7 +29,6 @@ type SourceSubjectKind =
   | "scene_no_clear_subject"
   | "ambiguous"
   | "detection_failed";
-type FallbackGender = "male" | "female" | "neutral";
 type NegativeSpacePreference = "top" | "bottom" | "left" | "right" | "auto" | "none";
 type ContentMode = "sfw" | "suggestive" | "spicy";
 type AspectRatio = "landscape" | "square" | "portrait";
@@ -188,33 +188,10 @@ interface PersistedControls {
   previewName: string;
   previewPronouns: string;
   lookStyleId: string;
-  fallbackSubjectGender: FallbackGender;
-  // True once the moderator manually picks a gender; until then it auto-derives
-  // from the sample pronouns (see genderFromPronouns).
-  genderTouched: boolean;
   preservePhysique: boolean;
   aspectRatio: AspectRatio;
   negativeSpacePreference: NegativeSpacePreference;
   contentMode: ContentMode;
-}
-
-/**
- * Default t2i fallback gender from the sample pronouns. t2i_fallback needs a
- * CONCRETE protagonist gender, and the prompt validator wants the gender word in
- * the prompt — "neutral" is awkward for the model to emit and often fails. Deriving
- * from the pronouns the moderator already chose (he/him→male, she/her→female,
- * else neutral) keeps the preview self-consistent and renders reliably.
- */
-function genderFromPronouns(pronouns: string): FallbackGender {
-  const trimmed = pronouns.trim();
-  // Match the backend: a blank/invalid sample resolves to the brand default
-  // (he/him), so the default "just click Generate" path derives "male" rather than
-  // the validator-fragile "neutral". Only a valid "subj/obj" string overrides it.
-  const effective = /^[a-z]+\/[a-z]+$/i.test(trimmed) ? trimmed.toLowerCase() : "he/him";
-  const subj = effective.split("/")[0];
-  if (subj === "he") return "male";
-  if (subj === "she") return "female";
-  return "neutral";
 }
 
 interface PersistedState {
@@ -248,8 +225,8 @@ type RuntimePromptPreviewProps = (
 
 export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPreviewNameChange }: RuntimePromptPreviewProps) {
   const isReviewMode = reviewId !== undefined;
-  // Moderation diagnostics default to t2i (review facts have no source image).
-  const defaultMode: SubjectRenderMode = reviewIdForRender !== undefined ? "t2i_fallback" : "human_identity_i2i";
+  // Every preview starts from a photo; a person's photo unless the moderator picks a pet or object.
+  const defaultMode: SubjectRenderMode = "human_identity_i2i";
   const [expanded, setExpanded] = useState(false);
   const [lookStyles, setLookStyles] = useState<LookStyle[]>([]);
 
@@ -259,8 +236,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
   const [previewName, setPreviewName] = useState("");
   const [previewPronouns, setPreviewPronouns] = useState("");
   const [lookStyleId, setLookStyleId] = useState("");
-  const [fallbackSubjectGender, setFallbackSubjectGender] = useState<FallbackGender>("neutral");
-  const [genderTouched, setGenderTouched] = useState(false);
   const [preservePhysique, setPreservePhysique] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("portrait");
   const [negativeSpacePreference, setNegativeSpacePreference] = useState<NegativeSpacePreference>("auto");
@@ -292,14 +267,13 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
   useEffect(() => {
     const saved = loadPersisted(factId ?? null, reviewId ?? null, reviewIdForRender);
     const c = saved?.controls;
-    setSubjectRenderMode(c?.subjectRenderMode ?? defaultMode);
+    // A control saved before the no-photo mode was retired reads as a person's photo.
+    setSubjectRenderMode(c?.subjectRenderMode === "nonhuman_subject_i2i" ? "nonhuman_subject_i2i" : defaultMode);
     setSourceSubjectKind(c?.sourceSubjectKind ?? "human_face");
     setSubjectDescription(c?.subjectDescription ?? "");
     setPreviewName(c?.previewName ?? "");
     setPreviewPronouns(c?.previewPronouns ?? "");
     setLookStyleId(c?.lookStyleId ?? "");
-    setFallbackSubjectGender(c?.fallbackSubjectGender ?? "neutral");
-    setGenderTouched(c?.genderTouched ?? false);
     setPreservePhysique(c?.preservePhysique ?? false);
     setAspectRatio(c?.aspectRatio ?? "portrait");
     setNegativeSpacePreference(c?.negativeSpacePreference ?? "auto");
@@ -315,17 +289,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
   useEffect(() => {
     onPreviewNameChangeRef.current?.(previewName);
   }, [previewName]);
-
-  // In moderation diagnostics, keep the t2i fallback gender synced to the sample
-  // pronouns until the moderator manually overrides it. Fixes the common case
-  // where a he/him sample left the gender on "neutral" (which the prompt
-  // generator frequently rejects).
-  const isModeration = reviewIdForRender !== undefined;
-  useEffect(() => {
-    if (isModeration && !genderTouched) {
-      setFallbackSubjectGender(genderFromPronouns(previewPronouns));
-    }
-  }, [isModeration, genderTouched, previewPronouns]);
 
   // Persist controls + the last result per fact.
   useEffect(() => {
@@ -343,8 +306,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
           previewName,
           previewPronouns,
           lookStyleId,
-          fallbackSubjectGender,
-          genderTouched,
           preservePhysique,
           aspectRatio,
           negativeSpacePreference,
@@ -366,16 +327,12 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
     previewName,
     previewPronouns,
     lookStyleId,
-    fallbackSubjectGender,
-    genderTouched,
     preservePhysique,
     aspectRatio,
     negativeSpacePreference,
     contentMode,
   ]);
 
-  const isI2i = subjectRenderMode !== "t2i_fallback";
-  const missingFallbackGender = subjectRenderMode === "t2i_fallback" && !fallbackSubjectGender;
 
   function buildSourceImageAnalysis() {
     const isHuman = sourceSubjectKind === "human_face";
@@ -409,9 +366,8 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
         ...(reviewIdForRender !== undefined ? { reviewIdForRender } : {}),
         subjectRenderMode,
         userSelectedSubjectRenderMode: subjectRenderMode,
-        // For t2i_fallback there is no source subject — let the server use its
-        // no-image analysis. For i2i modes, send the synthetic admin choice.
-        ...(isI2i ? { sourceImageAnalysis: buildSourceImageAnalysis() } : {}),
+        // Every preview starts from a photo: send the synthetic admin choice.
+        sourceImageAnalysis: buildSourceImageAnalysis(),
         lookStyleId: lookStyleId || null,
         // Optional sample subject so the override (and its {NAME}/pronoun tokens)
         // can be previewed as different people. Blank → server uses the brand
@@ -422,7 +378,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
           aspectRatio,
           contentMode,
           negativeSpacePreference,
-          fallbackSubjectGender: subjectRenderMode === "t2i_fallback" ? fallbackSubjectGender : null,
         },
         identityPolicyOverrides: { preservePhysique },
         // persist requires a real fact row; silently omit in review mode.
@@ -497,45 +452,40 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
               >
                 <option value="human_identity_i2i">human_identity_i2i</option>
                 <option value="nonhuman_subject_i2i">nonhuman_subject_i2i</option>
-                <option value="t2i_fallback">t2i_fallback</option>
               </select>
             </div>
 
-            {isI2i && (
-              <div>
-                <label className={labelCls}>Source subject kind</label>
-                <select
-                  className={inputCls}
-                  value={sourceSubjectKind}
-                  onChange={(e) => setSourceSubjectKind(e.target.value as SourceSubjectKind)}
-                  data-testid="rpp-source-subject-kind"
-                >
-                  <option value="human_face">human_face</option>
-                  <option value="animal_subject">animal_subject</option>
-                  <option value="object_subject">object_subject</option>
-                  <option value="vehicle_subject">vehicle_subject</option>
-                  <option value="mascot_or_character_subject">mascot_or_character_subject</option>
-                  <option value="human_subject_no_usable_face">human_subject_no_usable_face</option>
-                  <option value="multiple_subjects">multiple_subjects</option>
-                  <option value="scene_no_clear_subject">scene_no_clear_subject</option>
-                  <option value="ambiguous">ambiguous</option>
-                  <option value="detection_failed">detection_failed</option>
-                </select>
-              </div>
-            )}
+            <div>
+              <label className={labelCls}>Source subject kind</label>
+              <select
+                className={inputCls}
+                value={sourceSubjectKind}
+                onChange={(e) => setSourceSubjectKind(e.target.value as SourceSubjectKind)}
+                data-testid="rpp-source-subject-kind"
+              >
+                <option value="human_face">human_face</option>
+                <option value="animal_subject">animal_subject</option>
+                <option value="object_subject">object_subject</option>
+                <option value="vehicle_subject">vehicle_subject</option>
+                <option value="mascot_or_character_subject">mascot_or_character_subject</option>
+                <option value="human_subject_no_usable_face">human_subject_no_usable_face</option>
+                <option value="multiple_subjects">multiple_subjects</option>
+                <option value="scene_no_clear_subject">scene_no_clear_subject</option>
+                <option value="ambiguous">ambiguous</option>
+                <option value="detection_failed">detection_failed</option>
+              </select>
+            </div>
 
-            {isI2i && (
-              <div className="sm:col-span-2">
-                <label className={labelCls}>Subject description</label>
-                <input
-                  className={inputCls}
-                  value={subjectDescription}
-                  placeholder="e.g. orange tabby cat"
-                  onChange={(e) => setSubjectDescription(e.target.value)}
-                  data-testid="rpp-subject-description"
-                />
-              </div>
-            )}
+            <div className="sm:col-span-2">
+              <label className={labelCls}>Subject description</label>
+              <input
+                className={inputCls}
+                value={subjectDescription}
+                placeholder="e.g. orange tabby cat"
+                onChange={(e) => setSubjectDescription(e.target.value)}
+                data-testid="rpp-subject-description"
+              />
+            </div>
 
             <div>
               <label className={labelCls}>Sample name</label>
@@ -573,22 +523,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
                 ))}
               </select>
             </div>
-
-            {subjectRenderMode === "t2i_fallback" && (
-              <div>
-                <label className={labelCls}>Fallback gender</label>
-                <select
-                  className={inputCls}
-                  value={fallbackSubjectGender}
-                  onChange={(e) => { setGenderTouched(true); setFallbackSubjectGender(e.target.value as FallbackGender); }}
-                  data-testid="rpp-fallback-gender"
-                >
-                  <option value="male">male</option>
-                  <option value="female">female</option>
-                  <option value="neutral">neutral</option>
-                </select>
-              </div>
-            )}
 
             <div>
               <label className={labelCls}>Aspect ratio</label>
@@ -663,15 +597,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender, onPr
               </label>
             )}
           </div>
-
-          {missingFallbackGender && (
-            <div className="flex items-start gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                Select a fallback gender for t2i — the generator needs it to build a protagonist.
-              </p>
-            </div>
-          )}
 
           <button
             type="button"

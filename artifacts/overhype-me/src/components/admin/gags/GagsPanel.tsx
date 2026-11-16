@@ -494,7 +494,8 @@ function GagCard({
 }
 
 function RenderTile({ card, canApprove, onApprove }: { card: RenderScenarioCard; canApprove: boolean; onApprove: () => void }) {
-  const approvable = card.status === "done" && !card.stale && card.latestAttemptId != null && card.imageUrl;
+  // A retired scenario's stored render (no photo) is history: viewable, never a gag's example.
+  const approvable = !card.retired && card.status === "done" && !card.stale && card.latestAttemptId != null && card.imageUrl;
   return (
     <div className="rounded-sm border border-border bg-background p-2 space-y-1.5" data-testid="gag-render" data-scenario={card.key}>
       <p className="text-xs font-semibold text-foreground truncate">{card.label}</p>

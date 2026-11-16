@@ -67,7 +67,6 @@ before(async () => {
       text,
       canonicalText: "Alex bench-presses the Earth",
       splitTokenIndex: 2,
-      useCase: "boast",
       upvotes: 11, downvotes: 3, score: 8, wilsonScore: 0.61,
       commentCount: 5, shareCount: 7,
       submittedById: adminId,
@@ -82,8 +81,8 @@ after(async () => {
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 });
 
-describe("GET /admin/facts/:id — root fact detail for the Facts editor", () => {
-  it("returns every field the editor shows and the stored enrichment (no gag in it), with a null parentId for a root", async () => {
+describe("GET /admin/facts/:id — fact detail for the Facts editor", () => {
+  it("returns every field the editor shows and the stored enrichment (no gag in it), and no variant fields", async () => {
     const res = await request(adminApp).get(`/api/admin/facts/${factId}`);
     assert.equal(res.status, 200);
     const body = res.body;
@@ -92,7 +91,6 @@ describe("GET /admin/facts/:id — root fact detail for the Facts editor", () =>
     assert.equal(body.text, text);
     assert.equal(body.canonicalText, "Alex bench-presses the Earth");
     assert.equal(body.splitTokenIndex, 2);
-    assert.equal(body.useCase, "boast");
     assert.equal(body.isActive, true);
     assert.equal(body.upvotes, 11);
     assert.equal(body.downvotes, 3);
@@ -101,7 +99,7 @@ describe("GET /admin/facts/:id — root fact detail for the Facts editor", () =>
     assert.equal(body.commentCount, 5);
     assert.equal(body.shareCount, 7);
     assert.equal(body.submittedById, adminId);
-    assert.equal(body.parentId, null, "a root fact has no parent");
+    for (const retired of ["parentId", "useCase"]) assert.equal(retired in body, false, `${retired} is gone with variants`);
     assert.ok(body.createdAt && body.updatedAt, "created and updated dates are sent");
 
     assert.equal(body.enrichmentStatus, "ok");

@@ -43,10 +43,8 @@ import {
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { enqueueFactAiMemeBackfill } from "../lib/aiMemeBackfillJobs";
 import { normalizeFactTemplateForPendingReview, normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
-import { cascadeDeactivateActiveChildren, assertReparentAllowed } from "../lib/factActivation";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import {
@@ -822,13 +820,11 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   }
 });
 
-// Column projection shared by the root + variant selects in the facts list.
+// Column projection for the facts list.
 const FACT_LIST_COLUMNS = {
   id: factsTable.id,
   text: factsTable.text,
   canonicalText: factsTable.canonicalText,
-  parentId: factsTable.parentId,
-  useCase: factsTable.useCase,
   isActive: factsTable.isActive,
   upvotes: factsTable.upvotes,
   downvotes: factsTable.downvotes,
@@ -852,11 +848,8 @@ const FACT_LIST_COLUMNS = {
   evalGoldenReason: factsTable.evalGoldenReason,
 } as const;
 
-// The Facts list is paginated by ROOT fact (parentId IS NULL); each root carries
-// its variants nested so the admin UI can show the hierarchy (variants indented +
-// collapsible under their parent). A root is included when it (or one of its
-// variants) matches the search. Variants attached to a page's roots are filtered
-// to the search too, so a search shows matches grouped under their parent.
+// The Facts list, newest first, filtered by visibility, search, overrides and
+// a changed baseline.
 router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
@@ -867,60 +860,21 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   const onlyBaselineChanged = req.query["baselineChanged"] === "true";
   const like = `%${search}%`;
 
-  const activeFilter = visibility === "both" ? undefined : eq(factsTable.isActive, visibility !== "inactive");
-  const visibleVariantSql =
-    visibility === "both"
-      ? sql``
-      : visibility === "inactive"
-        ? sql` AND v.is_active = false`
-        : sql` AND v.is_active = true`;
-  const rootVisibilityFilter =
-    visibility === "both"
-      ? undefined
-      : sql`(${factsTable.isActive} = ${visibility !== "inactive"} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id}${visibleVariantSql}))`;
+  const visibilityFilter = visibility === "both" ? undefined : eq(factsTable.isActive, visibility !== "inactive");
   const overridesFilter = onlyOverridden ? sql`${factsTable.enrichmentOverrides} <> '{}'::jsonb` : undefined;
   const baselineChangedFilter = onlyBaselineChanged ? eq(factsTable.enrichmentBaselineChanged, true) : undefined;
-  // A root matches when its own text matches OR it has a (visible) variant whose
-  // text matches — so searching by a variant's text still surfaces its parent.
-  const searchFilter = search
-    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${visibleVariantSql}))`
-    : undefined;
-  const rootWhere = and(...[isNull(factsTable.parentId), rootVisibilityFilter, searchFilter, overridesFilter, baselineChangedFilter].filter(Boolean));
+  const searchFilter = search ? ilike(factsTable.text, like) : undefined;
+  const where = and(...[visibilityFilter, searchFilter, overridesFilter, baselineChangedFilter].filter(Boolean));
 
-  const [roots, [{ total }]] = await Promise.all([
+  const [facts, [{ total }]] = await Promise.all([
     db.select(FACT_LIST_COLUMNS)
       .from(factsTable)
-      .where(rootWhere)
+      .where(where)
       .orderBy(desc(factsTable.createdAt))
       .limit(limit)
       .offset(offset),
-    db.select({ total: count() }).from(factsTable).where(rootWhere),
+    db.select({ total: count() }).from(factsTable).where(where),
   ]);
-
-  // Attach each page-root's variants (search-filtered when searching) so the UI
-  // can render them indented + collapsible under the parent.
-  const rootIds = roots.map((r) => r.id);
-  let variantsByParent = new Map<number, (typeof roots)>();
-  if (rootIds.length) {
-    const variantWhere = and(
-      ...[
-        inArray(factsTable.parentId, rootIds),
-        activeFilter,
-        search ? ilike(factsTable.text, like) : undefined,
-      ].filter(Boolean),
-    );
-    const variantRows = await db.select(FACT_LIST_COLUMNS)
-      .from(factsTable)
-      .where(variantWhere)
-      .orderBy(asc(factsTable.createdAt));
-    variantsByParent = variantRows.reduce((m, v) => {
-      const key = v.parentId as number;
-      (m.get(key) ?? m.set(key, []).get(key)!).push(v);
-      return m;
-    }, new Map<number, typeof variantRows>());
-  }
-
-  const facts = roots.map((r) => ({ ...r, variants: variantsByParent.get(r.id) ?? [] }));
 
   res.json({ facts, total, page, limit });
 });
@@ -932,38 +886,12 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
   const hard = req.query["hard"] === "true";
 
   try {
-    // Removing a root (soft or hard) that still has active variants would leave
-    // them active under an inactive/missing parent — the same orphan state
-    // cascadeDeactivateActiveChildren exists to prevent elsewhere. facts.parent_id
-    // has no FK/ON DELETE behavior, so a hard delete in particular would strand
-    // them indefinitely (nothing else ever revisits them). Cascade in the same
-    // transaction as the removal for both paths.
     if (hard) {
-      const deleted = await db.transaction(async (tx) => {
-        // Delete THIS row first (locks it for the delete), then cascade — not
-        // the reverse. The cascade's own children-check must run only after
-        // we've serialized against a concurrent activateFact validating this
-        // exact row as a parent (its parent-revalidation locks this same row
-        // via FOR UPDATE): deleting first means either we win the lock and
-        // delete before it locks (so its own re-check then sees no parent row
-        // and fails), or it wins first (activates a child, commits, releases
-        // the lock) and OUR delete then proceeds, with the cascade below
-        // running after — catching that newly-active child. Cascading before
-        // ever touching this row (the old order) never contended for the lock
-        // at all, so a variant could activate under this root moments after
-        // the cascade found nothing and moments before the delete removed it.
-        const [row] = await tx.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
-        if (row) await cascadeDeactivateActiveChildren(tx, id);
-        return row;
-      });
+      const [deleted] = await db.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
       if (!deleted) { res.status(404).json({ error: "Fact not found" }); return; }
       res.json({ success: true, deleted: true });
     } else {
-      const updated = await db.transaction(async (tx) => {
-        const [row] = await tx.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
-        if (row) await cascadeDeactivateActiveChildren(tx, id);
-        return row;
-      });
+      const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
       if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
       res.json({ success: true, deleted: false });
     }
@@ -974,7 +902,7 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
 });
 
 /** Shared success response — strips the raw embedding, adds the has* flags, and
- *  merges any extra fields (audit id, variant count, prep dispatch). */
+ *  merges any extra fields. */
 function respondFactUpdate(
   res: Response,
   updated: typeof factsTable.$inferSelect,
@@ -996,7 +924,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
   const body = req.body as Record<string, unknown>;
-  const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, parentId, useCase, isActive } = body;
+  const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, isActive } = body;
 
   // Coerce the column updates. Text/canonical/split are never set here: a
   // fact's wording is locked (plan PLAN_THREE_GAGS.md, increment 3).
@@ -1008,13 +936,11 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (commentCount !== undefined) nonTextUpdates.commentCount = Number(commentCount);
   if (shareCount !== undefined) nonTextUpdates.shareCount = Number(shareCount);
   if (submittedById !== undefined) nonTextUpdates.submittedById = submittedById ? String(submittedById) : null;
-  if (parentId !== undefined) nonTextUpdates.parentId = parentId !== null && parentId !== "" ? Number(parentId) : null;
-  if (useCase !== undefined) nonTextUpdates.useCase = useCase ? String(useCase) : null;
   if (isActive !== undefined) nonTextUpdates.isActive = Boolean(isActive);
 
   // Fetch current state once if either guard below needs it.
   let current: { isActive: boolean; text: string } | undefined;
-  if (text !== undefined || nonTextUpdates.isActive === true || (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null)) {
+  if (text !== undefined || nonTextUpdates.isActive === true) {
     [current] = await db.select({ isActive: factsTable.isActive, text: factsTable.text }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
     if (!current) { res.status(404).json({ error: "Fact not found" }); return; }
   }
@@ -1022,8 +948,8 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   // Activation is moderation-only (Phase 2 fact-lifecycle closure). The admin
   // Active toggle may DEACTIVATE a fact (true→false is always safe) but may NOT
   // ACTIVATE one: a false→true flip here would bypass the entire production gate
-  // that approveForProduction/activateFact enforce (Visual Concept check,
-  // active-root parent revalidation, the pending_reviews transition,
+  // that approveForProduction/activateFact enforce (the approved-gag check,
+  // the pending_reviews transition,
   // production-approval recording, submitter notification). To bring a
   // deactivated fact back, re-moderate it. So: reject any false→true request;
   // asserting isActive=true on an already-active fact is a harmless no-op that we
@@ -1038,30 +964,6 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     }
     delete nonTextUpdates.isActive;
   }
-
-  // Active-root parent invariant: this PATCH's parentId field is otherwise
-  // unguarded, so an admin could point an ACTIVE fact at an inactive/missing/
-  // non-root parent, bypassing the same active-root revalidation activateFact
-  // performs at activation time — reintroducing exactly the orphan state Phase 2
-  // closes. Only matters when the target fact IS (or remains) active: a fact
-  // that's inactive, or being deactivated by this same request, can point
-  // anywhere (activateFact will revalidate whenever it's next activated).
-  //
-  // A fact can never be its own parent, active or not — this is a structural
-  // invariant, not just an active-root one, and cheap to check up front.
-  if (nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId === id) {
-    res.status(400).json({ error: "A fact cannot be its own parent.", code: "SELF_PARENT" });
-    return;
-  }
-  // The active-root lookup + active-children check, however, MUST run inside
-  // the same transaction as the write, with the parent row locked (`FOR
-  // UPDATE`) — otherwise a concurrent deactivate/delete of that parent (or a
-  // concurrent variant created under `id`) between this check and the write
-  // below could still land an active variant under an inactive/missing root,
-  // exactly mirroring the TOCTOU `activateFact` itself guards against. See the
-  // transaction below.
-  const reparenting = nonTextUpdates.parentId !== undefined && nonTextUpdates.parentId !== null;
-  const reparentStaysActive = reparenting && current!.isActive && nonTextUpdates.isActive !== false;
 
   // ── A fact's wording is locked (plan PLAN_THREE_GAGS.md, increment 3) ─────
   // It is edited only at triage, before the fact exists (POST
@@ -1089,49 +991,9 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
     respondFactUpdate(res, current);
     return;
   }
-  // Deactivating a fact that's an active root with active children would
-  // strand those children active under a now-inactive parent, so cascade in
-  // the same transaction (no-op if there's nothing to cascade — see
-  // cascadeDeactivateActiveChildren).
-  const deactivating = nonTextUpdates.isActive === false;
-  type PatchTxResult =
-    | { kind: "guard"; status: number; body: Record<string, unknown> }
-    | { kind: "ok"; row: typeof factsTable.$inferSelect | undefined };
-  const result: PatchTxResult = await db.transaction(async (tx): Promise<PatchTxResult> => {
-    if (reparentStaysActive) {
-      // Lock `id`'s own row BEFORE checking its active children —
-      // assertReparentAllowed's contract requires the target already locked
-      // by the caller (the text-edit path that once locked it is retired, migration 0141;
-      // incidentally, since it locks the fact row for its own CAS first; this
-      // branch didn't). Without it, a concurrent activateFact activating a
-      // variant UNDER `id` (which locks `id` as the parent via the same
-      // FOR UPDATE primitive) can interleave between this check and the
-      // reparent UPDATE below: whichever side loses the race for `id`'s lock
-      // sees the other's committed result — either `id` already has a new
-      // parent (so activateFact's own parent-revalidation then correctly
-      // fails), or `id` already has the newly-active child (so the
-      // active-children check below, now running after the lock, correctly
-      // rejects) — instead of both proceeding on stale reads.
-      const [targetLock] = await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).for("update").limit(1);
-      if (!targetLock) {
-        return { kind: "guard", status: 404, body: { error: "Fact not found" } };
-      }
-      const failure = await assertReparentAllowed(tx, { factId: id, parentId: nonTextUpdates.parentId as number });
-      if (failure) {
-        return { kind: "guard", status: 400, body: { error: failure.message, code: failure.code } };
-      }
-    }
-    const [row] = await tx.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
-    if (row && deactivating) {
-      await cascadeDeactivateActiveChildren(tx, id);
-    }
-    return { kind: "ok", row };
-  });
-  if (result.kind === "guard") { res.status(result.status).json(result.body); return; }
-  if (!result.row) { res.status(404).json({ error: "Fact not found" }); return; }
-  respondFactUpdate(res, result.row);
-  return;
-
+  const [row] = await db.update(factsTable).set(nonTextUpdates).where(eq(factsTable.id, id)).returning();
+  if (!row) { res.status(404).json({ error: "Fact not found" }); return; }
+  respondFactUpdate(res, row);
 });
 
 // GET /admin/facts/:id/text-edit-history — the edits of this fact's approved
@@ -1201,8 +1063,6 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
       id: factsTable.id,
       text: factsTable.text,
       canonicalText: factsTable.canonicalText,
-      parentId: factsTable.parentId,
-      useCase: factsTable.useCase,
       isActive: factsTable.isActive,
       upvotes: factsTable.upvotes,
       downvotes: factsTable.downvotes,
@@ -1510,7 +1370,7 @@ router.post("/admin/facts/:id/resubmit-for-moderation", requireAdmin, async (req
   } catch (err) {
     if (err instanceof ResubmitForModerationError) {
       if (err.code === "FACT_NOT_FOUND") { res.status(404).json({ error: err.message }); return; }
-      // ALREADY_ACTIVE / REVIEW_ALREADY_IN_PROGRESS / ORPHANED_PARENT — the
+      // ALREADY_ACTIVE / REVIEW_ALREADY_IN_PROGRESS / WORDING_WITHDRAWN — the
       // in-progress case names the in-flight review so the UI can link to it.
       res.status(409).json({
         error: err.message,
@@ -1582,47 +1442,6 @@ router.get("/admin/facts/:id/enrichment-versions", requireAdmin, async (req: Req
       rejectedAt: r.rejectedAt?.toISOString() ?? null,
     })),
   });
-});
-
-// POST /admin/facts/:id/variants — create a variant linked to a root fact
-router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res: Response) => {
-  const rootId = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(rootId)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const [root] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(and(eq(factsTable.id, rootId), eq(factsTable.isActive, true))).limit(1);
-  if (!root) { res.status(404).json({ error: "Fact not found" }); return; }
-  if (root.parentId !== null) { res.status(400).json({ error: "Cannot add a variant to a variant. Target the root fact." }); return; }
-  const { text } = req.body as Record<string, unknown>;
-  if (!text || typeof text !== "string" || text.trim().length === 0) { res.status(400).json({ error: "text is required" }); return; }
-  // A variant is a normal fact that happens to have a parent (Phase 2
-  // fact-lifecycle closure): it enters moderation at Stage 1 like any other
-  // submission, carrying its parent linkage on the review. It earns its own
-  // triage/enrichment/concept and only becomes an active variant on production
-  // approval (where activateFact revalidates the parent as an active root).
-  const normalized = normalizeFactTemplateForPendingReview(text.trim());
-  if (!normalized.valid) {
-    res.status(422).json({
-      error: `Template grammar validation failed: ${normalized.grammarResult.error}`,
-    });
-    return;
-  }
-  const review = await createTriageReview(db, {
-    submittedText: normalized.text,
-    submittedById: (req as AuthenticatedRequest).user!.id,
-    hashtags: [],
-    parentFactId: rootId,
-  });
-  res.status(201).json({ success: true, queued: true, reviewId: review.id });
-});
-
-// DELETE /admin/facts/variants/:variantId — soft-delete a single variant
-router.delete("/admin/facts/variants/:variantId", requireAdmin, async (req: Request, res: Response) => {
-  const variantId = parseInt(String(req.params["variantId"] ?? ""), 10);
-  if (isNaN(variantId)) { res.status(400).json({ error: "Invalid variant id" }); return; }
-  const [v] = await db.select({ id: factsTable.id, parentId: factsTable.parentId, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, variantId)).limit(1);
-  if (!v || !v.isActive) { res.status(404).json({ error: "Variant not found" }); return; }
-  if (v.parentId === null) { res.status(400).json({ error: "Cannot delete a root fact via this endpoint." }); return; }
-  await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, variantId));
-  res.json({ success: true });
 });
 
 // Bound the batch so a single call can't insert an unbounded number of rows
@@ -2030,97 +1849,11 @@ router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_r
   res.json({ success: true, updated });
 });
 
-interface BulkBackfillJob {
-  factId: number;
-  jobId: number;
-  deduped: boolean;
-  /** Bounded text preview for admin-UI display — never render factId raw. */
-  label: string;
-}
-interface BulkBackfillSkip {
-  factId: number;
-  status: "skipped";
-  reason: "not_active";
-  label: string;
-}
-/** A per-fact enqueue call rejected — the job was never created for this fact. */
-interface BulkBackfillEnqueueFailure {
-  factId: number;
-  status: "failed";
-  error: string;
-  label: string;
-}
-type BulkBackfillOutcome = BulkBackfillSkip | BulkBackfillEnqueueFailure;
-interface BulkBackfillResponse {
-  success: true;
-  jobs: BulkBackfillJob[];
-  outcomes: BulkBackfillOutcome[];
-  summary: { requested: number; queued: number; skipped: number; failed: number };
-}
-
-const BULK_BACKFILL_LABEL_MAX = 60;
-
-/**
- * Shared enqueue loop for the three bulk-backfill routes: check `isActive`
- * per fact (route-level skip, no enqueue at all — the selection query itself
- * still has no `isActive` predicate, a pre-existing, out-of-scope gap this
- * doesn't widen), then enqueue through the given per-fact enqueuer. Returns
- * the queued job descriptors + skip/failure outcomes for the frontend to poll
- * via the existing `/admin/taxonomy-health/job-status` endpoint
- * (queue-agnostic). A single fact's enqueue rejecting is caught and recorded
- * as a failure outcome rather than aborting the request — earlier facts in
- * the same loop already committed durable (potentially paid) jobs, and those
- * descriptors must still reach the caller (Codex review, PR #256).
- */
-export async function enqueueBulkBackfill(
-  facts: { id: number; text: string; isActive: boolean }[],
-  enqueue: (factId: number) => Promise<{ jobId: number; inserted: boolean }>,
-): Promise<BulkBackfillResponse> {
-  const jobs: BulkBackfillJob[] = [];
-  const outcomes: BulkBackfillOutcome[] = [];
-  for (const fact of facts) {
-    const label = fact.text.slice(0, BULK_BACKFILL_LABEL_MAX);
-    if (!fact.isActive) {
-      outcomes.push({ factId: fact.id, status: "skipped", reason: "not_active", label });
-      continue;
-    }
-    try {
-      const result = await enqueue(fact.id);
-      jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted, label });
-    } catch (err) {
-      logger.error({ err, factId: fact.id }, "[admin] bulk-backfill enqueue failed for fact");
-      outcomes.push({ factId: fact.id, status: "failed", error: "Could not queue the job.", label });
-    }
-  }
-  const failed = outcomes.filter((o) => o.status === "failed").length;
-  return {
-    success: true,
-    jobs,
-    outcomes,
-    summary: { requested: facts.length, queued: jobs.length, skipped: outcomes.length - failed, failed },
-  };
-}
-
-// POST /admin/facts/backfill-ai-memes — enqueue durable AI-meme generation
-// (fact_ai_meme_backfill queue) for every active fact (root or variant)
-// missing AI-meme images (or every active fact with ?force=true).
-router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: Request, res: Response) => {
-  try {
-    const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
-
-    const facts = force
-      ? await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive }).from(factsTable)
-      : await db
-          .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
-          .from(factsTable)
-          .where(isNull(factsTable.aiMemeImages));
-
-    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactAiMemeBackfill(factId));
-    res.status(202).json(response);
-  } catch (err) {
-    logger.error({ err }, "[admin] Backfill AI memes error");
-    res.status(500).json({ error: "Backfill failed", details: String(err) });
-  }
+// POST /admin/facts/backfill-ai-memes — retired with the legacy AI-background
+// generator (compiler review, Phase 2: every picture starts from a photo). It
+// answers 410 and starts nothing; the pictures it stored stay readable.
+router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, (_req: Request, res: Response) => {
+  res.status(410).json({ error: "The legacy AI-background generator is retired: every picture starts from a photo.", code: "AI_MEME_BACKFILL_RETIRED" });
 });
 
 router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_req: Request, res: Response) => {

@@ -122,16 +122,6 @@ describe("factSendBackHandler", () => {
     assert.deepEqual(result.result, { skipped: true, reason: "not_active" });
   });
 
-  it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
-    const root = await seedActiveFact();
-    await seedActiveFact({ parentId: root });
-    const result = await factSendBackHandler.run({ factId: root }, {} as never);
-    assert.equal(result.ok, true);
-    if (!result.ok) throw new Error("unreachable");
-    const r = result.result as { reviewId: number; candidateVersionId: number; versionNo: number };
-    assert.equal(typeof r.candidateVersionId, "number");
-  });
-
   it("missing factId payload → ok:false", async () => {
     const result = await factSendBackHandler.run({}, {} as never);
     assert.equal(result.ok, false);

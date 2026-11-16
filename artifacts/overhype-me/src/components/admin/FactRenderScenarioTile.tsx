@@ -406,8 +406,9 @@ export function FactRenderScenarioTile({
         </div>
       )}
 
-      {/* Per-tile rerun (any non-active tile that isn't a skip-only state) */}
-      {!active && card.status !== "skipped" && (
+      {/* Per-tile rerun (any non-active tile that isn't a skip-only state; a
+          retired scenario's stored render is history, never run again) */}
+      {!active && card.status !== "skipped" && !card.retired && (
         <button
           type="button"
           onClick={() => onRun([card.key], false)}

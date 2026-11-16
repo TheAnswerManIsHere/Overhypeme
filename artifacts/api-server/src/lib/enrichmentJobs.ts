@@ -127,8 +127,8 @@ export async function runEnrichmentForFact(
   factId: number,
   deps: FactEnrichmentDeps = { classify: enrichFact },
 ): Promise<HandlerResult> {
-  // Load the fact text (a variant is classified from its own text only, same
-  // as a root) plus the override layers so re-classification stays STICKY: a
+  // Load the fact text (a fact is classified from its own text only) plus the
+  // override layers so re-classification stays STICKY: a
   // fresh AI baseline is computed but the manual overrides are preserved (the
   // fact's gags live in fact_gags and are untouched).
   const [factRow] = await db
@@ -160,9 +160,8 @@ export async function runEnrichmentForFact(
   // they/them) before passing to the classifier.
   const renderedFactText = renderCanonical(factRow.text);
 
-  // Classifier-input fingerprint (Plan v4 §E, narrowed for variant
-  // independence). A fact — root or variant — is classified from its own text
-  // only, so the identity is the fact's own raw text alone. If it changed
+  // Classifier-input fingerprint (Plan v4 §E). A fact is classified from its
+  // own text only, so the identity is the fact's own raw text alone. If it changed
   // during the (slow) classify call (a staging edit re-worded the fact), the
   // result is stale and must be discarded, even though the edit-side guards
   // normally block an edit while this job is non-terminal. This is the

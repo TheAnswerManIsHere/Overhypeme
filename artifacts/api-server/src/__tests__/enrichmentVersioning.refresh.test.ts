@@ -63,6 +63,7 @@ import {
 } from "../lib/moderationStaging.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { runReviewScenarios } from "../lib/reviewRenderScenarios.js";
+import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -123,7 +124,7 @@ const AI_MEME_SENTINEL = { male: ["/objects/m1.png"], female: [], neutral: [] };
 
 const WAIVE_ALL_REQUIRED = {
   waiveVisualRenderIssues: true,
-  waivedScenarioKeys: ["generic_t2i", "i2i_male_default", "i2i_female_default"],
+  waivedScenarioKeys: ["i2i_male_default", "i2i_female_default"],
 };
 
 // Minimal valid plan output for the render preflight / preview compiler.
@@ -146,8 +147,8 @@ function makePlanOutput(rating: "strong" | "poor" = "strong") {
       keyVisualElements: ["central foreground", "dramatic lighting", "exertion pose"],
       subjectTreatment: {
         roleInScene: "Legendary protagonist",
-        subjectRenderMode: "t2i_fallback",
-        identityPreservation: "none",
+        subjectRenderMode: "human_identity_i2i",
+        identityPreservation: "human_face",
         nonhumanSubjectTreatment: {
           applicable: false,
           subjectKind: "not_applicable",
@@ -155,7 +156,7 @@ function makePlanOutput(rating: "strong" | "poor" = "strong") {
           anthropomorphicTreatment: "none",
           doNotTransformIntoHuman: false,
         },
-        fallbackSubjectGender: "neutral",
+        fallbackSubjectGender: "not_applicable",
         expressionAndPose: "Confident, focused",
         ageLifeStageTransform: { applies: false, targetState: "" },
       },
@@ -190,7 +191,7 @@ function makePlanOutput(rating: "strong" | "poor" = "strong") {
       contentNotes: "SFW",
       debugNotes: "Strategy v2",
       targetEngine: "nano_banana_2" as const,
-      generationMode: "t2i" as const,
+      generationMode: "i2i" as const,
     },
     compiledPrompt: {
       prompt: "Alex Jordan lifts a mountain over their head with one arm.",
@@ -333,6 +334,7 @@ async function cleanup() {
 }
 
 before(async () => {
+  __setReferenceFalUploadForTest(async () => "https://fal.test/reference.jpg");
   await cleanup();
   adminId = await createTestUser({ isAdmin: true });
   submitterId = await createTestUser();
@@ -340,6 +342,7 @@ before(async () => {
 });
 
 after(async () => {
+  __setReferenceFalUploadForTest(null);
   await cleanup();
   // Drop jobs this file enqueued so no worker ever runs them.
   await db.delete(asyncJobsTable).where(
@@ -431,14 +434,6 @@ describe("sendFactBackToReview", () => {
       sendFactBackToReview({ factId: inactive.id, adminId }),
       (err: unknown) => err instanceof SendBackToReviewError && err.code === "NOT_ACTIVE",
     );
-  });
-
-  it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
-    const root = await seedActiveFact();
-    const variant = await insertLiveFact({ text: "{NAME} variant", submittedById: submitterId, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
-    insertedFactIds.push(variant.id);
-    const result = await sendFactBackToReview({ factId: root.id, adminId });
-    assert.equal(typeof result.candidateVersionId, "number");
   });
 });
 
@@ -638,8 +633,8 @@ describe("candidate isolation across readers", () => {
     __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
 
     const previewBody = {
-      subjectRenderMode: "t2i_fallback",
-      renderControls: { aspectRatio: "portrait", contentMode: "sfw", fallbackSubjectGender: "neutral" },
+      subjectRenderMode: "human_identity_i2i",
+      renderControls: { aspectRatio: "portrait", contentMode: "sfw" },
     };
 
     // Plain fact preview (public/workbench view) → the ACTIVE enrichment.
@@ -686,7 +681,7 @@ describe("candidate isolation across readers", () => {
     );
 
     // Scenario runner (the grid's render path).
-    const run = await runReviewScenarios(reviewId, ["generic_t2i"], adminId);
+    const run = await runReviewScenarios(reviewId, ["i2i_male_default"], adminId);
     assert.ok(!("error" in run), JSON.stringify(run));
     const [scenarioAttempt] = await db.select().from(imagePromptAttemptsTable)
       .where(eq(imagePromptAttemptsTable.id, run.enqueued[0].attemptId));
@@ -738,7 +733,6 @@ describe("refresh approve → promote", () => {
 
     // FIELD-PRESERVATION INVARIANT: nothing else moved.
     assert.equal(f.isActive, true);
-    assert.equal(f.parentId, null);
     assert.equal(f.text, fact.text);
     assert.deepEqual(f.aiMemeImages, AI_MEME_SENTINEL);
     assert.equal(f.upvotes, 7);

@@ -212,7 +212,6 @@ export const ListFactsResponse = zod.object({
       userRating: zod
         .union([zod.literal("up"), zod.literal("down"), zod.literal(null)])
         .nullish(),
-      useCase: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -246,7 +245,6 @@ export const GetHeroFactResponse = zod.object({
     userRating: zod
       .union([zod.literal("up"), zod.literal("down"), zod.literal(null)])
       .nullish(),
-    useCase: zod.string().nullish(),
     createdAt: zod.coerce.date(),
   }),
   poolSize: zod
@@ -264,8 +262,6 @@ export const GetFactParams = zod.object({
 
 export const getFactResponseOneShareCountMin = 0;
 
-export const getFactResponseTwoVariantsItemShareCountMin = 0;
-
 export const GetFactResponse = zod
   .object({
     id: zod.number().int(),
@@ -281,7 +277,6 @@ export const GetFactResponse = zod
     userRating: zod
       .union([zod.literal("up"), zod.literal("down"), zod.literal(null)])
       .nullish(),
-    useCase: zod.string().nullish(),
     createdAt: zod.coerce.date(),
   })
   .and(
@@ -299,42 +294,13 @@ export const GetFactResponse = zod
           }),
         )
         .optional(),
-      parentId: zod.number().int().nullish(),
-      variants: zod
-        .array(
-          zod.object({
-            id: zod.number().int(),
-            text: zod.string(),
-            upvotes: zod.number().int(),
-            downvotes: zod.number().int(),
-            score: zod.number().int().optional(),
-            commentCount: zod.number().int(),
-            shareCount: zod
-              .number()
-              .int()
-              .min(getFactResponseTwoVariantsItemShareCountMin),
-            hashtags: zod.array(zod.string()),
-            submittedBy: zod.string().nullish(),
-            submittedByImage: zod.string().nullish(),
-            userRating: zod
-              .union([
-                zod.literal("up"),
-                zod.literal("down"),
-                zod.literal(null),
-              ])
-              .nullish(),
-            useCase: zod.string().nullish(),
-            createdAt: zod.coerce.date(),
-          }),
-        )
-        .optional(),
     }),
   );
 
 /**
  * Returns facts that share hashtags with the given fact, scored by
  * tag-overlap count, broken by Wilson score descending. The given
- * fact and (if it is a parent) its variants are excluded. If the
+ * fact is excluded. If the
  * given fact has no hashtags or there are not enough overlapping
  * candidates, the response is padded with top-Wilson-score facts.
  * @summary List facts similar to the given fact
@@ -376,7 +342,6 @@ export const ListRelatedFactsResponse = zod.object({
       userRating: zod
         .union([zod.literal("up"), zod.literal("down"), zod.literal(null)])
         .nullish(),
-      useCase: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -605,7 +570,6 @@ export const GetMyProfileResponse = zod.object({
       userRating: zod
         .union([zod.literal("up"), zod.literal("down"), zod.literal(null)])
         .nullish(),
-      useCase: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -627,7 +591,6 @@ export const GetMyProfileResponse = zod.object({
       userRating: zod
         .union([zod.literal("up"), zod.literal("down"), zod.literal(null)])
         .nullish(),
-      useCase: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),

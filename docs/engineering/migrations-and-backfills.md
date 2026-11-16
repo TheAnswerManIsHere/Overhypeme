@@ -389,7 +389,10 @@ reference). Silent bulk mutation is a bug.
   frozen snapshot is: `artifacts/api-server/scripts/upgrade-rehearsal.ts`
   restores it into a scratch database, boots the current code on it, and fails
   on a lost row, an orphaned relationship, a sequence behind its column, or a
-  changed operator setting; `acceptance-run.ts --mode replay --variant fresh
+  changed operator setting. A migration that deletes rows on purpose declares
+  them by name and the rehearsal counts them from the snapshot before the boot
+  (migration 0142's, in `src/lib/retirementLosses.ts`); every other loss still
+  fails; `acceptance-run.ts --mode replay --variant fresh
   --source-dump <file>` runs the journeys over the same upgraded snapshot. A
   failure is fixed in the migration or the code, never by refreshing the
   snapshot.

@@ -146,7 +146,7 @@ discriminated union on `valid`.
 
 - **`normalizeFactTemplateForPendingReview(text)`** — normalize and validate, no
   fact-only metadata. Every route that writes new text to
-  `pending_reviews.submittedText` uses it: `POST /facts/submit-review` and `POST /admin/facts/:id/variants`
+  `pending_reviews.submittedText` uses it: `POST /facts/submit-review`
   (422 on invalid), and the bulk paths `POST /admin/facts/import`,
   `POST /admin/facts/import-csv` and the API-key `POST /admin/import/facts`
   (which keep their existing response shapes and add a `failed` array — invalid

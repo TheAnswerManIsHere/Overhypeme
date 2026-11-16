@@ -31,6 +31,8 @@ import reviewsRouter from "../routes/reviews.js";
 import memesRouter from "../routes/memes.js";
 import { buildRenderStatusPayload } from "../lib/imagePromptAttempts.js";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput.js";
+import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
+import { syntheticAnalysisForReference } from "../lib/reviewRenderScenarios.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -143,9 +145,11 @@ before(async () => {
   plainId = await createUser({ isAdmin: false });
   adminSid = await bearer(adminId, true);
   plainSid = await bearer(plainId, false);
+  __setReferenceFalUploadForTest(async () => "https://fal.test/reference.jpg");
 });
 
 after(async () => {
+  __setReferenceFalUploadForTest(null);
   await cleanup();
   // Drop any image_prompt_generation jobs this file enqueued so no worker runs them.
   await db
@@ -192,24 +196,30 @@ describe("buildRenderStatusPayload", () => {
 // function, so they cannot drift. Determinism here = parity there.
 
 describe("resolveRenderReviewInput", () => {
-  it("resolves tokens to the sample subject and assembles a t2i input", async () => {
+  const fromWife = {
+    subjectRenderMode: "human_identity_i2i" as const,
+    sourceImageAnalysis: syntheticAnalysisForReference("female"),
+    referenceImageUrl: "https://example.com/wife.jpg",
+    referenceIdentityType: "female" as const,
+  };
+
+  it("resolves tokens to the sample subject and assembles a photo-backed input", async () => {
     const r = await resolveRenderReviewInput("{NAME} bench-presses the Earth.", VALID_ENRICHMENT, {
-      subjectRenderMode: "t2i_fallback",
+      ...fromWife,
       previewName: "Casey Park",
       previewPronouns: "she/her",
-      renderControls: { fallbackSubjectGender: "female", aspectRatio: "landscape" },
+      renderControls: { aspectRatio: "landscape" },
     });
     assert.match(r.renderedFactText, /Casey Park/);
     assert.doesNotMatch(r.renderedFactText, /\{NAME\}/);
-    assert.equal(r.subjectRenderMode, "t2i_fallback");
-    assert.equal(r.generationMode, "t2i");
-    assert.equal(r.renderControls.fallbackSubjectGender, "female");
+    assert.equal(r.subjectRenderMode, "human_identity_i2i");
+    assert.equal(r.generationMode, "i2i");
     assert.equal(r.renderControls.aspectRatio, "landscape");
     assert.equal(r.renderedSubject.name, "Casey Park");
   });
 
   it("is deterministic for identical inputs (no cross-route drift)", async () => {
-    const controls = { subjectRenderMode: "t2i_fallback" as const, previewName: "Sam Vale", renderControls: { fallbackSubjectGender: "neutral" as const } };
+    const controls = { ...fromWife, previewName: "Sam Vale" };
     const a = await resolveRenderReviewInput("{NAME} flies.", VALID_ENRICHMENT, controls);
     const b = await resolveRenderReviewInput("{NAME} flies.", VALID_ENRICHMENT, controls);
     assert.equal(a.renderedFactText, b.renderedFactText);
@@ -233,14 +243,13 @@ describe("POST /admin/reviews/:id/render", () => {
     assert.equal(res.status, 409);
   });
 
-  it("400 i2i_unavailable_in_moderation without enqueueing", async () => {
+  it("400 for a reference photo that does not exist, without enqueueing", async () => {
     const { reviewId } = await seedReview({ submittedById: plainId });
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ subjectRenderMode: "human_identity_i2i" });
+      .send({ referenceIdentityType: "nobody" });
     assert.equal(res.status, 400);
-    assert.equal(res.body.error, "i2i_unavailable_in_moderation");
   });
 
   it("400 fact_enrichment_invalid for an unusable staging enrichment", async () => {
@@ -250,12 +259,24 @@ describe("POST /admin/reviews/:id/render", () => {
     assert.equal(res.body.error, "fact_enrichment_invalid");
   });
 
-  it("202 + inserts an ephemeral, audited, t2i attempt for the staging fact", async () => {
+  it("the wife's photo renders as Susan Franklin, she/her, when no name is given", async () => {
+    const { reviewId } = await seedReview({ submittedById: plainId });
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/render`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ referenceIdentityType: "female" });
+    assert.equal(res.status, 202, JSON.stringify(res.body));
+    const [attempt] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.id, res.body.attemptId)).limit(1);
+    assert.equal(attempt!.subjectRenderMode, "human_identity_i2i");
+    assert.deepEqual((attempt!.renderControls as Record<string, unknown>)["reviewRenderSubject"], { name: "Susan Franklin", pronouns: "she/her" });
+  });
+
+  it("202 + inserts an ephemeral, audited attempt drawn from David's photo by default", async () => {
     const { reviewId, stagingFactId } = await seedReview({ submittedById: plainId });
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/render`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ previewName: "Casey Park", previewPronouns: "she/her", renderControls: { aspectRatio: "landscape", fallbackSubjectGender: "female" } });
+      .send({ previewName: "Casey Park", previewPronouns: "she/her", renderControls: { aspectRatio: "landscape" } });
 
     assert.equal(res.status, 202, JSON.stringify(res.body));
     assert.ok(res.body.renderJobId);
@@ -265,8 +286,8 @@ describe("POST /admin/reviews/:id/render", () => {
     assert.ok(attempt);
     assert.equal(attempt!.factId, stagingFactId);
     assert.equal(attempt!.userId, null);
-    assert.equal(attempt!.subjectRenderMode, "t2i_fallback");
-    assert.equal(attempt!.generationMode, "t2i");
+    assert.equal(attempt!.subjectRenderMode, "human_identity_i2i");
+    assert.equal(attempt!.generationMode, "i2i");
     assert.match(String(attempt!.renderedFactText), /Casey Park/);
     assert.doesNotMatch(String(attempt!.renderedFactText), /\{NAME\}/);
     assert.match(String(attempt!.requestId), new RegExp(`^admin-review:${reviewId}:${adminId}:`));
