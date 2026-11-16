@@ -51,6 +51,7 @@ function enrichmentWithConcept(coreScene: string | null): FactEnrichment {
     adminReviewNotes: "",
     culturalReferences: [],
     semanticEntities: [],
+    characters: [],
   } as FactEnrichment;
 }
 

@@ -19,9 +19,10 @@ import {
   resolveIdentityForms,
   renderTemplateWithIdentityForms,
   possessive as possessiveShared,
+  CANONICAL_SUBJECT_NAME,
 } from "@workspace/api-zod";
 
-export const CANONICAL_NAME = "Alex";
+export const CANONICAL_NAME = CANONICAL_SUBJECT_NAME;
 
 export const possessive = possessiveShared;
 
@@ -93,7 +94,7 @@ export function hasSubjectIdentityToken(text: string): boolean {
  * only — never substring — so multi-word referents that merely contain the name
  * ("Alex Honnold", "Alex Honnold's climb") are preserved (PR #111).
  */
-const CANONICAL_SUBJECT_NAME_FORMS_LC = new Set(
+export const CANONICAL_SUBJECT_NAME_FORMS_LC = new Set(
   CANONICAL_SUBJECT_NAMES.flatMap((n) => [n.toLowerCase(), possessive(n).toLowerCase()]),
 );
 

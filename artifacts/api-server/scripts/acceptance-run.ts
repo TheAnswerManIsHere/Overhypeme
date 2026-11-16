@@ -67,6 +67,7 @@ import { fileURLToPath } from "node:url";
 import { markTestDatabaseSql, testDatabaseRefusal } from "@workspace/db/test-database";
 
 import { falSubscribeRequest } from "../src/lib/aiDouble/doubles";
+import { GPT_IMAGE_2_6_EDIT } from "../src/lib/engines/gpt-image-2-6";
 import { evaluateCoverage, failedLiveCalls, liveRecordingsDir, readCallRecords, recordingsIdentity, recordingsUnionCount, unattributedCalls, type CallRecord, type Mode, type RecordingsIdentity, type Row, type Variant } from "../src/testing/acceptance/coverage";
 import type { CaptureResult } from "../src/testing/acceptance/captureJourneys";
 import { captureRefusals, type CaptureDoc } from "../src/testing/acceptance/captureShots";
@@ -241,12 +242,8 @@ function redact(text: string): string {
 }
 // --- recording mode's own checks (unchanged from increment 4) ---------------
 const FAL_INVALID = { input: { prompt: "" } };
-/**
- * The image-to-image endpoint a moderation render with no look is routed to
- * (compiler review, Phase 1): the render-failure control's target, since every
- * moderation render is drawn from a reference photo (plan PLAN_GAG_EXAMPLES.md).
- */
-const RENDER_FAILURE_ENDPOINT = "openai/gpt-image-2.6/sunburst/edit";
+/** The photo-edit endpoint a render with no look is routed to (compiler review, Phases 1 and 2): the render-failure control's target. */
+const RENDER_FAILURE_ENDPOINT = GPT_IMAGE_2_6_EDIT.endpointId!;
 const OPENAI_INVALID = { model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 };
 const FAILURE_CONTROLS = [
   { vendor: "fal", kind: "fal.subscribe" as const, target: RENDER_FAILURE_ENDPOINT, status: 422, request: falSubscribeRequest(RENDER_FAILURE_ENDPOINT, FAL_INVALID) },

@@ -61,7 +61,7 @@ import {
   buildRenderStatusPayload,
   type RenderControlsWithRefs,
 } from "./imagePromptAttempts";
-import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
+import { defaultPreviewSubjectForReference, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
 import { gagRenderInput, loadGagRenderContext, loadGags, workingContent } from "./gags/resolver";
 import { assertCanRunGagRenders, GagError, type GagActor } from "./gags/gagStore";
 import { renderPersonalized } from "./renderCanonical";
@@ -73,31 +73,19 @@ export const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 // ─── Canonical default render controls (must match enqueue + hash + grid) ────
 
-export function defaultScenarioRenderControls(scenarioKey: RenderScenarioKey): {
+/**
+ * The render controls every scenario render uses. The sample subject's name
+ * and pronouns no longer ride here as a "fallback gender": they come from the
+ * scenario's reference photo (`defaultPreviewSubjectForReference`), so the
+ * wife's photo renders as Susan Franklin, she/her (compiler review, Phase 2).
+ */
+export function defaultScenarioRenderControls(): {
   aspectRatio: string;
   contentMode: ContentMode;
-  fallbackSubjectGender: FallbackSubjectGender | null;
 } {
-  const desc = RENDER_SCENARIO_DESCRIPTORS[scenarioKey];
-  const mode = desc.subjectRenderMode;
-  // t2i: always neutral (Alex Franklin / they/them) so the protagonist is gender-agnostic.
-  // i2i: the reference image IS the visual subject, but the rendered fact text still
-  // substitutes a name + pronouns. Derive them from the reference's known gender so
-  // the text is coherent ("Susan Franklin … her gold pants" for the female reference,
-  // not the incoherent "David Franklin … his gold pants"). Male / non-human references
-  // keep null → David Franklin / he/him (historical default).
-  let fallbackSubjectGender: FallbackSubjectGender | null;
-  if (mode === "t2i_fallback") {
-    fallbackSubjectGender = "neutral";
-  } else if (desc.referenceIdentityType === "female") {
-    fallbackSubjectGender = "female";
-  } else {
-    fallbackSubjectGender = null;
-  }
   return {
     aspectRatio: "portrait",
     contentMode: "sfw",
-    fallbackSubjectGender,
   };
 }
 
@@ -138,10 +126,10 @@ export function computeScenarioInputHash(
   const referenceAssetVersion = referenceIdentityType
     ? (DEFAULT_REFERENCE_ASSET_VERSION[referenceIdentityType] ?? "1")
     : null;
-  const renderControls = defaultScenarioRenderControls(scenarioKey);
+  const renderControls = defaultScenarioRenderControls();
   // Hash the SAME sampled subject the render path resolves (gender-matched name
   // + pronouns), or staleness/idempotency compares against text no render uses.
-  const subject = defaultPreviewSubjectForGender(renderControls.fallbackSubjectGender);
+  const subject = defaultPreviewSubjectForReference(desc.referenceIdentityType);
   return buildScenarioInputHash({
     stagingFactId,
     scenarioKey,
@@ -227,8 +215,8 @@ async function insertFailedScenarioAttempt(args: EnqueueScenarioArgs, errorMessa
   const desc = RENDER_SCENARIO_DESCRIPTORS[args.scenarioKey];
   const mode = desc.subjectRenderMode;
   const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment, args.imageEngines);
-  const renderControls = defaultScenarioRenderControls(args.scenarioKey);
-  const subject = defaultPreviewSubjectForGender(renderControls.fallbackSubjectGender);
+  const renderControls = defaultScenarioRenderControls();
+  const subject = defaultPreviewSubjectForReference(desc.referenceIdentityType);
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)
     .values({
@@ -288,13 +276,14 @@ export async function enqueueScenarioRender(args: EnqueueScenarioArgs): Promise<
     analysis = syntheticAnalysisForReference(desc.referenceIdentityType);
   }
 
-  const renderControls = defaultScenarioRenderControls(args.scenarioKey);
+  const renderControls = defaultScenarioRenderControls();
   const resolved = await resolveRenderReviewInput(args.factText, args.enrichment, {
     subjectRenderMode: mode,
     sourceImageAnalysis: analysis,
     referenceImageUrl,
     lookStyleId: null,
     renderControls,
+    referenceIdentityType: desc.referenceIdentityType,
   });
 
   const inputHash = computeScenarioInputHash(args.scenarioKey, args.stagingFactId, args.factText, args.enrichment, args.imageEngines);
@@ -544,6 +533,7 @@ export async function buildGagKindCards(gagId: number): Promise<PerKind<RenderSc
   }));
   return Object.fromEntries(cards) as PerKind<RenderScenarioCard | null>;
 }
+
 
 // ─── List-level coarse render state ──────────────────────────────────────────
 

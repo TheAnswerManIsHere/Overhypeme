@@ -1,6 +1,5 @@
 {"id":1,"user_id":"d77448e6-fc0c-444a-86e5-5c000447a61e","target_type":"fact","target_id":32,"reaction_type":"up","created_at":"2026-04-01T08:06:46.351Z"}
 {"id":2,"user_id":"d77448e6-fc0c-444a-86e5-5c000447a61e","target_type":"fact","target_id":33,"reaction_type":"down","created_at":"2026-04-01T08:06:56.500Z"}
-{"id":3,"user_id":"d77448e6-fc0c-444a-86e5-5c000447a61e","target_type":"fact","target_id":65,"reaction_type":"up","created_at":"2026-04-01T14:03:53.394Z"}
 {"id":4,"user_id":"d77448e6-fc0c-444a-86e5-5c000447a61e","target_type":"fact","target_id":64,"reaction_type":"up","created_at":"2026-04-02T01:17:36.934Z"}
 {"id":5,"user_id":"d77448e6-fc0c-444a-86e5-5c000447a61e","target_type":"fact","target_id":61,"reaction_type":"up","created_at":"2026-04-02T04:39:00.969Z"}
 {"id":6,"user_id":"5d0b1fdd-60df-40dc-b467-69ecb76ebd4d","target_type":"fact","target_id":66,"reaction_type":"up","created_at":"2026-04-09T23:18:00.123Z"}

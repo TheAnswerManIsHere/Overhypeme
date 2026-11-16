@@ -134,7 +134,7 @@ deliberately excludes them and points here instead.
   `queue` discriminator + JSON payload + `dedupeKey` + retry bookkeeping; status
   `pending → processing → done | failed`.
 - **Four independent scheduling lanes** (`asyncJobs.ts`, PR #216;
-  `ai_meme_backfill` added for the variant-independence bulk-backfill queue;
+  `ai_meme_backfill` added for the bulk AI-meme backfill queue;
   a fifth, `pexels`, went with Pexels in launch Phase 4, removal 6 —
   [`docs/retired/README.md`](../retired/README.md))
   — `fast` / `render` / `bulk` / `ai_meme_backfill` — each with its
@@ -144,10 +144,12 @@ deliberately excludes them and points here instead.
   - `render` — `image_prompt_generation`, `image_generation` (single-item,
     moderator-watched renders).
   - `bulk` (default for any queue that doesn't set `{ lane }`) — `enrichment`,
-    `fact_enrichment_backfill`, `fact_visual_concepts`, `email`,
-    `review_render_scenarios_prepare`.
-  - `ai_meme_backfill` — `fact_ai_meme_backfill`, `maxConcurrency: 1` (paid
-    OpenAI/fal.ai calls, processed strictly one fact at a time).
+    `fact_enrichment_backfill`, `fact_character_fill`, `fact_visual_concepts`,
+    `email`, `review_render_scenarios_prepare`.
+  - `ai_meme_backfill` — `fact_ai_meme_backfill`, `maxConcurrency: 1`.
+    **Retired** with the legacy AI-background generator (compiler review,
+    Phase 2: every picture starts from a photo): nothing enqueues there, and
+    its handler ends a leftover job without generating.
   A queue's lane is set via `registerJobHandler(queue, handler, { lane })`; see
   [`decisions.md`](./decisions.md#2026-07--split-the-async-jobs-worker-into-fastrenderbulk-lanes).
   (Check `asyncJobs.ts` for the live list of queues.)
@@ -165,21 +167,11 @@ deliberately excludes them and points here instead.
   runner and timer, so it orders rows **within** a lane only. There is no
   global FIFO across lanes — a newer `fast` row is routinely claimed ahead of
   an older `bulk` one, which is the entire point of the split. Retry budget is
-  an **enqueue-time** option on the queue, which is
-  why `fact_ai_meme_backfill` enqueues with **`maxAttempts: 1`**
-  (`aiMemeBackfillJobs.ts`) and is therefore **never retried automatically**.
-  The reason is that a retry could not help, not that it would cost twice:
-  the handler opens with a **replay guard** keyed on `facts.aiMemeBackfillStatus`,
-  and a failing attempt stamps that column `"failed"` before returning — so a
-  second attempt exits at the `existing === "failed"` branch **without calling
-  `generate` at all**. Extra attempts would burn the budget and delay
-  abandonment while doing nothing. The guard refuses rather than resumes
-  because there is nothing to resume from: `generateAiMemeBackgrounds` uploads
-  each slot's image as it goes but writes `facts.aiMemeImages` **once, after
-  the whole slot loop** (`aiMemePipeline.ts`), so a late-slot failure leaves
-  the fact with no record of the earlier successes even though their paid
-  OpenAI/fal.ai calls and uploads already happened. Note `maxAttempts: 1` also
-  means `onAbandon` fires on the very first failure.
+  an **enqueue-time** option on the queue; the retired
+  `fact_ai_meme_backfill` enqueued with **`maxAttempts: 1`** because its paid
+  generator wrote its result only after every slot, so a retry could not
+  resume. Note `maxAttempts: 1` also means `onAbandon` fires on the very first
+  failure.
 - **Handler concurrency is not pool occupancy — don't equate them.** Per-lane
   `maxConcurrency` defaults are `fast` 2, `render` 3, `bulk` 3 (both from
   `ASYNC_JOBS_MAX_CONCURRENCY`), `ai_meme_backfill` 1 — worst
@@ -365,10 +357,10 @@ deliberately excludes them and points here instead.
     effectiveMax`) **or** `effectiveMax <= 1` (a single-attempt queue has no
     retry budget regardless of *why* the one attempt failed — via
     `terminalFailure()`, or via the ordinary exhaustion path on attempt 1,
-    which is not necessarily deterministic: `fact_ai_meme_backfill` enqueues
-    at `maxAttempts: 1` but its handler returns the ordinary retryable
-    `{ ok: false, error }` shape on a transient paid-API failure, not
-    `terminalFailure()`) — i.e. "the worker won't retry this," a different
+    which is not necessarily deterministic: the retired
+    `fact_ai_meme_backfill` enqueued at `maxAttempts: 1` but its handler
+    returned the ordinary retryable `{ ok: false, error }` shape on a
+    transient paid-API failure, not `terminalFailure()`) — i.e. "the worker won't retry this," a different
     operator story from "retries exhausted." See
     [`decisions.md`](./decisions.md#2026-07-30--queue-health-classification-persists-the-retry-ceiling-at-finalization-instead-of-re-deriving-it-live)
     for why this reads the row's own **persisted** `maxAttempts`, not a live

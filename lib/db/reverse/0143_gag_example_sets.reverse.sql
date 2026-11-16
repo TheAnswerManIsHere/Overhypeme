@@ -1,10 +1,10 @@
--- Reverse of migration 0142_gag_example_sets (plan docs/plans/PLAN_GAG_EXAMPLES.md,
+-- Reverse of migration 0143_gag_example_sets (plan docs/plans/PLAN_GAG_EXAMPLES.md,
 -- "Data Model and Migration Impact"). NOT a migration: the runner never reads
 -- this directory. It is run by hand, on David's say, with the release before
--- 0142 deployed, and is tested by
--- artifacts/api-server/src/__tests__/migration0142.gagExampleSets.test.ts.
+-- 0143 deployed, and is tested by
+-- artifacts/api-server/src/__tests__/migration0143.gagExampleSets.test.ts.
 --
--- 0142 copied the example selections and left approved_example_attempt_id and
+-- 0143 copied the example selections and left approved_example_attempt_id and
 -- pending_example_attempt_id untouched, so dropping the new table restores the
 -- previous state exactly. It refuses once examples have been approved or picked
 -- under the new model (a gag that completed a set, or an example row the old
@@ -17,7 +17,7 @@ DECLARE
   v_new integer;
 BEGIN
   IF to_regclass('fact_gag_examples') IS NULL THEN
-    RAISE NOTICE '0142 reverse: fact_gag_examples is absent; nothing to do';
+    RAISE NOTICE '0143 reverse: fact_gag_examples is absent; nothing to do';
     RETURN;
   END IF;
 
@@ -47,7 +47,7 @@ BEGIN
             AND a.fact_enrichment_snapshot -> 'visualPromptStrategyOverride' = g.pending_content)
   ) touched;
   IF v_new > 0 THEN
-    RAISE EXCEPTION '0142 reverse refused: % gag(s) or example(s) were approved or picked under example sets; fix forward', v_new;
+    RAISE EXCEPTION '0143 reverse refused: % gag(s) or example(s) were approved or picked under example sets; fix forward', v_new;
   END IF;
 
   DROP TRIGGER IF EXISTS fact_gag_examples_set ON fact_gag_examples;
@@ -64,5 +64,5 @@ BEGIN
     CHECK (approved_content IS NULL OR approved_example_attempt_id IS NOT NULL OR approved_carried_over);
   ALTER TABLE fact_gags DROP COLUMN approved_before_example_sets;
 
-  RAISE NOTICE '0142 reverse: example sets removed; the previous selections stand';
+  RAISE NOTICE '0143 reverse: example sets removed; the previous selections stand';
 END $$;

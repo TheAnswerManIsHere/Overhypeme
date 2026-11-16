@@ -15,7 +15,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("patchFactDraft", () => {
   it("maps a 200 with a fact to saved", async () => {
     stubFetch(200, { success: true, fact: { id: 1, text: "x" } });
-    const r = await patchFactDraft<{ id: number; text: string }>(1, { useCase: null });
+    const r = await patchFactDraft<{ id: number; text: string }>(1, { shareCount: 0 });
     expect(r.kind).toBe("saved");
     if (r.kind === "saved") expect(r.fact.id).toBe(1);
   });

@@ -16,6 +16,26 @@ Durable, structured **classification metadata** describing *how the joke works*:
 `suggestedHashtags`, `taxonomyConfidence`, and admin notes. Produced via OpenAI
 Structured Outputs, validated against the taxonomy schema.
 
+**The fact character list** (`characters`, Issue #968) is part of enrichment
+too, but has its own producer: a dedicated, versioned call
+(`CHARACTER_LIST_PROMPT_VERSION`, `factCharacters.ts`) made inside
+`enrichFact` after classification, with its own response schema — the main
+classifier's contract and `CLASSIFICATION_PROMPT_VERSION` don't move for it.
+`charactersExtraction` is stamped **only** when that call's output validated
+(an empty list included); a default, an old blob, a failed call and a promote
+of an old baseline never stamp it, so "extracted" is never confused with
+"defaulted to empty". A failed call keeps a prior extracted list and marker
+(the wording is locked, so it is still the fact's) and otherwise leaves the
+fact *missing a character list* — the Taxonomy Health card of that name, whose
+"Fill character lists" action (`fact_character_fill`) runs the call alone
+over live facts, first-time facts at the Gags or Test Renders step, and open
+refresh candidates, writing only the list and its marker under a row lock.
+A moderator correction is the `/characters` override; it survives the sticky
+re-enrich (which re-reads overrides under its row lock), a refresh promote,
+and both bulk backfills (which keep `/characters` while resetting the rest as
+before). It is render-affecting (the planner reads it), but not part of the
+Visual Idea hash (the Visual Idea writer never reads it).
+
 ## What enrichment is NOT responsible for
 
 **Enrichment is NOT an image prompt.** The module header says so explicitly:
@@ -25,67 +45,23 @@ render-time visual-preview phase inside enrichment.** The render-time
 the image model receives — see [`visual-pipeline.md`](./visual-pipeline.md). Do
 not blur these layers.
 
-## Variants are independent facts
+## Every fact stands alone
 
-**A variant is a fully independent fact.** `facts.parent_id` records that a
-variant expresses **the same concept** as its root (the primary example of that
-concept) in slightly different words — and it exists for exactly two purposes:
-**recording that kinship**, and letting the UI **show or hide** variants. It is
-**not** an inheritance link.
-
-David, verbatim (2026-07-24): *"the only thing that we should be doing with
-variants is tracking them as having a parent-child relationship to the master
-fact… other than being able to show or hide variants I don't want them to be
-dependent upon their parents for any metadata. A variant can have its own memes,
-can have its own visual taxonomy, can have its own enrichment, can have its own
-visual concept."*
-
-So, for **every** metadata layer:
-
-- A variant owns its **own** enrichment/taxonomy, Visual Concept, AI
-  (`aiMemeImages`) images, and memes (and owned its own Pexels stock images
-  until they went with Pexels in launch Phase 4, removal 6).
-- A variant **never displays, borrows, or falls back to** its root's metadata.
-  If a variant has no images of its own, it has none — nothing may
-  substitute the root's.
-- **A variant can GENERATE its own images, not just display them (PR #256).**
-  `admin.ts`'s `backfill-ai-memes` (and, until launch Phase 4 deleted them,
-  the Pexels `refresh-images`/`backfill-images`/`backfill-pexels` routes and
-  the user-facing AI meme/PuLID routes) operates on any active fact, root or
-  variant — the root-only 400s ("AI meme generation only supported on root
-  facts") are removed. It runs through a durable async queue
-  (`fact_ai_meme_backfill` lane — see [`architecture-map.md`](./architecture-map.md#async-jobs-and-queues)).
-  **Still treat any new `isNull(factsTable.parentId)` / `parentId !== null`
-  guard on an images/enrichment/AI-generation path as suspect** — the exact
-  list of root-only sites was under-enumerated twice during PR #256's review
-  before a repo-wide sweep found them all; the same blind spot can recur if a
-  future feature adds a new generation path and copies an old root-only
-  pattern instead of checking this doc first.
-- **Enrichment classifies a variant on its own text only** — the root's wording
-  is not passed as classifier context. Consequence (intended): **re-wording a
-  root does not invalidate or re-enrich its variants.** Their enrichment depends
-  on their own text, nothing else. (A fact's wording no longer changes at all
-  once accepted, `moderation-workflow.md`, *The wording locks at triage*; the
-  dependency machinery that protected the old model went first, and the
-  approved-text edit itself went with the lock.)
-- The only legitimate cross-references are **structural, not metadata**: the
-  `parent_id` link itself, show/hide grouping, lifecycle guards that reference
-  kinship (`HAS_ACTIVE_VARIANTS`, "a variant's parent must be an active root"),
-  and excluding self/parent/siblings from "related facts".
-
-**When you find code that makes a variant read its parent's metadata, that is a
-bug, not a feature** — fix it toward independence rather than mirroring it into
-new code paths. (`enrichmentVersioning.ts`'s field-preservation invariant
-already treats `parentId` and `aiMemeImages` as variant-owned;
-that is the correct pattern.)
+**Each fact owns its own metadata, and nothing links one fact to another.** A
+fact's enrichment and taxonomy, gags, AI images and memes are its own, and
+enrichment classifies a fact on its own wording only. A near-duplicate wording
+is either rejected at triage as a duplicate or accepted as a fact of its own
+([`moderation-workflow.md`](./moderation-workflow.md)). The link between facts
+that once existed was retired on 2026-11-15; why, and the shape to use if
+alternate wordings are ever wanted again, are in
+[`decisions.md`](./decisions.md#2026-11-15--variants-are-retired-every-fact-stands-alone-and-the-existing-ones-are-deleted) and [`docs/retired/README.md`](../retired/README.md).
+**Do not reintroduce a link between facts.**
 
 ## Source-of-truth boundaries
 
 - **Active fact truth:** the `facts.*` columns. The public feed and runtime read
   `facts.enrichment` (the effective blob). "Option B": `facts.*` is the SOLE
   active truth.
-- **Variant truth:** a variant's own `facts.*` row — never its parent's (see
-  *Variants are independent facts* above).
 - **Archive/candidate:** `fact_enrichment_versions` is an append-only archive +
   in-flight candidate store — **not** active lineage.
 - **Visual source of truth:** the Visual Concept + render-time plan/compiler, not
@@ -142,11 +118,7 @@ job. That job classifies into the version row and advances the review to
 active as a `superseded` row, rematerializes the candidate into `facts.*`
 (including the signature — see above), and marks it `promoted`; **reject**
 retains the candidate as `rejected` history (never hard-deleted). Guards:
-`REFRESH_ALREADY_IN_PROGRESS`, `NOT_ACTIVE`. (A prior `HAS_ACTIVE_VARIANTS`
-guard here — "refreshing a root could invalidate its variants' classification"
-— was removed once variants stopped classifying from the root's text; see
-*Variants are independent facts* above. `factActivation.ts` has its own,
-unrelated `HAS_ACTIVE_VARIANTS` code for reparenting, which still stands.)
+`REFRESH_ALREADY_IN_PROGRESS`, `NOT_ACTIVE`.
 
 **A refresh is initiation, not completion.** Sending a fact back only starts
 the cycle — it still has to clear **both** human gates (Visual Concept at Step
@@ -306,7 +278,7 @@ must preserve that.
 - Assuming a direct/bulk re-enrich clears `stale_for_reprocess` — it never
   stamps a signature; only send-back → promote does.
 - Passing an unbounded fact-id array into a DB guard query (e.g.
-  `factsWithInFlightRefresh`/`factsWithActiveVariants` in
+  `factsWithInFlightRefresh` in
   `adminTaxonomyHealth.ts`) — the evaluator loads **all active facts** into JS
   memory, so a bulk action's candidate set can be corpus-sized (thousands after
   a "Mark major update" bump); chunk `inArray(...)` queries. See the matching

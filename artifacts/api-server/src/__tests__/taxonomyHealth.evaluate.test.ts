@@ -31,6 +31,8 @@ function VALID_ENRICHMENT(overrides: Partial<Record<string, unknown>> = {}): Rec
     adminReviewNotes: "",
     culturalReferences: [],
     semanticEntities: [],
+    characters: [],
+    charactersExtraction: { promptVersion: "v1", extractedAt: "2026-11-15T00:00:00.000Z" },
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
     ...overrides,
@@ -58,6 +60,19 @@ describe("evaluateFactTaxonomyHealth", () => {
     assert.equal(h.overallStatus, "healthy");
     assert.deepEqual(h.statuses, ["complete"]);
     assert.equal(h.issues.length, 0);
+  });
+
+  it("flags missing_character_list (info, overall still healthy) when the list was never extracted", () => {
+    const h = evaluateFactTaxonomyHealth({ fact: row(VALID_ENRICHMENT({ charactersExtraction: undefined })) });
+    assert.equal(h.reviewFlags.missingCharacterList, true);
+    assert.ok(h.statuses.includes("missing_character_list"));
+    assert.equal(h.overallStatus, "healthy");
+    assert.equal(h.issues.find((i) => i.code === "missing_character_list")?.recommendedAction, "fill_character_lists");
+  });
+
+  it("does not flag a legitimately empty, extracted list", () => {
+    const h = evaluateFactTaxonomyHealth({ fact: row(VALID_ENRICHMENT({ characters: [] })) });
+    assert.equal(h.reviewFlags.missingCharacterList, false);
   });
 
   it("flags missing_enrichment when enrichment is null", () => {

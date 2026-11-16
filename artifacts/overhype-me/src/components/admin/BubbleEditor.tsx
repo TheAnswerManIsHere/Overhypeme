@@ -5,9 +5,10 @@
  * `enrichment.visualPromptStrategyOverride.bubbles` draft, so the two
  * placements can never drift.
  *
- * Each row: type (Speech = tailed balloon / Thought = cloud + trail), WHO
- * (same rules as a role-binding entity — "subject" or a plain role label,
- * never a token; a typed subject name collapses to "subject" on Save), and
+ * Each row: type (Speech = tailed balloon / Thought = cloud + trail), WHO —
+ * picked from a dropdown of the subject, the fact's characters and this gag's
+ * extra Scene Role Assignments; a saved speaker matching none of them is
+ * shown as itself and saved unchanged (PLAN_BUBBLE_SPEAKERS.md, C) — and
  * the exact literal text (token-capable, ≤80 chars, soft warning at 60 —
  * legibility drops with length). Incomplete rows are ignored at compile.
  * Save flows through the existing whole-override tokenize/save path; the
@@ -20,12 +21,14 @@ import {
   canonicalizeNameToken,
   BUBBLE_TEXT_MAX_CHARS,
   BUBBLE_TEXT_SOFT_WARN,
-  BUBBLE_ENTITY_MAX_CHARS,
   MAX_BUBBLES,
+  type FactCharacter,
   type VisualPromptStrategyOverride,
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
 import { FieldLabel } from "./FieldInfo";
+import { useFactCharacters } from "./FactCharactersContext";
+import { buildSpeakerOptions, selectedSpeakerValue } from "./speakerOptions";
 
 const INPUT_CLASS =
   "w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary";
@@ -58,6 +61,7 @@ export function BubbleEditor({
   disabled = false,
   fieldErrors,
   firstClass = false,
+  characters: charactersProp,
 }: {
   value: VisualPromptStrategyOverride | undefined;
   onChange: (next: VisualPromptStrategyOverride) => void;
@@ -69,9 +73,21 @@ export function BubbleEditor({
   /** First-class placement (own card chrome beside the Visual Concept card);
    *  false = embedded row inside the Advanced VSO panel. */
   firstClass?: boolean;
+  /** The fact's effective characters; defaults to the gags panel's context. */
+  characters?: readonly FactCharacter[];
 }) {
   const ov = value ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
   const bubbles = ov.bubbles ?? [];
+  const contextCharacters = useFactCharacters();
+  const characters = charactersProp ?? contextCharacters;
+  // The speaker choices (PLAN_BUBBLE_SPEAKERS.md, C): the subject, the fact's
+  // characters, this gag's extra roles, and any saved speaker that matches
+  // none of those — shown as itself and saved unchanged.
+  const speakerOptions = buildSpeakerOptions({
+    characters,
+    roleBindings: ov.roleBindings,
+    currentSpeakers: bubbles.map((b) => b.entity),
+  });
 
   const setBubbles = (next: VisualStrategyBubble[]) => onChange(withBubbles(value, next));
   const setRow = (i: number, patch: Partial<VisualStrategyBubble>) => {
@@ -86,14 +102,16 @@ export function BubbleEditor({
   // never a gate; duplicate role-binding labels make tail attribution
   // ambiguous.
   const knownEntities = new Set(
-    ov.roleBindings.map((b) => b.entity.trim().toLowerCase()).filter(Boolean),
+    [...ov.roleBindings.map((b) => b.entity), ...characters.map((c) => c.label)]
+      .map((l) => l.trim().toLowerCase())
+      .filter(Boolean),
   );
   const warnings: string[] = [];
   for (const [i, b] of bubbles.entries()) {
     const entity = b.entity.trim().toLowerCase();
     if (!entity || entity === "subject" || knownEntities.has(entity)) continue;
     warnings.push(
-      `Bubble ${i + 1}: "${b.entity.trim()}" doesn't match "subject" or any Scene Role Assignment — fine if the character is described in the Concept, but double-check for typos.`,
+      `Bubble ${i + 1}: "${b.entity.trim()}" isn't in this fact's character list or this gag's Scene Role Assignments — it still renders, but add the character to one of them so the picture is sure to include them.`,
     );
   }
   const labelCounts = new Map<string, number>();
@@ -128,21 +146,21 @@ export function BubbleEditor({
                 <option value="speech">Speech</option>
                 <option value="thought">Thought</option>
               </select>
-              <div className="max-w-[8rem]">
-                <input
+              <div className="max-w-[12rem]">
+                <select
                   className={INPUT_CLASS}
                   data-testid="bubble-entity"
-                  value={b.entity}
-                  placeholder="subject or role label"
-                  maxLength={BUBBLE_ENTITY_MAX_CHARS}
+                  aria-label={`Bubble ${i + 1} speaker`}
+                  value={selectedSpeakerValue(speakerOptions, b.entity)}
                   disabled={disabled}
-                  onChange={(ev) => {
-                    // NOT a chip target and NOT canonicalized — an entity is a
-                    // plain "subject"/role label; a typed token is an error
-                    // Save surfaces, not something to silently rewrite.
-                    setRow(i, { entity: ev.target.value });
-                  }}
-                />
+                  onChange={(ev) => setRow(i, { entity: ev.target.value })}
+                >
+                  {speakerOptions.map((o) => (
+                    <option key={`${o.source}:${o.value}`} value={o.value} data-source={o.source}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex-1">
                 <input
@@ -211,7 +229,7 @@ export function BubbleEditor({
       </div>
       <p className="text-xs text-muted-foreground">
         Make a character speak or think an exact line — the balloon and lettering are rendered into the
-        image. Attribute it to <span className="font-mono">subject</span> or a plain role label; keep the
+        image. Pick who says it from the fact's characters or this gag's Scene Role Assignments; keep the
         text short.
       </p>
       {body}

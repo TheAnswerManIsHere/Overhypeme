@@ -47,6 +47,7 @@ const AI: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
   aiGenerationId: "gen-1",
 };
 
@@ -257,25 +258,25 @@ describe("sticky re-enrich (runEnrichmentForFact)", () => {
     assert.equal(hist.some((h) => h.path === "/overhypeFit" && h.action === "baseline_reenriched"), true);
   });
 
-  it("classifies a variant from its OWN text only — no parent text or parentId reaches the classifier (variant independence, site 3)", async () => {
+  it("classifies a fact from its OWN text only — another fact's text never reaches the classifier", async () => {
     // Active facts require a non-empty Visual Concept (facts_active_requires_concept
     // CHECK) — AI deliberately never carries visualPromptStrategyOverride (see
     // its own comment above), so this must supply SAVED_CONCEPT directly, same
     // as seedFact() does for every other test in this file.
-    const rootRow = { id: await seedFact(AI, SAVED_CONCEPT, { text: `${TEXT_PREFIX}${randomUUID()} ROOT_DISTINCTIVE_MARKER` }) };
-    const variantText = `${TEXT_PREFIX}${randomUUID()} VARIANT_DISTINCTIVE_MARKER`;
-    const variantRow = { id: await seedFact(AI, SAVED_CONCEPT, { text: variantText, parentId: rootRow.id }) };
+    await seedFact(AI, SAVED_CONCEPT, { text: `${TEXT_PREFIX}${randomUUID()} OTHER_DISTINCTIVE_MARKER` });
+    const ownText = `${TEXT_PREFIX}${randomUUID()} OWN_DISTINCTIVE_MARKER`;
+    const ownId = await seedFact(AI, SAVED_CONCEPT, { text: ownText });
 
     let capturedFactText: string | undefined;
-    const result = await runEnrichmentForFact(variantRow.id, {
+    const result = await runEnrichmentForFact(ownId, {
       classify: async (input) => {
         capturedFactText = input.factText;
-        return { ...AI, aiGenerationId: "gen-variant" };
+        return { ...AI, aiGenerationId: "gen-own" };
       },
     });
     assert.equal(result.ok, true);
-    assert.ok(capturedFactText?.includes("VARIANT_DISTINCTIVE_MARKER"), "the variant's own text must reach the classifier");
-    assert.ok(!capturedFactText?.includes("ROOT_DISTINCTIVE_MARKER"), "the root's text must never be concatenated in");
+    assert.ok(capturedFactText?.includes("OWN_DISTINCTIVE_MARKER"), "the fact's own text must reach the classifier");
+    assert.ok(!capturedFactText?.includes("OTHER_DISTINCTIVE_MARKER"), "another fact's text must never be concatenated in");
   });
 });
 
@@ -348,5 +349,97 @@ describe("GET /admin/facts list — override filters", () => {
     const ids = (res.body.facts as Array<{ id: number }>).map((f) => f.id);
     assert.equal(ids.includes(ovId), true);
     assert.equal(ids.includes(plainId), false);
+  });
+});
+
+// ─── Fact characters (PLAN_BUBBLE_SPEAKERS.md, E): a moderator's character
+// correction survives every re-enrichment writer. ─────────────────────────────
+
+describe("character-list correction survives re-enrichment", () => {
+  const MOM = [{ label: "mom", kind: "person" as const, ofSubject: true }];
+  const MARKER = { promptVersion: "v1", extractedAt: "2026-11-15T00:00:00.000Z" };
+
+  it("is accepted as a /characters override and wins over the AI list", async () => {
+    const id = await seedFact({ ...AI, characters: [{ label: "mother", kind: "person", ofSubject: true }], charactersExtraction: MARKER });
+    const put = await request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/characters", value: MOM });
+    assert.equal(put.status, 200);
+    assert.deepEqual((put.body.effective as FactEnrichment).characters, MOM);
+  });
+
+  it("refuses an invalid list (reserved word, token, duplicate)", async () => {
+    const id = await seedFact();
+    for (const bad of [
+      [{ label: "subject", kind: "person", ofSubject: false }],
+      [{ label: "{NAME}", kind: "person", ofSubject: false }],
+      [...MOM, { label: "Mom", kind: "person", ofSubject: true }],
+    ]) {
+      const put = await request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/characters", value: bad });
+      assert.equal(put.status >= 400, true, `expected refusal for ${JSON.stringify(bad)}`);
+    }
+  });
+
+  it("survives a sticky re-enrich when saved before the classifier call", async () => {
+    const id = await seedFact();
+    await request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/characters", value: MOM });
+    const result = await runEnrichmentForFact(id, {
+      classify: async () => ({ ...AI, characters: [], charactersExtraction: MARKER, aiGenerationId: "gen-2" }),
+    });
+    assert.equal(result.ok, true);
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    assert.deepEqual((row.enrichment as FactEnrichment).characters, MOM);
+  });
+
+  it("survives a sticky re-enrich when saved DURING the classifier call", async () => {
+    const id = await seedFact();
+    const result = await runEnrichmentForFact(id, {
+      classify: async () => {
+        // A moderator saves a correction while the (slow) classifier runs.
+        const put = await request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/characters", value: MOM });
+        assert.equal(put.status, 200);
+        return { ...AI, characters: [], charactersExtraction: MARKER, aiGenerationId: "gen-2" };
+      },
+    });
+    assert.equal(result.ok, true);
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    assert.deepEqual((row.enrichment as FactEnrichment).characters, MOM);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(row.enrichmentOverrides as object, "/characters"),
+      true,
+    );
+  });
+
+  it("passes the prior AI list to the classifier so a failed character call can keep it", async () => {
+    const id = await seedFact({ ...AI, characters: MOM, charactersExtraction: MARKER });
+    let seenPrior: unknown;
+    await runEnrichmentForFact(id, {
+      classify: async (input) => {
+        seenPrior = input.priorCharacters;
+        return { ...AI, aiGenerationId: "gen-2" };
+      },
+    });
+    assert.deepEqual((seenPrior as FactEnrichment).characters, MOM);
+    assert.deepEqual((seenPrior as FactEnrichment).charactersExtraction, MARKER);
+  });
+});
+
+describe("bulk re-enrich (fact_enrichment_backfill) keeps only the character correction", () => {
+  it("resets other overrides as before but keeps /characters, with and without force", async () => {
+    const { runFactEnrichmentBackfill } = await import("../lib/factEnrichmentBackfillJob.js");
+    const MOM = [{ label: "mom", kind: "person" as const, ofSubject: true }];
+    for (const force of [false, true]) {
+      const id = await seedFact();
+      await request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/characters", value: MOM });
+      await request(adminApp).put(`/api/admin/facts/${id}/enrichment-overrides`).send({ path: "/overhypeFit", value: "questionable" });
+      const result = await runFactEnrichmentBackfill(
+        { factId: id, forceOverwriteAdminEdited: force },
+        { classify: async () => ({ ...AI, aiGenerationId: "gen-bf" }) },
+      );
+      assert.equal(result.ok, true);
+      const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+      const ov = row.enrichmentOverrides as Record<string, unknown>;
+      assert.deepEqual(Object.keys(ov), ["/characters"], `force=${force}`);
+      assert.deepEqual((row.enrichment as FactEnrichment).characters, MOM);
+      assert.equal((row.enrichment as FactEnrichment).overhypeFit, "strong", "other overrides reset exactly as before");
+    }
   });
 });

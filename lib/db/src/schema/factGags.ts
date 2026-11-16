@@ -21,7 +21,7 @@ import { imagePromptAttemptsTable } from "./imagePromptAttempts";
  *
  * Two versions per gag:
  *   - approved: what users get, with three approved examples, one per subject
- *     kind (male, female, pet), in `fact_gag_examples` (migration 0142, plan
+ *     kind (male, female, pet), in `fact_gag_examples` (migration 0143, plan
  *     docs/plans/PLAN_GAG_EXAMPLES.md). A gag approved before example sets is
  *     grandfathered (`approved_before_example_sets`) and stays offered with
  *     fewer (David, 2026-11-15, Q11).
@@ -31,7 +31,7 @@ import { imagePromptAttemptsTable } from "./imagePromptAttempts";
  *     refresh is promoted (`pending_review_id` names the review).
  *
  * `approved_example_attempt_id` and `pending_example_attempt_id` are recovery
- * snapshots of the selections 0142 copied: nothing reads or writes them, and a
+ * snapshots of the selections 0143 copied: nothing reads or writes them, and a
  * later migration drops them.
  *
  * The rule "a live fact has at least one non-removed gag with an approved
@@ -46,13 +46,13 @@ export const factGagsTable = pgTable("fact_gags", {
 
   /** The approved version's content; null until first approved. */
   approvedContent: jsonb("approved_content"),
-  /** Recovery snapshot only (migration 0142): neither read nor written. */
+  /** Recovery snapshot only (migration 0143): neither read nor written. */
   approvedExampleAttemptId: bigint("approved_example_attempt_id", { mode: "number" })
     .references((): AnyPgColumn => imagePromptAttemptsTable.id),
   /** Set only by migration 0139: an approved version carried over with no example on record. */
   approvedCarriedOver: boolean("approved_carried_over").notNull().default(false),
   /**
-   * Approved before example sets (migration 0142): offered with fewer than
+   * Approved before example sets (migration 0143): offered with fewer than
    * three approved examples until it first completes a set (Q11).
    */
   approvedBeforeExampleSets: boolean("approved_before_example_sets").notNull().default(false),
@@ -63,7 +63,7 @@ export const factGagsTable = pgTable("fact_gags", {
   pendingContent: jsonb("pending_content"),
   /** The refresh review that owns the pending operations below; null outside a refresh. */
   pendingReviewId: integer("pending_review_id").references(() => pendingReviewsTable.id, { onDelete: "set null" }),
-  /** Recovery snapshot only (migration 0142): neither read nor written. */
+  /** Recovery snapshot only (migration 0143): neither read nor written. */
   pendingExampleAttemptId: bigint("pending_example_attempt_id", { mode: "number" })
     .references((): AnyPgColumn => imagePromptAttemptsTable.id),
   /** Inside a refresh: removal requested, applied at promotion. */
@@ -104,7 +104,7 @@ export const GAG_EXAMPLE_KINDS = ["male", "female", "pet"] as const;
 export type GagExampleKind = (typeof GAG_EXAMPLE_KINDS)[number];
 
 /**
- * A gag's examples (migration 0142): one moderator-approved test render per
+ * A gag's examples (migration 0143): one moderator-approved test render per
  * subject kind, per stage. "approved" rows belong to the approved version;
  * "pending" rows are picks for the pending content. The set rule spans both
  * tables, so it is a deferred constraint trigger (`enforce_gag_example_set`),

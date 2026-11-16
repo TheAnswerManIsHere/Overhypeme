@@ -10,7 +10,4 @@ import type { FactSummary } from "./factSummary";
 
 export type FactDetail = FactSummary & {
   links?: ExternalLink[];
-  /** @nullable */
-  parentId?: number | null;
-  variants?: FactSummary[];
 };

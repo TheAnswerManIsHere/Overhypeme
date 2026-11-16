@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import {
   CheckCircle, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
-  ExternalLink, ClipboardList, Loader2, AlertTriangle, GitBranch,
+  ExternalLink, ClipboardList, Loader2, AlertTriangle,
   MessageSquare, Trash2, User, Sparkles, RefreshCw, Rocket,
   CheckCheck, SlidersHorizontal, Wand2, Search,
 } from "lucide-react";
@@ -353,7 +353,7 @@ function StepIndicator({ step }: { step: WizardStep }) {
  *    "Approve for Production" (existing render gate) or "Back to Gags".
  *
  * Stage mapping:
- *  - triage_pending     → Step 1 only (provisional approve / variant / reject —
+ *  - triage_pending     → Step 1 only (provisional approve / reject —
  *    the ONLY stage a first-time submission can be rejected from).
  *  - prep_pending        → Step 1 + LIVE prep status, polled until terminal (rule 8).
  *  - prep_failed         → Step 1 + retry prep. Stays pending until it succeeds.
@@ -623,10 +623,9 @@ function ReviewModal({
     }
   }, [review.id, onActionDone, onClose]);
 
-  const onProvisionalApprove = (variant: boolean) => {
+  const onProvisionalApprove = () => {
     const body: Record<string, unknown> = { adminNote: note || undefined };
     if (wordingDirty) { setError("Save or undo the wording edit before accepting."); return; }
-    if (variant && wording.matchingFact) body.parentFactId = wording.matchingFact.id;
     void runAction("provisional-approve", body);
   };
   const onReject = async () => {
@@ -1063,6 +1062,7 @@ function ReviewModal({
               {stagingFactId > 0 && (
                 <GagsPanel
                   factId={stagingFactId}
+                  characters={enrichment?.characters}
                   reviewId={review.id}
                   rendersEnabled={false}
                   subjectNames={subjectNames}
@@ -1151,6 +1151,7 @@ function ReviewModal({
               {stagingFactId > 0 && (
                 <GagsPanel
                   factId={stagingFactId}
+                  characters={enrichment?.characters}
                   reviewId={review.id}
                   rendersEnabled
                   rendersExpected
@@ -1202,19 +1203,13 @@ function ReviewModal({
 
           {/* ── Stage-specific actions ── */}
           <div className="pt-2 border-t border-border space-y-3">
-            {/* Triage-step decisions: provisional approve / variant / reject. */}
+            {/* Triage-step decisions: provisional approve / reject. */}
             {!isResolved && step === "triage" && stage === "triage_pending" && (
               <div className="flex flex-wrap gap-3">
-                <Button onClick={() => onProvisionalApprove(false)} isLoading={loading} disabled={loading || wordingDirty}
+                <Button onClick={onProvisionalApprove} isLoading={loading} disabled={loading || wordingDirty}
                   className="bg-green-600 hover:bg-green-700 text-white gap-2">
                   <CheckCircle2 className="w-4 h-4" /> Provisional Approve — Start Prep
                 </Button>
-                {wording.matchingFact && (
-                  <Button variant="outline" onClick={() => onProvisionalApprove(true)} isLoading={loading} disabled={loading || wordingDirty}
-                    className="border-blue-500/50 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 gap-2">
-                    <GitBranch className="w-4 h-4" /> Prep as Variant of #{wording.matchingFact.id}
-                  </Button>
-                )}
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
                   <XCircle className="w-4 h-4" /> {rejectLabel}
@@ -1237,7 +1232,7 @@ function ReviewModal({
 
             {!isResolved && step === "triage" && stage === "prep_failed" && (
               <div className="flex flex-wrap gap-3">
-                <Button onClick={() => onProvisionalApprove(false)} isLoading={loading} disabled={loading || wordingDirty}
+                <Button onClick={onProvisionalApprove} isLoading={loading} disabled={loading || wordingDirty}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
                   <RefreshCw className="w-4 h-4" /> Retry Prep
                 </Button>

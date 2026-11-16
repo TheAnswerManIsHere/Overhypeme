@@ -3,7 +3,7 @@
  * @subsystem visual-pipeline
  *
  * Plan docs/plans/PLAN_GAG_EXAMPLES.md, sections A and B (David, 2026-11-15,
- * Q8 and Q11; migration 0142). A gag's examples live in `fact_gag_examples`,
+ * Q8 and Q11; migration 0143). A gag's examples live in `fact_gag_examples`,
  * one per kind (male, female, pet) per stage:
  *   - approved rows belong to the approved version users get;
  *   - pending rows are picks for the content being worked on.
@@ -38,7 +38,7 @@ export function emptyExamples(): GagExamples {
   return { approved: mapKinds(() => null), pending: mapKinds(() => null) };
 }
 
-/** A gag approved before example sets (migration 0142's marker, or carried over by 0139): offered without a complete set (Q11). */
+/** A gag approved before example sets (migration 0143's marker, or carried over by 0139): offered without a complete set (Q11). */
 export function isGrandfathered(gag: Pick<FactGag, "approvedBeforeExampleSets" | "approvedCarriedOver">): boolean {
   return gag.approvedBeforeExampleSets || gag.approvedCarriedOver;
 }

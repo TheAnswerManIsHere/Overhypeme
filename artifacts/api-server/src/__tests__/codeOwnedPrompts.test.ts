@@ -35,7 +35,6 @@ import {
   seedImagePromptConfig,
 } from "../lib/imagePromptConfig.js";
 import { REFERENCE_RESEARCH_SYSTEM_DEFAULT, getReferenceResearchSystem } from "../lib/referenceResearchConfig.js";
-import { SCENE_PROMPT_SYSTEM_DEFAULT, getScenePromptSystem } from "../lib/scenePromptConfig.js";
 import {
   FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT,
   getVisualConceptsSystem,
@@ -48,7 +47,6 @@ const READERS: Array<[string, () => Promise<string>, string]> = [
   ["fact_source_classifier_system", getFactSourceClassifierSystem, FACT_SOURCE_CLASSIFIER_SYSTEM_DEFAULT],
   ["fact_visual_concepts_system", getVisualConceptsSystem, FACT_VISUAL_CONCEPTS_SYSTEM_DEFAULT],
   ["reference_research_system", getReferenceResearchSystem, REFERENCE_RESEARCH_SYSTEM_DEFAULT],
-  ["scene_prompt_system", getScenePromptSystem, SCENE_PROMPT_SYSTEM_DEFAULT],
 ];
 const KEYS = READERS.map(([key]) => key);
 const ENGINE_KEYS = [...RETIRED_AI_ENGINE_CONFIG_KEYS];

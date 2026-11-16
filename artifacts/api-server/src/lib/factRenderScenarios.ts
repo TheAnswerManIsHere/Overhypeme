@@ -105,6 +105,10 @@ export interface ScenarioHashInputs {
  *                                   data, so removing an old chip never flips stale.
  *   - visualLiteralness / visualComplexity → visual-treatment directives
  *   - culturalReferences / semanticEntities → dedicated per-fact visual-context blocks
+ *   - characters                  → the planner's naming-context block (the fact's
+ *                                   characters and their exact labels). Its
+ *                                   `charactersExtraction` provenance marker is
+ *                                   NOT render-affecting and stays out.
  *   - visualPromptStrategyOverride → consumed by the compiler
  *
  * Excludes fields that DON'T feed the prompt: adminReviewNotes,
@@ -125,6 +129,9 @@ export function renderAffectingEnrichment(e: FactEnrichment): Record<string, unk
     visualComplexity: e.visualComplexity,
     culturalReferences: e.culturalReferences,
     semanticEntities: e.semanticEntities,
+    // Added only when non-empty, so a fact with no characters hashes exactly as
+    // before the field existed (its renders don't flip stale for nothing).
+    ...((e.characters ?? []).length > 0 ? { characters: e.characters } : {}),
     visualPromptStrategyOverride: e.visualPromptStrategyOverride ?? null,
   };
 }

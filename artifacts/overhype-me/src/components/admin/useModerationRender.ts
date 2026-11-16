@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /**
  * Drives "Render AI background" during fact moderation.
  *
- * Kicks a t2i render through the real Nano-Banana-2 pipeline
+ * Kicks a render from one fixed reference photo through the real pipeline
  * (`POST /api/admin/reviews/:id/render`) and polls the admin-gated status route
  * (`GET /api/admin/reviews/:id/renders/:renderJobId`) at ~1s with **no timeout**
  * (rule 8) until each attempt reaches a terminal state. A moderator can fire
@@ -46,6 +46,8 @@ export interface RenderAttempt {
 
 /** Controls the render endpoint accepts — mirrors the prompt-preview body. */
 export interface RenderControlsBody {
+  /** The fixed reference photo to render from; the server defaults to David's. */
+  referenceIdentityType?: "male" | "female" | "nonhuman_animal" | "nonhuman_object_vehicle";
   lookStyleId: string | null;
   previewName?: string;
   previewPronouns?: string;
@@ -53,7 +55,6 @@ export interface RenderControlsBody {
     aspectRatio: string;
     contentMode: string;
     negativeSpacePreference: string;
-    fallbackSubjectGender: string;
   };
   identityPolicyOverrides: { preservePhysique: boolean };
   meta: RenderAttemptMeta;
@@ -166,7 +167,7 @@ export function useModerationRender(reviewId: number | undefined) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subjectRenderMode: "t2i_fallback", ...payload }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

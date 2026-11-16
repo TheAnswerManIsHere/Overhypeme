@@ -25,11 +25,11 @@ import { analyzeSourceImage } from "../lib/sourceImageAnalysis";
 import { ImagePromptError } from "../lib/imagePrompt/generator";
 import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
 import { liveRecipeForEngine } from "../lib/imagePrompt/recipeStore";
-import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
 import { resolveReviewCycleEnrichment } from "../lib/moderationStaging";
 import { gagRenderInput, loadGags, primaryGag, workingContent, type GagContent } from "../lib/gags/resolver";
 import { currentImageEngineIds } from "../lib/imageEngineRouting.js";
 import { RenderStyleRefusedError } from "../lib/imagePrompt/styleResolution.js";
+import { NoUsablePhotoError, resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
 
 // Re-export the plan-generator test seam (now owned by the shared preview helper)
 // so existing tests importing it from this route keep working.
@@ -200,6 +200,10 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   } catch (err) {
     if (err instanceof RenderStyleRefusedError) {
       res.status(400).json({ error: err.code, message: err.message, styleId: err.styleId, reason: err.reason });
+      return;
+    }
+    if (err instanceof NoUsablePhotoError) {
+      res.status(400).json({ error: err.code, message: err.message, reasons: err.reasons });
       return;
     }
     throw err;

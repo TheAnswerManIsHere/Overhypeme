@@ -23,7 +23,7 @@
 --    promoted.
 --
 -- Idempotent; correct whichever of the runner and Replit's schema diff reaches
--- a database first. Reversal: lib/db/reverse/0142_gag_example_sets.reverse.sql,
+-- a database first. Reversal: lib/db/reverse/0143_gag_example_sets.reverse.sql,
 -- exact until examples are approved under the new model.
 
 CREATE TABLE IF NOT EXISTS "fact_gag_examples" (
@@ -103,7 +103,7 @@ BEGIN
   )
   SELECT count(*) INTO v_grandfathered FROM upd;
 
-  RAISE NOTICE '0142: copied % approved and % pending example(s); % selection(s) of a retired scenario not copied; % gag(s) grandfathered',
+  RAISE NOTICE '0143: copied % approved and % pending example(s); % selection(s) of a retired scenario not copied; % gag(s) grandfathered',
     v_approved, v_pending, v_unmapped, v_grandfathered;
 END $$;--> statement-breakpoint
 
@@ -133,7 +133,7 @@ BEGIN
   IF g.removed_at IS NOT NULL THEN
     RETURN NULL;
   END IF;
-  -- Grandfathered: approved before example sets (0142) or carried over by 0139.
+  -- Grandfathered: approved before example sets (0143) or carried over by 0139.
   IF g.approved_content IS NOT NULL AND NOT (g.approved_before_example_sets OR g.approved_carried_over) THEN
     SELECT count(DISTINCT subject_kind) INTO v_kinds
       FROM fact_gag_examples WHERE gag_id = v_gag AND stage = 'approved';

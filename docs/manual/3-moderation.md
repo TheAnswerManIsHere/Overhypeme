@@ -18,8 +18,7 @@
 
 ## What it does
 
-Every fact entering the system — a user submission or an admin/API [bulk import](../ai-context/glossary.md#bulk-import),
-including one an admin writes as a [variant](../ai-context/glossary.md#variant) of an existing fact — lands
+Every fact entering the system — a user submission or an admin/API [bulk import](../ai-context/glossary.md#bulk-import) — lands
 in a [review queue](../ai-context/glossary.md#review-queue), not the live catalogue. There is no other way in: a fact
 cannot be created directly. A
 moderator walks it through three gates — **[Triage](../ai-context/glossary.md#triage)**, **[Visual Concept](../ai-context/glossary.md#visual-concept)**, and

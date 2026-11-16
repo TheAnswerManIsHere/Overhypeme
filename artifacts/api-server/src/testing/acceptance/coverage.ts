@@ -128,11 +128,12 @@ export function operations(photoSha256: string): Operation[] {
       journey: "3",
       description: "image generation (the gag's male, female and pet renders)",
       kind: "fal.subscribe",
-      // The engines a render with no look is routed to (compiler review, Phase 1): GPT Image 2.6.
-      target: /^openai\/gpt-image-2\.6\/sunburst\/(text-to-image|edit)$/,
+      // The engine a render with no look is routed to (compiler review, Phase 1),
+      // and every picture starts from a photo (Phase 2): GPT Image 2.6's edit.
+      target: /^openai\/gpt-image-2\.6\/sunburst\/edit$/,
       matches: (r) => typeof r?.input?.prompt === "string" && r.input.prompt.length > 0,
       usable: (r) => typeof (r?.data?.images?.[0]?.url ?? r?.data?.image?.url) === "string",
-      min: 3,
+      min: 2,
       required: always,
     },
     { key: "reference-uploads", journey: "3", description: "reference images uploaded for the image-to-image renders", kind: "fal.storage.upload", target: /./, matches: (r) => r?.sha256 !== photoSha256, usable: always, min: 1, required: always },

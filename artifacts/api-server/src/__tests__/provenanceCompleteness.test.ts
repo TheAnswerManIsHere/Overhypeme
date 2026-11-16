@@ -32,6 +32,7 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 // The worker's credential gate needs a value; fal.subscribe is replaced below, so it is never used.
 process.env["FAL_AI_API_KEY"] = process.env["FAL_AI_API_KEY"] ?? "test-fal-key";

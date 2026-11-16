@@ -127,8 +127,8 @@ export async function runEnrichmentForFact(
   factId: number,
   deps: FactEnrichmentDeps = { classify: enrichFact },
 ): Promise<HandlerResult> {
-  // Load the fact text (a variant is classified from its own text only, same
-  // as a root) plus the override layers so re-classification stays STICKY: a
+  // Load the fact text (a fact is classified from its own text only) plus the
+  // override layers so re-classification stays STICKY: a
   // fresh AI baseline is computed but the manual overrides are preserved (the
   // fact's gags live in fact_gags and are untouched).
   const [factRow] = await db
@@ -160,9 +160,8 @@ export async function runEnrichmentForFact(
   // they/them) before passing to the classifier.
   const renderedFactText = renderCanonical(factRow.text);
 
-  // Classifier-input fingerprint (Plan v4 §E, narrowed for variant
-  // independence). A fact — root or variant — is classified from its own text
-  // only, so the identity is the fact's own raw text alone. If it changed
+  // Classifier-input fingerprint (Plan v4 §E). A fact is classified from its
+  // own text only, so the identity is the fact's own raw text alone. If it changed
   // during the (slow) classify call (a staging edit re-worded the fact), the
   // result is stale and must be discarded, even though the edit-side guards
   // normally block an edit while this job is non-terminal. This is the
@@ -179,7 +178,10 @@ export async function runEnrichmentForFact(
 
   let freshAiDerived: FactEnrichment;
   try {
-    freshAiDerived = await deps.classify({ factText: renderedFactText });
+    freshAiDerived = await deps.classify({
+      factText: renderedFactText,
+      priorCharacters: factRow.enrichmentAiDerived as FactEnrichment | null,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await db
@@ -191,20 +193,12 @@ export async function runEnrichmentForFact(
 
   // STICKY re-enrich: keep the existing overrides untouched (never refresh their
   // `overriddenFrom` — that is what lets us detect a baseline change) and
-  // rematerialize against the fresh baseline. The fact's gags live in fact_gags
-  // and are not touched by re-classification.
-  const overrides = (factRow.enrichmentOverrides ?? {}) as EnrichmentOverrides;
+  // rematerialize against the fresh baseline. The overrides are re-read under
+  // the row lock below, NOT taken from the pre-classify read, so a moderator
+  // correction saved during the (slow) classifier call survives
+  // (PLAN_BUBBLE_SPEAKERS.md, E). The fact's gags live in fact_gags and are not
+  // touched by re-classification.
   const priorAiDerived = (factRow.enrichmentAiDerived ?? null) as FactEnrichment | null;
-
-  // Audit only the not-changed → changed transitions (no per-re-enrich spam).
-  const before = priorAiDerived ? computeBaselineChangedPaths(priorAiDerived, overrides) : [];
-  const after = computeBaselineChangedPaths(freshAiDerived, overrides);
-  const newlyChanged = after.filter((p) => !before.includes(p));
-
-  const { columns } = materializeEnrichment({
-    aiDerived: freshAiDerived,
-    overrides,
-  });
 
   // Transactional RE-check before the write (mirrors the candidate job's
   // phase 3): the pre-classify guard can't cover state that changed DURING the
@@ -215,12 +209,13 @@ export async function runEnrichmentForFact(
   // send-back waits and seeds its candidate from the freshly-written active.
   const wrote = await db.transaction(async (tx) => {
     const [locked] = await tx
-      .select({ id: factsTable.id, text: factsTable.text })
+      .select({ id: factsTable.id, text: factsTable.text, enrichmentOverrides: factsTable.enrichmentOverrides })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
       .for("update")
       .limit(1);
     if (!locked) return false;
+    const overrides = (locked.enrichmentOverrides ?? {}) as EnrichmentOverrides;
     const recheck = await resolveGenericFactEnrichmentDecision(factId, tx);
     if (recheck.action === "skip") {
       logger.info(
@@ -246,6 +241,11 @@ export async function runEnrichmentForFact(
     // that's refresh-first). Use the RECHECK's mode (observed under the lock),
     // with the pre-classify signature VALUE captured above.
     const stampSignature = recheck.mode === "first_time_staging";
+    // Audit only the not-changed → changed transitions (no per-re-enrich spam).
+    const before = priorAiDerived ? computeBaselineChangedPaths(priorAiDerived, overrides) : [];
+    const after = computeBaselineChangedPaths(freshAiDerived, overrides);
+    const newlyChanged = after.filter((p) => !before.includes(p));
+    const { columns } = materializeEnrichment({ aiDerived: freshAiDerived, overrides });
     await tx
       .update(factsTable)
       .set({
@@ -301,6 +301,7 @@ export async function runEnrichmentForCandidateVersion(
       status: factEnrichmentVersionsTable.status,
       sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
       overrides: factEnrichmentVersionsTable.enrichmentOverrides,
+      aiDerived: factEnrichmentVersionsTable.enrichmentAiDerived,
       visualOverride: factEnrichmentVersionsTable.visualOverride,
     })
     .from(factEnrichmentVersionsTable)
@@ -330,7 +331,10 @@ export async function runEnrichmentForCandidateVersion(
   // ── Phase 2: LLM classification (no locks held) ──
   let freshAiDerived: FactEnrichment;
   try {
-    freshAiDerived = await deps.classify({ factText: renderCanonical(factRow.text) });
+    freshAiDerived = await deps.classify({
+      factText: renderCanonical(factRow.text),
+      priorCharacters: v0.aiDerived as FactEnrichment | null,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Reflect failure on the live fact's pill; leave the cycle prep_pending so
@@ -339,18 +343,26 @@ export async function runEnrichmentForCandidateVersion(
     return { ok: false, error: `classify: ${msg}` };
   }
 
-  const overrides = (v0.overrides ?? {}) as EnrichmentOverrides;
-  const { columns } = materializeEnrichment({ aiDerived: freshAiDerived, overrides });
-
   // ── Phase 3: transactional recheck + write ──
+  // Overrides are re-read under the version-row lock (not the preflight read),
+  // so a moderator correction saved during the classifier call survives
+  // (PLAN_BUBBLE_SPEAKERS.md, E).
   const { advancedReviewId } = await db.transaction(async (tx): Promise<{ advancedReviewId: number | null }> => {
     const [v1] = await tx
-      .select({ status: factEnrichmentVersionsTable.status, sourceReviewId: factEnrichmentVersionsTable.sourceReviewId })
+      .select({
+        status: factEnrichmentVersionsTable.status,
+        sourceReviewId: factEnrichmentVersionsTable.sourceReviewId,
+        overrides: factEnrichmentVersionsTable.enrichmentOverrides,
+      })
       .from(factEnrichmentVersionsTable)
       .where(eq(factEnrichmentVersionsTable.id, versionId))
       .for("update")
       .limit(1);
     if (!v1 || v1.status !== "candidate" || v1.sourceReviewId == null) return { advancedReviewId: null }; // rejected/superseded mid-run → no-op
+    const { columns } = materializeEnrichment({
+      aiDerived: freshAiDerived,
+      overrides: (v1.overrides ?? {}) as EnrichmentOverrides,
+    });
     const [rev1] = await tx
       .select({ stage: pendingReviewsTable.workflowStage })
       .from(pendingReviewsTable)

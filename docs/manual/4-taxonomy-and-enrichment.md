@@ -26,12 +26,10 @@ is a separate concern, owned by the [Visual Concept](../ai-context/glossary.md#v
 (see [`visual-pipeline.md`](../ai-context/visual-pipeline.md)) — this area only answers
 "what kind of joke is this, and is it safe/on-brand?"
 
-**A [variant](../ai-context/glossary.md#variant) is classified entirely on its own wording.** A variant fact
-(alternate phrasing of the same joke as a "[root](../ai-context/glossary.md#root)" fact, linked for kinship and
-show/hide grouping only) gets its own enrichment, taxonomy, Visual Concept,
-and images — never its root's. Re-wording a root does **not** invalidate or
-[re-enrich](../ai-context/glossary.md#re-enrich) its variants. See *Variants are independent facts* in the
-[deep-spec doc](../ai-context/taxonomy-and-enrichment.md#variants-are-independent-facts).
+**Every fact is classified entirely on its own wording.** Each fact has its
+own enrichment, taxonomy, gags and images; nothing links one fact to another.
+See *Every fact stands alone* in the
+[deep-spec doc](../ai-context/taxonomy-and-enrichment.md#every-fact-stands-alone).
 
 ## How it works
 
@@ -93,11 +91,6 @@ the Stale-for-reprocess card. Sending a fact back:
   its own.** This holds no matter how many facts are queued at once: bulk
   send-back is strictly a faster way to *queue* refreshes, never a way to
   skip the humans reviewing them.
-- Works the same whether or not the fact has active variants. Root facts with
-  active variants used to be blocked from bulk send-back, on the assumption
-  that refreshing a root could invalidate its variants' classification —
-  that assumption no longer holds now that a variant classifies from its own
-  text only, so the block was removed.
 
 ### Staleness has two different meanings
 

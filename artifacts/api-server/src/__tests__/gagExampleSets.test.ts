@@ -3,7 +3,7 @@
  * Testing Plan items 2, 3, 5, 7a and 7b; the per-kind refusals of item 1 and
  * the refresh picks of item 4 are in routes.gags.test.ts, the gate of item 6
  * in routes.reviews.test.ts, the migration of item 7 in
- * migration0142.gagExampleSets.test.ts):
+ * migration0143.gagExampleSets.test.ts):
  *
  *   - two concurrent completions of a set apply the change once;
  *   - a grandfathered gag stays offered while it gains examples, and stops

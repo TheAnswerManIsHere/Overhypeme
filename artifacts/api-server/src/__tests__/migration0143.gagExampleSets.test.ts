@@ -1,5 +1,5 @@
 /**
- * Migration 0142 (plan docs/plans/PLAN_GAG_EXAMPLES.md, "Data Model and
+ * Migration 0143 (plan docs/plans/PLAN_GAG_EXAMPLES.md, "Data Model and
  * Migration Impact"; Testing Plan item 7): a gag's examples move to
  * fact_gag_examples, one per subject kind, COPIED from the retained columns.
  *
@@ -14,12 +14,12 @@
  *   - the reverse script restores the prior structure exactly, and refuses once
  *     a set was approved or a migrated pick discarded or declined.
  *
- * The test database is built past 0142, so each order first recreates the
- * state 0142 runs on (no example table, no grandfathered column, the three old
+ * The test database is built past 0143, so each order first recreates the
+ * state 0143 runs on (no example table, no grandfathered column, the three old
  * checks as NOT VALID so other files' rows in this shard do not trip them).
  * Dropping the table loses other files' example rows; they have finished, and
  * the migration grandfathers their gags; those that completed a set are made
- * carried over first, as no pre-0142 row lacks both an example and that mark. `after` re-runs the migration, which
+ * carried over first, as no pre-0143 row lacks both an example and that mark. `after` re-runs the migration, which
  * is idempotent, so the shard ends in the built state whatever failed.
  */
 import { describe, it, before, after } from "node:test";
@@ -36,11 +36,11 @@ import { putExample } from "../lib/gags/examples.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
-const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0142_gag_example_sets.sql"), "utf8");
-const REVERSE_SQL = readFileSync(path.join(ROOT, "lib/db/reverse/0142_gag_example_sets.reverse.sql"), "utf8");
+const MIGRATION_SQL = readFileSync(path.join(ROOT, "lib/db/migrations/0143_gag_example_sets.sql"), "utf8");
+const REVERSE_SQL = readFileSync(path.join(ROOT, "lib/db/reverse/0143_gag_example_sets.reverse.sql"), "utf8");
 /** What Replit's schema diff applies before the runner: the structure, up to the data copy. */
 const SCHEMA_DIFF_SQL = MIGRATION_SQL.slice(0, MIGRATION_SQL.indexOf("-- Copy each existing selection"));
-const P = "t_0142_";
+const P = "t_0143_";
 const RUN = randomUUID().slice(0, 8);
 
 const gag = (scene: string) => ({ version: 1, coreSceneOverride: scene });
@@ -50,10 +50,10 @@ async function one<T>(q: ReturnType<typeof sql>): Promise<T> {
 }
 const rows = async <T>(q: ReturnType<typeof sql>) => (await db.execute(q)).rows as T[];
 
-/** The structure 0142 runs on. */
-async function toPre0142(): Promise<void> {
+/** The structure 0143 runs on. */
+async function toPre0143(): Promise<void> {
   // Other files' gags that completed a set under the new model hold no old
-  // example: no pre-0142 database has such a row, so they are made carried
+  // example: no pre-0143 database has such a row, so they are made carried
   // over, the state they would have arrived in. Its own statement: the live-fact
   // trigger it queues would block the ALTERs below in one transaction.
   await db.execute(sql`UPDATE fact_gags SET approved_carried_over = true
@@ -124,7 +124,7 @@ interface Seed {
   refreshingRetired: number; retiredReview: number;
 }
 
-/** The pre-0142 rows, as the old model wrote them. */
+/** The pre-0143 rows, as the old model wrote them. */
 async function seed(adminId: string, tag: string): Promise<Seed> {
   const f1 = await fact(`${tag} approved`);
   const approvedMaleAttempt = await attempt(f1, null, "i2i_male_default");
@@ -186,7 +186,7 @@ async function cleanup(): Promise<void> {
   await db.execute(sql`DELETE FROM users WHERE id LIKE ${P + "%"}`);
 }
 
-describe("migration 0142: a gag's examples, one per kind", () => {
+describe("migration 0143: a gag's examples, one per kind", () => {
   let adminId = "";
 
   before(async () => {
@@ -202,7 +202,7 @@ describe("migration 0142: a gag's examples, one per kind", () => {
   describe("the runner first", () => {
     let s: Seed;
     before(async () => {
-      await toPre0142();
+      await toPre0143();
       s = await seed(adminId, "runner");
       await db.execute(sql.raw(MIGRATION_SQL));
     });
@@ -224,7 +224,7 @@ describe("migration 0142: a gag's examples, one per kind", () => {
   describe("Replit's schema diff first, then the runner", () => {
     let s: Seed;
     before(async () => {
-      await toPre0142();
+      await toPre0143();
       s = await seed(adminId, "diff");
       await db.execute(sql.raw(SCHEMA_DIFF_SQL));
       await db.execute(sql.raw(MIGRATION_SQL));
@@ -265,7 +265,7 @@ describe("migration 0142: a gag's examples, one per kind", () => {
   describe("after the migration: a refresh discarded or declined, and the reverse", () => {
     let s: Seed;
     before(async () => {
-      await toPre0142();
+      await toPre0143();
       await cleanup();
       adminId = await adminUser();
       s = await seed(adminId, "reverse");

@@ -33,6 +33,7 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 function baseHashInputs(): ScenarioHashInputs {
@@ -162,6 +163,29 @@ describe("buildScenarioInputHash", () => {
     const withCustom = baseHashInputs();
     withCustom.enrichment = { ...ENRICHMENT, modifiers: ["grounded_realism", "custom_live_modifier"] };
     assert.notEqual(buildScenarioInputHash(a), buildScenarioInputHash(withCustom));
+  });
+});
+
+describe("buildScenarioInputHash — fact characters (PLAN_BUBBLE_SPEAKERS.md, A)", () => {
+  const MOM = [{ label: "mom", kind: "person" as const, ofSubject: true }];
+  it("changes when the character list changes (the planner reads it)", () => {
+    const a = buildScenarioInputHash(baseHashInputs());
+    const b = buildScenarioInputHash({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, characters: MOM } });
+    assert.notEqual(a, b);
+  });
+  it("does NOT change for an empty list (hashes exactly as before the field existed)", () => {
+    const a = buildScenarioInputHash(baseHashInputs());
+    const b = buildScenarioInputHash({ ...baseHashInputs(), enrichment: { ...ENRICHMENT, characters: [] } });
+    assert.equal(a, b);
+  });
+  it("does NOT change when only the extraction marker changes", () => {
+    const withList = { ...ENRICHMENT, characters: MOM };
+    const a = buildScenarioInputHash({ ...baseHashInputs(), enrichment: withList });
+    const b = buildScenarioInputHash({
+      ...baseHashInputs(),
+      enrichment: { ...withList, charactersExtraction: { promptVersion: "v1", extractedAt: "2026-11-15T00:00:00.000Z" } },
+    });
+    assert.equal(a, b);
   });
 });
 

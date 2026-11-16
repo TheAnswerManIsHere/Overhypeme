@@ -829,7 +829,7 @@ A request with no recording fails with `[ai-double] no recording for …`; it
 never reaches a vendor. Generated images come back as small `data:` URLs, so
 the real download, probe and storage path runs with no network.
 `AI_DOUBLE_FAIL=<kind>:<target>` (for example
-`fal.subscribe:openai/gpt-image-2.6/sunburst/text-to-image`) makes that operation raise the vendor
+`fal.subscribe:openai/gpt-image-2.6/sunburst/edit`) makes that operation raise the vendor
 error recorded for it.
 
 The recordings cover the baseline the driver walks

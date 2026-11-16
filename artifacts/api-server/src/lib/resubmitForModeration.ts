@@ -14,11 +14,6 @@
  * rides the unchanged enrichment → concept-review → production-review →
  * `activateFact` pipeline from there. The existing factId/history is reused —
  * this never creates a duplicate fact row.
- *
- * `parentId` for a variant is NOT threaded through here: it already lives on
- * `facts.parent_id` (untouched by deactivation) and `approveForProduction`
- * reads it from there at final approval, where `activateFact` revalidates it
- * as an active root exactly as it does for any other approval.
  */
 
 import { eq } from "drizzle-orm";
@@ -33,7 +28,6 @@ export type ResubmitForModerationErrorCode =
   | "FACT_NOT_FOUND"
   | "ALREADY_ACTIVE"
   | "REVIEW_ALREADY_IN_PROGRESS"
-  | "ORPHANED_PARENT"
   | "WORDING_WITHDRAWN";
 
 /** Typed failure from `resubmitInactiveFactForModeration`; the caller maps codes to HTTP. */
@@ -66,7 +60,7 @@ export async function resubmitInactiveFactForModeration(args: {
     // concurrent activation of this exact fact (unlikely — it's inactive —
     // but not impossible if two admins act at once) could race this check.
     const [fact] = await tx
-      .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive, parentId: factsTable.parentId, wordingWithdrawnAt: factsTable.wordingWithdrawnAt })
+      .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive, wordingWithdrawnAt: factsTable.wordingWithdrawnAt })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
       .for("update")
@@ -97,30 +91,11 @@ export async function resubmitInactiveFactForModeration(args: {
       );
     }
 
-    // pending_reviews.parent_fact_id has a real FK (ON DELETE SET NULL) —
-    // unlike facts.parent_id, which carries none. A hard-deleted root leaves
-    // its former children inactive with parent_id still pointing at the
-    // now-gone row (cascadeDeactivateActiveChildren only flips is_active, it
-    // never clears parent_id), so blindly copying that stale value into this
-    // INSERT would hit the FK and throw. Reject with a clear error instead of
-    // letting it fall through to a 500 — the admin must re-parent or promote
-    // this fact to a root (PATCH parentId) before it can be resubmitted.
-    if (fact.parentId != null) {
-      const [parent] = await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, fact.parentId)).limit(1);
-      if (!parent) {
-        throw new ResubmitForModerationError(
-          "ORPHANED_PARENT",
-          `This fact's parent (#${fact.parentId}) no longer exists. Re-parent it or promote it to a root before resubmitting.`,
-        );
-      }
-    }
-
     const [review] = await tx
       .insert(pendingReviewsTable)
       .values({
         submittedText: fact.text,
         submittedById: null,
-        parentFactId: fact.parentId,
         status: "pending",
         workflowStage: "triage_pending",
         stagingFactId: factId,
@@ -132,7 +107,6 @@ export async function resubmitInactiveFactForModeration(args: {
 
     await prepareFirstTimeStagingPrep(tx, {
       review: { id: review!.id, submittedText: fact.text, submittedById: null, stagingFactId: factId },
-      parentFactId: fact.parentId,
       reviewedById: adminId,
     });
 

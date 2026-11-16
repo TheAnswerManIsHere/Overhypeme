@@ -25,7 +25,9 @@ import {
   type PerKind,
   type RenderScenarioCard,
   type VisualPromptStrategyOverride,
+  type FactCharacter,
 } from "@workspace/api-zod";
+import { FactCharactersContext } from "@/components/admin/FactCharactersContext";
 import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 import { BubbleEditor } from "@/components/admin/BubbleEditor";
 import { VisualStrategyOverridePanel } from "@/components/admin/EnrichmentEditor";
@@ -66,6 +68,8 @@ export interface GagsPanelProps {
   rendersExpected?: boolean;
   /** Names the tokenizer should recognise as the subject. */
   subjectNames: string[];
+  /** The fact's effective character list — the speaker choices in every bubble editor here. */
+  characters?: readonly FactCharacter[];
   /** Bump to reload the view (an action elsewhere changed the gags). */
   reloadKey?: number;
   /** Called with every view the panel loads. */
@@ -85,7 +89,17 @@ function sameContent(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
-export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false }: GagsPanelProps) {
+export function GagsPanel(props: GagsPanelProps) {
+  return (
+    <FactCharactersContext.Provider value={props.characters ?? NO_CHARACTERS}>
+      <GagsPanelBody {...props} />
+    </FactCharactersContext.Provider>
+  );
+}
+
+const NO_CHARACTERS: readonly FactCharacter[] = [];
+
+function GagsPanelBody({ factId, reviewId, rendersEnabled, rendersExpected = false, subjectNames, reloadKey = 0, onView, onUnsavedChange, disabled = false }: GagsPanelProps) {
   const [view, setView] = useState<FactGagsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // A new gag's draft kept from before a reload opens the new-gag card again.

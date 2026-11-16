@@ -17,6 +17,7 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
   // Current version so the regenerate-preview guard treats this fixture as
   // up-to-date and exercises the happy path. A separate test covers the stale case.
   classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,

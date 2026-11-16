@@ -209,11 +209,23 @@ describe("migration 0139: every gag in one place", () => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      // Reverses run newest first: 0142's example table depends on fact_gags.
-      // Its own reverse is tested in migration0142.gagExampleSets.test.ts and
+      // Reverses run newest first: 0143's example table depends on fact_gags.
+      // Its own reverse is tested in migration0143.gagExampleSets.test.ts and
       // refuses on other files' example sets in this shared database, so the
       // table is dropped directly here.
       await client.query("DROP TABLE IF EXISTS fact_gag_examples");
+      // The reverse refuses when any gag in the database was touched after the
+      // migration, by design. Other test files in this shard leave gags behind,
+      // so inside this rolled-back transaction theirs are made to read as the
+      // migration left them; only this file's gags decide the outcome.
+      await client.query("ALTER TABLE fact_gags DISABLE TRIGGER ALL");
+      const mine = "fact_id IN (SELECT id FROM facts WHERE text LIKE $1)";
+      await client.query(`DELETE FROM fact_gags WHERE slot <> 1 AND NOT ${mine}`, [P + "%"]);
+      await client.query(
+        `UPDATE fact_gags SET created_by = NULL, approved_example_attempt_id = NULL, removed_at = NULL,
+           updated_at = created_at, approved_carried_over = true WHERE NOT ${mine}`,
+        [P + "%"],
+      );
       await client.query(REVERSE_SQL);
       const f = await client.query("SELECT id, enrichment FROM facts WHERE text LIKE $1", [P + "%"]);
       const byId = new Map(f.rows.map((r: { id: number; enrichment: Record<string, unknown> }) => [r.id, r.enrichment]));
@@ -225,7 +237,7 @@ describe("migration 0139: every gag in one place", () => {
       assert.deepEqual(c.rows[0].visual_override, ov("{NAME} new scene."));
       const t = await client.query("SELECT to_regclass(quote_ident(current_schema()) || '.fact_gags') AS t");
       assert.equal(t.rows[0].t, null);
-      const k = await client.query("SELECT 1 FROM pg_constraint WHERE conname = 'facts_active_requires_concept'");
+      const k = await client.query("SELECT 1 FROM pg_constraint WHERE conname = 'facts_active_requires_concept' AND connamespace = current_schema()::regnamespace");
       assert.equal(k.rowCount, 1, "the old CHECK is back");
     } finally {
       await client.query("ROLLBACK");

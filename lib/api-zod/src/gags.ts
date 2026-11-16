@@ -123,7 +123,7 @@ export interface GagView {
   /** The approved version's examples, per kind (all three unless grandfathered). */
   approvedExamples: PerKind<GagExample | null>;
   /**
-   * Approved before example sets (migration 0142, Q11): offered with fewer than
+   * Approved before example sets (migration 0143, Q11): offered with fewer than
    * three examples until it first completes a set.
    */
   grandfathered: boolean;

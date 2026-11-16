@@ -194,7 +194,8 @@ beside the eval run rather than inside it (plan
 - **Results** (`/admin/eval/results?sets=…`, `GET
   /api/admin/comparison/results?setIds=…`) reveal the engines, across one or
   more sets so rounds 1 and 2 read together: each family's average score by
-  mode (the leader of text-to-image and of reference edit, ties shown), by
+  mode (the leader of text-to-image, from sets drawn before every picture
+  started from a photo, and of reference edit, ties shown), by
   style and by scenario; how many of each engine's images were lost for good
   on judged panels, each counting as a 1 in its averages (David, 2026-11-10);
   each engine's median and slowest time per picture, from its request reaching
@@ -410,6 +411,22 @@ the actual compiler and a proof test asserts the split still fits:
      + PROMPT_OUTER_MARGIN           (750, safety slack)
 ```
 
+**Speaker bindings (bubble speakers, Issue #968).** For each non-subject bubble
+speaker the compiler leads the bubble section with a short binding —
+`mom: the older woman in the red coat.` — so the speaker's label stays tied
+to a visible character even when the scene already describes her (ROLE
+DETAILS drops an entry whose role the scene covers) and even when the gag's
+Scene Role Assignments leave her out (they replace the planner's character
+list wholesale; the binding is then taken from the plan). The planner is
+told the fact's characters as naming context and must list every bubble
+speaker in `secondaryCharacters` under its exact label. Each binding is
+capped (`SPEAKER_BINDING_ROLE_MAX_CHARS` 80), four at most, so the total
+(`SPEAKER_BINDINGS_RENDERED_MAX` 576) fits inside the outer margin with the
+§10.4 minimum left — no other pool shrinks, and an arithmetic guard in
+`promptBudget.ts` says so. `bubble_entity_unresolved` is judged on what was
+emitted. The bubble directives themselves are unchanged
+(`IMAGE_PROMPT_GENERATION_VERSION` v9).
+
 The additions measurement **excludes bubbles** and the bubble measurement
 carries **only** bubbles, so the two pools can never double-count. The 900
 pool fits 2–3 maximum-length bubbles or 4 realistic ones (the compact
@@ -481,17 +498,34 @@ a genuine provider/timeout failure stays retryable), `compile_failed`,
 successful later attempt and surfaced together in the render-poll payload
 (`buildRenderStatusPayload`) so the UI never parses a "code: message" string.
 
-## Text-to-image vs image-to-image
+## Every picture starts from a photo
 
-`SUBJECT_RENDER_MODE_VALUES` (`lib/api-zod/src/imagePromptGeneration.ts`):
+The compiler review, Phase 2 (David, 2026-11-14; [`decisions.md`](./decisions.md)):
+no part of the product draws a picture without a reference photo.
+`SUBJECT_RENDER_MODE_VALUES` (`lib/api-zod/src/imagePromptGeneration.ts`)
+still lists three values, because stored attempts carry all three:
 
 - `human_identity_i2i` — preserve a recognizable human face (reference image).
 - `nonhuman_subject_i2i` — preserve an uploaded non-human subject.
-- `t2i_fallback` — no reference; uses `fallbackSubjectGender`.
+- `t2i_fallback` — **retired**: no reference. Refused when an attempt is
+  queued (`NoPhotoRenderRefusedError`, `no_photo_render_retired`) and again in
+  the worker; the compiler's dispatch throws on it. Old attempts keep the
+  value and their readers keep its label.
 
-`tier2Heuristics.ts` suggests the mode from image analysis.
-`generationModeFromSubjectRenderMode` maps
-`t2i_fallback → "t2i"`, everything else → `"i2i"`.
+`tier2Heuristics.ts` suggests the mode from image analysis. A photo it cannot
+use (no clear face or subject) is refused by the render-review path with
+`NoUsablePhotoError` (`no_usable_photo`, the analysis's own reasons), asking
+for a better photo, never drawn as an invented person. The planner's brief
+and its output contract name the two photo modes only, and are engine-neutral:
+the engine is chosen after planning, by look. Moderation's required renders
+are David's photo (`i2i_male_default`) and his wife's (`i2i_female_default`,
+rendered as Susan Franklin, she/her); the animal (the cat) and object
+scenarios stay conditional. `generic_t2i` is retired: never offered, run or
+required, and a render it already made stays on the grid outside the tally.
+The comparison's round 1 draws photo panels only (12 panels, 72 cells). The
+legacy AI-background generator (`fact_ai_meme_backfill`) is retired: its
+route answers 410, its button and script are gone, and its queue's handler
+ends a leftover job without generating.
 
 ## Which engine draws a render
 
@@ -547,7 +581,8 @@ or `nano-banana-2-edit` by string. Now:
   preview is 1K. The chosen settings are stored on the attempt
   (`request_settings`).
 - **The catalogue holds the Phase 8 candidates as pairs** sharing a `family`
-  (one text-to-image, one edit): GPT Image 2.6 Sunburst at high reasoning (in
+  (one text-to-image, one edit; only the edit draws now, since every picture
+  starts from a photo): GPT Image 2.6 Sunburst at high reasoning (in
   place of 2.5, whose pair stays in the catalogue unused; David, 2026-11-10),
   Nano Banana 2.1, FLUX 3 Image, Seedream 5.0 Pro and Meta Muse Image, beside
   the Nano Banana 2 control.
@@ -572,7 +607,7 @@ classification joined with one gag's content (`gagRenderInput`,
   and may carry a pending change. Saving writes the pending change; it changes
   nothing users get until a moderator approves its **male, female and pet**
   test renders as the gag's **examples** (`approveGagRender`; plan
-  `docs/plans/PLAN_GAG_EXAMPLES.md`, migration 0142). Each render must be
+  `docs/plans/PLAN_GAG_EXAMPLES.md`, migration 0143). Each render must be
   finished, unstyled, drawn from exactly that content and of its kind's
   scenario. Outside a refresh the third approval applies the change and its set
   in one transaction (`applyPendingSetIfComplete`, `lib/gags/examples.ts`).

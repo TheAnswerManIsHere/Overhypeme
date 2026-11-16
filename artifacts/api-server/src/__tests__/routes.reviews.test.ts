@@ -6,8 +6,7 @@
  * - GET /admin/reviews + /count (admin auth and read)
  * - GET /admin/reviews/:id (admin auth, 400 / 404 / success)
  * - POST /admin/reviews/:id/reject (admin auth, 404 / 409 / success)
- * - POST /admin/reviews/:id/approve-variant (admin auth, 404 / 409,
- *   parent-not-found, success)
+ * - POST /admin/reviews/:id/approve-variant is gone with variants (404)
  * - GET /activity-feed + /mark-read (user auth)
  *
  * The full /approve success path is left out — it needs external API access.
@@ -54,6 +53,7 @@ const VALID_APPROVAL_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 } as FactEnrichment;
 
 // A fact's gag lives in fact_gags (migration 0139), not in its enrichment.
@@ -406,7 +406,6 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
 
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
     assert.equal(fact.isActive, false, "staging fact must be inactive");
-    assert.equal(fact.parentId, null);
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.workflowStage, "prep_pending");
@@ -436,37 +435,6 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     assert.equal(facts.length, 1, "no second staging fact");
     const jobs = await enrichmentJobsForFact(stagingFactId);
     assert.equal(jobs.length, 1, "no duplicate enrichment job");
-  });
-
-  it("as variant: sets parentId and still enqueues fact-backed enrichment", async () => {
-    const adminId = await createTestUser({ isAdmin: true });
-    const submitterId = await createTestUser();
-    const sid = await bearerForUser(adminId, { isAdmin: true });
-    const parent = await insertLiveFact({ text: "{NAME} parent", submittedById: adminId, enrichment: VALID_APPROVAL_ENRICHMENT }, GAG);
-    const reviewId = await seedTriageReview(submitterId);
-
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/provisional-approve`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parent.id });
-    assert.equal(res.status, 200);
-    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, res.body.stagingFactId));
-    assert.equal(fact.parentId, parent.id);
-    assert.equal(fact.isActive, false);
-    const jobs = await enrichmentJobsForFact(res.body.stagingFactId);
-    assert.equal(jobs.length, 1);
-  });
-
-  it("returns 404 when the variant parent is missing/inactive", async () => {
-    const adminId = await createTestUser({ isAdmin: true });
-    const submitterId = await createTestUser();
-    const sid = await bearerForUser(adminId, { isAdmin: true });
-    const reviewId = await seedTriageReview(submitterId);
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/provisional-approve`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: 999999 });
-    assert.equal(res.status, 404);
   });
 
   it("returns 409 for a terminal (already-decided) review", async () => {
@@ -732,73 +700,15 @@ describe("POST /admin/reviews/:id/reject", () => {
   });
 });
 
-describe("POST /admin/reviews/:id/approve-variant", () => {
-
-  it("returns 400 when parentFactId is missing", async () => {
+describe("POST /admin/reviews/:id/approve-variant — retired with variants", () => {
+  it("no longer exists", async () => {
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
     const res = await request(makeApp())
       .post("/admin/reviews/1/approve-variant")
       .set("authorization", `Bearer ${sid}`)
-      .send({});
-    assert.equal(res.status, 400);
-  });
-
-  it("returns 404 when the review doesn't exist", async () => {
-    const adminId = await createTestUser({ isAdmin: true });
-    const sid = await bearerForUser(adminId, { isAdmin: true });
-    const res = await request(makeApp())
-      .post("/admin/reviews/999999/approve-variant")
-      .set("authorization", `Bearer ${sid}`)
       .send({ parentFactId: 1 });
     assert.equal(res.status, 404);
-  });
-
-  it("returns 404 when the parent fact doesn't exist", async () => {
-    const adminId = await createTestUser({ isAdmin: true });
-    const submitterId = await createTestUser();
-    const sid = await bearerForUser(adminId, { isAdmin: true });
-
-    // A prepped review (production_review + staging fact) so the request reaches
-    // the parent-fact check rather than the stage gate.
-    const [staging] = await db.insert(factsTable).values({
-      text: "variant attempt", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
-    }).returning();
-    await addGag(staging.id);
-    const [r] = await db.insert(pendingReviewsTable).values({
-      submittedText: "variant attempt",
-      submittedById: submitterId,
-      status: "pending",
-      workflowStage: "production_review",
-      stagingFactId: staging.id,
-      enrichment: VALID_APPROVAL_ENRICHMENT,
-      enrichmentStatus: "ok",
-    }).returning();
-
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${r.id}/approve-variant`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: 999999 });
-    assert.equal(res.status, 404);
-    assert.match(res.body.error, /not found or inactive/);
-  });
-
-  it("returns 409 when the review has already been decided", async () => {
-    const adminId = await createTestUser({ isAdmin: true });
-    const submitterId = await createTestUser();
-    const sid = await bearerForUser(adminId, { isAdmin: true });
-
-    const [r] = await db.insert(pendingReviewsTable).values({
-      submittedText: "already-approved",
-      submittedById: submitterId,
-      status: "approved",
-    }).returning();
-
-    const res = await request(makeApp())
-      .post(`/admin/reviews/${r.id}/approve-variant`)
-      .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: 1 });
-    assert.equal(res.status, 409);
   });
 });
 
@@ -812,19 +722,10 @@ describe("approval renderability gating", () => {
   // A review that has finished prep: it owns an inactive staging fact carrying
   // the effective enrichment, and sits at production_review — the precondition
   // for production approval.
-  async function seedPendingReviewWithParent(
+  async function seedPendingReview(
     enrichment: FactEnrichment = VALID_APPROVAL_ENRICHMENT,
-  ): Promise<{ reviewId: number; parentId: number; stagingFactId: number }> {
-    const adminId = await createTestUser({ isAdmin: true });
+  ): Promise<{ reviewId: number; stagingFactId: number }> {
     const submitterId = await createTestUser();
-    const [parent] = await db
-      .insert(factsTable)
-      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT })
-      .returning();
-    await db.transaction(async (tx) => {
-      await tx.insert(factGagsTable).values({ factId: parent!.id, slot: 1, approvedContent: GAG, approvedCarriedOver: true });
-      await tx.update(factsTable).set({ isActive: true }).where(eq(factsTable.id, parent!.id));
-    });
     const [staging] = await db
       .insert(factsTable)
       .values({
@@ -847,11 +748,11 @@ describe("approval renderability gating", () => {
         enrichmentStatus: "ok",
       })
       .returning();
-    return { reviewId: review.id, parentId: parent.id, stagingFactId: staging.id };
+    return { reviewId: review.id, stagingFactId: staging.id };
   }
 
   it("approves WITHOUT invoking the visual planner", async () => {
-    const { reviewId, parentId } = await seedPendingReviewWithParent();
+    const { reviewId } = await seedPendingReview();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
@@ -865,9 +766,9 @@ describe("approval renderability gating", () => {
     });
 
     const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/approve-variant`)
+      .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId });
+      .send({});
 
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.success, true);
@@ -879,16 +780,16 @@ describe("approval renderability gating", () => {
   });
 
   it("blocks approval (409 CONCEPT_MISSING) while the only gag lacks its examples, naming the missing kinds", async () => {
-    const { reviewId, parentId, stagingFactId } = await seedPendingReviewWithParent();
+    const { reviewId, stagingFactId } = await seedPendingReview();
     await db.delete(factGagsTable).where(eq(factGagsTable.factId, stagingFactId));
     await addGag(stagingFactId, "pending");
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
     const res = await request(makeApp())
-      .post(`/admin/reviews/${reviewId}/approve-variant`)
+      .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId, waiveVisualRenderIssues: true });
+      .send({ waiveVisualRenderIssues: true });
 
     assert.equal(res.status, 409, JSON.stringify(res.body));
     assert.equal(res.body.code, "CONCEPT_MISSING");
@@ -1044,36 +945,38 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     assert.equal(r.status, "pending");
   });
 
-  it("a variant review's approval activates the staging fact with parentId set to the parent fact (inactive before)", async () => {
+  it("approval activates the staging fact (inactive before) and tells the submitter in one wording", async () => {
     const submitterId = await createTestUser();
-    const parent = await insertLiveFact({
-      text: "{NAME} parent fact", submittedById: submitterId, enrichment: VALID_APPROVAL_ENRICHMENT,
-    }, GAG);
     const [staging] = await db.insert(factsTable).values({
       text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false,
-      parentId: parent.id, enrichment: VALID_APPROVAL_ENRICHMENT,
+      enrichment: VALID_APPROVAL_ENRICHMENT,
     }).returning();
     await addGag(staging.id);
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
-      workflowStage: "production_review", stagingFactId: staging.id, parentFactId: parent.id,
+      workflowStage: "production_review", stagingFactId: staging.id,
       enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
     }).returning();
     const adminId = await createTestUser({ isAdmin: true });
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
     const [before] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
-    assert.equal(before.isActive, false, "the variant is inactive before approval");
+    assert.equal(before.isActive, false, "the staging fact is inactive before approval");
 
     const res = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
       .send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal("parentFactId" in res.body, false);
 
     const [after] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
     assert.equal(after.isActive, true);
-    assert.equal(after.parentId, parent.id, "the activated variant must be nested under its parent fact");
+
+    const [entry] = await db.select().from(activityFeedTable)
+      .where(and(eq(activityFeedTable.userId, submitterId), eq(activityFeedTable.actionType, "review_approved")));
+    assert.equal(entry.message, "Your submitted fact was approved by an admin and added to the database!");
+    assert.deepEqual(entry.metadata, { reviewId: review.id, factId: staging.id, adminNote: null });
   });
 
   it("returns 409 CONCEPT_MISSING for a production_review with no approved gag, then 200 and an active fact once a gag is approved", async () => {

@@ -37,6 +37,8 @@ import {
   detectOwnedLanguage,
   serializeLiteralPromptString,
   BUBBLE_DIRECTIVE_LANGUAGE_RE,
+  SPEAKER_BINDING_ROLE_MAX_CHARS,
+  activeBubbleSpeakers,
   type VisualStrategyBubble,
 } from "@workspace/api-zod";
 import type {
@@ -99,8 +101,8 @@ function renderIdentityTokens(text: string, subject?: CompileArgs["renderedSubje
   return renderPersonalized(text, subject.name, subject.pronouns);
 }
 
-// The identity preambles are recipe pieces (`identity.person`, `identity.object`,
-// `identity.none`; `../recipe.ts`).
+// The identity preambles are recipe pieces (`identity.person`, `identity.object`;
+// `../recipe.ts`).
 
 // The compiler-owned RENDER STYLE default when no visual style is selected
 // (styleId absent or "none"). Medium-only, no lighting instruction — so it can
@@ -561,6 +563,54 @@ export function composeBubbleDirective(
  *  IN the compiled language (a balloon is in-scene graphic text, not an
  *  overlay caption). */
 
+/** Shorten a visual role to an identifying tag of at most `max` chars, cut at a word boundary. */
+export function shortSpeakerRole(visualRole: string, max: number = SPEAKER_BINDING_ROLE_MAX_CHARS): string {
+  const role = visualRole.trim().replace(/[.!?]+$/, "").replace(/\s+/g, " ");
+  if (role.length <= max) return role;
+  const cut = role.slice(0, max + 1);
+  const space = cut.lastIndexOf(" ");
+  return (space > 0 ? cut.slice(0, space) : role.slice(0, max)).replace(/[,;:\-–—\s]+$/, "");
+}
+
+/**
+ * Speaker bindings (PLAN_BUBBLE_SPEAKERS.md, F): for every non-subject bubble
+ * speaker that has a source, a short line tying its exact label to a visible
+ * character, so the engine knows who "mom" is even when the scene describes
+ * her without naming her (ROLE DETAILS drops an entry whose role the scene
+ * already covers, and its cap can cut one).
+ *
+ * Always emitted — never skipped because the label happens to appear in some
+ * other role text, which proves nothing about which person it means (Codex,
+ * PR #973 round 1). Source per speaker: the effective (post-precedence)
+ * character with that label — a moderator's Scene Role Assignment wins — else
+ * the planner's own character with that label, so a speaker the gag's roles
+ * leave out is still supplemented from the plan. Lines are bounded (label ≤ 60
+ * by schema, role ≤ SPEAKER_BINDING_ROLE_MAX_CHARS), so they fit
+ * SPEAKER_BINDINGS_RENDERED_MAX.
+ */
+export function composeSpeakerBindings(opts: {
+  speakers: readonly string[];
+  effective: ReadonlyArray<{ label: string; visualRole: string }>;
+  planned: ReadonlyArray<{ label: string; visualRole: string }>;
+}): { text: string; boundLabels: string[] } {
+  const lines: string[] = [];
+  const boundLabels: string[] = [];
+  const find = (list: ReadonlyArray<{ label: string; visualRole: string }>, key: string) =>
+    list.find((c) => c.label.trim().toLowerCase() === key && c.visualRole.trim());
+  for (const speaker of opts.speakers) {
+    const label = speaker.trim();
+    const key = label.toLowerCase();
+    if (!key) continue;
+    const source = find(opts.effective, key) ?? find(opts.planned, key);
+    if (!source) continue; // unbound — the bubble diagnostics warn
+    const role = shortSpeakerRole(source.visualRole);
+    if (!role) continue;
+    lines.push(`${label}: ${role}.`);
+    boundLabels.push(label);
+  }
+  return { text: lines.join(" "), boundLabels };
+}
+
 export interface BubbleDirectivesResult {
   text: string;
   warnings: PromptWarning[];
@@ -582,6 +632,13 @@ export function composeBubbleDirectives(opts: {
   subjectNoun: string;
   /** Effective non-subject character labels in the scene (post-precedence). */
   effectiveCharacterLabels: readonly string[];
+  /**
+   * Labels the compiled prompt actually ties to a visible character (a speaker
+   * binding, or a required ROLE DETAILS clause). When given, "unresolved" is
+   * judged against THESE — what the engine receives — not the planner's array
+   * (PLAN_BUBBLE_SPEAKERS.md, F). Ambiguity still reads the effective labels.
+   */
+  boundLabels?: readonly string[];
   renderText: (text: string) => string;
   /** The global wording; omitted means the baseline. */
   recipe?: ResolvedRecipe;
@@ -592,6 +649,7 @@ export function composeBubbleDirectives(opts: {
   const normalizedLabels = opts.effectiveCharacterLabels
     .map((l) => l.trim().toLowerCase())
     .filter(Boolean);
+  const bound = opts.boundLabels ? new Set(opts.boundLabels.map((l) => l.trim().toLowerCase())) : null;
 
   opts.bubbles.forEach((bubble, i) => {
     const entity = bubble.entity.trim();
@@ -601,7 +659,8 @@ export function composeBubbleDirectives(opts: {
     const who = isSubject ? opts.subjectNoun : entity;
     if (!isSubject) {
       const matches = normalizedLabels.filter((l) => l === entity.toLowerCase()).length;
-      if (matches === 0) {
+      const unresolved = bound ? !bound.has(entity.toLowerCase()) : matches === 0;
+      if (unresolved) {
         warnings.push({
           code: "bubble_entity_unresolved",
           severity: "warning",
@@ -1205,19 +1264,12 @@ function assembleSections(
   return { prompt, breakdown, overflowBy };
 }
 
-type LabelKey = "coreScene" | "identityReference" | "renderTask" | "subjectBinding" | "subjectRealization" | "roleDetails" | "subjectDetails" | "requiredVisualDetails" | "environment" | "additionalDetails" | "bubbles" | "composition" | "lighting" | "engineNotes" | "renderStyle" | "strictConstraints";
+type LabelKey = "coreScene" | "identityReference" | "subjectBinding" | "subjectRealization" | "roleDetails" | "subjectDetails" | "requiredVisualDetails" | "environment" | "additionalDetails" | "bubbles" | "composition" | "lighting" | "engineNotes" | "renderStyle" | "strictConstraints";
 
 interface ModeContext {
   /** Operational mode/identity clause. Emitted right AFTER CORE SCENE — the
-   *  Visual Concept leads; identity/reference (i2i) or the render task (t2i)
-   *  follows it prominently. */
-  preamble: "identity.person" | "identity.object" | "identity.none";
-  /** Section label + id for that clause. Mode-aware because "IMAGE-TO-IMAGE
-   *  TASK" is wrong for the t2i (text-to-image) path. */
-  sectionLabel: "identityReference" | "renderTask";
-  sectionId: string;
-  /** The fallback protagonist gender (text-to-image only), emitted through `identity.gender`. */
-  gender?: string;
+   *  Visual Concept leads; identity/reference follows it prominently. */
+  preamble: "identity.person" | "identity.object";
   withReferenceUrl: boolean;
 }
 
@@ -1316,10 +1368,8 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // what the engine will actually read, nothing else.
   let haystack = coreScene;
 
-  // Identity / render-task clause — emitted right AFTER the scene. Operational:
-  // mode + identity/reference (i2i) or fallback-gender (t2i). Mode-aware label.
-  const clauses = mode.gender ? fillPiece(r, "identity.gender", { gender: mode.gender }) : "";
-  const taskBody = [fillPiece(r, mode.preamble), clauses].filter(Boolean).join(" ");
+  // Identity / reference clause — emitted right AFTER the scene.
+  const taskBody = fillPiece(r, mode.preamble);
   if (taskBody) haystack = `${haystack} ${taskBody}`;
 
   // SUBJECT BINDING (deterministic identity↔life-stage fusion; when applicable).
@@ -1421,13 +1471,25 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // token-before-escape contract), and deliberately NOT folded into the
   // de-dupe haystack: the directives are render instructions, not scene
   // description, and must never suppress staging language elsewhere.
+  const speakerBindings = composeSpeakerBindings({
+    speakers: activeBubbleSpeakers(activeBubbles),
+    effective: secondaryCharacters,
+    planned: aiSecondaryCharacters,
+  });
   const bubbleResult = composeBubbleDirectives({
     bubbles: activeBubbles,
     subjectNoun: bindingSubjectNoun(subjectName, bindingMode),
     effectiveCharacterLabels: secondaryCharacters.map((c) => c.label),
+    boundLabels: speakerBindings.boundLabels,
     renderText: (t) => renderIdentityTokens(t, args.renderedSubject),
     recipe: r,
   });
+  // The speaker bindings lead the bubble section: required and dedupe-exempt,
+  // so a picked speaker's identity survives both trimming stages. The bubble
+  // directives themselves are byte-identical to before.
+  const bubbleSectionBody = bubbleResult.text
+    ? [speakerBindings.text, bubbleResult.text].filter(Boolean).join(" ")
+    : "";
 
   // COMPOSITION — framing + camera + caption negative space, plus moderator
   // composition guidance.
@@ -1497,7 +1559,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
       compressible: !coreSceneModeratorAuthored,
       ...(coreSceneModeratorAuthored ? { moderatorAuthored: true } : {}),
     },
-    { id: mode.sectionId, label: L(mode.sectionLabel), text: labeled(r, L(mode.sectionLabel), taskBody), priority: "required" },
+    { id: "identity_reference", label: L("identityReference"), text: labeled(r, L("identityReference"), taskBody), priority: "required" },
     { id: "subject_binding", label: L("subjectBinding"), text: labeled(r, L("subjectBinding"), binding), priority: "required" },
     { id: "subject_realization", label: L("subjectRealization"), text: labeled(r, L("subjectRealization"), subjectRealization), priority: "required" },
     {
@@ -1515,7 +1577,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     {
       id: "bubbles",
       label: L("bubbles"),
-      text: labeled(r, L("bubbles"), bubbleResult.text),
+      text: labeled(r, L("bubbles"), bubbleSectionBody),
       priority: "required",
       dedupe: "none",
       ...(hasBubbles ? { moderatorAuthored: true } : {}),
@@ -1610,8 +1672,6 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 export function compileNanoBanana2HumanI2I(args: CompileArgs): CompiledImagePrompt {
   return compile(args, {
     preamble: "identity.person",
-    sectionLabel: "identityReference",
-    sectionId: "identity_reference",
     withReferenceUrl: true,
   });
 }
@@ -1622,20 +1682,7 @@ export function compileNanoBanana2NonhumanI2I(args: CompileArgs): CompiledImageP
   // duplicate the instruction.
   return compile(args, {
     preamble: "identity.object",
-    sectionLabel: "identityReference",
-    sectionId: "identity_reference",
     withReferenceUrl: true,
-  });
-}
-
-export function compileNanoBanana2T2I(args: CompileArgs): CompiledImagePrompt {
-  const gender = args.input.renderControls.fallbackSubjectGender;
-  return compile(args, {
-    preamble: "identity.none",
-    sectionLabel: "renderTask",
-    sectionId: "render_task",
-    ...(gender ? { gender } : {}),
-    withReferenceUrl: false,
   });
 }
 
@@ -1650,7 +1697,9 @@ export function compileForSubjectRenderMode(args: CompileArgs): CompiledImagePro
     case "nonhuman_subject_i2i":
       return compileNanoBanana2NonhumanI2I(args);
     case "t2i_fallback":
-      return compileNanoBanana2T2I(args);
+      // Every picture starts from a photo (compiler review, Phase 2): the queue
+      // and the worker refuse a no-photo render before it reaches here.
+      throw new Error("no-photo renders are retired: every picture starts from a photo");
     default: {
       const exhaustive: never = args.input.subjectRenderMode;
       throw new Error(`Unknown subjectRenderMode: ${exhaustive}`);

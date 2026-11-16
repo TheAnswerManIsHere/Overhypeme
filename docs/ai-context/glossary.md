@@ -10,7 +10,7 @@
 > commit.
 >
 > Many entries are ordinary English words that mean something **specific**
-> here: *preview*, *grammar*, *recipe*, *root*, *lane*, *skipped*, *remove*.
+> here: *preview*, *grammar*, *recipe*, *lane*, *skipped*, *remove*.
 > Those are the ones worth checking even when you think you know them.
 
 ## Contents
@@ -56,33 +56,6 @@ fact reads as an absurd, over-the-top exaggeration about a person. Enrichment
 scores each fact's "overhype fit"; a weak fit is a signal for a moderator, not
 an automatic rejection.
 → [product-brief](./product-brief.md), [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
-
-### Variant
-
-A fact that expresses **the same concept** as another fact in slightly
-different words, linked by `facts.parent_id` to the **root**. The link exists
-to keep near-duplicate wordings from cluttering the browse surfaces while
-still letting a reader pick the phrasing that lands best for them. **It is
-not a third way facts get submitted** — a fact is submitted exactly two ways
-([submitter](#submitter) or [bulk import](#bulk-import)); becoming a variant
-is a link applied to a fact traveling that same funnel, at
-[Triage](#triage)'s "Prep as Variant of #N" (any positive-confidence
-duplicate match, not only one that crossed the submitter-facing warning
-threshold), from the [Facts editor](#facts-editor) writing one directly, or
-— outside review entirely — an admin reparenting an already-published fact
-via the Facts editor's Parent ID field. **A variant is otherwise a fully
-independent fact** — it owns its own memes, taxonomy/enrichment, Visual
-Concept, and AI images, and it inherits **no** metadata from its root.
-→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts),
-[2-content-lifecycle](../manual/2-content-lifecycle.md#variants-organizing-near-duplicate-wordings)
-
-### Root
-
-The primary example of a concept — a fact with no parent of its own. A variant
-points at a root; a variant *of a variant* is not allowed, so the target of a
-new variant always has to be a root. "Root" says nothing about quality or
-seniority beyond that: it is a position in the kinship link, not a rank.
-→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md#variants-are-independent-facts)
 
 ### Staging fact
 
@@ -226,13 +199,9 @@ before the check resolves reaches the server with no flag at all.
 ### Ingestion funnel
 
 The rule that a fact is submitted exactly two ways — user submission, bulk
-import — plus the admin variant route (an authoring convenience for the
-second, not a distinct kind of content), and that every route calls the
-*same* function to create a pending review. There is no fourth path in the
-running product, which is what makes "every fact gets reviewed" one promise
-instead of several. The admin Facts editor's direct reparenting is a
-separate mechanism that sits outside this funnel entirely — see
-[Variant](#variant).
+import — and that every route calls the *same* function to create a pending
+review. There is no third path in the running product, which is what makes
+"every fact gets reviewed" one promise instead of several.
 → [moderation-workflow](./moderation-workflow.md#the-ingestion-funnel--one-entrance)
 
 ---
@@ -416,7 +385,7 @@ a picker (launch Phase 7, which rebuilds the user AI-picture flow).
 ### Example
 
 A test render a moderator approved for a gag ("Approve this render"), one per
-subject kind ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)): **male, female and pet** (`fact_gag_examples`, migration 0142;
+subject kind ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)): **male, female and pet** (`fact_gag_examples`, migration 0143;
 plan `docs/plans/PLAN_GAG_EXAMPLES.md`). The third approved kind is what
 approves the gag's change. A gag approved before example sets is
 grandfathered: it stays offered with fewer than three until it completes a
@@ -702,10 +671,10 @@ override when the automatic read is wrong.
 
 One render variant of a gag, drawn from a committed reference photo. Since
 2026-11-15 a moderation render is one of three, each a **subject kind**:
-`i2i_male_default` (male), `i2i_female_default` (female) and
-`i2i_nonhuman_animal` (pet), and the approved one of each is the gag's example
-for that kind. The Generic (text-to-image) and object/vehicle scenarios are
-retired and stay readable as history. Each attempt is a durable
+`i2i_male_default` (male, David's photo), `i2i_female_default` (female, his
+wife's) and `i2i_nonhuman_animal` (pet), and the approved one of each is the
+gag's example for that kind. The no-photo `generic_t2i` and the object/vehicle
+scenarios are retired and stay readable as history. Each attempt is a durable
 `image_prompt_attempts` row.
 → [visual-pipeline](./visual-pipeline.md)
 
@@ -723,8 +692,22 @@ A moderator marks that a character is speaking or thinking something; the
 pipeline turns that into its own dedicated engine instruction. The
 engine-facing wording for a balloon has **exactly one author — the pipeline**,
 never the moderator's Concept prose, so two descriptions of the same balloon
-can't diverge.
+can't diverge. A bubble's **speaker** is picked from a dropdown of the
+subject, the fact's [characters](#fact-character-list) and the gag's extra
+Scene Role Assignments; the bubble stores the plain label ("mom"), and a saved
+speaker on none of those lists is kept as typed.
 → [visual-pipeline](./visual-pipeline.md)
+
+### Fact character list
+
+Everyone a fact names besides the subject — people and pets — each under a
+short neutral **label** ("mom", "dog", "the referee"), shown with the stand-in
+name where it is the subject's own ("Alex's mom"). An enrichment field
+(`characters`), produced by its own versioned call and correctable by a
+moderator as one override; it is what a bubble's speaker is picked from, and
+the image planner reads it as naming context, never as a cast list. A list is
+"extracted" only when its `charactersExtraction` marker is set.
+→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
 
 ### Look style
 
@@ -1223,8 +1206,7 @@ signed-in [admin](#admin) accounts.
 
 The broad admin screen for searching, editing, deactivating, or removing any
 fact already in the system — distinct from the [review queue](#review-queue),
-which only holds submissions awaiting a decision. Also where a
-[variant](#variant) is created and where
+which only holds submissions awaiting a decision. Also where
 [Resubmit for Moderation](#resubmit-for-moderation) lives.
 → [admin-console](./admin-console.md)
 

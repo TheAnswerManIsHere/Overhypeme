@@ -56,6 +56,7 @@ const AI_BASELINE: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
   visualPromptStrategyOverride: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "A hero stands tall." },
 };
 
@@ -200,18 +201,6 @@ describe("POST /admin/facts/:id/send-back-to-review", () => {
       .send({});
     assert.equal(notActive.status, 409);
     assert.equal(notActive.body.code, "NOT_ACTIVE");
-  });
-
-  it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
-    const root = await seedActiveFact();
-    const variant = await insertLiveFact({ text: "{NAME} variant", submittedById: adminId, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() }, AI_BASELINE.visualPromptStrategyOverride!);
-    insertedFactIds.push(variant.id);
-    const res = await request(makeApp())
-      .post(`/admin/facts/${root.id}/send-back-to-review`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({});
-    assert.equal(res.status, 200);
-    assert.equal(typeof res.body.candidateVersionId, "number");
   });
 
   it("pre-check duplicate → 409 REFRESH_ALREADY_IN_PROGRESS naming the in-flight cycle", async () => {

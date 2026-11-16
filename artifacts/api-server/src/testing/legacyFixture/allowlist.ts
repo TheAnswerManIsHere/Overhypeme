@@ -217,8 +217,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     text: "fact-text",
     submittedById: "map-user",
     submitterDeletedAt: "keep",
-    parentId: "ref:facts",
-    useCase: "keep",
     upvotes: "keep",
     downvotes: "keep",
     score: "keep",
@@ -273,7 +271,6 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     submitterDeletedAt: "keep",
     matchingFactId: "ref:facts",
     matchingSimilarity: "keep",
-    parentFactId: "ref:facts",
     hashtags: "shape:reviewHashtags",
     enrichment: "shape:factEnrichment",
     enrichmentStatus: "keep",
@@ -386,7 +383,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     approvedContent: "shape:visualStrategyOverride",
     approvedExampleAttemptId: "ref:image_prompt_attempts",
     approvedCarriedOver: "keep",
-    // 0142: left to its default, false; the committed fixture predates it, and
+    // 0143: left to its default, false; the committed fixture predates it, and
     // its gags are carried over (approvedCarriedOver), which grandfathers them too.
     approvedBeforeExampleSets: "drop",
     approvedBy: "map-user",

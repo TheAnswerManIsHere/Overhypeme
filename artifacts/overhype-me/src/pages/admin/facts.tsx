@@ -1,9 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, RefreshCw, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, Brain, EyeOff, RefreshCw, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment, FactGagsView } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
@@ -21,14 +21,10 @@ import {
   type EnrichmentSaveResponse,
 } from "@/components/admin/useFactEnrichmentEditing";
 
-const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
-
 interface Fact {
   id: number;
   text: string;
   canonicalText: string | null;
-  parentId: number | null;
-  useCase: string | null;
   isActive: boolean;
   hasEmbedding: boolean;
   upvotes: number;
@@ -48,16 +44,6 @@ interface Fact {
   hasEnrichment?: boolean;
   hasEnrichmentOverrides?: boolean;
   enrichmentBaselineChanged?: boolean;
-  // Root facts carry their variants nested (the list paginates by root). When
-  // searching, this holds only the variants that matched. Absent on variant rows.
-  variants?: Fact[];
-}
-
-interface FactVariant {
-  id: number;
-  text: string;
-  useCase: string | null;
-  createdAt: string;
 }
 
 interface FactsResponse {
@@ -77,8 +63,6 @@ type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding" | 
 const EMPTY_EDIT_DRAFT: EditDraft = {
   text: "",
   canonicalText: null,
-  parentId: null,
-  useCase: null,
   isActive: true,
   upvotes: 0,
   downvotes: 0,
@@ -94,8 +78,6 @@ function factToEditDraft(fact: Fact): EditDraft {
   return {
     text: fact.text,
     canonicalText: fact.canonicalText ?? null,
-    parentId: fact.parentId ?? null,
-    useCase: fact.useCase ?? null,
     isActive: fact.isActive,
     upvotes: fact.upvotes,
     downvotes: fact.downvotes,
@@ -251,6 +233,7 @@ function FactEnrichmentPanel({
               Read-only while a refresh is open. */}
           <GagsPanel
             factId={fact.id}
+            characters={enrichment?.characters}
             reviewId={null}
             rendersEnabled
             subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}
@@ -312,27 +295,15 @@ function FactEnrichmentPanel({
   );
 }
 
-/**
- * One row in the Facts list. Used for both root facts and (indented) variants.
- * Root rows with variants get a chevron toggle + count; variant rows are
- * indented and never carry their own chevron.
- */
+/** One row in the Facts list. */
 function FactListRow({
   fact,
   isSelected,
-  indented = false,
-  variantCount = 0,
-  expanded = false,
-  onToggleExpand,
   onSelect,
   onDelete,
 }: {
   fact: Fact;
   isSelected: boolean;
-  indented?: boolean;
-  variantCount?: number;
-  expanded?: boolean;
-  onToggleExpand?: () => void;
   onSelect: () => void;
   onDelete: () => void;
 }) {
@@ -341,21 +312,8 @@ function FactListRow({
       onClick={onSelect}
       className={`flex items-start gap-2 px-4 py-3 cursor-pointer group transition-colors ${
         isSelected ? "bg-primary/10 border-l-2 border-primary" : "hover:bg-muted/40 border-l-2 border-transparent"
-      } ${!fact.isActive ? "opacity-50" : ""} ${indented ? "pl-10 bg-muted/20" : ""}`}
+      } ${!fact.isActive ? "opacity-50" : ""}`}
     >
-      {/* Chevron toggle (root rows with variants) or a tree guide (variant rows). */}
-      {variantCount > 0 ? (
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleExpand?.(); }}
-          className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
-          title={expanded ? "Collapse variants" : "Expand variants"}
-          aria-label={expanded ? "Collapse variants" : "Expand variants"}
-        >
-          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        </button>
-      ) : (
-        <span className="w-4 shrink-0" aria-hidden />
-      )}
       <div className="mt-1 shrink-0">
         <div className={`w-2 h-2 rounded-full ${fact.isActive ? "bg-green-500" : "bg-red-500"}`} title={fact.isActive ? "Active" : "Inactive"} />
       </div>
@@ -363,12 +321,6 @@ function FactListRow({
         <p className="text-sm text-foreground leading-snug line-clamp-2">{fact.text}</p>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
           <span className="font-mono">#{fact.id}</span>
-          {indented && <span className="inline-flex items-center gap-1 text-muted-foreground"><GitBranch className="inline w-3 h-3" />variant</span>}
-          {!indented && variantCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-muted-foreground" title={`${variantCount} variant${variantCount === 1 ? "" : "s"}`}>
-              <GitBranch className="inline w-3 h-3" />{variantCount}
-            </span>
-          )}
           <span>↑{fact.upvotes} ↓{fact.downvotes}</span>
           <span>W:{(fact.wilsonScore ?? 0).toFixed(3)}</span>
           <span title={fact.hasEmbedding ? "Embedding present" : "No embedding — won't appear in duplicate check"}>
@@ -414,7 +366,6 @@ function FactListRow({
 
 export default function AdminFacts() {
   const [facts, setFacts] = useState<Fact[]>([]);
-  const [expandedRoots, setExpandedRoots] = useState<Set<number>>(new Set());
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -429,11 +380,6 @@ export default function AdminFacts() {
   const [selectedFact, setSelectedFact] = useState<Fact | null>(null);
   const selectedFactRef = useRef<Fact | null>(null);
   selectedFactRef.current = selectedFact;
-  const [variants, setVariants] = useState<FactVariant[]>([]);
-  const [loadingVariants, setLoadingVariants] = useState(false);
-  const [newVariantText, setNewVariantText] = useState("");
-  const [addingVariant, setAddingVariant] = useState(false);
-  const [showAddVariant, setShowAddVariant] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const [importMode, setImportMode] = useState<ImportMode>("lines");
@@ -470,7 +416,7 @@ export default function AdminFacts() {
     setSelectedFact((f) => (f && f.id === factId ? { ...f, ...patch } : f));
   }
 
-  // The fact text/use-case edit form follows the universal local-draft model:
+  // The fact edit form follows the universal local-draft model:
   // edits autosave to localStorage, "Save Changes" commits to the server (new
   // baseline), and "Discard" reverts to the server source of truth. The baseline
   // comes from the in-memory selected fact (the list already carries every
@@ -487,8 +433,6 @@ export default function AdminFacts() {
       // A fact's wording is locked once accepted (plan PLAN_THREE_GAGS.md,
       // increment 3): the editor shows it read-only and never sends it.
       const body: Record<string, unknown> = {
-        parentId: v.parentId !== null && v.parentId !== undefined && String(v.parentId) !== "" ? Number(v.parentId) : null,
-        useCase: v.useCase || null,
         isActive: v.isActive,
         upvotes: Number(v.upvotes),
         downvotes: Number(v.downvotes),
@@ -542,14 +486,6 @@ export default function AdminFacts() {
         if (r.ok && Array.isArray(data.facts)) {
           setFacts(data.facts);
           setTotal(data.total ?? 0);
-          // While searching, results are grouped under their parent — auto-expand
-          // roots that have matching variants so the matches are visible without a
-          // click. While browsing, start collapsed.
-          setExpandedRoots(
-            debouncedSearch
-              ? new Set(data.facts.filter((f) => (f.variants?.length ?? 0) > 0).map((f) => f.id))
-              : new Set(),
-          );
         }
       })
       .catch(() => {})
@@ -559,28 +495,11 @@ export default function AdminFacts() {
   function selectFact(fact: Fact) {
     setSelectedFact(fact);
     setSaveResult(null);
-    setShowAddVariant(false);
-    setNewVariantText("");
-    // Fetch variants for root facts
-    if (fact.parentId === null) {
-      setLoadingVariants(true);
-      fetch(`/api/facts/${fact.id}`, { credentials: "include" })
-        .then((r) => r.json())
-        .then((data: { variants?: FactVariant[] }) => {
-          setVariants(data.variants ?? []);
-        })
-        .catch(() => setVariants([]))
-        .finally(() => setLoadingVariants(false));
-    } else {
-      setVariants([]);
-    }
   }
 
   function clearSelection() {
     setSelectedFact(null);
     setSaveResult(null);
-    setVariants([]);
-    setShowAddVariant(false);
   }
 
   // On mount: if ?focus=<id> is in the URL (e.g. linked from Taxonomy Health),
@@ -598,40 +517,6 @@ export default function AdminFacts() {
       })
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function addVariant() {
-    if (!selectedFact || !newVariantText.trim()) return;
-    setAddingVariant(true);
-    try {
-      const res = await fetch(`/api/admin/facts/${selectedFact.id}/variants`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: newVariantText.trim() }),
-      });
-      const data = (await res.json()) as { success?: boolean; queued?: boolean; reviewId?: number; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Failed to add variant");
-      // A variant is now a normal moderated submission: it enters the triage
-      // queue instead of appearing immediately, and shows up nested under its
-      // parent only once it's approved through moderation. use_case has no home
-      // pre-moderation (createTriageReview carries no such field, and the fact
-      // doesn't exist yet) — set it via the normal fact editor once approved.
-      setNewVariantText("");
-      setShowAddVariant(false);
-      alert("Variant queued for review. It'll appear under this fact once it's approved through moderation. Set its use case afterward from the fact editor.");
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add variant");
-    } finally {
-      setAddingVariant(false);
-    }
-  }
-
-  async function deleteVariant(variantId: number) {
-    if (!confirm("Delete this variant permanently?")) return;
-    await fetch(`/api/admin/facts/variants/${variantId}`, { method: "DELETE", credentials: "include" });
-    setVariants((prev) => prev.filter((v) => v.id !== variantId));
-    setRefreshNonce((n) => n + 1); // refresh the list so the removed variant drops out of the hierarchy
-  }
 
   async function deleteFact(hard: boolean) {
     if (!selectedFact) return;
@@ -977,40 +862,15 @@ export default function AdminFacts() {
             ) : facts.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">No facts found.</div>
             ) : (
-              facts.map((root) => {
-                const variants = root.variants ?? [];
-                const expanded = expandedRoots.has(root.id);
-                return (
-                  <Fragment key={root.id}>
-                    <FactListRow
-                      fact={root}
-                      isSelected={selectedFact?.id === root.id}
-                      variantCount={variants.length}
-                      expanded={expanded}
-                      onToggleExpand={() =>
-                        setExpandedRoots((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(root.id)) next.delete(root.id);
-                          else next.add(root.id);
-                          return next;
-                        })
-                      }
-                      onSelect={() => selectFact(root)}
-                      onDelete={() => { selectFact(root); setDeleteModal("choose"); }}
-                    />
-                    {expanded && variants.map((v) => (
-                      <FactListRow
-                        key={v.id}
-                        fact={v}
-                        isSelected={selectedFact?.id === v.id}
-                        indented
-                        onSelect={() => selectFact(v)}
-                        onDelete={() => { selectFact(v); setDeleteModal("choose"); }}
-                      />
-                    ))}
-                  </Fragment>
-                );
-              })
+              facts.map((fact) => (
+                <FactListRow
+                  key={fact.id}
+                  fact={fact}
+                  isSelected={selectedFact?.id === fact.id}
+                  onSelect={() => selectFact(fact)}
+                  onDelete={() => { selectFact(fact); setDeleteModal("choose"); }}
+                />
+              ))
             )}
           </div>
 
@@ -1090,12 +950,6 @@ export default function AdminFacts() {
                 <Brain className="w-3 h-3" />
                 {selectedFact.hasEmbedding ? "Embedding ✓" : "No Embedding"}
               </span>
-              {selectedFact.parentId !== null && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-sm border bg-violet-500/10 text-violet-600 border-violet-500/30">
-                  <GitBranch className="w-3 h-3" />
-                  Variant of #{selectedFact.parentId}
-                </span>
-              )}
             </div>
 
             {/* Read-only metadata row */}
@@ -1194,31 +1048,8 @@ export default function AdminFacts() {
               </div>
             </div>
 
-            {/* Relationship / identity fields */}
+            {/* Identity fields */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <FieldLabel>Parent ID (blank = root fact)</FieldLabel>
-                <input
-                  type="number"
-                  value={draft.parentId !== null && draft.parentId !== undefined ? String(draft.parentId) : ""}
-                  onChange={(e) => editForm.setValue((d) => d ? { ...d, parentId: e.target.value ? Number(e.target.value) : null } : d)}
-                  placeholder="blank for root"
-                  className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
-                />
-              </div>
-              <div>
-                <FieldLabel>Use Case</FieldLabel>
-                <input
-                  list="use-case-options"
-                  value={draft.useCase ?? ""}
-                  onChange={(e) => editForm.setValue((d) => d ? { ...d, useCase: e.target.value || null } : d)}
-                  placeholder="e.g. one_line, meme_caption…"
-                  className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
-                />
-                <datalist id="use-case-options">
-                  {USE_CASE_SUGGESTIONS.map(s => <option key={s} value={s} />)}
-                </datalist>
-              </div>
               <div>
                 <FieldLabel>Submitted By ID</FieldLabel>
                 <input
@@ -1230,76 +1061,6 @@ export default function AdminFacts() {
                 />
               </div>
             </div>
-
-            {/* Variants section — only shown for root facts */}
-            {selectedFact.parentId === null && (
-              <div className="border border-border rounded-sm overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <GitBranch className="w-3.5 h-3.5" />
-                    Variants {loadingVariants ? "(loading…)" : `(${variants.length})`}
-                  </span>
-                  {!showAddVariant && (
-                    <button
-                      onClick={() => setShowAddVariant(true)}
-                      className="flex items-center justify-center min-w-[44px] min-h-[44px] -my-2 -mr-1 text-primary hover:text-primary/80 transition-colors"
-                      title="Add variant"
-                      aria-label="Add variant"
-                    >
-                      <Plus className="w-5 h-5" />
-                    </button>
-                  )}
-                </div>
-
-                {showAddVariant && (
-                  <div className="p-3 border-b border-border bg-primary/5 space-y-2">
-                    <textarea
-                      value={newVariantText}
-                      onChange={(e) => setNewVariantText(e.target.value)}
-                      rows={2}
-                      placeholder="Variant text…"
-                      className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm focus:outline-none focus:border-primary resize-none"
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={addVariant} isLoading={addingVariant} disabled={!newVariantText.trim()}>
-                        Add
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => { setShowAddVariant(false); setNewVariantText(""); }}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="divide-y divide-border max-h-40 overflow-auto">
-                  {variants.length === 0 && !loadingVariants ? (
-                    <p className="text-xs text-muted-foreground p-3 italic">No variants yet. Click + to add one.</p>
-                  ) : (
-                    variants.map((v) => (
-                      <div key={v.id} className="flex items-start gap-2 px-3 py-2 group hover:bg-muted/20">
-                        <div className="flex-1 min-w-0">
-                          {v.useCase && (
-                            <span className="inline-block text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-sm mr-1.5 mb-1">
-                              {v.useCase.replace(/_/g, " ")}
-                            </span>
-                          )}
-                          <p className="text-xs text-foreground leading-snug line-clamp-2">{v.text}</p>
-                          <span className="text-[10px] text-muted-foreground font-mono">#{v.id}</span>
-                        </div>
-                        <button
-                          onClick={() => deleteVariant(v.id)}
-                          className="shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] -my-1 text-muted-foreground hover:text-destructive md:opacity-0 md:group-hover:opacity-100 transition-all"
-                          title="Delete variant"
-                          aria-label="Delete variant"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
                 Edit + autosave the metadata, regenerate the visual preview, or
