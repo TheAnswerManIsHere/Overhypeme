@@ -244,8 +244,8 @@ test.describe("Admin described screens", () => {
     await expectRequiredMarker(page, panel.getByTestId("visual-concept-card"));
   });
 
-  // PR256 R5 — the Facts editor on a root fact shows its usual panels and fields.
-  test("the Facts editor opened on a root fact shows its usual panels and fields with no error", async ({ page }) => {
+  // PR256 R5 — the Facts editor on a fact shows its usual panels and fields.
+  test("the Facts editor opened on a fact shows its usual panels and fields with no error", async ({ page }) => {
     await stubAdminFacts(page, [{
       row: adminFactRow({ id: 97101, text: "{NAME} does not sleep. {Subj} {waits|wait}." }),
       enrichment: enrichmentWithConcept("{NAME} sits awake at dawn while the moon yawns."),
@@ -256,13 +256,15 @@ test.describe("Admin described screens", () => {
     await expect(editor.getByText(/^edit fact #97101$/i)).toBeVisible();
     for (const label of [
       /^id$/i, /^created at$/i, /^updated at$/i, /^caption split$/i, /^text$/i, /^upvotes$/i, /^downvotes$/i,
-      /^score$/i, /^wilson score$/i, /^comment count$/i, /^share count$/i, /^parent id \(blank = root fact\)$/i,
-      /^use case$/i, /^submitted by id$/i,
+      /^score$/i, /^wilson score$/i, /^comment count$/i, /^share count$/i, /^submitted by id$/i,
     ]) {
       await expect(editor.getByText(label).first(), `field ${label}`).toBeVisible();
     }
-    await expect(editor.getByText(/^variants \(0\)$/i)).toBeVisible();
-    await expect(editor.getByText("No variants yet. Click + to add one.")).toBeVisible();
+    // Variants are retired (plan PLAN_RETIRE_VARIANTS.md): no parent, use-case or variant control.
+    await expect(editor.getByText(/parent id/i)).toHaveCount(0);
+    await expect(editor.getByText(/^use case$/i)).toHaveCount(0);
+    await expect(editor.getByText(/^variants/i)).toHaveCount(0);
+    await expect(editor.getByRole("button", { name: /add variant/i })).toHaveCount(0);
     for (const section of ["Visual Taxonomy Enrichment", "Enrichment Version History", "Approved text edit history", "Prompt Diagnostics"]) {
       await expect(editor.getByRole("button", { name: section, exact: true })).toBeVisible();
     }

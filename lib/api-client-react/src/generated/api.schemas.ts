@@ -180,8 +180,6 @@ export interface FactSummary {
   submittedByImage?: string | null;
   /** @nullable */
   userRating?: FactSummaryUserRating;
-  /** @nullable */
-  useCase?: string | null;
   createdAt: string;
 }
 
@@ -200,9 +198,6 @@ export interface ExternalLink {
 
 export type FactDetail = FactSummary & {
   links?: ExternalLink[];
-  /** @nullable */
-  parentId?: number | null;
-  variants?: FactSummary[];
 };
 
 export interface FactListResponse {

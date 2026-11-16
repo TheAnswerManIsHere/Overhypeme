@@ -166,7 +166,7 @@ describe("GET /facts/:factId", () => {
     assert.deepEqual(res.body, { error: "Fact not found" });
   });
 
-  it("returns the fact, its rank, and link/variant arrays on success", async () => {
+  it("returns the fact, its rank, and its links on success, with no variant fields", async () => {
     const userId = await createTestUser();
     const id = await insertFact("solo-fact", { submittedById: userId });
     const res = await request(makeApp()).get(`/facts/${id}`);
@@ -175,7 +175,9 @@ describe("GET /facts/:factId", () => {
     assert.equal(res.body.text, "solo-fact");
     assert.ok("rank" in res.body);
     assert.ok(Array.isArray(res.body.links));
-    assert.ok(Array.isArray(res.body.variants));
+    for (const retired of ["variants", "parentId", "useCase"]) {
+      assert.equal(retired in res.body, false, `${retired} is gone with variants`);
+    }
   });
 
   it("includes inserted external links on the detail response", async () => {
@@ -192,51 +194,15 @@ describe("GET /facts/:factId", () => {
     assert.equal(res.body.links[0].url, "https://example.com/article");
   });
 
-  it("a variant with no images of its own shows none — it does NOT inherit its root's aiMemeImages (variant independence)", async () => {
-    const userId = await createTestUser();
-    const rootId = await insertFact("root-with-images", { submittedById: userId });
-    await db.update(factsTable).set({ aiMemeImages: { neutral: ["a.png"], male: [], female: [] } }).where(eq(factsTable.id, rootId));
-
-    const variant = await insertLiveFact({
-      text: "variant-no-images", canonicalText: "variant-no-images", submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
-    }, buildPlaceholderGag());
-    insertedFactIds.push(variant.id);
-
-    const res = await request(makeApp()).get(`/facts/${variant.id}`);
-    assert.equal(res.status, 200);
-    assert.equal("pexelsImages" in res.body, false, "no stock-photo field since launch Phase 4, removal 6");
-    assert.equal(res.body.aiMemeImages, null, "must not fall back to the root's aiMemeImages");
-  });
-
-  it("a root fact's detail still returns its own AI meme images unchanged, even when it has a variant", async () => {
+  it("a fact's detail returns its own AI meme images unchanged", async () => {
     const userId = await createTestUser();
     const rootId = await insertFact("root-keeps-ai-memes", { submittedById: userId });
     const aiMemeImages = { neutral: ["n1.png", "n2.png"], male: ["m1.png"], female: ["f1.png"] };
     await db.update(factsTable).set({ aiMemeImages }).where(eq(factsTable.id, rootId));
-    const variant = await insertLiveFact({
-      text: "variant-of-ai-root", canonicalText: "variant-of-ai-root", submittedById: userId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment(),
-    }, buildPlaceholderGag());
-    insertedFactIds.push(variant.id);
 
     const res = await request(makeApp()).get(`/facts/${rootId}`);
     assert.equal(res.status, 200);
     assert.deepEqual(res.body.aiMemeImages, aiMemeImages);
-  });
-
-  it("a variant WITH its own images shows exactly those, not the root's", async () => {
-    const userId = await createTestUser();
-    const rootId = await insertFact("root-two", { submittedById: userId });
-    await db.update(factsTable).set({ aiMemeImages: { neutral: ["root.png"], male: [], female: [] } }).where(eq(factsTable.id, rootId));
-
-    const variantImages = { neutral: ["variant.png"], male: [], female: [] };
-    const variant = await insertLiveFact({
-      text: "variant-own-images", canonicalText: "variant-own-images", submittedById: userId, parentId: rootId, aiMemeImages: variantImages, enrichment: buildPlaceholderFactEnrichment(),
-    }, buildPlaceholderGag());
-    insertedFactIds.push(variant.id);
-
-    const res = await request(makeApp()).get(`/facts/${variant.id}`);
-    assert.equal(res.status, 200);
-    assert.deepEqual(res.body.aiMemeImages, variantImages);
   });
 });
 
@@ -322,25 +288,26 @@ describe("GET /facts/:factId/related", () => {
     assert.equal(ids[2], singleOverlapLow);
   });
 
-  it("excludes the source fact and its variants from the results", async () => {
+  it("excludes the source fact, and returns another fact that shares its tags", async () => {
     const userId = await createTestUser();
-    const parentId = await insertFact("parent", { submittedById: userId });
-    const variant = await insertLiveFact({
-      text: "variant", canonicalText: "variant", submittedById: userId, parentId, enrichment: buildPlaceholderFactEnrichment(),
+    const sourceId = await insertFact("source", { submittedById: userId });
+    const sharer = await insertLiveFact({
+      text: "tag-sharer", canonicalText: "tag-sharer", submittedById: userId, enrichment: buildPlaceholderFactEnrichment(),
     }, buildPlaceholderGag());
+    insertedFactIds.push(sharer.id);
 
     const tag = `${HASHTAG_PREFIX}${randomUUID()}`.replace(/[^a-z0-9_]/g, "").slice(0, 70);
     const [t] = await db.insert(hashtagsTable).values({ name: tag }).returning();
     await db.insert(factHashtagsTable).values([
-      { factId: parentId, hashtagId: t.id },
-      { factId: variant.id, hashtagId: t.id },
+      { factId: sourceId, hashtagId: t.id },
+      { factId: sharer.id, hashtagId: t.id },
     ]);
 
-    const res = await request(makeApp()).get(`/facts/${parentId}/related`);
+    const res = await request(makeApp()).get(`/facts/${sourceId}/related`);
     assert.equal(res.status, 200);
     const ids = (res.body.facts as Array<{ id: number }>).map((f) => f.id);
-    assert.ok(!ids.includes(parentId), "source must be excluded");
-    assert.ok(!ids.includes(variant.id), "variant must be excluded");
+    assert.ok(!ids.includes(sourceId), "source must be excluded");
+    assert.ok(ids.includes(sharer.id), "a fact sharing the source's tag is related");
   });
 
   it("falls back to top-Wilson facts when the source has no hashtags", async () => {

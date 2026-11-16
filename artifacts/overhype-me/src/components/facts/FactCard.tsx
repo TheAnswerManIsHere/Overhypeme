@@ -9,7 +9,7 @@ import { FactActionCluster } from "./FactActionCluster";
 import { HighlightedFactText } from "./HighlightedFactText";
 import { useFactExpansion } from "@/contexts/fact-expansion-context";
 
-type Size = "feed" | "hero" | "detail" | "variant";
+type Size = "feed" | "hero" | "detail";
 
 export function FactCard({
   fact,
@@ -17,7 +17,6 @@ export function FactCard({
   showRank = false,
   size = "feed",
   headerSlot,
-  actionsSlot,
   onCommentClick,
 }: {
   fact: FactSummary;
@@ -26,16 +25,12 @@ export function FactCard({
   /** Visual scale + chrome.
       - `feed`: default card in feeds/grids.
       - `hero`: glow gradient + larger text; used for the random-fact billboard.
-      - `detail`: the fact's own page — h1 headline, no Link wrap, larger padding.
-      - `variant`: alternate-phrasing card — left rail border, custom actions slot. */
+      - `detail`: the fact's own page — h1 headline, no Link wrap, larger padding. */
   size?: Size;
   /** Optional content rendered above the body. Used by the hero for the
-      Random Fact badge + shuffle button, by TopFacts #1 for the all-time
-      label, and by variants for the use-case pill. */
+      Random Fact badge + shuffle button, and by TopFacts #1 for the all-time
+      label. */
   headerSlot?: ReactNode;
-  /** Replaces the default FactActionCluster row entirely. Used by variant
-      cards to render their bespoke MAKE MEME control. */
-  actionsSlot?: ReactNode;
   /** When provided, the comment icon in the default action cluster calls
       this instead of toggling inline expansion. Used by the detail page
       to scroll to its full comments section below the fold. */
@@ -45,10 +40,9 @@ export function FactCard({
   const { name, pronouns } = usePersonName();
   const isHero = size === "hero";
   const isDetail = size === "detail";
-  const isVariant = size === "variant";
-  // Detail/variant pages render their own full-fidelity comment surfaces
-  // below the card, so the inline-expand affordance is suppressed there.
-  const inlineExpansionEnabled = !isDetail && !isVariant;
+  // The detail page renders its own full-fidelity comment surface below the
+  // card, so the inline-expand affordance is suppressed there.
+  const inlineExpansionEnabled = !isDetail;
 
   // Hero uses a card-local expansion state so toggling its comments
   // doesn't bleed into a feed copy of the same fact (which would otherwise
@@ -146,8 +140,7 @@ export function FactCard({
         "relative group block transition-colors duration-300 overflow-hidden",
         isHero && "rounded-[24px] md:rounded-[32px] border border-primary/25",
         isDetail && "bg-card rounded-2xl border border-border shadow-lg",
-        isVariant && "bg-card rounded-sm border-l-4 border-y border-r border-primary/60 shadow-lg",
-        !isHero && !isDetail && !isVariant && cn(
+        !isHero && !isDetail && cn(
           "bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border",
           expanded ? "border-primary/25" : "border-border hover:border-primary/40",
         ),
@@ -175,7 +168,7 @@ export function FactCard({
         <div className={cn(
           "relative z-10",
           isHero ? "px-5 md:px-10 pt-5 md:pt-8" : "px-5 sm:px-6 pt-5",
-          (isDetail || isVariant) && "px-6 md:px-8 pt-6 md:pt-8",
+          isDetail && "px-6 md:px-8 pt-6 md:pt-8",
           showRank && rank && "pl-14 sm:pl-16",
         )}>
           {headerSlot}
@@ -185,11 +178,11 @@ export function FactCard({
       <div className={cn(
         "relative z-10",
         isHero && "p-5 md:px-10 md:py-7",
-        (isDetail || isVariant) && "p-6 md:p-8",
-        !isHero && !isDetail && !isVariant && "p-5 sm:p-6",
+        isDetail && "p-6 md:p-8",
+        !isHero && !isDetail && "p-5 sm:p-6",
         showRank && rank && !headerSlot && "pt-14 sm:pt-14",
       )}>
-        {/* Fact text — feed/hero/variant link to the detail page; on the
+        {/* Fact text — feed/hero link to the detail page; on the
             detail page itself we're already there, so we render plain text. */}
         {isDetail ? (
           <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground leading-tight uppercase tracking-tight mb-4">
@@ -199,10 +192,6 @@ export function FactCard({
           <Link href={`/facts/${fact.id}`} className="block w-full text-left mb-4 hover:opacity-90 transition-opacity">
             {isHero ? (
               <h2 className="font-display font-bold text-foreground leading-[0.95] uppercase tracking-tight" style={{ fontSize: "clamp(28px, 6.5vw, 56px)", textWrap: "pretty" } as React.CSSProperties}>
-                {'"'}<HighlightedFactText template={fact.text} name={name} pronouns={pronouns} />{'"'}
-              </h2>
-            ) : isVariant ? (
-              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
                 {'"'}<HighlightedFactText template={fact.text} name={name} pronouns={pronouns} />{'"'}
               </h2>
             ) : (
@@ -239,15 +228,13 @@ export function FactCard({
           "border-t",
           isHero ? "pt-4 border-primary/15" : "pt-3 border-border/50",
         )}>
-          {actionsSlot ?? (
-            <FactActionCluster
-              fact={{ ...fact, commentCount: fact.commentCount + commentCountDelta }}
-              onCommentClick={onCommentClick ?? toggle}
-              size={isHero ? "lg" : isDetail ? "md" : "sm"}
-              commentAriaExpanded={!onCommentClick && inlineExpansionEnabled ? expanded : undefined}
-              commentAriaControls={!onCommentClick && inlineExpansionEnabled ? commentsRegionId : undefined}
-            />
-          )}
+          <FactActionCluster
+            fact={{ ...fact, commentCount: fact.commentCount + commentCountDelta }}
+            onCommentClick={onCommentClick ?? toggle}
+            size={isHero ? "lg" : isDetail ? "md" : "sm"}
+            commentAriaExpanded={!onCommentClick && inlineExpansionEnabled ? expanded : undefined}
+            commentAriaControls={!onCommentClick && inlineExpansionEnabled ? commentsRegionId : undefined}
+          />
         </div>
 
         {/* Inline expansion */}

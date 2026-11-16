@@ -343,21 +343,6 @@ test.describe("Identity flow, Phase 3: in-page actions ask first, then run", () 
     await expectNoSheet(page);
   });
 
-  test("an alternate phrasing's Make meme goes to its builder route, which holds the saved name", async ({ page }) => {
-    await stubPublicFacts(page, {
-      facts: [
-        factDetail({ id: 581, text: "{NAME} taught gravity patience.", variants: [{ id: 582, useCase: "short" }] as never }),
-        factDetail({ id: 582, text: "{NAME} out-waited gravity.", parentId: 581 }),
-      ],
-    });
-    await page.goto("/facts/581");
-    await expect(sheet(page)).toBeVisible();
-    await saveIdentity(page, "Grace");
-    await page.getByRole("button", { name: /make meme/i }).filter({ visible: true }).first().click();
-    await page.waitForURL((u) => u.pathname === "/facts/582/meme");
-    await expect(page.getByText(/Grace out-waited gravity/i).filter({ visible: true }).first()).toBeVisible();
-    await expect(sheet(page)).toHaveCount(0);
-  });
   test("on a shared meme, a signed-out heart goes straight to sign-in without asking (P3-1)", async ({ page }) => {
     await stubPublicFacts(page, {
       facts: [factDetail({ id: 591, text: "{NAME} out-stared the sun." })],

@@ -69,34 +69,18 @@ ever fire in Step 3.
 ## The ingestion funnel — one entrance
 
 Every way a fact enters the system funnels through one primitive,
-`createTriageReview` (`artifacts/api-server/src/lib/moderationStaging.ts`): manual
-user submission, admin/API-key bulk import, and the admin variant route (from an
-existing fact's Facts-page editor) all insert a `pending_reviews` row starting at
-`triage_pending` — none of them can create a fact directly. `facts.is_active`
-defaults to `false`, so a fact is never born active or already enriched.
+`createTriageReview` (`artifacts/api-server/src/lib/moderationStaging.ts`): a
+user's submission and an admin/API-key bulk import both insert a
+`pending_reviews` row starting at `triage_pending` — neither can create a fact
+directly. `facts.is_active` defaults to `false`, so a fact is never born active
+or already enriched.
 
-**Product-wise that is two sources, not three.** A fact is submitted either by a
-user or by an admin import; the admin variant route is an authoring convenience
-for the second, not a distinct kind of content. Variant status is a *link*
-(`pending_reviews.parent_fact_id` → `facts.parent_id`), and within this funnel
-it's applied in two places: that route sets it at creation, and Triage sets it
-via `provisional-approve`'s `parentFactId` (the "Prep as Variant of #N" action
-on a review carrying a `matchingFactId`, attached whenever the duplicate check
-found any positive-confidence match — a lower bar than the threshold that
-warns the submitter, so Triage sees candidates the submitter never saw
-flagged). The latter is the near-duplicate
-consolidation path — a reworded submission becomes an alternate phrasing of the
-fact it echoes rather than a rejection or a second near-identical row. Either
-way the fact runs the full pipeline; see
-[*Variants are independent facts*](./taxonomy-and-enrichment.md#variants-are-independent-facts)
-for what the link does and does not confer.
-
-A third mechanism sits outside this funnel entirely: the admin Facts editor's
-`parentId` field lets an admin directly PATCH an existing fact's parent,
-re-parenting an already-published root under another root (or clearing a
-variant back to root) without any review at all. It's gated by the same
-active-root invariant `activateFact` enforces, not by the triage/prep
-pipeline — nothing in this section's "funnel" claim covers it.
+**A near-duplicate has two outcomes at Triage.** When the duplicate check found
+any positive-confidence match (`matchingFactId` — a lower bar than the
+threshold that warns the submitter, so Triage sees candidates the submitter
+never saw flagged), the moderator either rejects the submission as a
+`duplicate` or accepts it as a fact of its own. Nothing links one fact to
+another ([`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md#every-fact-stands-alone)).
 
 ## The activation chokepoint — one exit
 
@@ -108,9 +92,8 @@ re-validates, atomically with the flip:
 - the fact has an approved gag (`fact_gags`, migration 0139: a gag is
   approved when a moderator approves one of its test renders as its example),
   and
-- a variant's parent is still an active root (`is_active = true AND parent_id IS
-  NULL`), locked `FOR UPDATE` so a concurrent deactivate of that exact parent
-  can't race the check.
+- its wording is still the wording the production gate validated (a
+  compare-and-set on `facts.text`).
 
 A deferred constraint trigger, `facts_live_requires_approved_gag` (with its
 twin on `fact_gags`, so removing or un-approving the last approved gag of a live
@@ -118,13 +101,6 @@ fact fails too), backstops this at the schema level — no writer, present or
 future, can leave a live fact without an approved gag even by accident. It
 replaced the `facts_active_requires_concept` CHECK when gags moved out of the
 enrichment.
-
-**The invariant holds for the fact's lifetime, not just at activation.** An
-active variant's parent must stay an active root for as long as the variant is
-live — so every write path that can flip a root `is_active = false` (the admin
-PATCH deactivate and both DELETE paths) cascades the deactivation to that root's active children in the
-same transaction (`cascadeDeactivateActiveChildren`), rather than leaving them
-stranded under an inactive/missing parent.
 
 ## Deactivation is reversible, through moderation — never a direct toggle
 
@@ -136,8 +112,7 @@ exactly like a first-time staging fact — same enrichment → Visual Concept �
 Test Renders → production-approval pipeline, reusing the fact's existing id and
 history (never a duplicate row). It rejects (409) if the fact is already active
 (use Send Back to Review instead), if a review is already in progress for it, or
-if a variant's `parent_id` points at a parent that no longer exists (a hard-delete
-orphan) — the admin must re-parent or promote it to a root first.
+if its wording was withdrawn for replacement (`WORDING_WITHDRAWN`).
 
 ## Staging facts
 
@@ -184,8 +159,8 @@ Locking should be the very first thing that happens as part of step 1."*).
   the confirmation-gated approved-text edit and the staging-fact text edit
   that re-ran prep are gone. Past entries in the text-edit history
   (`fact_text_edit_history`) stay readable in the Facts editor.
-- **Replacing a wording.** A live fact: deactivate it (soft delete, which also
-  deactivates its active variants; its memes are kept) and submit the
+- **Replacing a wording.** A live fact: deactivate it (soft delete; its memes
+  are kept) and submit the
   corrected wording as a new fact, with no transferred votes, comments or
   shares. A submission past triage: **Withdraw** (below), then submit the
   corrected wording, which enters triage as a new fact.

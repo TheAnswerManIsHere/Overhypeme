@@ -113,12 +113,6 @@ router.get("/facts", async (req: Request, res: Response) => {
     conds.push(inArray(factsTable.id, fIds));
   }
 
-  // By default only root-level facts (parentId IS NULL). The admin engine
-  // workbench passes includeVariants=true so it can find child/variant facts
-  // too — e.g. "Sharks have a {NAME} Week." lives as a child of another fact.
-  if (req.query["includeVariants"] !== "true") {
-    conds.push(isNull(factsTable.parentId));
-  }
   const where = and(...conds);
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(factsTable).where(where);
   const order = sort === "newest" ? desc(factsTable.createdAt) : sort === "trending" ? desc(factsTable.commentCount) : desc(factsTable.wilsonScore);
@@ -163,7 +157,6 @@ router.get("/facts/hero", async (req: AuthenticatedRequest, res: Response) => {
   // test suite never surfaces synthetic facts in the live dev hero feed.
   const baseConds = [
     eq(factsTable.isActive, true),
-    isNull(factsTable.parentId),
     or(isNull(factsTable.submittedById), not(like(factsTable.submittedById, "t%"))),
   ];
 
@@ -246,24 +239,14 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
     }
     return { id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy, addedById: l.addedById ?? null, createdAt: l.createdAt.toISOString() };
   }));
-  // Fetch variants (children) — always from the canonical root
-  const rootId = fact.parentId ?? fact.id;
-  const variantRows = await db.select({
-    id: factsTable.id, text: factsTable.text, useCase: factsTable.useCase,
-    createdAt: factsTable.createdAt, parentId: factsTable.parentId,
-  }).from(factsTable).where(and(eq(factsTable.parentId, rootId), eq(factsTable.isActive, true))).orderBy(asc(factsTable.useCase));
-  const variants = variantRows.map(v => ({
-    id: v.id, text: v.text, useCase: v.useCase ?? null, createdAt: v.createdAt.toISOString(),
-  }));
-  res.json({ ...summary, rank, links, variants, parentId: fact.parentId ?? null, useCase: fact.useCase ?? null });
+  res.json({ ...summary, rank, links });
 });
 
 // GET /facts/:factId/related?limit=N
 // Tag-overlap-based "more facts you'll like" rail. Wilson score is the
 // tiebreak. Falls back to top-Wilson facts when the source has no
 // hashtags or candidates run out (so the rail is never empty for non-
-// trivial dbs). Excludes the source fact, its variants, and (if the
-// source is a variant) its parent.
+// trivial dbs). Excludes the source fact.
 router.get("/facts/:factId/related", async (req: Request, res: Response) => {
   const factId = parseInt((req.params["factId"] ?? "") as string, 10);
   if (!Number.isFinite(factId) || factId <= 0) {
@@ -274,22 +257,13 @@ router.get("/facts/:factId/related", async (req: Request, res: Response) => {
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 24) : 6;
 
   const [source] = await db
-    .select({ id: factsTable.id, parentId: factsTable.parentId })
+    .select({ id: factsTable.id })
     .from(factsTable)
     .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
     .limit(1);
   if (!source) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // Exclude self, parent (if source is a variant), and any sibling variants.
-  const rootId = source.parentId ?? source.id;
-  const excludeRows = await db
-    .select({ id: factsTable.id })
-    .from(factsTable)
-    .where(and(
-      eq(factsTable.isActive, true),
-      sql`(${factsTable.id} = ${rootId} OR ${factsTable.parentId} = ${rootId})`,
-    ));
-  const excludeIds = new Set(excludeRows.map((r) => r.id));
+  const excludeIds = new Set([source.id]);
 
   // Source fact's hashtags via the join table.
   const sourceTagRows = await db
@@ -344,7 +318,7 @@ router.get("/facts/:factId/related", async (req: Request, res: Response) => {
   // Pad with top-Wilson facts if we didn't fill the limit.
   if (picks.length < limit) {
     const fillerExclude = new Set([...excludeIds, ...pickedIds]);
-    const fillerConds = [eq(factsTable.isActive, true), isNull(factsTable.parentId)];
+    const fillerConds = [eq(factsTable.isActive, true)];
     if (fillerExclude.size > 0) {
       fillerConds.push(sql`${factsTable.id} NOT IN (${sql.join([...fillerExclude].map((id) => sql`${id}`), sql`, `)})`);
     }
@@ -404,7 +378,7 @@ router.post("/facts/:factId/share", async (req: AuthenticatedRequest, res: Respo
 // NOTE: `POST /facts` (admin direct-create) was REMOVED in the Phase 2
 // fact-lifecycle closure. Admin direct-create bypassed moderation (it inserted an
 // active, enrichment-less fact) — the exact anti-state Phase 2 closes. Every fact
-// now enters through the moderation funnel (manual submit / bulk import / variant,
+// now enters through the moderation funnel (manual submit / bulk import,
 // all via createTriageReview → triage → enrich → activate). There is deliberately
 // no route here.
 

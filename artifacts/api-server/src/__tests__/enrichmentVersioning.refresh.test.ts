@@ -434,14 +434,6 @@ describe("sendFactBackToReview", () => {
       (err: unknown) => err instanceof SendBackToReviewError && err.code === "NOT_ACTIVE",
     );
   });
-
-  it("succeeds for a root with an active variant — variants classify from their own text, so a root refresh can't invalidate them", async () => {
-    const root = await seedActiveFact();
-    const variant = await insertLiveFact({ text: "{NAME} variant", submittedById: submitterId, parentId: root.id, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
-    insertedFactIds.push(variant.id);
-    const result = await sendFactBackToReview({ factId: root.id, adminId });
-    assert.equal(typeof result.candidateVersionId, "number");
-  });
 });
 
 // ── Candidate enrichment job (two-phase guard) ───────────────────────────────
@@ -740,7 +732,6 @@ describe("refresh approve → promote", () => {
 
     // FIELD-PRESERVATION INVARIANT: nothing else moved.
     assert.equal(f.isActive, true);
-    assert.equal(f.parentId, null);
     assert.equal(f.text, fact.text);
     assert.deepEqual(f.aiMemeImages, AI_MEME_SENTINEL);
     assert.equal(f.upvotes, 7);

@@ -139,7 +139,7 @@ routes, delete, git keeps it) · **your call**.
 | C11 | Library tabs (Liked, Submissions, My Memes, My Images, Search History, Activity) | Self-view | doc | ship, verify each tab |
 | C12 | Per-user fact image preference | Which image shows for a fact | code only | verify it's wired in UI; else delete. *Not wired; deleted 2026-10-23 with Pexels (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
 | C13 | Per-user AI-meme preference | Which AI background shows | code only | verify it's wired in UI; else delete. *Not wired; deleted 2026-10-23 with Pexels (Phase 4, removal 6; ledger [`docs/retired/README.md`](../retired/README.md))* |
-| C14 | Fact variants | Admin-side; queued not published | PR242/PR256 UATs | Journey I |
+| C14 | Fact variants | Admin-side; queued not published | PR242/PR256 UATs | Journey I. *Retired 2026-11-15 (David, Q1): every fact stands alone ([decision](./decisions.md#2026-11-15--variants-are-retired-every-fact-stands-alone-and-the-existing-ones-are-deleted); ledger [`docs/retired/README.md`](../retired/README.md))* |
 
 ### Decisions — Journey C (David, 2026-10-05, partial)
 
@@ -297,7 +297,7 @@ Video is cut from launch (scope gate) and PuLID is retired (D17). Items: builder
 | Screen | Recommendation |
 |---|---|
 | Dashboard | ship |
-| Facts (edit, delete, resubmit, variants, import, backfills, text-edit history, overrides) | ship; CSV import stays as an admin tool off the launch path |
+| Facts (edit, delete, resubmit, import, backfills, text-edit history, overrides) | ship; CSV import stays as an admin tool off the launch path |
 | Users (search, add, set password, verify, delete/reinstate, comp, membership, spend, export) | ship; **add suspension** (repeat-infringer policy). *Done in launch Phase 5 (#795): suspension added; the soft delete and reinstate retired; deletion runs through one engine with a deletion panel — [`accounts-and-auth.md`](./accounts-and-auth.md#account-lifecycle-suspension-and-deletion).* |
 | Moderation (fact wizard + comment panel) | ship (core); comment panel rebuilt per C6; speech bubbles finished (D14) |
 | Billing (Stripe summary, live-mode toggle, test event, sync, verification) | ship; money-rehearsal phase; live-mode toggle is a launch-day control |

@@ -159,8 +159,8 @@ export const HELP_DOCS: HelpDocMeta[] = [
         "depth": 3
       },
       {
-        "id": "variants-organizing-near-duplicate-wordings",
-        "title": "Variants: organizing near-duplicate wordings",
+        "id": "near-duplicates-one-fact-per-joke",
+        "title": "Near-duplicates: one fact per joke",
         "depth": 3
       },
       {

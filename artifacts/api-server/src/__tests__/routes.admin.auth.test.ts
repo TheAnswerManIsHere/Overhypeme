@@ -80,8 +80,6 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "post",   path: "/admin/facts/:id/send-back-to-review" },
   { method: "post",   path: "/admin/facts/:id/resubmit-for-moderation" },
   { method: "get",    path: "/admin/facts/:id/enrichment-versions" },
-  { method: "post",   path: "/admin/facts/:id/variants" },
-  { method: "delete", path: "/admin/facts/variants/:variantId" },
   { method: "post",   path: "/admin/facts/import" },
   { method: "post",   path: "/admin/facts/import-csv" },
   { method: "get",    path: "/admin/comments/pending" },
@@ -131,7 +129,6 @@ const UNAUTHENTICATED_ADMIN_FILE_PATHS: ReadonlySet<string> = new Set([
 
 function concretize(path: string): string {
   return path
-    .replace(/:variantId\b/g, "test-variant-id")
     .replace(/:key\b/g, "test-key")
     .replace(/:id\b/g, "test-id");
 }

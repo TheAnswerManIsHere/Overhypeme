@@ -120,7 +120,7 @@ async function cleanup(): Promise<void> {
       jobFactIds.flatMap((id) => [`enrichment:fact:${id}`]),
     ));
   }
-  // Triage reviews created by the variant/import endpoints reference the test
+  // Triage reviews created by the import endpoints reference the test
   // admin via submitted_by_id (no ON DELETE cascade), so they must be removed
   // before the users they point at.
   await db.delete(pendingReviewsTable).where(like(pendingReviewsTable.submittedById, `${USER_PREFIX}%`));
@@ -130,14 +130,14 @@ async function cleanup(): Promise<void> {
 
 async function createTestFact(
   text: string,
-  opts: { parentId?: number; isActive?: boolean } = {},
+  opts: { isActive?: boolean } = {},
 ): Promise<number> {
   const active = opts.isActive ?? true;
   if (active) {
-    const fact = await insertLiveFact({ text, parentId: opts.parentId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
+    const fact = await insertLiveFact({ text, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
     return fact.id;
   }
-  const [fact] = await db.insert(factsTable).values({ text, parentId: opts.parentId, isActive: false }).returning({ id: factsTable.id });
+  const [fact] = await db.insert(factsTable).values({ text, isActive: false }).returning({ id: factsTable.id });
   return fact!.id;
 }
 
@@ -309,24 +309,20 @@ describe("GET /admin/facts", () => {
     }
   });
 
-  it("includes active roots that have inactive variants in the inactive view", async () => {
+  it("the inactive view lists inactive facts as their own rows, and leaves active ones out", async () => {
     const suffix = randomUUID();
-    const rootText = `${FACT_PREFIX}inactive-variant-root-${suffix}`;
-    const variantText = `${FACT_PREFIX}inactive-variant-child-${suffix}`;
-    const rootId = await createTestFact(rootText, { isActive: true });
-    const variantId = await createTestFact(variantText, { parentId: rootId, isActive: false });
+    const activeId = await createTestFact(`${FACT_PREFIX}inactive-view-active-${suffix}`, { isActive: true });
+    const inactiveId = await createTestFact(`${FACT_PREFIX}inactive-view-inactive-${suffix}`, { isActive: false });
 
     const res = await request(makeApp())
       .get("/admin/facts")
-      .query({ visibility: "inactive", search: variantText, limit: "100" })
+      .query({ visibility: "inactive", search: suffix, limit: "100" })
       .set("authorization", `Bearer ${adminSid}`);
 
     assert.equal(res.status, 200);
-    const root = (res.body.facts as Array<{ id: number; variants: Array<{ id: number; isActive: boolean }> }>)
-      .find((fact) => fact.id === rootId);
-    assert.ok(root, "active root should be returned as the container for its inactive variant");
-    assert.deepEqual(root.variants.map((variant) => variant.id), [variantId]);
-    assert.ok(root.variants.every((variant) => variant.isActive === false));
+    const ids = (res.body.facts as Array<{ id: number }>).map((f) => f.id);
+    assert.deepEqual(ids, [inactiveId]);
+    assert.ok(!ids.includes(activeId));
   });
 });
 
@@ -543,161 +539,38 @@ describe("PATCH /admin/facts/:id", () => {
   it("accepts a PATCH that carries the stored wording unchanged, applying its other fields", async () => {
     const original = `${FACT_PREFIX}${randomUUID()} unchanged text`;
     const factId = await createTestFact(original);
-    const res = await request(makeApp()).patch(`/admin/facts/${factId}`).set("authorization", `Bearer ${adminSid}`).send({ text: original, useCase: "unit-test" });
+    const res = await request(makeApp()).patch(`/admin/facts/${factId}`).set("authorization", `Bearer ${adminSid}`).send({ text: original, shareCount: 7 });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, factId));
     assert.equal(row?.text, original);
-    assert.equal(row?.useCase, "unit-test");
+    assert.equal(row?.shareCount, 7);
   });
 
-  it("rejects pointing an ACTIVE fact's parentId at a fact that isn't an active root", async () => {
-    const activeFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} stays active`);
-    const inactiveTarget = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive target`, { isActive: false });
+  it("deactivating a fact via this PATCH touches only that fact", async () => {
+    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} deactivate target`);
+    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} deactivate bystander`);
     const res = await request(makeApp())
-      .patch(`/admin/facts/${activeFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ parentId: inactiveTarget });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "PARENT_NOT_ACTIVE");
-
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, activeFact));
-    assert.equal(row.parentId, null, "parentId must not have been written");
-  });
-
-  it("allows pointing an ACTIVE fact's parentId at a genuine active root", async () => {
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} genuine root`);
-    const activeFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} becomes a variant`);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${activeFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ parentId: rootId });
-    assert.equal(res.status, 200);
-
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, activeFact));
-    assert.equal(row.parentId, rootId);
-  });
-
-  it("rejects a fact being set as its own parent", async () => {
-    const activeFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} self-parent attempt`);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${activeFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ parentId: activeFact });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "SELF_PARENT");
-
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, activeFact));
-    assert.equal(row.parentId, null, "self-parent must not have been written");
-  });
-
-  it("rejects reparenting an active fact that itself has active variants", async () => {
-    const newParent = await createTestFact(`${FACT_PREFIX}${randomUUID()} would-be new parent`);
-    const rootWithChild = await createTestFact(`${FACT_PREFIX}${randomUUID()} root with a child`);
-    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} its active child`, { parentId: rootWithChild });
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${rootWithChild}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ parentId: newParent });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "HAS_ACTIVE_VARIANTS");
-
-    const rows = await db.select({ id: factsTable.id, parentId: factsTable.parentId, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [rootWithChild, childId]));
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    assert.equal(byId.get(rootWithChild)?.parentId, null, "reparent must not have been written");
-    assert.equal(byId.get(childId)?.isActive, true, "the child must still be active and unaffected");
-  });
-
-  it("allows reparenting an active fact once its active variants are deactivated first", async () => {
-    const newParent = await createTestFact(`${FACT_PREFIX}${randomUUID()} eligible new parent`);
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} root, child now inactive`);
-    await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive child`, { parentId: rootId, isActive: false });
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${rootId}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ parentId: newParent });
-    assert.equal(res.status, 200);
-
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, rootId));
-    assert.equal(row.parentId, newParent);
-  });
-
-  it("allows an inactive fact's parentId to be set freely (activateFact revalidates later)", async () => {
-    const inactiveFact = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive edit`, { isActive: false });
-    const inactiveTarget = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive parent target`, { isActive: false });
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${inactiveFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ parentId: inactiveTarget });
-    assert.equal(res.status, 200);
-
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, inactiveFact));
-    assert.equal(row.parentId, inactiveTarget);
-  });
-
-  // The reparent guards above run through the non-text PATCH branch. A PATCH
-  // that ALSO carries `text` (unchanged: a fact's wording is locked) is still — a
-  // separate write path that used to apply `parentId` completely unguarded
-  // (Codex round 6). These mirror the same three scenarios through that path,
-  // sending back the fact's own unchanged text (the no-op-text branch, which
-  // still applies non-text deltas like everything else here).
-  it("rejects pointing an ACTIVE fact's parentId at a non-root when text is also present (text-edit path)", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} unchanged text with reparent`;
-    const activeFact = await createTestFact(original);
-    const inactiveTarget = await createTestFact(`${FACT_PREFIX}${randomUUID()} inactive target via text path`, { isActive: false });
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${activeFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: original, parentId: inactiveTarget });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "PARENT_NOT_ACTIVE");
-
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, activeFact));
-    assert.equal(row.parentId, null, "parentId must not have been written");
-  });
-
-  it("allows pointing an ACTIVE fact's parentId at a genuine active root when text is also present (text-edit path)", async () => {
-    const original = `${FACT_PREFIX}${randomUUID()} unchanged text becomes variant`;
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} genuine root via text path`);
-    const activeFact = await createTestFact(original);
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${activeFact}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: original, parentId: rootId });
-    assert.equal(res.status, 200);
-
-    const [row] = await db.select({ parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, activeFact));
-    assert.equal(row.parentId, rootId);
-  });
-
-  it("rejects reparenting a root that itself has active variants when text is also present (text-edit path)", async () => {
-    const newParent = await createTestFact(`${FACT_PREFIX}${randomUUID()} would-be new parent via text path`);
-    const original = `${FACT_PREFIX}${randomUUID()} root with a child, text path`;
-    const rootWithChild = await createTestFact(original);
-    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} its active child via text path`, { parentId: rootWithChild });
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${rootWithChild}`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: original, parentId: newParent });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.code, "HAS_ACTIVE_VARIANTS");
-
-    const rows = await db.select({ id: factsTable.id, parentId: factsTable.parentId, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [rootWithChild, childId]));
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    assert.equal(byId.get(rootWithChild)?.parentId, null, "reparent must not have been written");
-    assert.equal(byId.get(childId)?.isActive, true, "the child must still be active and unaffected");
-  });
-
-  it("deactivating a root via this PATCH cascades to its active variants", async () => {
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} cascade-patch root`);
-    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} cascade-patch child`, { parentId: rootId });
-    const res = await request(makeApp())
-      .patch(`/admin/facts/${rootId}`)
+      .patch(`/admin/facts/${targetId}`)
       .set("authorization", `Bearer ${adminSid}`)
       .send({ isActive: false });
     assert.equal(res.status, 200);
 
-    const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [rootId, childId]));
-    for (const r of rows) assert.equal(r.isActive, false);
+    const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [targetId, otherId]));
+    const byId = new Map(rows.map((r) => [r.id, r.isActive]));
+    assert.equal(byId.get(targetId), false);
+    assert.equal(byId.get(otherId), true, "another fact is untouched");
+  });
+
+  it("ignores a parentId in the body: no fact can be linked to another", async () => {
+    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} link target`);
+    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} link other`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${targetId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ parentId: otherId, useCase: "x" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal("parentId" in res.body.fact, false);
+    assert.equal("useCase" in res.body.fact, false);
   });
 
   // ── Activation is moderation-only ──────────────────────────────────────────
@@ -705,8 +578,7 @@ describe("PATCH /admin/facts/:id", () => {
   // A content-safety invariant, not a tidiness one. The admin Active toggle may
   // DEACTIVATE a fact (covered above), but a false→true flip here would bypass
   // the entire production gate approveForProduction/activateFact enforce — the
-  // Visual Concept check, active-root parent revalidation, the pending_reviews
-  // transition, production-approval recording and submitter notification. A
+  // approved-gag check, the pending_reviews transition, production-approval recording and submitter notification. A
   // regression would silently let a deactivated fact go live around moderation,
   // which is precisely the failure nothing would have noticed before these.
   it("rejects flipping an INACTIVE fact to active — activation is moderation-only", async () => {
@@ -739,9 +611,7 @@ describe("PATCH /admin/facts/:id", () => {
     assert.notEqual(row.upvotes, 4242, "the co-submitted field must not have been written either");
   });
 
-  // A PATCH carrying `text` unchanged takes the same path —
-  // second write path that used to apply `parentId` unguarded (Codex round 6).
-  // The activation guard sits ahead of that fork, and this is what holds it
+  // A PATCH carrying `text` unchanged takes the same path. The activation guard sits ahead of that fork, and this is what holds it
   // there.
   it("rejects flipping an INACTIVE fact to active when text is also present (text-edit path)", async () => {
     const original = `${FACT_PREFIX}${randomUUID()} inactive, activation via text path`;
@@ -775,53 +645,22 @@ describe("PATCH /admin/facts/:id", () => {
   });
 });
 
-// ── POST /admin/facts/:id/variants ────────────────────────────────────────────
+// ── The admin variant routes are gone with variants ───────────────────────────
 
-describe("POST /admin/facts/:id/variants", () => {
-  it("returns 401 with no credentials", async () => {
-    const res = await request(makeApp()).post("/admin/facts/1/variants").send({ text: "hi" });
-    assert.equal(res.status, 401);
-  });
-
-  it("returns 403 admin_required for a non-admin user", async () => {
-    const res = await request(makeApp())
-      .post("/admin/facts/1/variants")
-      .set("authorization", `Bearer ${userSid}`)
-      .send({ text: "hi" });
-    assert.equal(res.status, 403);
-  });
-
-  it("queues the variant as a Stage-1 review carrying the parent (no active variant fact)", async () => {
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} root fact`);
-    const res = await request(makeApp())
+describe("admin variant routes — retired", () => {
+  it("POST /admin/facts/:id/variants and DELETE /admin/facts/variants/:id no longer exist", async () => {
+    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} a fact`);
+    const add = await request(makeApp())
       .post(`/admin/facts/${rootId}/variants`)
       .set("authorization", `Bearer ${adminSid}`)
       .send({ text: "{Subj} keeps it locked in {POSS} back yard." });
-    assert.equal(res.status, 201);
-    assert.equal(res.body.queued, true);
-    assert.equal(typeof res.body.reviewId, "number");
-
-    // A triage review was created carrying the parent; no fact was written.
-    const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, res.body.reviewId));
-    assert.ok(review, "triage review should exist");
-    assert.equal(review.workflowStage, "triage_pending");
-    assert.equal(review.parentFactId, rootId);
-    assert.equal(review.submittedText, "{Subj} {keeps|keep} it locked in {POSS} back yard.");
-    const variants = await db.select().from(factsTable).where(eq(factsTable.parentId, rootId));
-    assert.equal(variants.length, 0, "no active variant fact is created — it goes through moderation");
-  });
-
-  it("returns 422 for a grammar-invalid variant and does not queue it (not a bulk path)", async () => {
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} root fact`);
-    const res = await request(makeApp())
-      .post(`/admin/facts/${rootId}/variants`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ text: "bad token {FOO}" });
-    assert.equal(res.status, 422);
-    assert.match(res.body.error, /grammar validation failed/);
-
-    const variants = await db.select().from(factsTable).where(eq(factsTable.parentId, rootId));
-    assert.equal(variants.length, 0, "invalid variant must not be written");
+    assert.equal(add.status, 404);
+    const del = await request(makeApp())
+      .delete(`/admin/facts/variants/${rootId}`)
+      .set("authorization", `Bearer ${adminSid}`);
+    assert.ok(del.status === 404 || del.status === 400, `got ${del.status}`);
+    const [still] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, rootId));
+    assert.equal(still?.isActive, true, "nothing was deactivated");
   });
 });
 
@@ -964,32 +803,34 @@ describe("DELETE /admin/facts/:id", () => {
     assert.equal(res.body.error, "admin_required");
   });
 
-  it("soft-delete of a root cascades to its active variants", async () => {
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} soft-delete root`);
-    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} soft-delete child`, { parentId: rootId });
+  it("soft-delete touches only that fact", async () => {
+    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} soft-delete target`);
+    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} soft-delete bystander`);
     const res = await request(makeApp())
-      .delete(`/admin/facts/${rootId}`)
+      .delete(`/admin/facts/${targetId}`)
       .set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 200);
     assert.equal(res.body.deleted, false);
 
-    const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [rootId, childId]));
-    for (const r of rows) assert.equal(r.isActive, false, "both root and its variant must be inactive");
+    const rows = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(inArray(factsTable.id, [targetId, otherId]));
+    const byId = new Map(rows.map((r) => [r.id, r.isActive]));
+    assert.equal(byId.get(targetId), false);
+    assert.equal(byId.get(otherId), true, "another fact is untouched");
   });
 
-  it("hard-delete of a root cascades to its active variants (never left orphaned+active)", async () => {
-    const rootId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete root`);
-    const childId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete child`, { parentId: rootId });
+  it("hard-delete removes only that fact", async () => {
+    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete target`);
+    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete bystander`);
     const res = await request(makeApp())
-      .delete(`/admin/facts/${rootId}?hard=true`)
+      .delete(`/admin/facts/${targetId}?hard=true`)
       .set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 200);
     assert.equal(res.body.deleted, true);
 
-    const [rootRow] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, rootId));
-    assert.equal(rootRow, undefined, "root should be hard-deleted");
-    const [childRow] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, childId));
-    assert.equal(childRow.isActive, false, "the orphaned variant must be deactivated, not left active");
+    const [gone] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, targetId));
+    assert.equal(gone, undefined, "the fact should be hard-deleted");
+    const [other] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, otherId));
+    assert.equal(other.isActive, true, "another fact is untouched");
   });
 });
 

@@ -23,7 +23,7 @@ import { db, factsTable, usersTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable, factEnrichmentVersionsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { buildPlaceholderFactEnrichment,
+import {
   buildPlaceholderGag, CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter, { pickSendBackTargets } from "../routes/adminTaxonomyHealth.js";
@@ -158,10 +158,8 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     assert.equal(outcomeForFact, undefined, "all_stale silently excludes — no skip outcome for a pre-skipped row");
   });
 
-  it("all_stale: a stale root with an active variant is eligible — variants classify from their own text, so a root refresh can't invalidate them", async () => {
-    const rootId = await insertStaleFact(TEXT("variant root eligible"));
-    const variant = await insertLiveFact({ text: TEXT("variant child"), submittedById: adminUserId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
-    factIds.push(variant!.id);
+  it("all_stale: a stale fact is eligible", async () => {
+    const rootId = await insertStaleFact(TEXT("stale eligible"));
     // Calls the picker directly with a batchLimit far past the real corpus
     // size, rather than going through the HTTP endpoint's hardcoded 50-item
     // cap. all_stale sorts the WHOLE corpus ascending by id and takes the
@@ -171,10 +169,10 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     // rootId (a freshly-inserted, high id) can legitimately fall outside the
     // real 50-item cap even when correctly classified as eligible. Going
     // through the endpoint made this assertion a coin flip on ambient corpus
-    // size, not on the thing it's meant to verify — whether a root with an
-    // active variant is correctly classified as eligible at all.
+    // size, not on the thing it's meant to verify — whether a stale fact is
+    // correctly classified as eligible at all.
     const pick = await pickSendBackTargets("all_stale", undefined, Number.MAX_SAFE_INTEGER);
-    assert.ok(pick.toEnqueue.includes(rootId), "a root with an active variant must be enqueued like any other stale fact");
+    assert.ok(pick.toEnqueue.includes(rootId), "a stale fact must be enqueued");
   });
 
   // The all_stale endpoint takes the first 50 eligible stale facts by ascending id, and the
@@ -191,10 +189,8 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     return id;
   }
 
-  it("all_stale through the endpoint enqueues a stale root that has an active variant", async () => {
-    const rootId = await insertStaleFactInsideBatch(TEXT("endpoint variant root"));
-    const variant = await insertLiveFact({ text: TEXT("endpoint variant child"), submittedById: adminUserId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
-    factIds.push(variant!.id);
+  it("all_stale through the endpoint enqueues a stale fact", async () => {
+    const rootId = await insertStaleFactInsideBatch(TEXT("endpoint stale fact"));
 
     const res = await request(app).post("/api/admin/taxonomy-health/actions/bulk-send-back").send({ scope: "all_stale" });
     assert.equal(res.status, 200);
@@ -202,7 +198,7 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
       jobIds.push(j.jobId);
       return j.factId;
     });
-    assert.ok(queued.includes(rootId), "the endpoint must enqueue a stale root even though it has an active variant");
+    assert.ok(queued.includes(rootId), "the endpoint must enqueue the stale fact");
   });
 
   it("all_stale leaves out a 3-strike stale fact that sits inside its 50-fact batch", async () => {
@@ -295,19 +291,6 @@ describe("/admin/taxonomy-health/actions/bulk-send-back", () => {
     assert.equal(res.body.jobs.length, 0, "never double-queued");
     assert.equal(res.body.outcomes[0].status, "skipped");
     assert.equal(res.body.outcomes[0].reason, "already_in_review");
-  });
-
-  it("selected: a stale root with an active variant still enqueues — variants classify from their own text, so a root refresh can't invalidate them", async () => {
-    const rootId = await insertStaleFact(TEXT("selected variant root"));
-    const variant = await insertLiveFact({ text: TEXT("selected variant child"), submittedById: adminUserId, parentId: rootId, enrichment: buildPlaceholderFactEnrichment() }, buildPlaceholderGag());
-    factIds.push(variant!.id);
-    const res = await request(app)
-      .post("/api/admin/taxonomy-health/actions/bulk-send-back")
-      .send({ scope: "selected", factIds: [rootId] });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.jobs.length, 1);
-    jobIds.push(res.body.jobs[0].jobId);
-    assert.equal(res.body.outcomes.length, 0);
   });
 
   it("selected: an eligible stale fact enqueues with the fact_send_back dedupe key", async () => {

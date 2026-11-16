@@ -134,7 +134,7 @@ deliberately excludes them and points here instead.
   `queue` discriminator + JSON payload + `dedupeKey` + retry bookkeeping; status
   `pending → processing → done | failed`.
 - **Four independent scheduling lanes** (`asyncJobs.ts`, PR #216;
-  `ai_meme_backfill` added for the variant-independence bulk-backfill queue;
+  `ai_meme_backfill` added for the bulk AI-meme backfill queue;
   a fifth, `pexels`, went with Pexels in launch Phase 4, removal 6 —
   [`docs/retired/README.md`](../retired/README.md))
   — `fast` / `render` / `bulk` / `ai_meme_backfill` — each with its

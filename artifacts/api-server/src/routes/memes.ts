@@ -310,24 +310,7 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  const [fact] = await db
-    .select({ id: factsTable.id, parentId: factsTable.parentId })
-    .from(factsTable)
-    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
-    .limit(1);
-
-  let factIds: number[] = [factId];
-  if (fact && fact.parentId === null) {
-    const variants = await db
-      .select({ id: factsTable.id })
-      .from(factsTable)
-      .where(and(eq(factsTable.parentId, factId), eq(factsTable.isActive, true)));
-    factIds = [factId, ...variants.map(v => v.id)];
-  }
-
-  const factFilter = factIds.length === 1
-    ? eq(memesTable.factId, factIds[0]!)
-    : inArray(memesTable.factId, factIds);
+  const factFilter = eq(memesTable.factId, factId);
 
   const userId = req.user?.id;
   const visibilityFilter =

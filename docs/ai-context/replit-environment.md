@@ -337,6 +337,30 @@ Both halves are load-bearing, and neither is sufficient alone:
 Check only one and the other becomes the hole. Check the branch name alone
 and both are.
 
+### One-off: the first publish that carries migration 0142
+
+*Delete this subsection once that publish has happened* (plan
+`docs/plans/PLAN_RETIRE_VARIANTS.md`, *The production path*). Migration 0142
+deletes every fact linked to another fact, then drops the link column. Publish
+applies Replit's structural change (dropping the column) before the app's
+migrations run, so a linked fact still in production at that moment would
+survive as an ordinary fact. Production held none on 2026-11-15; the old code
+can create one until this publish. So, for this publish only:
+
+1. Let any admin request already in flight on production's Moderation or Facts
+   screens finish, then stay off those screens until the new release has
+   booted.
+2. Before approving Replit's generated migration, a read-only count on
+   production: `SELECT count(*) FROM facts WHERE parent_id IS NOT NULL`. Zero:
+   approve and publish.
+3. Not zero: **Cancel** the publish. While the column still exists, run the
+   release's pending migrations against production with the migration-only
+   command, `pnpm --filter @workspace/db run migrate`, pointed at the
+   authorised production connection (not `boot-database.ts`, whose boot-time
+   updates do more than migrate). Check the deletion counts 0142 logs and that
+   the column is gone, then publish again. If production cannot be reached
+   that way, the publish stays blocked and Replit's migration is not approved.
+
 *(Source, and a live lesson in how to ask: an initial `ask_question` pass
 against the Overhype.me Repl (2026-08-11) reported an opt-in "two-way
 auto-sync" toggle that does not actually exist — Replit Agent's own account
