@@ -266,7 +266,8 @@ this fact" panel are gone (2026-11-15).
 
 ## Test renders, the hero gate, and Pexels
 
-**Shipped (2026-11-15, plan `docs/plans/PLAN_GAG_EXAMPLES.md`):** a gag's
+**Shipped (2026-11-15, plan `docs/plans/PLAN_GAG_EXAMPLES.md`;
+[decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)):** a gag's
 approved examples are a **hard gate on going live**, per gag. Every gag
 offered to users carries a male, a female and a pet example, approved by a
 moderator from that gag's own unstyled renders; the database refuses approved
