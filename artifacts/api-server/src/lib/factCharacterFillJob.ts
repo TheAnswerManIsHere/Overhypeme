@@ -109,6 +109,7 @@ export async function pickCharacterFillTargets(): Promise<FactCharacterFillPaylo
 
 const ALREADY_CURRENT: HandlerResult = { ok: true, result: { skipped: true, reason: "already_current" } };
 const NOT_A_TARGET: HandlerResult = { ok: true, result: { skipped: true, reason: "missing_required_data" } };
+const WORDING_CHANGED: HandlerResult = { ok: false, error: "deferred: the fact's wording changed during the character call" };
 
 /**
  * The shared decision for one locked row: not a target (no valid baseline),
@@ -176,22 +177,19 @@ export async function runFactCharacterFill(
   }
 
   return db.transaction(async (tx): Promise<HandlerResult> => {
-    const [lockedFact] = await tx
-      .select({
-        text: factsTable.text,
-        aiDerived: factsTable.enrichmentAiDerived,
-        overrides: factsTable.enrichmentOverrides,
-      })
-      .from(factsTable)
-      .where(eq(factsTable.id, p.factId))
-      .for("update")
-      .limit(1);
-    if (!lockedFact) return NOT_A_TARGET;
-    if (lockedFact.text !== classifiedText) {
-      return { ok: false, error: "deferred: the fact's wording changed during the character call" };
-    }
-
     if (p.target === "fact") {
+      const [lockedFact] = await tx
+        .select({
+          text: factsTable.text,
+          aiDerived: factsTable.enrichmentAiDerived,
+          overrides: factsTable.enrichmentOverrides,
+        })
+        .from(factsTable)
+        .where(eq(factsTable.id, p.factId))
+        .for("update")
+        .limit(1);
+      if (!lockedFact) return NOT_A_TARGET;
+      if (lockedFact.text !== classifiedText) return WORDING_CHANGED;
       const d = fillColumns(lockedFact.aiDerived, lockedFact.overrides, characters);
       if ("skip" in d) return d.skip;
       await tx
@@ -205,6 +203,12 @@ export async function runFactCharacterFill(
       return { ok: true, result: { target: "fact", factId: p.factId, characters: characters.length } };
     }
 
+    // A candidate: lock ONLY its version row — the one row this branch writes.
+    // Promote, decline and the candidate enrichment job all take the candidate
+    // before the fact; taking the fact here first would invert that order and
+    // let a fill and an approval deadlock (Codex, PR #973 round 1). The fact's
+    // wording is read without a lock: it is locked after triage, and promotion
+    // re-checks it itself.
     const [v1] = await tx
       .select({
         status: factEnrichmentVersionsTable.status,
@@ -216,6 +220,13 @@ export async function runFactCharacterFill(
       .for("update")
       .limit(1);
     if (!v1 || v1.status !== "candidate") return NOT_A_TARGET;
+    const [factNow] = await tx
+      .select({ text: factsTable.text })
+      .from(factsTable)
+      .where(eq(factsTable.id, p.factId))
+      .limit(1);
+    if (!factNow) return NOT_A_TARGET;
+    if (factNow.text !== classifiedText) return WORDING_CHANGED;
     const d = fillColumns(v1.aiDerived, v1.overrides, characters);
     if ("skip" in d) return d.skip;
     await tx

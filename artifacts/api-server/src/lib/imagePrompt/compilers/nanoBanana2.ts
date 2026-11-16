@@ -573,24 +573,25 @@ export function shortSpeakerRole(visualRole: string, max: number = SPEAKER_BINDI
 }
 
 /**
- * Speaker bindings (PLAN_BUBBLE_SPEAKERS.md, F): for each non-subject bubble
- * speaker, tie its exact label to a visible character, so the engine knows
- * who "mom" is even when the scene describes her without naming her (the
- * ROLE DETAILS composer drops an entry whose role the scene already covers).
+ * Speaker bindings (PLAN_BUBBLE_SPEAKERS.md, F): for every non-subject bubble
+ * speaker that has a source, a short line tying its exact label to a visible
+ * character, so the engine knows who "mom" is even when the scene describes
+ * her without naming her (ROLE DETAILS drops an entry whose role the scene
+ * already covers, and its cap can cut one).
  *
- * Source per speaker: the effective (post-precedence) character with that
- * label, else the planner's own character with that label — so a speaker the
- * gag's Scene Role Assignments leave out is still supplemented from the plan.
- * A speaker whose clause already sits in REQUIRED role details (moderator
- * roles) needs no second line. Lines are bounded (label ≤ 60 by schema, role ≤
- * SPEAKER_BINDING_ROLE_MAX_CHARS), so they fit SPEAKER_BINDINGS_RENDERED_MAX.
+ * Always emitted — never skipped because the label happens to appear in some
+ * other role text, which proves nothing about which person it means (Codex,
+ * PR #973 round 1). Source per speaker: the effective (post-precedence)
+ * character with that label — a moderator's Scene Role Assignment wins — else
+ * the planner's own character with that label, so a speaker the gag's roles
+ * leave out is still supplemented from the plan. Lines are bounded (label ≤ 60
+ * by schema, role ≤ SPEAKER_BINDING_ROLE_MAX_CHARS), so they fit
+ * SPEAKER_BINDINGS_RENDERED_MAX.
  */
 export function composeSpeakerBindings(opts: {
   speakers: readonly string[];
   effective: ReadonlyArray<{ label: string; visualRole: string }>;
   planned: ReadonlyArray<{ label: string; visualRole: string }>;
-  /** Text of ROLE DETAILS when that section is REQUIRED (moderator roles), else "". */
-  requiredRoleDetailsText: string;
 }): { text: string; boundLabels: string[] } {
   const lines: string[] = [];
   const boundLabels: string[] = [];
@@ -600,16 +601,7 @@ export function composeSpeakerBindings(opts: {
     const label = speaker.trim();
     const key = label.toLowerCase();
     if (!key) continue;
-    const fromEffective = find(opts.effective, key);
-    if (
-      fromEffective &&
-      opts.requiredRoleDetailsText &&
-      new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(label)}([^\\p{L}\\p{N}]|$)`, "iu").test(opts.requiredRoleDetailsText)
-    ) {
-      boundLabels.push(label);
-      continue;
-    }
-    const source = fromEffective ?? find(opts.planned, key);
+    const source = find(opts.effective, key) ?? find(opts.planned, key);
     if (!source) continue; // unbound — the bubble diagnostics warn
     const role = shortSpeakerRole(source.visualRole);
     if (!role) continue;
@@ -1492,7 +1484,6 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     speakers: activeBubbleSpeakers(activeBubbles),
     effective: secondaryCharacters,
     planned: aiSecondaryCharacters,
-    requiredRoleDetailsText: hasOverrideRoles ? roleDetails.text : "",
   });
   const bubbleResult = composeBubbleDirectives({
     bubbles: activeBubbles,

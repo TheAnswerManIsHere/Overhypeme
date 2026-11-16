@@ -2199,7 +2199,7 @@ describe("nanoBanana2 — bubble speakers stay tied to a visible character", () 
     assert.equal(unresolved(out)[0]!.context?.entity, "mom");
   });
 
-  it("moderator role for the speaker already in required ROLE DETAILS: no second line", () => {
+  it("moderator role for the speaker in required ROLE DETAILS: the binding is still emitted (always, PR #973 round 1)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David drives.",
@@ -2210,8 +2210,50 @@ describe("nanoBanana2 — bubble speakers stay tied to a visible character", () 
     }));
     const p = out.imagePrompt;
     assert.ok(p.includes("mom: woman in the passenger seat holding a diaper bag"));
-    assert.ok(!bubbleSection(p).includes("mom: woman"), "not repeated in the bubble section");
+    assert.ok(bubbleSection(p).includes("mom: woman in the passenger seat holding a diaper bag."), "the binding is emitted, from the moderator's role");
     assert.equal(unresolved(out).length, 0);
+  });
+
+  // Codex, PR #973 round 1 (4580899561), and Fable's three trigger shapes: a
+  // mention of the label elsewhere in required role text never stands in for
+  // the speaker's own binding.
+  describe("a mention elsewhere never stands in for the binding", () => {
+    const scene = "David stands between an older woman wearing a red coat and a woman wearing blue scrubs.";
+    const base = (roleBindings: unknown[], prompt = scene) =>
+      compileNanoBanana2HumanI2I(makeArgs({
+        subjectRenderMode: "human_identity_i2i",
+        prompt,
+        renderedSubject: { name: "David", pronouns: "he/him" },
+        visualPlan: { coreScene: prompt },
+        override: ov([speech("Ready to go.", "mom")], { roleBindings }),
+      }));
+    it("the subject's role mentions mom", () => {
+      const out = base([
+        { entity: "subject", visualRole: "waving to mom with both hands" },
+        { entity: "mom", visualRole: "an older woman wearing a red coat" },
+      ]);
+      assert.ok(bubbleSection(out.imagePrompt).includes("mom: an older woman wearing a red coat."), bubbleSection(out.imagePrompt));
+    });
+    it("another label contains the word mom", () => {
+      const out = base([
+        { entity: "friend of mom", visualRole: "a tall man holding balloons" },
+        { entity: "mom", visualRole: "an older woman wearing a red coat" },
+      ]);
+      assert.ok(bubbleSection(out.imagePrompt).includes("mom: an older woman wearing a red coat."));
+    });
+    it("the role cap cuts mom's clause while another role mentions her", () => {
+      const out = base([
+        { entity: "subject", visualRole: "handing a set of car keys to mom " + "while grinning ".repeat(10) },
+        ...Array.from({ length: 6 }, (_, i) => ({ entity: `extra ${i}`, visualRole: "r".repeat(250) })),
+        { entity: "mom", visualRole: "a tired woman in a hospital gown carrying a huge teddy bear" },
+      ], "David hands over the keys in a hospital lobby.");
+      assert.ok(bubbleSection(out.imagePrompt).includes("mom: a tired woman in a hospital gown carrying a huge teddy bear."), bubbleSection(out.imagePrompt));
+    });
+    it("a speaker with no source still warns even when another role mentions the label", () => {
+      const out = base([{ entity: "subject", visualRole: "waving to mom with both hands" }]);
+      assert.equal(unresolved(out).length, 1);
+      assert.ok(!bubbleSection(out.imagePrompt).includes("mom: "));
+    });
   });
 
   it("budget pressure: four speakers with long planner roles beside moderator roles all keep their binding, within the ceiling", () => {
