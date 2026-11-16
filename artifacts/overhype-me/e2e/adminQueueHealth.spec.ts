@@ -33,6 +33,7 @@ const REGISTERED_QUEUES = [
   "email",
   "enrichment",
   "fact_ai_meme_backfill",
+  "fact_character_fill",
   "fact_enrichment_backfill",
   "fact_send_back",
   "fact_visual_concepts",

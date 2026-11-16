@@ -144,8 +144,8 @@ deliberately excludes them and points here instead.
   - `render` — `image_prompt_generation`, `image_generation` (single-item,
     moderator-watched renders).
   - `bulk` (default for any queue that doesn't set `{ lane }`) — `enrichment`,
-    `fact_enrichment_backfill`, `fact_visual_concepts`, `email`,
-    `review_render_scenarios_prepare`.
+    `fact_enrichment_backfill`, `fact_character_fill`, `fact_visual_concepts`,
+    `email`, `review_render_scenarios_prepare`.
   - `ai_meme_backfill` — `fact_ai_meme_backfill`, `maxConcurrency: 1`.
     **Retired** with the legacy AI-background generator (compiler review,
     Phase 2: every picture starts from a photo): nothing enqueues there, and
