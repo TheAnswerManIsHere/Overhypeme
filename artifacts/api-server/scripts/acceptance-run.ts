@@ -241,8 +241,12 @@ function redact(text: string): string {
 }
 // --- recording mode's own checks (unchanged from increment 4) ---------------
 const FAL_INVALID = { input: { prompt: "" } };
-/** The text-to-image endpoint a render with no look is routed to (compiler review, Phase 1): the render-failure control's target. */
-const RENDER_FAILURE_ENDPOINT = "openai/gpt-image-2.6/sunburst/text-to-image";
+/**
+ * The image-to-image endpoint a moderation render with no look is routed to
+ * (compiler review, Phase 1): the render-failure control's target, since every
+ * moderation render is drawn from a reference photo (plan PLAN_GAG_EXAMPLES.md).
+ */
+const RENDER_FAILURE_ENDPOINT = "openai/gpt-image-2.6/sunburst/edit";
 const OPENAI_INVALID = { model: "gpt-5.4-mini", messages: [], max_completion_tokens: 16 };
 const FAILURE_CONTROLS = [
   { vendor: "fal", kind: "fal.subscribe" as const, target: RENDER_FAILURE_ENDPOINT, status: 422, request: falSubscribeRequest(RENDER_FAILURE_ENDPOINT, FAL_INVALID) },
