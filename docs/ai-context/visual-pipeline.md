@@ -411,6 +411,22 @@ the actual compiler and a proof test asserts the split still fits:
      + PROMPT_OUTER_MARGIN           (750, safety slack)
 ```
 
+**Speaker bindings (bubble speakers, Issue #968).** For each non-subject bubble
+speaker the compiler leads the bubble section with a short binding —
+`mom: the older woman in the red coat.` — so the speaker's label stays tied
+to a visible character even when the scene already describes her (ROLE
+DETAILS drops an entry whose role the scene covers) and even when the gag's
+Scene Role Assignments leave her out (they replace the planner's character
+list wholesale; the binding is then taken from the plan). The planner is
+told the fact's characters as naming context and must list every bubble
+speaker in `secondaryCharacters` under its exact label. Each binding is
+capped (`SPEAKER_BINDING_ROLE_MAX_CHARS` 80), four at most, so the total
+(`SPEAKER_BINDINGS_RENDERED_MAX` 576) fits inside the outer margin with the
+§10.4 minimum left — no other pool shrinks, and an arithmetic guard in
+`promptBudget.ts` says so. `bubble_entity_unresolved` is judged on what was
+emitted. The bubble directives themselves are unchanged
+(`IMAGE_PROMPT_GENERATION_VERSION` v9).
+
 The additions measurement **excludes bubbles** and the bubble measurement
 carries **only** bubbles, so the two pools can never double-count. The 900
 pool fits 2–3 maximum-length bubbles or 4 realistic ones (the compact

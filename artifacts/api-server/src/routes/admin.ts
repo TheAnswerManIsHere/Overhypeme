@@ -8,6 +8,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings } from "../lib/embeddings";
 import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
+import { writeBulkReenrichKeepingCharacterCorrection } from "../lib/factEnrichmentBackfillJob";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
@@ -1874,7 +1875,12 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
 
     const rows = await db
-      .select({ id: factsTable.id, text: factsTable.text, enrichment: factsTable.enrichment })
+      .select({
+        id: factsTable.id,
+        text: factsTable.text,
+        enrichment: factsTable.enrichment,
+        enrichmentAiDerived: factsTable.enrichmentAiDerived,
+      })
       .from(factsTable)
       .where(force
         ? eq(factsTable.isActive, true)
@@ -1889,11 +1895,15 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
       let failed = 0;
       for (const fact of rows) {
         try {
-          const enrichment = await enrichFact({ factText: fact.text });
+          const enrichment = await enrichFact({
+            factText: fact.text,
+            priorCharacters: fact.enrichmentAiDerived as FactEnrichment | null,
+          });
           // The fact's gags live in fact_gags (migration 0139): re-classifying
-          // never touches them.
-          const { columns } = materializeEnrichment({ aiDerived: enrichment, overrides: {} });
-          await db.update(factsTable).set(columns).where(eq(factsTable.id, fact.id));
+          // never touches them. Overrides reset, except a moderator's
+          // character correction, re-read under the row lock
+          // (PLAN_BUBBLE_SPEAKERS.md, E).
+          await writeBulkReenrichKeepingCharacterCorrection(fact.id, enrichment);
           done++;
         } catch (err) {
           failed++;

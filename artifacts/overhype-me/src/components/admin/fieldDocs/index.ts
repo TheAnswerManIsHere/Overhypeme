@@ -79,6 +79,7 @@ export const FIELD_DOC_USAGE = {
   "ref.confidence": "reserved",
   "ref.requiresAdminReview": "reserved",
   semanticEntities: "section-level",
+  characters: "section-level",
   "ent.surfaceText": "reserved",
   "ent.normalizedText": "reserved",
   "ent.entityKind": "repeater-enum",
@@ -108,6 +109,7 @@ export const PATH_TO_DOC_KEY: Record<OverridablePath, FieldDocKey> = {
   "/modifiers": "modifiers",
   "/culturalReferences": "culturalReferences",
   "/semanticEntities": "semanticEntities",
+  "/characters": "characters",
   "/adminReviewNotes": "adminReviewNotes",
 };
 

@@ -46,6 +46,7 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 // A fact reaching production_review has an approved gag (fact_gags, migration

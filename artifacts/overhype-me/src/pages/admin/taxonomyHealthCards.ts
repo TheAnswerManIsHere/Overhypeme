@@ -157,4 +157,20 @@ export const CARD_META: CardMeta[] = [
     whatToDo: "Open the fact to confirm or correct the classification.",
     actions: [],
   },
+  {
+    key: "missingCharacterList",
+    label: "Missing character list",
+    filter: "missing_character_list",
+    tone: "blue",
+    description:
+      "These facts have valid enrichment but their characters — everyone the fact names besides the subject, who can be picked as a speech or thought bubble's speaker — have not been listed yet. Until they are, each gag's bubble speaker dropdown offers only the subject and that gag's own Scene Role Assignments. Informational: it never blocks anything.",
+    whatToDo: "Run Fill character lists once. A fact whose list could not be found stays here, and running it again retries just those.",
+    actions: [
+      {
+        label: "Fill character lists",
+        help: "Lists the characters of every live fact, every fact in moderation at the Gags or Test Renders step, and every open refresh, where the list is missing. One short text call per fact — no images and no renders. It changes only the character list: every other enrichment field, correction, gag and status stays as it is. Safe to run repeatedly; a fact already filled is skipped.",
+        safety: "costs_model_calls",
+      },
+    ],
+  },
 ];

@@ -38,6 +38,7 @@ const BASELINE: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 // The effective enrichment: visualComplexity is overridden medium → high.

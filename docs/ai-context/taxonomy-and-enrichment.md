@@ -16,6 +16,26 @@ Durable, structured **classification metadata** describing *how the joke works*:
 `suggestedHashtags`, `taxonomyConfidence`, and admin notes. Produced via OpenAI
 Structured Outputs, validated against the taxonomy schema.
 
+**The fact character list** (`characters`, Issue #968) is part of enrichment
+too, but has its own producer: a dedicated, versioned call
+(`CHARACTER_LIST_PROMPT_VERSION`, `factCharacters.ts`) made inside
+`enrichFact` after classification, with its own response schema — the main
+classifier's contract and `CLASSIFICATION_PROMPT_VERSION` don't move for it.
+`charactersExtraction` is stamped **only** when that call's output validated
+(an empty list included); a default, an old blob, a failed call and a promote
+of an old baseline never stamp it, so "extracted" is never confused with
+"defaulted to empty". A failed call keeps a prior extracted list and marker
+(the wording is locked, so it is still the fact's) and otherwise leaves the
+fact *missing a character list* — the Taxonomy Health card of that name, whose
+"Fill character lists" action (`fact_character_fill`) runs the call alone
+over live facts, first-time facts at the Gags or Test Renders step, and open
+refresh candidates, writing only the list and its marker under a row lock.
+A moderator correction is the `/characters` override; it survives the sticky
+re-enrich (which re-reads overrides under its row lock), a refresh promote,
+and both bulk backfills (which keep `/characters` while resetting the rest as
+before). It is render-affecting (the planner reads it), but not part of the
+Visual Idea hash (the Visual Idea writer never reads it).
+
 ## What enrichment is NOT responsible for
 
 **Enrichment is NOT an image prompt.** The module header says so explicitly:

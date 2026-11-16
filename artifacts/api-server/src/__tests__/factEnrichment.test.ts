@@ -40,6 +40,7 @@ const VALID: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 // Same fields, but subtype belongs to a DIFFERENT archetype.

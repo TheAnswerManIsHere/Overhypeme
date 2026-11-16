@@ -75,7 +75,7 @@ describe("BubbleEditor", () => {
       bubbles: [bubble({ entity: "the bartender" }), bubble({ entity: "the mailman", type: "thought" })],
     });
     render(<BubbleEditor value={ov} onChange={vi.fn()} />);
-    const warnings = screen.getAllByText(/doesn't match "subject" or any Scene Role Assignment/);
+    const warnings = screen.getAllByText(/isn't in this fact's character list or this gag's Scene Role Assignments/);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.textContent).toContain("the mailman");
   });
@@ -83,7 +83,7 @@ describe("BubbleEditor", () => {
   it("renders the unmatched-entity soft warning in the amber warning style (text-amber-700)", () => {
     const ov = OV({ bubbles: [bubble({ entity: "the mailman" })] });
     render(<BubbleEditor value={ov} onChange={vi.fn()} />);
-    const warning = screen.getByText(/doesn't match "subject" or any Scene Role Assignment/);
+    const warning = screen.getByText(/isn't in this fact's character list or this gag's Scene Role Assignments/);
     expect(warning.tagName).toBe("P");
     expect(warning.className).toContain("text-amber-700");
   });
@@ -151,5 +151,61 @@ describe("BubbleEditor", () => {
     expect((screen.getByTestId("bubble-add") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("bubble-text") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByTestId("bubble-entity") as HTMLInputElement).disabled).toBe(true);
+  });
+});
+
+// ─── Speaker dropdown (PLAN_BUBBLE_SPEAKERS.md, C) ─────────────────────────────
+
+describe("BubbleEditor — speaker dropdown", () => {
+  const MOM = { label: "mom", kind: "person" as const, ofSubject: true };
+  const optionTexts = (sel: HTMLElement) => Array.from((sel as HTMLSelectElement).options).map((o) => o.textContent);
+
+  it("offers the subject, the fact's characters and this gag's extra roles, in that order", () => {
+    const ov = OV({
+      roleBindings: [{ entity: "doctor", visualRole: "in a white coat" }],
+      bubbles: [bubble()],
+    });
+    render(<BubbleEditor value={ov} onChange={vi.fn()} characters={[MOM]} />);
+    expect(optionTexts(screen.getByTestId("bubble-entity"))).toEqual([
+      "Alex (the subject)",
+      "Alex's mom",
+      "doctor (added in this gag)",
+    ]);
+  });
+
+  it("stores the plain label when a character is picked (the hospital example)", () => {
+    const onChange = vi.fn();
+    const ov = OV({ bubbles: [bubble({ text: "Buckle up, mom" }), bubble({ text: "Will do." })] });
+    render(<BubbleEditor value={ov} onChange={onChange} characters={[MOM]} />);
+    fireEvent.change(screen.getAllByTestId("bubble-entity")[1]!, { target: { value: "mom" } });
+    const next = onChange.mock.calls.at(-1)![0] as VisualPromptStrategyOverride;
+    expect(next.bubbles.map((b) => b.entity)).toEqual(["subject", "mom"]);
+  });
+
+  it("shows a saved off-list speaker as itself, selected, and never rewrites it", () => {
+    const onChange = vi.fn();
+    render(<BubbleEditor value={OV({ bubbles: [bubble({ entity: "the mailman" })] })} onChange={onChange} characters={[MOM]} />);
+    const sel = screen.getByTestId("bubble-entity") as HTMLSelectElement;
+    expect(sel.value).toBe("the mailman");
+    expect(optionTexts(sel)).toContain("the mailman (not in this fact's character list)");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("reads the characters from the gags panel's context when no prop is given (both placements)", async () => {
+    const { FactCharactersContext } = await import("./FactCharactersContext");
+    render(
+      <FactCharactersContext.Provider value={[MOM]}>
+        <BubbleEditor value={OV({ bubbles: [bubble()] })} onChange={vi.fn()} />
+        <BubbleEditor firstClass value={OV({ bubbles: [bubble()] })} onChange={vi.fn()} />
+      </FactCharactersContext.Provider>,
+    );
+    for (const sel of screen.getAllByTestId("bubble-entity")) {
+      expect(optionTexts(sel)).toContain("Alex's mom");
+    }
+  });
+
+  it("no longer warns about a speaker that is on the fact's character list", () => {
+    render(<BubbleEditor value={OV({ bubbles: [bubble({ entity: "mom" })] })} onChange={vi.fn()} characters={[MOM]} />);
+    expect(screen.queryByText(/isn't in this fact's character list/)).toBeNull();
   });
 });

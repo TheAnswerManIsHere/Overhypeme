@@ -75,6 +75,7 @@ const VALID_ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [SHARK_WEEK_CULTURAL_REF],
   semanticEntities: [EARTH_ENTITY],
+  characters: [],
 };
 
 // A full ImagePromptGenerationOutput the stubbed generator returns. The route
@@ -600,8 +601,10 @@ describe("image-prompt preview — stored speech & thought bubbles", () => {
 
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.ok(
+      // v9: the section leads with the speaker's binding, then the directive,
+      // which is byte-identical to v8's (PLAN_BUBBLE_SPEAKERS.md, F).
       promptSection(String(res.body.compiledPrompt.imagePrompt), "SPEECH & THOUGHT BUBBLES").startsWith(
-        'One cloud-shaped thought balloon with a trail of small circles leading to the head of the bartender, containing exactly the text "Not again." in clear, legible lettering.',
+        'the bartender: polishing a glass behind the bar. One cloud-shaped thought balloon with a trail of small circles leading to the head of the bartender, containing exactly the text "Not again." in clear, legible lettering.',
       ),
     );
   });

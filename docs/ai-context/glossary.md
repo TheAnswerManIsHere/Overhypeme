@@ -679,8 +679,22 @@ A moderator marks that a character is speaking or thinking something; the
 pipeline turns that into its own dedicated engine instruction. The
 engine-facing wording for a balloon has **exactly one author — the pipeline**,
 never the moderator's Concept prose, so two descriptions of the same balloon
-can't diverge.
+can't diverge. A bubble's **speaker** is picked from a dropdown of the
+subject, the fact's [characters](#fact-character-list) and the gag's extra
+Scene Role Assignments; the bubble stores the plain label ("mom"), and a saved
+speaker on none of those lists is kept as typed.
 → [visual-pipeline](./visual-pipeline.md)
+
+### Fact character list
+
+Everyone a fact names besides the subject — people and pets — each under a
+short neutral **label** ("mom", "dog", "the referee"), shown with the stand-in
+name where it is the subject's own ("Alex's mom"). An enrichment field
+(`characters`), produced by its own versioned call and correctable by a
+moderator as one override; it is what a bubble's speaker is picked from, and
+the image planner reads it as naming context, never as a cast list. A list is
+"extracted" only when its `charactersExtraction` marker is set.
+→ [taxonomy-and-enrichment](./taxonomy-and-enrichment.md)
 
 ### Look style
 

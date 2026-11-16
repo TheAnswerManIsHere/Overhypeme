@@ -114,6 +114,7 @@ export type FieldDocKey =
   | "ref.confidence"
   | "ref.requiresAdminReview"
   | "semanticEntities"
+  | "characters"
   | "ent.surfaceText"
   | "ent.normalizedText"
   | "ent.entityKind"

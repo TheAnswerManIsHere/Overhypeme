@@ -99,6 +99,20 @@ export const MODERATOR_ADDITIONS_RENDERED_MAX = 1500;
 export const BUBBLE_DIRECTIVES_RENDERED_MAX = 900;
 
 /**
+ * Speaker bindings (PLAN_BUBBLE_SPEAKERS.md, F): for each non-subject bubble
+ * speaker, a short `label: who they are` line the compiler places inside the
+ * required, dedupe-exempt SPEECH & THOUGHT BUBBLES section, so the speaker's
+ * label stays tied to a visible character even when the scene already
+ * describes them. Each is capped (label ≤ BUBBLE_ENTITY_MAX_CHARS 60, role ≤
+ * SPEAKER_BINDING_ROLE_MAX_CHARS, plus ": " and ". "), at most MAX_BUBBLES (4)
+ * of them: 4 × (60 + 2 + 80 + 2) = 576. NOT a new reserve and no other pool
+ * shrinks: it fits inside the outer margin, which the check below proves keeps
+ * at least the §10.4 minimum of 100.
+ */
+export const SPEAKER_BINDING_ROLE_MAX_CHARS = 80;
+export const SPEAKER_BINDINGS_RENDERED_MAX = 576;
+
+/**
  * Raw (pre-render) storage cap for the moderator Concept. Matches the VSO
  * schema's `coreSceneOverride` cap (1500, `visualStrategyOverride.ts`) — with
  * the roomier rendered budget above, a new save is never stricter than legacy
@@ -115,6 +129,11 @@ const _RESERVE_SUM =
   MODERATOR_ADDITIONS_RENDERED_MAX +
   BUBBLE_DIRECTIVES_RENDERED_MAX +
   PROMPT_OUTER_MARGIN;
+if (_RESERVE_SUM - PROMPT_OUTER_MARGIN + SPEAKER_BINDINGS_RENDERED_MAX + 100 > PROMPT_TOTAL_BUDGET) {
+  throw new Error(
+    `speaker bindings (${SPEAKER_BINDINGS_RENDERED_MAX}) no longer fit the outer margin with the §10.4 minimum of 100 left`,
+  );
+}
 if (_RESERVE_SUM > PROMPT_TOTAL_BUDGET) {
   throw new Error(
     `prompt budget reserves (${_RESERVE_SUM}) exceed PROMPT_TOTAL_BUDGET (${PROMPT_TOTAL_BUDGET}); re-derive the §21 numbers`,

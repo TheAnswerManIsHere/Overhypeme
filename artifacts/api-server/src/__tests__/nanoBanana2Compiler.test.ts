@@ -23,6 +23,7 @@ import {
   compileForSubjectRenderMode,
   compileNanoBanana2NonhumanI2I,
   compileNanoBanana2HumanI2I,
+  composeBubbleDirectives,
 } from "../lib/imagePrompt/compilers/nanoBanana2.js";
 import type { ImagePromptGenerationInput, VisualPlan } from "@workspace/api-zod";
 import { PROMPT_TOTAL_BUDGET } from "@workspace/api-zod";
@@ -1834,7 +1835,11 @@ describe("nanoBanana2 — speech & thought bubbles", () => {
     assert.ok(out.imagePrompt.includes("the mailman"));
   });
 
-  it("a subject-only role binding leaves a planned character unmatched (the PR229 step 6 capture's premise)", () => {
+  // v9 (PLAN_BUBBLE_SPEAKERS.md, F): this used to assert the gap — a subject-only
+  // role binding replaced the planner's characters, so the mailman matched
+  // nothing. A speaker the gag's roles leave out is now supplemented from the
+  // plan under its exact label, and the warning is judged on what is emitted.
+  it("a subject-only role binding no longer loses a planned speaker: it is supplemented from the plan", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "scene",
@@ -1846,9 +1851,10 @@ describe("nanoBanana2 — speech & thought bubbles", () => {
     }));
     const warnings = out.diagnostics?.warnings ?? [];
     assert.ok(
-      warnings.some((w) => w.code === "bubble_entity_unresolved" && w.context?.entity === "the mailman"),
-      "the moderator's bindings replace the planner's characters, so the mailman matches nothing",
+      !warnings.some((w) => w.code === "bubble_entity_unresolved"),
+      "the mailman is bound from the plan",
     );
+    assert.ok(out.imagePrompt.includes("the mailman: holding a parcel at the door."));
   });
 
   it("emits bubble_entity_ambiguous when two effective characters share the label", () => {
@@ -2042,5 +2048,233 @@ describe("nanoBanana2 — STRICT CONSTRAINTS overlay-text exclusion (full line)"
       ),
       strict,
     );
+  });
+});
+
+// ─── Bubble speakers (PLAN_BUBBLE_SPEAKERS.md, F) — asserted on the FINAL prompt ─
+
+describe("nanoBanana2 — bubble speakers stay tied to a visible character", () => {
+  function ov(bubbles: unknown[], partial: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      version: 1,
+      requiredVisualDetails: [], forbiddenVisualDetails: [], roleBindings: [],
+      compositionGuidance: [], styleAgnosticPromptAdditions: [], negativePromptAdditions: [],
+      bubbles,
+      ...partial,
+    };
+  }
+  const speech = (text: string, entity = "subject") => ({ type: "speech", entity, text });
+  const bubbleSection = (p: string) => {
+    const at = p.indexOf("SPEECH & THOUGHT BUBBLES:");
+    return at < 0 ? "" : p.slice(at);
+  };
+  const unresolved = (out: { diagnostics?: { warnings?: Array<{ code: string; context?: Record<string, unknown> }> } }) =>
+    (out.diagnostics?.warnings ?? []).filter((w) => w.code === "bubble_entity_unresolved");
+
+  it("hospital: subject + mom, no gag roles — mom bound, both directives emitted", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A newborn David drives a station wagon home from the hospital while his mother sits in the passenger seat.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { secondaryCharacters: [{ label: "mom", visualRole: "adult woman in the front passenger seat, gripping the dashboard" }] },
+      override: ov([speech("Buckle up, mom"), speech("Will do.", "mom")]),
+    }));
+    const section = bubbleSection(out.imagePrompt);
+    assert.ok(section.includes("mom: adult woman in the front passenger seat, gripping the dashboard."), section);
+    assert.equal(unresolved(out).length, 0);
+  });
+
+  it("the bubble directive itself is byte-identical to v8's", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { secondaryCharacters: [{ label: "mom", visualRole: "woman in the passenger seat" }] },
+      override: ov([speech("Will do.", "mom")]),
+    }));
+    // The directive section composed alone — what v8 emitted — appears verbatim
+    // right after the binding.
+    const alone = composeBubbleDirectives({
+      bubbles: [speech("Will do.", "mom")] as never,
+      subjectNoun: "David",
+      effectiveCharacterLabels: ["mom"],
+      renderText: (t) => t,
+    }).text;
+    assert.ok(out.imagePrompt.includes(`mom: woman in the passenger seat. ${alone}`), out.imagePrompt);
+  });
+
+  it("a pet speaker is bound like a person", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David's dog sits beside him, refusing the ball.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { secondaryCharacters: [{ label: "dog", visualRole: "golden retriever sitting with its back turned" }] },
+      override: ov([speech("Fetch it yourself.", "dog")]),
+    }));
+    assert.ok(bubbleSection(out.imagePrompt).includes("dog: golden retriever sitting with its back turned."));
+    assert.equal(unresolved(out).length, 0);
+  });
+
+  it("subject-only bubbles add no binding", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David lifts a car.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: ov([speech("Easy.")]),
+    }));
+    const section = bubbleSection(out.imagePrompt);
+    assert.ok(section.startsWith("SPEECH & THOUGHT BUBBLES: One "), section);
+  });
+
+  it("gag role 'doctor' + a bubble from mom: mom supplemented from the plan, doctor keeps its authored role", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A newborn David drives away from the hospital entrance.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        secondaryCharacters: [
+          { label: "mom", visualRole: "woman in a hospital gown in the passenger seat" },
+          { label: "doctor", visualRole: "planner's doctor" },
+        ],
+      },
+      override: ov([speech("Will do.", "mom")], {
+        roleBindings: [{ entity: "doctor", visualRole: "doctor in a white coat waving from the hospital doors" }],
+      }),
+    }));
+    const p = out.imagePrompt;
+    assert.ok(p.includes("doctor: doctor in a white coat waving from the hospital doors") || p.includes("doctor in a white coat waving from the hospital doors"));
+    assert.ok(!p.includes("planner's doctor"), "the authored role wins over the planner's");
+    assert.ok(bubbleSection(p).includes("mom: woman in a hospital gown in the passenger seat."));
+    assert.equal(unresolved(out).length, 0);
+  });
+
+  it("scene already describes the speaker without naming her (Astra's red-coat case): mom is still bound outside the balloon", () => {
+    const scene = "David stands between an older woman wearing a red coat and a woman wearing blue scrubs.";
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: scene,
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        coreScene: scene,
+        secondaryCharacters: [
+          { label: "mom", visualRole: "an older woman wearing a red coat" },
+          { label: "nurse", visualRole: "a woman wearing blue scrubs" },
+        ],
+      },
+      override: ov([speech("Ready to go.", "mom")]),
+    }));
+    const p = out.imagePrompt;
+    assert.ok(bubbleSection(p).includes("mom: an older woman wearing a red coat."), bubbleSection(p));
+    assert.equal(unresolved(out).length, 0);
+  });
+
+  it("a speaker the planner left out warns, judged on what was emitted", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { secondaryCharacters: [{ label: "mother", visualRole: "woman in the passenger seat" }] },
+      override: ov([speech("Will do.", "mom")]),
+    }));
+    assert.equal(unresolved(out).length, 1);
+    assert.equal(unresolved(out)[0]!.context?.entity, "mom");
+  });
+
+  it("moderator role for the speaker in required ROLE DETAILS: the binding is still emitted (always, PR #973 round 1)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David drives.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: ov([speech("Will do.", "mom")], {
+        roleBindings: [{ entity: "mom", visualRole: "woman in the passenger seat holding a diaper bag" }],
+      }),
+    }));
+    const p = out.imagePrompt;
+    assert.ok(p.includes("mom: woman in the passenger seat holding a diaper bag"));
+    assert.ok(bubbleSection(p).includes("mom: woman in the passenger seat holding a diaper bag."), "the binding is emitted, from the moderator's role");
+    assert.equal(unresolved(out).length, 0);
+  });
+
+  // Codex, PR #973 round 1 (4580899561), and Fable's three trigger shapes: a
+  // mention of the label elsewhere in required role text never stands in for
+  // the speaker's own binding.
+  describe("a mention elsewhere never stands in for the binding", () => {
+    const scene = "David stands between an older woman wearing a red coat and a woman wearing blue scrubs.";
+    const base = (roleBindings: unknown[], prompt = scene) =>
+      compileNanoBanana2HumanI2I(makeArgs({
+        subjectRenderMode: "human_identity_i2i",
+        prompt,
+        renderedSubject: { name: "David", pronouns: "he/him" },
+        visualPlan: { coreScene: prompt },
+        override: ov([speech("Ready to go.", "mom")], { roleBindings }),
+      }));
+    it("the subject's role mentions mom", () => {
+      const out = base([
+        { entity: "subject", visualRole: "waving to mom with both hands" },
+        { entity: "mom", visualRole: "an older woman wearing a red coat" },
+      ]);
+      assert.ok(bubbleSection(out.imagePrompt).includes("mom: an older woman wearing a red coat."), bubbleSection(out.imagePrompt));
+    });
+    it("another label contains the word mom", () => {
+      const out = base([
+        { entity: "friend of mom", visualRole: "a tall man holding balloons" },
+        { entity: "mom", visualRole: "an older woman wearing a red coat" },
+      ]);
+      assert.ok(bubbleSection(out.imagePrompt).includes("mom: an older woman wearing a red coat."));
+    });
+    it("the role cap cuts mom's clause while another role mentions her", () => {
+      const out = base([
+        { entity: "subject", visualRole: "handing a set of car keys to mom " + "while grinning ".repeat(10) },
+        ...Array.from({ length: 6 }, (_, i) => ({ entity: `extra ${i}`, visualRole: "r".repeat(250) })),
+        { entity: "mom", visualRole: "a tired woman in a hospital gown carrying a huge teddy bear" },
+      ], "David hands over the keys in a hospital lobby.");
+      assert.ok(bubbleSection(out.imagePrompt).includes("mom: a tired woman in a hospital gown carrying a huge teddy bear."), bubbleSection(out.imagePrompt));
+    });
+    it("a speaker with no source still warns even when another role mentions the label", () => {
+      const out = base([{ entity: "subject", visualRole: "waving to mom with both hands" }]);
+      assert.equal(unresolved(out).length, 1);
+      assert.ok(!bubbleSection(out.imagePrompt).includes("mom: "));
+    });
+  });
+
+  it("budget pressure: four speakers with long planner roles beside moderator roles all keep their binding, within the ceiling", () => {
+    const long = (who: string) => `${who} ${"standing very still in the crowded corner of the enormous ballroom ".repeat(8)}`;
+    const speakers = ["mom", "dad", "the referee", "the coach"];
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "x".repeat(1400),
+      renderedSubject: { name: "N".repeat(20), pronouns: "they/them" },
+      stylePrompt: "S".repeat(180),
+      visualPlan: {
+        subjectDetails: Array.from({ length: 12 }, (_, i) => `detail ${i} ${"y".repeat(150)}`),
+        environment: Array.from({ length: 12 }, (_, i) => `environment ${i} ${"z".repeat(150)}`),
+        secondaryCharacters: speakers.map((label) => ({ label, visualRole: long(label) })),
+      },
+      override: ov(
+        speakers.map((who) => speech("A".repeat(40), who)),
+        {
+          coreSceneOverride: "c".repeat(1400),
+          roleBindings: Array.from({ length: 6 }, (_, i) => ({ entity: `extra ${i}`, visualRole: "r".repeat(250) })),
+          requiredVisualDetails: Array.from({ length: 4 }, () => "q".repeat(200)),
+        },
+      ),
+    }));
+    const section = bubbleSection(out.imagePrompt);
+    for (const who of speakers) assert.ok(section.includes(`${who}: ${who} standing`), `${who} bound`);
+    assert.ok(out.imagePrompt.length <= PROMPT_TOTAL_BUDGET, `prompt ${out.imagePrompt.length} within ${PROMPT_TOTAL_BUDGET}`);
+    assert.equal(unresolved(out).length, 0);
+  });
+
+  it("each binding is short: a long planner role is cut at a word boundary", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "scene",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { secondaryCharacters: [{ label: "mom", visualRole: "w ".repeat(120) + "end" }] },
+      override: ov([speech("Hi.", "mom")]),
+    }));
+    const line = bubbleSection(out.imagePrompt).split(". ")[0]!.replace("SPEECH & THOUGHT BUBBLES: ", "");
+    assert.ok(line.startsWith("mom: "));
+    assert.ok(line.length <= "mom: ".length + 80, `binding ${line.length} chars`);
   });
 });

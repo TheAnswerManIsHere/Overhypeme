@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   visualPromptStrategyOverrideSchema,
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  BUBBLE_ENTITY_MAX_CHARS,
   type VisualPromptStrategyOverride,
 } from "./visualStrategyOverride";
 
@@ -460,6 +461,94 @@ export const semanticEntitySchema = z.object({
 });
 export type SemanticEntity = z.infer<typeof semanticEntitySchema>;
 
+// ─── Fact characters (the bubble-speaker list) ─────────────────────────────
+
+/**
+ * The fact's characters: every person or animal the locked wording names
+ * OTHER than the subject (the subject is always implicit — the bubble/role
+ * entity `subject`). Produced by its own versioned call, never by the main
+ * classifier, so the main wire schema and CLASSIFICATION_PROMPT_VERSION are
+ * untouched (PLAN_BUBBLE_SPEAKERS.md, A–B).
+ *
+ * A label is exactly what a bubble's `entity` stores when the moderator picks
+ * this character, so it follows the bubble-entity rules: plain text, no
+ * personalization token, never the reserved word `subject`, unique in the list.
+ */
+export const CHARACTER_LIST_PROMPT_VERSION = "v1";
+/**
+ * The stand-in name a fact is classified and previewed with (they/them). One
+ * definition: the server's `renderCanonical.CANONICAL_NAME` reads it, and the
+ * admin speaker dropdown shows "Alex's mom" with it.
+ */
+export const CANONICAL_SUBJECT_NAME = "Alex";
+export const MAX_FACT_CHARACTERS = 10;
+export const FACT_CHARACTER_KIND_VALUES = ["person", "animal"] as const;
+export type FactCharacterKind = (typeof FACT_CHARACTER_KIND_VALUES)[number];
+
+export const factCharacterSchema = z.object({
+  label: z
+    .string()
+    .trim()
+    .min(1)
+    .max(BUBBLE_ENTITY_MAX_CHARS)
+    .refine((l) => !l.includes("{") && !l.includes("}"), {
+      message: "personalization tokens are not allowed in a character label — use a plain label like \"mom\"",
+    })
+    .refine((l) => l.toLowerCase() !== "subject", {
+      message: "\"subject\" is reserved for the fact's subject, who is always listed",
+    }),
+  kind: z.enum(FACT_CHARACTER_KIND_VALUES),
+  /** True when the label is a relation of the subject ("mom" → "Alex's mom"). */
+  ofSubject: z.boolean(),
+});
+export type FactCharacter = z.infer<typeof factCharacterSchema>;
+
+export const factCharactersSchema = z
+  .array(factCharacterSchema)
+  .max(MAX_FACT_CHARACTERS)
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    list.forEach((c, i) => {
+      const k = c.label.trim().toLowerCase();
+      if (seen.has(k)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, "label"],
+          message: `"${c.label.trim()}" is listed twice — each character needs its own label`,
+        });
+      }
+      seen.add(k);
+    });
+  });
+
+/**
+ * Written ONLY after a character call's output validated (a legitimate empty
+ * list included). A default, a parse of an old blob, a failed call and a
+ * promote of an old baseline never write it — so "really extracted" is never
+ * confused with "defaulted to empty" (plan A; Astra round 1, C4).
+ */
+export const charactersExtractionSchema = z.object({
+  promptVersion: z.string().trim().min(1),
+  extractedAt: z.string().trim().min(1),
+});
+export type CharactersExtraction = z.infer<typeof charactersExtractionSchema>;
+
+/** Strict wire schema for the dedicated character call (OpenAI Structured Outputs). */
+export const factCharactersWireSchema = z.object({
+  characters: z.array(
+    z.object({
+      label: z.string(),
+      kind: z.enum(FACT_CHARACTER_KIND_VALUES),
+      ofSubject: z.boolean(),
+    }),
+  ),
+});
+
+/** True when the enrichment's character list was really extracted. */
+export function hasExtractedCharacters(e: { charactersExtraction?: CharactersExtraction | null } | null | undefined): boolean {
+  return !!e?.charactersExtraction;
+}
+
 // ─── Classification-prompt provenance ──────────────────────────────────────
 
 /**
@@ -534,6 +623,13 @@ export const factEnrichmentBase = z.object({
    * every noun.
    */
   semanticEntities: z.array(semanticEntitySchema).max(20).default([]),
+  /**
+   * The fact's characters besides the subject (the bubble-speaker list).
+   * Defaults to `[]` so older blobs validate unchanged; `charactersExtraction`
+   * says whether the list was really extracted.
+   */
+  characters: factCharactersSchema.default([]),
+  charactersExtraction: charactersExtractionSchema.optional(),
   /**
    * Phase 2 — optional moderator-authored visual-strategy override. NOT part of
    * the strict `factEnrichmentWireSchema` (the LLM never produces it); set only
@@ -613,6 +709,7 @@ export function buildPlaceholderFactEnrichment(): FactEnrichment {
     adminReviewNotes: "",
     culturalReferences: [],
     semanticEntities: [],
+    characters: [],
   };
 }
 

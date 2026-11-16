@@ -93,6 +93,7 @@ export const OVERRIDABLE_PATHS = {
   // test in fieldDocs.test.ts). Used in server-side messages + override chips.
   "/culturalReferences": { field: "culturalReferences", schema: S.culturalReferences, label: "Cultural / Inside References", decoration: "full" },
   "/semanticEntities": { field: "semanticEntities", schema: S.semanticEntities, label: "Semantic Entities / Visual Referents", decoration: "full" },
+  "/characters": { field: "characters", schema: S.characters, label: "Characters", decoration: "full" },
   "/adminReviewNotes": { field: "adminReviewNotes", schema: S.adminReviewNotes, label: "Admin Review Notes", decoration: "light" },
   "/adultSuitabilityNotes": { field: "adultSuitabilityNotes", schema: S.adultSuitabilityNotes, label: "Adult-Mode Notes", decoration: "light" },
 } as const satisfies Record<string, OverridablePathDef>;

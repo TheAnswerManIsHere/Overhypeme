@@ -232,6 +232,7 @@ function FactEnrichmentPanel({
               render of it is approved. Read-only while a refresh is open. */}
           <GagsPanel
             factId={fact.id}
+            characters={enrichment?.characters}
             reviewId={null}
             rendersEnabled
             subjectNames={[...DEFAULT_SUBJECT_EXAMPLE_NAMES]}

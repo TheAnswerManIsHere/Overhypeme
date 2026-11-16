@@ -25,6 +25,7 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  characters: [],
 };
 
 // A grid whose single tile is terminal (done) → the hook's poll loop stays idle,

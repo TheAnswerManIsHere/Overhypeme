@@ -315,6 +315,7 @@ describe("admin bulk backfill routes", () => {
     adminReviewNotes: "",
     culturalReferences: [],
     semanticEntities: [],
+    characters: [],
   };
 
   it("backfill-enrichment?force=true leaves a moderator Visual Concept unchanged after the background loop", async () => {

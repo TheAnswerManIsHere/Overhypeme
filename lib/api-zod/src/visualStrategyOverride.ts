@@ -74,6 +74,28 @@ const bubbleSchema = z.object({
 export type VisualStrategyBubble = z.infer<typeof bubbleSchema>;
 
 /**
+ * The non-subject speakers of a gag's COMPLETE bubbles (speaker and text both
+ * set), in stored order, de-duplicated case-insensitively, trimmed. One
+ * definition for the planner's "every speaker must appear" instruction and the
+ * compiler's speaker supplement and protected binding (PLAN_BUBBLE_SPEAKERS.md, F).
+ */
+export function activeBubbleSpeakers(
+  bubbles: readonly Pick<VisualStrategyBubble, "entity" | "text">[] | null | undefined,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const b of bubbles ?? []) {
+    const entity = b.entity.trim();
+    if (!entity || !b.text.trim()) continue;
+    const key = entity.toLowerCase();
+    if (key === "subject" || seen.has(key)) continue;
+    seen.add(key);
+    out.push(entity);
+  }
+  return out;
+}
+
+/**
  * Whitespace normalization for literal bubble text: trim outer whitespace and
  * collapse any internal whitespace run (spaces, tabs, newlines, NBSP) to one
  * space. Unicode punctuation and glyphs are preserved — the result IS the

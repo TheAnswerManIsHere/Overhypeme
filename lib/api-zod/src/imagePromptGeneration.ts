@@ -56,7 +56,16 @@ import { detectMediumClaim } from "./promptContentDetectors";
 // serializer (escaped quotes). Compiled output changes for identical inputs
 // (zero-bubble inputs included — section order/serializer), so existing test
 // renders correctly flag stale.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v8";
+// v9: bubble speakers (PLAN_BUBBLE_SPEAKERS.md) — the planner receives the
+// fact's characters as naming context (FACT CHARACTERS) and must list every
+// non-subject bubble speaker in secondaryCharacters under its exact label; the
+// compiler leads the bubble section with a short speaker binding per speaker
+// ("mom: the older woman in the red coat."), supplementing a speaker the gag's
+// role assignments leave out from the plan, and judges an unresolved speaker
+// on what it actually emitted. The bubble directives themselves are
+// byte-identical. Compiled output changes for gags with non-subject speakers,
+// and the version is in the render hash, so existing test renders flag stale.
+export const IMAGE_PROMPT_GENERATION_VERSION = "v9";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────
