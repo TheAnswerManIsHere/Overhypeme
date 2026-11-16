@@ -38,7 +38,8 @@ import gagsRouter from "../routes/gags.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { availableGags } from "../lib/gags/resolver.js";
-import { buildGagKindCards, drawGagKinds } from "../lib/reviewRenderScenarios.js";
+import { buildGagKindCards, drawGagKinds, reviewRenderScenariosPrepareHandler } from "../lib/reviewRenderScenarios.js";
+import { pendingReviewsTable } from "@workspace/db/schema";
 
 const RUN = randomUUID().slice(0, 8);
 const START = new Date();
@@ -107,6 +108,7 @@ after(async () => {
     await db.update(factsTable).set({ isActive: false }).where(inArray(factsTable.id, factIds));
     await db.delete(factGagsTable).where(inArray(factGagsTable.factId, factIds));
     await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.factId, factIds));
+    await db.delete(pendingReviewsTable).where(inArray(pendingReviewsTable.stagingFactId, factIds));
     await db.delete(factsTable).where(inArray(factsTable.id, factIds));
   }
   await db.delete(usersTable).where(eq(usersTable.id, adminId));
@@ -217,6 +219,45 @@ describe("renders, counted per action", () => {
     assert.equal(card.status, "failed");
     assert.equal(card.message, "vendor failed");
     assert.equal(drawn(await drawGagKinds(gagId, ["male"], { adminUserId: adminId, redraw: true })).length, 1);
+  });
+
+  it("a queued iteration render is skipped once the review its save came from has closed, and drawn while the scope holds (Codex, PR #972 round 1)", async () => {
+    // A first-time submission in moderation: an inactive fact, its gag pending, its review open.
+    const [f] = await db.insert(factsTable).values({ text: `{NAME} withdrawn ${RUN} ${randomUUID().slice(0, 6)}`, isActive: false, enrichment: buildPlaceholderFactEnrichment() as never }).returning({ id: factsTable.id });
+    factIds.push(f!.id);
+    const [g] = await db.insert(factGagsTable).values({ factId: f!.id, slot: 1, pendingContent: scene("{NAME} a gag saved, then withdrawn.") }).returning({ id: factGagsTable.id });
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "withdrawn", submittedById: adminId, status: "pending", workflowStage: "production_review",
+      stagingFactId: f!.id, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
+    }).returning({ id: pendingReviewsTable.id });
+    const job = { factId: f!.id, gagId: g!.id, scopeReviewId: review!.id, adminUserId: adminId };
+
+    // Withdrawn before the job runs: the review is no longer open.
+    await db.update(pendingReviewsTable).set({ status: "rejected" }).where(eq(pendingReviewsTable.id, review!.id));
+    const skipped = await reviewRenderScenariosPrepareHandler.run(job, {} as never);
+    assert.equal(skipped.ok, true);
+    assert.equal((skipped as { result?: { skipped?: string } }).result?.skipped, "REVIEW_NOT_EDITABLE");
+    assert.equal((await attemptsOf(g!.id)).length, 0, "no render was bought");
+
+    // While the review is open the same job draws its one male render.
+    await db.update(pendingReviewsTable).set({ status: "pending" }).where(eq(pendingReviewsTable.id, review!.id));
+    const drawnJob = await reviewRenderScenariosPrepareHandler.run(job, {} as never);
+    assert.equal(drawnJob.ok, true);
+    assert.deepEqual((await attemptsOf(g!.id)).map((a) => a.key), ["i2i_male_default"]);
+    await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, review!.id)).catch(() => undefined);
+  });
+
+  it("a live fact's queued iteration render is skipped once a refresh opens on it", async () => {
+    const { factId, gagId } = await liveFact();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "refresh", submittedById: adminId, status: "pending", workflowStage: "concept_review",
+      stagingFactId: factId, enrichment: buildPlaceholderFactEnrichment() as never, enrichmentStatus: "ok",
+    }).returning({ id: pendingReviewsTable.id });
+    const result = await reviewRenderScenariosPrepareHandler.run({ factId, gagId, scopeReviewId: null, adminUserId: adminId }, {} as never);
+    assert.equal(result.ok, true);
+    assert.ok((result as { result?: { skipped?: string } }).result?.skipped, JSON.stringify(result));
+    assert.equal((await attemptsOf(gagId)).length, 0);
+    await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.id, review!.id));
   });
 
   it("the renders route draws the kinds asked for, and refuses an unknown kind", async () => {

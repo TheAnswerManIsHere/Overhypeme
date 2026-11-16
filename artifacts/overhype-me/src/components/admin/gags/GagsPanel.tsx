@@ -136,13 +136,18 @@ export function GagsPanel({ factId, reviewId, rendersEnabled, rendersExpected = 
   // after opening at Test Renders or after any action here while a gag has no
   // male render yet (its iteration render is queued by a background job).
   const [windowKick, setWindowKick] = useState(0);
+  // A reload asked for from outside (an idea used on a gag elsewhere on the
+  // page) may have queued an iteration render too, so it opens the window as an
+  // action here does; the first load does not (Codex, PR #972 round 1).
+  const firstReloadKey = useRef(reloadKey);
+  const reloadedFromOutside = reloadKey !== firstReloadKey.current;
   const [prepareWindowOpen, setPrepareWindowOpen] = useState(rendersExpected);
   useEffect(() => {
-    if (!rendersExpected && windowKick === 0) { setPrepareWindowOpen(false); return; }
+    if (!rendersExpected && windowKick === 0 && !reloadedFromOutside) { setPrepareWindowOpen(false); return; }
     setPrepareWindowOpen(true);
     const t = setTimeout(() => setPrepareWindowOpen(false), PREPARE_WINDOW_MS);
     return () => clearTimeout(t);
-  }, [rendersExpected, factId, reloadKey, windowKick]);
+  }, [rendersExpected, factId, reloadKey, windowKick, reloadedFromOutside]);
   const drawing = !!view?.gags.some((g) => GAG_EXAMPLE_KINDS.some((k) => IN_FLIGHT.has(g.renders[k]?.status ?? "")));
   const awaitingMale = !!view?.gags.some((g) => g.renders.male == null || g.renders.male.status === "missing");
   const poll = drawing || (prepareWindowOpen && awaitingMale);

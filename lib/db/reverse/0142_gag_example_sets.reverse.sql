@@ -9,8 +9,8 @@
 -- previous state exactly. It refuses once examples have been approved or picked
 -- under the new model (a gag that completed a set, or an example row the old
 -- columns do not name), or once a migrated refresh pick was discarded or
--- declined, or any row the restored checks would refuse (the retained columns
--- then disagree with the current state):
+-- declined, or its content edited, or any row the restored checks would refuse
+-- (the retained columns then disagree with the current state):
 -- reversing then would lose a moderator's work, and the route is fix-forward.
 DO $$
 DECLARE
@@ -32,6 +32,19 @@ BEGIN
     SELECT g.id FROM fact_gags g
      WHERE (g.pending_example_attempt_id IS NOT NULL AND (g.pending_content IS NULL OR g.pending_review_id IS NULL))
         OR (g.approved_content IS NOT NULL AND g.approved_example_attempt_id IS NULL AND NOT g.approved_carried_over)
+    UNION ALL
+    -- A retained pick no longer drawn from the gag's pending content: the
+    -- content was edited after the migration. The previous release promotes on
+    -- that column without checking content, so reversing would approve the
+    -- edited gag with a render of something else. Compared by the render's own
+    -- record of what it drew, which also covers a retired-scenario pick the
+    -- migration never copied (Codex, PR #972 round 1).
+    SELECT g.id FROM fact_gags g
+     WHERE g.pending_example_attempt_id IS NOT NULL AND g.pending_content IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM image_prompt_attempts a
+          WHERE a.id = g.pending_example_attempt_id
+            AND a.fact_enrichment_snapshot -> 'visualPromptStrategyOverride' = g.pending_content)
   ) touched;
   IF v_new > 0 THEN
     RAISE EXCEPTION '0142 reverse refused: % gag(s) or example(s) were approved or picked under example sets; fix forward', v_new;

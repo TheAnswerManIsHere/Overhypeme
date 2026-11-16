@@ -61,6 +61,7 @@ import {
 } from "./imagePromptAttempts";
 import { defaultPreviewSubjectForGender, resolveRenderReviewInput } from "./imagePrompt/resolveRenderReviewInput";
 import { gagRenderInput, loadGagRenderContext, loadGags, workingContent } from "./gags/resolver";
+import { assertCanRunGagRenders, GagError, type GagActor } from "./gags/gagStore";
 import { renderPersonalized } from "./renderCanonical";
 import { enqueueJob, registerJobHandler, type EnqueueJobResult, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { logger } from "./logger";
@@ -628,9 +629,24 @@ export async function getScenarioAttemptDiagnostics(
 
 export const reviewRenderScenariosPrepareHandler: JobHandler = {
   async run(payload: unknown): Promise<HandlerResult> {
-    const p = payload as { reviewId?: number; gagId?: number; adminUserId?: string };
+    const p = payload as { reviewId?: number; gagId?: number; factId?: number; scopeReviewId?: number | null; adminUserId?: string };
     if (typeof p.gagId === "number") {
-      await scheduleIterationRender(p.gagId, typeof p.adminUserId === "string" && p.adminUserId ? p.adminUserId : "system");
+      const adminUserId = typeof p.adminUserId === "string" && p.adminUserId ? p.adminUserId : "system";
+      // The save that queued this job was allowed from its scope (a review, or
+      // the Facts editor). The job runs seconds or minutes later: if that scope
+      // has ended since (a withdrawn or closed review, a refresh opened on a
+      // live fact), the render is no longer the moderator's ask and is skipped
+      // (Codex, PR #972 round 1).
+      if (typeof p.factId === "number") {
+        try {
+          await assertCanRunGagRenders(p.factId, p.gagId, { adminId: adminUserId, reviewId: p.scopeReviewId ?? null });
+        } catch (err) {
+          if (!(err instanceof GagError)) throw err;
+          logger.info({ gagId: p.gagId, scopeReviewId: p.scopeReviewId ?? null, code: err.code }, "[moderation] iteration render skipped: its scope has ended");
+          return { ok: true, result: { gagId: p.gagId, skipped: err.code } };
+        }
+      }
+      await scheduleIterationRender(p.gagId, adminUserId);
       return { ok: true, result: { gagId: p.gagId } };
     }
     if (typeof p.reviewId !== "number") {
@@ -652,25 +668,29 @@ export function registerReviewRenderScenarioHandlers(): void {
 }
 
 /**
+ * Enqueue one gag's iteration render, after a change to its content (a save,
+ * a new gag, an idea used as a gag, a discarded change). The save has already
+ * committed; the draw is reused when this content already has its render.
+ */
+export async function enqueueGagIterationRender(factId: number, gagId: number, actor: GagActor): Promise<void> {
+  try {
+    await enqueueJob({
+      queue: REVIEW_RENDER_PREPARE_QUEUE,
+      // The scope the save came from rides along, so the job can refuse once it has ended.
+      payload: { factId, gagId, scopeReviewId: actor.reviewId ?? null, adminUserId: actor.adminId },
+    });
+  } catch (err) {
+    logger.error({ err, gagId }, "[moderation] iteration render job failed to enqueue (the save stands)");
+  }
+}
+
+/**
  * Enqueue the job that draws a review's iteration renders after its Gags step
  * is approved (plan PLAN_GAG_EXAMPLES.md, section C). Keyless, so it cannot
  * coalesce onto an older job; the draws themselves are idempotent per content,
  * so a second job draws nothing new. The approving admin rides in the payload
  * so each render records who started it (image tracing).
  */
-/**
- * Enqueue one gag's iteration render, after a change to its content (a save,
- * a new gag, an idea used as a gag, a discarded change). The save has already
- * committed; the draw is reused when this content already has its render.
- */
-export async function enqueueGagIterationRender(gagId: number, adminUserId: string): Promise<void> {
-  try {
-    await enqueueJob({ queue: REVIEW_RENDER_PREPARE_QUEUE, payload: { gagId, adminUserId } });
-  } catch (err) {
-    logger.error({ err, gagId }, "[moderation] iteration render job failed to enqueue (the save stands)");
-  }
-}
-
 export async function enqueueReviewIterationRenders(reviewId: number, adminUserId: string): Promise<EnqueueJobResult> {
   return enqueueJob({
     queue: REVIEW_RENDER_PREPARE_QUEUE,

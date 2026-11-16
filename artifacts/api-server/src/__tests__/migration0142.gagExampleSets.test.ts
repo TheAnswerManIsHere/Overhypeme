@@ -86,11 +86,13 @@ async function fact(name: string): Promise<number> {
 async function activate(factId: number): Promise<void> {
   await db.execute(sql`UPDATE facts SET is_active = true WHERE id = ${factId}`);
 }
-async function attempt(factId: number, gagId: number | null, scenarioKey: string): Promise<number> {
+/** A finished render; `drew` is the gag content its snapshot records (what the reverse compares a retained pick against). */
+async function attempt(factId: number, gagId: number | null, scenarioKey: string, drew: unknown = null): Promise<number> {
   return (await one<{ id: number }>(sql`
     INSERT INTO image_prompt_attempts (fact_id, gag_id, review_render_scenario_key, render_job_id, generation_mode, subject_render_mode,
       target_engine, source_image_analysis, identity_policy, render_controls, fact_enrichment_snapshot, archetype_strategy_version, generated_image_object_path)
-    VALUES (${factId}, ${gagId}, ${scenarioKey}, ${randomUUID()}, 't2i', 't2i_fallback', 'nano_banana_2', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'v2',
+    VALUES (${factId}, ${gagId}, ${scenarioKey}, ${randomUUID()}, 't2i', 't2i_fallback', 'nano_banana_2', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+      ${JSON.stringify(drew == null ? {} : { visualPromptStrategyOverride: drew })}::jsonb, 'v2',
       ${`/objects/ai-bg-v2/${factId}/${randomUUID()}.png`})
     RETURNING id::integer AS id`)).id;
 }
@@ -136,7 +138,7 @@ async function seed(adminId: string, tag: string): Promise<Seed> {
   const refreshing = await insertGag(refreshingFact, 1, { approved_content: gag("{NAME} the approved version."), approved_carried_over: true });
   await activate(refreshingFact);
   const refreshReview = await review(refreshingFact, adminId);
-  const refreshPickAttempt = await attempt(refreshingFact, refreshing, "i2i_female_default");
+  const refreshPickAttempt = await attempt(refreshingFact, refreshing, "i2i_female_default", gag("{NAME} the refresh's change."));
   await db.execute(sql`UPDATE fact_gags SET pending_content = ${JSON.stringify(gag("{NAME} the refresh's change."))}::jsonb,
     pending_example_attempt_id = ${refreshPickAttempt}, pending_review_id = ${refreshReview}, pending_by = ${adminId} WHERE id = ${refreshing}`);
 
@@ -144,7 +146,7 @@ async function seed(adminId: string, tag: string): Promise<Seed> {
   const refreshingRetired = await insertGag(f3, 1, { approved_content: gag("{NAME} approved."), approved_carried_over: true });
   await activate(f3);
   const retiredReview = await review(f3, adminId);
-  const retiredAttempt = await attempt(f3, refreshingRetired, "i2i_nonhuman_object");
+  const retiredAttempt = await attempt(f3, refreshingRetired, "i2i_nonhuman_object", gag("{NAME} changed."));
   await db.execute(sql`UPDATE fact_gags SET pending_content = ${JSON.stringify(gag("{NAME} changed."))}::jsonb,
     pending_example_attempt_id = ${retiredAttempt}, pending_review_id = ${retiredReview} WHERE id = ${refreshingRetired}`);
 
@@ -287,6 +289,23 @@ describe("migration 0142: a gag's examples, one per kind", () => {
       } finally {
         await client.query("ROLLBACK");
         client.release();
+      }
+    });
+
+    it("the reverse refuses once a migrated pick's content was edited, for a copied pick and for a retired-scenario pick (Codex, PR #972 round 1)", async () => {
+      for (const [gagId, copied] of [[s.refreshing, true], [s.refreshingRetired, false]] as const) {
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          // What saving different content does: the new pending content, the
+          // copied pick dropped, the retained column and the review ownership kept.
+          await client.query("UPDATE fact_gags SET pending_content = $2::jsonb WHERE id = $1", [gagId, JSON.stringify(gag("{NAME} edited after the migration."))]);
+          if (copied) await client.query("DELETE FROM fact_gag_examples WHERE gag_id = $1 AND stage = 'pending'", [gagId]);
+          await assert.rejects(client.query(REVERSE_SQL), /refused/, copied ? "a copied pick" : "a retired-scenario pick");
+        } finally {
+          await client.query("ROLLBACK");
+          client.release();
+        }
       }
     });
 

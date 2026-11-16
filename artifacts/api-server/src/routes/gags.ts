@@ -103,7 +103,7 @@ router.post("/admin/facts/:factId/gags", requireAdmin, async (req: Authenticated
   if (!body) return;
   await respond(res, p.factId, async () => {
     const gag = await createGag(p.factId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null }, body.slot);
-    await enqueueGagIterationRender(gag.id, req.user.id);
+    await enqueueGagIterationRender(p.factId, gag.id, { adminId: req.user.id, reviewId: body.reviewId ?? null });
   });
 });
 
@@ -114,7 +114,7 @@ router.put("/admin/facts/:factId/gags/:gagId", requireAdmin, async (req: Authent
   if (!body) return;
   await respond(res, p.factId, async () => {
     await saveGagContent(p.factId, p.gagId, body.content, { adminId: req.user.id, reviewId: body.reviewId ?? null });
-    await enqueueGagIterationRender(p.gagId, req.user.id);
+    await enqueueGagIterationRender(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
   });
 });
 
@@ -125,7 +125,7 @@ router.post("/admin/facts/:factId/gags/:gagId/discard", requireAdmin, async (req
   if (!body) return;
   await respond(res, p.factId, async () => {
     const gag = await discardGagChange(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
-    if (gag.removedAt == null) await enqueueGagIterationRender(p.gagId, req.user.id);
+    if (gag.removedAt == null) await enqueueGagIterationRender(p.factId, p.gagId, { adminId: req.user.id, reviewId: body.reviewId ?? null });
   });
 });
 

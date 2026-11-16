@@ -259,6 +259,17 @@ describe("GagsPanel", () => {
       expect(gets.mock.calls.length).toBeGreaterThanOrEqual(3);
     });
 
+    it("in the Facts editor, an idea applied from outside the panel (a reload) keeps it looking until the render appears (Codex, PR #972 round 1)", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const gets = stubSequence([view([pendingGag(null)]), view([pendingGag(null)]), view([pendingGag(male)])]);
+      const first = render(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} reloadKey={0} />);
+      await screen.findByTestId("gag-card");
+      first.rerender(<GagsPanel factId={5} reviewId={null} rendersEnabled subjectNames={[]} reloadKey={1} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+      expect(gets.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(await screen.findByTestId("gag-approve-render")).toBeTruthy();
+    });
+
     it("in the Facts editor, a gag never drawn does not make the panel poll until an action asks for a render", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const gets = stubSequence([view([pendingGag(null)])]);
