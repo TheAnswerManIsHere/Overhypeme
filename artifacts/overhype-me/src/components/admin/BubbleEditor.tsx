@@ -229,7 +229,7 @@ export function BubbleEditor({
       </div>
       <p className="text-xs text-muted-foreground">
         Make a character speak or think an exact line — the balloon and lettering are rendered into the
-        image. Attribute it to <span className="font-mono">subject</span> or a plain role label; keep the
+        image. Pick who says it from the fact's characters or this gag's Scene Role Assignments; keep the
         text short.
       </p>
       {body}

@@ -1283,7 +1283,7 @@ Rows with an empty entity or role are skipped (the editor warns).
 
 ### Speech & Thought Bubbles
 
-*Make a character in the scene speak or think an exact line — a balloon rendered into the image with the text lettered verbatim. Attribute it to "subject" or a plain role label; shorter text renders more reliably.*
+*Make a character in the scene speak or think an exact line — a balloon rendered into the image with the text lettered verbatim. Pick who says it from the dropdown — the subject, the fact's characters, or this gag's Scene Role Assignments; shorter text renders more reliably.*
 
 - **Effect:** Render-affecting — feeds the prompt pipeline
 - **Staleness:** Editing re-flags render scenarios as stale.
@@ -1291,7 +1291,7 @@ Rows with an empty entity or role are skipped (the editor warns).
 
 **What it is**
 
-A list (max 4; 1–2 works best) of bubbles: a type (Speech = tailed balloon; Thought = cloud with a trail of circles), WHO it belongs to (the same rules as a Scene Role Assignment entity — "subject" or a plain role label like "the bartender", never a token), and the exact text to letter (max 80 characters, soft warning at 60 — legibility drops with length). Text is token-capable ({NAME} etc.) and is whitespace-normalized on Save; what you see saved is exactly what the engine is asked to letter.
+A list (max 4; 1–2 works best) of bubbles: a type (Speech = tailed balloon; Thought = cloud with a trail of circles), WHO it belongs to (picked from a dropdown of the subject, the fact's Characters — shown as "Alex's mom" — and this gag's Scene Role Assignments; the bubble stores the plain label, e.g. "mom", and a speaker saved earlier that is on none of those lists is kept as it is), and the exact text to letter (max 80 characters, soft warning at 60 — legibility drops with length). Text is token-capable ({NAME} etc.) and is whitespace-normalized on Save; what you see saved is exactly what the engine is asked to letter.
 
 **How the AI sets it**
 
@@ -1303,7 +1303,9 @@ Each bubble compiles to one deterministic directive in the required SPEECH & THO
 
 Bubbles have their own prompt-budget pool: if the combined directives exceed it, Save fails with a bubble-specific error — shorten the text or remove a bubble. Nothing is silently dropped.
 
-An entity that matches no scene character still renders its directive, but the model may add, ignore, or misattribute that character — the preview shows a warning; confirm the render.
+For a speaker other than the subject, the planner must include that character under exactly the picked label, and the compiler opens the section with a short line tying the label to who they are in the picture ("mom: the woman in the passenger seat.") — so the balloon has someone to point at even when the scene describes her without naming her, or the gag's Scene Role Assignments leave her out.
+
+A speaker the picture still ends up without renders its directive anyway, but the model may add, ignore, or misattribute that character — the preview shows a warning; confirm the render.
 
 **Examples**
 
