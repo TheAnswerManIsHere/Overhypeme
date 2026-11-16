@@ -49,6 +49,8 @@ import {
   deriveScenarioStatus,
   generationModeForSubjectRenderMode,
   isAttemptStale,
+  renderAffectingEnrichment,
+  stableStringify,
 } from "./factRenderScenarios";
 import {
   ReferenceAssetUnavailableError,
@@ -162,28 +164,37 @@ export function computeScenarioInputHash(
 // ─── Attempt queries ─────────────────────────────────────────────────────────
 
 /**
- * The latest attempt of a gag's scenario drawn from exactly this render input
- * (the gag's content joined to the fact's classification), whatever engine or
- * recipe drew it: the content identity reuse and the tiles share (plan
- * PLAN_GAG_EXAMPLES.md, section C). jsonb equality compares the input as a
- * value, so key order cannot split one content into two.
+ * The latest attempt of a gag's scenario drawn from this render input, as far
+ * as the input shapes the picture: the gag's content and the classification
+ * fields the input hash reads (`renderAffectingEnrichment`). An admin note, a
+ * rating or a hashtag never unseats a render; a picture-shaping edit does. The
+ * engine and recipe that drew it stay provenance (plan PLAN_GAG_EXAMPLES.md,
+ * section C; Codex, PR #972 round 2). Tiles and reuse share this one lookup.
  */
 async function attemptForContent(
   gagId: number,
   scenarioKey: RenderScenarioKey,
   enrichment: FactEnrichment,
 ): Promise<ImagePromptAttempt | null> {
-  const [row] = await db
+  const want = pictureIdentity(enrichment);
+  if (want == null) return null;
+  const rows = await db
     .select()
     .from(imagePromptAttemptsTable)
-    .where(and(
-      eq(imagePromptAttemptsTable.gagId, gagId),
-      eq(imagePromptAttemptsTable.reviewRenderScenarioKey, scenarioKey),
-      sql`${imagePromptAttemptsTable.factEnrichmentSnapshot} = ${JSON.stringify(enrichment)}::jsonb`,
-    ))
-    .orderBy(desc(imagePromptAttemptsTable.createdAt))
-    .limit(1);
-  return row ?? null;
+    .where(and(eq(imagePromptAttemptsTable.gagId, gagId), eq(imagePromptAttemptsTable.reviewRenderScenarioKey, scenarioKey)))
+    .orderBy(desc(imagePromptAttemptsTable.createdAt));
+  return rows.find((r) => pictureIdentity(r.factEnrichmentSnapshot as FactEnrichment) === want) ?? null;
+}
+
+/** The picture-shaping part of a render input, as one comparable string; null for a snapshot it cannot read (no match). */
+function pictureIdentity(enrichment: FactEnrichment | null | undefined): string | null {
+  try {
+    // Through JSON first, as the stored snapshot was: a key left undefined in
+    // a fresh input is absent from the stored one, and must not split them.
+    return enrichment ? stableStringify(JSON.parse(JSON.stringify(renderAffectingEnrichment(enrichment)))) : null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Enqueue one scenario render ─────────────────────────────────────────────

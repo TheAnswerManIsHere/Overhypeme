@@ -590,10 +590,13 @@ classification joined with one gag's content (`gagRenderInput`,
   `i2i_nonhuman_animal` (`SCENARIO_FOR_KIND`); generic text-to-image and
   object/vehicle are no longer drawn. `image_prompt_attempts.gag_id` names the
   gag each render drew, and a render is **reused** when its attempt's
-  `fact_enrichment_snapshot` equals the gag's current render input
-  (`attemptForContent`, `reviewRenderScenarios.ts`): the same content draws
-  nothing, a discard back to earlier content shows that content's render, and
-  the engine and recipe stay provenance rather than redefining reuse.
+  `fact_enrichment_snapshot` matches the gag's current render input in what
+  shapes the picture: the gag's content and the classification fields the
+  input hash reads, `renderAffectingEnrichment` (`attemptForContent`,
+  `reviewRenderScenarios.ts`). The same content draws nothing, a discard back
+  to earlier content shows that content's render, an admin note or a rating
+  never unseats a render while a picture-shaping edit does, and the engine and
+  recipe stay provenance rather than redefining reuse.
   `drawGagKinds` draws the kinds asked for under an advisory lock per gag and
   kind, so overlapping requests draw once; `redraw` asks for a new one anyway.
 - **What draws.** Saving a gag (an edit, an idea, a discard, a new gag) enqueues
