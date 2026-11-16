@@ -57,6 +57,7 @@ import { finishAndStore, recordGenerationRequest, setVendorRequestId } from "./p
 import { vendorContext } from "./provenance/vendorContext";
 import { attemptProvenanceContext } from "./provenance/attemptActor";
 import { attemptImageEngineId, resolveImageEngine } from "./imageEngineRouting";
+import { NoPhotoRenderRefusedError } from "./imagePromptAttempts";
 import { buildImageRequestSettings, type ImageRequestPurpose, type ImageRequestSettings } from "./imageRequestBuilder";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
 import { engineFamilyOf, recipeById } from "./imagePrompt/recipeStore";
@@ -125,6 +126,14 @@ export const imagePromptGenerationHandler: JobHandler = {
       );
     }
     const enrichment = enrichmentValidation.data;
+
+    // No picture is made without a reference photo (compiler review, Phase 2).
+    // An attempt queued in the retired no-photo mode before that release is
+    // refused here, terminally and legibly, never drawn some other way.
+    if (attempt.subjectRenderMode === "t2i_fallback") {
+      const refused = new NoPhotoRenderRefusedError();
+      return recordTerminalAttemptFailure(p.attemptId, refused.code, refused.message);
+    }
 
     // The identity (name + pronouns) used to render this attempt. Drives both
     // the legacy fact-text render and the compiler's final token gate, so a
@@ -658,11 +667,10 @@ function extractReferenceImageUrl(attempt: ImagePromptAttempt): string | null {
  */
 export async function mirrorToLegacyStorage(attempt: ImagePromptAttempt, storedPath: string): Promise<void> {
   try {
-    // Append to facts.aiMemeImages[gender] so the legacy GET image endpoint
-    // can serve this background by index. Gender resolution uses the
-    // fallbackSubjectGender when present, else neutral.
-    const renderControls = attempt.renderControls as RenderControls;
-    const gender: "male" | "female" | "neutral" = renderControls.fallbackSubjectGender ?? "neutral";
+    // Append to facts.aiMemeImages.neutral so the legacy GET image endpoint
+    // can serve this background by index. Every picture starts from a photo,
+    // so no render carries a fallback gender to file it under.
+    const gender = "neutral" as const;
     // Row-locked read-modify-write: with the worker now running image_generation
     // handlers concurrently, two completions for the SAME fact could otherwise
     // read the same aiMemeImages array and clobber each other on write (last

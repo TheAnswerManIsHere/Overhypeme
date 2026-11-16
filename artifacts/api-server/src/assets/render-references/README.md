@@ -31,4 +31,5 @@ handles EXIF.
   i2i attempts that used the old asset correctly go stale.
 - Until a file is present, its scenario fails with a clear "reference not
   configured" message and `GET /api/admin/render-references/health` reports it
-  missing. The generic (t2i) scenario needs no reference and works immediately.
+  missing. Every scenario needs its reference: there is no picture without a
+  photo (compiler review, Issue #950).

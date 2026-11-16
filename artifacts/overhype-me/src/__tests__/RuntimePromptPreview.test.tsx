@@ -105,12 +105,11 @@ describe("RuntimePromptPreview", () => {
     expect(within(summary).getByText(/human_identity_i2i/)).toBeTruthy();
   });
 
-  it("maps control changes into the request body (t2i + persist + render controls)", async () => {
+  it("maps control changes into the request body (mode + persist + render controls)", async () => {
     render(<RuntimePromptPreview factId={7} />);
     expand();
 
-    fireEvent.change(screen.getByTestId("rpp-subject-render-mode"), { target: { value: "t2i_fallback" } });
-    fireEvent.change(screen.getByTestId("rpp-fallback-gender"), { target: { value: "female" } });
+    fireEvent.change(screen.getByTestId("rpp-subject-render-mode"), { target: { value: "nonhuman_subject_i2i" } });
     fireEvent.change(screen.getByTestId("rpp-aspect-ratio"), { target: { value: "landscape" } });
     fireEvent.click(screen.getByTestId("rpp-persist"));
     fireEvent.click(screen.getByTestId("rpp-generate"));
@@ -118,43 +117,24 @@ describe("RuntimePromptPreview", () => {
     await waitFor(() => expect(calls.some((c) => c.url.includes("/preview"))).toBe(true));
     const body = calls.find((c) => c.url.includes("/preview"))!.body!;
     expect(body.factId).toBe(7);
-    expect(body.subjectRenderMode).toBe("t2i_fallback");
+    expect(body.subjectRenderMode).toBe("nonhuman_subject_i2i");
     expect(body.persist).toBe(true);
-    // t2i omits the synthetic source-image analysis (server falls back).
-    expect(body.sourceImageAnalysis).toBeUndefined();
+    // Every picture starts from a photo: the synthetic analysis is always sent.
+    expect(body.sourceImageAnalysis).toBeDefined();
     const rc = body.renderControls as Record<string, unknown>;
-    expect(rc.fallbackSubjectGender).toBe("female");
+    expect(rc.fallbackSubjectGender).toBeUndefined();
     expect(rc.aspectRatio).toBe("landscape");
   });
 
-  it("review-render mode: derives t2i fallback gender from sample pronouns until overridden", async () => {
+  it("offers no no-photo mode, and review-render mode starts from a person's photo", async () => {
     localStorage.clear();
     render(<RuntimePromptPreview factId={7} reviewIdForRender={6309} />);
     expand();
 
-    // Review-render mode defaults to t2i_fallback, so the gender control shows.
-    const genderSel = screen.getByTestId("rpp-fallback-gender") as HTMLSelectElement;
-
-    // Blank pronouns ⇒ the brand-default he/him sample ⇒ male (NOT neutral), so the
-    // default "just click Generate" path doesn't hit the t2i validator failure.
-    await waitFor(() => expect(genderSel.value).toBe("male"));
-
-    // he/him → male; she/her → female; they/them → neutral — all derived live.
-    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "they/them" } });
-    await waitFor(() => expect(genderSel.value).toBe("neutral"));
-    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "she/her" } });
-    await waitFor(() => expect(genderSel.value).toBe("female"));
-
-    // Generate sends the derived gender.
-    fireEvent.click(screen.getByTestId("rpp-generate"));
-    await waitFor(() => expect(calls.some((c) => c.url.includes("/preview"))).toBe(true));
-    expect((calls.find((c) => c.url.includes("/preview"))!.body!.renderControls as Record<string, unknown>).fallbackSubjectGender).toBe("female");
-
-    // Once the moderator manually picks a gender, pronouns no longer override it.
-    fireEvent.change(genderSel, { target: { value: "neutral" } });
-    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "he/him" } });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(genderSel.value).toBe("neutral");
+    const modeSel = screen.getByTestId("rpp-subject-render-mode") as HTMLSelectElement;
+    expect([...modeSel.options].map((o) => o.value)).not.toContain("t2i_fallback");
+    expect(modeSel.value).toBe("human_identity_i2i");
+    expect(screen.queryByTestId("rpp-fallback-gender")).toBeNull();
   });
 
   it("shows a friendly message when the fact has no usable enrichment", async () => {

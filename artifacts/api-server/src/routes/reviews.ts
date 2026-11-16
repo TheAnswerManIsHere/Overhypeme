@@ -34,6 +34,8 @@ import {
   SUBMISSION_TEXT_MAX_CHARS,
   SUBMISSION_TEXT_MIN_CHARS,
   RENDER_SCENARIO_KEYS,
+  RENDER_SCENARIO_DESCRIPTORS,
+  REFERENCE_IDENTITY_TYPES,
   renderScenarioKeySchema,
   visualRenderWaiverRequestSchema,
   type ProblematicScenarioStatus,
@@ -89,7 +91,9 @@ import {
   getScenarioAttemptDiagnostics,
   reviewRenderStates,
   enqueueForceReviewRenderPrepare,
+  syntheticAnalysisForReference,
 } from "../lib/reviewRenderScenarios";
+import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../lib/defaultReferenceResolver";
 import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
@@ -1552,23 +1556,23 @@ router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, (_req: Aut
 //   POST /admin/reviews/:id/render               render the AI background (t2i)
 //   GET  /admin/reviews/:id/renders/:renderJobId admin-gated poll for that render
 //
-// Renders go through the SAME Nano-Banana-2 attempt pipeline production uses, but
+// Renders go through the SAME attempt pipeline production uses, but
 // are EPHEMERAL: the attempt row is kept for audit while the image is NOT mirrored
 // into the fact's shared production set (renderControls.mirrorToLegacyStorage:false).
 
-const T2I_MODE = "t2i_fallback" as const;
 const RenderReviewBody = z.object({
-  subjectRenderMode: z.enum(["human_identity_i2i", "nonhuman_subject_i2i", "t2i_fallback"]).optional(),
-  userSelectedSubjectRenderMode: z
-    .enum(["human_identity_i2i", "nonhuman_subject_i2i", "t2i_fallback"])
-    .nullish(),
+  /**
+   * The fixed reference photo to render from (compiler review, Phase 2: every
+   * picture starts from a photo). David's by default; his wife's, the pet's or
+   * the object's on request.
+   */
+  referenceIdentityType: z.enum(REFERENCE_IDENTITY_TYPES).optional(),
   lookStyleId: z.string().max(200).nullish(),
   renderControls: z
     .object({
       aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
       contentMode: z.enum(["sfw", "suggestive", "spicy"]).optional(),
       negativeSpacePreference: z.enum(["top", "bottom", "left", "right", "auto", "none"]).optional(),
-      fallbackSubjectGender: z.enum(["male", "female", "neutral"]).optional(),
     })
     .strict()
     .optional(),
@@ -1577,9 +1581,11 @@ const RenderReviewBody = z.object({
   previewPronouns: z.string().max(40).optional(),
 });
 
-// POST /admin/reviews/:id/render — kick a t2i AI-background render for the staging
-// fact using the SAME assembly the prompt preview uses, then return a renderJobId
-// the admin poll route tracks. Ephemeral: nothing mirrors onto the fact.
+// POST /admin/reviews/:id/render — a moderation test render of the staging
+// fact from one fixed reference photo, with an optional look, using the SAME
+// assembly the prompt preview uses; returns a renderJobId the admin poll route
+// tracks. Ephemeral: nothing mirrors onto the fact. The engine follows the
+// look (no look: GPT Image 2.6; a look: Nano Banana 2.1).
 router.post("/admin/reviews/:id/render", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -1590,16 +1596,7 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     return;
   }
   const body = parsed.data;
-
-  // t2i-only: review facts have no source image, so i2i would fail downstream
-  // with i2i_missing_reference_url. Reject BEFORE enqueueing any paid work.
-  if (body.subjectRenderMode && body.subjectRenderMode !== T2I_MODE) {
-    res.status(400).json({
-      error: "i2i_unavailable_in_moderation",
-      message: "Moderation renders are text-to-image only — review facts have no source image.",
-    });
-    return;
-  }
+  const referenceIdentityType = body.referenceIdentityType ?? "male";
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
@@ -1621,19 +1618,31 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
   const ev = validateEnrichment(cycle.rawEnrichment);
   if (!ev.ok) { res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error }); return; }
 
-  // Shared deterministic assembly — identical to the prompt-preview factId path,
-  // forced to t2i with a fallback gender so the generator can build a protagonist.
+  let reference;
+  try {
+    reference = await resolveDefaultReferenceUrl(referenceIdentityType);
+  } catch (err) {
+    if (err instanceof ReferenceAssetUnavailableError) {
+      res.status(409).json({ error: "reference_asset_unavailable", message: err.detail });
+      return;
+    }
+    throw err;
+  }
+
+  // Shared deterministic assembly — identical to the prompt-preview factId path.
+  const analysis = syntheticAnalysisForReference(referenceIdentityType);
   let resolved;
   try {
     resolved = await resolveRenderReviewInput(cycle.text, ev.data, {
-      subjectRenderMode: T2I_MODE,
-      userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? body.subjectRenderMode ?? null,
+      subjectRenderMode: analysis.suggestedRenderMode,
+      sourceImageAnalysis: analysis,
+      referenceImageUrl: reference.url,
+      referenceIdentityType,
       lookStyleId: body.lookStyleId ?? null,
       renderControls: {
         aspectRatio: body.renderControls?.aspectRatio,
         contentMode: body.renderControls?.contentMode,
         negativeSpacePreference: body.renderControls?.negativeSpacePreference,
-        fallbackSubjectGender: body.renderControls?.fallbackSubjectGender ?? "neutral",
       },
       identityPolicyOverrides: body.identityPolicyOverrides,
       previewName: body.previewName,
@@ -1672,7 +1681,7 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
   });
 
   logger.info(
-    { reviewId: id, stagingFactId: review.stagingFactId, adminId: req.user.id, attemptId, renderJobId },
+    { reviewId: id, stagingFactId: review.stagingFactId, adminId: req.user.id, attemptId, renderJobId, referenceIdentityType },
     "[moderation] review render enqueued",
   );
   res.status(202).json({ renderJobId, attemptId });
@@ -1756,7 +1765,9 @@ router.get("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: Requ
 });
 
 const RunScenariosBody = z.object({
-  scenarios: z.array(renderScenarioKeySchema).min(1).max(RENDER_SCENARIO_KEYS.length),
+  scenarios: z.array(renderScenarioKeySchema.refine((k) => !RENDER_SCENARIO_DESCRIPTORS[k].retired, {
+    message: "this scenario is retired: every picture starts from a photo",
+  })).min(1).max(RENDER_SCENARIO_KEYS.length),
   force: z.boolean().optional(),
 });
 

@@ -47,23 +47,22 @@ Your job is to turn a classified fact + its stored enrichment + the authored vis
 Inputs you receive (in the user message):
 - The rendered fact text (subject + pronouns already resolved).
 - A FIXED taxonomy (archetype, subtype, modifiers, etc.). Do NOT reclassify.
-- The authored visual strategy entry for the archetype (strategy block, core visual goal, i2i default, t2i fallback when present, subtype guidance, visualization examples with their hand-authored cultural references, prompt-generator requirements, locked rule). You MUST apply this — do not improvise.
+- The authored visual strategy entry for the archetype (strategy block, core visual goal, i2i default, subtype guidance, visualization examples with their hand-authored cultural references, prompt-generator requirements, locked rule). You MUST apply this — do not improvise.
 - Per-fact culturalReferences from the stored enrichment blob. These OVERRIDE the example annotations for THIS fact.
 - Per-fact semanticEntities from the stored enrichment blob. These are CAPITALIZATION-AWARE visual referent decisions made during enrichment. Treat them as HARD context. Do not override them. For every entry with materiallyAffectsVisualPrompt=true, you MUST list a matching {surfaceText, visualReferentUsed, effectOnVisualPlan} in visualPlan.semanticEntitiesUsed.
 - A structured sourceImageAnalysis (subjectKind, hasUsableHumanFace, hasUsableSubject, subjectCount, subjectDescription, warnings).
-- The RESOLVED subjectRenderMode: one of human_identity_i2i, nonhuman_subject_i2i, t2i_fallback.
+- The RESOLVED subjectRenderMode: human_identity_i2i or nonhuman_subject_i2i. Every picture starts from a reference photo.
 - Identity controls (preserveHumanFace, preserveNonhumanSubjectIdentity, preservePhysique, allowBodyExaggeration, allowCostumeTransformation, allowAnthropomorphicTransformation, ageAndLifeStagePolicy).
-- Render controls (aspectRatio, negativeSpacePreference, contentMode, fallbackSubjectGender — used by t2i_fallback ONLY).
+- Render controls (aspectRatio, negativeSpacePreference, contentMode).
 - The resolved stylePrompt suffix (the visual aesthetic).
-- The target engine: nano_banana_2.
+- A target-engine tag to echo verbatim. The picture engine is chosen after planning, so nothing in the plan depends on it.
 
-Three subject render modes with three different identity rules:
+Two subject render modes with two different identity rules:
 
 A. human_identity_i2i — Use the reference image as the person's identity source. Preserve the reference person's recognizable identity and likeness (facial features and distinctive characteristics), NOT their exact current-age appearance. Allow apparent age, body proportions, hair, clothing, and life stage to transform when the fact requires it — keeping the SAME recognizable person. When the fact implies a different life stage (born/baby → infant; "as a kid" → child; "in his 90s" → elderly), the reference person IS that transformed person: de-age or age the same individual. NEVER split them into two — never keep an adult version alongside a separate baby/child, and never add a second, generic baby/child/elder. Body/physique/outfit/posture/aura may be exaggerated unless preservePhysique is true.
 
 B. nonhuman_subject_i2i — Use the reference image as the visual identity source for the uploaded subject (cat, dog, car, object, mascot). The uploaded subject visually represents the named subject in the fact. Preserve recognizable visual identity (species or object type, color, markings, shape, distinctive features). DO NOT replace the subject with a human. Allow tasteful anthropomorphic staging when the fact requires human-like action; pick anthropomorphicTreatment per the global rule (default subtle_pose or costume_and_pose; full_cartoonish_anthropomorphism only when style supports it).
 
-C. t2i_fallback — No reference identity. Generate a new protagonist using fallbackSubjectGender as guidance. DO NOT claim facial likeness preservation. Reference the fallbackSubjectGender ("male"/"female"/"neutral") explicitly in the prompt.
 
 The engine prompt is assembled deterministically from a labeled visual contract, and the VISUAL CONCEPT (CORE SCENE) LEADS it:
 CORE SCENE · IDENTITY/RENDER TASK · SUBJECT BINDING · ROLE DETAILS · SUBJECT DETAILS · ENVIRONMENT · COMPOSITION · LIGHTING · RENDER STYLE · STRICT CONSTRAINTS. The compiler owns the identity/reference clause, SUBJECT BINDING, and STRICT CONSTRAINTS itself (identity, de-aging binding, anti-split, text policy). Sections after CORE SCENE are additive — they contribute only what the scene omitted. YOUR job is to fill the concrete visual fields below with dense, literal, pixel-mapping detail; coreScene carries the scene. visualGoal/visualApproach are INTERNAL reasoning only — NOT shown to the image model, so do not pack scene detail there.
@@ -78,7 +77,7 @@ Produce a JSON object with these top-level fields:
   · ageLifeStageTransform: set applies=true and a concrete targetState noun ("a baby/infant", "a school-age child", "an elderly man") when the fact implies a life stage other than the reference person's current one; otherwise applies=false and targetState="".
   · subjectTreatment.roleInScene: a CONCRETE visible role/action (what the subject visibly is and does), not an abstract label like "protagonist".
   · secondaryCharacters: every non-subject person/animal/crowd that must appear, each as { label, visualRole } where visualRole is a CONCRETE visible role (position + action/reaction + relationship to the subject), not a bare relationship word. Empty array when the subject is alone.
-- compiledPrompt: { prompt, negativePrompt, engineNotes } — prompt is a legacy free-text CORE-SCENE fallback (keep it concrete; the compiler prefers coreScene). negativePrompt MUST be an empty string (the target engine has no negative-prompt parameter; see rule 17)
+- compiledPrompt: { prompt, negativePrompt, engineNotes } — prompt is a legacy free-text CORE-SCENE fallback (keep it concrete; the compiler prefers coreScene). negativePrompt MUST be an empty string (the picture engines take no negative-prompt parameter; see rule 17)
 
 Hard rules:
 1. Echo the input targetEngine, generationMode, archetype, subtype, and subjectRenderMode VERBATIM — they must round-trip exactly.
@@ -86,18 +85,18 @@ Hard rules:
 3. If allowSupportingText is false, supportingTextElements MUST be an empty array.
 4. Identity language is OWNED BY THE COMPILER. Do NOT author face/identity-preservation, reference-image, or de-aging language in coreScene/subjectDetails/environment/compiledPrompt — the compiler injects the identity/reference clause and SUBJECT BINDING blocks (transformation-aware identity preservation + the de-aging/anti-split binding) itself, and strips any you write. Instead, signal the transform via subjectTreatment.ageLifeStageTransform and DESCRIBE the transformed subject concretely in subjectDetails (e.g. "infant proportions, chubby cheeks, wispy hair").
 5. When subjectRenderMode is nonhuman_subject_i2i, compiledPrompt.prompt MUST contain visual-identity preservation language AND an explicit "do not replace the subject with a human" instruction. It MUST NOT claim human facial likeness preservation.
-6. When subjectRenderMode is t2i_fallback, compiledPrompt.prompt MUST NOT claim facial likeness preservation. Reference the caller's fallbackSubjectGender explicitly when provided.
+6. There is always a reference photo: never invent a protagonist, and never describe the subject as anyone or anything other than the one in the photo.
 7. When preservePhysique is false, subjectTreatment.expressionAndPose may describe body/physique exaggeration but must NOT say "preserve body/physique".
 8. When preservePhysique is true, preserve general body type but still make the scene legendary via composition / lighting / staging / props / reactions.
-9. nonhumanSubjectTreatment.applicable MUST be true for nonhuman_subject_i2i (with a concrete subjectKind, at least one preserveTrait, doNotTransformIntoHuman=true) and false for the other two modes (with subjectKind="not_applicable", empty preserveTraits, anthropomorphicTreatment="none").
-10. subjectTreatment.fallbackSubjectGender must echo the caller's value when subjectRenderMode is t2i_fallback; otherwise set to "not_applicable".
+9. nonhumanSubjectTreatment.applicable MUST be true for nonhuman_subject_i2i (with a concrete subjectKind, at least one preserveTrait, doNotTransformIntoHuman=true) and false for human_identity_i2i (with subjectKind="not_applicable", empty preserveTraits, anthropomorphicTreatment="none").
+10. subjectTreatment.fallbackSubjectGender MUST be "not_applicable".
 11. subjectFactCompatibility: rate strong / workable / risky / poor based on whether the uploaded subject CAN sell this specific fact, with a reason. recommendedFallback is advisory only; "none" is valid for every rating, including poor. This field never blocks rendering.
 12. Apply ageAndLifeStagePolicy: when the fact implies a specific age, life stage, era, or role, set subjectTreatment.ageLifeStageTransform.applies=true with a concrete targetState, and transform the subject's presentation accordingly — the reference person IS the transformed subject (one entity), never an adult plus a separate baby/child/elder. For animals: kitten / puppy / older-animal versions when life-stage applies. For objects/vehicles: toy / vintage / weathered / showroom-new versions instead of human age.
 13. Honor culturalReferences from the enrichment blob — they inform what the scene LOOKS LIKE (Shark Week → sharks watching David on TV; Victoria's Secret → boutique imagery without real brand marks).
 14. Do NOT render the full fact text or meme caption inside the image. Concise supporting text (digits, symbols, equations, UI fragments, keypad digits, scoreboards, short labels, signs) is allowed when it directly supports the joke AND allowSupportingText is true.
 15. The visualPlan must be engine-neutral. The selected visual STYLE (anime, oil painting, etc.) is OWNED BY THE COMPILER and emitted as its own RENDER STYLE section — do NOT weave a rendering medium or artistic-style claim into any field (coreScene/subjectDetails/environment/lightingAndStyle/compiledPrompt). Describe physical light, mood, and palette; leave the medium to the compiler.
 16. Capitalization-aware referents: when input semanticEntities lists a surface term (e.g. "Earth" → "the planet Earth", "earth" → "ground, dirt, soil, or terrain beneath the subject"), reflect the RESOLVED referent in keyVisualElements and compiledPrompt. Do not render "Earth" as ground when the entity says it means the planet; do not render "earth" as the planet when the entity says it means ground. Echo every material entity in visualPlan.semanticEntitiesUsed with concrete visualReferentUsed + a one-sentence effectOnVisualPlan.
-17. compiledPrompt.negativePrompt MUST be an empty string (""). Nano Banana 2 has no negative-prompt parameter, so anything placed there is silently dropped. Express every exclusion as POSITIVE scene language inside compiledPrompt.prompt — describe what SHOULD be present (e.g. "a clean bare wall") instead of what to avoid (e.g. "no posters").
+17. compiledPrompt.negativePrompt MUST be an empty string (""). The picture engines take no negative-prompt parameter, so anything placed there is silently dropped. Express every exclusion as POSITIVE scene language inside compiledPrompt.prompt — describe what SHOULD be present (e.g. "a clean bare wall") instead of what to avoid (e.g. "no posters").
 18. For every MATERIAL cultural reference flagged in the user message (material=true), echo it in visualPlan.culturalReferencesUsed with { sourcePhrase, canonicalReferenceUsed, visualImplicationUsed, effectOnVisualPlan } all non-empty, and bake its visual implication into keyVisualElements + the concrete visual fields (coreScene/subjectDetails/environment) — without drawing any real logo or brand mark. Ambiguous / admin-review references are context only; do not force them.
 19. DESCRIBE THE PICTURE, NOT THE JOKE. Every sentence in coreScene/subjectDetails/environment/lightingAndStyle must map to visible pixels. BANNED in these fields: authorial-intent commentary such as "showcasing the absurdity", "emphasizing the humor", "creating a humorous contrast", "highlighting the role reversal", "comedic effect", "to emphasize the humor", "the absurdity of the situation". Replace any such phrasing with the concrete visual that conveys it (subject, pose, expression, objects, setting, scale, camera, lighting, motion, composition). The humor must come from what is SHOWN.
 20. coreScene is ALWAYS required (one tight, dense paragraph). subjectDetails, environment, and keyVisualElements are ADDITIVE DELTAS: fill them only with concrete visible details the core scene does NOT already state. When a moderator-authored Concept is the authoritative scene it is already complete, so these collections may be EMPTY — do not restate the scene or invent filler. Otherwise (an AI-authored scene) supply at least one concrete subjectDetails and environment entry so the scene is dense enough to render.
@@ -178,7 +177,7 @@ export const IMAGE_PROMPT_PROMPT_DEFS = [
     value: FACT_IMAGE_PROMPT_SYSTEM_DEFAULT,
     label: "Image Prompt — System Prompt",
     description:
-      "LLM system prompt for the render-time image-prompt generator (Phase 2). Produces visualPlan + compiledPrompt + subjectFactCompatibility for Nano Banana 2.",
+      "LLM system prompt for the render-time image-prompt generator (Phase 2). Produces visualPlan + compiledPrompt + subjectFactCompatibility; the picture engine is chosen afterwards, by look.",
   },
   {
     key: IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem,

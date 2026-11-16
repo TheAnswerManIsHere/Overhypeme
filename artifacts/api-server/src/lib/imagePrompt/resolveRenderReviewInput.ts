@@ -22,6 +22,7 @@ import {
   type FactEnrichment,
   type GenerationMode,
   type IdentityPolicy,
+  type ReferenceIdentityType,
   type RenderControls,
   type SourceImageAnalysis,
   type SubjectRenderMode,
@@ -48,6 +49,26 @@ export interface RenderReviewControls {
   identityPolicyOverrides?: Record<string, unknown>;
   previewName?: string;
   previewPronouns?: string;
+  /**
+   * The fixed reference photo a moderation or capture render uses, when it
+   * uses one. Its identity names the sample subject: the wife's photo renders
+   * as Susan Franklin, she/her; every other one as David Franklin, he/him.
+   */
+  referenceIdentityType?: ReferenceIdentityType | null;
+}
+
+/**
+ * A render cannot start because it has no usable photo: none was given, or
+ * the one given shows no usable face or subject. Every picture starts from a
+ * photo (compiler review, Phase 2; David, 2026-11-14), so the person is asked
+ * for a better photo rather than given a picture without one.
+ */
+export class NoUsablePhotoError extends Error {
+  readonly code = "no_usable_photo";
+  constructor(readonly reasons: string[]) {
+    super(`this photo cannot be used${reasons.length ? `: ${reasons.join("; ")}` : ""}. Use a photo with one clear face or subject.`);
+    this.name = "NoUsablePhotoError";
+  }
 }
 
 export interface ResolvedRenderReviewInput {
@@ -86,9 +107,20 @@ export function defaultPreviewSubjectForGender(
   }
 }
 
-/** Pronouns must look like "subj/obj"; otherwise fall back to the gender default. */
+/**
+ * The sample subject for a fixed reference photo: the wife's renders as Susan
+ * Franklin, she/her, so the fact text agrees with the face; David's, the
+ * pet's and the object's as the historical default.
+ */
+export function defaultPreviewSubjectForReference(
+  identityType: ReferenceIdentityType | null | undefined,
+): { name: string; pronouns: string } {
+  return defaultPreviewSubjectForGender(identityType === "female" ? "female" : null);
+}
+
+/** Pronouns must look like "subj/obj"; otherwise fall back to the reference photo's default. */
 function resolvePreviewSubject(controls: RenderReviewControls): { name: string; pronouns: string } {
-  const fallback = defaultPreviewSubjectForGender(controls.renderControls?.fallbackSubjectGender);
+  const fallback = defaultPreviewSubjectForReference(controls.referenceIdentityType);
   const name =
     typeof controls.previewName === "string" && controls.previewName.trim()
       ? controls.previewName.trim()
@@ -119,6 +151,13 @@ export async function resolveRenderReviewInput(
   }
 
   const subjectRenderMode: SubjectRenderMode = controls.subjectRenderMode ?? analysis.suggestedRenderMode;
+  // No picture without a usable photo: the analysis's no-photo suggestion, or
+  // a caller asking for the retired mode, is refused with the analysis's own
+  // reasons, never drawn as an invented person.
+  if (subjectRenderMode === "t2i_fallback") {
+    const reasons = (analysis.warnings ?? []).filter(Boolean);
+    throw new NoUsablePhotoError(controls.uploadedObjectPath || controls.sourceImageAnalysis ? reasons : ["no photo was given"]);
+  }
   const identityPolicy = {
     ...defaultIdentityPolicyForRenderMode(subjectRenderMode),
     ...(controls.identityPolicyOverrides ?? {}),
@@ -138,7 +177,6 @@ export async function resolveRenderReviewInput(
     aspectRatio: controls.renderControls?.aspectRatio ?? "portrait",
     contentMode: controls.renderControls?.contentMode ?? "sfw",
     negativeSpacePreference: controls.renderControls?.negativeSpacePreference,
-    fallbackSubjectGender: controls.renderControls?.fallbackSubjectGender,
     styleId: controls.lookStyleId ?? null,
     referenceImageUrl: controls.referenceImageUrl ?? null,
     resolvedRenderStyle,

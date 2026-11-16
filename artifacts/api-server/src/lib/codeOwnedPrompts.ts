@@ -12,14 +12,12 @@ import type { AdminConfig } from "@workspace/db/schema";
 import { FACT_ENRICHMENT_PROMPT_DEFS } from "./factEnrichmentConfig";
 import { IMAGE_PROMPT_PROMPT_DEFS } from "./imagePromptConfig";
 import { REFERENCE_RESEARCH_PROMPT_DEF } from "./referenceResearchConfig";
-import { SCENE_PROMPT_DEF } from "./scenePromptConfig";
 import { VISUAL_CONCEPTS_PROMPT_DEFS } from "./visualConceptsConfig";
 
 export const CODE_OWNED_PROMPT_DEFS = [
   ...FACT_ENRICHMENT_PROMPT_DEFS,
   ...IMAGE_PROMPT_PROMPT_DEFS,
   REFERENCE_RESEARCH_PROMPT_DEF,
-  SCENE_PROMPT_DEF,
   ...VISUAL_CONCEPTS_PROMPT_DEFS,
 ];
 

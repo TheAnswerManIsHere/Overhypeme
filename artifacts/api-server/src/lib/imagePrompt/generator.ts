@@ -3,7 +3,7 @@
  *
  * Calls OpenAI with strict Structured Outputs to produce:
  *   - visualPlan (engine-neutral)
- *   - compiledPrompt (Nano Banana 2)
+ *   - compiledPrompt (engine-neutral; the compiler words it per engine)
  *   - subjectFactCompatibility (inline)
  *
  * Standard structured-output flow: build user message, call
@@ -521,7 +521,6 @@ export function buildImagePromptContextBlocks(
       `Strategy block: ${strategy.strategyBlock}`,
       `Core visual goal: ${strategy.coreVisualGoal}`,
       `i2i default: ${strategy.i2iDefault}`,
-      strategy.t2iFallback ? `t2i fallback: ${strategy.t2iFallback}` : "",
       strategy.preservePhysique ? `Per-archetype preservePhysique: ${strategy.preservePhysique}` : "",
       subtypeGuide ? `Subtype guidance for ${e.subtype}: ${subtypeGuide.principle}${subtypeGuide.useWhen ? ` (use when: ${subtypeGuide.useWhen})` : ""}` : "",
     );
@@ -629,13 +628,11 @@ export function buildImagePromptContextBlocks(
 
   if (opts.includeRenderControls && input.renderControls) {
     const rc = input.renderControls;
-    const fallbackGender = rc.fallbackSubjectGender ?? null;
     lines.push(
       "RENDER CONTROLS:",
       `- aspectRatio: ${rc.aspectRatio}`,
       `- negativeSpacePreference: ${rc.negativeSpacePreference ?? "auto"}`,
       `- contentMode: ${rc.contentMode}`,
-      `- fallbackSubjectGender: ${fallbackGender ?? "(unset)"} ${input.subjectRenderMode === "t2i_fallback" ? "(REQUIRED for t2i_fallback — reference this in the prompt)" : "(ignore unless t2i_fallback)"}`,
       "",
     );
   }
@@ -647,7 +644,7 @@ export function buildImagePromptContextBlocks(
 
   if (opts.includeTargetEngine && input.targetEngine) {
     lines.push(
-      `TARGET ENGINE: ${input.targetEngine} (use t2i variant when generationMode=t2i, edit/i2i variant otherwise)`,
+      `TARGET ENGINE TAG: ${input.targetEngine} (echo it; the picture engine is chosen after planning, so write nothing engine-specific)`,
       "",
     );
   }
@@ -678,10 +675,9 @@ function buildModeRuleExcerpt(input: ImagePromptContextInput): string {
       `\nAge / life-stage policy:\n${VISUAL_PROMPT_GLOBAL_RULES.ageAndLifeStagePolicy}`,
     ].join("\n");
   }
-  return [
-    "Identity rule (t2i fallback):",
-    VISUAL_PROMPT_GLOBAL_RULES.textToImageFallbackPolicy,
-  ].join("\n");
+  // Every picture starts from a photo; a no-photo render is refused at the
+  // queue and in the worker before a planner message is ever built.
+  throw new Error(`no identity rule for subjectRenderMode ${input.subjectRenderMode}: every picture starts from a photo`);
 }
 
 /**
@@ -694,10 +690,8 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
   const semanticEntities = stripSubjectNameSemanticEntities(e.semanticEntities ?? []);
   const materialEntities = semanticEntities.filter((s) => s.materiallyAffectsVisualPrompt);
   const materialCulturalRefs = e.culturalReferences.filter(isMaterialCulturalReference).map(culturalReferenceKey).filter(Boolean);
-  const fallbackGender = input.renderControls.fallbackSubjectGender ?? null;
-
   return [
-    "Generate the engine-neutral visualPlan + Nano Banana 2 compiledPrompt + subjectFactCompatibility for this render.",
+    "Generate the engine-neutral visualPlan + compiledPrompt + subjectFactCompatibility for this render.",
     "",
     ...buildImagePromptContextBlocks(input, PLANNER_CONTEXT_OPTS),
     "OUTPUT CONTRACT:",
@@ -715,12 +709,12 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     "- DESCRIBE THE PICTURE, NOT THE JOKE: coreScene/subjectDetails/environment/lightingAndStyle must map to visible pixels. Do NOT write authorial-intent commentary (\"showcasing the absurdity\", \"emphasizing the humor\", \"creating a humorous contrast\", \"comedic effect\", \"the absurdity of the situation\"). Show the humor through concrete visuals.",
     "- Tone: when a scene is both serious and funny, state the hierarchy explicitly (e.g. \"serious cinematic staging; the humor comes from the visual contrast\") rather than mixing competing tone words like \"grounded\" and \"playful\" without relating them.",
     "- keyVisualElements: up to 12; concrete visible elements only (no abstract joke explanation, no policy language). ADDITIVE gap-fill — the compiler injects any not already covered by the concrete fields; may be EMPTY when a moderator-authored Concept is complete, otherwise supply ≥3.",
-    "- compiledPrompt.prompt OWNERSHIP: legacy CORE-SCENE fallback (the compiler prefers coreScene). Write ONLY the concrete scene. The compiler injects identity, reference-image, de-aging/binding, token, and text-policy language itself, so do NOT author any of these — they are stripped before the engine sees them: (a) face/identity/likeness preservation or de-aging (\"preserve the … face\", \"recognizable face\", \"same person\", \"de-age\", \"do not replace … with a human\"); (b) mentions of the uploaded/reference/source image or i2i/t2i; (c) NAME/SUBJ-style identity template tokens or \"interpret these terms\" clauses; (d) readable-text/logo/watermark policy. Describe what SHOULD be in the frame; the compiler owns the rest.",
+    "- compiledPrompt.prompt OWNERSHIP: legacy CORE-SCENE fallback (the compiler prefers coreScene). Write ONLY the concrete scene. The compiler injects identity, reference-image, de-aging/binding, token, and text-policy language itself, so do NOT author any of these — they are stripped before the engine sees them: (a) face/identity/likeness preservation or de-aging (\"preserve the … face\", \"recognizable face\", \"same person\", \"de-age\", \"do not replace … with a human\"); (b) mentions of the uploaded/reference/source image or of i2i; (c) NAME/SUBJ-style identity template tokens or \"interpret these terms\" clauses; (d) readable-text/logo/watermark policy. Describe what SHOULD be in the frame; the compiler owns the rest.",
     "- supportingTextPolicy.forbiddenTextTypes MUST include all 7 mandatory entries (full meme captions, full fact text, hashtags, watermarks, real logos, brand marks, long explanatory paragraphs).",
     "- If allowSupportingText is false, supportingTextElements MUST be an empty array.",
     "- supportingTextElements (when present) MUST have shape { content, kind, purpose, placement } per element. kind=\"literal_text\" when content is an exact glyph string to render as readable in-scene text (\"COBRA\", \"GAME OVER\", \"E=mc²\", \"999\"); kind=\"visual_graphic\" when content DESCRIBES a visual (a flatline trace, five crossed-off days) — the compiler renders those unquoted instead of baking the words in.",
     `- nonhumanSubjectTreatment.applicable MUST be ${input.subjectRenderMode === "nonhuman_subject_i2i" ? "true" : "false"}.`,
-    `- subjectTreatment.fallbackSubjectGender MUST be ${input.subjectRenderMode === "t2i_fallback" ? `"${fallbackGender ?? "neutral"}"` : '"not_applicable"'}.`,
+    "- subjectTreatment.fallbackSubjectGender MUST be \"not_applicable\".",
     "- subjectFactCompatibility: rate strong/workable/risky/poor with a reason. recommendedFallback is advisory only; \"none\" is valid for every rating, including poor. This field never blocks rendering.",
     materialEntities.length > 0
       ? `- semanticEntitiesUsed: MUST include an entry for each of [${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}]; each entry needs surfaceText + visualReferentUsed + effectOnVisualPlan all non-empty.`
@@ -728,7 +722,7 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     materialCulturalRefs.length > 0
       ? `- culturalReferencesUsed: MUST include an entry for each of [${materialCulturalRefs.map((s) => `"${s}"`).join(", ")}]; each entry needs sourcePhrase + canonicalReferenceUsed + visualImplicationUsed + effectOnVisualPlan all non-empty.`
       : "- culturalReferencesUsed: may be an empty array (no material references in this fact).",
-    `- compiledPrompt.negativePrompt: Nano Banana 2 has NO negative-prompt parameter — leave it as an empty string ("") and express every exclusion as positive scene language inside compiledPrompt.prompt (describe what SHOULD be there, e.g. "a clean bare wall" rather than "no posters").`,
+    `- compiledPrompt.negativePrompt: the picture engines take NO negative-prompt parameter — leave it as an empty string ("") and express every exclusion as positive scene language inside compiledPrompt.prompt (describe what SHOULD be there, e.g. "a clean bare wall" rather than "no posters").`,
     "- Return ONLY the JSON object.",
   ]
     .filter((s) => s !== "")

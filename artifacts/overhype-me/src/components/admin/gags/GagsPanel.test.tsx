@@ -114,17 +114,20 @@ describe("GagsPanel", () => {
 
   it("approving a finished render sends its attempt as the gag's example", async () => {
     const done: RenderScenarioCard = {
-      key: "generic_t2i", label: "Generic", purpose: "", referenceIdentityType: null, required: true,
+      key: "i2i_male_default", label: "Male", purpose: "", referenceIdentityType: "male", required: true,
       status: "done", stale: false, latestAttemptId: 901, imageUrl: "/api/admin/gags/2/renders/j/image", message: null, applicability: null,
     };
-    const stale: RenderScenarioCard = { ...done, key: "i2i_male_default", label: "Male", stale: true, latestAttemptId: 902 };
+    const stale: RenderScenarioCard = { ...done, key: "i2i_female_default", label: "Female", referenceIdentityType: "female", stale: true, latestAttemptId: 902 };
+    // A retired scenario's stored render (no photo) stays visible but is never a gag's example.
+    const retired: RenderScenarioCard = { ...done, key: "generic_t2i", label: "Generic (retired)", referenceIdentityType: null, required: false, retired: true, latestAttemptId: 903 };
     const calls = stubFetch(view([
       gag({ id: 2, slot: 1, state: "new", availableToUsers: false, approvedContent: null, approvedAt: null, pendingContent: scene("{NAME} juggles planets."),
-        renders: { reviewId: 77, gagId: 2, cards: [done, stale], tally: NO_TALLY } }),
+        renders: { reviewId: 77, gagId: 2, cards: [done, stale, retired], tally: NO_TALLY } }),
     ], { isActive: false }));
     render(<GagsPanel factId={5} reviewId={77} rendersEnabled subjectNames={[]} />);
     const approve = await screen.findAllByTestId("gag-approve-render");
-    expect(approve).toHaveLength(1); // the stale render cannot be approved
+    expect(approve).toHaveLength(1); // neither the stale render nor the retired one can be approved
+    expect(screen.getAllByTestId("gag-render").map((t) => t.getAttribute("data-scenario"))).toContain("generic_t2i"); // still shown
     fireEvent.click(approve[0]!);
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/approve"))).toBe(true));
     const call = calls.find((c) => c.url.endsWith("/approve"))!;
@@ -177,7 +180,7 @@ describe("GagsPanel", () => {
 
   describe("reloading while the server prepares renders (Codex, PR #956 round 1)", () => {
     const missing: RenderScenarioCard = {
-      key: "generic_t2i", label: "Generic", purpose: "", referenceIdentityType: null, required: true,
+      key: "i2i_male_default", label: "Male", purpose: "", referenceIdentityType: "male", required: true,
       status: "missing", stale: false, latestAttemptId: null, imageUrl: null, message: null, applicability: null,
     };
     const done: RenderScenarioCard = { ...missing, status: "done", latestAttemptId: 950, imageUrl: "/api/admin/gags/2/renders/j/image" };

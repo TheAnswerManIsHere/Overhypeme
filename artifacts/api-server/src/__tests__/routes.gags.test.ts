@@ -413,7 +413,7 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
     const reviewId = await openRefresh(factId);
     const attempt = async (gid: number, state: "running" | "failed" | "done", at: string) => {
       await db.insert(imagePromptAttemptsTable).values({
-        factId, gagId: gid, reviewId, reviewRenderScenarioKey: "generic_t2i", renderJobId: randomUUID(),
+        factId, gagId: gid, reviewId, reviewRenderScenarioKey: "i2i_male_default", renderJobId: randomUUID(),
         generationMode: "t2i", subjectRenderMode: "t2i_fallback", targetEngine: "nano_banana_2",
         sourceImageAnalysis: {} as never, identityPolicy: {} as never, renderControls: {} as never,
         factEnrichmentSnapshot: {} as never, archetypeStrategyVersion: "v2",

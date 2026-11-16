@@ -14,11 +14,15 @@ import { measureRequiredPromptBudget, recipeBudgetNeed, recipeBudgetProblems } f
 import { FIXED_REQUIRED_RESERVE_BUDGET } from "@workspace/api-zod";
 
 type Case = { args: Parameters<typeof compileForSubjectRenderMode>[0]; prompt: string; engineNotes: string | null };
-const corpus = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
+// The corpus was captured with three modes; no-photo renders are retired
+// (compiler review, Phase 2), so its no-photo cases are kept as the record and
+// not compiled.
+const captured = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/compilerBaseline.json", import.meta.url)), "utf8")) as { cases: Case[] };
+const corpus = { cases: captured.cases.filter((c) => c.args.input.subjectRenderMode !== "t2i_fallback") };
 
 describe("the baseline recipe", () => {
-  it(`reproduces every captured prompt exactly (${corpus.cases.length} inputs, all three photo modes)`, () => {
-    assert.ok(corpus.cases.length >= 100);
+  it(`reproduces every captured prompt exactly (${corpus.cases.length} inputs, both photo modes)`, () => {
+    assert.ok(corpus.cases.length >= 80);
     for (const [i, c] of corpus.cases.entries()) {
       const implicit = compileForSubjectRenderMode(structuredClone(c.args));
       assert.equal(implicit.prompt, c.prompt, `case ${i} (${c.args.input.subjectRenderMode}) changed with no recipe given`);
@@ -90,6 +94,12 @@ describe("recipe pieces", () => {
     assert.ok(problems.some((p) => /section label cannot be empty/.test(p)));
     assert.ok(problems.some((p) => /"made\.up" is not a piece/.test(p)));
     assert.deepEqual(recipeProblems({ "notes.engine": "", "constraints.causal": "" }), [], "a non-policy piece may be emptied");
+  });
+
+  it("load a stored version that still carries the retired no-photo pieces, keeping the rest of its wording", () => {
+    const loaded = recipeFrom(4, { "identity.none": "Draw a hero.", "identity.gender": "A {gender} hero.", "label.renderTask": "TASK", "identity.person": "Keep the face." });
+    assert.equal(loaded.pieces["identity.person"], "Keep the face.");
+    assert.ok(!("identity.none" in loaded.pieces) && !("identity.gender" in loaded.pieces) && !("label.renderTask" in loaded.pieces));
   });
 
   it("name the policy pieces that differ", () => {

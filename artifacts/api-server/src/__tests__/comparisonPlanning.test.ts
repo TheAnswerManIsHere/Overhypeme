@@ -1,7 +1,9 @@
 // Launch Phase 8, increment 2a: the comparison's layout and run admission
 // (plan PLAN_PHASE8_ENGINE_EVALUATION.md, *Proposed Design* C and D). Pure —
 // no database. The counts asserted are the plan's: round 1 is 15 panels and 90
-// cells, round 2 is 18 panels and 108, 33 and 198 together.
+// cells, round 2 is 18 panels and 108, 33 and 198 together. Since every picture
+// starts from a photo (compiler review, Phase 2) round 1 drops its no-photo
+// scenario: 12 panels and 72 cells.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
@@ -19,10 +21,11 @@ function round(n: 1 | 2) {
 }
 
 describe("comparison layout", () => {
-  it("round 1 is 15 panels and 90 cells", () => {
+  it("round 1 is 12 photo panels and 72 cells", () => {
     const panels = deriveComparisonLayout(round(1), catalogue);
-    assert.equal(panels.length, 15);
-    assert.equal(panels.reduce((s, p) => s + p.engineIds.length, 0), 90);
+    assert.equal(panels.length, 12);
+    assert.equal(panels.reduce((s, p) => s + p.engineIds.length, 0), 72);
+    assert.ok(panels.every((p) => p.imageMode === "i2i"), "no picture without a photo");
   });
 
   it("round 2 is 18 panels and 108 cells", () => {
@@ -48,8 +51,8 @@ describe("comparison layout", () => {
   });
 
   it("an engine without a price model, or inactive, is refused with the reason", () => {
-    const unpriced = catalogue.map((e) => (e.id === "muse-image" ? { ...e, priceModel: null } : e));
-    assert.throws(() => deriveComparisonLayout(round(1), unpriced), /muse-image: it has no price model/);
+    const unpriced = catalogue.map((e) => (e.id === "muse-image-edit" ? { ...e, priceModel: null } : e));
+    assert.throws(() => deriveComparisonLayout(round(1), unpriced), /muse-image-edit: it has no price model/);
     const inactive = catalogue.map((e) => (e.id === "seedream-5-pro-edit" ? { ...e, isActive: false } : e));
     assert.throws(() => deriveComparisonLayout(round(1), inactive), /seedream-5-pro-edit: it is inactive/);
   });

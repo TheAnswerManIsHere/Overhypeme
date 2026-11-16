@@ -690,8 +690,9 @@ override when the automatic read is wrong.
 
 ### Render scenario
 
-One required render variant a moderator approves at production review (e.g.
-`generic_t2i`, `i2i_male_default`); each attempt is a durable
+One required render variant a moderator approves at production review
+(`i2i_male_default`, David's photo; `i2i_female_default`, his wife's; the
+retired no-photo `generic_t2i` stays only on old renders); each attempt is a durable
 `image_prompt_attempts` row.
 → [visual-pipeline](./visual-pipeline.md)
 

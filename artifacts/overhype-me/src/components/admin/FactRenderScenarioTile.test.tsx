@@ -10,10 +10,10 @@ import type { RenderScenarioCard } from "@workspace/api-zod";
  */
 
 const DONE_CARD: RenderScenarioCard = {
-  key: "generic_t2i",
-  label: "Generic (t2i)",
-  purpose: "Text-to-image baseline",
-  referenceIdentityType: null,
+  key: "i2i_male_default",
+  label: "Male subject (image-to-image)",
+  purpose: "From David's photo",
+  referenceIdentityType: "male",
   required: true,
   status: "done",
   stale: false,
@@ -58,5 +58,17 @@ describe("FactRenderScenarioTile without the old rating control", () => {
     render(<FactRenderScenarioTile reviewId={5} card={DONE_CARD} onRun={vi.fn()} />);
     expect(screen.getByTestId("render-scenario-image-button")).toBeTruthy();
     expect(screen.queryByTestId("tile-eval")).toBeNull();
+  });
+});
+
+describe("FactRenderScenarioTile on a retired scenario's stored render", () => {
+  it("shows the picture but offers no run control; a live card keeps its Rerun", () => {
+    const retired: RenderScenarioCard = { ...DONE_CARD, key: "generic_t2i", label: "Generic (retired)", referenceIdentityType: null, required: false, retired: true };
+    render(<FactRenderScenarioTile reviewId={5} card={retired} onRun={vi.fn()} />);
+    expect(screen.getByTestId("render-scenario-image-button")).toBeTruthy();
+    expect(screen.queryByTestId("render-scenario-rerun")).toBeNull();
+    cleanup();
+    render(<FactRenderScenarioTile reviewId={5} card={DONE_CARD} onRun={vi.fn()} />);
+    expect(screen.getByTestId("render-scenario-rerun")).toBeTruthy();
   });
 });

@@ -23,7 +23,6 @@ import {
   getFactSourceClassifierSystem,
   getImagePromptSystem,
 } from "./imagePromptConfig";
-import { SCENE_PROMPT_CONFIG_KEYS, getScenePromptSystem } from "./scenePromptConfig";
 import { REFERENCE_RESEARCH_CONFIG_KEYS, getReferenceResearchSystem } from "./referenceResearchConfig";
 import { CODE_OWNED_PROMPT_DEFS } from "./codeOwnedPrompts";
 import { JUDGEMENT_REASONING_EFFORT, UTILITY_LLM_ENGINE_ID } from "./utilityLLM";
@@ -104,7 +103,6 @@ const PROMPT_TEXT: Record<string, () => Promise<string>> = {
   // As sent: the planner call appends the platform hard rules (imagePrompt/generator.ts).
   [IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem]: async () => composeImagePromptSystemPrompt(await getImagePromptSystem()),
   [IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem]: getFactSourceClassifierSystem,
-  [SCENE_PROMPT_CONFIG_KEYS.system]: getScenePromptSystem,
   [REFERENCE_RESEARCH_CONFIG_KEYS.system]: getReferenceResearchSystem,
 };
 

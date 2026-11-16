@@ -40,7 +40,6 @@ const PREFERRED = ["gpt-image-2-6", "nano-banana-2-1"];
 const MODES = [
   { value: "human_identity_i2i", label: "A person's photo" },
   { value: "nonhuman_subject_i2i", label: "A pet's or object's photo" },
-  { value: "t2i_fallback", label: "No photo" },
 ] as const;
 
 const versionName = (v: FamilyVersion | undefined | null) => (v ? `Version ${v.number}` : "Baseline (today's wording)");

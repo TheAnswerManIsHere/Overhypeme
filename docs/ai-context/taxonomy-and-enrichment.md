@@ -49,7 +49,8 @@ So, for **every** metadata layer:
   If a variant has no images of its own, it has none — nothing may
   substitute the root's.
 - **A variant can GENERATE its own images, not just display them (PR #256).**
-  `admin.ts`'s `backfill-ai-memes` (and, until launch Phase 4 deleted them,
+  `admin.ts`'s `backfill-ai-memes` (retired by the compiler review, Phase 2:
+  it now answers 410; and, until launch Phase 4 deleted them,
   the Pexels `refresh-images`/`backfill-images`/`backfill-pexels` routes and
   the user-facing AI meme/PuLID routes) operates on any active fact, root or
   variant — the root-only 400s ("AI meme generation only supported on root

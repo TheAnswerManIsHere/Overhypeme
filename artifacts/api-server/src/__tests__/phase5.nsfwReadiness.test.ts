@@ -76,8 +76,9 @@ describe("the NSFW opt-in is withdrawn (T8)", () => {
   });
 
   it("every classifier call is told false, whatever an account's old column holds", () => {
-    // The two callers (upload and meme generation) pass a literal false; no
-    // code outside the classifier module reads the column any more.
+    // Every caller (the upload; the legacy meme generator's call went with it,
+    // compiler review, Phase 2) passes a literal false; no code outside the
+    // classifier module reads the column any more.
     const src = path.resolve(here, "..");
     const files = fs.readdirSync(src, { recursive: true, encoding: "utf8" })
       .filter((f) => f.endsWith(".ts") && !f.startsWith("__tests__") && !f.includes("moderation/nsfwClassifier") && !f.includes("testing/legacyFixture"));
@@ -91,7 +92,7 @@ describe("the NSFW opt-in is withdrawn (T8)", () => {
         }
       }
     }
-    assert.ok(calls.length >= 2, `the upload and meme-generation callers are found:\n${calls.join("\n")}`);
+    assert.ok(calls.length >= 1, `the upload caller is found:\n${calls.join("\n")}`);
     for (const c of calls) assert.match(c, /\{ nsfwModeEnabled: false \}\)$/, c);
   });
 });

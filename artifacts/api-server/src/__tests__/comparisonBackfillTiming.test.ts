@@ -32,7 +32,7 @@ before(async () => {
   await db.insert(usersTable).values({ id: adminId, email: `${adminId}@test.local`, membershipTier: "legendary", isAdmin: true });
   const [fact] = await db.insert(factsTable).values({ text: `${P} {NAME} lifts a mountain`, isActive: false, enrichment: VALID_ENRICHMENT as never }).returning({ id: factsTable.id });
   factId = fact!.id;
-  const { setId } = await createComparisonSet({ label: `${P} set`, round: 1, factIds: [factId], scenarioKeys: ["generic_t2i"], lookStyleIds: ["none"], engineFamilies: [P] }, adminId);
+  const { setId } = await createComparisonSet({ label: `${P} set`, round: 1, factIds: [factId], scenarioKeys: ["i2i_nonhuman_animal"], lookStyleIds: ["none"], engineFamilies: [P] }, adminId);
   const panels = await db.select().from(comparisonPanelsTable).where(eq(comparisonPanelsTable.setId, setId));
   cells = await db.select().from(comparisonCellsTable).where(inArray(comparisonCellsTable.panelId, panels.map((p) => p.id)));
 });

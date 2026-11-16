@@ -42,7 +42,6 @@ import {
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { enqueueFactAiMemeBackfill } from "../lib/aiMemeBackfillJobs";
 import { normalizeFactTemplateForPendingReview, normalizeFactTemplateForStorage } from "../lib/normalizeFactTemplateForStorage";
 import { createTriageReview } from "../lib/moderationStaging";
 import { cascadeDeactivateActiveChildren, assertReparentAllowed } from "../lib/factActivation";
@@ -2029,97 +2028,11 @@ router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_r
   res.json({ success: true, updated });
 });
 
-interface BulkBackfillJob {
-  factId: number;
-  jobId: number;
-  deduped: boolean;
-  /** Bounded text preview for admin-UI display — never render factId raw. */
-  label: string;
-}
-interface BulkBackfillSkip {
-  factId: number;
-  status: "skipped";
-  reason: "not_active";
-  label: string;
-}
-/** A per-fact enqueue call rejected — the job was never created for this fact. */
-interface BulkBackfillEnqueueFailure {
-  factId: number;
-  status: "failed";
-  error: string;
-  label: string;
-}
-type BulkBackfillOutcome = BulkBackfillSkip | BulkBackfillEnqueueFailure;
-interface BulkBackfillResponse {
-  success: true;
-  jobs: BulkBackfillJob[];
-  outcomes: BulkBackfillOutcome[];
-  summary: { requested: number; queued: number; skipped: number; failed: number };
-}
-
-const BULK_BACKFILL_LABEL_MAX = 60;
-
-/**
- * Shared enqueue loop for the three bulk-backfill routes: check `isActive`
- * per fact (route-level skip, no enqueue at all — the selection query itself
- * still has no `isActive` predicate, a pre-existing, out-of-scope gap this
- * doesn't widen), then enqueue through the given per-fact enqueuer. Returns
- * the queued job descriptors + skip/failure outcomes for the frontend to poll
- * via the existing `/admin/taxonomy-health/job-status` endpoint
- * (queue-agnostic). A single fact's enqueue rejecting is caught and recorded
- * as a failure outcome rather than aborting the request — earlier facts in
- * the same loop already committed durable (potentially paid) jobs, and those
- * descriptors must still reach the caller (Codex review, PR #256).
- */
-export async function enqueueBulkBackfill(
-  facts: { id: number; text: string; isActive: boolean }[],
-  enqueue: (factId: number) => Promise<{ jobId: number; inserted: boolean }>,
-): Promise<BulkBackfillResponse> {
-  const jobs: BulkBackfillJob[] = [];
-  const outcomes: BulkBackfillOutcome[] = [];
-  for (const fact of facts) {
-    const label = fact.text.slice(0, BULK_BACKFILL_LABEL_MAX);
-    if (!fact.isActive) {
-      outcomes.push({ factId: fact.id, status: "skipped", reason: "not_active", label });
-      continue;
-    }
-    try {
-      const result = await enqueue(fact.id);
-      jobs.push({ factId: fact.id, jobId: result.jobId, deduped: !result.inserted, label });
-    } catch (err) {
-      logger.error({ err, factId: fact.id }, "[admin] bulk-backfill enqueue failed for fact");
-      outcomes.push({ factId: fact.id, status: "failed", error: "Could not queue the job.", label });
-    }
-  }
-  const failed = outcomes.filter((o) => o.status === "failed").length;
-  return {
-    success: true,
-    jobs,
-    outcomes,
-    summary: { requested: facts.length, queued: jobs.length, skipped: outcomes.length - failed, failed },
-  };
-}
-
-// POST /admin/facts/backfill-ai-memes — enqueue durable AI-meme generation
-// (fact_ai_meme_backfill queue) for every active fact (root or variant)
-// missing AI-meme images (or every active fact with ?force=true).
-router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: Request, res: Response) => {
-  try {
-    const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
-
-    const facts = force
-      ? await db.select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive }).from(factsTable)
-      : await db
-          .select({ id: factsTable.id, text: factsTable.text, isActive: factsTable.isActive })
-          .from(factsTable)
-          .where(isNull(factsTable.aiMemeImages));
-
-    const response = await enqueueBulkBackfill(facts, (factId) => enqueueFactAiMemeBackfill(factId));
-    res.status(202).json(response);
-  } catch (err) {
-    logger.error({ err }, "[admin] Backfill AI memes error");
-    res.status(500).json({ error: "Backfill failed", details: String(err) });
-  }
+// POST /admin/facts/backfill-ai-memes — retired with the legacy AI-background
+// generator (compiler review, Phase 2: every picture starts from a photo). It
+// answers 410 and starts nothing; the pictures it stored stay readable.
+router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, (_req: Request, res: Response) => {
+  res.status(410).json({ error: "The legacy AI-background generator is retired: every picture starts from a photo.", code: "AI_MEME_BACKFILL_RETIRED" });
 });
 
 router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_req: Request, res: Response) => {
