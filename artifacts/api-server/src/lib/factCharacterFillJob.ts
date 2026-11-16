@@ -34,11 +34,10 @@ import {
   validateEnrichment,
   type EnrichmentOverrides,
   type FactCharacter,
-  type FactEnrichment,
 } from "@workspace/api-zod";
 import { registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
 import { materializeEnrichment, resolveFactEnrichmentLLMSettings } from "./factEnrichment";
-import { extractFactCharacters, newCharactersExtraction } from "./factCharacters";
+import { extractFactCharacters, withExtractedCharacters } from "./factCharacters";
 import { renderCanonical } from "./renderCanonical";
 import { logger } from "./logger";
 
@@ -108,9 +107,29 @@ export async function pickCharacterFillTargets(): Promise<FactCharacterFillPaylo
   return out;
 }
 
-/** The new AI baseline: the locked one with only the list and its marker replaced. */
-function withFilledCharacters(aiDerived: FactEnrichment, characters: FactCharacter[]): FactEnrichment {
-  return { ...aiDerived, characters, charactersExtraction: newCharactersExtraction() };
+const ALREADY_CURRENT: HandlerResult = { ok: true, result: { skipped: true, reason: "already_current" } };
+const NOT_A_TARGET: HandlerResult = { ok: true, result: { skipped: true, reason: "missing_required_data" } };
+
+/**
+ * The shared decision for one locked row: not a target (no valid baseline),
+ * already complete (marker present), or the materialized columns with the list
+ * and its marker written into the AI baseline only, against the overrides read
+ * under the lock.
+ */
+function fillColumns(
+  rawAiDerived: unknown,
+  overrides: unknown,
+  characters: FactCharacter[],
+): { skip: HandlerResult } | { columns: ReturnType<typeof materializeEnrichment>["columns"] } {
+  const v = validateEnrichment(rawAiDerived);
+  if (!v.ok) return { skip: NOT_A_TARGET };
+  if (hasExtractedCharacters(v.data)) return { skip: ALREADY_CURRENT };
+  return {
+    columns: materializeEnrichment({
+      aiDerived: withExtractedCharacters(v.data, characters),
+      overrides: (overrides ?? {}) as EnrichmentOverrides,
+    }).columns,
+  };
 }
 
 export async function runFactCharacterFill(
@@ -125,26 +144,26 @@ export async function runFactCharacterFill(
     return { ok: false, error: "fact_character_fill: candidate payload missing versionId" };
   }
 
-  // Pre-read (no lock): the fact text and whether there is still work to do.
+  // Pre-read (no lock): the fact text, and whether there is still work to do —
+  // so an already-filled row never costs a character call.
   const [fact] = await db
     .select({ text: factsTable.text, aiDerived: factsTable.enrichmentAiDerived })
     .from(factsTable)
     .where(eq(factsTable.id, p.factId))
     .limit(1);
-  if (!fact) return { ok: true, result: { skipped: true, reason: "missing_required_data" } };
+  if (!fact) return NOT_A_TARGET;
   const pre =
     p.target === "fact"
       ? fact.aiDerived
       : (
           await db
-            .select({ aiDerived: factEnrichmentVersionsTable.enrichmentAiDerived, status: factEnrichmentVersionsTable.status })
+            .select({ aiDerived: factEnrichmentVersionsTable.enrichmentAiDerived })
             .from(factEnrichmentVersionsTable)
             .where(eq(factEnrichmentVersionsTable.id, p.versionId))
             .limit(1)
         )[0]?.aiDerived ?? null;
-  const preValid = validateEnrichment(pre);
-  if (!preValid.ok) return { ok: true, result: { skipped: true, reason: "missing_required_data" } };
-  if (hasExtractedCharacters(preValid.data)) return { ok: true, result: { skipped: true, reason: "already_current" } };
+  const preDecision = fillColumns(pre, {}, []);
+  if ("skip" in preDecision) return preDecision.skip;
 
   const classifiedText = fact.text;
   let characters: FactCharacter[];
@@ -167,25 +186,20 @@ export async function runFactCharacterFill(
       .where(eq(factsTable.id, p.factId))
       .for("update")
       .limit(1);
-    if (!lockedFact) return { ok: true, result: { skipped: true, reason: "missing_required_data" } };
+    if (!lockedFact) return NOT_A_TARGET;
     if (lockedFact.text !== classifiedText) {
       return { ok: false, error: "deferred: the fact's wording changed during the character call" };
     }
 
     if (p.target === "fact") {
-      const v = validateEnrichment(lockedFact.aiDerived);
-      if (!v.ok) return { ok: true, result: { skipped: true, reason: "missing_required_data" } };
-      if (hasExtractedCharacters(v.data)) return { ok: true, result: { skipped: true, reason: "already_current" } };
-      const { columns } = materializeEnrichment({
-        aiDerived: withFilledCharacters(v.data, characters),
-        overrides: (lockedFact.overrides ?? {}) as EnrichmentOverrides,
-      });
+      const d = fillColumns(lockedFact.aiDerived, lockedFact.overrides, characters);
+      if ("skip" in d) return d.skip;
       await tx
         .update(factsTable)
         .set({
-          enrichment: columns.enrichment,
-          enrichmentAiDerived: columns.enrichmentAiDerived,
-          enrichmentBaselineChanged: columns.enrichmentBaselineChanged,
+          enrichment: d.columns.enrichment,
+          enrichmentAiDerived: d.columns.enrichmentAiDerived,
+          enrichmentBaselineChanged: d.columns.enrichmentBaselineChanged,
         })
         .where(eq(factsTable.id, p.factId));
       return { ok: true, result: { target: "fact", factId: p.factId, characters: characters.length } };
@@ -201,17 +215,12 @@ export async function runFactCharacterFill(
       .where(eq(factEnrichmentVersionsTable.id, p.versionId))
       .for("update")
       .limit(1);
-    if (!v1 || v1.status !== "candidate") return { ok: true, result: { skipped: true, reason: "missing_required_data" } };
-    const v = validateEnrichment(v1.aiDerived);
-    if (!v.ok) return { ok: true, result: { skipped: true, reason: "missing_required_data" } };
-    if (hasExtractedCharacters(v.data)) return { ok: true, result: { skipped: true, reason: "already_current" } };
-    const { columns } = materializeEnrichment({
-      aiDerived: withFilledCharacters(v.data, characters),
-      overrides: (v1.overrides ?? {}) as EnrichmentOverrides,
-    });
+    if (!v1 || v1.status !== "candidate") return NOT_A_TARGET;
+    const d = fillColumns(v1.aiDerived, v1.overrides, characters);
+    if ("skip" in d) return d.skip;
     await tx
       .update(factEnrichmentVersionsTable)
-      .set({ enrichment: columns.enrichment, enrichmentAiDerived: columns.enrichmentAiDerived })
+      .set({ enrichment: d.columns.enrichment, enrichmentAiDerived: d.columns.enrichmentAiDerived })
       .where(eq(factEnrichmentVersionsTable.id, p.versionId));
     return { ok: true, result: { target: "candidate", versionId: p.versionId, characters: characters.length } };
   });

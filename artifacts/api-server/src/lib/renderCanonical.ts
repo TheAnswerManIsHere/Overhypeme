@@ -94,7 +94,7 @@ export function hasSubjectIdentityToken(text: string): boolean {
  * only — never substring — so multi-word referents that merely contain the name
  * ("Alex Honnold", "Alex Honnold's climb") are preserved (PR #111).
  */
-const CANONICAL_SUBJECT_NAME_FORMS_LC = new Set(
+export const CANONICAL_SUBJECT_NAME_FORMS_LC = new Set(
   CANONICAL_SUBJECT_NAMES.flatMap((n) => [n.toLowerCase(), possessive(n).toLowerCase()]),
 );
 

@@ -394,6 +394,12 @@ export async function enrichFact(input: EnrichInput): Promise<FactEnrichment> {
     return response.choices[0]?.message?.content ?? "{}";
   };
 
+  // The fact's characters (the bubble-speaker list): its own versioned call on
+  // the same engine settings, started now so it runs alongside classification
+  // (it needs only the text). `.catch` keeps an unawaited rejection quiet if
+  // classification throws first; `attachCharacters` decides what a failure keeps.
+  const charactersCall = extractFactCharacters(input.factText, settings);
+  charactersCall.catch(() => undefined);
   const classified = await enrichFactWithModel(input, callModel, {
     promptDiagnostics: {
       source: resolution.source,
@@ -404,12 +410,8 @@ export async function enrichFact(input: EnrichInput): Promise<FactEnrichment> {
     },
   });
 
-  // The fact's characters (the bubble-speaker list): its own versioned call on
-  // the same engine settings. A failure never fails enrichment — see
-  // `attachCharacters` for what is kept.
-  return attachCharacters(classified, input.priorCharacters, () =>
-    extractFactCharacters(input.factText, settings),
-  );
+  // A character-call failure never fails enrichment — see `attachCharacters`.
+  return attachCharacters(classified, input.priorCharacters, () => charactersCall);
 }
 
 // ─── Persistence helpers ────────────────────────────────────────────────────

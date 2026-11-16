@@ -365,9 +365,11 @@ function moderatorSceneLines(input: ImagePromptContextInput, opts: ImagePromptCo
   ];
 }
 
-/** The FACT CHARACTERS naming-context block (planner and candidate concepts,
- *  beside semantic entities). Emitted only when the list is non-empty, so a fact
- *  with no characters gets a byte-identical context. */
+/** The FACT CHARACTERS naming-context block, beside semantic entities in the
+ *  render planner's context (the only user of this context builder; the Visual
+ *  Idea writer does not read it, which is why the Visual Idea hash leaves the
+ *  list out — visualConcepts/inputHash.ts). Emitted only when the list is
+ *  non-empty, so a fact with no characters gets a byte-identical context. */
 export function factCharacterLines(characters: readonly FactCharacter[]): string[] {
   const items = characters.map(
     (c, i) => `  ${i + 1}. label="${c.label}" (${c.kind}${c.ofSubject ? ", the subject's own" : ""})`,

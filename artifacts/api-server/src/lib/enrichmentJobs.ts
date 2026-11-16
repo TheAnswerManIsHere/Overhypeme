@@ -181,7 +181,7 @@ export async function runEnrichmentForFact(
   try {
     freshAiDerived = await deps.classify({
       factText: renderedFactText,
-      priorCharacters: (factRow.enrichmentAiDerived ?? null) as FactEnrichment | null,
+      priorCharacters: factRow.enrichmentAiDerived as FactEnrichment | null,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -334,7 +334,7 @@ export async function runEnrichmentForCandidateVersion(
   try {
     freshAiDerived = await deps.classify({
       factText: renderCanonical(factRow.text),
-      priorCharacters: (v0.aiDerived ?? null) as FactEnrichment | null,
+      priorCharacters: v0.aiDerived as FactEnrichment | null,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

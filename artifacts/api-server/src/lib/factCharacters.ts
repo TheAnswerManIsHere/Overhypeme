@@ -28,7 +28,7 @@ import {
 } from "@workspace/api-zod";
 import { callUtilityLLM } from "./utilityLLM";
 import { logger } from "./logger";
-import { CANONICAL_SUBJECT_NAMES, possessive } from "./renderCanonical";
+import { CANONICAL_SUBJECT_NAMES, CANONICAL_SUBJECT_NAME_FORMS_LC, possessive } from "./renderCanonical";
 
 export const FACT_CHARACTERS_SYSTEM_PROMPT = [
   "You list the characters in a short exaggerated 'fact' about a person.",
@@ -49,9 +49,6 @@ export class CharacterExtractionError extends Error {
   }
 }
 
-const SUBJECT_NAME_FORMS = new Set(
-  CANONICAL_SUBJECT_NAMES.flatMap((n) => [n.toLowerCase(), possessive(n).toLowerCase()]),
-);
 const SUBJECT_POSSESSIVE_PREFIXES = CANONICAL_SUBJECT_NAMES.map((n) => `${possessive(n).toLowerCase()} `);
 const PRONOUN_POSSESSIVE_PREFIXES = ["his ", "her ", "their ", "its "];
 
@@ -81,7 +78,7 @@ export function normalizeExtractedCharacters(raw: unknown): FactCharacter[] {
       ofSubject = true;
     }
     const key = label.toLowerCase();
-    if (!label || SUBJECT_NAME_FORMS.has(key) || key === "subject") continue;
+    if (!label || CANONICAL_SUBJECT_NAME_FORMS_LC.has(key) || key === "subject") continue;
     if (label.includes("{") || label.includes("}")) continue;
     if (label.length > BUBBLE_ENTITY_MAX_CHARS) continue;
     if (seen.has(key)) continue;
@@ -168,18 +165,21 @@ export async function attachCharacters(
   enrichment: FactEnrichment,
   prior: PriorCharacters,
   extract: () => Promise<FactCharacter[]>,
-  log: { factHint?: string } = {},
 ): Promise<FactEnrichment> {
   try {
-    const characters = await extract();
-    return { ...enrichment, characters, charactersExtraction: newCharactersExtraction() };
+    return withExtractedCharacters(enrichment, await extract());
   } catch (err) {
-    logger.warn({ err, ...log }, "[factCharacters] character call failed; keeping prior list or leaving it missing");
+    logger.warn({ err }, "[factCharacters] character call failed; keeping prior list or leaving it missing");
     return withPriorCharactersOrMissing(enrichment, prior);
   }
 }
 
-export function withPriorCharactersOrMissing(enrichment: FactEnrichment, prior: PriorCharacters): FactEnrichment {
+/** A baseline with a really-extracted list: the list and a fresh marker, nothing else changed. */
+export function withExtractedCharacters<T extends FactEnrichment>(enrichment: T, characters: FactCharacter[]): T {
+  return { ...enrichment, characters, charactersExtraction: newCharactersExtraction() };
+}
+
+function withPriorCharactersOrMissing(enrichment: FactEnrichment, prior: PriorCharacters): FactEnrichment {
   const { charactersExtraction: _drop, ...rest } = enrichment;
   if (prior?.charactersExtraction) {
     return { ...rest, characters: prior.characters ?? [], charactersExtraction: prior.charactersExtraction };

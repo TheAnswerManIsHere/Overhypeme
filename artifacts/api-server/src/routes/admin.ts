@@ -8,7 +8,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings } from "../lib/embeddings";
 import { enrichFact, materializeEnrichment } from "../lib/factEnrichment";
-import { charactersOverrideOnly } from "../lib/factCharacters";
+import { writeBulkReenrichKeepingCharacterCorrection } from "../lib/factEnrichmentBackfillJob";
 import { recordOverrideHistory } from "../lib/enrichmentOverrideHistory";
 import { findInFlightRefreshCandidate, refreshInReviewErrorBody } from "../lib/enrichmentVersioning";
 import { sendFactBackToReview, SendBackToReviewError } from "../lib/sendBackToReview";
@@ -38,7 +38,6 @@ import {
   FACT_TEXT_EDIT_CODES,
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
   type FactEnrichment,
-  type EnrichmentOverrides,
   type ManualOverride,
   type OverridablePath,
   type VisualPromptStrategyOverride,
@@ -2165,23 +2164,13 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
         try {
           const enrichment = await enrichFact({
             factText: fact.text,
-            priorCharacters: (fact.enrichmentAiDerived ?? null) as FactEnrichment | null,
+            priorCharacters: fact.enrichmentAiDerived as FactEnrichment | null,
           });
           // The fact's gags live in fact_gags (migration 0139): re-classifying
           // never touches them. Overrides reset, except a moderator's
           // character correction, re-read under the row lock
           // (PLAN_BUBBLE_SPEAKERS.md, E).
-          await db.transaction(async (tx) => {
-            const [locked] = await tx
-              .select({ enrichmentOverrides: factsTable.enrichmentOverrides })
-              .from(factsTable)
-              .where(eq(factsTable.id, fact.id))
-              .for("update")
-              .limit(1);
-            const kept = charactersOverrideOnly((locked?.enrichmentOverrides ?? {}) as EnrichmentOverrides);
-            const { columns } = materializeEnrichment({ aiDerived: enrichment, overrides: kept });
-            await tx.update(factsTable).set(columns).where(eq(factsTable.id, fact.id));
-          });
+          await writeBulkReenrichKeepingCharacterCorrection(fact.id, enrichment);
           done++;
         } catch (err) {
           failed++;
