@@ -13,6 +13,12 @@
 
 ---
 
+### 2026-11-17 · Paid AI runs: $100 a month across every product, no per-run cap, no ask within it
+- **Decision:** a paid AI run that is needed proceeds without asking David, within the fleet's budget of **$100 per calendar month (UTC) across every product**, with no per-run cap, and reports what it cost on the fleet's `paid-ai-ledger`. Only a run that would take the month past $100 asks first. The rule's home is the synced [`uat-doc-format.md`](../tests/uat-doc-format.md), *Lanes* (KITT PR #305 — Paid AI budget: $100 a month across every product, no per-run cap, no ask within it).
+- **Why:** David, 2026-11-17, in this repository's session "Building male, female and pet gag examples": *"Stop asking about spending money. We need to get to launch. Reset the spend amount to $100/month and just do what is needed."*
+- **Supersedes:** [No paid AI run happens without David's go-ahead for that run](#2026-10-17--no-paid-ai-run-happens-without-davids-go-ahead-for-that-run) (already replaced fleet-wide on 2026-10-21 by $5 a run and $25 a week, which this replaces in turn). The recorder's own per-invocation allowance (`--allowance`, $5 live, $3 capture) still bounds a single run as a guard against runaway spend; it authorizes nothing and asks nothing. The `--allowance-raised-by-david` flag it still demands to go higher is owed work: it restates the retired per-run ask in code.
+- **Revisit if:** David says so, or a month's total reaches $100.
+
 ### 2026-11-17 · Deprecated means removed: nothing is "retired" and left in the product
 - **Decision:** when functionality is deprecated, it is **removed from the product**: its code, routes, screens, settings, enum values, queue handlers, test fixtures and the stored records that only it produced. Nothing stays behind as a "retired" value kept for history, a look-only card, a do-nothing handler, a route answering "retired", or skipped test cases kept "as a record". Pre-launch there is no production data to protect, so stored records of a removed feature are deleted or converted by a migration. Deleted code stays recoverable from git and, for a cut feature, its `pre-cut/<feature>` tag and ledger row (the 2026-10-21 entry below).
 - **Why:** David, 2026-11-17, after PR #971 — Compiler review, Phase 2: no picture without a photo, everywhere — kept the no-photo mode, the Generic scenario and the AI-background generator's queue and route in a "retired" state: *"I don't want to "retire" things and leave them around. If we're deprecating functionality, I want it removed from the product."*

@@ -227,8 +227,7 @@ guard), but they run in CI, not here.
   above) is executed by the driving agent through the connector at
   close-out, clearly labeled in the section as a mutating action with its
   credential and ordering prerequisites named. A paid AI step is labeled the
-  same way, with its paid calls and worst-case cost. It runs only after
-  David's go-ahead for that run, and until then the workstream waits on him.
+  same way, with its paid calls and worst-case cost. It runs within the fleet's monthly paid-run budget without asking; only a run that would take the month past it waits for David's go-ahead, and until then the workstream waits on him (`uat-doc-format.md`, *Lanes*).
 - **Keep "what's deliberately NOT shipped" to terse bullets.** It exists so
   Replit does not diagnose a deliberate absence as a defect — not as a design
   essay. Anything longer belongs in the plan or in
