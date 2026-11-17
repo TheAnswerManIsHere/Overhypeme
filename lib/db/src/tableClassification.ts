@@ -114,7 +114,7 @@ export const TABLE_CLASSIFICATION: Readonly<Record<string, TableEntry>> = {
   password_reset_tokens: { class: "excluded", excluded: "sessions" },
   oauth_pending_states: { class: "excluded", excluded: "sessions" },
   async_jobs: { class: "excluded", excluded: "jobs" },
-  // The fold's reversal record (0146): names gags by this environment's ids.
+  // The fold's reversal record (0147): names gags by this environment's ids.
   fact_gag_fold_archive: { class: "excluded", excluded: "jobs" },
   // Scheduled destructive work (launch Phase 5, 0117): copied elsewhere, a
   // request would purge an account there.

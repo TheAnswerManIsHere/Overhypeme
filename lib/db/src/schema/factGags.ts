@@ -135,7 +135,7 @@ export type FactGag = typeof factGagsTable.$inferSelect;
 export type InsertFactGag = typeof factGagsTable.$inferInsert;
 
 /**
- * The fold's archive (migration 0146, plan docs/plans/PLAN_GAG_DIRECT_RENDER.md,
+ * The fold's archive (migration 0147, plan docs/plans/PLAN_GAG_DIRECT_RENDER.md,
  * E): one row per gag version the fold converted, holding the content before
  * and after, so a conversion can be reversed. Append-only; `gag_id` and
  * `fact_id` are records with no foreign key (as comparison_panels.gag_id).

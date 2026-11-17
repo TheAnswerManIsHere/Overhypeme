@@ -482,6 +482,44 @@ since they're emitted last. It now surfaces
 prompt. Reachable only by legacy over-budget content — save validation
 prevents it for new saves.
 
+## The photoreal fallback: Nano Banana draws what GPT Image refuses
+
+Plan `docs/plans/PLAN_NB_FALLBACK.md` (Issue #980; David, 2026-11-17: Q12
+option 2, Q13 option 1, Q14 option 1). When the routed photoreal engine
+(GPT Image 2.6) refuses a render on content grounds, the same attempt is
+redrawn once on Nano Banana 2.1, photoreal, with the same photo and scene
+(`lib/engineFallback.ts`, the `image_generation` worker in `imagePromptJobs.ts`).
+
+- **A refusal is fal's own classification only**: a 422 whose detail carries
+  `type: "content_policy_violation"` (`falContentRefusal`). Network errors,
+  outages and bad input never fall back.
+- **First refusal, no retry on the engine that refused.** The fallback engine
+  and its live recipe are frozen on the attempt's render controls at queue
+  time (`engineFallback`), so a recipe promotion never changes queued work; an
+  attempt queued before that resolves them at the handover and says so.
+- **Recorded before it happens.** `image_prompt_attempts.engine_fallback`
+  (migration 0146) is written in state `preparing` with the routed engine, its
+  refused request and fal's reason; the stored scene is recompiled with Nano
+  Banana's recipe (no planner call, the same render-time gates); then one write
+  switches the engine, recipe and prompt (state `switched`). Every run resumes
+  from the persisted state, so no path returns to GPT. A success never clears it.
+- **Both refuse: the render fails** with `vendor_content_refused`, naming both
+  refusals. No third engine and no rewording (Q14). A fallback prompt that
+  cannot be built fails with `fallback_compile_failed`, the refusal kept.
+- **Styled renders are unchanged**: Nano Banana first, retried as before.
+- **The picture names the engine that drew it**: its provenance record, its
+  linked generation request, the visible engine stamp and the snapshot's prompt
+  all name Nano Banana; the trace screen shows the refusal and the refused
+  request from the record's frozen snapshot, after the attempt is deleted.
+- **Freshness**: the scenario input hash is never rewritten by a fallback; for
+  an attempt that fell back, diagnostics staleness also compares the fallback
+  recipe it drew with against today's. The gag grid matches renders by content
+  and ignores recipe changes for every engine, so a fallback is treated the same.
+- **The moderation tile** says "GPT Image refused this picture; Nano Banana drew
+  it" once the fallback's picture has arrived (`engineFallback` on the card).
+- The engine comparison draws through its own path and never falls back: it
+  measures each engine as itself.
+
 ## Terminal vs retryable render failures
 
 The `image_prompt_generation` worker classifies each deterministic stage
@@ -494,7 +532,11 @@ underlying additive `HandlerResult` contract. Terminal codes:
 `planner_output_invalid_after_retry` (only when the planner's error is
 validation-exhaustion, `ImagePromptError.cause === "validation_exhausted"` —
 a genuine provider/timeout failure stays retryable), `compile_failed`,
-`moderator_core_scene_unresolved_token`, `required_budget_overflow`. Both
+`moderator_core_scene_unresolved_token`, `required_budget_overflow`. The
+`image_generation` worker writes a retryable failure to the attempt only when
+the queue gives up (its `onAbandon` hook), so a render reads "rendering" while
+it is still retrying and a picture that arrives on a retry is approvable; a
+stored picture clears both fields (plan PLAN_NB_FALLBACK.md). Both
 `error` (human-readable) and the typed `error_code` are cleared on a
 successful later attempt and surfaced together in the render-poll payload
 (`buildRenderStatusPayload`) so the UI never parses a "code: message" string.
@@ -561,8 +603,9 @@ or `nano-banana-2-edit` by string. Now:
 - The `image_engine_t2i` and `image_engine_i2i` rows
   migration 0123 seeded were deleted by migration 0138, along with the engines
   table ([decisions.md](./decisions.md#2026-11-14--the-stored-ai-settings-and-the-engines-table-are-deleted-a-read-only-page-shows-the-values)).
-- **An attempt records its engine once, at construction**, in
-  `image_prompt_attempts.actual_image_engine_id`, and the worker renders through
+- **An attempt records its engine at construction**, in
+  `image_prompt_attempts.actual_image_engine_id`, and changes it at most once,
+  on a recorded photoreal fallback (below); the worker renders through
   that engine, never through today's default: an attempt queued before a
   default changed still renders through the engine it was made for. Signatures,
   the eval dashboard and moderation diagnostics read the column
@@ -731,7 +774,7 @@ require, a depiction mode with no description to carry it, or a scene that
 would no longer fit the budget is **listed for a moderator** and not
 converted. Every write re-reads the version under the fact and gag locks and
 retries when it changed; a refresh's pending operations and example picks are
-untouched. Originals are kept in `fact_gag_fold_archive` (migration 0146), and
+untouched. Originals are kept in `fact_gag_fold_archive` (migration 0147), and
 `revertGagFold` restores one while the version still holds what the fold wrote.
 The report (`GET /api/admin/gag-fold`) is computed from the gags as they are,
 so it is also the dry run; its two lists, versions for a moderator and

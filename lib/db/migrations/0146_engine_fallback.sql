@@ -1,0 +1,14 @@
+-- The photoreal fallback (plan docs/plans/PLAN_NB_FALLBACK.md, Issue #980;
+-- David 2026-11-17, Q12 option 2 and Q13 option 1): when GPT Image refuses a
+-- photoreal render on content grounds, the same attempt is redrawn on Nano
+-- Banana 2.1, and the detour is recorded here BEFORE it happens.
+--
+-- image_prompt_attempts.engine_fallback: null on every attempt that never fell
+-- back. Otherwise { state ("preparing" | "switched"), routedEngineId,
+-- routedRecipeVersionId, refusedGenerationRequestId, refusedVendorRequestId,
+-- reason, fallbackEngineId, fallbackRecipeVersionId, resolvedAtHandover, at }.
+-- A success never clears it. Expand only, no backfill.
+--
+-- Rollback: revert the code and KEEP the column, so recorded refusals survive
+-- (plan, Data Model). Idempotent.
+ALTER TABLE "image_prompt_attempts" ADD COLUMN IF NOT EXISTS "engine_fallback" jsonb;

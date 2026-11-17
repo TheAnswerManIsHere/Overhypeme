@@ -339,6 +339,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     // builder's settings are dropped (the fixture predates them).
     actualImageEngineId: "keep",
     requestSettings: "drop",
+    // 0146: the photoreal fallback's record (engine ids, a vendor request id
+    // and fal's refusal text); dropped, as the fixture predates it.
+    engineFallback: "drop",
     // 0134: the prompt recipe version it compiled with; the recipe tables are
     // not copied, so it reads as the baseline.
     recipeVersionId: "null",
@@ -573,7 +576,7 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
   exclude(s.passwordResetTokensTable, "auth-state", "a reset token is a credential"),
   exclude(s.oauthPendingStatesTable, "auth-state", "OAuth state and PKCE verifiers are credentials"),
   exclude(s.asyncJobsTable, "job-state", "job rows are executable work and their payloads carry recipients and results"),
-  exclude(s.factGagFoldArchiveTable, "job-state", "the fold's reversal record (0146): it names gags by their source ids and restores content only where the fold ran"),
+  exclude(s.factGagFoldArchiveTable, "job-state", "the fold's reversal record (0147): it names gags by their source ids and restores content only where the fold ran"),
   exclude(s.workerLaneHeartbeatsTable, "job-state", "per-process worker liveness"),
   exclude(s.membershipLeasesTable, "job-state", "fenced leases held by running workers"),
   exclude(s.accountDeletionRequestsTable, "job-state", "a deletion request is scheduled destructive work: loaded elsewhere, it would purge an account"),
