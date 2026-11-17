@@ -19,12 +19,20 @@
  * "fal_video" queue) - handlers may stash the third-party request id there.
  */
 
-import { eq, and, or, lte, lt, asc, desc, sql, inArray } from "drizzle-orm";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+import { eq, and, or, lte, lt, asc, desc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
-import { asyncJobsTable, type AsyncJobRow, type AsyncJobStatus } from "@workspace/db/schema";
+import {
+  asyncJobsTable,
+  IN_FLIGHT_JOB_STATUSES,
+  type AsyncJobRow,
+  type AsyncJobStatus,
+} from "@workspace/db/schema";
 import { getConfigInt } from "./adminConfig";
 import { logger } from "./logger";
 import {
+  WORKER_INSTANCE_ID,
   stampLaneScheduled,
   stampTickCompleted,
   publishInFlight,
@@ -105,16 +113,53 @@ export type JobLane = "fast" | "render" | "bulk" | "ai_meme_backfill";
 /** Per-queue lane assignment. Kept in lockstep with HANDLERS (same replace/reset). */
 const LANE_OF_QUEUE = new Map<string, JobLane>();
 
+/** Per-queue run settings beyond the lane. Kept in lockstep with HANDLERS. */
+interface QueueSettings {
+  executionLimitMs: number;
+  recoveryProtocol: number | null;
+  fastReclaim: boolean;
+}
+const SETTINGS_OF_QUEUE = new Map<string, QueueSettings>();
+
+/**
+ * The execution limit a queue gets when its registration names none: the old
+ * reclaim cutoff, so an unannotated queue is never cut shorter than it could
+ * run before leases existed. Every production queue names its own.
+ */
+export const DEFAULT_EXECUTION_LIMIT_MS = 30 * 60_000;
+
 /** Options for `registerJobHandler`. */
 export interface RegisterJobHandlerOptions {
   /** Scheduling lane. Omit to default to `bulk`. */
   lane?: JobLane;
+  /**
+   * The longest one run of this queue may take, retries inside the run
+   * included, with margin (plan §B). At the limit the run's effect context is
+   * stopped for good and the job is put back for a retry (or failed when its
+   * attempts are spent). It must exceed the slowest HEALTHY run: it exists to
+   * end a wedged run, never a slow one. Omit for `DEFAULT_EXECUTION_LIMIT_MS`.
+   */
+  executionLimitMs?: number;
+  /**
+   * The recovery protocol version this handler implements for its queue (plan
+   * §A). A row taken back from a stopped holder of a declaring queue becomes
+   * `recovering`, and only a worker whose handler declares at least the version
+   * stamped on the row may claim it. Omit (the default) for a handler that has
+   * no recovery protocol: its reclaimed rows go back to `pending`.
+   */
+  recoveryProtocol?: number;
+  /**
+   * Reclaim this queue's rows as soon as their lease lapses (plan §A). Off by
+   * default: the row then waits until 30 minutes after its claim, as before
+   * leases. Switched on per queue only once that queue's recovery is built.
+   */
+  fastReclaim?: boolean;
 }
 
 /**
- * Register the handler for a given queue. Idempotent — replaces BOTH the handler
- * and its lane assignment, so re-registering with a different lane reclassifies
- * the queue. An unannotated registration lands the queue in `bulk`.
+ * Register the handler for a given queue. Idempotent — replaces the handler,
+ * its lane assignment and its settings, so re-registering reclassifies the
+ * queue. An unannotated registration lands the queue in `bulk`.
  */
 export function registerJobHandler(
   queue: string,
@@ -123,6 +168,20 @@ export function registerJobHandler(
 ): void {
   HANDLERS.set(queue, handler);
   LANE_OF_QUEUE.set(queue, opts?.lane ?? "bulk");
+  const executionLimitMs = opts?.executionLimitMs ?? DEFAULT_EXECUTION_LIMIT_MS;
+  if (!(Number.isFinite(executionLimitMs) && executionLimitMs > 0)) {
+    throw new Error(`[asyncJobs] ${queue}: executionLimitMs must be a positive number of milliseconds`);
+  }
+  SETTINGS_OF_QUEUE.set(queue, {
+    executionLimitMs,
+    recoveryProtocol: opts?.recoveryProtocol ?? null,
+    fastReclaim: opts?.fastReclaim ?? false,
+  });
+}
+
+/** A registered queue's run settings, or undefined when it is not registered. */
+export function queueSettings(queue: string): Readonly<QueueSettings> | undefined {
+  return SETTINGS_OF_QUEUE.get(queue);
 }
 
 /** Queues currently registered to a given lane. Resolved fresh at each call. */
@@ -189,7 +248,8 @@ async function deferWhileHandlerUnavailable(
   await typedTx
     .update(asyncJobsTable)
     .set({
-      status: "pending",
+      // A row in recovery stays in recovery (plan §A).
+      status: requeueStatus(row),
       lastError: reason,
       nextAttemptAt: new Date(Date.now() + RETRY_DELAYS_MS[1]!),
       updatedAt: new Date(),
@@ -197,6 +257,129 @@ async function deferWhileHandlerUnavailable(
     .where(eq(asyncJobsTable.id, row.id));
   logger.info({ ...laneField(lane), id: row.id, queue: row.queue, reason }, `${lanePrefix(lane)} handler unavailable — leaving job pending`);
   return true;
+}
+
+// ─── Leases and fenced effects (plan §A, §B) ─────────────────────────────────
+
+/** A claim's lease: renewed by a live holder well before it lapses. */
+export const LEASE_DURATION_MS = 90_000;
+/** How often a process renews every lease it holds (its own timer). */
+export const LEASE_RENEW_INTERVAL_MS = 20_000;
+/** How often the reclaim sweep runs (its own timer). */
+export const RECLAIM_INTERVAL_MS = 30_000;
+const LEASE_INTERVAL = sql.raw(`interval '${LEASE_DURATION_MS} milliseconds'`);
+
+/** Thrown when a run that no longer owns its job tries to make an effect. */
+export class JobOwnershipLostError extends Error {
+  constructor(readonly jobId: number, readonly reason: string) {
+    super(`job ${jobId} is no longer owned by this run (${reason}) — effect refused`);
+    this.name = "JobOwnershipLostError";
+  }
+}
+
+/**
+ * One invocation of one claimed job: its lease token, and an effect context
+ * that can be stopped permanently — by the execution limit, by a renewal that
+ * finds the lease lost, or by the run's own end. Once stopped, every fenced
+ * effect it attempts is refused at once, and its abort signal has fired so a
+ * handler waiting locally can give up.
+ */
+export class JobInvocation {
+  private readonly controller = new AbortController();
+  private stopReason: string | null = null;
+
+  constructor(readonly jobId: number, readonly queue: string, readonly leaseToken: string) {}
+
+  get stopped(): boolean {
+    return this.stopReason !== null;
+  }
+
+  get reason(): string | null {
+    return this.stopReason;
+  }
+
+  get signal(): AbortSignal {
+    return this.controller.signal;
+  }
+
+  /** Stop this invocation's effects for good. Idempotent; the first reason wins. */
+  stop(reason: string): void {
+    if (this.stopReason !== null) return;
+    this.stopReason = reason;
+    this.controller.abort(new JobOwnershipLostError(this.jobId, reason));
+  }
+}
+
+/** Invocations this process is running, by lease token (the renewal's work list). */
+const HELD = new Map<string, JobInvocation>();
+/** The invocation the current async context belongs to, if any. */
+const INVOCATION = new AsyncLocalStorage<JobInvocation>();
+
+/** The invocation of the job whose handler is running here, if any. */
+export function currentJobInvocation(): JobInvocation | undefined {
+  return INVOCATION.getStore();
+}
+
+/**
+ * The running job's abort signal, for a handler's local waits (a vendor poll,
+ * a fetch). Fires when the run's effect context is stopped. Undefined outside
+ * a job.
+ */
+export function jobAbortSignal(): AbortSignal | undefined {
+  return INVOCATION.getStore()?.signal;
+}
+
+type FencedTx = Parameters<Parameters<typeof defaultDb.transaction>[0]>[0];
+
+/**
+ * Run `fn` in a transaction that first locks this job's row and checks it is
+ * still owned by the running invocation (plan §A: token, `processing`, lease
+ * unexpired). A reclaim cannot slip between that check and `fn`'s writes,
+ * because it would need the lock. If the claim is gone — or the invocation was
+ * stopped — nothing in `fn` runs and `JobOwnershipLostError` is thrown.
+ *
+ * Use it for every effect a second run of the same job would also make: a
+ * domain write, a child-job enqueue (pass the `tx` to `enqueueJob`), an
+ * abandonment write. Outside a job (a route, a script) it is a plain
+ * transaction, so shared code can call it from both.
+ */
+export async function fencedTransaction<T>(
+  dbInstance: Pick<typeof defaultDb, "transaction">,
+  fn: (tx: FencedTx) => Promise<T>,
+): Promise<T> {
+  const invocation = INVOCATION.getStore();
+  if (!invocation) return dbInstance.transaction(fn);
+  const refuse = (reason: string): never => {
+    invocation.stop(reason);
+    logger.warn(
+      { id: invocation.jobId, queue: invocation.queue, reason },
+      "[asyncJobs] effect refused — this run no longer owns its job",
+    );
+    throw new JobOwnershipLostError(invocation.jobId, reason);
+  };
+  if (invocation.stopped) refuse(invocation.reason!);
+  return dbInstance.transaction(async (tx) => {
+    const [owned] = await tx
+      .select({ id: asyncJobsTable.id })
+      .from(asyncJobsTable)
+      .where(ownedBy(invocation.jobId, invocation.leaseToken))
+      .for("update");
+    if (!owned) refuse("lease lost — the claim changed or expired");
+    // Re-checked after the lock wait: the execution limit may have fired meanwhile.
+    if (invocation.stopped) refuse(invocation.reason!);
+    return fn(tx);
+  });
+}
+
+/**
+ * Check, now, that the running job is still owned — before a costly step such
+ * as a paid vendor call (plan §A). Throws `JobOwnershipLostError` when it is
+ * not. A no-op outside a job.
+ */
+export async function assertJobOwnership(
+  dbInstance: Pick<typeof defaultDb, "transaction"> = defaultDb,
+): Promise<void> {
+  await fencedTransaction(dbInstance, async () => undefined);
 }
 
 // ─── Enqueue ────────────────────────────────────────────────────────────────
@@ -240,7 +423,7 @@ export interface EnqueueJobResult {
   status: AsyncJobStatus;
   /**
    * True when a fresh row was inserted. False when this enqueue attached to an
-   * existing non-terminal (pending/processing) job with the same dedupe key.
+   * existing non-terminal (pending/recovering/processing) job with the same dedupe key.
    */
   inserted: boolean;
 }
@@ -292,7 +475,8 @@ export async function enqueueJob(
           and(
             eq(asyncJobsTable.queue, options.queue),
             dedupeKey == null ? sql`false` : eq(asyncJobsTable.dedupeKey, dedupeKey),
-            or(eq(asyncJobsTable.status, "pending"), eq(asyncJobsTable.status, "processing")),
+            // `recovering` is in flight too (plan §A): the dedupe index covers it.
+            inArray(asyncJobsTable.status, [...IN_FLIGHT_JOB_STATUSES]),
           ),
         )
         .orderBy(desc(asyncJobsTable.id))
@@ -367,29 +551,41 @@ const intervalEnv = (name: string, fallback: number): number =>
  */
 const ASYNC_JOBS_MAX_CONCURRENCY = Math.max(1, positiveIntEnv("ASYNC_JOBS_MAX_CONCURRENCY", 3));
 
-/** Run `fn` over `items` with at most `limit` in flight at once. */
-async function mapWithConcurrency<T>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<void>,
-): Promise<void> {
-  if (items.length === 0) return;
-  let cursor = 0;
-  const workerCount = Math.min(Math.max(1, limit), items.length);
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (cursor < items.length) {
-      const item = items[cursor++]!;
-      await fn(item);
-    }
-  });
-  await Promise.all(workers);
+/** The statuses a finished-for-now (retry, deferral) row goes back to. */
+function requeueStatus(row: Pick<AsyncJobRow, "recoveryProtocol">): AsyncJobStatus {
+  // A row in recovery stays in recovery until it finishes (plan §A): only a
+  // worker that can recover it may run it again.
+  return row.recoveryProtocol != null ? "recovering" : "pending";
 }
+
+/**
+ * The ownership predicate every fenced write repeats (plan §A): this
+ * invocation's token, the row still `processing`, and an unexpired lease, all
+ * judged by the database's clock.
+ */
+function ownedBy(jobId: number, leaseToken: string) {
+  return and(
+    eq(asyncJobsTable.id, jobId),
+    eq(asyncJobsTable.leaseToken, leaseToken),
+    eq(asyncJobsTable.status, "processing"),
+    sql`${asyncJobsTable.leaseExpiresAt} > now()`,
+  );
+}
+
+/** What a fenced finalize sets on the row beyond its outcome: the lease is over. */
+const LEASE_RELEASED = { leaseExpiresAt: null } as const;
 
 /**
  * Run one claimed job to completion and finalize its own outcome in an
  * independent short transaction. Isolated per job so jobs can run concurrently
  * (a single tx/connection can't) and so one job's finalize never blocks or
  * rolls back another's.
+ *
+ * The run happens inside its invocation (`INVOCATION`), so every
+ * `fencedTransaction` the handler makes is checked against this claim. The
+ * finalize is fenced the same way: a run that lost its lease, or was stopped
+ * at its execution limit, writes nothing, and `onAbandon` fires only after a
+ * fenced terminal transition succeeded.
  */
 async function processClaimedJob(
   dbInstance: DbWithTransaction,
@@ -397,107 +593,165 @@ async function processClaimedJob(
   lane?: JobLane,
 ): Promise<void> {
   const handler = HANDLERS.get(row.queue);
-  if (!handler) return; // filtered at claim time; defensive.
+  const leaseToken = row.leaseToken;
+  if (!handler || !leaseToken) return; // filtered at claim time; defensive.
 
-  // The handler is responsible for not throwing; if it does, we treat it as a
-  // retryable failure with a synthetic error message.
-  let outcome: HandlerResult;
+  const invocation = new JobInvocation(row.id, row.queue, leaseToken);
+  HELD.set(leaseToken, invocation);
+  const limitMs = SETTINGS_OF_QUEUE.get(row.queue)?.executionLimitMs ?? DEFAULT_EXECUTION_LIMIT_MS;
+  let limitTimer: NodeJS.Timeout | undefined;
+
   try {
-    outcome = await handler.run(row.payload, row);
-  } catch (err) {
-    outcome = { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+    // The handler is responsible for not throwing; if it does, we treat it as a
+    // retryable failure with a synthetic error message. A refused fenced write
+    // surfaces here as a throw too, and the fenced finalize below then writes
+    // nothing, because the claim it would need is gone.
+    const run = INVOCATION.run(invocation, async (): Promise<HandlerResult> => {
+      try {
+        return await handler.run(row.payload, row);
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    });
+    const limit = new Promise<"limit">((resolve) => {
+      // Not unref'd: a run in progress is a reason to stay alive. Always cleared
+      // in the finally below, so it never outlives the run.
+      limitTimer = setTimeout(() => resolve("limit"), limitMs);
+    });
 
+    const raced = await Promise.race([run, limit]);
+    let outcome: HandlerResult;
+    if (raced === "limit") {
+      // Plan §B: stop the effect context for good FIRST, so a late result from
+      // the still-running handler is refused even while the lease has time
+      // left; then make the retry-or-failure transition while we still own it.
+      const reason = `execution limit of ${Math.round(limitMs / 1000)} s reached — run stopped`;
+      invocation.stop(reason);
+      logger.warn(
+        { ...laneField(lane), id: row.id, queue: row.queue, limitMs },
+        `${lanePrefix(lane)} job reached its execution limit — effects stopped, scheduling retry`,
+      );
+      outcome = { ok: false, error: reason };
+      // The handler keeps running in the background until it notices; its
+      // eventual result is discarded, and its effects are refused.
+      void run.catch(() => undefined);
+    } else {
+      outcome = raced;
+    }
+
+    await finalizeOutcome(dbInstance, row, handler, leaseToken, outcome, lane);
+  } finally {
+    if (limitTimer) clearTimeout(limitTimer);
+    HELD.delete(leaseToken);
+    // Whatever happened, this invocation is over: nothing it still has in
+    // flight may write.
+    invocation.stop("the run has finished");
+  }
+}
+
+async function finalizeOutcome(
+  dbInstance: DbWithTransaction,
+  row: AsyncJobRow,
+  handler: JobHandler,
+  leaseToken: string,
+  outcome: HandlerResult,
+  lane?: JobLane,
+): Promise<void> {
   const newAttempts = row.attempts + 1;
+
+  // One fenced write: the WHERE carries the ownership predicate, so a reclaim
+  // cannot slip between a check and the write. Returns false when the claim is
+  // no longer ours.
+  const fencedFinalize = async (set: Partial<typeof asyncJobsTable.$inferInsert>): Promise<boolean> =>
+    dbInstance.transaction(async (tx) => {
+      const updated = await tx
+        .update(asyncJobsTable)
+        .set({ ...set, ...LEASE_RELEASED, updatedAt: new Date() })
+        .where(ownedBy(row.id, leaseToken))
+        .returning({ id: asyncJobsTable.id });
+      return updated.length > 0;
+    });
 
   // Finalize must never throw out of here: a rejection would exit this worker
   // (dropping its share of the batch's remaining concurrency) and, worse, leave
   // the row committed as `processing`. On a finalize failure we log and rely on
-  // the periodic stuck-row recovery to requeue it.
+  // the lease lapsing and the reclaim sweep to requeue it.
   let abandoned = false;
   let terminalFailed = false;
   let outcomeError: string | null = null;
+  let owned: boolean;
   try {
     if (outcome.ok) {
-      await dbInstance.transaction(async (tx) => {
-        await tx
-          .update(asyncJobsTable)
-          .set({
-            status: "done",
-            attempts: newAttempts,
-            result: (outcome.result as object | undefined) ?? null,
-            // The latest outcome is a success: an error left from an earlier
-            // attempt would read as current on every admin surface (#692).
-            lastError: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(asyncJobsTable.id, row.id));
-      });
-      return;
-    }
-
-    outcomeError = outcome.error;
-    // A terminal (deterministic, non-retryable) failure is marked `failed`
-    // immediately — re-running cannot change the outcome, so backoff/retry would
-    // only delay the visible failure and waste attempts (§12). `lastError` keeps
-    // the operational detail; the typed `code` is surfaced by the handler onto
-    // its own domain row (e.g. image_prompt_attempts.error_code), not the queue.
-    const isTerminal = outcome.retryable === false;
-    if (isTerminal) {
-      terminalFailed = true;
-      // Persist the RESOLVED ceiling on a terminal failure, not just the
-      // sentinel that meant "use queue config" at enqueue time. `admin_config`
-      // is mutable, so re-resolving it later (as the queue-health surface
-      // does, to tell a terminal failure apart from genuine exhaustion) would
-      // otherwise answer against whatever the ceiling happens to be NOW rather
-      // than what it was at finalization — misclassifying a historical row if
-      // an admin later raises the queue's ceiling. A `failed` row is terminal
-      // and never re-enters this function, so writing this here is a durable
-      // fact, not a live decision this queue still has to make.
-      const effectiveMax = await effectiveMaxAttempts(row.queue, row.maxAttempts);
-      await dbInstance.transaction(async (tx) => {
-        await tx
-          .update(asyncJobsTable)
-          .set({
-            status: "failed",
-            attempts: newAttempts,
-            lastError: outcome.error,
-            nextAttemptAt: new Date(),
-            updatedAt: new Date(),
-            maxAttempts: effectiveMax,
-          })
-          .where(eq(asyncJobsTable.id, row.id));
+      owned = await fencedFinalize({
+        status: "done",
+        attempts: newAttempts,
+        result: (outcome.result as object | undefined) ?? null,
+        // The latest outcome is a success: an error left from an earlier
+        // attempt would read as current on every admin surface (#692).
+        lastError: null,
       });
     } else {
-      const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
-      const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
-      const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
-      abandoned = newAttempts >= effectiveMax;
-      const scheduledDelay = retryDelays[newAttempts];
-      const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
-      await dbInstance.transaction(async (tx) => {
-        await tx
-          .update(asyncJobsTable)
-          .set({
-            status: abandoned ? "failed" : "pending",
-            attempts: newAttempts,
-            lastError: outcome.error,
-            nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
-            updatedAt: new Date(),
-            // Same reasoning as the terminal branch above, and ONLY on the
-            // terminal transition: a still-`pending` row is not yet finalized,
-            // so it must keep tracking live config — an admin raising the
-            // ceiling mid-flight should let an in-progress job benefit from
-            // the extra retries, not freeze it to the value read at this tick.
-            ...(abandoned ? { maxAttempts: effectiveMax } : {}),
-          })
-          .where(eq(asyncJobsTable.id, row.id));
-      });
+      outcomeError = outcome.error;
+      // A terminal (deterministic, non-retryable) failure is marked `failed`
+      // immediately — re-running cannot change the outcome, so backoff/retry would
+      // only delay the visible failure and waste attempts (§12). `lastError` keeps
+      // the operational detail; the typed `code` is surfaced by the handler onto
+      // its own domain row (e.g. image_prompt_attempts.error_code), not the queue.
+      const isTerminal = outcome.retryable === false;
+      if (isTerminal) {
+        terminalFailed = true;
+        // Persist the RESOLVED ceiling on a terminal failure, not just the
+        // sentinel that meant "use queue config" at enqueue time. `admin_config`
+        // is mutable, so re-resolving it later (as the queue-health surface
+        // does, to tell a terminal failure apart from genuine exhaustion) would
+        // otherwise answer against whatever the ceiling happens to be NOW rather
+        // than what it was at finalization — misclassifying a historical row if
+        // an admin later raises the queue's ceiling. A `failed` row is terminal
+        // and never re-enters this function, so writing this here is a durable
+        // fact, not a live decision this queue still has to make.
+        const effectiveMax = await effectiveMaxAttempts(row.queue, row.maxAttempts);
+        owned = await fencedFinalize({
+          status: "failed",
+          attempts: newAttempts,
+          lastError: outcome.error,
+          nextAttemptAt: new Date(),
+          maxAttempts: effectiveMax,
+        });
+      } else {
+        const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
+        const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
+        const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
+        abandoned = newAttempts >= effectiveMax;
+        const scheduledDelay = retryDelays[newAttempts];
+        const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
+        owned = await fencedFinalize({
+          status: abandoned ? "failed" : requeueStatus(row),
+          attempts: newAttempts,
+          lastError: outcome.error,
+          nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
+          // Same reasoning as the terminal branch above, and ONLY on the
+          // terminal transition: a still-`pending` row is not yet finalized,
+          // so it must keep tracking live config — an admin raising the
+          // ceiling mid-flight should let an in-progress job benefit from
+          // the extra retries, not freeze it to the value read at this tick.
+          ...(abandoned ? { maxAttempts: effectiveMax } : {}),
+        });
+      }
     }
   } catch (finalizeErr) {
     logger.error(
       { ...laneField(lane), err: finalizeErr, queue: row.queue, id: row.id },
-      `${lanePrefix(lane)} finalize failed — row left in processing for stuck-row recovery`,
+      `${lanePrefix(lane)} finalize failed — row left in processing for the reclaim sweep`,
+    );
+    return;
+  }
+
+  if (!owned) {
+    // The claim moved on (lease lapsed and reclaimed, or another run holds it):
+    // this run's outcome is not the job's. Nothing was written (plan §A).
+    logger.warn(
+      { ...laneField(lane), queue: row.queue, id: row.id, ok: outcome.ok, error: outcomeError },
+      `${lanePrefix(lane)} job no longer owned at finish — outcome discarded, nothing written`,
     );
     return;
   }
@@ -520,6 +774,7 @@ async function processClaimedJob(
       { ...laneField(lane), queue: row.queue, id: row.id, error: outcomeError },
       `${lanePrefix(lane)} job abandoned after max retries`,
     );
+    // Reached only after the fenced terminal transition succeeded (plan §A).
     if (handler.onAbandon) {
       try {
         await handler.onAbandon({ ...row, status: "failed", attempts: newAttempts, lastError: outcomeError });
@@ -533,12 +788,11 @@ async function processClaimedJob(
   }
 }
 
-/**
 /** Per-tick controls. All optional so `asyncJobsTick(db)` keeps its legacy behavior. */
 export interface AsyncJobsTickOptions {
   /**
    * Restrict the claim to these queues (a lane's queue set). Omit to claim across
-   * ALL queues (legacy behavior). An empty array matches no rows.
+   * ALL registered queues (legacy behavior). An empty array matches no rows.
    */
   queues?: readonly string[];
   /** Concurrency bound for this tick's batch. Omit to use the bulk-lane default. */
@@ -547,19 +801,87 @@ export interface AsyncJobsTickOptions {
   lane?: JobLane;
 }
 
+/** At most this many rows are claimed in one tick (it was the batch size). */
+const TICK_CLAIM_LIMIT = 10;
+
 /**
- * Process one tick in two phases:
- *   1. CLAIM (short transaction): grab up to 10 due rows (optionally filtered to
- *      a lane's queues) with FOR UPDATE SKIP LOCKED, skip unhandled/
- *      delivery-deferred ones, and flip the rest to `processing`. Committing here
- *      releases the row locks immediately so the slow handler work below never
- *      holds them.
- *   2. PROCESS (concurrent, bounded): run the claimed handlers up to
- *      `options.maxConcurrency` (default `ASYNC_JOBS_MAX_CONCURRENCY`) at a time,
- *      each finalizing its own outcome.
+ * Which rows a worker may claim for these queues: any due `pending` row, and a
+ * `recovering` row only for a queue whose handler here declares at least the
+ * protocol the row requires (plan §A). With no queue declaring recovery (this
+ * release), that is `pending` alone, exactly as before.
+ */
+function claimableFilter(queues: readonly string[]) {
+  const recovering = queues.flatMap((queue) => {
+    const declared = SETTINGS_OF_QUEUE.get(queue)?.recoveryProtocol;
+    if (declared == null) return [];
+    return [and(
+      eq(asyncJobsTable.queue, queue),
+      eq(asyncJobsTable.status, "recovering"),
+      lte(asyncJobsTable.recoveryProtocol, declared),
+    )];
+  });
+  return and(
+    inArray(asyncJobsTable.queue, [...queues]),
+    or(eq(asyncJobsTable.status, "pending"), ...recovering),
+  );
+}
+
+/**
+ * Claim ONE due row, in its own short transaction, stamping this process as its
+ * owner under a fresh lease. One at a time, and only when a slot is free (plan
+ * §A: no claimed job ever waits locally while its lease runs). Rows whose
+ * handler is unavailable are deferred and skipped. Returns null when nothing is
+ * due.
+ */
+async function claimOne(
+  dbInstance: DbWithTransaction,
+  now: Date,
+  queues: readonly string[],
+  lane?: JobLane,
+): Promise<AsyncJobRow | null> {
+  return dbInstance.transaction(async (tx) => {
+    // Bounded: each deferred row leaves the due set, so this cannot spin.
+    for (let guard = 0; guard < TICK_CLAIM_LIMIT; guard++) {
+      const [row] = (await tx
+        .select()
+        .from(asyncJobsTable)
+        .where(and(claimableFilter(queues), lte(asyncJobsTable.nextAttemptAt, now)))
+        .orderBy(asc(asyncJobsTable.nextAttemptAt), asc(asyncJobsTable.id))
+        .limit(1)
+        .for("update", { skipLocked: true })) as AsyncJobRow[];
+      if (!row) return null;
+      const handler = HANDLERS.get(row.queue)!;
+      if (await deferWhileHandlerUnavailable(row, handler, tx, lane)) continue;
+      const [claimed] = (await tx
+        .update(asyncJobsTable)
+        .set({
+          status: "processing",
+          claimOwner: WORKER_INSTANCE_ID,
+          leaseToken: randomUUID(),
+          leaseExpiresAt: sql`now() + ${LEASE_INTERVAL}`,
+          claimedAt: sql`now()`,
+          claimRecoveryProtocol: SETTINGS_OF_QUEUE.get(row.queue)?.recoveryProtocol ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(asyncJobsTable.id, row.id))
+        .returning()) as AsyncJobRow[];
+      return claimed ?? null;
+    }
+    return null;
+  });
+}
+
+/**
+ * Process one tick: `maxConcurrency` slots, each claiming ONE due row (short
+ * transaction, `FOR UPDATE SKIP LOCKED`), running it, and finalizing it, then
+ * claiming the next — until nothing is due or the tick has claimed
+ * `TICK_CLAIM_LIMIT` rows. A row is claimed only into a free slot, so its lease
+ * never runs while it waits locally (plan §A); slots run concurrently, each
+ * finalizing its own outcome.
  *
- * Claimed rows sit in `processing` across phase 2; a crash leaves them there and
- * `recoverStuckProcessing` (boot, 5-min cutoff) returns them to `pending`.
+ * A crash leaves a claimed row `processing` under a lease nobody renews; the
+ * reclaim sweep returns it once the lease lapses (and, for a queue whose fast
+ * reclaim is off, once 30 minutes have passed since the claim).
  * Exported for tests with an injected db.
  */
 export async function asyncJobsTick(
@@ -568,79 +890,150 @@ export async function asyncJobsTick(
   options?: AsyncJobsTickOptions,
 ): Promise<void> {
   const lane = options?.lane;
-  const queues = options?.queues;
-  const claimed = await dbInstance.transaction(async (tx) => {
-    const rows = (await tx
-      .select()
-      .from(asyncJobsTable)
-      .where(and(
-        eq(asyncJobsTable.status, "pending"),
-        lte(asyncJobsTable.nextAttemptAt, now),
-        // `and()` drops an undefined arg, so an omitted `queues` == no filter
-        // (legacy behavior). `inArray(col, [])` compiles to `false` — an empty
-        // lane safely matches nothing.
-        queues ? inArray(asyncJobsTable.queue, queues) : undefined,
-      ))
-      .orderBy(asc(asyncJobsTable.nextAttemptAt), asc(asyncJobsTable.id))
-      .limit(10)
-      .for("update", { skipLocked: true })) as AsyncJobRow[];
+  // Only queues this worker can run. `inArray(col, [])` would match nothing, so
+  // an empty lane claims nothing.
+  const queues = (options?.queues ?? [...HANDLERS.keys()]).filter((q) => HANDLERS.has(q));
+  if (queues.length === 0) return;
 
-    const toProcess: AsyncJobRow[] = [];
-    for (const row of rows) {
-      const handler = HANDLERS.get(row.queue);
-      if (!handler) {
-        logger.warn({ ...laneField(lane), queue: row.queue, id: row.id }, `${lanePrefix(lane)} no handler registered for queue — skipping`);
-        continue;
+  const maxConcurrency = Math.max(1, options?.maxConcurrency ?? ASYNC_JOBS_MAX_CONCURRENCY);
+  let claimedCount = 0;
+  let inFlight = 0;
+
+  const slot = async (): Promise<void> => {
+    while (claimedCount < TICK_CLAIM_LIMIT) {
+      claimedCount++; // reserve before the await, so slots never over-claim
+      let row: AsyncJobRow | null;
+      try {
+        row = await claimOne(dbInstance, now, queues, lane);
+      } catch (err) {
+        claimedCount--;
+        logger.error({ ...laneField(lane), err }, `${lanePrefix(lane)} claim failed`);
+        return;
       }
-      if (await deferWhileHandlerUnavailable(row, handler, tx, lane)) {
-        continue;
+      if (!row) {
+        claimedCount--;
+        return;
       }
-      await tx
-        .update(asyncJobsTable)
-        .set({ status: "processing", updatedAt: new Date() })
-        .where(eq(asyncJobsTable.id, row.id));
-      toProcess.push(row);
+      // Publish the in-flight count as soon as the claim commits, before the
+      // handler is awaited: a wedged tick never completes, so a completion-only
+      // write would leave the count at its previous value (normally zero) while
+      // `worker_lane_wedged` waits for `in_flight_count > 0`.
+      inFlight++;
+      if (lane) await publishInFlight(lane, inFlight);
+      try {
+        await processClaimedJob(dbInstance, row, lane);
+      } finally {
+        inFlight--;
+        // Per job, as it leaves the in-flight set — so a long tail of one slow
+        // handler reads as "1 in flight", not as the whole batch.
+        if (lane) await decrementInFlight(lane);
+      }
     }
-    return toProcess;
-  });
+  };
 
-  const maxConcurrency = options?.maxConcurrency ?? ASYNC_JOBS_MAX_CONCURRENCY;
-
-  // Publish the in-flight count HERE — after the claim transaction has
-  // committed, before a single handler is awaited. Writing it at tick
-  // completion instead would be useless for the case that matters: a wedged
-  // tick never completes, so the durable count would sit at its previous value
-  // (normally zero) while `worker_lane_wedged` waits for `in_flight_count > 0`.
-  if (lane && claimed.length > 0) {
-    await publishInFlight(lane, claimed.length);
-  }
-
-  await mapWithConcurrency(claimed, maxConcurrency, async (row) => {
-    try {
-      await processClaimedJob(dbInstance, row, lane);
-    } finally {
-      // Per job, as it leaves the in-flight set — so a long tail of one slow
-      // handler reads as "1 in flight", not as the whole original batch.
-      if (lane) await decrementInFlight(lane);
-    }
-  });
+  await Promise.all(Array.from({ length: maxConcurrency }, () => slot()));
 }
 
-// ─── Stuck-row recovery (on boot) ───────────────────────────────────────────
+// ─── Lease renewal and reclaim (plan §A) ────────────────────────────────────
 
 /**
- * Reset rows stuck in `processing` (crashed mid-run) back to `pending` so the
- * next tick will retry them. Only rows older than `cutoffMinutes` are touched.
+ * Renew the lease of every row this process holds. Runs on its own timer
+ * (`LEASE_RENEW_INTERVAL_MS`), never inside a lane tick, so a long batch cannot
+ * hold it up. A held row the renewal does not find — its token changed, it left
+ * `processing`, or its lease had already lapsed — means that invocation has
+ * lost ownership for good: its effect context is stopped.
+ */
+export async function renewHeldLeases(
+  dbInstance: Pick<typeof defaultDb, "update"> = defaultDb,
+): Promise<{ renewed: number; lost: number }> {
+  const live = [...HELD.values()].filter((inv) => !inv.stopped);
+  if (live.length === 0) return { renewed: 0, lost: 0 };
+  const rows = await dbInstance
+    .update(asyncJobsTable)
+    .set({ leaseExpiresAt: sql`now() + ${LEASE_INTERVAL}` })
+    .where(and(
+      inArray(asyncJobsTable.leaseToken, live.map((inv) => inv.leaseToken)),
+      eq(asyncJobsTable.status, "processing"),
+      sql`${asyncJobsTable.leaseExpiresAt} > now()`,
+    ))
+    .returning({ leaseToken: asyncJobsTable.leaseToken });
+  const renewed = new Set(rows.map((r) => r.leaseToken));
+  let lost = 0;
+  for (const inv of live) {
+    if (renewed.has(inv.leaseToken)) continue;
+    lost++;
+    inv.stop("lease lost — renewal found the claim changed or expired");
+    logger.warn({ id: inv.jobId, queue: inv.queue }, "[asyncJobs] lease lost at renewal — run's effects stopped");
+  }
+  return { renewed: renewed.size, lost };
+}
+
+/**
+ * Take back rows whose holder has gone quiet, so the next tick runs them.
+ * Runs on its own timer (`RECLAIM_INTERVAL_MS`) and once at boot.
+ *
+ * - A **leased** row is reclaimed once its lease has lapsed — immediately for a
+ *   queue whose fast reclaim is on here, otherwise only once `cutoffMinutes`
+ *   have also passed since its claim (today's 30-minute rule, plan §A). A live
+ *   holder keeps renewing, so a slow but healthy run is never taken.
+ * - A row **claimed by the previous release** (no lease token) keeps the old
+ *   rule: reclaimed once `updated_at` is older than `cutoffMinutes`, because an
+ *   old, unfenced worker may still be running it.
+ *
+ * A reclaimed row goes to `recovering` when its queue declared recovery (at
+ * claim, or earlier) — stamped with the protocol it needs — and to `pending`
+ * otherwise. Each reclaim is logged with the owner it was taken from.
  */
 export async function recoverStuckProcessing(
   dbInstance: Pick<typeof defaultDb, "update">,
-  cutoffMinutes = 5,
-): Promise<void> {
-  const cutoff = new Date(Date.now() - cutoffMinutes * 60_000);
-  await dbInstance
+  cutoffMinutes = RECOVER_STUCK_CUTOFF_MIN,
+): Promise<number> {
+  const cutoff = sql`now() - ${sql.raw(`interval '${Math.max(0, Number(cutoffMinutes) || 0)} minutes'`)}`;
+  const fastQueues = [...SETTINGS_OF_QUEUE].filter(([, s]) => s.fastReclaim).map(([q]) => q);
+
+  const leased = await dbInstance
+    .update(asyncJobsTable)
+    .set({
+      status: sql`CASE WHEN COALESCE(${asyncJobsTable.recoveryProtocol}, ${asyncJobsTable.claimRecoveryProtocol}) IS NULL THEN 'pending' ELSE 'recovering' END`,
+      recoveryProtocol: sql`GREATEST(${asyncJobsTable.recoveryProtocol}, ${asyncJobsTable.claimRecoveryProtocol})`,
+      leaseExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(asyncJobsTable.status, "processing"),
+      isNotNull(asyncJobsTable.leaseToken),
+      sql`${asyncJobsTable.leaseExpiresAt} <= now()`,
+      or(
+        fastQueues.length > 0 ? inArray(asyncJobsTable.queue, fastQueues) : sql`false`,
+        sql`COALESCE(${asyncJobsTable.claimedAt}, ${asyncJobsTable.updatedAt}) < ${cutoff}`,
+      ),
+    ))
+    .returning({
+      id: asyncJobsTable.id,
+      queue: asyncJobsTable.queue,
+      status: asyncJobsTable.status,
+      claimOwner: asyncJobsTable.claimOwner,
+    });
+  for (const r of leased) {
+    logger.info(
+      { id: r.id, queue: r.queue, previousOwner: r.claimOwner, to: r.status },
+      "[asyncJobs] reclaimed a job whose holder stopped renewing its lease",
+    );
+  }
+
+  const legacy = await dbInstance
     .update(asyncJobsTable)
     .set({ status: "pending", updatedAt: new Date() })
-    .where(and(eq(asyncJobsTable.status, "processing"), lt(asyncJobsTable.updatedAt, cutoff)));
+    .where(and(
+      eq(asyncJobsTable.status, "processing"),
+      isNull(asyncJobsTable.leaseToken),
+      sql`${asyncJobsTable.updatedAt} < ${cutoff}`,
+    ))
+    .returning({ id: asyncJobsTable.id, queue: asyncJobsTable.queue });
+  for (const r of legacy) {
+    logger.info({ id: r.id, queue: r.queue }, "[asyncJobs] reclaimed an unleased job left processing by an earlier release");
+  }
+  return leased.length + legacy.length;
 }
 
 // ─── Retention purge ────────────────────────────────────────────────────────
@@ -725,14 +1118,6 @@ const DEFAULT_WORKER_INTERVAL_MS = 5_000;
 const DEFAULT_AI_MEME_BACKFILL_INTERVAL_MS = 5_000;
 /** Retention purge isn't time-sensitive — don't run it every short tick. */
 const PURGE_INTERVAL_MS = 60_000;
-/**
- * How often to sweep for rows stranded in `processing`. Since claim now commits
- * `processing` before the (concurrent) handler runs, a crash — OR a rejection in
- * the finalize transaction after the handler returned — can leave a row
- * committed as `processing`. Boot-only recovery would never retry it in a
- * long-running process, so sweep periodically too.
- */
-const RECOVER_INTERVAL_MS = 60_000;
 /**
  * Only reclaim rows whose `updatedAt` (stamped at claim) is older than this.
  * Must sit comfortably above the slowest real handler (planner ≤180s + image
@@ -844,7 +1229,7 @@ export interface LaneConfig {
   lane: JobLane;
   intervalMs: number;
   maxConcurrency: number;
-  /** When true (bulk only), this runner also owns periodic recovery + purge. */
+  /** When true (bulk only), this runner also owns the periodic retention purge. */
   maintenance: boolean;
 }
 
@@ -896,7 +1281,6 @@ export function createLaneRunner(
   };
   let ticking = false;
   let lastPurgeAt = 0;
-  let lastRecoverAt = Date.now();
 
   const defaultBody = async (): Promise<void> => {
     try {
@@ -909,17 +1293,9 @@ export function createLaneRunner(
       logger.error({ lane: config.lane, err }, `[asyncJobs:${config.lane}] worker tick failed`);
     }
     if (!config.maintenance) return;
-    // Backstop (bulk runner only): requeue rows stranded in `processing` and
-    // purge terminal rows. Both operate table-wide/all-queues, so one runner
-    // owning them is correct — no per-lane duplication.
-    if (Date.now() - lastRecoverAt >= RECOVER_INTERVAL_MS) {
-      lastRecoverAt = Date.now();
-      try {
-        await recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN);
-      } catch (err) {
-        logger.error({ lane: config.lane, err }, `[asyncJobs:${config.lane}] periodic stuck-row recovery failed`);
-      }
-    }
+    // Bulk runner only: purge terminal rows. It operates table-wide/all-queues,
+    // so one runner owning it is correct — no per-lane duplication. (Reclaim of
+    // rows stranded in `processing` runs on its own timer, plan §A.)
     if (Date.now() - lastPurgeAt >= PURGE_INTERVAL_MS) {
       lastPurgeAt = Date.now();
       for (const queue of HANDLERS.keys()) {
@@ -1038,15 +1414,10 @@ export function runAsyncJobsWorker(): NodeJS.Timeout[] {
     },
   ];
 
-  // Startup recovery once (the bulk runner also sweeps periodically thereafter).
-  // Pass the cutoff EXPLICITLY rather than relying on `recoverStuckProcessing`'s
-  // 5-minute default: on an autoscaled deployment a booting instance runs this
-  // against rows that other, healthy instances are actively processing, so the
-  // boot path is if anything more exposed to the reclaim race than the periodic
-  // sweep — it must not silently use a shorter, more aggressive cutoff.
-  recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN).catch((err) => {
-    logger.error({ err }, "[asyncJobs] startup recovery failed");
-  });
+  // Lease renewal and reclaim, each on its own timer (plan §A) — never inside a
+  // lane tick, so a long batch can hold up neither. Reclaim also runs once now,
+  // so a job a previous process left behind is taken back at boot.
+  startLeaseTimers();
 
   // Structured startup classification: makes the effective lane of every
   // registered queue visible at boot (a queue that forgot its lane option shows
@@ -1066,10 +1437,50 @@ export function runAsyncJobsWorker(): NodeJS.Timeout[] {
   return laneConfigs.map((config) => createLaneRunner(config).handle);
 }
 
+/**
+ * Start the renewal timer (`LEASE_RENEW_INTERVAL_MS`) and the reclaim timer
+ * (`RECLAIM_INTERVAL_MS`), and run one reclaim now. Each has its own
+ * re-entrancy guard and never throws out of its timer.
+ */
+function startLeaseTimers(): NodeJS.Timeout[] {
+  let renewing = false;
+  let reclaiming = false;
+  const renew = async (): Promise<void> => {
+    if (renewing) return;
+    renewing = true;
+    try {
+      await renewHeldLeases(defaultDb);
+    } catch (err) {
+      // A failed renewal is not a lost lease yet: the next one, inside the
+      // lease's 90 s, either renews or finds the lease gone and stops the run.
+      logger.error({ err }, "[asyncJobs] lease renewal failed");
+    } finally {
+      renewing = false;
+    }
+  };
+  const reclaim = async (): Promise<void> => {
+    if (reclaiming) return;
+    reclaiming = true;
+    try {
+      await recoverStuckProcessing(defaultDb, RECOVER_STUCK_CUTOFF_MIN);
+    } catch (err) {
+      logger.error({ err }, "[asyncJobs] reclaim sweep failed");
+    } finally {
+      reclaiming = false;
+    }
+  };
+  void reclaim();
+  return [
+    realSchedule(() => void renew(), LEASE_RENEW_INTERVAL_MS),
+    realSchedule(() => void reclaim(), RECLAIM_INTERVAL_MS),
+  ];
+}
+
 // ─── Reset for tests ────────────────────────────────────────────────────────
 
 /** Reset the handler + lane registries — exported for unit tests. */
 export function __resetHandlersForTest(): void {
   HANDLERS.clear();
   LANE_OF_QUEUE.clear();
+  SETTINGS_OF_QUEUE.clear();
 }

@@ -92,11 +92,11 @@ describe("workerHeartbeats", () => {
     assert.notEqual(WORKER_INSTANCE_ID, process.env["REPLIT_GIT_COMMIT_SHA"] ?? "");
   });
 
-  it("declares protocol version 1 in Phase 1", () => {
-    // Phase 3a bumps this to 2 ("honors the lease fence"). The 3b interlock
-    // compares `< 2`, so shipping Phase 1 at anything other than 1 would make
-    // that comparison meaningless.
-    assert.equal(WORKER_PROTOCOL_VERSION, 1);
+  it("declares protocol version 2 now that it honors the lease fence", () => {
+    // Phase 1 shipped 1; Phase 3a (Issue #1000, increment 1: leases and fenced
+    // finishes) bumps it to 2, as this test's earlier text said it would. A
+    // worker reporting 1 is one that finalizes on row id alone.
+    assert.equal(WORKER_PROTOCOL_VERSION, 2);
   });
 
   it("upserts one row per (instance, lane) rather than one per lane", async () => {
