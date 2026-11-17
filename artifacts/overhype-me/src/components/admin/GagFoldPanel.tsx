@@ -35,7 +35,11 @@ export function GagFoldPanel() {
     try {
       const r = await fetch("/api/admin/gag-fold", { credentials: "include" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setReport((await r.json()) as GagFoldReport);
+      const data = (await r.json()) as Partial<GagFoldReport> | null;
+      if (!data || typeof data.fold !== "object" || typeof data.cast !== "object" || !Array.isArray(data.forModerator) || !Array.isArray(data.castMissing)) {
+        throw new Error("unexpected answer");
+      }
+      setReport(data as GagFoldReport);
       setError(null);
     } catch (e) {
       setError(`Could not read the fold's report (${e instanceof Error ? e.message : String(e)}).`);

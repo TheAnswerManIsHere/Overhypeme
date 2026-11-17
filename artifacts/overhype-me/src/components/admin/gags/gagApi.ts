@@ -4,9 +4,12 @@
  * fact's whole gags view, so a caller renders what the server now holds.
  */
 import {
+  activeBubbleSpeakers,
+  castSourceKey,
   collectRenderedTextEntries,
   setRenderedTextAtPath,
   type FactGagsView,
+  type GagCastView,
   type GagExampleKind,
   type VisualConceptsResponse,
   type VisualPromptStrategyOverride,
@@ -122,4 +125,61 @@ export async function tokenizeGag(
   return Object.keys(fieldErrors).length > 0
     ? { ok: false, content: next, fieldErrors, error: null }
     : { ok: true, content: next };
+}
+
+// ─── The cast (plan PLAN_GAG_DIRECT_RENDER.md, F) ───────────────────────────
+
+export type CastResult = { ok: true; view: GagCastView } | { ok: false; error: string };
+
+/** Read who is in a (tokenized) scene. Stores nothing. */
+export async function readCast(factId: number, scene: string, bubbles: VisualPromptStrategyOverride["bubbles"]): Promise<CastResult> {
+  const r = await request("POST", `${base(factId)}/cast`, { scene, bubbles: bubbles.map(({ type, entity, text }) => ({ type, entity, text })) });
+  return r.ok ? { ok: true, view: r.data as GagCastView } : r;
+}
+
+/** Whether the content's cast was read from its scene and speakers as they stand. */
+export function castIsCurrent(c: VisualPromptStrategyOverride): boolean {
+  return Boolean(c.cast && c.castExtraction && c.castExtraction.sourceKey === castSourceKey(c.coreSceneOverride, c.bubbles));
+}
+
+/** The bubbles (1-based) whose speaker the cast does not hold, with the speaker. */
+export function unboundBubbles(c: VisualPromptStrategyOverride): Array<{ bubble: number; speaker: string }> {
+  const labels = new Set((c.cast ?? []).map((e) => e.label.trim()));
+  const active = new Set(activeBubbleSpeakers(c.bubbles));
+  const out: Array<{ bubble: number; speaker: string }> = [];
+  c.bubbles.forEach((b, i) => {
+    const speaker = b.entity.trim();
+    if (active.has(speaker) && !labels.has(speaker)) out.push({ bubble: i + 1, speaker });
+  });
+  return out;
+}
+
+export function unboundMessage(list: Array<{ bubble: number; speaker: string }>): string {
+  const named = list.map((u) => `"${u.speaker}" (bubble ${u.bubble})`).join(", ");
+  return `The scene does not show ${named}. Pick another speaker, or say in the scene that they are there, then save again.`;
+}
+
+/**
+ * Prepare a draft for saving: the tokenize step, then the cast read from the
+ * tokenized scene unless the draft's cast is already current. Stores nothing;
+ * the prepared content is what the save sends. A failed reading, or a speaker
+ * the scene does not show, stops the save with the draft kept.
+ */
+export async function prepareGag(
+  factId: number,
+  content: VisualPromptStrategyOverride,
+  baseline: VisualPromptStrategyOverride | null,
+  subjectNames: string[],
+): Promise<TokenizeResult> {
+  const t = await tokenizeGag(content, baseline, subjectNames);
+  if (!t.ok) return t;
+  let c = t.content;
+  if (!castIsCurrent(c)) {
+    const r = await readCast(factId, c.coreSceneOverride ?? "", c.bubbles);
+    if (!r.ok) return { ok: false, content: c, fieldErrors: {}, error: `${r.error} Your edits are kept; try saving again.` };
+    c = { ...c, cast: r.view.cast, castExtraction: r.view.castExtraction };
+  }
+  const unbound = unboundBubbles(c);
+  if (unbound.length) return { ok: false, content: c, fieldErrors: {}, error: unboundMessage(unbound) };
+  return { ok: true, content: c };
 }

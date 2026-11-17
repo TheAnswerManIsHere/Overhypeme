@@ -11,7 +11,9 @@ import { act } from "@testing-library/react";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  castSourceKey,
   type FactGagsView,
+  type GagCastEntry,
   type GagView,
   type GagExample,
   type PerKind,
@@ -57,7 +59,7 @@ function view(gags: GagView[], over: Partial<FactGagsView> = {}): FactGagsView {
 type Call = { url: string; method: string; body: unknown };
 
 /** Stub fetch: GET answers `initial`; writes answer `after` (or a refusal); tokenize echoes. */
-function stubFetch(initial: FactGagsView, opts: { after?: FactGagsView; refuse?: { status: number; body: unknown } } = {}) {
+function stubFetch(initial: FactGagsView, opts: { after?: FactGagsView; refuse?: { status: number; body: unknown }; cast?: GagCastEntry[]; castFails?: boolean } = {}) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -67,6 +69,15 @@ function stubFetch(initial: FactGagsView, opts: { after?: FactGagsView; refuse?:
     if (url === "/api/ai/tokenize-enrichment") {
       const entries = (body as { entries: { path: string; value: string }[] }).entries;
       return json({ results: entries.map((e) => ({ path: e.path, value: e.value.replace(/\bAlex\b/g, "{NAME}"), changed: true, usedLlm: false })) });
+    }
+    if (String(url).endsWith("/gags/cast")) {
+      // Reading who is in a draft's scene: the stubbed cast, keyed to what was sent.
+      if (opts.castFails) return json({ error: "Reading who is in the scene failed: model down", code: "CAST_FAILED" }, 502);
+      const b = body as { scene: string; bubbles: { entity: string; text: string }[] };
+      const cast = opts.cast ?? [];
+      const labels = new Set(cast.map((c) => c.label));
+      const unboundSpeakers = b.bubbles.map((bb) => bb.entity).filter((e) => e.trim() !== "" && e !== "subject" && !labels.has(e));
+      return json({ cast, castExtraction: { promptVersion: "v2", extractedAt: "2026-11-17T00:00:00.000Z", sourceKey: castSourceKey(b.scene, b.bubbles) }, unboundSpeakers });
     }
     if (method === "GET") return json(initial);
     if (opts.refuse) return json(opts.refuse.body, opts.refuse.status);
@@ -374,5 +385,80 @@ describe("GagsPanel", () => {
       const reopened = await screen.findByTestId("gag-new");
       expect((within(reopened).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} a new gag half-written.");
     });
+  });
+
+  it("has no \"More art direction\" controls: the scene, who is in it, and the bubbles are the whole card (plan PLAN_GAG_DIRECT_RENDER.md, F; Q1: 1)", async () => {
+    stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]));
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+    const card = await screen.findByTestId("gag-card");
+    expect(within(card).queryByText("More art direction")).toBeNull();
+    expect(within(card).queryByText(/Moderator Intent/i)).toBeNull();
+    expect(within(card).queryByText(/Scene Role Assignments/i)).toBeNull();
+    expect(within(card).getByTestId("visual-concept-textarea")).toBeTruthy();
+    expect(within(card).getByTestId("gag-cast")).toBeTruthy();
+    expect(within(card).getByTestId("bubble-editor")).toBeTruthy();
+  });
+
+  it("saving reads the cast of the tokenized scene and sends it with the change", async () => {
+    const calls = stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]), { cast: [{ label: "mom", description: "the older woman" }] });
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={["Alex"]} />);
+    const card = await screen.findByTestId("gag-card");
+    fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "Alex drives; mom grips the dash." } });
+    fireEvent.click(within(card).getByTestId("gag-save"));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const castCall = calls.find((c) => c.url === "/api/admin/facts/5/gags/cast")!;
+    expect(castCall.body).toMatchObject({ scene: "{NAME} drives; mom grips the dash." });
+    const put = calls.find((c) => c.method === "PUT")!;
+    expect(put.body).toMatchObject({
+      content: {
+        coreSceneOverride: "{NAME} drives; mom grips the dash.",
+        cast: [{ label: "mom", description: "the older woman" }],
+        castExtraction: { sourceKey: castSourceKey("{NAME} drives; mom grips the dash.", []) },
+      },
+    });
+  });
+
+  it("adding a bubble after changing the scene reads who is in it, shows them, and offers the subject and them as speakers", async () => {
+    const calls = stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]), { cast: [{ label: "bartender", description: "the man behind the bar" }] });
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+    const card = await screen.findByTestId("gag-card");
+    expect(within(card).getByTestId("gag-cast-unread")).toBeTruthy();
+    fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} orders milk; the bartender stares." } });
+    fireEvent.click(within(card).getByTestId("bubble-add"));
+    await waitFor(() => expect(within(card).getAllByTestId("gag-cast-chip").map((c) => c.textContent)).toEqual(["bartender"]));
+    expect(calls.filter((c) => c.url.endsWith("/gags/cast"))).toHaveLength(1);
+    const options = [...(within(card).getByTestId("bubble-entity") as HTMLSelectElement).options].map((o) => o.value);
+    expect(options).toEqual(["subject", "bartender"]);
+    // Editing a bubble again, with the scene unchanged, does not read it again.
+    fireEvent.change(within(card).getByTestId("bubble-text"), { target: { value: "Milk?" } });
+    expect(calls.filter((c) => c.url.endsWith("/gags/cast"))).toHaveLength(1);
+  });
+
+  it("a saved speaker the scene does not show is marked, and the save stops naming the bubble, with the draft kept", async () => {
+    const withNurse = { ...scene("{NAME} naps alone."), bubbles: [{ type: "speech" as const, entity: "nurse", text: "Shh" }] };
+    const calls = stubFetch(view([gag({ id: 1, slot: 1, isDefault: true, approvedContent: withNurse })]), { cast: [] });
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+    const card = await screen.findByTestId("gag-card");
+    fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} naps alone, snoring." } });
+    fireEvent.click(within(card).getByTestId("gag-save"));
+    const err = await within(card).findByTestId("gag-error");
+    expect(err.textContent).toContain('"nurse" (bubble 1)');
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
+    const select = within(card).getByTestId("bubble-entity") as HTMLSelectElement;
+    expect(select.value).toBe("nurse");
+    expect(select.selectedOptions[0]!.textContent).toBe("nurse (not in this scene)");
+    expect((within(card).getByTestId("visual-concept-textarea") as HTMLTextAreaElement).value).toBe("{NAME} naps alone, snoring.");
+  });
+
+  it("a failed reading stops the save and keeps the edit; the cast offers a retry", async () => {
+    const calls = stubFetch(view([gag({ id: 1, slot: 1, isDefault: true })]), { castFails: true });
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} />);
+    const card = await screen.findByTestId("gag-card");
+    fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} sings." } });
+    fireEvent.click(within(card).getByTestId("gag-save"));
+    expect((await within(card).findByTestId("gag-error")).textContent).toMatch(/Reading who is in the scene failed.*Your edits are kept/);
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
+    fireEvent.click(within(card).getByTestId("bubble-add"));
+    expect(await within(card).findByTestId("gag-cast-retry")).toBeTruthy();
   });
 });

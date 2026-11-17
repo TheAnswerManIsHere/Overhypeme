@@ -11,10 +11,11 @@ import {
   CANONICAL_SUBJECT_NAME,
   possessive,
   type FactCharacter,
+  type GagCastEntry,
   type VisualStrategyRoleBinding,
 } from "@workspace/api-zod";
 
-export type SpeakerOptionSource = "subject" | "fact" | "gag" | "off-list";
+export type SpeakerOptionSource = "subject" | "fact" | "gag" | "cast" | "off-list";
 
 export interface SpeakerOption {
   /** What the bubble stores as its `entity`. */
@@ -65,4 +66,45 @@ export function buildSpeakerOptions(opts: {
 export function selectedSpeakerValue(options: readonly SpeakerOption[], entity: string): string {
   const key = entity.trim().toLowerCase();
   return options.find((o) => o.value.trim().toLowerCase() === key)?.value ?? entity;
+}
+
+/**
+ * A gag's cast as the gag card holds it (plan PLAN_GAG_DIRECT_RENDER.md, F):
+ * the entries read from the draft's scene, and whether that reading is for the
+ * scene as it stands.
+ */
+export interface CastForSpeakers {
+  entries: readonly GagCastEntry[];
+  /** True once a cast has been read; false for a gag never read. */
+  read: boolean;
+}
+
+/**
+ * The speaker dropdown on a gag card (plan PLAN_GAG_DIRECT_RENDER.md, F): the
+ * subject and the draft's cast. A saved speaker the cast does not hold is
+ * offered as itself, marked, so it is shown unchanged and the save can name
+ * it — never rewritten.
+ */
+export function buildCastSpeakerOptions(opts: {
+  cast: CastForSpeakers;
+  currentSpeakers: readonly string[];
+  subjectName?: string;
+}): SpeakerOption[] {
+  const subjectName = opts.subjectName ?? CANONICAL_SUBJECT_NAME;
+  const out: SpeakerOption[] = [{ value: "subject", label: `${subjectName} (the subject)`, source: "subject" }];
+  const seen = new Set<string>(["subject"]);
+  for (const c of opts.cast.entries) {
+    const key = c.label.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ value: c.label, label: c.label, source: "cast" });
+  }
+  for (const s of opts.currentSpeakers) {
+    const v = s.trim();
+    const key = v.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ value: s, label: `${v} (${opts.cast.read ? "not in this scene" : "scene not read yet"})`, source: "off-list" });
+  }
+  return out;
 }
