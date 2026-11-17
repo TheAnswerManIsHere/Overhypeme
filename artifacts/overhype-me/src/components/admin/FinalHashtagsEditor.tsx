@@ -9,12 +9,10 @@ import { FieldLabel } from "./FieldInfo";
  * AI's `suggestedHashtags` become a source to pull from, not the thing that
  * ships.
  *
- * This lived inside EnrichmentEditor's "review mode" (buried in Advanced
- * Options). It is now a first-class section of the Visual review step — see
- * FactVisualReviewGrid, which renders it between "How the AI read this fact"
- * and "Run test renders" — so the moderator sets discovery tags without
- * expanding the technical enrichment panel. Behaviour is unchanged; only the
- * placement moved.
+ * A section of its own on the moderation review's Test Renders step, above the
+ * gags (plan PLAN_GAG_EXAMPLES.md, which retired the review-wide render grid
+ * it used to sit in), so the moderator sets discovery tags without expanding
+ * the technical enrichment panel.
  */
 export function FinalHashtagsEditor({
   finalHashtags,

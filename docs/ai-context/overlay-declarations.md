@@ -162,11 +162,7 @@ produced.
   `node --import tsx/esm scripts/acceptance-run.ts --mode capture --doc <UAT doc stem> --allowance 3 --out <empty dir>`,
   one UAT doc per run, as `/uat` runs one doc; the doc's shots are the
   ones its steps cite.
-- **A paid run happens only on David's go-ahead for that run** (David,
-  2026-10-17; `decisions.md`). Nothing starts a real render by itself: not
-  `/uat`, not CI (every paid mode refuses `CI`), not a standing approval. The
-  ask names the doc, the paid calls and the worst-case cost, and covers that
-  one run. The judgement steps on an AI render can instead be answered from
+- **A paid run proceeds within the fleet's paid-run budget without asking**, and asks only past it (David, 2026-11-17; `decisions.md`; the budget's home is `uat-doc-format.md`, *Lanes*). CI never starts one (every paid mode refuses `CI`), and a run is started only because a check needs it, never in a loop. A run past the budget asks, naming the doc, the paid calls and the worst-case cost. The judgement steps on an AI render can instead be answered from
   an image David generates himself in the app, with no capture run at all.
 - **Paid-render cap: $3.00 per UAT run** (David, 2026-10-16: the plan's
   $2.00, raised by its amendment 1 once PR229's real render was measured).

@@ -214,7 +214,11 @@ The staged, cost-gated approval workflow for submissions, living in
 `pending_reviews` with a `review_workflow_stage`. Three human gates:
 `triage_pending → prep_pending/prep_failed → concept_review (Step 2: Visual
 Concept) → production_review (Step 3: Test Renders) →
-production_approved/production_rejected`. Renders fire only at Step 3.
+production_approved/production_rejected`. No render runs in triage or prep.
+From the Gags step (Step 2) on, each saved gag version gets one male render
+(and approving the Gags step draws it for any gag still without one); its
+female and pet renders are drawn when the moderator asks
+([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 → [moderation-workflow](./moderation-workflow.md)
 
 ### Review queue
@@ -308,9 +312,9 @@ in-progress work.
 The paid pipeline that runs only after [provisional approval](#provisional-approval):
 AI classification and visual-idea drafting — enqueuing
 Visual-Idea candidates, with **no renders yet**. Per-image
-[test renders](#test-renders) are a separate, later spend, unlocked only once
-a moderator approves the [Visual Concept](#visual-concept); they are not part
-of prep itself. What [Triage](#triage) gates is *this pipeline*, not every
+[test renders](#test-renders) are a separate, later spend that starts at the
+Gags step, one male render per saved gag version; they are not part of prep
+itself. What [Triage](#triage) gates is *this pipeline*, not every
 model call ever made about a fact — the cheap pre-submit affordances
 (tokenizing, duplicate checking, hashtag suggestions) already ran before a
 moderator saw it.
@@ -318,23 +322,26 @@ moderator saw it.
 
 ### Test Renders
 
-The third gate. Test-render images fire automatically on arrival; the moderator
-inspects them, re-runs as needed, and either approves for production (which
-publishes the fact) or sends it back to the Visual Concept step. A
-re-approval always renders **fresh** — no prior batch is ever reused.
+The third gate. Each new or changed gag arrives with one male render (drawn
+when the Gags step is approved, and on every save); the moderator iterates on
+it, draws the female and pet renders once the gag works, approves all three
+as the gag's [examples](#example), and either approves for production (which
+publishes the fact) or sends it back to the Gags step. A render is matched to
+its input, so the same content reuses its render and a change draws a new one.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Hero render
 
 A fact's moderation-approved renders, published as the fact's own image assets
 to show its visual gag. Since the [product strategy](./product-strategy.md#gags-and-examples)
-of 2026-11-11 they are **examples**: one unstyled example per approved gag is
-required (a fact may have up to three gags), styled ones are optional, and they
+of 2026-11-11 they are **examples**: since 2026-11-15 each approved gag needs
+three unstyled ones, male, female and pet (a fact may have up to three gags),
+styled ones are optional, and they
 are never offered as meme backgrounds or re-rendered across the catalogue.
 Decided 2026-10-06 as a **hard gate on going live**: a fact cannot be active
-without its required examples, and there is no "no-hero fallback". **Not a [render scenario](#render-scenario) in the code
-today** — which scenarios' renders become a fact's examples is #628 Phase 7's
-decision; the approval minimum is set by the strategy above. Distinct from the home-page billboard
+without its required examples, and there is no "no-hero fallback". The
+examples are the three subject-kind [render scenarios](#render-scenario); which
+of them public pages show is #628 Phase 7's decision. Distinct from the home-page billboard
 fact (`GET /api/facts/hero`), the one other live use of "hero". (The meme
 builder's example media, `hero_examples`, went in launch Phase 4.)
 → [launch-definition](./launch-definition.md)
@@ -343,10 +350,12 @@ builder's example media, `hero_examples`, went in launch Phase 4.)
 
 How the joke works *as a picture*. Since migration 0139 (plan
 `docs/plans/PLAN_THREE_GAGS.md`) a fact has one to three, each its own
-[gag](#gag) record. Approving the gags at the Gags step (`concept_review`) is
-deliberately free: it unlocks render spend, so no test render has run yet at
-the moment of the decision. What reaches users is decided later, gag by gag,
-when a moderator approves a test render as a gag's [example](#example).
+[gag](#gag) record. At the Gags step (`concept_review`) each
+saved gag version gets one male test render, and approving the gags draws it
+for any new or changed gag still without one; nothing more is drawn until the
+moderator asks. What reaches users is decided later, gag by gag,
+when a moderator approves a gag's male, female and pet test renders as its
+[examples](#example).
 → [moderation-workflow](./moderation-workflow.md)
 
 ### Gag
@@ -357,10 +366,13 @@ Override](#visual-strategy-override)), stored in its own `fact_gags` row in
 slot 1, 2 or 3. Every gag follows the same rules whatever its slot. It has an
 **approved version**, offered to users on a live fact, and may carry a
 **pending change** (a new gag, or an edit to one), which changes nothing users
-get until a test render of it is approved as the gag's example. A live fact
+get until its male, female and pet test renders are approved as the gag's
+examples. A live fact
 always keeps at least one approved gag, which the database enforces. During a
 refresh a fact's gags change only inside that refresh's review, and a pick or
-removal made there lands when the refresh is promoted.
+removal made there lands when the refresh is promoted. A gag approved before
+example sets is **grandfathered**: it stays offered with fewer than three
+examples until it first completes a set.
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Default gag
@@ -372,11 +384,12 @@ a picker (launch Phase 7, which rebuilds the user AI-picture flow).
 
 ### Example
 
-The test render a moderator approved for a gag ("Approve this render"); it is
-what approves the gag. One unstyled example per approved gag is required
-([product strategy](./product-strategy.md#gags-and-examples)). A gag approved
-before migration 0139 carries no example on record and is marked "no example
-yet".
+A test render a moderator approved for a gag ("Approve this render"), one per
+subject kind ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)): **male, female and pet** (`fact_gag_examples`, migration 0143;
+plan `docs/plans/PLAN_GAG_EXAMPLES.md`). The third approved kind is what
+approves the gag's change. A gag approved before example sets is
+grandfathered: it stays offered with fewer than three until it completes a
+set, which launch readiness requires before Seed.
 → [moderation-workflow](./moderation-workflow.md)
 
 ### Joke read
@@ -399,15 +412,12 @@ shown to end users.
 
 ### Waiver
 
-An auditable record that a moderator approved despite missing or stale test
-renders. Today every required render scenario is waivable: test renders are
-review *aids*, not hard gates, so approving anyway is allowed but recorded
-rather than silently skipped. **Decided, not yet shipped:** a fact's required
-[hero renders](#hero-render), one example per approved gag, become a hard gate
-on going live (David, 2026-10-06; reshaped by the
-[product strategy](./product-strategy.md#gags-and-examples), 2026-11-11) when
-the launch programme's image phase (#628 Phase 7) lands the publication model;
-the waiver will not cover them. See
+**Retired (2026-11-15).** An auditable record that a moderator approved a fact
+despite missing or stale test renders in the review-wide render grid. The grid
+and the waiver went with plan `docs/plans/PLAN_GAG_EXAMPLES.md`: every gag
+offered to users now needs its male, female and pet examples, with no waiver.
+Past waivers stay readable on their reviews
+(`pending_reviews.visual_render_approval_waiver`). See
 [launch-definition](./launch-definition.md).
 → [moderation-workflow](./moderation-workflow.md)
 
@@ -659,9 +669,12 @@ override when the automatic read is wrong.
 
 ### Render scenario
 
-One required render variant a moderator approves at production review
-(`i2i_male_default`, David's photo; `i2i_female_default`, his wife's; the
-retired no-photo `generic_t2i` stays only on old renders); each attempt is a durable
+One render variant of a gag, drawn from a committed reference photo. Since
+2026-11-15 a moderation render is one of three, each a **subject kind**:
+`i2i_male_default` (male, David's photo), `i2i_female_default` (female, his
+wife's) and `i2i_nonhuman_animal` (pet), and the approved one of each is the
+gag's example for that kind. The no-photo `generic_t2i` and the object/vehicle
+scenarios are retired and stay readable as history. Each attempt is a durable
 `image_prompt_attempts` row.
 → [visual-pipeline](./visual-pipeline.md)
 
@@ -723,9 +736,11 @@ a moderator can lean into or away from them.
 
 ### Stale render
 
-Render presentation state is derived at read time, never persisted: a
-`reviewRenderInputHash` is compared to an attempt's stored hash; a mismatch
-reads as "stale," prompting a re-run.
+**Retired for moderation renders (2026-11-15).** A render was "stale" when its
+stored input hash no longer matched the review's. A gag's tile now shows the
+render drawn from its current input, matched by content
+(`fact_enrichment_snapshot`), so a change draws a new render and an older one
+is history rather than stale (plan `docs/plans/PLAN_GAG_EXAMPLES.md`).
 → [visual-pipeline](./visual-pipeline.md)
 
 ### Prompt-identity snapshot

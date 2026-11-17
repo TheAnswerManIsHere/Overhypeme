@@ -17,9 +17,10 @@ For work on the render-time image pipeline.
 ## Preserve
 
 - **The moderator-authored/-picked Visual Concept is the authoritative scene.** The
-  frontier planner realizes it; the human concept wins. (Today a fact has one;
-  the approved [product strategy](../../../docs/ai-context/product-strategy.md#gags-and-examples)
-  allows up to three approved gags per fact, each its own authoritative scene.)
+  frontier planner realizes it; the human concept wins. (A fact has one to
+  three gags, each its own authoritative scene, and each offered only with its
+  male, female and pet examples: [`visual-pipeline.md`](../../../docs/ai-context/visual-pipeline.md),
+  *Gags*.)
 - **Single prompt channel.** The compiler owns TASK/BINDING/STRICT-CONSTRAINTS/
   identity/reference/text-policy language. Do **not** add a duplicate prompt-building
   channel or let planner prose re-author compiler-owned clauses.

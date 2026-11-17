@@ -14,13 +14,13 @@ import {
 } from "@workspace/api-zod";
 import { LiveGagIdeas } from "./LiveGagIdeas";
 
-const NO_TALLY = { requested: 0, done: 0, rendering: 0, queued: 0, failed: 0, blocked: 0, skipped: 0, stale: 0 };
+const NONE = { male: null, female: null, pet: null };
 const GAG: GagView = {
   id: 1, slot: 1, state: "approved", availableToUsers: true, isDefault: true,
   approvedContent: { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, coreSceneOverride: "{NAME} lifts the moon." },
-  approvedExample: null, carriedOver: true, approvedAt: null, pendingContent: null, pendingReviewId: null,
-  pendingExample: null, pendingRemove: false, refreshedSinceApproval: false,
-  renders: { reviewId: 0, gagId: 1, cards: [], tally: NO_TALLY },
+  approvedExamples: NONE, grandfathered: true, approvedAt: null, pendingContent: null, pendingReviewId: null,
+  pendingExamples: NONE, pendingRemove: false, refreshedSinceApproval: false,
+  renders: NONE,
 };
 const VIEW: FactGagsView = { factId: 5, isActive: true, review: null, frozenOutsideReview: false, gags: [GAG], maxGags: 3 };
 

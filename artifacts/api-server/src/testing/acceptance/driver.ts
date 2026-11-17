@@ -10,8 +10,9 @@
  *   (tokenise, duplicate check, hashtags, submit), and the submission is in
  *   the admin queue at triage before any moderation call;
  * - journey 3 — the admin takes it through triage, preparation, the saved
- *   Visual Concept and the required review renders to an active fact; each
- *   render's image decodes;
+ *   gag, its male iteration render, its female and pet renders, and the
+ *   three approved as the gag's examples, to an active fact; each render's
+ *   image decodes (plan PLAN_GAG_EXAMPLES.md);
  * - journey 7 — the free user uploads a photo; the owner reads back the same
  *   bytes, another user is refused;
  * - journey 4 — the free user saves a public meme composed from that photo;
@@ -205,7 +206,7 @@ export interface DriveResult {
 export interface DriveOptions {
   /**
    * Run with `AI_DOUBLE_FAIL=fal.subscribe:openai/gpt-image-2.6/sunburst/edit`: journey 3's
-   * required photo renders must end failed — the recorded vendor error carried
+   * male iteration render must end failed — the recorded vendor error carried
    * through the real render job — and the run stops there. A control, never
    * an acceptance pass.
    */
@@ -351,44 +352,56 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
       else if (m) vso.bubbles[Number(m[1])][m[2]] = r.value;
     }
     // The picked candidate becomes the fact's first gag (fact_gags, migration 0139).
-    await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags`, { content: vso, reviewId });
+    const created = await admin.json<{ gags: Array<{ id: number; slot: number }> }>("3", "POST", `/api/admin/facts/${stagingFactId}/gags`, { content: vso, reviewId });
+    const gagId = created.gags.find((g) => g.slot === 1)?.id;
+    if (gagId == null) throw new JourneyError("3", "save the gag", "the gags view names no gag in slot 1");
     await admin.json("3", "POST", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});
-    log("journey 3: the gag saved and the gags step approved; its test renders running");
+    log("journey 3: the gag saved and the gags step approved; its male iteration render running");
 
+    // A gag's renders, per kind (plan PLAN_GAG_EXAMPLES.md): the save and the
+    // Gags approval draw one male render; the moderator then asks for the rest.
+    const tiles = async () => {
+      const view = await admin.json<{ gags: Array<{ id: number; renders: Record<"male" | "female" | "pet", { status: string; message?: string | null; imageUrl?: string | null; latestAttemptId?: number | null } | null> }> }>("3", "GET", `/api/admin/facts/${stagingFactId}/gags`);
+      const g = view.gags.find((x) => x.id === gagId);
+      if (!g) throw new JourneyError("3", "the gag's renders", `gag ${gagId} is not in the view`);
+      return g.renders;
+    };
+    const male = await poll("3", "the male iteration render", tiles, (r) => settledBaselineRenders(r, ["male"]) !== null, () => null, 20 * 60_000);
+    if (options.expectRenderFailure) {
+      const tile = settledBaselineRenders(male, ["male"])![0]!;
+      ev.controlRenders = [{ key: "male", status: tile.status, message: tile.message ?? undefined }];
+      throw new RenderFailureControl(tile.status === "failed", tile);
+    }
+    await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags/${gagId}/renders`, { kinds: ["female", "pet"], reviewId });
+    log("journey 3: the female and pet renders running");
     const renders = await poll(
       "3",
-      "required review renders",
-      () => admin.json<any>("3", "GET", `/api/admin/reviews/${reviewId}/render-scenarios`),
-      (r) => settledBaselineRenders(r.cards as any[]) !== null,
-      // A grid that has cards but lacks an expected scenario will not grow one; an empty grid may still be building.
-      (r) => ((r.cards as any[]).length > 0 ? renderCoverageProblems(r.cards as any[]).join(", ") || null : null),
+      "the gag's male, female and pet renders",
+      tiles,
+      (r) => settledBaselineRenders(r) !== null,
+      () => null,
       20 * 60_000,
     );
-    const coverage = renderCoverageProblems(renders.cards as any[]);
-    if (coverage.length > 0) throw new JourneyError("3", "the baseline's review renders", coverage.join(", "));
-    const required = settledBaselineRenders(renders.cards as any[])!;
-    if (options.expectRenderFailure) {
-      // Both required renders draw on the one photo-edit endpoint the control fails.
-      const target = required.find((c) => c.key === "i2i_male_default");
-      ev.controlRenders = required.map((c) => ({ key: c.key, status: c.status, message: c.message ?? undefined }));
-      throw new RenderFailureControl(required.every((c) => c.status === "failed"), target);
-    }
-    const notDone = required.filter((c) => c.status !== "done" || c.stale);
+    const coverage = renderCoverageProblems(renders);
+    if (coverage.length > 0) throw new JourneyError("3", "the baseline's renders", coverage.join(", "));
+    const required = settledBaselineRenders(renders)!;
+    const notDone = required.filter((c) => c.status !== "done");
     if (notDone.length > 0) {
-      throw new JourneyError("3", "required review renders", notDone.map((c) => `${c.key}=${c.status}${c.message ? ` (${c.message})` : ""}`).join(", "));
+      throw new JourneyError("3", "the gag's renders", notDone.map((c) => `${c.kind}=${c.status}${c.message ? ` (${c.message})` : ""}`).join(", "));
     }
-    // The renders are stored and readable: each one's image decodes (read before approval, while the review owns them).
+    // The renders are stored and readable: each one's image decodes.
     const renderImages = [];
-    for (const card of required as Array<{ key: string; imageUrl?: string | null }>) {
-      if (!card.imageUrl) throw new JourneyError("3", `the ${card.key} render image`, "the done card carries no image URL");
-      const img = await readImage(admin, "3", `the ${card.key} render image`, card.imageUrl);
-      renderImages.push({ key: card.key, format: img.format, width: img.width, height: img.height });
+    for (const card of required as Array<{ kind: string; imageUrl?: string | null }>) {
+      if (!card.imageUrl) throw new JourneyError("3", `the ${card.kind} render image`, "the done tile carries no image URL");
+      const img = await readImage(admin, "3", `the ${card.kind} render image`, card.imageUrl);
+      renderImages.push({ key: card.kind, format: img.format, width: img.width, height: img.height });
     }
-    // Approving one of the gag's test renders makes it the gag's example and
-    // the gag approved; a fact goes live only with an approved gag.
-    const t2iCard = (required as Array<{ key: string; latestAttemptId?: number | null }>).find((c) => c.key === "generic_t2i") ?? required[0];
-    if (renders.gagId == null || t2iCard?.latestAttemptId == null) throw new JourneyError("3", "approve a render as the gag's example", "the grid names no gag or render");
-    await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags/${renders.gagId}/approve`, { attemptId: t2iCard.latestAttemptId, reviewId });
+    // Approving the male, female and pet renders makes them the gag's examples
+    // and the gag approved; a fact goes live only with an approved gag.
+    for (const card of required as Array<{ kind: string; latestAttemptId?: number | null }>) {
+      if (card.latestAttemptId == null) throw new JourneyError("3", `approve the ${card.kind} example`, "the tile names no render");
+      await admin.json("3", "POST", `/api/admin/facts/${stagingFactId}/gags/${gagId}/approve`, { attemptId: card.latestAttemptId, reviewId });
+    }
     const approved = await admin.json<{ factId: number }>("3", "POST", `/api/admin/reviews/${reviewId}/approve-for-production`, {
       hashtags: hashtags.length > 0 ? hashtags : ["baseline"],
       adminNote: "AI baseline",
@@ -515,15 +528,15 @@ export async function driveBaseline(base: string, log: (line: string) => void = 
 
 /** Thrown inside journey 3 under `expectRenderFailure`, to stop the run at the control's one observation. */
 class RenderFailureControl extends Error {
-  constructor(ok: boolean, target: { status?: string; message?: string } | undefined) {
-    super(ok ? `control: the recorded vendor error left the required renders failed (${target?.message ?? "no message"})` : `control: i2i_male_default is ${target?.status}, expected every required render failed`);
+  constructor(ok: boolean, male: { status?: string; message?: string | null } | undefined) {
+    super(ok ? `control: the recorded vendor error left the male render failed (${male?.message ?? "no message"})` : `control: the male render is ${male?.status}, expected failed`);
   }
 }
 
 function controlFrom(outcomes: Map<JourneyKey, JourneyOutcome>): DriveResult["control"] | undefined {
   const three = outcomes.get("3");
   if (!three?.error?.startsWith("control:")) return undefined;
-  const ok = three.error.startsWith("control: the recorded vendor error left the required renders failed");
+  const ok = three.error.startsWith("control: the recorded vendor error left the male render failed");
   // A control never counts as a journey outcome.
   outcomes.set("3", { journey: "3", status: "not-run", evidence: {}, error: "the render-failure control stops the run here" });
   return { ok, renders: (three.evidence.controlRenders as NonNullable<DriveResult["control"]>["renders"]) ?? [], detail: three.error };

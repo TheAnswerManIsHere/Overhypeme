@@ -33,13 +33,8 @@ import {
   canReject,
   SUBMISSION_TEXT_MAX_CHARS,
   SUBMISSION_TEXT_MIN_CHARS,
-  RENDER_SCENARIO_KEYS,
-  RENDER_SCENARIO_DESCRIPTORS,
   REFERENCE_IDENTITY_TYPES,
   renderScenarioKeySchema,
-  visualRenderWaiverRequestSchema,
-  type ProblematicScenarioStatus,
-  type VisualRenderApprovalWaiver,
   sanitizeCandidateSceneText,
   humorNoteSaveSchema,
   isUnresolvedSubmissionStage,
@@ -66,7 +61,7 @@ import {
   ActivationConflictError,
   hasApprovedGag,
 } from "../lib/factActivation";
-import { refreshLeavesApprovedGag, cancelReviewGagOps } from "../lib/gags/gagStore";
+import { refreshLeavesApprovedGag, cancelReviewGagOps, exampleSetGaps, describeExampleSetGaps } from "../lib/gags/gagStore";
 import {
   isOverridablePath,
   overrideValuesEqual,
@@ -85,15 +80,12 @@ import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReview
 import { RenderStyleRefusedError } from "../lib/imagePrompt/styleResolution";
 import { validateVisualStrategyOverridePersistence } from "../lib/imagePrompt/promptBudget";
 import {
-  buildReviewScenarioGrid,
-  runReviewScenarios,
   getScenarioAttemptDiagnostics,
   reviewRenderStates,
-  enqueueForceReviewRenderPrepare,
+  enqueueReviewIterationRenders,
   syntheticAnalysisForReference,
 } from "../lib/reviewRenderScenarios";
 import { resolveDefaultReferenceUrl, ReferenceAssetUnavailableError } from "../lib/defaultReferenceResolver";
-import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
 import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
 import { editTriageWording, lockReview, WordingError, withdrawForWording, type WordingDuplicate } from "../lib/reviewWording";
@@ -431,9 +423,9 @@ const RejectBody = z.object({
  * effective blob, validated. Client bodies are never consulted.
  *
  * **Hard approval gate:** approval requires a valid enrichment. Renderability is
- * gated separately by the Step-2 required-render check (`requiredScenarioProblems`
- * over the live scenario grid) in the route handler — the required test renders
- * must be fresh + successful (or explicitly waived). Approval makes NO
+ * gated separately by the gags: a fact is approved only with a gag that will be
+ * offered, and an offered gag carries its approved male, female and pet
+ * examples (plan PLAN_GAG_EXAMPLES.md, section D). Approval makes NO
  * synchronous planner/compiler call of its own.
  */
 function resolveApprovalEnrichment(
@@ -474,48 +466,6 @@ async function attachHashtags(tx: DbExecutor, factId: number, tags: string[]): P
       await tx.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
     }
   }
-}
-
-/**
- * Visual-render gate (admin-waivable), shared by first-time and refresh
- * approvals. Required Step-2 scenarios must each be a fresh successful render;
- * otherwise the moderator must explicitly waive the EXACT named problems. The
- * problem set is recomputed server-side so a stale client can't sneak an
- * approval past missing/failed/blocked/stale renders. The grid reads enrichment
- * through the review-cycle resolver, so a refresh cycle is gated on renders of
- * its CANDIDATE, a first-time cycle on the staging fact's stored blob.
- */
-async function resolveVisualRenderGate(
-  reviewId: number,
-  body: unknown,
-  adminUserId: string,
-): Promise<
-  | { ok: true; waiver: VisualRenderApprovalWaiver | null }
-  | { ok: false; problems: ReturnType<typeof requiredScenarioProblems> }
-> {
-  const scenarioGrid = await buildReviewScenarioGrid(reviewId);
-  const renderProblems = requiredScenarioProblems(
-    scenarioGrid.cards.map((c) => ({ scenarioKey: c.key, status: c.status, stale: c.stale })),
-  );
-  if (renderProblems.length === 0) return { ok: true, waiver: null };
-  const waiverReq = visualRenderWaiverRequestSchema.safeParse(body ?? {});
-  const wantsWaive = waiverReq.success && waiverReq.data.waiveVisualRenderIssues === true;
-  const named = new Set(waiverReq.success ? (waiverReq.data.waivedScenarioKeys ?? []) : []);
-  const allNamed = renderProblems.every((p) => named.has(p.scenarioKey));
-  if (!wantsWaive || !allNamed) return { ok: false, problems: renderProblems };
-  return {
-    ok: true,
-    waiver: {
-      waivedAt: new Date().toISOString(),
-      waivedByAdminUserId: adminUserId,
-      waivedScenarios: renderProblems.map((p) => ({
-        scenarioKey: p.scenarioKey,
-        statusAtWaiver: p.status as ProblematicScenarioStatus,
-        latestAttemptId: scenarioGrid.cards.find((c) => c.key === p.scenarioKey)?.latestAttemptId ?? null,
-      })),
-      requiredScenarioPolicyVersion: REQUIRED_SCENARIO_POLICY_VERSION,
-    },
-  };
 }
 
 /**
@@ -574,19 +524,17 @@ async function approveRefreshCandidateForProduction(
   // A live fact keeps an approved gag: advisory pre-check for a clean 409 (the
   // promotion re-checks under the fact lock, and the live-fact trigger at
   // commit). Gags this refresh approved count; ones it removes do not.
+  // The production gate (plan PLAN_GAG_EXAMPLES.md, section D): an approved
+  // gag carries its male, female and pet examples (or is grandfathered; the
+  // database enforces it), so this asks only whether a gag will be offered,
+  // naming each gag's missing kinds when none would be.
   if (!(await refreshLeavesApprovedGag(stagingFact.id, review.id))) {
-    res.status(409).json({ error: "This refresh would leave the fact without an approved gag.", code: "CONCEPT_MISSING" });
-    return;
-  }
-
-  // Renderability gate over the CANDIDATE — promotion publishes it, so it (not
-  // the currently-active enrichment) is what must render. The scenario grid
-  // resolves a refresh review's enrichment to the candidate version, so this
-  // gate's required renders are validated against exactly the blob being
-  // promoted. That is the only renderability gate — no synchronous planner call.
-  const gate = await resolveVisualRenderGate(review.id, req.body, req.user.id);
-  if (!gate.ok) {
-    res.status(409).json({ error: "visual_render_incomplete", problems: gate.problems });
+    const gaps = await exampleSetGaps(stagingFact.id, review.id);
+    res.status(409).json({
+      error: `This refresh would leave the fact without an offered gag. ${describeExampleSetGaps(gaps)}`,
+      code: "CONCEPT_MISSING",
+      gaps,
+    });
     return;
   }
 
@@ -606,7 +554,6 @@ async function approveRefreshCandidateForProduction(
         approvedFactId: stagingFact.id,
         adminNote,
         reviewedAt: new Date(),
-        ...(gate.waiver ? { visualRenderApprovalWaiver: gate.waiver } : {}),
       }).where(eq(pendingReviewsTable.id, review.id));
     });
   } catch (err) {
@@ -693,12 +640,17 @@ async function approveForProduction(
   const enrichment = enrichmentResult.enrichment;
 
   // An approved gag (blocking): a fact goes live only with at least one gag
-  // whose test render a moderator approved as its example (plan
-  // docs/plans/PLAN_THREE_GAGS.md). Advisory pre-check for a clean 409;
+  // whose male, female and pet examples a moderator approved (plans
+  // PLAN_THREE_GAGS.md and PLAN_GAG_EXAMPLES.md, section D). Advisory pre-check for a clean 409;
   // activateFact re-checks in the activating transaction, and the live-fact
   // trigger at commit. Gags still pending stay hidden and can be finished later.
   if (!(await hasApprovedGag(db, stagingFact.id))) {
-    res.status(409).json({ error: "Approve a test render for at least one gag before approving for production.", code: "CONCEPT_MISSING" });
+    const gaps = await exampleSetGaps(stagingFact.id, reviewId);
+    res.status(409).json({
+      error: describeExampleSetGaps(gaps),
+      code: "CONCEPT_MISSING",
+      gaps,
+    });
     return;
   }
 
@@ -716,22 +668,9 @@ async function approveForProduction(
     return;
   }
 
-  // Visual-render gate (admin-waivable) — the sole renderability gate on
-  // approval. Staleness reads the staging fact's stored effective enrichment —
-  // the same blob being published — because the override-model write paths keep
-  // facts.enrichment current on every edit.
-  const gate = await resolveVisualRenderGate(reviewId, req.body, req.user.id);
-  if (!gate.ok) {
-    res.status(409).json({ error: "visual_render_incomplete", problems: gate.problems });
-    return;
-  }
-  const visualRenderWaiver = gate.waiver;
-
-  // Renderability is already gated above by the Step-2 required-render check
-  // (`requiredScenarioProblems`): the required test renders must be fresh +
-  // successful, or explicitly waived. Those renders exercise the same
-  // planner→compiler→image pipeline and actually produce images — a stronger
-  // signal than a plan-only re-check — so approval makes no synchronous planner
+  // Renderability is gated above by the gags: the gag that goes live carries
+  // approved male, female and pet renders, which exercised the same
+  // planner→compiler→image pipeline, so approval makes no synchronous planner
   // call of its own and proceeds straight to the commit.
 
   // Approval never rewrites enrichment columns: the staging fact already holds
@@ -772,7 +711,6 @@ async function approveForProduction(
         // read this back as editable state.
         enrichment,
         enrichmentStatus: "ok",
-        ...(visualRenderWaiver ? { visualRenderApprovalWaiver: visualRenderWaiver } : {}),
       }).where(and(
         eq(pendingReviewsTable.id, reviewId),
         eq(pendingReviewsTable.status, "pending"),
@@ -1205,41 +1143,30 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
     return;
   }
 
-  // Post-commit — ONLY because THIS request performed the CAS: clear the prior
-  // Step-3 scenario set, then force a fresh render batch (no dedupe key, so it
-  // can't coalesce onto a stale prepare job). Clearing before enqueue means a
-  // Step-3 → Step-2 → Step-3 bounce shows the new queued/missing state rather
-  // than the superseded stale thumbnails while the async prepare job spins up.
-  const clearedRenderAttempts = await db.update(imagePromptAttemptsTable)
-    .set({ reviewId: null, updatedAt: new Date() })
-    .where(eq(imagePromptAttemptsTable.reviewId, id))
-    .returning({ id: imagePromptAttemptsTable.id });
-
+  // Post-commit — ONLY because THIS request performed the CAS: draw the
+  // iteration render (one male render) of each new or changed gag that lacks
+  // one for its content. Existing renders are kept and reused; an unchanged
+  // gag gets nothing (plan PLAN_GAG_EXAMPLES.md, section C).
   let renderPrepareJobId: number | undefined;
   try {
-    const enq = await enqueueForceReviewRenderPrepare(id, req.user.id);
+    const enq = await enqueueReviewIterationRenders(id, req.user.id);
     renderPrepareJobId = enq.jobId;
   } catch (err) {
-    logger.error({ err, reviewId: id }, "[moderation] failed to enqueue force render prepare (stage advance kept)");
+    logger.error({ err, reviewId: id }, "[moderation] failed to enqueue iteration renders (stage advance kept)");
   }
-  logger.info(
-    { reviewId: id, renderPrepareJobId, clearedRenderAttempts: clearedRenderAttempts.length, force: true, adminUserId: req.user.id },
-    "[moderation] visual concept approved, prior renders cleared, force render prepare enqueued",
-  );
+  logger.info({ reviewId: id, renderPrepareJobId, adminUserId: req.user.id }, "[moderation] gags approved, iteration renders enqueued");
 
   res.json({
     success: true,
     workflowStage: "production_review",
     ...(renderPrepareJobId != null ? { renderPrepareJobId } : {}),
-    clearedRenderAttempts: clearedRenderAttempts.length,
-    forceRenderBatch: true,
   });
 });
 
 // ─── Back to Visual Concept: Step 3 (production_review) → Step 2 (concept_review) ─
 //
-// Re-approval clears any prior Step-3 scenario attempts before force-creating a
-// fresh batch, so in-flight jobs can finish without remaining the active grid.
+// Renders already drawn stay on the review: re-approval draws only gags whose
+// content has no render yet, and reuses the rest (plan PLAN_GAG_EXAMPLES.md).
 router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -1700,46 +1627,6 @@ router.get("/admin/reviews/:id/renders/:renderJobId/image", requireAdmin, async 
     logger.error({ err, reviewId: id, renderJobId }, "[moderation] render image stream failed");
     res.status(500).json({ error: "image_stream_failed" });
   }
-});
-
-// ─── Step-2 render scenarios (durable, server-side multi-scenario grid) ────────
-
-// GET the scenario grid (derived status/stale/tally; cards carry admin-gated
-// thumbnail URLs reusing the existing render-image route).
-router.get("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  res.json(await buildReviewScenarioGrid(id));
-});
-
-const RunScenariosBody = z.object({
-  scenarios: z.array(renderScenarioKeySchema.refine((k) => !RENDER_SCENARIO_DESCRIPTORS[k].retired, {
-    message: "this scenario is retired: every picture starts from a photo",
-  })).min(1).max(RENDER_SCENARIO_KEYS.length),
-  force: z.boolean().optional(),
-});
-
-// POST a selective rerun (checkbox "Run" + per-tile rerun). Always creates fresh
-// attempts; `force` lets a moderator run a non-applicable non-human scenario.
-router.post("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const parsed = RunScenariosBody.safeParse(req.body ?? {});
-  if (!parsed.success) { res.status(400).json({ error: "Invalid scenarios", details: parsed.error.flatten() }); return; }
-
-  const [review] = await db
-    .select({ workflowStage: pendingReviewsTable.workflowStage })
-    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (review.workflowStage !== "production_review") {
-    res.status(409).json({ error: `Cannot render from stage ${review.workflowStage}. Finish prep first.` });
-    return;
-  }
-
-  const result = await runReviewScenarios(id, parsed.data.scenarios, req.user.id);
-  if ("error" in result) { res.status(409).json(result); return; }
-  logger.info({ reviewId: id, scenarios: parsed.data.scenarios, adminId: req.user.id }, "[moderation] manual scenario rerun");
-  res.status(202).json(result);
 });
 
 // POST /admin/reviews/:id/visual-concepts/regenerate — re-draft the 3 candidate

@@ -350,10 +350,13 @@ describe("the legacy fixture", { skip: skipReason }, () => {
       assert.equal((await free.req("POST", "/api/auth/local-login", { email: accounts.free.email, password: accounts.password })).status, 200);
 
       // The admin readers, for a sample of every workflow stage present.
-      const stages = await query<{ workflow_stage: string; id: number }>(target, "SELECT DISTINCT ON (workflow_stage) workflow_stage, id FROM pending_reviews ORDER BY workflow_stage, id");
+      const stages = await query<{ workflow_stage: string; id: number; staging_fact_id: number | null }>(target, "SELECT DISTINCT ON (workflow_stage) workflow_stage, id, staging_fact_id FROM pending_reviews ORDER BY workflow_stage, id");
       for (const s of stages) {
         assert.equal((await admin.req("GET", `/api/admin/reviews/${s.id}`)).status, 200, `review detail, stage ${s.workflow_stage}`);
-        assert.equal((await admin.req("GET", `/api/admin/reviews/${s.id}/render-scenarios`)).status, 200, `render grid, stage ${s.workflow_stage}`);
+        // The gags and their per-kind render tiles (plan PLAN_GAG_EXAMPLES.md replaced the review-wide grid).
+        if (s.staging_fact_id != null) {
+          assert.equal((await admin.req("GET", `/api/admin/facts/${s.staging_fact_id}/gags`)).status, 200, `gags, stage ${s.workflow_stage}`);
+        }
       }
       for (const f of await query<{ id: number }>(target, "SELECT DISTINCT ON (is_active) id FROM facts ORDER BY is_active, id")) {
         assert.equal((await admin.req("GET", `/api/admin/facts/${f.id}`)).status, 200, `fact detail ${f.id}`);

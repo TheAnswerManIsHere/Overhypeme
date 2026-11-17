@@ -112,7 +112,7 @@ where I put it and treat it as binding.
    connector at close-out — never a chat instruction to him. A prototype-phase
    PR's section carries only its version's `live` check, run through the
    connector after the merge's sync, under the same rule — one that would
-   start a paid AI run within his per-run and weekly budget (`uat-doc-format.md`, *Lanes*).
+   start a paid AI run within his monthly budget (`uat-doc-format.md`, *Lanes*).
 2. **David never reads diffs or commits.** Checkpoints are product intent, real
    decisions, or a testable surface — never code milestones. I never offer or
    pause for code review by him.
@@ -451,7 +451,7 @@ step's carve-out
    count on every turn is not necessary"*); the one ledger that survives is
    the fleet's `paid-ai-ledger` issue, in KITT's repository — one comment
    per paid AI run in any product — because it enforces a budget rather
-   than reporting one: the weekly paid-run budget is one total across every
+   than reporting one: the monthly paid-run budget is one total across every
    product, read rather than remembered (`uat-doc-format.md`, *Lanes*).
    Where it sits: last in the message that hands the turn back, except on a
    turn that ends with a 🛑 ask or an open-ask line, which interaction rule
@@ -779,7 +779,7 @@ to every unit of work but a Trivial PR.
   UAT section and no hardening bar until David declares it production — and it
   keeps the machine lanes, scaled to a prototype, as my proof that a version
   works before the owner is asked — a check that would start a paid AI run within
-  his per-run and weekly budget (`uat-doc-format.md`, *Lanes*) (David, 2026-10-10;
+  his monthly budget (`uat-doc-format.md`, *Lanes*) (David, 2026-10-10;
   [`working-modes.md`](../../docs/ai-context/working-modes.md#the-prototype-phase-per-feature-david-2026-09-26),
   *What prototype phase keeps of verification*)
   (David, 2026-09-28: *"What we're cutting out is the code review loop once
@@ -1430,7 +1430,7 @@ a push before both.
 4. **Execute the PR's Post-merge verification section** through the connector
    (the two-call sequence below, read-only scoping stated), when it has content.
    A step that would start a paid AI run is not read-only and runs within
-   David's per-run and weekly budget, asking above it (`uat-doc-format.md`,
+   David's monthly budget, asking only for a run that would take the month past it (`uat-doc-format.md`,
    *Lanes*).
 5. **Post the harvest-notes comment** on the workstream issue (production-phase
    product PRs; a prototype-phase PR posts none — its decisions are not made

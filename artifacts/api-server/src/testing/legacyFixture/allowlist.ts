@@ -383,6 +383,9 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     approvedContent: "shape:visualStrategyOverride",
     approvedExampleAttemptId: "ref:image_prompt_attempts",
     approvedCarriedOver: "keep",
+    // 0143: left to its default, false; the committed fixture predates it, and
+    // its gags are carried over (approvedCarriedOver), which grandfathers them too.
+    approvedBeforeExampleSets: "drop",
     approvedBy: "map-user",
     approvedAt: "keep",
     pendingContent: "shape:visualStrategyOverride",
@@ -396,6 +399,15 @@ export const LEGACY_FIXTURE_ALLOWLIST: readonly TableClassification[] = [
     createdBy: "map-user",
     createdAt: "keep",
     updatedAt: "keep",
+  }),
+  include(s.factGagExamplesTable, {
+    id: "keep",
+    gagId: "ref:fact_gags",
+    subjectKind: "keep",
+    stage: "keep",
+    attemptId: "ref:image_prompt_attempts",
+    approvedBy: "map-user",
+    createdAt: "keep",
   }),
 
   // ── What users made (D2, D5) ─────────────────────────────────────────────

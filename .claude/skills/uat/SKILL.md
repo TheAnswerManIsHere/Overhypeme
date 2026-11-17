@@ -221,7 +221,7 @@ run early:
   a checkout or worktree at the commit under test** (or the on-demand
   workflow dispatched on that commit), with the output kept with the commit
   it ran at; that is close-out's lapse, so it goes on the run record's
-  **Lifecycle gaps** line (section 5). One that would start a paid AI run runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it, as a paid capture does (below).
+  **Lifecycle gaps** line (section 5). One that would start a paid AI run runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it, as a paid capture does (below).
 - **`live`** — **cited from close-out's Post-merge verification when that
   section ran the step's check and the Repl's commit has not moved since**:
   the workstream reaching `stage:uat` is that pass's evidence, and the row
@@ -232,7 +232,7 @@ run early:
   `main`'s CI never sees. Then I run it through the live-environment
   connector, **read-only, always**, after confirming the Repl's synced
   commit is the commit under test, and quote what it printed. A check that would start a
-  paid AI run is not read-only: it runs within David's paid-run budget — $5 a run, $25 a week across every product — and on his go-ahead only above it, as a
+  paid AI run is not read-only: it runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it, as a
   paid capture does (below). State a check needs is a
   Setup `[claude]` line with its `[restore]` (section 2); a probe whose
   refusal is the thing tested writes nothing and is not a write.
@@ -255,13 +255,14 @@ run early:
   The step's result is
   that reading: a shot that was not produced, or that I cannot read, is
   Blocked, never Pass; a reading that contradicts the `Expect` is a Fail,
-  filed before he sees anything (section 4). **A capture that needs a paid
-  vendor runs within David's paid-run budget — $5 a run, $25 a week across every product** — as
+  filed before he sees anything (section 4). **A capture that needs a paid vendor runs within David's monthly paid-run
+  budget — $100 a calendar month across every product, no per-run cap** — as
   does any check, in any lane, that would start a paid AI run (David,
-  2026-10-17, who set the budget small for that reason; `uat-doc-format.md`,
-  *Lanes*): within it the capture runs, inside the cap the declaration names,
-  and its cost goes in the run record and as a comment on the fleet's paid-run ledger, which is read before the run. One above
-  it asks, naming the PR, the paid calls and the worst-case cost, and its
+  2026-11-17: *"just do what is needed"*; `uat-doc-format.md`, *Lanes*):
+  within it the capture runs without asking, inside the cap the declaration
+  names, and its cost goes in the run record and as a comment on the fleet's
+  paid-run ledger, which is read before the run. One that would take the
+  month past it asks, naming the PR, the paid calls and the worst-case cost, and its
   steps are Blocked on him until he answers, or he answers the judgement
   steps from an image he makes himself in the product. A consumer with no such declaration has no
   capture run, and its `capture` steps are Blocked on that, never handed to
@@ -704,7 +705,7 @@ that is three places:
 **Once a step is fully scriptable, UAT is usually the wrong home for it.** It
 belongs in CI or in the PR's post-merge verification, where it runs on every
 change forever instead of once — unless it calls a paid AI vendor, which
-runs within David's paid-run budget — $5 a run, $25 a week across every product — and asks him only above it (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
+runs within David's monthly paid-run budget — $100 a calendar month across every product, no per-run cap — and asks him only for a run that would take the month past it (`uat-doc-format.md`, *Lanes*). Automation is mostly *draining* mechanical
 steps out of UAT into the layers that already exist — and scripting whatever
 live-app checks are left over into the PR's post-merge verification.
 

@@ -551,7 +551,7 @@ or `nano-banana-2-edit` by string. Now:
   (missing, inactive, empty or over-long copy) throws
   `RenderStyleRefusedError` — a 400 from the preview and the admin render
   action — and is never treated as "no look". Moderation scenarios render
-  with no look, so their hash folds in the photoreal engines. Nano Banana 2
+  with no look, through the photoreal engines. Nano Banana 2
   stays in the catalogue: an attempt recorded with it still renders through it.
 - The `image_engine_t2i` and `image_engine_i2i` rows
   migration 0123 seeded were deleted by migration 0138, along with the engines
@@ -564,10 +564,11 @@ or `nano-banana-2-edit` by string. Now:
   (`attemptImageEngineId`). A null appears only on a row an older release wrote
   after 0123 ran; such a release routed by mode alone, so the null reads as that
   release's engine. A later contract migration makes the column `NOT NULL`.
-- **The moderation hash folds in the engine a render would use now**, read once
-  per review context (`currentImageEngineIds`), so changing a mode's default
-  makes that mode's older attempts read stale while each keeps saying which
-  engine drew it.
+- **A moderation render's input hash records the engine it used**
+  (`currentImageEngineIds`, read once per review context) as provenance. It
+  does not decide reuse: a gag's render is matched to its content (*Gags*,
+  below), so changing a mode's default leaves existing renders shown and
+  approvable, each still saying which engine drew it (2026-11-15).
 - **Every selection is validated, never defaulted**: an engine that is unknown,
   inactive, archived, retired, not an image engine, of the other mode, or
   without a size vocabulary is refused (`ImageEngineRoutingError`).
@@ -601,23 +602,56 @@ open refresh candidate's enrichment refuses one, and a render's input is the
 classification joined with one gag's content (`gagRenderInput`,
 `lib/gags/resolver.ts`).
 
+- **The rule:** [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates).
 - **Versions.** A gag has an approved version (offered to users on a live fact)
   and may carry a pending change. Saving writes the pending change; it changes
-  nothing users get until a moderator approves one of its test renders as the
-  gag's **example** (`approveGagRender`), which makes it the approved version.
-  The render must be finished, unstyled and drawn from exactly that content.
-- **Renders belong to a gag.** `image_prompt_attempts.gag_id` names the gag each
-  test render drew; grids, staleness and enqueue all read the gag's render
-  target (`loadGagRenderTarget`, `reviewRenderScenarios.ts`), so they cannot
-  drift from the render.
+  nothing users get until a moderator approves its **male, female and pet**
+  test renders as the gag's **examples** (`approveGagRender`; plan
+  `docs/plans/PLAN_GAG_EXAMPLES.md`, migration 0143). Each render must be
+  finished, unstyled, drawn from exactly that content and of its kind's
+  scenario. Outside a refresh the third approval applies the change and its set
+  in one transaction (`applyPendingSetIfComplete`, `lib/gags/examples.ts`).
+- **Examples.** `fact_gag_examples` holds one row per gag, kind (`male`,
+  `female`, `pet`) and stage (`approved` for the version users get, `pending`
+  for picks of the change). A deferred constraint trigger
+  (`enforce_gag_example_set`) refuses at commit approved content without all
+  three kinds, unless the gag is **grandfathered** (approved before example
+  sets: `approved_before_example_sets`, or carried over by 0139), and pending
+  picks without pending content. Grandfathering ends at a gag's first complete
+  set. The old `approved_example_attempt_id` and `pending_example_attempt_id`
+  columns are unread recovery snapshots, dropped by a later migration.
+- **Renders belong to a gag, one per kind and content.** The three subject
+  kinds are the scenarios `i2i_male_default`, `i2i_female_default` and
+  `i2i_nonhuman_animal` (`SCENARIO_FOR_KIND`); generic text-to-image and
+  object/vehicle are no longer drawn. `image_prompt_attempts.gag_id` names the
+  gag each render drew, and a render is **reused** when its attempt's
+  `fact_enrichment_snapshot` matches the gag's current render input in what
+  shapes the picture: the gag's content and the classification fields the
+  input hash reads, `renderAffectingEnrichment` (`attemptForContent`,
+  `reviewRenderScenarios.ts`). The same content draws nothing, a discard back
+  to earlier content shows that content's render, an admin note or a rating
+  never unseats a render while a picture-shaping edit does, and the engine and
+  recipe stay provenance rather than redefining reuse.
+  `drawGagKinds` draws the kinds asked for under an advisory lock per gag and
+  kind, so overlapping requests draw once; `redraw` asks for a new one anyway.
+- **What draws.** Saving a gag (an edit, an idea, a discard, a new gag) enqueues
+  one **iteration render**, male (`enqueueGagIterationRender`); approving the
+  Gags step enqueues the iteration render of each surviving new or changed gag
+  (`ensureReviewIterationRenders`) and clears nothing; **Render female and
+  pet** draws the other two (`POST /admin/facts/:id/gags/:gagId/renders`,
+  `{ kinds, redraw? }`). No paid render fires without a moderator's action.
+- **The production gate is per gag.** Approve for Production asks whether every
+  gag that will be offered has its three examples or is grandfathered, and
+  names the missing kinds (`exampleSetGaps`, `describeExampleSetGaps`). The
+  review-wide render grid, its routes and the render waiver are gone.
 - **Refreshes.** While a refresh is open a fact's gags change only inside its
-  review, as its last step: a pick or a removal there waits on the gag
-  (`pending_review_id`) and lands at promotion (`applyReviewGagOps`); declining
-  discards it. The live fact's approved gags stay offered throughout. **Keep
+  review, as its last step: picks or a removal there wait on the gag
+  (`pending_review_id`) and land at promotion (`applyReviewGagOps`; a change
+  only with its three picks); declining discards them. The live fact's approved gags stay offered throughout. **Keep
   this gag** (`keepGag`) cancels a removal marked there and touches nothing
   else, whether the gag is approved with no change, approved with a change and
-  a picked example, or never approved; **Discard the saved change** drops only
-  the change and its pick, leaving a removal mark alone (increment 2; Codex,
+  picked examples, or never approved; **Discard the saved change** drops only
+  the change and its picks, leaving a removal mark alone (increment 2; Codex,
   PR #956 round 4).
 - **The rule the database holds.** A live fact always has an approved gag
   (deferred constraint triggers `facts_live_requires_approved_gag` and
@@ -905,11 +939,11 @@ pieces, since they are the joins the sentence de-dupe reads.
   compiles with that version, so a promotion never changes queued work; the
   admin prompt preview compiles with the routed engine's live version.
   Promotion changes wording only, never routing.
-- **Moderation freshness**: `currentImageEngineIds()` carries each mode's live
-  version, folded into the scenario hash **only when set** — recipe support alone
-  leaves every existing moderation render current; a promotion for the engine a
-  mode renders with makes that mode's renders read out of date (nothing
-  re-renders on its own).
+- **Moderation renders**: `currentImageEngineIds()` carries each mode's live
+  version into the scenario hash **only when set**, as provenance. Since
+  2026-11-15 the hash no longer marks a render out of date: a gag's render is
+  reused by content, so a promotion changes only what a new render is drawn
+  with (nothing re-renders on its own).
 - **Budget**: a version is saved only if `recipeBudgetProblems` passes — its
   fixed wording at its longest (with a chosen look and with none), plus, for
   each group of conditional lines, the most they grow beyond the baseline

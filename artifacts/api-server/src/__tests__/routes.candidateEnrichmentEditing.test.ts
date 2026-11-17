@@ -97,10 +97,6 @@ const MANUAL_OVERRIDES = {
 };
 
 
-const WAIVE_ALL_REQUIRED = {
-  waiveVisualRenderIssues: true,
-  waivedScenarioKeys: ["generic_t2i", "i2i_male_default", "i2i_female_default"],
-};
 
 function makeApp(): Express {
   const app = express();
@@ -419,7 +415,7 @@ describe("candidate override writes", () => {
     const approve = await request(app)
       .post(`/admin/reviews/${c.reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(approve.status, 200, JSON.stringify(approve.body));
     const afterPromote = await request(app)
       .put(`/admin/reviews/${c.reviewId}/candidate-overrides`)
@@ -443,7 +439,7 @@ describe("candidate override writes", () => {
     const approve = await request(app)
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ ...WAIVE_ALL_REQUIRED });
+      .send({});
     assert.equal(approve.status, 200, JSON.stringify(approve.body));
     assert.equal(approve.body.refreshPromoted, true);
 

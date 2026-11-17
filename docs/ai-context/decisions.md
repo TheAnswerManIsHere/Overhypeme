@@ -13,6 +13,12 @@
 
 ---
 
+### 2026-11-17 · Paid AI runs: $100 a month across every product, no per-run cap, no ask within it
+- **Decision:** a paid AI run that is needed proceeds without asking David, within the fleet's budget of **$100 per calendar month (UTC) across every product**, with no per-run cap, and reports what it cost on the fleet's `paid-ai-ledger`. Only a run that would take the month past $100 asks first. The rule's home is the synced [`uat-doc-format.md`](../tests/uat-doc-format.md), *Lanes* (KITT PR #305 — Paid AI budget: $100 a month across every product, no per-run cap, no ask within it).
+- **Why:** David, 2026-11-17, in this repository's session "Building male, female and pet gag examples": *"Stop asking about spending money. We need to get to launch. Reset the spend amount to $100/month and just do what is needed."*
+- **Supersedes:** [No paid AI run happens without David's go-ahead for that run](#2026-10-17--no-paid-ai-run-happens-without-davids-go-ahead-for-that-run) (already replaced fleet-wide on 2026-10-21 by $5 a run and $25 a week, which this replaces in turn). The recorder's own per-invocation allowance (`--allowance`, $5 live, $3 capture) still bounds a single run as a guard against runaway spend; it authorizes nothing and asks nothing. The `--allowance-raised-by-david` flag it still demands to go higher is owed work: it restates the retired per-run ask in code.
+- **Revisit if:** David says so, or a month's total reaches $100.
+
 ### 2026-11-17 · Deprecated means removed: nothing is "retired" and left in the product
 - **Decision:** when functionality is deprecated, it is **removed from the product**: its code, routes, screens, settings, enum values, queue handlers, test fixtures and the stored records that only it produced. Nothing stays behind as a "retired" value kept for history, a look-only card, a do-nothing handler, a route answering "retired", or skipped test cases kept "as a record". Pre-launch there is no production data to protect, so stored records of a removed feature are deleted or converted by a migration. Deleted code stays recoverable from git and, for a cut feature, its `pre-cut/<feature>` tag and ledger row (the 2026-10-21 entry below).
 - **Why:** David, 2026-11-17, after PR #971 — Compiler review, Phase 2: no picture without a photo, everywhere — kept the no-photo mode, the Generic scenario and the AI-background generator's queue and route in a "retired" state: *"I don't want to "retire" things and leave them around. If we're deprecating functionality, I want it removed from the product."*
@@ -29,6 +35,13 @@
 - **Why:** David, 2026-11-17: *"I'd like to use the name "David" as the stand-in, default name everywhere in the system that isn't explicitly tied to a female, non-binary, or pet name. "Alex" should be used as the default non-gendered name, if needed. "Raena" should be used as the default female name, if needed … The key takeaway is that I want to be the default name and image in the product."* The same day he corrected the wife's sample name: *"My wife's name is Raena Franklin, not Susan Franklin. Susan is my mother."*
 - **How it reads where gender must stay open:** the canonical identity that renders a fact's template for the AI writers is "Alex, they/them" (`renderCanonical.ts`, the gag writer's stand-in). It stays Alex under this rule, because there the need is explicitly non-gendered: a fact is written once and rendered for every visitor, so a gendered stand-in would push male-only scenes into gags meant for anyone.
 - **Revisit if:** the product launches with a public sample person other than its owner.
+
+### 2026-11-15 · A gag carries a male, a female and a pet example; renders are drawn as the moderator iterates
+- **Decision:** a gag's examples are one per subject kind, **male, female and pet**, each a moderator-approved test render of that gag drawn from its committed reference photo, held in `fact_gag_examples` (migration 0143). A new gag, or a change to one, reaches users only once all three are approved; outside a refresh the third approval applies the change and its set in one transaction, inside one the picks wait for promotion. The database refuses, at commit, approved content without its three examples unless the gag is **grandfathered**: every gag approved before example sets (`approved_before_example_sets`, or carried over by 0139) stays offered as it is until it first completes a set (Q11). Saving a gag, or approving the Gags step, draws **one male render** of each new or changed gag and nothing else, reused for the same content (a render is matched to its input, so a discard back to earlier content shows that content's render); **Render female and pet** draws the other two once the gag works, and any single render can be drawn again. **Approve for Production** asks, per gag, whether every gag that will be offered has its three examples, and names the missing kinds. The review-wide render grid and its checkboxes, the render waiver, the Generic (text-to-image) render, the object/vehicle render and the "How the AI read this fact" panel leave the Test Renders step; the Final hashtags editor keeps a section of its own there.
+- **Why:** David, 2026-11-15 (plan `docs/plans/PLAN_GAG_EXAMPLES.md`): Q8, *"Once the gag works, rendering the additional images is trivial."*; Q10, *"An approved fact should have three renders (male, female, pet) for each gag. The waste I'm removing is rendering them all every time I make a change to the gag. Once the gag works, we do the final render of the additional types."*; Q11, gags already live stay offered; on the Generic render, *"We decided we're not doing those anymore"*; on the AI-read panel, *"not useful here"*. The old columns `approved_example_attempt_id` and `pending_example_attempt_id` stay as recovery snapshots, unread, because Replit applies its schema diff before the migration runner; a later migration drops them.
+- **Supersedes in part:** 2026-11-14, *Every gag is its own record, approved by its example*: one example from any scenario becomes three, one per kind; and the render-approval waiver for the hero scenario (2026-07, below), retired with the grid it waived.
+- **Reference:** Issue #965 (increment 1).
+- **Revisit if:** a subject kind is added or a styled look needs its own examples (both "Next" in the plan).
 
 ### 2026-11-15 · Variants are retired: every fact stands alone, and the existing ones are deleted
 - **Decision:** a fact is never linked to another. The parent link (`facts.parent_id`), the use-case label (`facts.use_case`) and the review's parent field (`pending_reviews.parent_fact_id`) are dropped, with every route, screen and guard that read or wrote them: triage's "Prep as Variant of #N", the fact page's Alternate Phrasings section and "Variant of" banner, and the Facts editor's Parent ID, use-case and add/delete-variant controls. A near-duplicate at triage is rejected as a duplicate or accepted as its own fact. Every existing variant fact is permanently deleted with what it owns (memes, comments, gags, votes and hearts, the reviews that staged or approved it, and the activity entries recording it); a submission that only matched one, or that carried a parent and never became a fact, is kept (migration 0142). Living documentation describes no variant concept; historical records (approved plans, review transcripts, past UAT and test-run records, applied migrations) stay as written.
@@ -56,6 +69,7 @@
 - **Settled with it:** a fact's wording never changes once accepted at triage (Q5, Q6); that lock is the plan's increment 3.
 - **Supersedes:** the gag stored at `enrichment.visualPromptStrategyOverride` and the `facts_active_requires_concept` CHECK (2026-07 entries below); the candidate-enrichment PATCH, retired (`410`).
 - **Reference:** Issue #943 (sequencing step 2); Issue #951 (increment 1).
+- **Superseded in part (2026-11-15):** a gag's example is now three, male, female and pet, and the gags approved before then stay offered until they complete a set; see [A gag carries a male, a female and a pet example](#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates).
 
 ### 2026-11-14 · Every picture starts from a photo; there is no picture without one
 - **Decision:** No part of the product draws a picture without a reference
@@ -890,6 +904,9 @@
   Journey D round two.
 - **Revisit if:** the image offering changes so a fact can carry a meme
   without a hero render.
+- **Superseded in part 2026-11-15:** the waiver is gone for every scenario,
+  with the review-wide grid it waived; the hard gate is now per gag, its male,
+  female and pet examples (the 2026-11-15 entry above).
 
 ---
 
@@ -4714,7 +4731,8 @@
 - **Decision:** Moderation gains a third gate. Enrichment success lands a review
   at a new **`concept_review`** stage (Step 2), where the human accepts/edits/
   writes the **Visual Concept** and **"approves the visual gag"** — and **no test
-  renders run until then**. Approval advances `concept_review → production_review`
+  renders run until then** *(since 2026-11-15, each saved gag version draws one
+  male render here; see D2's note below)*. Approval advances `concept_review → production_review`
   (Step 3, "Test Renders"), which is the only stage renders fire in. Sub-decisions:
   - **D1** — gag approval requires a **saved, enabled, non-empty**
     `coreSceneOverride` on the cycle's effective enrichment (not just an AI
@@ -4727,6 +4745,11 @@
   - **D3** — **no back-migration**: pre-deploy `production_review` rows stay at
     Step 3 under the existing render/enrichment gates; the new concept gate only
     bites if an admin voluntarily bounces one back to Step 2.
+  - *(Superseded in part 2026-11-15: saving a gag, or approving the Gags step,
+    now draws one male render per new or changed gag, so a Step-2 save spends
+    one render; re-approval keeps earlier renders for
+    reuse instead of forcing a fresh batch; see the 2026-11-15 entry on a
+    gag's male, female and pet examples.)*
   - **Force batch is dedupe-safe** — the force render-prepare enqueue carries
     **no dedupe key**, and the stage transition is an **atomic compare-and-set**
     (`UPDATE … WHERE workflow_stage='concept_review' RETURNING id`); the CAS, not

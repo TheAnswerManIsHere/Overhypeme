@@ -433,7 +433,7 @@ Despite being advisory, it IS part of the render-input hash — editing it flips
 
 **What it is**
 
-A low/medium/high rating of visualization difficulty. High-complexity facts (abstract, wordplay-heavy, ambiguous) are where AI renders most often miss — the admin UI shows a "Hard to visualize" warning for them in both the editor and the Step-2 visual review summary.
+A low/medium/high rating of visualization difficulty. High-complexity facts (abstract, wordplay-heavy, ambiguous) are where AI renders most often miss — the admin UI shows a "Hard to visualize" warning for them in the enrichment editor.
 
 **How the AI sets it**
 
@@ -459,9 +459,9 @@ In the render-input hash: editing it flips test renders stale.
 
 **Examples**
 
-- **Scenario:** The Step-2 "How the AI read this fact" summary shows a warning.
+- **Scenario:** A fact the classifier rates hard to draw.
   - **Input:** visualComplexity: high
-  - **Outcome:** "Hard to visualize (high complexity)." appears — your cue to scrutinize the test renders.
+  - **Outcome:** Nothing blocks; expect a gag's male test render to need more iterations before it works, and judge it closely.
 
 **Sources**
 
