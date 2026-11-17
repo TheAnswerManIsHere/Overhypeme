@@ -108,7 +108,7 @@ export function GagFoldPanel() {
           <VersionList
             title="Listed for a moderator"
             empty="Nothing listed: every version the fold reaches can be folded."
-            help="The fold leaves these alone because converting them would change what the picture shows. Edit the gag's scene, save, and approve its test renders as usual."
+            help="The fold leaves these alone because converting them would change what the picture shows. A scene that would be too long clears when you shorten the gag's scene, save, and approve its test renders. An old violence, supporting-text or depiction setting cannot be removed from this screen (none existed when the fold was built): report the gag so it is converted before pictures switch to the direct path."
             rows={report.forModerator}
             testId="gag-fold-for-moderator"
           />

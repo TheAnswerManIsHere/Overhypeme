@@ -709,11 +709,14 @@ it returns ("the subject" instead).
   cast (`buildCastSpeakerOptions`); a saved speaker the cast lacks is shown as
   itself, marked "not in this scene", and stops the save.
 - **Before the switch nothing renders from it.** The planned path never reads
-  the cast, so the render freshness hash leaves it out
-  (`renderAffectingEnrichment`), and a render frozen before casts existed is
-  approved against content compared without one (`gagContentEqual`,
-  `castFromRenderBeforeCasts`). Increment 3 puts the cast into the hash with
-  the generation-version bump.
+  the cast, so render reuse, the tile's freshness and approval all compare a
+  gag's content without its cast and marker (`renderAffectingEnrichment`;
+  `sameRenderedGag` in `gagStore.ts`): a cast read again, with a new time or
+  a differently worded description, never makes an unchanged picture
+  unapprovable (Codex `4600565971`, Fable's tie-break, PR #1002 round 1).
+  Increment 3 adds the cast entries to both, never the marker, with the
+  generation-version bump. A save still compares the whole content, cast
+  included.
 
 **The fold** (`lib/gags/fold.ts`, job `lib/gags/foldJob.ts`, queue
 `gag_fold`, panel on Taxonomy Health) is the one-off conversion of every gag

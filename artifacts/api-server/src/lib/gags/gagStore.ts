@@ -98,21 +98,27 @@ export interface GagActor {
  * changed (Codex, PR #956 round 2). Content the schema refuses is never equal.
  * `overrideValuesEqual` itself stays raw: the enrichment audit shares it.
  */
-/**
- * `castFromRenderBeforeCasts`: `a` is a render's frozen content; a render drawn
- * before gags carried a cast froze none, and is compared on everything else.
- * A render frozen with a cast is compared with it (plan, C).
- */
-export function gagContentEqual(a: unknown, b: unknown, opts: { castFromRenderBeforeCasts?: boolean } = {}): boolean {
+export function gagContentEqual(a: unknown, b: unknown): boolean {
   const pa = visualPromptStrategyOverrideSchema.safeParse(a);
   const pb = visualPromptStrategyOverrideSchema.safeParse(b);
-  if (!pa.success || !pb.success) return false;
-  if (opts.castFromRenderBeforeCasts && !pa.data.castExtraction) {
-    return overrideValuesEqual(withoutCast(pa.data), withoutCast(pb.data));
-  }
-  return overrideValuesEqual(pa.data, pb.data);
+  return pa.success && pb.success && overrideValuesEqual(pa.data, pb.data);
 }
 
+/**
+ * Whether a render of `drew` shows the gag `target` holds now: the same
+ * comparison render reuse and the tile make (`renderAffectingEnrichment`),
+ * the cast and its marker left out. No render reads a gag's cast before the
+ * switch (increment 3 of PLAN_GAG_DIRECT_RENDER.md), so a cast read again,
+ * with a new time or a differently worded description, never makes an
+ * unchanged picture unapprovable (Codex 4600565971; Fable's tie-break, PR
+ * #1002 round 1). Increment 3 adds the cast entries here and to the render
+ * hash together, with the generation-version bump; never the marker.
+ */
+export function sameRenderedGag(drew: unknown, target: unknown): boolean {
+  const pa = visualPromptStrategyOverrideSchema.safeParse(drew);
+  const pb = visualPromptStrategyOverrideSchema.safeParse(target);
+  return pa.success && pb.success && overrideValuesEqual(withoutCast(pa.data), withoutCast(pb.data));
+}
 
 /**
  * The cast a save carries (PLAN_GAG_DIRECT_RENDER.md, C and F): read by cast
@@ -383,8 +389,7 @@ export async function approveGagRender(factId: number, gagId: number, attemptId:
     }
     const target = (gag.pendingContent ?? gag.approvedContent) as GagContent | null;
     const drew = (attempt.factEnrichmentSnapshot as { visualPromptStrategyOverride?: unknown } | null)?.visualPromptStrategyOverride;
-    // A render drawn before casts existed froze no cast; its content is compared without one.
-    if (!target || drew == null || !gagContentEqual(drew, target, { castFromRenderBeforeCasts: true })) {
+    if (!target || drew == null || !sameRenderedGag(drew, target)) {
       throw new GagError("CONTENT_CHANGED", "This render was made from different content than the gag holds now. Run its test renders again.");
     }
     const now = new Date();

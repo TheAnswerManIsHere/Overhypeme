@@ -618,17 +618,30 @@ describe("gag routes: a save carries the cast read from its own scene (plan PLAN
     assert.ok(storedEmpty.castExtraction, "an empty cast keeps its marker: extracted, nobody else there");
   });
 
-  it("approves a render drawn before casts existed, and compares a cast-era render with its cast", async () => {
+  it("approves a render whatever cast it froze, or none: the same comparison render reuse makes (Codex 4600565971)", async () => {
     const { factId, gagId } = await liveFact();
     const change = scene("{NAME} juggles planets (cast era).");
     assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change })).status, 200);
     const { cast: _c, castExtraction: _m, ...beforeCasts } = change;
     const old = await render(factId, gagId, beforeCasts as VisualPromptStrategyOverride, { kind: "male" });
-    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: old })).status, 200);
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: old })).status, 200, "a render from before casts");
     const otherCast = await render(factId, gagId, { ...change, cast: [{ label: "dog", description: "a dog" }] }, { kind: "female" });
-    const refused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast });
-    assert.equal(refused.status, 409);
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherCast })).status, 200, "a render whose cast was worded differently");
+    const otherScene = await render(factId, gagId, scene("{NAME} juggles moons."), { kind: "pet" });
+    const refused = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: otherScene });
+    assert.equal(refused.status, 409, "a different picture is still refused");
     assert.equal(refused.body.code, "CONTENT_CHANGED");
+  });
+
+  it("a scene changed and changed back, its cast read again, keeps its render approvable", async () => {
+    const { factId, gagId } = await liveFact();
+    const a = scene("{NAME} juggles planets, round trip.");
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: a })).status, 200);
+    const drawn = await render(factId, gagId, a, { kind: "male" });
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} juggles moons, briefly.") })).status, 200);
+    const reread = { ...a, cast: [], castExtraction: { ...a.castExtraction!, extractedAt: "2026-11-18T09:00:00.000Z" } };
+    assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: reread })).status, 200);
+    assert.equal((await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: drawn })).status, 200);
   });
 });
 

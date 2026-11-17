@@ -15,8 +15,12 @@
  *     already extracted (no-op).
  *
  * The report is computed from the gags as they are now, so it is also the
- * dry run: what a run would do, with nothing written. A moderator's edit to a
- * listed version clears it from the list by itself. Increment 3 does not start
+ * dry run: what a run would do, with nothing written. A version listed only
+ * because its scene would be too long clears when a moderator shortens it. One
+ * listed for an old violence, supporting-text or depiction setting cannot be
+ * cleared from the card, which no longer writes those fields; a read-only
+ * count on the development database found none (PR #1002 round 1), and the
+ * card cannot create one. Increment 3 does not start
  * until both lists are empty: versions listed for a moderator, and versions
  * whose cast is missing or failed.
  *
