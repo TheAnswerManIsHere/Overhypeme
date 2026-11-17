@@ -17,11 +17,8 @@ import { DEFAULT_FACT_ENRICHMENT_ENGINE_ID, FACT_ENRICHMENT_CONFIG_KEYS, getFact
 import { DEFAULT_VISUAL_CONCEPTS_ENGINE_ID, VISUAL_CONCEPTS_CONFIG_KEYS, getVisualConceptsSystem } from "./visualConceptsConfig";
 import {
   DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID,
-  DEFAULT_IMAGE_PROMPT_ENGINE_ID,
   IMAGE_PROMPT_CONFIG_KEYS,
-  composeImagePromptSystemPrompt,
   getFactSourceClassifierSystem,
-  getImagePromptSystem,
 } from "./imagePromptConfig";
 import { REFERENCE_RESEARCH_CONFIG_KEYS, getReferenceResearchSystem } from "./referenceResearchConfig";
 import { CODE_OWNED_PROMPT_DEFS } from "./codeOwnedPrompts";
@@ -100,8 +97,6 @@ function requireEngine(id: string): Engine {
 const PROMPT_TEXT: Record<string, () => Promise<string>> = {
   [FACT_ENRICHMENT_CONFIG_KEYS.system]: getFactEnrichmentSystem,
   [VISUAL_CONCEPTS_CONFIG_KEYS.system]: getVisualConceptsSystem,
-  // As sent: the planner call appends the platform hard rules (imagePrompt/generator.ts).
-  [IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem]: async () => composeImagePromptSystemPrompt(await getImagePromptSystem()),
   [IMAGE_PROMPT_CONFIG_KEYS.sourceClassifierSystem]: getFactSourceClassifierSystem,
   [REFERENCE_RESEARCH_CONFIG_KEYS.system]: getReferenceResearchSystem,
 };
@@ -130,7 +125,6 @@ export async function aiSettingsView(): Promise<AiSettingsView> {
   const steps: AiSettingRow[] = [
     llmStep("Fact classification (enrichment)", DEFAULT_FACT_ENRICHMENT_ENGINE_ID, FACT_ENRICHMENT_CONFIG_KEYS.system),
     llmStep("Gag writer (visual gags and joke read)", DEFAULT_VISUAL_CONCEPTS_ENGINE_ID, VISUAL_CONCEPTS_CONFIG_KEYS.system),
-    llmStep("Picture planner (image prompt)", DEFAULT_IMAGE_PROMPT_ENGINE_ID, IMAGE_PROMPT_CONFIG_KEYS.imagePromptSystem),
     imageStep("Picture engine: photoreal, from a reference photo", IMAGE_ENGINE_IDS.photoreal.i2i),
     imageStep("Picture engine: photoreal, text to image", IMAGE_ENGINE_IDS.photoreal.t2i),
     imageStep("Picture engine: a chosen look, from a reference photo", IMAGE_ENGINE_IDS.styled.i2i),

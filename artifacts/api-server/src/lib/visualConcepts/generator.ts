@@ -42,12 +42,28 @@ import {
 } from "@workspace/api-zod";
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
 import { callUtilityLLM } from "../utilityLLM";
-import { isMaterialCulturalReference } from "../imagePrompt/generator";
 import { renderPersonalized, stripSubjectNameSemanticEntities } from "../renderCanonical";
 import { hasNoLikelySubjectReference, tokenizePlainTextToTemplate } from "../factTokenizer";
 import { getVisualConceptsSystem, getVisualConceptsEngineId, DEFAULT_VISUAL_CONCEPTS_ENGINE_ID } from "../visualConceptsConfig";
 import { engineById } from "../engineInterpreter";
 import { logger } from "../logger";
+
+
+/**
+ * A cultural reference is "material" — strong enough to state as settled to
+ * the gag writer — when it was researched with high confidence, OR the
+ * enrichment was confident about it and it isn't flagged for admin review.
+ * Ambiguous / review-required references are marked tentative (they may be
+ * wrong). (Moved here from the render planner when it was removed.)
+ */
+export function isMaterialCulturalReference(r: {
+  confidence: number;
+  requiresAdminReview: boolean;
+  researchConfidence?: "high" | "medium" | "low";
+}): boolean {
+  if (r.researchConfidence === "high") return true;
+  return r.confidence >= 0.8 && !r.requiresAdminReview;
+}
 
 /** A frontier reasoning model at high effort needs minutes, not the 30s default. */
 // Measured on dev 2026-11-14 (PR #936 post-merge, five facts): 100–211 s per

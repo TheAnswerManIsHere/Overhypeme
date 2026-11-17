@@ -252,7 +252,9 @@ export function buildRenderStatusPayload(attempt: ImagePromptAttempt): {
   if (blockedPoor) status = "blocked";
   else if (attempt.error) status = "failed";
   else if (attempt.generatedImageObjectPath) status = "image_ready";
-  else if (attempt.visualPlan) status = "prompt_ready";
+  // The compiled prompt marks a prompt ready: a direct attempt stores no plan
+  // (plan PLAN_GAG_DIRECT_RENDER.md, D), and a planned one stored both.
+  else if (attempt.compiledPrompt) status = "prompt_ready";
   else status = "pending";
 
   return {

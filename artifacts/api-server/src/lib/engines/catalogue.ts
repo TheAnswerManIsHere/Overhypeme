@@ -22,7 +22,6 @@ import { NANO_BANANA_2_1, NANO_BANANA_2_1_EDIT } from "./nano-banana-2-1";
 import { FLUX_3, FLUX_3_EDIT } from "./flux-3";
 import { SEEDREAM_5_PRO, SEEDREAM_5_PRO_EDIT } from "./seedream-5-pro";
 import { MUSE_IMAGE, MUSE_IMAGE_EDIT } from "./muse-image";
-import { OPENAI_VISUAL_PLANNER } from "./openai-visual-planner";
 import { OPENAI_ENRICHER } from "./openai-enricher";
 import { OPENAI_GAG_WRITER } from "./openai-gag-writer";
 
@@ -56,7 +55,6 @@ export const ALL_ENGINES: EngineDefinition[] = [
   MUSE_IMAGE_EDIT,
   FAL_YOLO_WORLD,
   OPENAI_GENERAL,
-  OPENAI_VISUAL_PLANNER,
   OPENAI_ENRICHER,
   OPENAI_GAG_WRITER,
 ];

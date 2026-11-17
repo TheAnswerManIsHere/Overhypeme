@@ -38,12 +38,13 @@ import {
   overrideValuesEqual,
   castIsCurrent,
   unboundSpeakers,
-  withoutCast,
   type GagExampleKind,
   visualPromptStrategyOverrideSchema,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { validateVisualStrategyOverridePersistence } from "../imagePrompt/promptBudget";
+import { renderedGagProjection } from "../imagePrompt/directInput";
+import { stableStringify } from "../factRenderScenarios";
 import { findInFlightRefreshCandidate } from "../refreshCandidate";
 import type { GagContent } from "./resolver";
 import { CANONICAL_SUBJECT_NAME_FORMS_LC } from "../renderCanonical";
@@ -106,18 +107,19 @@ export function gagContentEqual(a: unknown, b: unknown): boolean {
 
 /**
  * Whether a render of `drew` shows the gag `target` holds now: the same
- * comparison render reuse and the tile make (`renderAffectingEnrichment`),
- * the cast and its marker left out. No render reads a gag's cast before the
- * switch (increment 3 of PLAN_GAG_DIRECT_RENDER.md), so a cast read again,
- * with a new time or a differently worded description, never makes an
+ * comparison render freshness, reuse and the tile make
+ * (`renderedGagProjection`): the scene, the complete bubbles and the cast
+ * entries, which is everything of a gag a direct prompt reads (plan
+ * PLAN_GAG_DIRECT_RENDER.md, D). The cast's extraction marker is left out, so
+ * a cast read again with the same entries at a new time never makes an
  * unchanged picture unapprovable (Codex 4600565971; Fable's tie-break, PR
- * #1002 round 1). Increment 3 adds the cast entries here and to the render
- * hash together, with the generation-version bump; never the marker.
+ * #1002 round 1); a cast whose entries changed is a different picture.
  */
 export function sameRenderedGag(drew: unknown, target: unknown): boolean {
   const pa = visualPromptStrategyOverrideSchema.safeParse(drew);
   const pb = visualPromptStrategyOverrideSchema.safeParse(target);
-  return pa.success && pb.success && overrideValuesEqual(withoutCast(pa.data), withoutCast(pb.data));
+  return pa.success && pb.success
+    && stableStringify(renderedGagProjection(pa.data)) === stableStringify(renderedGagProjection(pb.data));
 }
 
 /**

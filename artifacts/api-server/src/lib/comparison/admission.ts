@@ -4,11 +4,8 @@
  * is bounded before dispatch, by reservation"). Pure: it prices work items at
  * their complete per-call bounds and decides what one run may take.
  *
- * - A planner preparation reserves two calls (the generator makes one
- *   corrective call on a validation failure), each at its output ceiling: the
- *   completion-token ceiling the real request sends, derived by the same
- *   request-shaping rule from the planner's resolved settings, at the model's
- *   output rate, plus its input bounded at 12,000 tokens.
+ * - A panel's preparation compiles its gag directly and makes no paid call
+ *   (plan PLAN_GAG_DIRECT_RENDER.md, D: the render planner was removed).
  * - An image call reserves its engine's `perCallBoundUsd`.
  * - A run takes every pending item (David's override, 2026-11-07: no per-run
  *   or weekly limit applies to comparison runs; the bounds are kept as the
@@ -16,78 +13,6 @@
  */
 
 import { perCallBoundUsd, type PriceModel } from "../engines";
-import { chatModelTuningParams } from "../openaiChatParams";
-import { OPENAI_PRICES } from "../aiDouble/recorder";
-
-/**
- * The planner's input (system prompt, schema and user message) is bounded at
- * this. Recorded planner calls used 7,333 to 7,501 prompt tokens
- * (`aiDouble/recordings/openai.chat--*`); the system prompt is admin-editable
- * and the user message grows with a fact's enrichment, so the bound keeps
- * about 60% headroom over them.
- */
-const PLANNER_INPUT_TOKEN_BOUND = 12_000;
-/** One validation failure buys one corrective call (`imagePrompt/generator.ts`, its header). */
-const PLANNER_CALLS_PER_PANEL = 2;
-
-/** The planner settings that shape its request: what `resolveImagePromptLLMSettings()` resolves. */
-export interface PlannerRequestSettings {
-  model: string;
-  maxTokens: number;
-  temperature: number;
-  reasoningEffort?: string;
-  /** The worst case of one cast call (plan PLAN_GAG_DIRECT_RENDER.md, A), added to a path set's preparation. */
-  castBoundUsd?: number;
-}
-
-/**
- * One OpenAI call at the completion ceiling its request would actually send,
- * with `inputTokens` as the input's bound. Throws for an unpriced model: no
- * run can bound an unpriced call. `what` names the call in that refusal.
- */
-export function chatCallBoundUsd(settings: PlannerRequestSettings, inputTokens: number, what: string): number {
-  const price = OPENAI_PRICES[settings.model];
-  if (!price) throw new Error(`no price for the ${what} model "${settings.model}", so no run can bound its cost`);
-  const tuning = chatModelTuningParams(settings);
-  const outputTokens = tuning.max_completion_tokens ?? tuning.max_tokens ?? settings.maxTokens;
-  return (outputTokens * price.output + inputTokens * price.input) / 1_000_000;
-}
-
-/** One planner call at the completion ceiling its request would actually send. */
-function plannerCallBoundUsd(settings: PlannerRequestSettings): number {
-  return chatCallBoundUsd(settings, PLANNER_INPUT_TOKEN_BOUND, "planner");
-}
-
-export function panelPreparationBoundUsd(settings: PlannerRequestSettings): number {
-  return PLANNER_CALLS_PER_PANEL * plannerCallBoundUsd(settings);
-}
-
-/**
- * The most one panel's preparation can cost for a set of `kind`: two planner
- * calls, and on a path set the cast call its direct side makes (plan
- * PLAN_GAG_DIRECT_RENDER.md, A). `settings.castBoundUsd` is resolved only for
- * a path set (`plannerSettings({ withCast: true })`).
- */
-export function preparationBoundUsd(settings: PlannerRequestSettings, kind: string): number {
-  return panelPreparationBoundUsd(settings) + (kind === "path" ? (settings.castBoundUsd ?? 0) : 0);
-}
-
-/**
- * What one scene's preparation usually costs: one planner call (a corrective
- * second call is rare) at the token counts the recorded planner calls show
- * — 7,333 to 7,501 prompt tokens and 2,972 to 4,221 completion tokens,
- * reasoning included (`aiDouble/recordings/openai.chat--*`). A typical
- * figure shown beside the bound (David, 2026-11-13: "How is it possible that
- * it costs $1.54 in inference to generate the prompt?"); never a limit.
- */
-const TYPICAL_PLANNER_INPUT_TOKENS = 7_500;
-const TYPICAL_PLANNER_OUTPUT_TOKENS = 3_500;
-
-export function panelPreparationTypicalUsd(settings: PlannerRequestSettings): number {
-  const price = OPENAI_PRICES[settings.model];
-  if (!price) throw new Error(`no price for the planner model "${settings.model}"`);
-  return (TYPICAL_PLANNER_OUTPUT_TOKENS * price.output + TYPICAL_PLANNER_INPUT_TOKENS * price.input) / 1_000_000;
-}
 
 export function cellBoundUsd(priceModel: unknown): number {
   if (!priceModel) throw new Error("an engine without a price model is never admitted");

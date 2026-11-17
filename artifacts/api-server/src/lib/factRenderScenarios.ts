@@ -22,7 +22,6 @@ import { switchedFallbackOf } from "./engineFallback";
 import { createHash } from "node:crypto";
 import {
   IMAGE_PROMPT_GENERATION_VERSION,
-  isRetiredTextModifier,
   RENDER_SCENARIO_DESCRIPTORS,
   REQUIRED_RENDER_SCENARIO_KEYS,
   type FactEnrichment,
@@ -32,8 +31,8 @@ import {
   type RenderScenarioKey,
   type RenderScenarioStatus,
   type SubjectRenderMode,
-  withoutCast,
 } from "@workspace/api-zod";
+import { renderedGagProjection } from "./imagePrompt/directInput";
 import { buildRenderStatusPayload } from "./imagePromptAttempts";
 import type { ImagePromptAttempt } from "@workspace/db/schema";
 
@@ -93,59 +92,16 @@ export interface ScenarioHashInputs {
 }
 
 /**
- * The RENDER-AFFECTING projection of an enrichment blob — exactly the fields that
- * can change the compiled t2i/i2i prompt (traced through the image-prompt
- * generator + the Nano-Banana-2 compiler):
- *   - primaryArchetype / subtype  → select the authored visual strategy + guidance
- *   - modifiers                   → planner-visible modifiers feed the LLM taxonomy
- *                                   block; structural modifiers (age transforms,
- *                                   duplicate-subject, violence relevance, failure
- *                                   modes) feed compiler signals. Retired text/logo
- *                                   modifiers are filtered out — inert legacy display
- *                                   data, so removing an old chip never flips stale.
- *   - visualLiteralness / visualComplexity → visual-treatment directives
- *   - culturalReferences / semanticEntities → dedicated per-fact visual-context blocks
- *   - characters                  → the planner's naming-context block (the fact's
- *                                   characters and their exact labels). Its
- *                                   `charactersExtraction` provenance marker is
- *                                   NOT render-affecting and stays out.
- *   - visualPromptStrategyOverride → consumed by the compiler
- *
- * Excludes fields that DON'T feed the prompt: adminReviewNotes,
- * suggestedHashtags, adultSuitabilityNotes (never referenced in generation), and
- * the quality/gating signals overhypeFit, adultSuitability, taxonomyConfidence —
- * these appear only in the generator's "TAXONOMY (FIXED — DO NOT reclassify)"
- * context block, are ignored by the compiler, and never change the drawn image
- * (overhypeFit is an approval gate; the render's SFW level is the separate
- * `contentMode` control, not adultSuitability). Editing any of them must NOT flip
- * a render stale.
+ * The RENDER-AFFECTING part of a render input: the one selected gag's scene,
+ * complete bubbles and cast entries (`renderedGagProjection`). Since the
+ * switch (plan PLAN_GAG_DIRECT_RENDER.md, D) nothing else in the enrichment
+ * reaches a prompt, so no classification field, and not the fact character
+ * list, is hashed: editing any of them never marks a render out of date. The
+ * cast's extraction marker is left out too; a cast read again with the same
+ * entries changes nothing drawn.
  */
 export function renderAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
-  return {
-    primaryArchetype: e.primaryArchetype,
-    subtype: e.subtype,
-    modifiers: e.modifiers.filter((m) => !isRetiredTextModifier(m)).sort(),
-    visualLiteralness: e.visualLiteralness,
-    visualComplexity: e.visualComplexity,
-    culturalReferences: e.culturalReferences,
-    semanticEntities: e.semanticEntities,
-    // Added only when non-empty, so a fact with no characters hashes exactly as
-    // before the field existed (its renders don't flip stale for nothing).
-    ...((e.characters ?? []).length > 0 ? { characters: e.characters } : {}),
-    visualPromptStrategyOverride: withoutDerivedCast(e.visualPromptStrategyOverride ?? null),
-  };
-}
-
-/**
- * A gag's cast (PLAN_GAG_DIRECT_RENDER.md, C) is read from its scene and
- * bubbles, which the hash already covers, and no render prompt reads it
- * before the switch: the planned path never does. Leaving it out keeps the
- * cast fill from marking every gag's test renders out of date. Increment 3,
- * when renders compile directly and read the cast, puts it in with the
- * generation-version bump that makes every render out of date anyway.
- */
-function withoutDerivedCast(ov: FactEnrichment["visualPromptStrategyOverride"] | null): unknown {
-  return ov ? withoutCast(ov) : null;
+  return { gag: renderedGagProjection(e.visualPromptStrategyOverride ?? null) };
 }
 
 /** Deterministic JSON: object keys sorted recursively so key order can't churn the hash. */

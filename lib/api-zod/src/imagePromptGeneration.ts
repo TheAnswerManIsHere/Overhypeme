@@ -70,7 +70,14 @@ import { detectMediumClaim } from "./promptContentDetectors";
 // picture's subject is a person or a pet. The planner, the classifier and the
 // non-human identity wording no longer offer a vehicle, an object or a mascot
 // as the subject; vehicles and objects stay legitimate as props in a scene.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v10";
+//
+// v11 (plan PLAN_GAG_DIRECT_RENDER.md, increment 3, the switch): every prompt
+// is compiled directly from the one selected gag (scene, bubbles, cast) and
+// fixed wording; the render planner is removed and no classification field
+// reaches a prompt. The render hash now covers the gag's cast entries and no
+// classification, so every existing test render reads out of date once;
+// nothing re-renders on its own.
+export const IMAGE_PROMPT_GENERATION_VERSION = "v11";
 // v2: a vehicle, object or mascot is no longer a subject kind; a photo whose
 // only subject is one has no usable subject (people and pets only).
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v2";
