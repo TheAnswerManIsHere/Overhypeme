@@ -163,7 +163,7 @@ export async function buildAndEnqueueImagePromptAttempt(
   // The photoreal fallback is chosen here too, beside the routing, so a recipe
   // promotion never changes queued work (plan PLAN_NB_FALLBACK.md).
   const fallbackChoice = await freezeFallbackChoice(imageEngine.id);
-  if (fallbackChoice) (renderControls as Record<string, unknown>)[FROZEN_FALLBACK_KEY] = fallbackChoice;
+  if (fallbackChoice) (renderControls as unknown as Record<string, unknown>)[FROZEN_FALLBACK_KEY] = fallbackChoice;
   const renderJobId = randomUUID();
   const [attempt] = await db
     .insert(imagePromptAttemptsTable)
