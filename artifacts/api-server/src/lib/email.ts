@@ -930,6 +930,7 @@ const REJECTION_REASON_LABELS: Record<string, string> = {
   spam: "Spam — this submission doesn't meet our community guidelines.",
   offensive: "Offensive — this fact contains content that violates our standards.",
   lame: "Lame — this fact just didn't have the energy we're looking for.",
+  visual: "Couldn't make it work visually — we couldn't turn this one into a picture that does it justice.",
 };
 
 export function buildReviewRejectedEmail(opts: {

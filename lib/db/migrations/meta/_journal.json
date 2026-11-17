@@ -1079,6 +1079,13 @@
       "when": 1788600000000,
       "tag": "0153_drop_refresh_review_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1788700000000,
+      "tag": "0154_reject_reason_visual",
+      "breakpoints": true
     }
   ]
 }

@@ -16,7 +16,6 @@ export const ADMIN_ACTION_VALUES = [
   "test_renders_requested",
   "approve_for_production",
   "reject",
-  "withdraw",
   // Classification
   "classification_edit",
   "classification_rerun",

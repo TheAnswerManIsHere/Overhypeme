@@ -3,7 +3,7 @@ import { usersTable } from "./auth";
 import { factsTable } from "./facts";
 
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "rejected"]);
-export const reviewReasonEnum = pgEnum("review_reason", ["duplicate", "spam", "offensive", "lame"]);
+export const reviewReasonEnum = pgEnum("review_reason", ["duplicate", "spam", "offensive", "lame", "visual"]);
 
 // Fine-grained two-gate moderation lifecycle (see @workspace/api-zod
 // moderationWorkflow). The labels here MUST stay in sync with

@@ -201,16 +201,6 @@ describe("moderation enrichment edits via fact override endpoints", () => {
       .send({ path: "/visualComplexity", value: "high" });
     assert.equal(res.status, 403);
   });
-
-  it("the retired whole-blob save returns 410 with a stable code", async () => {
-    const reviewId = await seedReview(plainId);
-    const res = await request(makeApp())
-      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: { ...ENRICHMENT, visualComplexity: "high" } });
-    assert.equal(res.status, 410);
-    assert.equal(res.body.code, "STAGING_ENRICHMENT_RETIRED");
-  });
 });
 
 });

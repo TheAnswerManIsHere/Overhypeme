@@ -22,8 +22,6 @@ const EXEMPT: Record<string, string> = {
   "POST /admin/reviews/:id/approve-for-production": "delegates to approveForProduction, which records in its transaction",
   "POST /admin/reviews/:id/approve": "the same approveForProduction, under its old name",
   "PATCH /admin/reviews/:id": "a draft autosave of the review's note and reason; the decision that uses them records",
-  "PATCH /admin/reviews/:id/staging-enrichment": "retired: always 410",
-  "POST /admin/reviews/:id/enrich": "retired: always 410",
   "POST /admin/facts/import": "queueTextsForTriage records one import per review it creates, in its transaction",
   "POST /admin/facts/import-csv": "queueTextsForTriage records one import per review it creates, in its transaction",
   "POST /admin/facts/:factId/gags/cast": "reads who is in a draft's scene and stores nothing",

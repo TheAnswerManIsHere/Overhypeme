@@ -18,7 +18,10 @@ import {
   type FactGagsView,
   canEditWording,
   joinWithAnd,
-  canWithdraw,
+  canReject,
+  REJECTION_REASON_VALUES,
+  REJECTION_REASON_LABELS,
+  type RejectionReason,
 } from "@workspace/api-zod";
 import {
   deriveModerationQueueState,
@@ -266,17 +269,17 @@ function ReasonBadge({ reason }: { reason: string | null }) {
       </span>
     );
   }
+  if (reason && (REJECTION_REASON_VALUES as readonly string[]).includes(reason)) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-muted text-muted-foreground border-border">
+        {REJECTION_REASON_LABELS[reason as RejectionReason]}
+      </span>
+    );
+  }
   return null;
 }
 
-const REJECTION_REASONS = [
-  { value: "duplicate", label: "Duplicate" },
-  { value: "spam",      label: "Spam" },
-  { value: "offensive", label: "Offensive" },
-  { value: "lame",      label: "Lame" },
-] as const;
-
-type RejectionReason = typeof REJECTION_REASONS[number]["value"];
+const REJECTION_REASONS = REJECTION_REASON_VALUES.map((value) => ({ value, label: REJECTION_REASON_LABELS[value] }));
 
 interface ReviewDetail extends Review {
   stagingFact: StagingFactDetail | null;
@@ -347,9 +350,7 @@ function StepIndicator({ step }: { step: WizardStep }) {
  *  - production_review   → Step 3 default (approve for production / back to gags).
  *  - resolved            → read-only summary + link to the live fact.
  *
- * Once triage passes, a candidate is never rejected again — a failed prep,
- * an unfinished gag, or a render that isn't ready just leaves it pending
- * until an admin resolves or withdraws it.
+ * Reject (with a reason) is available on every step until the fact goes live.
  */
 function ReviewModal({
   review,
@@ -624,8 +625,7 @@ function ReviewModal({
     void runAction("provisional-approve", body);
   };
   const onReject = async () => {
-    // Rejection reason (duplicate/spam/offensive/lame) judges whether the
-    // FACT belongs in the database.
+    // The rejection reason judges whether the FACT belongs in the database.
     if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
     // Drain any in-flight per-field override write first so a field just
     // blurred by this click does not surface a spurious error.
@@ -727,7 +727,7 @@ function ReviewModal({
   const canApproveGag = hasSavedGag && ideasTerminalOk && !gagsUnsaved;
   // A submission can only be rejected during triage (Step 1) — once triage
   // passes, a stuck candidate stays pending until an admin resolves it.
-  const canRejectNow = stage === "triage_pending";
+  const canRejectNow = canReject(stage, review.status);
   const matchVisible = duplicateMatchShown(wording.duplicate, showClosest);
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
@@ -761,10 +761,8 @@ function ReviewModal({
           text={wording.submittedText}
           originalText={wording.submittedTextOriginal}
           editable={canEditWording(stage, review.status, review.stagingFactId != null)}
-          withdrawable={canWithdraw(stage, review.status)}
           onSaved={(saved) => { duplicateCheck.supersede(); setWording(saved); setShowClosest(false); onActionDone(); }}
           onDirtyChange={setWordingDirty}
-          onWithdrawn={() => { onActionDone(); onClose(); }}
         />
         {matchVisible && <DuplicateMatchPanel view={wording.duplicate} showClosest={showClosest} />}
       </div>
@@ -773,8 +771,7 @@ function ReviewModal({
 
   const DecisionInputs = (
     <div className="space-y-4">
-      {/* Rejection Reason judges whether the FACT belongs in the database
-          (duplicate/spam/offensive/lame). */}
+      {/* Rejection Reason judges whether the FACT belongs in the database. */}
       {(
         <div>
           <label className="block text-sm font-semibold text-foreground mb-2">
@@ -1116,7 +1113,7 @@ function ReviewModal({
             <EnrichmentSummary e={(detail?.stagingFact?.enrichment ?? review.enrichment) as FactEnrichment} />
           )}
 
-          {/* ── Decision inputs (Triage step only, and only where reject is available) ── */}
+          {/* ── Decision inputs on the Triage step (Gags and Test Renders show them beside their actions) ── */}
           {!isResolved && step === "triage" && canRejectNow && DecisionInputs}
 
           {/* ── Resolved: stored reason / note ── */}
@@ -1206,9 +1203,7 @@ function ReviewModal({
               </div>
             )}
 
-            {/* Step 2 (Visual Concept): approve the gag (unlocks renders). A
-                candidate that's stuck here stays pending until an admin fixes
-                the Visual Concept; it is never rejected past triage. */}
+            {/* Step 2 (Visual Concept): approve the gag (unlocks renders), or reject. */}
             {!isResolved && step === "concept" && isConceptReview && (
               <div className="space-y-3">
                 {canRejectNow && DecisionInputs}
@@ -1249,8 +1244,6 @@ function ReviewModal({
             {/* Step 3 (Test Renders): approve for production. */}
             {!isResolved && step === "render" && isProductionReview && (
               <div className="space-y-3">
-                {/* A candidate stuck on a bad render stays pending until an
-                    admin fixes it; it is never rejected past triage. */}
                 {canRejectNow && DecisionInputs}
                 <div className="flex flex-wrap gap-3">
                   <Button variant="outline" onClick={() => void onBackToVisualConcept()} isLoading={loading} disabled={loading}

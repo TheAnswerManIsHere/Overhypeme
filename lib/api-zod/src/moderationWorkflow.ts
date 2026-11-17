@@ -22,11 +22,9 @@
  *         ▼
  *   production_approved
  *
- * A submission can only be rejected during triage (Step 1) — once it clears
- * triage, there is no reject path: a failed prep, a Visual Concept that isn't
- * working, or a render that isn't ready all just leave the candidate parked
- * (pending / prep_failed) until an admin resolves the underlying issue, or
- * withdraws it (see `canReject` below).
+ * A submission can be rejected from any step before it goes live, with a
+ * required reason (plan PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 13): at
+ * triage it lands at triage_rejected, after triage at production_rejected.
  *
  * Step 2 = Visual Concept gate (a saved concept + generated Visual Ideas gate the
  * gag approval; Visual Ideas are a blocking prep artifact, not best-effort).
@@ -120,13 +118,26 @@ export function canProductionApprove(stage: ReviewWorkflowStage, status: string)
 }
 
 /**
- * Reject a submission. Only during triage (Step 1) — once triage passes, a
- * stuck candidate (failed prep, a Visual Concept or render that isn't
- * working) stays pending until an admin resolves or withdraws it.
+ * Reject a submission: from any step before it goes live (plan
+ * PLAN_FACT_LIFECYCLE_REBUILD.md, oracle item 13; Q2: 1). A resolved review
+ * cannot be rejected.
  */
 export function canReject(stage: ReviewWorkflowStage, status: string): boolean {
-  return status === "pending" && stage === "triage_pending";
+  return status === "pending" && !TERMINAL_STAGES.has(stage);
 }
+
+/** Why a submission was rejected; one is required on every rejection. */
+export const REJECTION_REASON_VALUES = ["duplicate", "spam", "offensive", "lame", "visual"] as const;
+export type RejectionReason = (typeof REJECTION_REASON_VALUES)[number];
+
+/** The moderator-facing label of each reason. */
+export const REJECTION_REASON_LABELS: Record<RejectionReason, string> = {
+  duplicate: "Duplicate",
+  spam: "Spam",
+  offensive: "Offensive",
+  lame: "Lame",
+  visual: "Couldn't make it work visually",
+};
 
 /**
  * A submission's wording bounds: the submission form's, and the triage edit's
@@ -142,17 +153,6 @@ export const SUBMISSION_TEXT_MAX_CHARS = 2000;
  */
 export function canEditWording(stage: ReviewWorkflowStage, status: string, hasStagingFact: boolean): boolean {
   return status === "pending" && stage === "triage_pending" && !hasStagingFact;
-}
-
-/** The stages from acceptance up to production approval, where Withdraw applies. */
-export const WITHDRAWABLE_STAGES: readonly ReviewWorkflowStage[] = ["prep_pending", "prep_failed", "concept_review", "production_review"];
-
-/**
- * Withdraw: wording needs replacing — the one way a submission ends after
- * triage (plan PLAN_THREE_GAGS.md, increment 3).
- */
-export function canWithdraw(stage: ReviewWorkflowStage, status: string): boolean {
-  return status === "pending" && WITHDRAWABLE_STAGES.includes(stage);
 }
 
 /**
@@ -218,11 +218,8 @@ export const REVIEW_WORKFLOW_STAGE_DISPLAY: Record<ReviewWorkflowStage, ReviewWo
     group: "production_review",
   },
   production_rejected: {
-    // Only reachable via a refresh cycle's "don't promote" decline — a
-    // first-time submission can never reach this stage (see `canReject`).
-    // The live fact is NOT touched by this: it stays exactly as published.
-    label: "Refresh Not Promoted",
-    hint: "This refresh candidate was declined — the live fact is unaffected and stays published as-is.",
+    label: "Rejected",
+    hint: "Rejected after triage — its gags and renders were discarded.",
     group: "resolved",
   },
   production_approved: {
