@@ -30,8 +30,10 @@ import {
   buildVisualConceptsUserMessage,
   generateVisualConceptsWithModel,
   validateAndSanitizeCandidateConcepts,
+  referenceMeaningLines,
   type GenerateVisualConceptsInput,
 } from "../lib/visualConcepts/generator.js";
+import { armInputs, noteWithMeanings } from "../lib/visualConcepts/blindCheck.js";
 
 const ENRICHMENT: FactEnrichment = {
   primaryArchetype: "superhuman_physical_feat",
@@ -181,6 +183,37 @@ describe("buildVisualConceptsUserMessage — the gag-writer request (PLAN_GAG_GE
     }));
     assert.match(msg, /GAGS THIS FACT ALREADY HAS \(2; do not repeat the staging or payoff of any of them\):\nGag 1:\nAlex presses the Earth on a bench\.\nGag 2:\nAlex curls the Moon\.\n- thought bubble, Alex: "Warm-up\."/);
     assert.ok(!msg.includes("GAG THIS FACT ALREADY HAS"), "the single-gag wording is for one gag only");
+  });
+});
+
+describe("the blind check's two requests (PLAN_FACT_LIFECYCLE_REBUILD.md 1A)", () => {
+  it("\"omit\" leaves out the meanings and the mechanism and keeps everything else", () => {
+    const today = buildVisualConceptsUserMessage(input({ humorNote: "He out-lifts the planet." }));
+    const omit = buildVisualConceptsUserMessage(input({ humorNote: "He out-lifts the planet.", classification: "omit" }));
+    assert.match(today, /WHAT THE REFERENCES MEAN:/);
+    assert.match(today, /JOKE MECHANISM:/);
+    assert.ok(!omit.includes("WHAT THE REFERENCES MEAN:"), "no meanings block");
+    assert.ok(!omit.includes("JOKE MECHANISM:"), "no mechanism block");
+    for (const kept of ["FACT (the caption):", "APPROVED HUMOR NOTE", "He out-lifts the planet.", "LIMITS:"]) {
+      assert.ok(omit.includes(kept), `keeps ${kept}`);
+    }
+  });
+
+  it("the default is today's request", () => {
+    assert.equal(buildVisualConceptsUserMessage(input()), buildVisualConceptsUserMessage(input({ classification: "include" })));
+  });
+
+  it("the reduced arm carries every meaning in the note, and only the classification blocks differ", () => {
+    const arms = armInputs("{NAME} bench-presses the Earth.", ENRICHMENT, "He out-lifts the planet.");
+    assert.equal(arms.today.humorNote, "He out-lifts the planet.");
+    assert.equal(arms.reduced.classification, "omit");
+    for (const line of referenceMeaningLines(ENRICHMENT)) assert.ok(arms.reduced.humorNote!.includes(line), `note carries ${line}`);
+    assert.deepEqual({ ...arms.today, humorNote: null, classification: null }, { ...arms.reduced, humorNote: null, classification: null });
+  });
+
+  it("a fact with no meanings gets its note unchanged", () => {
+    const bare = { ...ENRICHMENT, culturalReferences: [], semanticEntities: [] } as FactEnrichment;
+    assert.equal(noteWithMeanings("  Just the note. ", bare), "Just the note.");
   });
 });
 
