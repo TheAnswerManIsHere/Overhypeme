@@ -156,11 +156,27 @@ describe("a meme traces back to how it was made, from its link or from the pictu
   // #981: a Safari screenshot of the saved-meme page on an iPad — the meme scaled down inside the page, its
   // corners rounded off, a badge and size text above it, an info bar and a heart counter below, a footer — did
   // not trace: the page's text and bars are not plain, so cutting away plain bars stopped short of the picture.
-  const pageScreenshot = async (picture: Buffer): Promise<Buffer> => {
+  // Then David's real iPad screenshot still did not trace: its meme was a night scene on a dark page, and the
+  // meme's border differed from the page by under 16 levels — no edge a single-pixel step could see. `blend`
+  // paints the page in the meme's own border colour, the same property.
+  const pageScreenshot = async (picture: Buffer, opts: { blend?: boolean } = {}): Promise<Buffer> => {
     const SW = 1930;
     const meta = await sharp(picture).metadata();
     const SH = Math.round((meta.height! * SW) / meta.width!);
     const scaled = await sharp(picture).resize(SW, SH).png().toBuffer();
+    let background = "#0d0d10";
+    if (opts.blend) {
+      // the mean colour of the meme's outer frame, eight pixels deep
+      const { data } = await sharp(scaled).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const sum = [0, 0, 0];
+      let n = 0;
+      for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+        if (x >= 8 && x < SW - 8 && y >= 8 && y < SH - 8) continue;
+        for (let c = 0; c < 3; c++) sum[c] += data[(y * SW + x) * 3 + c];
+        n++;
+      }
+      background = `#${sum.map((v) => Math.round(v / n).toString(16).padStart(2, "0")).join("")}`;
+    }
     const corners = Buffer.from(`<svg width="${SW}" height="${SH}"><rect width="${SW}" height="${SH}" rx="28" ry="28" fill="#fff"/></svg>`);
     const rounded = await sharp(scaled).ensureAlpha().composite([{ input: corners, blend: "dest-in" }]).png().toBuffer();
     const left = 35, top = 170;
@@ -171,7 +187,7 @@ describe("a meme traces back to how it was made, from its link or from the pictu
       <text x="60" y="${top + SH + 55}" font-size="30" font-family="monospace" fill="#ccc">file: image · size: 1.73 MB · res: 4032x2268</text>
       <text x="1800" y="${top + SH + 55}" font-size="36" fill="#e33">♥ 12</text>
       <rect x="0" y="1400" width="2000" height="100" fill="#222"/></svg>`);
-    return sharp({ create: { width: 2000, height: 1500, channels: 3, background: "#0d0d10" } })
+    return sharp({ create: { width: 2000, height: 1500, channels: 3, background } })
       .composite([{ input: rounded, left, top }, { input: chrome, left: 0, top: 0 }]).png().toBuffer();
   };
 
@@ -182,12 +198,21 @@ describe("a meme traces back to how it was made, from its link or from the pictu
     assert.deepEqual(body.matches.map((m) => m.record.id), [memeRecord]);
   });
 
+  it("the same page screenshot is found when the page is the meme's own border colour, so its border barely shows", async () => {
+    const big = await sharp(memeFile).resize(4032, 2268, { fit: "fill" }).jpeg({ quality: 92 }).toBuffer();
+    const body = await traceFile(await pageScreenshot(big, { blend: true }));
+    assert.equal(body.method, "watermark");
+    assert.deepEqual(body.matches.map((m) => m.record.id), [memeRecord]);
+  });
+
   it("the same page screenshot of a picture that never passed through Overhype.me finds nothing", async () => {
     const foreign = await sharp(fs.readFileSync(new URL("../assets/render-references/female.jpg", import.meta.url)))
       .resize(4032, 2268, { fit: "cover" }).jpeg().toBuffer();
-    const body = await traceFile(await pageScreenshot(foreign));
-    assert.equal(body.method, null);
-    assert.deepEqual(body.matches, []);
+    for (const blend of [false, true]) {
+      const body = await traceFile(await pageScreenshot(foreign, { blend }));
+      assert.equal(body.method, null);
+      assert.deepEqual(body.matches, []);
+    }
   });
 
   it("the member's original photo is found by its exact bytes, as their upload", async () => {
