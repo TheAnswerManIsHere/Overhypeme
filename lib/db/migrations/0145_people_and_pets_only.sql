@@ -37,6 +37,7 @@ DECLARE
   v_uploads integer := 0;
   v_recipes integer := 0;
   v_examples integer := 0;
+  v_rows integer := 0;
 BEGIN
   -- 1. Comparison panels and sets.
   DELETE FROM comparison_panels
@@ -69,12 +70,13 @@ BEGIN
     RAISE EXCEPTION '0145_people_and_pets_only: % gag example(s) use a vehicle, object or mascot render; refusing to break an example set', v_examples;
   END IF;
 
-  UPDATE fact_gags g
-     SET approved_example_attempt_id = CASE WHEN g.approved_example_attempt_id IN (SELECT id FROM _retired_subject_attempts) THEN NULL ELSE g.approved_example_attempt_id END,
-         pending_example_attempt_id  = CASE WHEN g.pending_example_attempt_id  IN (SELECT id FROM _retired_subject_attempts) THEN NULL ELSE g.pending_example_attempt_id  END
-   WHERE g.approved_example_attempt_id IN (SELECT id FROM _retired_subject_attempts)
-      OR g.pending_example_attempt_id  IN (SELECT id FROM _retired_subject_attempts);
+  UPDATE fact_gags SET approved_example_attempt_id = NULL
+   WHERE approved_example_attempt_id IN (SELECT id FROM _retired_subject_attempts);
   GET DIAGNOSTICS v_gag_snapshots = ROW_COUNT;
+  UPDATE fact_gags SET pending_example_attempt_id = NULL
+   WHERE pending_example_attempt_id IN (SELECT id FROM _retired_subject_attempts);
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  v_gag_snapshots := v_gag_snapshots + v_rows;
 
   DELETE FROM image_prompt_attempts WHERE id IN (SELECT id FROM _retired_subject_attempts);
   GET DIAGNOSTICS v_attempts = ROW_COUNT;
