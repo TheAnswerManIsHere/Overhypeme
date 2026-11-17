@@ -369,6 +369,137 @@ describe("async job leases", () => {
     assert.equal(await sentinelWrites(sentinel), 1, "the write beside it committed");
   });
 
+  describe("one locked job row holds up no other job (PR #1009 round 1)", () => {
+    /** Hold a row lock on one job row from another connection, as a long fenced write would. */
+    async function holdRowLock(id: number): Promise<{ release: () => Promise<void> }> {
+      const held = makeDeferred();
+      const release = makeDeferred();
+      const done = db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT id FROM async_jobs WHERE id = ${id} FOR UPDATE`);
+        held.resolve();
+        await release.promise;
+      });
+      await held.promise;
+      return { release: async () => { release.resolve(); await done; } };
+    }
+
+    /** Resolve within `ms`, or fail: "promptly", as an observable. */
+    async function promptly<T>(p: Promise<T>, what: string, ms = 3_000): Promise<T> {
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<never>((_r, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} did not return within ${ms} ms`)), ms);
+      });
+      try { return await Promise.race([p, timeout]); } finally { clearTimeout(timer); }
+    }
+
+    /** Start a held job: its handler parks until released. Returns its id and release. */
+    async function startHeldJob(): Promise<{ jobId: number; release: () => void; tick: Promise<void>; refused: () => boolean }> {
+      const queue = newQueue();
+      const started = makeDeferred();
+      const release = makeDeferred();
+      const sentinel = await makeSentinel();
+      let refused = false;
+      registerJobHandler(queue, {
+        async run() {
+          started.resolve();
+          await release.promise;
+          try { await bumpSentinel(sentinel); } catch (err) { refused = err instanceof JobOwnershipLostError; }
+          return { ok: true };
+        },
+      });
+      const { jobId } = await enqueueJob({ queue, payload: {} });
+      const tick = asyncJobsTick(db, new Date(), { queues: [queue] });
+      await started.promise;
+      return { jobId, release: () => release.resolve(), tick, refused: () => refused };
+    }
+
+    it("renewal returns promptly past a locked job row, renews the others, and does not stop the locked one", async () => {
+      const a = await startHeldJob();
+      const b = await startHeldJob();
+      // Pull both leases close to expiry so a renewal is visible.
+      await db.execute(sql`UPDATE async_jobs SET lease_expires_at = now() + interval '10 seconds' WHERE id IN (${a.jobId}, ${b.jobId})`);
+      const lock = await holdRowLock(a.jobId);
+      const { lost } = await promptly(renewHeldLeases(db), "renewal");
+      assert.equal(lost, 0, "a locked row is not a lost one");
+      const bAfter = await getJob(b.jobId);
+      assert.ok(bAfter.leaseExpiresAt!.getTime() - Date.now() > 60_000, "B's lease moved forward");
+      await lock.release();
+      await promptly(renewHeldLeases(db), "second renewal");
+      const aAfter = await getJob(a.jobId);
+      assert.ok(aAfter.leaseExpiresAt!.getTime() - Date.now() > 60_000, "A renewed once its lock cleared");
+      a.release(); b.release();
+      await Promise.all([a.tick, b.tick]);
+      assert.equal(a.refused(), false, "A was never stopped");
+      assert.equal((await getJob(a.jobId)).status, "done");
+      assert.equal((await getJob(b.jobId)).status, "done");
+    });
+
+    it("renewal still returns promptly when the locked row's lease has lapsed, and reports only that one lost", async () => {
+      const a = await startHeldJob();
+      const b = await startHeldJob();
+      await lapseLease(a.jobId);
+      const lock = await holdRowLock(a.jobId);
+      const { renewed, lost } = await promptly(renewHeldLeases(db), "renewal");
+      await lock.release();
+      assert.equal(lost, 1, "only A is lost");
+      assert.equal(renewed, 1, "B is renewed");
+      a.release(); b.release();
+      await Promise.all([a.tick, b.tick]);
+      assert.equal(a.refused(), true, "A's later write is refused");
+      assert.equal((await getJob(b.jobId)).status, "done");
+    });
+
+    it("the reclaim sweep returns promptly past a locked eligible row and reclaims the others", async () => {
+      const queue = newQueue();
+      registerJobHandler(queue, { async run() { return { ok: true }; } }, { fastReclaim: true });
+      const ids: number[] = [];
+      for (let i = 0; i < 2; i++) {
+        const { jobId } = await enqueueJob({ queue, payload: { i } });
+        await db.update(asyncJobsTable).set({ status: "processing", leaseToken: randomUUID() })
+          .where(eq(asyncJobsTable.id, jobId));
+        await lapseLease(jobId, 1);
+        ids.push(jobId);
+      }
+      const lock = await holdRowLock(ids[0]!);
+      await promptly(recoverStuckProcessing(db), "reclaim sweep");
+      assert.equal((await getJob(ids[1]!)).status, "pending", "the unlocked row is reclaimed");
+      assert.equal((await getJob(ids[0]!)).status, "processing", "the locked row waits for a later sweep");
+      await lock.release();
+      await recoverStuckProcessing(db);
+      assert.equal((await getJob(ids[0]!)).status, "pending", "and is taken on the next one");
+    });
+  });
+
+  it("execution limit inside a fenced write: once released, the write is not committed", async () => {
+    const queue = newQueue();
+    const sentinel = await makeSentinel();
+    const inside = makeDeferred();
+    const release = makeDeferred();
+    registerJobHandler(queue, {
+      async run() {
+        await fencedTransaction(db, async (tx) => {
+          await tx.update(asyncJobsTable)
+            .set({ result: { writes: 1 } })
+            .where(eq(asyncJobsTable.id, sentinel));
+          inside.resolve();
+          await release.promise; // the limit fires while the callback waits
+        });
+        return { ok: true };
+      },
+    }, { executionLimitMs: 150 });
+    const { jobId } = await enqueueJob({ queue, payload: {} });
+    const tick = asyncJobsTick(db, new Date(), { queues: [queue] });
+    await inside.promise;
+    await new Promise((r) => setTimeout(r, 400)); // past the limit
+    release.resolve();
+    await tick;
+    assert.equal(await sentinelWrites(sentinel), 0, "the write was rolled back");
+    const after = await getJob(jobId);
+    assert.equal(after.status, "pending");
+    assert.equal(after.attempts, 1);
+    assert.match(after.lastError ?? "", /execution limit/);
+  });
+
   describe("recovering rows", () => {
     async function insertRecovering(queue: string, requires: number): Promise<number> {
       const [row] = await db.insert(asyncJobsTable).values({

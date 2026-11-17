@@ -420,9 +420,11 @@ export async function drawGagKinds(
   const enqueued: EnqueueScenarioResult[] = [];
   for (const kind of kinds) {
     const scenarioKey = SCENARIO_FOR_KIND[kind];
-    // Fenced when a job draws (Issue #1000): the check and the enqueue run only
-    // while the job still owns its claim. A route's call is a plain transaction.
-    const result = await fencedTransaction(db, async (tx) => {
+    // A plain transaction, deliberately not a fenced one: it can upload the
+    // reference photo, and a fence would hold the job row across that upload
+    // (PR #1009 round 1). The attempt's insert and its enqueue are fenced on
+    // their own (buildAndEnqueueImagePromptAttempt, insertFailedScenarioAttempt).
+    const result = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`gag-render:${gagId}:${kind}`}))`);
       if (opts.redraw !== true && await attemptForContent(gagId, scenarioKey, target.enrichment)) return null;
       return enqueueScenarioRender({

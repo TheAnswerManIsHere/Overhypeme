@@ -29,6 +29,11 @@ export function ownedBy(jobId: number, leaseToken: string) {
   );
 }
 
+/** A claim's lease: renewed by a live holder well before it lapses. */
+export const LEASE_DURATION_MS = 90_000;
+/** The lease as a Postgres interval, for `now() + LEASE_INTERVAL`. */
+export const LEASE_INTERVAL = sql.raw(`interval '${LEASE_DURATION_MS} milliseconds'`);
+
 /** Thrown when a run that no longer owns its job tries to make an effect. */
 export class JobOwnershipLostError extends Error {
   constructor(readonly jobId: number, readonly reason: string) {
@@ -116,7 +121,13 @@ export async function fencedTransaction<T>(
   // Nested inside a fenced transaction of this run: the outer one already holds
   // the job row, so no reclaim can land until it commits. Locking the row again
   // from this second connection would wait on our own lock forever.
-  if (FENCE_HELD.getStore() === invocation) return dbInstance.transaction(fn);
+  if (FENCE_HELD.getStore() === invocation) {
+    return dbInstance.transaction(async (tx) => {
+      const result = await fn(tx);
+      if (invocation.stopped) refuse(invocation.reason!); // before this commit (PR #1009)
+      return result;
+    });
+  }
   return dbInstance.transaction(async (tx) => {
     const [owned] = await tx
       .select({ id: asyncJobsTable.id })
@@ -126,7 +137,19 @@ export async function fencedTransaction<T>(
     if (!owned) refuse("lease lost — the claim changed or expired");
     // Re-checked after the lock wait: the execution limit may have fired meanwhile.
     if (invocation.stopped) refuse(invocation.reason!);
-    return FENCE_HELD.run(invocation, () => fn(tx));
+    // While this transaction holds the row, the renewal timer steps around it
+    // (it skips locked rows), so the lease is renewed here instead: a row under
+    // frequent short fenced writes keeps its lease (PR #1009 round 1).
+    await tx
+      .update(asyncJobsTable)
+      .set({ leaseExpiresAt: sql`now() + ${LEASE_INTERVAL}` })
+      .where(eq(asyncJobsTable.id, invocation.jobId));
+    const result = await FENCE_HELD.run(invocation, () => fn(tx));
+    // Re-checked before commit: a run stopped while its callback was waiting
+    // (say, at its execution limit) commits nothing (plan §B; PR #1009 round 1).
+    // A stop landing during the commit round trip itself still commits.
+    if (invocation.stopped) refuse(invocation.reason!);
+    return result;
   });
 }
 

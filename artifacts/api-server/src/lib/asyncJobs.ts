@@ -30,7 +30,7 @@ import {
 } from "@workspace/db/schema";
 import { getConfigInt } from "./adminConfig";
 import { logger } from "./logger";
-import { JobInvocation, ownedBy, runAsInvocation } from "./jobFence";
+import { JobInvocation, LEASE_INTERVAL, ownedBy, runAsInvocation } from "./jobFence";
 import {
   WORKER_INSTANCE_ID,
   stampLaneScheduled,
@@ -266,12 +266,11 @@ export {
 } from "./jobFence";
 
 /** A claim's lease: renewed by a live holder well before it lapses. */
-export const LEASE_DURATION_MS = 90_000;
+export { LEASE_DURATION_MS } from "./jobFence";
 /** How often a process renews every lease it holds (its own timer). */
 export const LEASE_RENEW_INTERVAL_MS = 20_000;
 /** How often the reclaim sweep runs (its own timer). */
 export const RECLAIM_INTERVAL_MS = 30_000;
-const LEASE_INTERVAL = sql.raw(`interval '${LEASE_DURATION_MS} milliseconds'`);
 
 /** Invocations this process is running, by lease token (the renewal's work list). */
 const HELD = new Map<string, JobInvocation>();
@@ -835,23 +834,41 @@ export async function asyncJobsTick(
  * lost ownership for good: its effect context is stopped.
  */
 export async function renewHeldLeases(
-  dbInstance: Pick<typeof defaultDb, "update"> = defaultDb,
+  dbInstance: Pick<typeof defaultDb, "update" | "select"> = defaultDb,
 ): Promise<{ renewed: number; lost: number }> {
   const live = [...HELD.values()].filter((inv) => !inv.stopped);
   if (live.length === 0) return { renewed: 0, lost: 0 };
+  const tokens = live.map((inv) => inv.leaseToken);
+  const stillOwned = and(
+    inArray(asyncJobsTable.leaseToken, tokens),
+    eq(asyncJobsTable.status, "processing"),
+    sql`${asyncJobsTable.leaseExpiresAt} > now()`,
+  );
+  // Rows a fenced write is holding are skipped, never waited on: one job's
+  // lock must not hold up every other job's renewal (PR #1009 round 1). A
+  // fenced write renews its own row when it takes the lock.
   const rows = await dbInstance
     .update(asyncJobsTable)
     .set({ leaseExpiresAt: sql`now() + ${LEASE_INTERVAL}` })
-    .where(and(
-      inArray(asyncJobsTable.leaseToken, live.map((inv) => inv.leaseToken)),
-      eq(asyncJobsTable.status, "processing"),
-      sql`${asyncJobsTable.leaseExpiresAt} > now()`,
+    .where(inArray(
+      asyncJobsTable.id,
+      dbInstance.select({ id: asyncJobsTable.id }).from(asyncJobsTable).where(stillOwned).for("update", { skipLocked: true }),
     ))
     .returning({ leaseToken: asyncJobsTable.leaseToken });
   const renewed = new Set(rows.map((r) => r.leaseToken));
+  // A row skipped because it is locked is not lost. Lost needs evidence from a
+  // read that does not wait: a plain read never waits on a row lock.
+  const skipped = tokens.filter((t) => !renewed.has(t));
+  const owned = skipped.length === 0 ? new Set<string | null>() : new Set(
+    (await dbInstance
+      .select({ leaseToken: asyncJobsTable.leaseToken })
+      .from(asyncJobsTable)
+      .where(and(inArray(asyncJobsTable.leaseToken, skipped), eq(asyncJobsTable.status, "processing"), sql`${asyncJobsTable.leaseExpiresAt} > now()`)))
+      .map((r) => r.leaseToken),
+  );
   let lost = 0;
   for (const inv of live) {
-    if (renewed.has(inv.leaseToken)) continue;
+    if (renewed.has(inv.leaseToken) || owned.has(inv.leaseToken)) continue;
     lost++;
     inv.stop("lease lost — renewal found the claim changed or expired");
     logger.warn({ id: inv.jobId, queue: inv.queue }, "[asyncJobs] lease lost at renewal — run's effects stopped");
@@ -876,7 +893,7 @@ export async function renewHeldLeases(
  * otherwise. Each reclaim is logged with the owner it was taken from.
  */
 export async function recoverStuckProcessing(
-  dbInstance: Pick<typeof defaultDb, "update">,
+  dbInstance: Pick<typeof defaultDb, "update" | "select">,
   cutoffMinutes = RECOVER_STUCK_CUTOFF_MIN,
 ): Promise<number> {
   const cutoff = sql`now() - make_interval(mins => ${cutoffMinutes})`;
@@ -890,15 +907,21 @@ export async function recoverStuckProcessing(
       leaseExpiresAt: null,
       updatedAt: new Date(),
     })
-    .where(and(
-      eq(asyncJobsTable.status, "processing"),
-      isNotNull(asyncJobsTable.leaseToken),
-      sql`${asyncJobsTable.leaseExpiresAt} <= now()`,
-      or(
-        fastQueues.length > 0 ? inArray(asyncJobsTable.queue, fastQueues) : sql`false`,
-        // Every leased row was stamped with its claim time at claim.
-        sql`${asyncJobsTable.claimedAt} < ${cutoff}`,
-      ),
+    // Locked rows are skipped, never waited on: a row a fenced write is holding
+    // is not a quiet holder, and it must not stall the sweep for every other
+    // row on every instance (PR #1009 round 1). A later sweep takes it.
+    .where(inArray(
+      asyncJobsTable.id,
+      dbInstance.select({ id: asyncJobsTable.id }).from(asyncJobsTable).where(and(
+        eq(asyncJobsTable.status, "processing"),
+        isNotNull(asyncJobsTable.leaseToken),
+        sql`${asyncJobsTable.leaseExpiresAt} <= now()`,
+        or(
+          fastQueues.length > 0 ? inArray(asyncJobsTable.queue, fastQueues) : sql`false`,
+          // Every leased row was stamped with its claim time at claim.
+          sql`${asyncJobsTable.claimedAt} < ${cutoff}`,
+        ),
+      )).for("update", { skipLocked: true }),
     ))
     .returning({
       id: asyncJobsTable.id,
