@@ -286,7 +286,7 @@ test.describe("Admin described screens", () => {
     });
     const card = await openConceptReview(page, "{NAME} leaps canyons.");
     await card.getByTestId("visual-concept-textarea").fill(OVER_BUDGET_CONCEPT);
-    await expect(card.getByText("1500/1500")).toBeVisible();
+    await expect(card.getByText(`${OVER_BUDGET_CONCEPT.length}/3000`)).toBeVisible();
 
     // The gag save (PUT /api/admin/facts/:id/gags/:gagId) reaches the real server.
     const saved = page.waitForResponse((r) => r.request().method() === "PUT" && /\/api\/admin\/facts\/98102\/gags\/\d+$/.test(r.url()));
