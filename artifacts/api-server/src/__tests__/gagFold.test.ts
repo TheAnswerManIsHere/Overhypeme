@@ -49,11 +49,20 @@ describe("the fold, as a pure function", () => {
     assert.deepEqual(foldGagContent(base("{NAME} lifts a car.")), { kind: "nothing" });
   });
 
+  it("keeps a depiction description its mode never rendered (use_ai_plan) in the archive only, out of the scene", () => {
+    const out = foldGagContent(base("{NAME} lifts a car.", { subjectRealizationOverride: { mode: "use_ai_plan", description: "{NAME} in a tracksuit" } }));
+    assert.equal(out.kind, "converted");
+    if (out.kind !== "converted") return;
+    assert.equal(out.content.coreSceneOverride, "{NAME} lifts a car.", "inactive direction is not switched on");
+    assert.equal(out.content.subjectRealizationOverride, undefined);
+    assert.ok(out.moved.some((m) => m.includes("archived only")));
+  });
+
   it("moves every field by meaning into the scene: roles (the subject's and a silent character's), details, composition, extras, prohibitions, allow-mode guidance", () => {
     const out = foldGagContent(base("{NAME} lifts a car.", {
       moderatorIntent: "make it heroic",
       notesForModerator: "never shown",
-      subjectRealizationOverride: { mode: "use_ai_plan", description: "{NAME} in a tracksuit" },
+      subjectRealizationOverride: { mode: "custom", description: "{NAME} in a tracksuit" },
       roleBindings: [{ entity: "subject", visualRole: "strains under the weight" }, { entity: "mechanic", visualRole: "watches, stunned, saying nothing" }],
       requiredVisualDetails: ["a red sedan", "oil on the floor"],
       compositionGuidance: ["low angle"],

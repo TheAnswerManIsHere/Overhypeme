@@ -10,7 +10,8 @@
  *
  * - Everything meaningful lands in the scene: required details, composition
  *   guidance, extra prompt details and a subject depiction description become
- *   scene sentences; forbidden details and do-not-render additions become
+ *   scene sentences (the description only under a mode that renders it: under
+ *   "use the AI plan" the engine never saw it, so it is archived only); forbidden details and do-not-render additions become
  *   "No ..." sentences; every role assignment, the subject's own and a silent
  *   character's included, becomes a sentence saying who does what.
  * - Policy overrides: an allow-mode override's guidance becomes a scene
@@ -19,8 +20,9 @@
  *   require, change what the picture shows, so the version is listed.
  * - A subject depiction mode other than "use the AI plan" or "a normal person"
  *   with no description to carry it is listed: the mode alone would be lost.
- * - Moderator intent and notes never reached the engine: they are dropped from
- *   the content and kept in the archived original only.
+ * - Moderator intent and notes never reached the engine, and nor did a
+ *   depiction description under "use the AI plan": they are dropped from the
+ *   content and kept in the archived original only.
  * - A version that would not fit the prompt budget after the fold is listed;
  *   nothing is truncated.
  *
@@ -75,9 +77,15 @@ export function foldGagContent(content: VisualPromptStrategyOverride): FoldOutco
 
   const added: string[] = [];
   const moved: string[] = [];
+  // Under "use the AI plan" the compiler ignores the description
+  // (composeSubjectRealization returns ""), so moving it would switch on
+  // direction no picture ever followed: it stays in the archive only.
   if (d && clean(d.description)) {
-    added.push(sentence(d.description));
-    moved.push("subject depiction");
+    if (d.mode === "use_ai_plan") moved.push("subject depiction description (archived only: its mode never rendered it)");
+    else {
+      added.push(sentence(d.description));
+      moved.push("subject depiction");
+    }
   }
   for (const rb of content.roleBindings) {
     const who = clean(rb.entity);

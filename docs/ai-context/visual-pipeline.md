@@ -768,7 +768,10 @@ Deterministic: the moderator's words move, nothing is reworded. Roles become
 "label: role." sentences (the subject's as `{NAME}`), required details "Also in
 the picture: …", composition "Composition: …", extra details as sentences,
 forbidden and do-not-render items "No …" sentences, allow-mode policy guidance
-as sentences; intent and notes are kept only in the archive. A violence
+as sentences, and a depiction description as a sentence under a mode that
+renders it; intent, notes and a depiction description under "use the AI plan"
+(which the compiler ignores) never reached the engine and are kept only in the
+archive. A violence
 override other than allow-at-strong, a supporting-text override of forbid or
 require, a depiction mode with no description to carry it, or a scene that
 would no longer fit the budget is **listed for a moderator** and not

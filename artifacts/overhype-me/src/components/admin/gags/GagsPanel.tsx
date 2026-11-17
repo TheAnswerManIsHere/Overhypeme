@@ -329,8 +329,11 @@ function useCastReading(
         const r = await readCast(factId, tokenized, content.bubbles);
         if (!r.ok) { setError(`Reading who is in the scene failed: ${r.error}`); return; }
         readFrom.current = tokenized;
-        // Applied only while the scene is still the one sent: an edit since wins.
-        setDraft((prev) => (prev.coreSceneOverride ?? "") !== scene ? prev : {
+        // Applied only while the scene is still the one sent (an edit since
+        // wins) and the draft has no current cast of its own: a save adopted
+        // meanwhile, or a discard, already carries one, and a late reading
+        // written over it would mark the saved card unsaved again.
+        setDraft((prev) => (prev.coreSceneOverride ?? "") !== scene || castIsCurrent(prev) ? prev : {
           ...prev,
           coreSceneOverride: tokenized,
           cast: r.view.cast,

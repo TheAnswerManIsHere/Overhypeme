@@ -450,6 +450,60 @@ describe("GagsPanel", () => {
     expect(calls.filter((c) => c.url.endsWith("/gags/cast"))).toHaveLength(1);
   });
 
+  it("a reading that comes back after a save was adopted does not mark the saved card unsaved again (Codex, PR #1002 round 3)", async () => {
+    const calls: Call[] = [];
+    let releaseFirst: (() => void) | null = null;
+    let castReads = 0;
+    let saved: VisualPromptStrategyOverride | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      calls.push({ url: String(url), method, body });
+      const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/ai/tokenize-enrichment") {
+        const entries = (body as { entries: { path: string; value: string }[] }).entries;
+        return json({ results: entries.map((e) => ({ path: e.path, value: e.value, changed: false, usedLlm: false })) });
+      }
+      if (String(url).endsWith("/gags/cast")) {
+        const b = body as { scene: string; bubbles: { entity: string; text: string }[] };
+        const n = ++castReads;
+        // Each reading is its own model call: its own description and time.
+        const answer = () => json({
+          cast: [{ label: "bartender", description: n === 1 ? "the first reading" : "the save's reading" }],
+          castExtraction: { promptVersion: "v2", extractedAt: `2026-11-17T00:00:0${n}.000Z`, sourceKey: castSourceKey(b.scene, b.bubbles) },
+          unboundSpeakers: [],
+        });
+        if (n === 1) return new Promise<Response>((resolve) => { releaseFirst = () => resolve(answer()); });
+        return answer();
+      }
+      if (method === "PUT") saved = (body as { content: VisualPromptStrategyOverride }).content;
+      const g = saved
+        ? gag({ id: 1, slot: 1, isDefault: true, state: "approved_with_change", pendingContent: saved })
+        : gag({ id: 1, slot: 1, isDefault: true });
+      return json(view([g]));
+    }));
+    const onUnsaved = vi.fn();
+    render(<GagsPanel factId={5} reviewId={null} rendersEnabled={false} subjectNames={[]} onUnsavedChange={onUnsaved} />);
+    const card = await screen.findByTestId("gag-card");
+    fireEvent.change(within(card).getByTestId("visual-concept-textarea"), { target: { value: "{NAME} orders milk; the bartender stares." } });
+    fireEvent.click(within(card).getByTestId("bubble-add"));
+    await waitFor(() => expect(castReads).toBe(1));
+    fireEvent.change(within(card).getByTestId("bubble-text"), { target: { value: "Milk?" } });
+    fireEvent.click(within(card).getByTestId("gag-save"));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    await waitFor(() => expect(within(card).queryByTestId("gag-undo")).toBeNull());
+    expect(saved!.cast).toEqual([{ label: "bartender", description: "the save's reading" }]);
+
+    await act(async () => { releaseFirst!(); });
+    await waitFor(() => expect(castReads).toBe(2));
+    // The saved card stays saved: no undo, Save disabled, nothing reported unsaved.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(card).queryByTestId("gag-undo")).toBeNull();
+    expect((within(card).getByTestId("gag-save") as HTMLButtonElement).disabled).toBe(true);
+    expect(onUnsaved).toHaveBeenLastCalledWith([]);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+  });
+
   it("a saved speaker the scene does not show is marked, and the save stops naming the bubble, with the draft kept", async () => {
     const withNurse = { ...scene("{NAME} naps alone."), bubbles: [{ type: "speech" as const, entity: "nurse", text: "Shh" }] };
     const calls = stubFetch(view([gag({ id: 1, slot: 1, isDefault: true, approvedContent: withNurse })]), { cast: [] });
