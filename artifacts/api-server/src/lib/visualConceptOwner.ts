@@ -11,8 +11,7 @@
  * still holds the fact. Opening a review takes ownership, so a live draft
  * that finishes afterwards writes nothing.
  *
- * A leaf module on purpose: moderationStaging, enrichmentJobs and
- * sendBackToReview call it, and none may import visualConceptJobs (an import
+ * A leaf module on purpose: moderationStaging and enrichmentJobs call it, and none may import visualConceptJobs (an import
  * cycle).
  */
 import { and, eq, sql, type SQL } from "drizzle-orm";
@@ -34,8 +33,8 @@ export function ownedFact(factId: number, owner: string): SQL {
 const heldByLiveDraft = sql`${factsTable.visualConceptOwner} LIKE ${`${LIVE_PREFIX}%`}`;
 
 /**
- * A review takes the fact's candidate state, called where the review is
- * created (a refresh, a resubmission) and where its generation is enqueued
+ * A review takes the fact's candidate state, called where its generation is
+ * enqueued
  * (`markPending`, which also marks the state working, in the same write). A
  * live draft's state is cleared with it: its candidates were written for the
  * live fact, and a "pending" it left would have no job that could ever finish

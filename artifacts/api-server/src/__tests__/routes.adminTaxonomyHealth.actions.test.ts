@@ -20,14 +20,13 @@ import request from "supertest";
 
 import { db, factsTable, usersTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
-import { asyncJobsTable, factEnrichmentVersionsTable, pendingReviewsTable } from "@workspace/db/schema";
+import { asyncJobsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import { CLASSIFICATION_PROMPT_VERSION, currentProcessingSignature, EMPTY_VISUAL_STRATEGY_OVERRIDE, buildPlaceholderGag } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { asyncJobsTick } from "../lib/asyncJobs.js";
-import { registerFactSendBackHandler } from "../lib/factSendBackJob.js";
 import { registerFactEnrichmentBackfillHandler } from "../lib/factEnrichmentBackfillJob.js";
 import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 
@@ -293,7 +292,7 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     assert.ok(!ids.includes(missingId), "a missing-enrichment fact is NOT stale-for-reprocess (valid-only scope)");
   });
 
-  it("bulk stale re-enrich excludes facts that are ALSO stale-for-reprocess (refresh-first)", async () => {
+  it("bulk stale re-enrich excludes facts that are ALSO stale-for-reprocess", async () => {
     // The current signature for THIS shard's engine revision (deterministic).
     const sres = await request(app).get("/api/admin/taxonomy-health/summary");
     const currentSig = currentProcessingSignature(sres.body.engineRevision as number);
@@ -325,107 +324,6 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     });
     assert.ok(!queuedIds.includes(overlapId), "stale+reprocess overlap is NOT bulk-re-enriched");
     assert.ok(queuedIds.includes(b!.id), "a stale-enrichment fact on a current signature is still queued");
-  });
-
-  it("refreshInReview is true for a fact with an in-flight refresh candidate, false otherwise", async () => {
-    const f = await insertLiveFact({ text: TEXT("in-flight refresh fact"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS }, buildPlaceholderGag());
-    factIds.push(f!.id);
-    await db.insert(factEnrichmentVersionsTable).values({
-      factId: f!.id,
-      versionNo: 1,
-      status: "candidate",
-      source: "refresh_candidate",
-    });
-
-    const res = await request(app)
-      .get("/api/admin/taxonomy-health/facts")
-      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
-    assert.equal(res.status, 200);
-    const rows = res.body.rows as Array<{ factId: number; refreshInReview: boolean }>;
-    const inFlight = rows.find((r) => r.factId === f!.id);
-    assert.ok(inFlight, "the in-flight fact is listed");
-    assert.equal(inFlight!.refreshInReview, true, "a candidate in review pre-disables its send-back button");
-    const other = rows.find((r) => r.factId === healthyId);
-    assert.equal(other?.refreshInReview, false, "a fact with no candidate is not marked in-review");
-  });
-
-  it("repeatedFailure is true after 3 consecutive terminal fact_send_back failures, false once a later success clears the streak", async () => {
-    const f = await insertLiveFact({ text: TEXT("repeated failure fact"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS }, buildPlaceholderGag());
-    factIds.push(f!.id);
-
-    // dedupeKey uniqueness only applies to non-terminal (pending/processing)
-    // rows, so multiple done/failed rows can share the same key — exactly
-    // like real job history for one fact accumulates over repeated retries.
-    async function insertTerminalJob(status: "failed" | "done"): Promise<void> {
-      const [row] = await db
-        .insert(asyncJobsTable)
-        .values({ queue: "fact_send_back", payload: { factId: f!.id }, status, dedupeKey: `fact_send_back:${f!.id}` })
-        .returning({ id: asyncJobsTable.id });
-      jobIds.push(row!.id);
-    }
-
-    await insertTerminalJob("failed");
-    await insertTerminalJob("failed");
-
-    let res = await request(app)
-      .get("/api/admin/taxonomy-health/facts")
-      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
-    assert.equal(res.status, 200);
-    let row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
-    assert.equal(row?.repeatedFailure, false, "only 2 failures — streak not yet at 3");
-
-    await insertTerminalJob("failed");
-
-    res = await request(app)
-      .get("/api/admin/taxonomy-health/facts")
-      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
-    row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
-    assert.equal(row?.repeatedFailure, true, "3 consecutive terminal failures flags the fact");
-
-    await insertTerminalJob("done");
-
-    res = await request(app)
-      .get("/api/admin/taxonomy-health/facts")
-      .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
-    row = (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id);
-    assert.equal(row?.repeatedFailure, false, "a later success within the most recent 3 clears the flag");
-  });
-
-  it("once the fact_send_back job Send selected queued for a 3-strike fact finishes, repeatedFailure is false for it", async () => {
-    const f = await insertLiveFact({ text: TEXT("3-strike send selected"), submittedById: adminUserId, enrichment: validEnrichment(), ...MATCHING_COLS }, buildPlaceholderGag());
-    factIds.push(f!.id);
-    for (let i = 0; i < 3; i++) {
-      const [row] = await db
-        .insert(asyncJobsTable)
-        .values({ queue: "fact_send_back", payload: { factId: f!.id }, status: "failed", dedupeKey: `fact_send_back:${f!.id}` })
-        .returning({ id: asyncJobsTable.id });
-      jobIds.push(row!.id);
-    }
-    const repeatedFailure = async (): Promise<boolean | undefined> => {
-      const res = await request(app)
-        .get("/api/admin/taxonomy-health/facts")
-        .query({ status: "stale_for_reprocess", search: `TTHA_${RUN}`, limit: "100" });
-      assert.equal(res.status, 200);
-      return (res.body.rows as Array<{ factId: number; repeatedFailure: boolean }>).find((r) => r.factId === f!.id)?.repeatedFailure;
-    };
-    assert.equal(await repeatedFailure(), true, "precondition: three failures flag the fact");
-
-    // Send selected: the one path that still queues a flagged fact.
-    const send = await request(app)
-      .post("/api/admin/taxonomy-health/actions/bulk-send-back")
-      .send({ scope: "selected", factIds: [f!.id] });
-    assert.equal(send.status, 200);
-    assert.equal(send.body.jobs.length, 1);
-    const jobId = send.body.jobs[0].jobId as number;
-    jobIds.push(jobId);
-
-    // Run it through the real worker tick; the job finishes done.
-    registerFactSendBackHandler();
-    await asyncJobsTick(db, new Date(), { queues: ["fact_send_back"] });
-    const [job] = await db.select({ status: asyncJobsTable.status }).from(asyncJobsTable).where(eq(asyncJobsTable.id, jobId));
-    assert.equal(job?.status, "done");
-
-    assert.equal(await repeatedFailure(), false, "a finished send-back clears the repeated-failure flag");
   });
 });
 

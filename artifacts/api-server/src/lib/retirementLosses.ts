@@ -1,8 +1,11 @@
 /**
- * The rows migration 0142 (variants retired; plan docs/plans/PLAN_RETIRE_VARIANTS.md)
- * will delete from a database, counted per table BEFORE it runs, so the upgrade
- * rehearsal can tell the authorised deletion from an accidental loss.
+ * The rows a retiring migration will delete from a database, counted per table
+ * BEFORE it runs, so the upgrade rehearsal can tell the authorised deletion from
+ * an accidental loss: 0142 (variants retired; plan
+ * docs/plans/PLAN_RETIRE_VARIANTS.md) and 0151 (refresh and resubmission reviews
+ * retired; plan docs/plans/PLAN_FACT_LIFECYCLE_REBUILD.md, 1H).
  *
+ * For 0142:
  * Read on the restored snapshot while `facts.parent_id` still exists, using
  * 0142's own ownership rules: the variant facts (V); every row a cascading
  * foreign key removes with them, followed through the catalogue to any depth;
@@ -12,12 +15,12 @@
  * column, or without a variant, gets an empty map: no allowance at all. Tables
  * resolve in the connection's own schema, as 0142's do.
  *
- * @purpose Count, per table, the rows migration 0142 will delete, before it runs, for the upgrade rehearsal's expected counts.
+ * @purpose Count, per table, the rows a retiring migration (0142, 0151) will delete, before it runs, for the upgrade rehearsal's expected counts.
  * @subsystem upgrade-rehearsal
  */
 import type pg from "pg";
 
-/** table → number of rows 0142 will delete. */
+/** table → number of rows a migration will delete. */
 export type RetirementLosses = Map<string, number>;
 
 interface CascadeFk { child: string; childCols: string[]; parent: string; parentCols: string[] }
@@ -45,10 +48,8 @@ async function cascadingFks(c: pg.ClientBase): Promise<CascadeFk[]> {
 
 const q = (ident: string) => `"${ident.replace(/"/g, '""')}"`;
 
-export async function variantRetirementLosses(c: pg.ClientBase): Promise<RetirementLosses> {
-  const out: RetirementLosses = new Map();
-  if (!(await hasColumn(c, "facts", "parent_id"))) return out;
-
+/** Deletion bookkeeping: each row counted once (by ctid), cascades followed through the catalogue. */
+async function deletionCounter(c: pg.ClientBase) {
   // table → set of ctids that go.
   const gone = new Map<string, Set<string>>();
   const mark = (table: string, ctids: string[]): string[] => {
@@ -76,6 +77,18 @@ export async function variantRetirementLosses(c: pg.ClientBase): Promise<Retirem
   };
   const ctidsWhere = async (table: string, where: string, params: unknown[]): Promise<string[]> =>
     (await c.query<{ t: string }>(`SELECT ctid::text AS t FROM ${q(table)} WHERE ${where}`, params)).rows.map((r) => r.t);
+  const losses = (): RetirementLosses => {
+    const out: RetirementLosses = new Map();
+    for (const [table, set] of gone) if (set.size > 0) out.set(table, set.size);
+    return out;
+  };
+  return { cascade, ctidsWhere, losses };
+}
+
+export async function variantRetirementLosses(c: pg.ClientBase): Promise<RetirementLosses> {
+  const out: RetirementLosses = new Map();
+  if (!(await hasColumn(c, "facts", "parent_id"))) return out;
+  const { cascade, ctidsWhere, losses } = await deletionCounter(c);
 
   const variantIds = (await c.query<{ id: number }>(`SELECT id FROM facts WHERE parent_id IS NOT NULL`)).rows.map((r) => r.id);
   if (variantIds.length === 0) return out;
@@ -100,8 +113,43 @@ export async function variantRetirementLosses(c: pg.ClientBase): Promise<Retirem
   await cascade("facts", await ctidsWhere("facts", `id = ANY($1)`, [variantIds]));
   await cascade("pending_reviews", await ctidsWhere("pending_reviews", `id = ANY($1)`, [reviewIds]));
 
-  for (const [table, set] of gone) if (set.size > 0) out.set(table, set.size);
-  return out;
+  return losses();
+}
+
+/**
+ * The rows migration 0151 will delete, by its own rules: every refresh review
+ * (candidate_version_id set) and every open resubmission review (an open review
+ * of a fact created before it), with what cascades from them; the pending picks
+ * of gags a refresh owned; enrichment versions that never became the fact's
+ * (candidate, rejected); and the queued work that only served those reviews.
+ * A database without the column gets an empty map: no allowance at all.
+ */
+export async function refreshRetirementLosses(c: pg.ClientBase): Promise<RetirementLosses> {
+  if (!(await hasColumn(c, "pending_reviews", "candidate_version_id"))) return new Map();
+  const { cascade, ctidsWhere, losses } = await deletionCounter(c);
+
+  const refreshIds = (await c.query<{ id: number }>(
+    `SELECT id FROM pending_reviews WHERE candidate_version_id IS NOT NULL`,
+  )).rows.map((r) => r.id);
+  const resubmitIds = (await c.query<{ id: number }>(
+    `SELECT r.id FROM pending_reviews r JOIN facts f ON f.id = r.staging_fact_id
+      WHERE r.candidate_version_id IS NULL AND r.status = 'pending' AND f.created_at < r.created_at`,
+  )).rows.map((r) => r.id);
+  const reviewIds = [...refreshIds, ...resubmitIds];
+
+  // 0151's order: pending picks, jobs, versions, then the reviews (with their cascades).
+  await cascade("fact_gag_examples", await ctidsWhere("fact_gag_examples",
+    `stage = 'pending' AND gag_id IN (SELECT id FROM fact_gags WHERE removed_at IS NULL AND pending_review_id = ANY($1))`,
+    [refreshIds]));
+  await cascade("async_jobs", await ctidsWhere("async_jobs",
+    `queue = 'fact_send_back'
+      OR (status IN ('pending', 'recovering', 'processing') AND (
+            (queue = 'enrichment' AND payload ? 'versionId')
+         OR (queue = 'fact_visual_concepts' AND (payload ->> 'reviewId') = ANY($1::text[]))))`,
+    [reviewIds.map(String)]));
+  await cascade("fact_enrichment_versions", await ctidsWhere("fact_enrichment_versions", `status IN ('candidate', 'rejected')`, []));
+  await cascade("pending_reviews", await ctidsWhere("pending_reviews", `id = ANY($1)`, [reviewIds]));
+  return losses();
 }
 
 /**

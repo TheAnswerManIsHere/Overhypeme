@@ -272,6 +272,8 @@ describe("schema baseline", { concurrency: false }, () => {
  * declares a column reads it in every full-row query. Each entry names the
  * migration that drops it, and leaves this set in that same change.
  */
+const UNDECLARED_AWAITING_DROP = new Set<string>([]);
+
 /** The spellings drizzle and PostgreSQL use for the same column type. */
 function sameType(declared: string, stored: string): boolean {
   const norm = (t: string) =>
@@ -318,7 +320,7 @@ describe("the TypeScript schema matches what the migrations build", () => {
             }
           }
         }
-        for (const key of stored.keys()) if (declaredTables.has(key.split(".")[0]) && !declaredColumns.has(key)) issues.push(`built, not declared: ${key}`);
+        for (const key of stored.keys()) if (declaredTables.has(key.split(".")[0]) && !declaredColumns.has(key) && !UNDECLARED_AWAITING_DROP.has(key)) issues.push(`built, not declared: ${key}`);
         for (const t of storedTables) if (!declaredTables.has(t)) issues.push(`table built, not declared: ${t}`);
         for (const t of declaredTables) if (!storedTables.has(t)) issues.push(`table declared, not built: ${t}`);
         assert.deepEqual(issues, []);

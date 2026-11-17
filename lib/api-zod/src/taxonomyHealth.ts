@@ -37,10 +37,6 @@ export type TaxonomyOverallStatus = (typeof TAXONOMY_OVERALL_STATUS_VALUES)[numb
 export const TAXONOMY_HEALTH_RECOMMENDED_ACTION_VALUES = [
   "open_fact_editor",
   "rerun_enrichment",
-  // Refresh-first: send a live fact back through moderation (send-back →
-  // promote) so its enrichment is regenerated AND re-stamped. Distinct from
-  // `rerun_enrichment` (direct write to facts.*, no signature stamp, no review).
-  "send_back_to_review",
   "research_cultural_reference",
   "review_semantic_entity",
   "repair_projection_columns",
@@ -161,8 +157,7 @@ export interface TaxonomyHealthReviewFlags {
   culturalReferenceNeedsResearch: boolean;
   semanticEntityNeedsReview: boolean;
   staleEnrichmentVersion: boolean;
-  /** Enrichment generated under an older/absent ProcessingSignature — needs a
-   *  refresh (send-back → promote) to come up to the current pipeline. */
+  /** Enrichment generated under an older/absent ProcessingSignature. */
   staleForReprocess: boolean;
   projectionMismatch: boolean;
   invalidEnrichment: boolean;
@@ -362,7 +357,6 @@ export const SUMMARY_COUNT_TO_FILTER: Record<
 export const TAXONOMY_HEALTH_ACTION_VALUES = [
   "re_enrich",
   "repair_projections",
-  "send_back_to_review",
   "fill_characters",
 ] as const;
 export type TaxonomyHealthAction = (typeof TAXONOMY_HEALTH_ACTION_VALUES)[number];
@@ -372,9 +366,6 @@ export const TAXONOMY_HEALTH_SKIP_REASON_VALUES = [
   "not_applicable",
   "already_current",
   "missing_required_data",
-  // Bulk send-back guard skips (mirror SendBackToReviewError codes 1:1).
-  "already_in_review",
-  "not_active",
 ] as const;
 export type TaxonomyHealthSkipReason =
   (typeof TAXONOMY_HEALTH_SKIP_REASON_VALUES)[number];
@@ -421,21 +412,6 @@ export interface TaxonomyHealthActionResponse {
   jobs: QueuedJobDescriptor[];
   outcomes: ActionOutcome[];
   summary: TaxonomyHealthActionSummary;
-  /** Bulk send-back only: corpus-wide stale count at request time. */
-  totalStale?: number;
-  /** Bulk send-back only: corpus-wide eligible-to-send stale facts not enqueued by this request. */
-  eligibleRemaining?: number;
-  /** Bulk send-back only: the server-enforced per-request enqueue cap. */
-  batchLimit?: number;
-  /**
-   * Bulk send-back `all_stale` only: count of stale facts currently excluded
-   * by the repeated-failure circuit breaker (their 3 most recent
-   * `fact_send_back` jobs are all terminally `failed`). Nonzero means the
-   * migration is NOT complete even if `queued`/`failed`/`eligibleRemaining`
-   * all read clean — each flagged fact needs `scope: "selected"` manual
-   * investigation, the only path that clears the streak.
-   */
-  repeatedFailureCount?: number;
 }
 
 // ─── Job-status polling (poll by concrete async_jobs.id) ───────────────────

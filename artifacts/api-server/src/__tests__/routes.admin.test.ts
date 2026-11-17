@@ -39,6 +39,7 @@ import {
   membershipEntitlementsTable,
   membershipHistoryTable,
   factGagsTable,
+  adminActionsTable,
 } from "@workspace/db/schema";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { like, eq, inArray, or, and } from "drizzle-orm";
@@ -589,6 +590,9 @@ describe("PATCH /admin/facts/:id", () => {
       .send({ isActive: true });
     assert.equal(res.status, 400);
     assert.equal(res.body.code, "ACTIVATION_REQUIRES_MODERATION");
+    // Re-moderation was removed with resubmission (increment 1.2a): the refusal
+    // must not point an admin at it.
+    assert.doesNotMatch(res.body.error, /moderat/i);
 
     const [row] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, inactiveFact));
     assert.equal(row.isActive, false, "the fact must still be inactive — activation must not have been written");
@@ -818,19 +822,37 @@ describe("DELETE /admin/facts/:id", () => {
     assert.equal(byId.get(otherId), true, "another fact is untouched");
   });
 
-  it("hard-delete removes only that fact", async () => {
+  it("there is no hard delete: ?hard=true deactivates, and the fact row stays (plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1F)", async () => {
     const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete target`);
-    const otherId = await createTestFact(`${FACT_PREFIX}${randomUUID()} hard-delete bystander`);
     const res = await request(makeApp())
       .delete(`/admin/facts/${targetId}?hard=true`)
       .set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 200);
-    assert.equal(res.body.deleted, true);
+    assert.equal(res.body.deleted, false);
 
-    const [gone] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, targetId));
-    assert.equal(gone, undefined, "the fact should be hard-deleted");
-    const [other] = await db.select({ isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, otherId));
-    assert.equal(other.isActive, true, "another fact is untouched");
+    const [kept] = await db.select({ id: factsTable.id, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, targetId));
+    assert.ok(kept, "the fact row, and with it every member's memes, pictures and comments, is kept");
+    assert.equal(kept.isActive, false);
+
+    // The deactivation is on the fact's admin-action record (plan 1I, 3C).
+    const actions = await db.select({ action: adminActionsTable.action, actorId: adminActionsTable.actorId })
+      .from(adminActionsTable).where(eq(adminActionsTable.factId, targetId));
+    assert.deepEqual(actions, [{ action: "deactivate", actorId: adminUserId }]);
+  });
+
+  it("an edit that turns Active off records a deactivation; one that changes a field records an edit", async () => {
+    const targetId = await createTestFact(`${FACT_PREFIX}${randomUUID()} patch target`);
+    const res = await request(makeApp())
+      .patch(`/admin/facts/${targetId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ isActive: false, upvotes: 7 });
+    assert.equal(res.status, 200);
+    const actions = await db.select({ action: adminActionsTable.action, detail: adminActionsTable.detail })
+      .from(adminActionsTable).where(eq(adminActionsTable.factId, targetId)).orderBy(adminActionsTable.id);
+    assert.deepEqual(actions, [
+      { action: "deactivate", detail: {} },
+      { action: "fact_edit", detail: { changed: { upvotes: 7 } } },
+    ]);
   });
 });
 

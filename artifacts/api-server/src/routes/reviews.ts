@@ -9,9 +9,8 @@ import { db } from "@workspace/db";
 import {
   pendingReviewsTable, factsTable, usersTable, activityFeedTable,
   hashtagsTable, factHashtagsTable, imagePromptAttemptsTable,
-  factEnrichmentVersionsTable,
 } from "@workspace/db/schema";
-import { eq, desc, sql, and, or, ilike, count, inArray, isNull } from "drizzle-orm";
+import { eq, desc, sql, and, or, ilike, count, inArray } from "drizzle-orm";
 import { requireAdmin } from "./admin";
 import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -45,32 +44,13 @@ import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib
 import { resolveReviewCycleEnrichment, resolveSavedCoreSceneForReview, createTriageReview } from "../lib/moderationStaging";
 import { prepareFirstTimeStagingPrep, ensureFirstTimeStagingPrepJobs } from "../lib/firstTimeStagingPrep";
 import {
-  promoteCandidateEnrichmentVersion,
-  PromoteCandidateError,
-  loadCandidateEditingContext,
-  CandidateEditError,
-} from "../lib/enrichmentVersioning";
-import {
-  applyOverrideReset,
-  applyOverrideUpsert,
-  serializeResolved,
-} from "../lib/enrichmentOverrideLayers";
-import { materializeEnrichment } from "../lib/factEnrichment";
-import {
   activateFact,
+  recordFirstApproval,
   ConceptMissingError,
   ActivationConflictError,
   hasApprovedGag,
 } from "../lib/factActivation";
-import { refreshLeavesApprovedGag, cancelReviewGagOps, exampleSetGaps, describeExampleSetGaps } from "../lib/gags/gagStore";
-import {
-  isOverridablePath,
-  overrideValuesEqual,
-  pathToField,
-  OVERRIDABLE_PATHS,
-  OVERRIDABLE_PATH_KEYS,
-  type OverridablePath,
-} from "@workspace/api-zod";
+import { exampleSetGaps, describeExampleSetGaps } from "../lib/gags/gagStore";
 import { enqueueVisualConceptsForReview, buildVisualConceptsResponse } from "../lib/visualConceptJobs";
 import {
   buildAndEnqueueImagePromptAttempt,
@@ -91,6 +71,7 @@ import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import { logger } from "../lib/logger";
 import { editTriageWording, lockReview, WordingError, withdrawForWording } from "../lib/reviewWording";
 import { checkDuplicateInternal } from "./ai";
+import { recordAdminAction } from "../lib/adminActions";
 
 // Re-export the plan-generator test seam (owned by the shared preview helper).
 // Approval no longer runs any synchronous planner call — its renderability
@@ -383,12 +364,11 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
   ]);
 
   // Slice 2A: normalized candidate Visual concepts with a SERVER-computed
-  // `current` flag (stored reviewId/candidateVersionId/inputHash vs. the review's
+  // `current` flag (stored reviewId/inputHash vs. the review's
   // live state) so the FE never recomputes hashes.
   const visualConcepts = stagingFact
     ? await buildVisualConceptsResponse({
         id: review.id,
-        candidateVersionId: review.candidateVersionId ?? null,
         visualConceptStatus: stagingFact.visualConceptStatus ?? null,
         visualConceptCandidates: stagingFact.visualConceptCandidates,
         humorNote: stagingFact.humorNote,
@@ -421,11 +401,8 @@ const ReviewDecisionBody = z.object({
   adminNote: z.string().max(500).optional(),
   hashtags: z.array(z.string()).max(50).optional(),
 });
-// rejectionReason is required for a first-time triage reject (it judges
-// whether the FACT belongs in the database) but never applies to a refresh
-// cycle's "don't promote" decline — that fact already cleared triage long
-// ago, so "duplicate/spam/offensive/lame" would misdescribe it. Optional
-// here; required conditionally at the route once isRefreshCycle is known.
+// rejectionReason is required: it judges whether the FACT belongs in the
+// database.
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
   rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]).optional(),
@@ -482,111 +459,6 @@ async function attachHashtags(tx: DbExecutor, factId: number, tags: string[]): P
 }
 
 /**
- * Approve a REFRESH cycle (`candidateVersionId != null`): promote the candidate
- * enrichment version into `facts.*` and mark ONLY the review approved.
- *
- * Refresh approval is NOT first-time approval — the fact is already live, so
- * every first-time side effect is deliberately skipped: no `isActive` flip, no
- * submitter approval email, no "your fact was added" activity, no re-embed.
- * Hashtag policy for refresh cycles: the "must have hashtags" gate is bypassed,
- * no candidate/AI-suggested tags are attached, and existing `fact_hashtags` are
- * never removed or rewritten.
- *
- * The gate still runs, against the CANDIDATE (what promotion would publish):
- * the admin-waivable required-render gate (the scenario grid resolves a refresh
- * review to its candidate enrichment, so the required renders are validated
- * against the promoted blob). No synchronous render preflight.
- */
-async function approveRefreshCandidateForProduction(
-  req: AuthenticatedRequest,
-  res: Response,
-  opts: {
-    review: typeof pendingReviewsTable.$inferSelect;
-    stagingFact: typeof factsTable.$inferSelect;
-    adminNote: string | null;
-  },
-): Promise<void> {
-  const { review, stagingFact, adminNote } = opts;
-  const candidateVersionId = review.candidateVersionId!;
-
-  // Advisory pre-checks for clean errors; promoteCandidateEnrichmentVersion
-  // re-verifies everything under row locks.
-  const [candidate] = await db
-    .select({
-      id: factEnrichmentVersionsTable.id,
-      factId: factEnrichmentVersionsTable.factId,
-      status: factEnrichmentVersionsTable.status,
-      enrichment: factEnrichmentVersionsTable.enrichment,
-    })
-    .from(factEnrichmentVersionsTable)
-    .where(eq(factEnrichmentVersionsTable.id, candidateVersionId))
-    .limit(1);
-  if (!candidate || candidate.factId !== review.stagingFactId) {
-    res.status(409).json({ error: "Refresh candidate missing for this review." });
-    return;
-  }
-  if (candidate.status !== "candidate") {
-    res.status(409).json({ error: `Refresh candidate is already ${candidate.status}.` });
-    return;
-  }
-  // Advisory validity pre-check for a clean 400 (promoteCandidateEnrichmentVersion
-  // re-verifies under row locks); the validated blob itself isn't needed here.
-  const enrichmentResult = resolveApprovalEnrichment(candidate.enrichment);
-  if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
-
-  // A live fact keeps an approved gag: advisory pre-check for a clean 409 (the
-  // promotion re-checks under the fact lock, and the live-fact trigger at
-  // commit). Gags this refresh approved count; ones it removes do not.
-  // The production gate (plan PLAN_GAG_EXAMPLES.md, section D): an approved
-  // gag carries its male, female and pet examples (or is grandfathered; the
-  // database enforces it), so this asks only whether a gag will be offered,
-  // naming each gag's missing kinds when none would be.
-  if (!(await refreshLeavesApprovedGag(stagingFact.id, review.id))) {
-    const gaps = await exampleSetGaps(stagingFact.id, review.id);
-    res.status(409).json({
-      error: `This refresh would leave the fact without an offered gag. ${describeExampleSetGaps(gaps)}`,
-      code: "CONCEPT_MISSING",
-      gaps,
-    });
-    return;
-  }
-
-  try {
-    // Promote + mark the review approved in ONE transaction. The review row gets
-    // NO enrichment audit snapshot: for refresh cycles the candidate blob lives
-    // ONLY in the version table (which is itself the audit trail).
-    await db.transaction(async (tx) => {
-      await promoteCandidateEnrichmentVersion(
-        { reviewId: review.id, candidateVersionId, adminId: req.user.id },
-        tx,
-      );
-      await tx.update(pendingReviewsTable).set({
-        status: "approved",
-        workflowStage: "production_approved",
-        reviewedById: req.user.id,
-        approvedFactId: stagingFact.id,
-        adminNote,
-        reviewedAt: new Date(),
-      }).where(eq(pendingReviewsTable.id, review.id));
-    });
-  } catch (err) {
-    if (err instanceof PromoteCandidateError) {
-      const status = err.code === "REFRESH_STALE_TEXT" ? 409 : err.code === "ENRICHMENT_INVALID" ? 400 : 409;
-      res.status(status).json({ error: err.message, code: err.code });
-      return;
-    }
-    throw err;
-  }
-
-  // Admin-only audit trail; deliberately NOT submitter-facing activity.
-  logger.info(
-    { event: "fact_refresh_promoted", reviewId: review.id, factId: stagingFact.id, candidateVersionId, adminId: req.user.id },
-    "[refresh] candidate enrichment promoted to active",
-  );
-  res.json({ success: true, factId: stagingFact.id, refreshPromoted: true });
-}
-
-/**
  * Second moderation gate — activate a prepared staging fact for production.
  *
  * The staging fact already exists (created at provisional approval) and already
@@ -639,14 +511,6 @@ async function approveForProduction(
     );
   }
 
-  // REFRESH cycle (versioned enrichment): promote the candidate instead of the
-  // first-time activation flow. Strictly guarded to `candidateVersionId != null`
-  // so the anti-override-wipe invariant below holds for normal staging approvals.
-  if (review.candidateVersionId != null) {
-    await approveRefreshCandidateForProduction(req, res, { review, stagingFact, adminNote });
-    return;
-  }
-
   // The enrichment to ship is ALWAYS the staging fact's stored effective blob.
   const enrichmentResult = resolveApprovalEnrichment(stagingFact.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
@@ -658,7 +522,7 @@ async function approveForProduction(
   // activateFact re-checks in the activating transaction, and the live-fact
   // trigger at commit. Gags still pending stay hidden and can be finished later.
   if (!(await hasApprovedGag(db, stagingFact.id))) {
-    const gaps = await exampleSetGaps(stagingFact.id, reviewId);
+    const gaps = await exampleSetGaps(stagingFact.id);
     res.status(409).json({
       error: describeExampleSetGaps(gaps),
       code: "CONCEPT_MISSING",
@@ -696,7 +560,7 @@ async function approveForProduction(
   // wording can no longer change (facts_text_is_locked), so the text half of
   // this guard is now belt and braces; the activation stays a compare-and-set: activate ONLY while the fact is still inactive AND its text
   // is still the wording we validated, and approve the review ONLY while it is
-  // still the same first-time production_review cycle. Either mismatch fails
+  // still the same production_review cycle. Either mismatch fails
   // CLOSED — nothing is activated, tagged, approved, embedded, or notified.
   const validatedText = stagingFact.text;
   let reviewStateConflict = false;
@@ -711,6 +575,7 @@ async function approveForProduction(
       // ConceptMissingError / ActivationConflictError —
       // never activates on failure.
       await activateFact(tx, { factId: stagingFact.id, expectedText: validatedText, expectedEnrichment: stagingFact.enrichment });
+      await recordFirstApproval(tx, stagingFact.id, req.user.id);
 
       const reviewed = await tx.update(pendingReviewsTable).set({
         status: "approved",
@@ -729,12 +594,12 @@ async function approveForProduction(
         eq(pendingReviewsTable.status, "pending"),
         eq(pendingReviewsTable.workflowStage, "production_review"),
         eq(pendingReviewsTable.stagingFactId, stagingFact.id),
-        isNull(pendingReviewsTable.candidateVersionId),
       )).returning({ id: pendingReviewsTable.id });
       if (reviewed.length === 0) { reviewStateConflict = true; throw new Error("approval_cas_review_conflict"); }
 
       // The moderator-curated list resolved + gated (non-empty) above.
       await attachHashtags(tx, stagingFact.id, finalTags);
+      await recordAdminAction({ factId: stagingFact.id, reviewId }, req.user.id, "approve_for_production", { hashtags: finalTags, adminNote }, tx);
     });
   } catch (err) {
     if (err instanceof ActivationConflictError) {
@@ -887,6 +752,7 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
         adminNote,
       });
       stagingFactId = factId;
+      await recordAdminAction({ factId, reviewId: review.id }, req.user.id, "provisional_approval", { adminNote }, tx);
     });
   } catch (err) {
     if (err instanceof ReviewNoLongerEligible) {
@@ -943,6 +809,7 @@ router.post("/admin/reviews/:id/wording", requireAdmin, async (req: Authenticate
   if (!body.success) { res.status(400).json({ error: "The wording is required." }); return; }
   try {
     const review = await editTriageWording(id, body.data.text, req.user.id, detectorFor(req));
+    await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "wording_edit", { text: review.submittedText, original: review.submittedTextOriginal });
     // The new wording's verdict, so the screen redraws its duplicate line.
     res.json({
       success: true,
@@ -969,6 +836,7 @@ router.post("/admin/reviews/:id/duplicate-check", requireAdmin, requireDuplicate
   const view = await duplicateView(review);
   if (!needsDuplicateCheck(review, view)) { res.json({ submittedText: review.submittedText, duplicate: view }); return; }
   const current = (await checkReviewDuplicate(id, detectorFor(req))) ?? review;
+  await recordAdminAction({ reviewId: id, factId: current.stagingFactId }, (req as AuthenticatedRequest).user?.id, "duplicate_check", { outcome: current.duplicateOutcome ?? null });
   res.json({ submittedText: current.submittedText, duplicate: await duplicateView(current) });
 });
 
@@ -979,6 +847,7 @@ router.post("/admin/reviews/:id/withdraw", requireAdmin, async (req: Authenticat
   if (!body.success) { res.status(400).json({ error: "Invalid note." }); return; }
   try {
     const review = await withdrawForWording(id, req.user.id, body.data.note ?? null);
+    await recordAdminAction({ reviewId: review.id, factId: review.stagingFactId }, req.user.id, "withdraw", { note: body.data.note ?? null });
     if (review.submittedById) {
       await logActivity({
         userId: review.submittedById,
@@ -1010,79 +879,35 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
 
-  // REFRESH cycle: a fact can NEVER be rejected here — rejection means "not
-  // worthy of being in the database," and a refresh candidate is only a
-  // proposed update to a fact that already cleared that bar. "Reject" on a
-  // refresh means "don't promote this update": the candidate enrichment
-  // version is discarded (retained as rejected history, never hard-deleted,
-  // and it no longer blocks a future send-back — the one-candidate index
-  // covers status='candidate' only), and the LIVE fact — active flag,
-  // enrichment, projections, memes — is left exactly as it was. It
-  // simply doesn't get updated until a future refresh is promoted.
-  const isRefreshCycle = review.candidateVersionId != null;
-
-  // A first-time submission can only be rejected during triage (Step 1). Once
-  // it clears triage, a stuck candidate (failed prep, a render that isn't
-  // working, a Visual Concept that needs work) stays pending until an admin
-  // resolves the underlying issue — never rejected again.
-  if (!canReject(review.workflowStage as ReviewWorkflowStage, review.status, isRefreshCycle)) {
+  // A submission can only be rejected during triage (Step 1). Once it clears
+  // triage, a stuck candidate (failed prep, a render that isn't working, a
+  // Visual Concept that needs work) stays pending until an admin resolves the
+  // underlying issue or withdraws it.
+  if (!canReject(review.workflowStage as ReviewWorkflowStage, review.status)) {
     res.status(409).json({
       error: `Cannot reject from stage ${review.workflowStage} — once triage passes, a stuck candidate stays pending until an admin resolves it.`,
     });
     return;
   }
 
-  // rejectionReason judges fact-worthiness (duplicate/spam/offensive/lame) —
-  // required for a first-time triage reject, meaningless for a refresh
-  // decline (that fact already passed triage), so it's never required or
-  // persisted there.
-  if (!isRefreshCycle && !rejectionReason) {
+  if (!rejectionReason) {
     res.status(400).json({ error: "Rejection reason is required. Must be one of: duplicate, spam, offensive, lame." });
     return;
   }
 
-  // A refresh decline is audited as `production_rejected` on the REVIEW
-  // (the candidate update), never as anything touching the fact itself; a
-  // first-time triage reject is a plain triage rejection.
-  const targetStage: ReviewWorkflowStage = isRefreshCycle ? "production_rejected" : "triage_rejected";
-
   await db.transaction(async (tx) => {
     await tx.update(pendingReviewsTable).set({
       status: "rejected",
-      workflowStage: targetStage,
+      workflowStage: "triage_rejected",
       reviewedById: req.user.id,
       adminNote,
-      // Never store a fact-worthiness reason against a refresh decline.
-      reason: isRefreshCycle ? null : rejectionReason,
+      reason: rejectionReason,
       reviewedAt: new Date(),
-      ...(isRefreshCycle
-        ? { productionRejectedAt: new Date(), productionRejectedById: req.user.id, productionRejectionNote: adminNote }
-        : {}),
     }).where(eq(pendingReviewsTable.id, id));
-    if (isRefreshCycle) {
-      await tx.update(factEnrichmentVersionsTable)
-        .set({ status: "rejected", rejectedAt: new Date() })
-        .where(and(
-          eq(factEnrichmentVersionsTable.id, review.candidateVersionId!),
-          eq(factEnrichmentVersionsTable.status, "candidate"),
-        ));
-      if (review.stagingFactId != null) {
-        // Fact row first, then its gags: the lock order every gag write uses.
-        await tx.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, review.stagingFactId)).for("update");
-        // Clear the "prep running" pill; the active enrichment itself was never touched.
-        await tx.update(factsTable).set({ enrichmentStatus: "ok" }).where(eq(factsTable.id, review.stagingFactId));
-      }
-      // The declined refresh's gag decisions are cancelled: its example picks
-      // and removals never land, and a later review cannot apply them. Draft
-      // content it saved is kept (plan docs/plans/PLAN_THREE_GAGS.md, section D).
-      await cancelReviewGagOps(tx, id);
-    }
+    await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "reject", { reason: rejectionReason, adminNote, stage: review.workflowStage }, tx);
   });
 
-  // Submitter notifications are for first-time submissions only: a refresh
-  // rejection must never tell the original submitter their live fact "could not
-  // be added" (refresh reviews carry submittedById=null; guarded here too).
-  if (review.submittedById && !isRefreshCycle) {
+  if (review.submittedById) {
     const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
       .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1);
 
@@ -1159,14 +984,19 @@ router.post("/admin/reviews/:id/approve-visual-concept", requireAdmin, async (re
   // moved the row leaves this WHERE unmatched, so it returns no row → 409. This,
   // not the async queue, is the double-click / concurrency guard because the force
   // render enqueue below carries no dedupe key.
-  const advancedRows = await db.update(pendingReviewsTable)
-    .set({ workflowStage: "production_review" })
-    .where(and(
-      eq(pendingReviewsTable.id, id),
-      eq(pendingReviewsTable.status, "pending"),
-      eq(pendingReviewsTable.workflowStage, "concept_review"),
-    ))
-    .returning({ id: pendingReviewsTable.id });
+  const stagingFactId = review.stagingFactId;
+  const advancedRows = await db.transaction(async (tx) => {
+    const rows = await tx.update(pendingReviewsTable)
+      .set({ workflowStage: "production_review" })
+      .where(and(
+        eq(pendingReviewsTable.id, id),
+        eq(pendingReviewsTable.status, "pending"),
+        eq(pendingReviewsTable.workflowStage, "concept_review"),
+      ))
+      .returning({ id: pendingReviewsTable.id });
+    if (rows.length > 0) await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "gag_approval", {}, tx);
+    return rows;
+  });
   if (advancedRows.length === 0) {
     res.status(409).json({
       error: "This review already advanced past the Visual Concept step.",
@@ -1204,7 +1034,7 @@ router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (re
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const [review] = await db
-    .select({ workflowStage: pendingReviewsTable.workflowStage, status: pendingReviewsTable.status })
+    .select({ workflowStage: pendingReviewsTable.workflowStage, status: pendingReviewsTable.status, stagingFactId: pendingReviewsTable.stagingFactId })
     .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   if (!(review.status === "pending" && review.workflowStage === "production_review")) {
@@ -1212,14 +1042,18 @@ router.post("/admin/reviews/:id/back-to-visual-concept", requireAdmin, async (re
     return;
   }
 
-  const rows = await db.update(pendingReviewsTable)
-    .set({ workflowStage: "concept_review" })
-    .where(and(
-      eq(pendingReviewsTable.id, id),
-      eq(pendingReviewsTable.status, "pending"),
-      eq(pendingReviewsTable.workflowStage, "production_review"),
-    ))
-    .returning({ id: pendingReviewsTable.id });
+  const rows = await db.transaction(async (tx) => {
+    const moved = await tx.update(pendingReviewsTable)
+      .set({ workflowStage: "concept_review" })
+      .where(and(
+        eq(pendingReviewsTable.id, id),
+        eq(pendingReviewsTable.status, "pending"),
+        eq(pendingReviewsTable.workflowStage, "production_review"),
+      ))
+      .returning({ id: pendingReviewsTable.id });
+    if (moved.length > 0) await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "back_to_gags", {}, tx);
+    return moved;
+  });
   if (rows.length === 0) {
     res.status(409).json({ error: "This review is no longer at Test Renders." });
     return;
@@ -1317,146 +1151,6 @@ router.post("/admin/reviews/:id/enrich", requireAdmin, (_req: Request, res: Resp
   });
 });
 
-// ─── Refresh-candidate enrichment editing (production_review) ────────────────
-//
-// During a REFRESH cycle the Step-2 modal edits the CANDIDATE version row —
-// never the live fact, whose enrichment writes are frozen (REFRESH_IN_REVIEW)
-// while the cycle is open. These four routes mirror the fact endpoints
-// (/admin/facts/:id/enrichment-resolved, /enrichment-overrides, /enrichment)
-// through the SHARED merge core in lib/enrichmentOverrideLayers.ts, but
-// persist only the version row's four layer columns. Deliberate differences:
-//  - NO enrichment_override_history rows (per-version audit is a deferred
-//    enhancement; the version row + promote-time snapshot are the audit);
-//  - NO re-run-classification (the candidate job requires prep_pending;
-//    reject + re-send covers it);
-//  - suggestedHashtags are PINNED server-side on PATCH (refresh moderation
-//    edits tracked overrides + the visual concept only — discovery tags are
-//    out of refresh scope).
-
-/** Map a CandidateEditError to its HTTP response. */
-function sendCandidateEditError(res: Response, err: CandidateEditError): void {
-  res.status(err.code === "REVIEW_NOT_FOUND" ? 404 : 409).json({ error: err.message, code: err.code });
-}
-
-/** Persist a re-materialized candidate: the layer columns, nothing else. A
- * candidate holds no gag (migration 0139), so `visual_override` stays null. */
-type ReviewsDbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-async function persistCandidateLayers(
-  tx: ReviewsDbTx,
-  candidateVersionId: number,
-  columns: ReturnType<typeof materializeEnrichment>["columns"],
-): Promise<void> {
-  await tx
-    .update(factEnrichmentVersionsTable)
-    .set({
-      enrichment: columns.enrichment,
-      enrichmentAiDerived: columns.enrichmentAiDerived,
-      enrichmentOverrides: columns.enrichmentOverrides,
-      visualOverride: null,
-    })
-    .where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
-}
-
-// GET /admin/reviews/:id/candidate-enrichment-resolved — the candidate's
-// layers in the exact shape of the fact resolved GET (plus identifiers), so
-// the shared editor consumes either interchangeably.
-router.get("/admin/reviews/:id/candidate-enrichment-resolved", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  try {
-    const ctx = await loadCandidateEditingContext(id, db, { forUpdate: false, intent: "read" });
-    res.json({
-      ...serializeResolved(ctx.layers),
-      factId: ctx.review.stagingFactId,
-      candidateVersionId: ctx.review.candidateVersionId,
-    });
-  } catch (err) {
-    if (err instanceof CandidateEditError) { sendCandidateEditError(res, err); return; }
-    throw err;
-  }
-});
-
-// PUT /admin/reviews/:id/candidate-overrides — create/update/reset one tracked
-// override ON THE CANDIDATE. Same body + response contract as the fact PUT.
-router.put("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const body = (req.body ?? {}) as { path?: unknown; value?: unknown; reason?: unknown; acknowledgeCurrentAiBaseline?: unknown };
-  const path = String(body.path ?? "");
-  if (!isOverridablePath(path)) { res.status(400).json({ error: `Path "${path}" is not an overridable field` }); return; }
-  const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : undefined;
-  const acknowledge = body.acknowledgeCurrentAiBaseline === true;
-  const adminId = req.user.id;
-
-  try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
-      const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
-      const aiDerived = ctx.layers.aiDerived!; // write intent guarantees a classified candidate
-      const result = applyOverrideUpsert({
-        layers: { ...ctx.layers, aiDerived },
-        path,
-        value: body.value,
-        ...(reason !== undefined ? { reason } : {}),
-        acknowledge,
-        adminId,
-      });
-      if (!result.ok) return { status: result.status, body: { error: result.error } };
-      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides });
-      await persistCandidateLayers(tx, ctx.review.candidateVersionId, columns);
-      return {
-        status: 200,
-        body: { success: true, ...serializeResolved({ ...ctx.layers, aiDerived, overrides: result.overrides }) },
-      };
-    });
-    res.status(out.status).json(out.body);
-  } catch (err) {
-    if (err instanceof CandidateEditError) { sendCandidateEditError(res, err); return; }
-    logger.error({ err, reviewId: id, path }, "[PUT /admin/reviews/:id/candidate-overrides] failed");
-    res.status(500).json({ error: "Failed to save candidate override" });
-  }
-});
-
-// DELETE /admin/reviews/:id/candidate-overrides[?path=…] — reset one candidate
-// override (or ALL when no path is given) back to the candidate's AI baseline.
-router.delete("/admin/reviews/:id/candidate-overrides", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const rawPath = req.query["path"];
-  const path = rawPath !== undefined ? String(rawPath) : null;
-  if (path !== null && !isOverridablePath(path)) { res.status(400).json({ error: `Path "${path}" is not an overridable field` }); return; }
-
-  try {
-    const out = await db.transaction(async (tx): Promise<{ status: number; body: object }> => {
-      const ctx = await loadCandidateEditingContext(id, tx, { forUpdate: true, intent: "write" });
-      const aiDerived = ctx.layers.aiDerived!;
-      const result = applyOverrideReset({ layers: { ...ctx.layers, aiDerived }, path: path as OverridablePath | null });
-      const { columns } = materializeEnrichment({ aiDerived, overrides: result.overrides });
-      await persistCandidateLayers(tx, ctx.review.candidateVersionId, columns);
-      return {
-        status: 200,
-        body: { success: true, ...serializeResolved({ ...ctx.layers, aiDerived, overrides: result.overrides }) },
-      };
-    });
-    res.status(out.status).json(out.body);
-  } catch (err) {
-    if (err instanceof CandidateEditError) { sendCandidateEditError(res, err); return; }
-    logger.error({ err, reviewId: id, path }, "[DELETE /admin/reviews/:id/candidate-overrides] failed");
-    res.status(500).json({ error: "Failed to reset candidate override" });
-  }
-});
-
-// PATCH /admin/reviews/:id/candidate-enrichment — RETIRED (migration 0139).
-// It saved the visual-strategy override onto a refresh candidate. A fact's gags
-// now live in fact_gags and, inside a refresh, are changed through the
-// review's own gag routes (/admin/facts/:id/gags with the review id), so a
-// candidate holds no gag and this route has nothing to write.
-router.patch("/admin/reviews/:id/candidate-enrichment", requireAdmin, (_req: AuthenticatedRequest, res: Response) => {
-  res.status(410).json({
-    error: "A refresh's gags are saved through /admin/facts/:id/gags with the review id.",
-    code: "CANDIDATE_ENRICHMENT_RETIRED",
-  });
-});
-
 // ─── Moderation render-review tools (production_review) ────────────────────────
 //
 // The surface a moderator uses to vet a fact's imagery before approval:
@@ -1516,9 +1210,8 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     return;
   }
 
-  // Resolve the render input through the review-cycle resolver: a refresh
-  // cycle previews its CANDIDATE classification, a first-time cycle the
-  // staging fact's, each with the fact's primary working gag.
+  // Resolve the render input through the review-cycle resolver: the staging
+  // fact's classification with its primary working gag.
   const cycle = await resolveReviewCycleEnrichment(review);
   if (!cycle) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
 
@@ -1591,6 +1284,7 @@ router.post("/admin/reviews/:id/render", requireAdmin, async (req: Authenticated
     { reviewId: id, stagingFactId: review.stagingFactId, adminId: req.user.id, attemptId, renderJobId, referenceIdentityType },
     "[moderation] review render enqueued",
   );
+  await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "test_renders_requested", { attemptId, referenceIdentityType, lookStyleId: body.lookStyleId ?? null });
   res.status(202).json({ renderJobId, attemptId });
 });
 
@@ -1682,7 +1376,6 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
     .select({
       workflowStage: pendingReviewsTable.workflowStage,
       stagingFactId: pendingReviewsTable.stagingFactId,
-      candidateVersionId: pendingReviewsTable.candidateVersionId,
     })
     .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
@@ -1726,17 +1419,17 @@ router.post("/admin/reviews/:id/visual-concepts/regenerate", requireAdmin, async
   await enqueueVisualConceptsForReview({
     reviewId: id,
     factId: review.stagingFactId,
-    candidateVersionId: review.candidateVersionId ?? null,
     moderatorDraftScene: draft,
     moderatorDraftBubbles: draftBubbles,
   });
+  await recordAdminAction({ reviewId: id, factId: review.stagingFactId }, req.user.id, "gag_ideas_requested", { withDraft: draft != null });
   logger.info({ reviewId: id, hasDraft: draft != null, adminId: req.user.id }, "[moderation] visual concepts regenerate");
   res.status(202).json({ success: true, visualConceptStatus: "pending" });
 });
 
 // PUT /admin/reviews/:id/humor-note — a moderator confirms or corrects the
 // fact's humor note (plan docs/plans/PLAN_GAG_GENERATOR.md, E). The only
-// writer of facts.humor_note: generation, enrichment and refresh never write
+// writer of facts.humor_note: generation and enrichment never write
 // it. Confirm sends the joke read's text unchanged; a correction sends the
 // edited text. Either way the moderator and the time are recorded.
 router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -1756,11 +1449,16 @@ router.put("/admin/reviews/:id/humor-note", requireAdmin, async (req: Authentica
   if (review.stagingFactId == null) { res.status(409).json({ error: "Review has no staging fact." }); return; }
 
   const approvedAt = new Date();
-  const [saved] = await db
-    .update(factsTable)
-    .set({ humorNote: parsed.data.text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt })
-    .where(eq(factsTable.id, review.stagingFactId))
-    .returning({ humorNote: factsTable.humorNote });
+  const stagingFactId = review.stagingFactId;
+  const [saved] = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(factsTable)
+      .set({ humorNote: parsed.data.text, humorNoteApprovedBy: req.user.id, humorNoteApprovedAt: approvedAt })
+      .where(eq(factsTable.id, stagingFactId))
+      .returning({ humorNote: factsTable.humorNote });
+    if (rows.length > 0) await recordAdminAction({ reviewId: id, factId: stagingFactId }, req.user.id, "humor_note_save", { text: parsed.data.text }, tx);
+    return rows;
+  });
   if (!saved) { res.status(404).json({ error: "Fact not found" }); return; }
   logger.info({ reviewId: id, factId: review.stagingFactId, adminId: req.user.id }, "[moderation] humor note saved");
   res.json({ humorNote: { text: saved.humorNote, approvedBy: req.user.id, approvedAt: approvedAt.toISOString() } });

@@ -5,7 +5,7 @@
  * request each call site actually sends through the utility-LLM seam.
  */
 
-import { describe, it, before, after, beforeEach } from "node:test";
+import { describe, it, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { __setUtilityLLMClientForTest, JUDGEMENT_REASONING_EFFORT } from "../lib/utilityLLM";
@@ -35,9 +35,11 @@ async function lastRequest(run: () => Promise<unknown>): Promise<Sent> {
 }
 
 describe("utility LLM reasoning effort per call site", () => {
-  before(() => __setUtilityLLMClientForTest(fakeClient));
+  // Installed per test, not once per suite: the sharded runner loads every file
+  // into one process, so another file's root-level afterEach that resets the
+  // client (routes.reviews.test.ts) runs after each test here too.
+  beforeEach(() => { reply = "{}"; __setUtilityLLMClientForTest(fakeClient); });
   after(() => __setUtilityLLMClientForTest(null));
-  beforeEach(() => { reply = "{}"; });
 
   it("the judgement helpers request low effort", async () => {
     assert.equal(JUDGEMENT_REASONING_EFFORT, "low");

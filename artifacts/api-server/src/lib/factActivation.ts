@@ -113,3 +113,16 @@ export async function activateFact(
   }
   return activated[0];
 }
+
+/**
+ * Record that a fact was approved for production, by whom and when (plan
+ * PLAN_FACT_LIFECYCLE_REBUILD.md, Source-of-Truth Analysis). The first approval
+ * is the one on record: a fact already approved keeps it, so a later
+ * activation never rewrites who approved it.
+ */
+export async function recordFirstApproval(tx: DbExecutor, factId: number, approvedById: string): Promise<void> {
+  await tx
+    .update(factsTable)
+    .set({ approvedAt: sql`now()`, approvedById, approvalSource: "moderator" })
+    .where(and(eq(factsTable.id, factId), isNull(factsTable.approvedAt)));
+}

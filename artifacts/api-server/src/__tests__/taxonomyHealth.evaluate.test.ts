@@ -238,9 +238,9 @@ describe("evaluateFactTaxonomyHealth", () => {
     assert.ok(h.statuses.includes("stale_for_reprocess"));
     const issue = h.issues.find((i) => i.code === "stale_for_reprocess");
     assert.equal(issue?.severity, "info");
-    assert.equal(issue?.recommendedAction, "send_back_to_review");
+    assert.equal(issue?.recommendedAction, "none");
     assert.notEqual(issue?.recommendedAction, "rerun_enrichment");
-    assert.match(issue!.message, /never been processed/);
+    assert.match(issue!.message, /never stamped/);
   });
 
   it("does NOT flag stale_for_reprocess when the signature matches current", () => {
@@ -262,7 +262,7 @@ describe("evaluateFactTaxonomyHealth", () => {
     });
     assert.equal(h.reviewFlags.staleForReprocess, true);
     const issue = h.issues.find((i) => i.code === "stale_for_reprocess");
-    assert.equal(issue?.recommendedAction, "send_back_to_review");
+    assert.equal(issue?.recommendedAction, "none");
     assert.match(issue!.message, /older engine revision/);
   });
 

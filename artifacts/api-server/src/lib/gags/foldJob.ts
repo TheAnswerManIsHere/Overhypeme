@@ -4,9 +4,8 @@
  *
  * Plan docs/plans/PLAN_GAG_DIRECT_RENDER.md, E. Run before any reader of the
  * eleven fields is removed (increment 3), over every renderable gag version:
- * approved and pending independently. A refresh's pending operations
- * (`pending_review_id`, `pending_remove`) and the example picks are never
- * touched; only the version's content changes.
+ * approved and pending independently. The example picks are never touched;
+ * only the version's content changes.
  *
  * Per version, two results:
  *   - fold: nothing to fold · converted · listed for a moderator · already

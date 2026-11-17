@@ -185,7 +185,7 @@ test.describe("Route-load smoke — no crash/reload loop, no error boundary", ()
 // takes the AI prep pipeline, and a staging fact's prep never finishes with no
 // AI key. So the facts these tests open are stubbed reads, and their writes
 // are answered by `stubFactWrites` the way `routes/admin.ts` answers them (the
-// wording lock's 409, the resubmit). Bulk import is the exception: it runs
+// wording lock's 409). Bulk import is the exception: it runs
 // against the real server.
 import type { Route } from "@playwright/test";
 import { adminFactRow, enrichmentWithConcept, stubAdminFacts, type AdminFactRow } from "./helpers/adminStubs";
@@ -228,9 +228,6 @@ async function stubFactWrites(page: Page, rows: AdminFactRow[], history = new Ma
     if (method === "PATCH" && sub === "/enrichment") {
       const body = req.postDataJSON() as { enrichment: unknown };
       return fulfill(route, { success: true, enrichment: body.enrichment });
-    }
-    if (method === "POST" && sub === "/resubmit-for-moderation") {
-      return fulfill(route, { success: true, workflowStage: "prep_pending", reviewId: 4242, factId: row.id });
     }
     if (method !== "PATCH" || sub !== "") return route.fallback();
 
@@ -326,7 +323,7 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await expect(entry.getByText(`→ ${LIVE}`, { exact: true }), "the history shows the wording it became").toBeVisible();
   });
 
-  test("PR242 9, 10, 13 — Resubmit shows on inactive facts and Send Back on active ones; no variant controls", async ({ page }) => {
+  test("PR242 7 — an active fact offers Deactivate; neither offers Send Back or Resubmit (removed, plan PLAN_FACT_LIFECYCLE_REBUILD.md 1H); no variant controls", async ({ page }) => {
     const ROOT = "{NAME} w1 juggles thunderstorms.";
     const INACTIVE = "{NAME} w1 once out-stared a glacier.";
     const root = adminFactRow({ id: 96301, text: ROOT });
@@ -340,31 +337,33 @@ test.describe("7b — Facts page and fact lifecycle (PR228, PR242)", () => {
     await page.goto("/admin/facts");
     await selectFact(page, 96301, ROOT);
 
-    // Steps 13 and 9: an active fact shows Send Back to Review, and no Resubmit.
-    await expect(page.getByTestId("send-back-button"), "PR242 steps 9/13: an active fact shows Send Back to Review").toHaveText("Send Back to Review");
-    await expect(page.getByTestId("resubmit-for-moderation-button"), "PR242 step 13: no Resubmit for Moderation button on an active fact").toHaveCount(0);
+    // An active fact offers Deactivate, and no Send Back to Review or Resubmit.
+    await expect(page.getByTestId("deactivate-fact-button"), "an active fact can be deactivated").toHaveText("Deactivate Fact");
+    await expect(page.getByTestId("send-back-button"), "Send Back to Review is removed").toHaveCount(0);
+    await expect(page.getByTestId("resubmit-for-moderation-button"), "Resubmit for Moderation is removed").toHaveCount(0);
+    // The confirmation says Deactivate is one-way for now, before the admin presses it.
+    await page.getByTestId("deactivate-fact-button").click();
+    await expect(page.getByText(/can't be reactivated from the admin yet/), "the confirmation says there is no way back yet").toBeVisible();
+    await page.getByTestId("deactivate-fact-confirm").locator("..").getByRole("button", { name: "Cancel", exact: true }).click();
     // Variants are retired (plan PLAN_RETIRE_VARIANTS.md): no way to add one, and no nesting in the list.
     await expect(page.getByRole("button", { name: /add variant/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /expand variants/i })).toHaveCount(0);
 
-    // Steps 9 and 10: an inactive fact shows Resubmit for Moderation, and resubmitting names the review and Stage 1.
+    // An inactive fact has no route back yet (Reactivate arrives with the fact sheet), and nothing to deactivate.
     await selectFact(page, 96302, INACTIVE);
-    const resubmit = page.getByTestId("resubmit-for-moderation-button");
-    await expect(resubmit, "PR242 step 9: an inactive fact shows a Resubmit for Moderation button").toHaveText("Resubmit for Moderation");
-    await expect(page.getByTestId("send-back-button"), "PR242 step 9: Send Back to Review is not offered on an inactive fact").toHaveCount(0);
+    await expect(page.getByTestId("resubmit-for-moderation-button"), "Resubmit for Moderation is removed").toHaveCount(0);
+    await expect(page.getByTestId("send-back-button")).toHaveCount(0);
+    await expect(page.getByTestId("deactivate-fact-button"), "an inactive fact is not offered Deactivate").toHaveCount(0);
 
     // Step 7: the editor refuses the toggle itself and says why, so no false→true save can be sent.
-    const activeToggle = page.getByTitle("Deactivated — re-moderate to reactivate");
+    // It names no route back: moderation no longer reactivates a fact (plan PLAN_FACT_LIFECYCLE_REBUILD.md 1H).
+    const activeToggle = page.getByTitle("Deactivated — can't be reactivated yet");
     await expect(activeToggle, "PR242 step 7: toggling an inactive fact Active is refused").toBeDisabled();
     await expect(
-      page.getByText("Deactivated facts can only go live again through moderation.", { exact: true }),
-      "PR242 step 7: the refusal says activation is through moderation",
+      page.getByText("A deactivated fact can't be reactivated from the admin yet.", { exact: true }),
+      "PR242 step 7: the refusal says there is no way back yet",
     ).toBeVisible();
-    await resubmit.click();
-    await expect(
-      page.getByText(/^Resubmitted for moderation/),
-      "PR242 step 10: the message reads Resubmitted for moderation — Review #… is back in the queue at Stage 1",
-    ).toHaveText(/^Resubmitted for moderation — Review #4242 is back in the queue at Stage 1\./);
+    await expect(page.getByText(/through moderation|re-moderate/i), "no hint points at a removed route").toHaveCount(0);
 
   });
 

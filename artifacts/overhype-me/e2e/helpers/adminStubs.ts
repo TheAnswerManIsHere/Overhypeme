@@ -143,14 +143,11 @@ export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStr
         grandfathered: isActive,
         approvedAt: isActive ? CREATED : null,
         pendingContent: isActive ? null : gag,
-        pendingReviewId: null,
         pendingExamples: { male: null, female: null, pet: null },
-        pendingRemove: false,
-        refreshedSinceApproval: false,
         renders: { male: null, female: null, pet: null },
       }]
     : [];
-  return { factId, isActive, review, frozenOutsideReview: false, gags, maxGags: 3 };
+  return { factId, isActive, review, gags, maxGags: 3 };
 }
 
 function json(route: Route, body: unknown, status = 200): Promise<void> {
@@ -249,7 +246,6 @@ export async function stubConceptReview(
     hashtags: ["legend"],
     enrichment: null,
     enrichmentStatus: "ok",
-    candidateVersionId: null,
     rendersRunning: false,
     renderReviewState: null,
   };

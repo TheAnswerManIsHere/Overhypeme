@@ -161,17 +161,8 @@ export interface GagView {
   grandfathered: boolean;
   approvedAt: string | null;
   pendingContent: VisualPromptStrategyOverride | null;
-  /** Inside a refresh: the review that owns the pending picks or removal. */
-  pendingReviewId: number | null;
-  /**
-   * Picks for the content being worked on, per kind. Outside a refresh the
-   * third pick applies the change; inside one, the picks apply at promotion.
-   */
+  /** Picks for the content being worked on, per kind; the third pick applies the change. */
   pendingExamples: PerKind<GagExample | null>;
-  /** Inside a refresh: removal requested, landing at promotion. */
-  pendingRemove: boolean;
-  /** The approved version predates the fact's latest refresh (shown as a note; never hides the gag). */
-  refreshedSinceApproval: boolean;
   /**
    * This gag's render of its current content, per kind: the attempt the
    * scheduler reused or drew for that content (null when none was drawn).
@@ -184,9 +175,7 @@ export interface FactGagsView {
   factId: number;
   isActive: boolean;
   /** The fact's open review, if any. */
-  review: { id: number; stage: string; refresh: boolean } | null;
-  /** True when a refresh is open: gags are edited only in its review. */
-  frozenOutsideReview: boolean;
+  review: { id: number; stage: string } | null;
   gags: GagView[];
   maxGags: number;
 }

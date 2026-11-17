@@ -60,11 +60,11 @@ describe("queueHealth — derived statuses", () => {
     // contract makes "skipped" first-class and forbids collapsing it into a
     // checkmark, so it has to be derived or it is unreachable.
     const { displayStatus, skipReason } = deriveDisplayStatus(
-      { status: "done", result: { skipped: true, reason: "not_active" }, attempts: 1, maxAttempts: 5 },
+      { status: "done", result: { skipped: true, reason: "already_current" }, attempts: 1, maxAttempts: 5 },
       5,
     );
     assert.equal(displayStatus, "skipped");
-    assert.equal(skipReason, "not_active");
+    assert.equal(skipReason, "already_current");
   });
 
   it("leaves an ordinary success as `done`", () => {
@@ -148,7 +148,7 @@ describe("queueHealth — derived statuses", () => {
   });
 
   it("sanitizes skip reasons against the closed set", () => {
-    assert.equal(sanitizeSkipReason("not_active"), "not_active");
+    assert.equal(sanitizeSkipReason("already_current"), "already_current");
     assert.equal(sanitizeSkipReason("admin_edited"), "admin_edited");
     // A handler can put anything in `result`. An admin surface must not echo it.
     assert.equal(sanitizeSkipReason("Resend said: <script>alert(1)</script>"), "other");
@@ -274,7 +274,7 @@ describe("queueHealth — aggregate and per-item altitudes agree", () => {
       queue,
       payload: {},
       status: "done",
-      result: { skipped: true, reason: "not_active" },
+      result: { skipped: true, reason: "already_current" },
     });
 
     const agg = (await queueHealth(db)).find((q) => q.queue === queue);
@@ -284,7 +284,7 @@ describe("queueHealth — aggregate and per-item altitudes agree", () => {
     const page = await queueHealthJobs({ queue }, db);
     assert.equal(page.rows.length, 1);
     assert.equal(page.rows[0]?.displayStatus, "skipped", "rendered with its own state per-item");
-    assert.equal(page.rows[0]?.skipReason, "not_active");
+    assert.equal(page.rows[0]?.skipReason, "already_current");
   });
 
   it("counts a never-retried failure at BOTH altitudes", async () => {

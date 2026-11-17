@@ -51,7 +51,7 @@ import pg from "pg";
 import { TABLE_CLASSIFICATION } from "@workspace/db/table-classification";
 import { adminValues, exhaustedSequences, orphans, rowCounts } from "../src/lib/databaseChecks.js";
 import { pgCommandConnection } from "../src/lib/pgCommandLine.js";
-import { isRetiredSettingValue, mergeLosses, retiredSettingLosses, variantRetirementLosses } from "../src/lib/retirementLosses.js";
+import { isRetiredSettingValue, mergeLosses, refreshRetirementLosses, retiredSettingLosses, variantRetirementLosses } from "../src/lib/retirementLosses.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -113,8 +113,9 @@ async function main(): Promise<void> {
     await db.connect();
     const before = await rowCounts(db);
     // Intended deletions, counted before they run: migration 0142's retired
-    // variants, and the admin_config rows of settings a migration retires (0149).
-    const intended = mergeLosses(await variantRetirementLosses(db), await retiredSettingLosses(db));
+    // variants, 0151's retired refresh and resubmission reviews, and the
+    // admin_config rows of settings a migration retires (0149).
+    const intended = mergeLosses(await variantRetirementLosses(db), await refreshRetirementLosses(db), await retiredSettingLosses(db));
     const settingsBefore = await adminValues(db);
     const ledgerBefore = Number((await db.query("SELECT count(*) AS n FROM drizzle.__drizzle_migrations")).rows[0].n);
     await db.end();

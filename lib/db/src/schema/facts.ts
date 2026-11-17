@@ -39,6 +39,18 @@ export const factsTable = pgTable("facts", {
   // 0139) enforces it even against raw SQL: a fact may be active only while it
   // has a non-removed gag with an approved version in fact_gags.
   isActive: boolean("is_active").notNull().default(false),
+  /**
+   * Whether this fact was ever approved for production, separate from
+   * `is_active` (false for a staging fact and a deactivated fact alike). Set
+   * once, at "Approve for production" (activateFact), and never cleared by a
+   * deactivation; the Facts list and Reactivate read it (plan
+   * PLAN_FACT_LIFECYCLE_REBUILD.md, Source-of-Truth Analysis). `approval_source`
+   * is 'moderator' for an approval a person recorded, 'legacy' for one migration
+   * 0152 established from older evidence, which records no approver.
+   */
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  approvedById: varchar("approved_by_id").references(() => usersTable.id, { onDelete: "set null" }),
+  approvalSource: varchar("approval_source", { length: 16 }).$type<"moderator" | "legacy">(),
   /** Who may see this once adult content exists (launch Phase 5, 0121): 'general' | 'adult'. Read by nothing yet. */
   audience: varchar("audience", { length: 10 }).notNull().default("general"),
   canonicalText: text("canonical_text"),
@@ -174,6 +186,12 @@ export const factsTable = pgTable("facts", {
   index("facts_primary_archetype_idx").on(table.primaryArchetype),
   index("facts_adult_suitability_idx").on(table.adultSuitability),
   check("facts_audience_check", sql`${table.audience} IN ('general','adult')`),
+  check(
+    "facts_approval_recorded_whole",
+    // Equalities, not IN (...): PostgreSQL stores an IN list differently depending
+    // on how the table was built, which the structure proof would read as drift.
+    sql`(${table.approvalSource} IS NULL) = (${table.approvedAt} IS NULL) AND (${table.approvalSource} IS NULL OR ${table.approvalSource} = 'moderator' OR ${table.approvalSource} = 'legacy')`,
+  ),
   // The partial `IDX_facts_eval_golden` (WHERE eval_golden) is migration-only —
   // drizzle-kit's partial-index detection is brittle (see imagePromptAttempts.ts).
   // The rule that a live fact has an approved gag spans facts and fact_gags, so

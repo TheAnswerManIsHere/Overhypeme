@@ -3,15 +3,12 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, Brain, EyeOff, RefreshCw, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, Brain, EyeOff, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment, FactGagsView } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { GagsPanel } from "@/components/admin/gags/GagsPanel";
 import { LiveGagIdeas } from "@/components/admin/gags/LiveGagIdeas";
 import { DEFAULT_SUBJECT_EXAMPLE_NAMES } from "@/components/admin/subjectExampleNames";
-import { SendBackToReviewModal } from "@/components/admin/SendBackToReviewModal";
-import { sendFactBackToReview } from "@/components/admin/sendBackToReview";
-import { resubmitFactForModeration } from "@/components/admin/resubmitForModeration";
 import { FactEnrichmentVersionHistory, type EnrichmentVersionInfo } from "@/components/admin/FactEnrichmentVersionHistory";
 import { useDraftForm, CommitInterruption } from "@/components/admin/useDraftForm";
 import { patchFactDraft } from "@/components/admin/patchFactDraft";
@@ -398,18 +395,12 @@ export default function AdminFacts() {
   const [importResult, setImportResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard">(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Stale-fact refresh: the selected fact's version history + in-flight cycle
-  // (drives the send-back button state and the live-editor freeze notice).
+  // The selected fact's enrichment version history (read-only).
   const [versionInfo, setVersionInfo] = useState<EnrichmentVersionInfo | null>(null);
   const [versionInfoLoading, setVersionInfoLoading] = useState(false);
-  const [sendBackModal, setSendBackModal] = useState(false);
-  const [sendingBack, setSendingBack] = useState(false);
-  // Resubmit-for-moderation: the reactivation-gap fix — the mirror action for
-  // an INACTIVE fact (send-back-to-review only works on an active one).
-  const [resubmitting, setResubmitting] = useState(false);
 
   const [backfillingEnrichment, setBackfillingEnrichment] = useState(false);
   const [enrichmentBackfillResult, setEnrichmentBackfillResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -528,27 +519,30 @@ export default function AdminFacts() {
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function deleteFact(hard: boolean) {
+  // Deactivate: the only removal until the fact sheet's guarded delete (plan
+  // PLAN_FACT_LIFECYCLE_REBUILD.md, 1F). Members' memes, pictures and
+  // comments stay.
+  async function deleteFact() {
     if (!selectedFact) return;
     setDeleting(true);
     try {
-      const url = `/api/admin/facts/${selectedFact.id}${hard ? "?hard=true" : ""}`;
+      const url = `/api/admin/facts/${selectedFact.id}`;
       const res = await fetch(url, { method: "DELETE", credentials: "include" });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Delete failed");
       setFacts((prev) => prev.filter((f) => f.id !== selectedFact.id));
       setTotal((t) => t - 1);
       clearSelection();
-      setDeleteModal(null);
+      setShowDeleteModal(false);
     } catch (err) {
       setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
-      setDeleteModal(null);
+      setShowDeleteModal(false);
     } finally {
       setDeleting(false);
     }
   }
 
-  // ── Stale-fact refresh: version info + send-back ────────────────────────────
+  // ── Enrichment version history ──────────────────────────────────────────────
 
   const loadVersionInfo = useCallback(async (factId: number) => {
     setVersionInfoLoading(true);
@@ -566,59 +560,10 @@ export default function AdminFacts() {
 
   useEffect(() => {
     setVersionInfo(null);
-    setSendBackModal(false);
     if (selectedFact?.id != null) void loadVersionInfo(selectedFact.id);
     // Refetch only when the SELECTED FACT changes — mutations refetch explicitly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFact?.id, loadVersionInfo]);
-
-  async function sendBackToReview(clearOverrides: boolean) {
-    if (!selectedFact) return;
-    const factId = selectedFact.id;
-    setSendingBack(true);
-    try {
-      const result = await sendFactBackToReview(factId, { clearOverrides });
-      if (result.success) {
-        setSendBackModal(false);
-        setSaveResult({
-          type: "success",
-          message: `Sent back to review — Review #${result.reviewId} is preparing a refresh candidate. The fact stays live; approve or reject the refresh from the Moderation queue.`,
-        });
-        // The send-back flips the live pill to "classifying…" — mirror it locally.
-        setFacts((prev) => prev.map((f) => (f.id === factId ? { ...f, enrichmentStatus: "pending" } : f)));
-        setSelectedFact((prev) => (prev && prev.id === factId ? { ...prev, enrichmentStatus: "pending" } : prev));
-      } else {
-        setSendBackModal(false);
-        setSaveResult({ type: "error", message: result.error ?? "Send back failed" });
-      }
-      // Either way the in-flight state may have changed (success, or a
-      // REFRESH_ALREADY_IN_PROGRESS race) — refetch so the button/notice track it.
-      void loadVersionInfo(factId);
-    } finally {
-      setSendingBack(false);
-    }
-  }
-
-  async function resubmitForModeration() {
-    if (!selectedFact) return;
-    const factId = selectedFact.id;
-    setResubmitting(true);
-    try {
-      const result = await resubmitFactForModeration(factId);
-      if (result.success) {
-        setSaveResult({
-          type: "success",
-          message: `Resubmitted for moderation — Review #${result.reviewId} is back in the queue at Stage 1. Find it in the Moderation queue to re-approve.`,
-        });
-        setFacts((prev) => prev.map((f) => (f.id === factId ? { ...f, enrichmentStatus: "pending" } : f)));
-        setSelectedFact((prev) => (prev && prev.id === factId ? { ...prev, enrichmentStatus: "pending" } : prev));
-      } else {
-        setSaveResult({ type: "error", message: result.error ?? "Resubmit failed" });
-      }
-    } finally {
-      setResubmitting(false);
-    }
-  }
 
   async function handleImport() {
     setImporting(true);
@@ -703,91 +648,31 @@ export default function AdminFacts() {
 
   return (
     <AdminLayout title="Facts Management">
-      {/* Send Back to Review (stale-fact refresh) confirm modal */}
-      {sendBackModal && selectedFact && (
-        <SendBackToReviewModal
-          factId={selectedFact.id}
-          factText={selectedFact.text}
-          busy={sendingBack}
-          onCancel={() => setSendBackModal(false)}
-          onConfirm={(clearOverrides) => void sendBackToReview(clearOverrides)}
-        />
-      )}
-
       {/* Delete Modal */}
-      {deleteModal && selectedFact && (
+      {showDeleteModal && selectedFact && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-card border border-border rounded-lg w-full max-w-sm p-6 flex flex-col gap-5 shadow-xl">
-            {deleteModal === "choose" ? (
-              <>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
-                    <Trash2 className="w-5 h-5 text-destructive" />
-                  </div>
-                  <div>
-                    <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Delete Fact</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">#{selectedFact.id}</p>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground line-clamp-2 italic">"{selectedFact.text}"</p>
-                <p className="text-sm text-muted-foreground">Choose how to delete this fact:</p>
-                <div className="flex flex-col gap-2">
-                  <button
-                    onClick={() => deleteFact(false)}
-                    disabled={deleting}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-sm border border-border hover:border-yellow-500/50 hover:bg-yellow-500/5 text-left transition-colors disabled:opacity-50"
-                  >
-                    <EyeOff className="w-5 h-5 text-yellow-500 shrink-0" />
-                    <div>
-                      <div className="text-sm font-medium text-foreground">Soft Delete</div>
-                      <div className="text-xs text-muted-foreground">Marks the fact as inactive. Data is preserved.</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setDeleteModal("confirm-hard")}
-                    disabled={deleting}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-sm border border-border hover:border-destructive/50 hover:bg-destructive/5 text-left transition-colors disabled:opacity-50"
-                  >
-                    <Trash2 className="w-5 h-5 text-destructive shrink-0" />
-                    <div>
-                      <div className="text-sm font-medium text-foreground">Hard Delete</div>
-                      <div className="text-xs text-muted-foreground">Permanently removes the row from the database.</div>
-                    </div>
-                  </button>
-                </div>
-                <Button variant="outline" onClick={() => setDeleteModal(null)} className="w-full">
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
-                    <Trash2 className="w-5 h-5 text-destructive" />
-                  </div>
-                  <div>
-                    <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Confirm Hard Delete</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">This action cannot be undone.</p>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  You are about to <span className="text-destructive font-semibold">permanently delete</span> fact{" "}
-                  <span className="font-medium text-foreground">#{selectedFact.id}</span> and all its data. This cannot be reversed.
-                </p>
-                <div className="flex gap-3">
-                  <Button
-                    onClick={() => deleteFact(true)}
-                    isLoading={deleting}
-                    className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground border-destructive"
-                  >
-                    <Trash2 className="w-4 h-4" /> Delete Forever
-                  </Button>
-                  <Button variant="outline" onClick={() => setDeleteModal("choose")} className="flex-1" disabled={deleting}>
-                    Back
-                  </Button>
-                </div>
-              </>
-            )}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                <EyeOff className="w-5 h-5 text-destructive" />
+              </div>
+              <div>
+                <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Deactivate Fact</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">#{selectedFact.id}</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground line-clamp-2 italic">"{selectedFact.text}"</p>
+            <p className="text-sm text-muted-foreground">
+              Takes the fact off the site. Members' memes, pictures and comments are kept. It can't be reactivated from the admin yet.
+            </p>
+            <div className="flex gap-3">
+              <Button onClick={() => void deleteFact()} isLoading={deleting} className="flex-1" data-testid="deactivate-fact-confirm">
+                <EyeOff className="w-4 h-4" /> Deactivate
+              </Button>
+              <Button variant="outline" onClick={() => setShowDeleteModal(false)} className="flex-1" disabled={deleting}>
+                Cancel
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -878,7 +763,7 @@ export default function AdminFacts() {
                   fact={fact}
                   isSelected={selectedFact?.id === fact.id}
                   onSelect={() => selectFact(fact)}
-                  onDelete={() => { selectFact(fact); setDeleteModal("choose"); }}
+                  onDelete={() => { selectFact(fact); setShowDeleteModal(true); }}
                 />
               ))
             )}
@@ -1002,7 +887,7 @@ export default function AdminFacts() {
                 <p className="text-xs text-muted-foreground">
                   {draft.isActive
                     ? "Inactive facts are hidden from the public."
-                    : "Deactivated facts can only go live again through moderation."}
+                    : "A deactivated fact can't be reactivated from the admin yet."}
                 </p>
               </div>
               <button
@@ -1012,7 +897,7 @@ export default function AdminFacts() {
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
                   draft.isActive ? "bg-green-500" : "bg-muted-foreground/30 cursor-not-allowed opacity-60"
                 }`}
-                title={draft.isActive ? "Click to deactivate" : "Deactivated — re-moderate to reactivate"}
+                title={draft.isActive ? "Click to deactivate" : "Deactivated — can't be reactivated yet"}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
                   draft.isActive ? "translate-x-6" : "translate-x-1"
@@ -1076,35 +961,15 @@ export default function AdminFacts() {
                 Edit + autosave the metadata, regenerate the visual preview, or
                 re-run classification to tune a fact rendering bad images.
                 Collapsible; starts closed. */}
-            {/* Refresh in review: the live enrichment is frozen (server-enforced);
-                the notice + disabled editor make that visible instead of 409s. */}
-            {versionInfo?.inFlight && (
-              <div
-                className="flex items-start gap-2 rounded-sm border border-amber-500/50 bg-amber-500/10 px-3 py-2.5"
-                data-testid="refresh-in-flight-notice"
-              >
-                <RefreshCw className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-sm text-amber-700 dark:text-amber-300">
-                  <strong>Refresh in review</strong> — this fact's enrichment is frozen while review
-                  {versionInfo.inFlight.reviewId != null ? ` #${versionInfo.inFlight.reviewId}` : ""} is in progress.
-                  Edit the refresh candidate from the{" "}
-                  <a href="/admin/moderation" className="underline hover:opacity-80">Moderation queue</a>, or approve/reject
-                  it there to unfreeze this editor. The live fact keeps serving its current enrichment meanwhile.
-                </p>
-              </div>
-            )}
-
             <div className="border-t border-border pt-3">
               <FactEnrichmentPanel
                 key={selectedFact.id}
                 fact={selectedFact}
                 onSaved={(resp) => applyEnrichmentSave(selectedFact.id, resp)}
-                disabled={Boolean(versionInfo?.inFlight)}
-                disabledReason="Read-only: a refresh is in review for this fact. Edit the candidate from the Moderation queue."
               />
             </div>
 
-            {/* Enrichment version history (read-only; stale-fact refresh) */}
+            {/* Enrichment version history (read-only) */}
             <div className="border-t border-border pt-3">
               <FactEnrichmentVersionHistory info={versionInfo} loading={versionInfoLoading} />
             </div>
@@ -1160,56 +1025,18 @@ export default function AdminFacts() {
               </Button>
             </div>
 
-            {/* Send back to review (stale-fact refresh) — live facts only. */}
             {selectedFact.isActive && (
               <div className="border-t border-border pt-3">
                 <Button
                   variant="outline"
-                  onClick={() => setSendBackModal(true)}
-                  disabled={Boolean(versionInfo?.inFlight) || versionInfoLoading}
-                  className="w-full text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/10 hover:border-blue-500/60 gap-2"
-                  data-testid="send-back-button"
+                  onClick={() => setShowDeleteModal(true)}
+                  className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
+                  data-testid="deactivate-fact-button"
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  {versionInfo?.inFlight ? "Refresh in review" : "Send Back to Review"}
+                  <EyeOff className="w-4 h-4" /> Deactivate Fact
                 </Button>
-                <p className="text-xs text-muted-foreground mt-1.5">
-                  Re-runs enrichment with the current pipeline as a refresh candidate for moderator approval. The fact
-                  stays live throughout.
-                </p>
               </div>
             )}
-
-            {/* Resubmit for moderation — inactive facts only (the reactivation-gap
-                fix: deactivating a fact is otherwise a dead end). */}
-            {!selectedFact.isActive && (
-              <div className="border-t border-border pt-3">
-                <Button
-                  variant="outline"
-                  onClick={() => void resubmitForModeration()}
-                  disabled={resubmitting}
-                  className="w-full text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/10 hover:border-blue-500/60 gap-2"
-                  data-testid="resubmit-for-moderation-button"
-                >
-                  {resubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  Resubmit for Moderation
-                </Button>
-                <p className="text-xs text-muted-foreground mt-1.5">
-                  Puts this fact back through moderation (Stage 1 enrichment → Visual Concept → production approval)
-                  under its existing id. It only goes live again once re-approved.
-                </p>
-              </div>
-            )}
-
-            <div className="border-t border-border pt-3">
-              <Button
-                variant="outline"
-                onClick={() => setDeleteModal("choose")}
-                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
-              >
-                <Trash2 className="w-4 h-4" /> Delete Fact
-              </Button>
-            </div>
 
             </div>{/* end scrollable body */}
           </div>

@@ -45,7 +45,6 @@ export interface HashedContextGag {
 export interface VisualConceptHashInputs {
   /** The review cycle; null for a live draft (Draft more gags). */
   reviewId: number | null;
-  candidateVersionId: number | null;
   source: VisualConceptSource;
   factText: string;
   enrichment: FactEnrichment;
@@ -96,7 +95,9 @@ export function buildVisualConceptInputHash(inputs: VisualConceptHashInputs): st
     conceptPromptVersion: VISUAL_CONCEPTS_PROMPT_VERSION,
     archetypeStrategyVersion: VISUAL_STRATEGY_VERSION,
     reviewId: inputs.reviewId,
-    candidateVersionId: inputs.candidateVersionId,
+    // Refresh reviews are gone; the key stays null so every stored idea set
+    // keeps its hash. It leaves with the gag-writer relock's hash rework.
+    candidateVersionId: null,
     source: inputs.source,
     factText: inputs.factText,
     enrichment: writerAffectingEnrichment(inputs.enrichment),

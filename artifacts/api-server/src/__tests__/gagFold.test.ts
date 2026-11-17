@@ -165,9 +165,7 @@ describe("the fold job", () => {
     assert.deepEqual(ac.cast, [{ label: "dog", description: "the dog" }], "the cast is read from the folded scene");
     assert.equal(pc.coreSceneOverride, "{NAME} lifts a bus. driver: honks.");
     assert.deepEqual(pc.cast, [{ label: "driver", description: "the driver" }]);
-    assert.equal(after.pendingRemove, before.pendingRemove, "a refresh's removal mark is untouched");
-    assert.equal(after.pendingReviewId, before.pendingReviewId);
-    assert.equal(after.pendingBy, before.pendingBy);
+    assert.equal(after.pendingBy, before.pendingBy, "the change's author is untouched");
 
     const archive = await db.select().from(factGagFoldArchiveTable).where(eq(factGagFoldArchiveTable.gagId, gagId));
     assert.equal(archive.length, 2);

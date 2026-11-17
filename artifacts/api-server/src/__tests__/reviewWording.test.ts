@@ -9,8 +9,7 @@
  *   - a triage edit racing acceptance, in both completion orders, locks the
  *     edited wording or refuses the edit, never the stale wording;
  *   - Withdraw ends a submission past triage for good: it leaves the queue
- *     and the submitter's pending count, its fact can never go live, and it
- *     cannot be resubmitted.
+ *     and the submitter's pending count, and its fact can never go live.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -24,7 +23,6 @@ import { UNRESOLVED_SUBMISSION_STAGE_VALUES } from "@workspace/api-zod";
 
 import reviewsRouter from "../routes/reviews.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
-import { resubmitInactiveFactForModeration, ResubmitForModerationError } from "../lib/resubmitForModeration.js";
 import { findPendingReviewWithText } from "../routes/ai.js";
 import { advanceReviewForStagingFactEnrichment } from "../lib/moderationStaging.js";
 
@@ -175,7 +173,7 @@ describe("the wording locks on acceptance", () => {
 });
 
 describe("Withdraw: wording needs replacing", () => {
-  it("ends the submission for good: off the queue and the pending count, never live, never resubmitted", async () => {
+  it("ends the submission for good: off the queue and the pending count, never live", async () => {
     const id = await triageReview();
     assert.equal((await accept(id)).status, 200);
     const unresolved = async () => (await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedById, submitterId)))
@@ -195,7 +193,6 @@ describe("Withdraw: wording needs replacing", () => {
     assert.ok(fact!.wordingWithdrawnAt);
     assert.equal(fact!.isActive, false);
     await assert.rejects(db.update(factsTable).set({ isActive: true }).where(eq(factsTable.id, fact!.id)), "the database keeps it inactive");
-    await assert.rejects(resubmitInactiveFactForModeration({ factId: fact!.id, adminId }), (err: unknown) => err instanceof ResubmitForModerationError && err.code === "WORDING_WITHDRAWN");
 
     const again = await request(app).post(url(id, "withdraw")).send({});
     assert.equal(again.status, 409);

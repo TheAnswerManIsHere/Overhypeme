@@ -29,9 +29,10 @@ import { logger } from "../../lib/logger";
 import { memeKey } from "../../lib/storageKeys";
 import { includedTables, primaryKey, quoteIdent, sqlColumnRules, sqlName } from "./allowlist";
 import type { ExportManifest, Row } from "./export";
-import { journalHead } from "./journal";
+import { journalHead, migrationSql } from "./journal";
 import { RETIRED_ADMIN_CONFIG_KEYS } from "../../lib/retirementLosses";
 import { objectPathOf, type MediaPlaceholder } from "./media";
+import { fixtureRetirement, retireRows, withoutRetired, type FixtureRetirement } from "./retired";
 
 /** Tables whose rows are product configuration: upserted over the migration seed rather than inserted. */
 const CONFIG_TABLES = new Set([
@@ -80,7 +81,7 @@ export function verifyFixtureFiles(fixtureDir: string, manifest: ExportManifest)
 export async function loadFixtureRows(
   fixtureDir: string,
   targetUrl: string,
-): Promise<{ manifest: ExportManifest; rowCounts: Record<string, number>; migrationHeads: LoadReport["migrationHeads"] }> {
+): Promise<{ manifest: ExportManifest; rowCounts: Record<string, number>; migrationHeads: LoadReport["migrationHeads"]; retirement: FixtureRetirement }> {
   const manifest = readManifest(fixtureDir);
   const bad = verifyFixtureFiles(fixtureDir, manifest);
   if (bad.length) throw new Error(`[legacy-fixture] the fixture's files do not match its manifest:\n  ${bad.join("\n  ")}`);
@@ -89,6 +90,11 @@ export async function loadFixtureRows(
   await client.connect();
   const rowCounts: Record<string, number> = {};
   const journal = journalHead();
+  // Each table's rows are read once: the retirement and the insert loop share them.
+  const cache = new Map<string, Row[]>();
+  const rowsOf = (table: string): Row[] => cache.get(table) ?? cache.set(table, readRows(fixtureDir, table)).get(table)!;
+  const retirement = fixtureRetirement(rowsOf);
+  const retiredAt = new Date().toISOString();
   try {
     // The target must be empty of people, facts and memes: the loader inserts the fixture's own ids.
     for (const t of ["users", "facts", "memes"]) {
@@ -111,12 +117,13 @@ export async function loadFixtureRows(
     await client.query("BEGIN");
     for (const entry of includedTables()) {
       const table = sqlName(entry.table);
-      const allRows = readRows(fixtureDir, table);
-      rowCounts[table] = allRows.length;
-      // A setting a migration retired is not restored over its deletion (0149).
+      // A setting a migration retired is not restored over its deletion (0149),
+      // and nor are the refresh and resubmission reviews 0151 retired.
+      const allRows = retireRows(table, rowsOf(table), retirement, retiredAt);
       const rows = table === "admin_config"
         ? allRows.filter((r) => !RETIRED_ADMIN_CONFIG_KEYS.includes(String((r as Record<string, unknown>)["key"])))
         : allRows;
+      rowCounts[table] = rows.length;
       if (rows.length === 0) continue;
       const columns = sqlColumnRules(entry).filter((c) => c.rule !== "drop").map((c) => c.column);
       const colList = columns.map(quoteIdent).join(", ");
@@ -151,6 +158,13 @@ export async function loadFixtureRows(
         [seq],
       );
     }
+    // 0152 again, whole: the fixture predates its columns, so its facts get the
+    // "ever approved" backfill a migrated database would hold (allowlist:
+    // "drop"). Every other statement in it is a no-op on a migrated database.
+    // Its ALTERs refuse a table with pending trigger events, and the rows just
+    // loaded queued the deferred live-fact trigger: those checks run first.
+    await client.query("SET CONSTRAINTS ALL IMMEDIATE");
+    await client.query(migrationSql("0152_admin_actions_and_ever_approved"));
     await client.query(
       `SELECT setval('membership_source_state_seq', GREATEST(COALESCE((SELECT max(source_state_as_of) FROM public.membership_entitlements), 0), 1), (SELECT count(*) > 0 FROM public.membership_entitlements))`,
     );
@@ -161,7 +175,7 @@ export async function loadFixtureRows(
   } finally {
     await client.end();
   }
-  return { manifest, rowCounts, migrationHeads: { fixture: manifest.migrationHead.journalEntries, code: journal.entries } };
+  return { manifest, rowCounts, migrationHeads: { fixture: manifest.migrationHead.journalEntries, code: journal.entries }, retirement };
 }
 
 function placeholderBytes(p: { ext: string; width: number; height: number }): { buffer: Buffer; contentType: string } {
@@ -210,11 +224,13 @@ export async function writePlaceholders(manifest: ExportManifest): Promise<numbe
 
 /** The whole load. DATABASE_URL must name the target: the predicate pass runs the app's own readers against it. */
 export async function loadLegacyFixture(fixtureDir: string, targetUrl: string): Promise<LoadReport> {
-  const { manifest, rowCounts, migrationHeads } = await loadFixtureRows(fixtureDir, targetUrl);
+  const { manifest, rowCounts, migrationHeads, retirement } = await loadFixtureRows(fixtureDir, targetUrl);
   const placeholdersWritten = await writePlaceholders(manifest);
   const { comparePredicates, evaluatePredicates, restorePredicates } = await import("./predicates");
-  const restoreProblems = await restorePredicates(manifest.predicates);
-  const actual = await evaluatePredicates();
-  const predicateProblems = [...restoreProblems, ...comparePredicates(manifest.predicates, actual)];
+  // Rows 0151 retired or changed have no recorded outcome to check, on either side.
+  const expected = withoutRetired(manifest.predicates, retirement);
+  const restoreProblems = await restorePredicates(expected);
+  const actual = withoutRetired(await evaluatePredicates(), retirement);
+  const predicateProblems = [...restoreProblems, ...comparePredicates(expected, actual)];
   return { rowCounts, placeholdersWritten, predicateProblems, migrationHeads };
 }

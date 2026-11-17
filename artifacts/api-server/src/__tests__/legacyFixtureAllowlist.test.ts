@@ -166,7 +166,7 @@ describe("the scrub primitives", () => {
     assert.equal(rules.humorNote, "prose");
     const read = "A revolving door cannot be slammed; Alex slams one anyway.";
     const blob = {
-      candidates: [], generatedAt: "2026-11-13T00:00:00Z", inputHash: "h", reviewId: 1, candidateVersionId: null, source: "staging_fact",
+      candidates: [], generatedAt: "2026-11-13T00:00:00Z", inputHash: "h", reviewId: 1, source: "staging_fact",
       provenance: { engineId: "openai-gag-writer", model: "gpt-6-astra", reasoningEffort: "high", timeoutMs: 1, promptVersion: 3 },
       jokeRead: read, humorNoteUsed: "The note it was written under.",
     };

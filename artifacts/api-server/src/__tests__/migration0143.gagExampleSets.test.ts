@@ -9,8 +9,9 @@
  *   - a second run changes nothing;
  *   - both arrival orders: the runner first, and Replit's schema diff first
  *     (the table and column created, the old checks dropped, then the runner);
- *   - afterwards a migrated refresh can be discarded, declined, and completed
- *     and promoted, and the retained columns stay as they were;
+ *   - afterwards a migrated pick can be discarded, and completed and approved,
+ *     and the retained columns stay as they were (a refresh's decline and
+ *     promotion are retired: plan PLAN_FACT_LIFECYCLE_REBUILD.md, 1H);
  *   - the reverse script restores the prior structure exactly, and refuses once
  *     a set was approved or a migrated pick discarded or declined.
  *
@@ -28,11 +29,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
-import { db, pool } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
+import { db, factGagsTable, pool } from "@workspace/db";
 
-import { applyReviewGagOps, cancelReviewGagOps, discardGagChange } from "../lib/gags/gagStore.js";
-import { putExample } from "../lib/gags/examples.js";
+import { discardGagChange } from "../lib/gags/gagStore.js";
+import { applyPendingSetIfComplete, putExample } from "../lib/gags/examples.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -59,6 +60,9 @@ async function toPre0143(): Promise<void> {
   await db.execute(sql`UPDATE fact_gags SET approved_carried_over = true
      WHERE approved_content IS NOT NULL AND approved_example_attempt_id IS NULL AND NOT approved_carried_over`);
   await db.execute(sql.raw(`
+    -- 0153 dropped these two; 0143 ran while they existed (as 0139 made them).
+    ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_review_id integer REFERENCES pending_reviews(id) ON DELETE SET NULL;
+    ALTER TABLE fact_gags ADD COLUMN IF NOT EXISTS pending_remove boolean NOT NULL DEFAULT false;
     DROP TRIGGER IF EXISTS fact_gags_example_set ON fact_gags;
     DROP TABLE IF EXISTS fact_gag_examples;
     DROP FUNCTION IF EXISTS enforce_gag_example_set();
@@ -197,6 +201,12 @@ describe("migration 0143: a gag's examples, one per kind", () => {
   after(async () => {
     await db.execute(sql.raw(MIGRATION_SQL));
     await cleanup();
+    // And back to the structure every later migration leaves (0153's drops).
+    await db.execute(sql.raw(`
+      ALTER TABLE fact_gags DROP CONSTRAINT IF EXISTS fact_gags_pending_ops_owned;
+      ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_remove;
+      ALTER TABLE fact_gags DROP COLUMN IF EXISTS pending_review_id;
+    `));
   });
 
   describe("the runner first", () => {
@@ -234,12 +244,12 @@ describe("migration 0143: a gag's examples, one per kind", () => {
       await assertMatrix(s);
     });
 
-    it("a migrated refresh pick can be completed and promoted; the retained columns stay as they were", async () => {
+    it("a migrated pick can be completed and approved; the retained columns stay as they were", async () => {
       await db.transaction(async (tx) => {
         await putExample(tx, s.refreshing, "male", "pending", await attempt(s.refreshingFact, s.refreshing, "i2i_male_default"), adminId);
         await putExample(tx, s.refreshing, "pet", "pending", await attempt(s.refreshingFact, s.refreshing, "i2i_nonhuman_animal"), adminId);
-        const r = await applyReviewGagOps(tx, s.refreshingFact, s.refreshReview, adminId);
-        assert.equal(r.approved, 1);
+        const [row] = await tx.select().from(factGagsTable).where(eq(factGagsTable.id, s.refreshing));
+        assert.ok(await applyPendingSetIfComplete(tx, row!, adminId), "the third pick applies the change");
       });
       const kinds = (await examplesOf(s.refreshing)).filter((e) => e.stage === "approved").map((e) => e.subject_kind);
       assert.deepEqual(kinds, ["female", "male", "pet"]);
@@ -262,7 +272,7 @@ describe("migration 0143: a gag's examples, one per kind", () => {
     });
   });
 
-  describe("after the migration: a refresh discarded or declined, and the reverse", () => {
+  describe("after the migration: a pick discarded, and the reverse", () => {
     let s: Seed;
     before(async () => {
       await toPre0143();
@@ -309,21 +319,7 @@ describe("migration 0143: a gag's examples, one per kind", () => {
       }
     });
 
-    it("a migrated refresh can be declined, and the reverse then refuses rather than half-apply", async () => {
-      await db.transaction(async (tx) => { await cancelReviewGagOps(tx, s.retiredReview); });
-      const f = await one<{ rid: number | null }>(sql`SELECT pending_review_id AS rid FROM fact_gags WHERE id = ${s.refreshingRetired}`);
-      assert.equal(f.rid, null);
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await assert.rejects(client.query(REVERSE_SQL), /refused/);
-      } finally {
-        await client.query("ROLLBACK");
-        client.release();
-      }
-    });
-
-    it("a migrated refresh can be discarded, and the retained column stays as it was", async () => {
+    it("a migrated pick can be discarded, and the retained column stays as it was", async () => {
       await discardGagChange(s.refreshingFact, s.refreshing, { adminId, reviewId: s.refreshReview });
       assert.deepEqual(await examplesOf(s.refreshing), [], "the pick goes with the change");
       const f = await flagsOf(s.refreshing);

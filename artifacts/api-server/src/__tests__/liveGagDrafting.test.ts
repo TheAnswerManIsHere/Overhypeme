@@ -3,7 +3,7 @@
  * (plan docs/plans/PLAN_THREE_GAGS.md, increment 2, Testing Plan item 11):
  *
  *   - the request lists every gag in slot order, the version being worked on,
- *     a gag marked for removal left out; the input hash covers the same list;
+ *     a removed gag left out; the input hash covers the same list;
  *   - Draft more gags is refused while a review is open, for a fact that is
  *     not live, and while a generation is still working;
  *   - one owner per generation: with a delayed generation double, a live
@@ -12,6 +12,9 @@
  *     abandonment does too.
  *
  * No worker runs: the handler is invoked directly with a stub generator.
+ * Since refresh reviews were removed (plan PLAN_FACT_LIFECYCLE_REBUILD.md,
+ * 1H), no route opens a review on a live fact; the ownership cases open one
+ * directly, as the rule still has to hold for any review that holds a fact.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -38,7 +41,7 @@ import {
   type FactVisualConceptsJobPayload,
   type VisualConceptsJobDeps,
 } from "../lib/visualConceptJobs.js";
-import { sendFactBackToReview } from "../lib/sendBackToReview.js";
+import { claimConceptsForReview } from "../lib/visualConceptOwner.js";
 import { withCast } from "./helpers/gagCast.js";
 
 const RUN = randomUUID().slice(0, 8);
@@ -100,12 +103,13 @@ const liveJob = async (factId: number) =>
     .map((j) => j.payload as FactVisualConceptsJobPayload)
     .filter((p) => p.factId === factId && p.reviewId == null)
     .at(-1)!;
-/** Open a refresh on a live fact, with its candidate classified and its review at the Gags step. */
-async function openRefresh(factId: number): Promise<number> {
-  const { reviewId, candidateVersionId } = await sendFactBackToReview({ factId, adminId });
-  await db.update(factEnrichmentVersionsTable).set({ enrichment: buildPlaceholderFactEnrichment() as never }).where(eq(factEnrichmentVersionsTable.id, candidateVersionId));
-  await db.update(pendingReviewsTable).set({ workflowStage: "concept_review" }).where(eq(pendingReviewsTable.id, reviewId));
-  return reviewId;
+/** Open a review on a fact at the Gags step; it takes the fact's ideas, as a review does when it opens. */
+async function openReview(factId: number): Promise<number> {
+  const [review] = await db.insert(pendingReviewsTable).values({
+    submittedText: `{NAME} review ${RUN}`, submittedById: adminId, status: "pending", workflowStage: "concept_review", stagingFactId: factId,
+  }).returning({ id: pendingReviewsTable.id });
+  await claimConceptsForReview(db, factId, review!.id);
+  return review!.id;
 }
 
 const titles = (blob: unknown) => ((blob as { candidates?: Array<{ title: string }> } | null)?.candidates ?? []).map((c) => c.title);
@@ -131,10 +135,10 @@ after(async () => {
 });
 
 describe("the gag writer knows every gag", () => {
-  it("lists every gag in slot order, the version being worked on, leaving out one marked for removal", async () => {
-    // A change and a removal mark inside a refresh's review, made through the routes.
+  it("lists every gag in slot order, the version being worked on, leaving out one removed", async () => {
+    // A change and a removal inside an open review, made through the routes.
     const { factId, gagIds } = await liveFact(scene("{NAME} gag one."), scene("{NAME} gag two."), scene("{NAME} gag three."));
-    const reviewId = await openRefresh(factId);
+    const reviewId = await openReview(factId);
     const changed = await request(app).put(`/api/admin/facts/${factId}/gags/${gagIds[1]}`).send({ content: scene("{NAME} gag two, changed."), reviewId });
     assert.equal(changed.status, 200, JSON.stringify(changed.body));
     const removed = await request(app).post(`/api/admin/facts/${factId}/gags/${gagIds[2]}/remove`).send({ reviewId });
@@ -180,7 +184,7 @@ describe("Draft more gags: when it is refused", () => {
     assert.equal(again.body.code, "IDEAS_PENDING");
 
     const other = await liveFact();
-    await sendFactBackToReview({ factId: other.factId, adminId });
+    await openReview(other.factId);
     const inReview = await request(app).post(`/api/admin/facts/${other.factId}/gags/ideas`).send({});
     assert.equal(inReview.status, 409);
     assert.equal(inReview.body.code, "REVIEW_OPEN");
@@ -201,7 +205,7 @@ describe("one owner per generation (plan section F)", () => {
     const liveRun = runVisualConceptsJob(await liveJob(factId), { generate: slow.generate });
     await slow.started;
 
-    const reviewId = await openRefresh(factId);
+    const reviewId = await openReview(factId);
     const claimed = await factRow(factId);
     assert.equal(claimed.visualConceptOwner, `review:${reviewId}`, "opening the review takes ownership");
     assert.equal(claimed.visualConceptStatus, null, "the live draft's pending is cleared with it");
@@ -221,7 +225,7 @@ describe("one owner per generation (plan section F)", () => {
     const slow = delayed("LIVE");
     const liveRun = runVisualConceptsJob(await liveJob(factId), { generate: slow.generate });
     await slow.started;
-    await sendFactBackToReview({ factId, adminId });
+    await openReview(factId);
 
     slow.release();
     await liveRun;
@@ -240,7 +244,7 @@ describe("one owner per generation (plan section F)", () => {
     const taken = await liveFact();
     await request(app).post(`/api/admin/facts/${taken.factId}/gags/ideas`).send({});
     const takenRow = { payload: await liveJob(taken.factId) } as never;
-    const { reviewId } = await sendFactBackToReview({ factId: taken.factId, adminId });
+    const reviewId = await openReview(taken.factId);
     await db.update(factsTable).set({ visualConceptStatus: "pending" }).where(eq(factsTable.id, taken.factId));
     await factVisualConceptsJobHandler.onAbandon!(takenRow);
     const after = await factRow(taken.factId);
@@ -253,11 +257,11 @@ describe("a fact is never left drafting with no job that can end it (Codex, PR #
   const decline = async (reviewId: number) =>
     db.update(pendingReviewsTable).set({ status: "rejected", workflowStage: "production_rejected" }).where(eq(pendingReviewsTable.id, reviewId));
 
-  it("a second draft after a declined refresh gets its own job, while the first is still unfinished", async () => {
+  it("a second draft after a declined review gets its own job, while the first is still unfinished", async () => {
     const { factId } = await liveFact();
     assert.equal((await request(app).post(`/api/admin/facts/${factId}/gags/ideas`).send({})).status, 202);
     const first = await liveJob(factId);
-    const reviewId = await openRefresh(factId);
+    const reviewId = await openReview(factId);
     await decline(reviewId);
 
     const again = await request(app).post(`/api/admin/facts/${factId}/gags/ideas`).send({});
@@ -275,9 +279,9 @@ describe("a fact is never left drafting with no job that can end it (Codex, PR #
     assert.equal((await request(app).post(`/api/admin/facts/${factId}/gags/ideas`).send({})).status, 202, "and another request is accepted afterwards");
   });
 
-  it("a refresh declined while its ideas were still generating leaves the live fact free to draft", async () => {
+  it("a review declined while its ideas were still generating leaves the live fact free to draft", async () => {
     const { factId } = await liveFact();
-    const reviewId = await openRefresh(factId);
+    const reviewId = await openReview(factId);
     // The review's generation is queued: the fact reads pending under the review.
     await db.update(factsTable).set({ visualConceptStatus: "pending", visualConceptOwner: `review:${reviewId}` }).where(eq(factsTable.id, factId));
     await decline(reviewId);
