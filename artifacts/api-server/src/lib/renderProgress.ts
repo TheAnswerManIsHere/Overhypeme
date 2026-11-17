@@ -9,7 +9,8 @@
  *   resuming  the previous holder stopped: waiting for the reclaim, or checking
  *             an interrupted request
  *   saving    fal finished; the picture is being stored
- *   retrying  a retryable failure waiting for its automatic retry
+ *   retrying  a retryable failure waiting for its automatic retry (its next
+ *             attempt scheduled ahead), whether or not it was recovered
  *
  * Before this, "Drawing…" meant only that a plan was saved — it stayed on for
  * half an hour behind a server that had stopped (Issue #1000's evidence).
@@ -38,14 +39,23 @@ export interface RenderJobState {
   leaseLapsed: boolean;
   /** Set once the row was taken back from a stopped holder (sticky until it finishes). */
   recovering: boolean;
+  /**
+   * Its next attempt is scheduled ahead (database clock). Only a failed attempt
+   * moves it ahead: a claim and the reclaim sweep never do, so this — not a last
+   * error, which a reclaim keeps from an earlier attempt — says the job is
+   * waiting out a retry.
+   */
+  retryAhead: boolean;
 }
 
 /** The pure mapping (plan §D's table), given a render's job in flight and its request's vendor status. */
 export function renderProgressOf(job: RenderJobState, vendorStatus: string | null): RenderProgress {
+  // Waiting after a failed attempt, recovered or not: "Retrying shortly…".
+  // A recovered job stays `recovering` through its retries (plan §A), so the
+  // status alone cannot say this (PR #1017 round 1).
+  if ((job.status === "pending" || job.status === "recovering") && job.retryAhead && job.lastError) return "retrying";
   if (job.status === "recovering") return "resuming";
-  if (job.status === "pending") {
-    return job.attempts > 0 && job.lastError ? "retrying" : "queued";
-  }
+  if (job.status === "pending") return "queued";
   // processing
   if (job.leaseLapsed) return "resuming";
   if (job.queue !== IMAGE_QUEUE) return "queued";
@@ -72,6 +82,7 @@ export async function renderProgressByAttempt(attemptIds: number[]): Promise<Map
     attempts: asyncJobsTable.attempts,
     lastError: asyncJobsTable.lastError,
     leaseLapsed: sql<boolean>`coalesce(${asyncJobsTable.leaseExpiresAt} <= now(), false)`,
+    retryAhead: sql<boolean>`${asyncJobsTable.nextAttemptAt} > now()`,
     recoveryProtocol: asyncJobsTable.recoveryProtocol,
   }).from(asyncJobsTable)
     .where(and(
@@ -97,6 +108,7 @@ export async function renderProgressByAttempt(attemptIds: number[]): Promise<Map
       lastError: j.lastError,
       leaseLapsed: Boolean(j.leaseLapsed),
       recovering: j.recoveryProtocol != null,
+      retryAhead: Boolean(j.retryAhead),
     }, vendor.get(attemptId) ?? null));
   }
   return out;

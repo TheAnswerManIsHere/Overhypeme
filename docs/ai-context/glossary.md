@@ -1299,9 +1299,11 @@ writes nothing (Issue #1000).
 A job taken back from a process that stopped mid-run, for a queue whose handler
 knows how to resume one (it declares a recovery protocol). Only a worker
 declaring at least that protocol may claim it, and it stays recovering through
-retries until it finishes. Queue Health, and a render's tile, show it as
-"Picking back up". The two render queues declare one (Issue #1000, increment 2);
-the other queues declare none yet.
+retries until it finishes. Queue Health shows it as "Picking back up"; a
+render's tile does too, until a run after the reclaim fails and the job is
+waiting out its retry, which the tile shows as "Retrying shortly…". The two
+render queues declare one (Issue #1000, increment 2); the other queues declare
+none yet.
 → [architecture-map](./architecture-map.md#async-jobs-and-queues)
 
 ### Recovery sweep

@@ -58,7 +58,7 @@ function plannerInput(): ImagePromptGenerationInput {
 
 describe("the tile's progress (plan §D): one mapping from the job, its lease and fal's progress", () => {
   const job = (over: Partial<RenderJobState>): RenderJobState => ({
-    queue: "image_generation", status: "processing", attempts: 0, lastError: null, leaseLapsed: false, recovering: false, ...over,
+    queue: "image_generation", status: "processing", attempts: 0, lastError: null, leaseLapsed: false, recovering: false, retryAhead: false, ...over,
   });
 
   it("maps every row of the plan's table", () => {
@@ -72,7 +72,15 @@ describe("the tile's progress (plan §D): one mapping from the job, its lease an
     assert.equal(renderProgressOf(job({ recovering: true }), null), "resuming", "checking an interrupted request");
     assert.equal(renderProgressOf(job({ recovering: true }), "IN_PROGRESS"), "drawing", "a resumed run collecting a picture in progress");
     assert.equal(renderProgressOf(job({}), "COMPLETED"), "saving", "fal finished; storing");
-    assert.equal(renderProgressOf(job({ status: "pending", attempts: 1, lastError: "fal submit failed: Bad Gateway" }), null), "retrying");
+    assert.equal(renderProgressOf(job({ status: "pending", attempts: 1, lastError: "fal submit failed: Bad Gateway", retryAhead: true }), null), "retrying");
+  });
+
+  it("a recovered job waiting out a retry reads 'retrying'; a fresh reclaim still reads 'resuming', even carrying an earlier error (PR #1017 round 1)", () => {
+    const failed = { attempts: 1, lastError: "fal submit failed: Bad Gateway", recovering: true };
+    assert.equal(renderProgressOf(job({ status: "recovering", ...failed, retryAhead: true }), null), "retrying", "failed after the reclaim; retry scheduled ahead");
+    assert.equal(renderProgressOf(job({ status: "recovering", ...failed, retryAhead: false }), null), "resuming", "reclaimed after a stop; the error is from before it");
+    assert.equal(renderProgressOf(job({ status: "recovering", recovering: true }), null), "resuming");
+    assert.equal(renderProgressOf(job({ status: "pending", attempts: 1, lastError: "old", retryAhead: false }), null), "queued", "due now: about to run, not waiting");
   });
 
   it("reads it from the database: the latest in-flight job per render and its request's vendor status", async () => {
@@ -89,6 +97,12 @@ describe("the tile's progress (plan §D): one mapping from the job, its lease an
       assert.equal((await renderProgressByAttempt([attemptId])).get(attemptId), "drawing");
       await db.execute(sql`UPDATE async_jobs SET lease_expires_at = now() - interval '1 second' WHERE id = ${image.jobId}`);
       assert.equal((await renderProgressByAttempt([attemptId])).get(attemptId), "resuming", "the holder stopped renewing");
+      // Reclaimed, carrying an error from an attempt before the stop: picking back up.
+      await db.execute(sql`UPDATE async_jobs SET status = 'recovering', recovery_protocol = 1, lease_expires_at = NULL, attempts = 1, last_error = 'earlier failure', next_attempt_at = now() - interval '1 minute' WHERE id = ${image.jobId}`);
+      assert.equal((await renderProgressByAttempt([attemptId])).get(attemptId), "resuming", "a fresh reclaim with an old error");
+      // Then that recovered run failed and its retry is scheduled ahead: retrying.
+      await db.execute(sql`UPDATE async_jobs SET attempts = 2, last_error = 'fal submit failed: Bad Gateway', next_attempt_at = now() + interval '5 minutes' WHERE id = ${image.jobId}`);
+      assert.equal((await renderProgressByAttempt([attemptId])).get(attemptId), "retrying", "a recovered job waiting out its retry");
       await db.update(asyncJobsTable).set({ status: "done" }).where(eq(asyncJobsTable.id, image.jobId));
       assert.equal((await renderProgressByAttempt([attemptId])).has(attemptId), false, "no job in flight: the attempt row says how it ended");
     } finally {
