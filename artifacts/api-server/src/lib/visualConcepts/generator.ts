@@ -431,9 +431,15 @@ export interface VisualConceptsUsage {
 export function makeOpenAIConceptsCaller(
   settings: VisualConceptsLLMSettings,
   onUsage?: (usage: VisualConceptsUsage) => void,
+  /**
+   * A candidate system prompt in place of the locked one. Only the blind check
+   * of PLAN_FACT_LIFECYCLE_REBUILD.md passes it, to judge a draft revision
+   * before David relocks it; the product never does.
+   */
+  systemPromptOverride?: string,
 ): (userMessages: UserMessage[]) => Promise<string> {
   return async (userMessages: UserMessage[]): Promise<string> => {
-    const systemPrompt = await getVisualConceptsSystem();
+    const systemPrompt = systemPromptOverride ?? (await getVisualConceptsSystem());
     const response = await callUtilityLLM({
       model: settings.model ?? undefined,
       maxTokens: settings.maxTokens,

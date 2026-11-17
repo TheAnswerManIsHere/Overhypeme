@@ -31,9 +31,11 @@ import {
   CONVERSION_FAILED_MARKER,
   generateVisualConceptsWithModel,
   validateAndSanitizeCandidateConcepts,
+  makeOpenAIConceptsCaller,
   referenceMeaningLines,
   type GenerateVisualConceptsInput,
 } from "../lib/visualConcepts/generator.js";
+import { __setUtilityLLMClientForTest } from "../lib/utilityLLM.js";
 import { armInputs, ideaLines, noteWithMeanings, standInTokenize, writerIdeas } from "../lib/visualConcepts/blindCheck.js";
 
 const ENRICHMENT: FactEnrichment = {
@@ -234,6 +236,27 @@ describe("the blind check's two requests (PLAN_FACT_LIFECYCLE_REBUILD.md 1A)", (
     assert.match(lines, /- speech bubble, Earth: "Easy, Alex!"/);
     assert.match(lines, /\*\*Idea 3\.\*\* A crowd watches the planet dip\./);
     assert.ok(!lines.includes(CONVERSION_FAILED_MARKER) && !/\{[A-Z_]+\}/.test(lines), "no token reaches the judge");
+  });
+
+  it("a candidate prompt replaces the locked one for that caller only, and its usage is reported", async () => {
+    const seen: string[] = [];
+    __setUtilityLLMClientForTest({
+      chat: { completions: { create: async (req: { messages: Array<{ role: string; content: string }> }) => {
+        seen.push(req.messages[0]!.content);
+        return { choices: [{ message: { content: "{}" } }], usage: { prompt_tokens: 7, completion_tokens: 3 } };
+      } } },
+    } as never);
+    try {
+      const settings = { model: "gpt-6-astra", maxTokens: 10, timeoutMs: 1000 } as never;
+      const usage: unknown[] = [];
+      await makeOpenAIConceptsCaller(settings, (u) => usage.push(u), "CANDIDATE PROMPT")([{ role: "user", content: "x" }]);
+      await makeOpenAIConceptsCaller(settings)([{ role: "user", content: "x" }]);
+      assert.equal(seen[0], "CANDIDATE PROMPT");
+      assert.notEqual(seen[1], "CANDIDATE PROMPT", "without an override the locked prompt is sent");
+      assert.deepEqual(usage, [{ promptTokens: 7, completionTokens: 3 }]);
+    } finally {
+      __setUtilityLLMClientForTest(null);
+    }
   });
 
   it("a reply that cannot be read back gives no ideas, never a guess", () => {

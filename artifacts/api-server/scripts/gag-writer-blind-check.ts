@@ -29,6 +29,9 @@
  *   pnpm --filter @workspace/api-server run blind-check:gag-writer -- --facts 12,34,56 --dry-run
  *   pnpm --filter @workspace/api-server run blind-check:gag-writer -- --facts 12,34,56
  *   options: --out <dir> (default <repository root>/.local/blind-check/<timestamp>)
+ *            --system-prompt <file>  a candidate gag-writer prompt for BOTH arms, in place of
+ *                                    the locked one (a draft revision judged before David relocks it;
+ *                                    the product is untouched). Its sha256 is recorded in key.json.
  *
  * --dry-run builds and prints both requests per fact and calls no model.
  */
@@ -36,9 +39,9 @@
 import { installStdioGuard } from "../src/lib/stdioGuard";
 installStdioGuard();
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { randomInt } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { inArray } from "drizzle-orm";
@@ -135,10 +138,10 @@ async function loadPlans(ids: number[]): Promise<{ plans: FactPlan[]; skipped: s
   return { plans, skipped };
 }
 
-async function runArm(arm: Arm, input: GenerateVisualConceptsInput, settings: VisualConceptsLLMSettings, price: Price): Promise<ArmResult> {
+async function runArm(arm: Arm, input: GenerateVisualConceptsInput, settings: VisualConceptsLLMSettings, price: Price, systemPrompt?: string): Promise<ArmResult> {
   const request = buildVisualConceptsUserMessage(input);
   const usage: VisualConceptsUsage[] = [];
-  const call = makeOpenAIConceptsCaller(settings, (u) => usage.push(u));
+  const call = makeOpenAIConceptsCaller(settings, (u) => usage.push(u), systemPrompt);
   // The last reply is the one accepted when generation succeeds (a corrective call replaces the first).
   let lastReply: string | null = null;
   const callAndKeep: typeof call = async (msgs) => (lastReply = await call(msgs));
@@ -167,6 +170,11 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const dryRun = process.argv.includes("--dry-run");
+  const promptFile = argValue("--system-prompt");
+  const systemPrompt = promptFile ? readFileSync(promptFile, "utf8") : undefined;
+  if (systemPrompt !== undefined && !systemPrompt.trim()) { console.error(`The candidate prompt ${promptFile} is empty.`); process.exit(2); }
+  const promptSha = systemPrompt === undefined ? null : createHash("sha256").update(systemPrompt).digest("hex");
+  console.log(systemPrompt === undefined ? "Prompt: the locked gag-writer prompt." : `Prompt: candidate ${promptFile}, sha256 ${promptSha}, in both arms.`);
   // The repository root's .local is ignored by git; the package directory's is not.
   const outDir = resolve(argValue("--out") ?? join(import.meta.dirname, "..", "..", "..", ".local", "blind-check", new Date().toISOString().replace(/[:.]/g, "-")));
 
@@ -204,8 +212,8 @@ async function main(): Promise<void> {
   // Both arms of a fact run together, and up to FACT_CONCURRENCY facts at once.
   const results = await pooled(plans, FACT_CONCURRENCY, async (p) => {
     const [today, reduced] = await Promise.all([
-      runArm("today", p.inputs.today, settings, price),
-      runArm("reduced", p.inputs.reduced, settings, price),
+      runArm("today", p.inputs.today, settings, price, systemPrompt),
+      runArm("reduced", p.inputs.reduced, settings, price, systemPrompt),
     ]);
     console.log(`#${p.factId}: today ${armStatus(today)}, reduced ${armStatus(reduced)}; $${(today.costUsd + reduced.costUsd).toFixed(2)}`);
     return { p, today, reduced };
@@ -225,7 +233,7 @@ async function main(): Promise<void> {
   }
 
   writeFileSync(join(outDir, "sheet.md"), sheet.join("\n"));
-  writeFileSync(join(outDir, "key.json"), JSON.stringify({ totalCostUsd: Number(total.toFixed(4)), skipped, facts: key }, null, 2));
+  writeFileSync(join(outDir, "key.json"), JSON.stringify({ totalCostUsd: Number(total.toFixed(4)), prompt: promptFile ? { file: promptFile, sha256: promptSha } : "locked", skipped, facts: key }, null, 2));
   console.log(`\nWrote ${join(outDir, "sheet.md")} and key.json. Total cost $${total.toFixed(2)}; the gag writer is the only model the run called.`);
 }
 
