@@ -62,13 +62,14 @@ by every modality) — see *Launch-critical vs deferrable work* below.
 - **Staged moderation**: no paid enrichment/render work runs at submission —
   explicit cheap human triage comes first, then paid prep against a **staging
   fact**, then production review, then approval flips the fact live.
-- **An approved example picture for every approved gag is a hard gate: a
+- **Approved example pictures for every approved gag are a hard gate: a
   fact cannot go live without them** (David, 2026-10-06, reshaped by the
   [product strategy](./product-strategy.md#gags-and-examples) on 2026-11-11:
-  a fact has up to three approved gags, and one unstyled example per gag is
-  required). There is no "no-example fallback"; the render-approval waiver is
-  retired for the required examples and remains an auditable override for
-  any other render scenario. Pexels is deleted
+  a fact has up to three approved gags; since 2026-11-15 each carries a male,
+  a female and a pet example, approved from its own unstyled renders, and
+  gags approved before then stay offered until they complete a set;
+  [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)). There
+  is no "no-example fallback" and no render-approval waiver. Pexels is deleted
   entirely (it was a review aid and the source of user-facing stock
   backgrounds; both are cut).
 - Near-term focus: **reduce manual moderation toil** (faster approve, better queue
@@ -194,7 +195,7 @@ loop are launch-critical** (sharing polish was deferrable).
   "make this about you" on every shared meme page, Open Graph previews for
   meme and fact pages, public creator pages, reactions and heat.
 - Moderation speed & tooling (cut reviewer toil), with the required
-  example-per-gag gate, up to three gags per fact, and finished speech
+  gate of male, female and pet examples per gag, up to three gags per fact, and finished speech
   bubbles.
 - Render/enrichment quality (memes that land the joke; robust versioned
   refresh; clean stale-render handling); the engine evaluation, finished as
@@ -232,8 +233,10 @@ before proposing to reverse one.)*
 - The **two permission rails** — entitlements in the grid, privileges in code
   — and the union (never override) semantics of overlays. See *Permissions
   direction* above.
-- **An approved example per approved gag as a hard gate** on going live
-  (2026-10-06, reshaped 2026-11-11 by the [product strategy](./product-strategy.md)).
+- **Approved male, female and pet examples for every offered gag as a hard
+  gate** on going live (2026-10-06, reshaped 2026-11-11 by the
+  [product strategy](./product-strategy.md) and 2026-11-15,
+  [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 - **The [product strategy](./product-strategy.md)** of 2026-11-11.
 - **The four launch stages and the full readiness bar before Seed**; the
   Stripe evidence split; the geography rule (everyone except GDPR territories
@@ -248,5 +251,6 @@ ambiguous rather than guessing.)*
 - *(Answered 2026-10-06: the hero scenario is a hard gate, since reshaped to
   one required example per approved gag by the
   [product strategy](./product-strategy.md#gags-and-examples); every other
-  render scenario stays waivable. Decisions David makes at each launch phase
+  render scenario stayed waivable until 2026-11-15, when the waiver went and
+  every gag needs three examples, [decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates). Decisions David makes at each launch phase
   boundary are listed on #628, not here.)*

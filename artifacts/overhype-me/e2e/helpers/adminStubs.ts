@@ -134,15 +134,15 @@ export function gagsView(factId: number, isActive: boolean, gag: VisualPromptStr
         availableToUsers: isActive,
         isDefault: isActive,
         approvedContent: isActive ? gag : null,
-        approvedExample: null,
-        carriedOver: isActive,
+        approvedExamples: { male: null, female: null, pet: null },
+        grandfathered: isActive,
         approvedAt: isActive ? CREATED : null,
         pendingContent: isActive ? null : gag,
         pendingReviewId: null,
-        pendingExample: null,
+        pendingExamples: { male: null, female: null, pet: null },
         pendingRemove: false,
         refreshedSinceApproval: false,
-        renders: { reviewId: review?.id ?? 0, gagId: gagIdFor(factId), cards: [], tally: { requested: 0, done: 0, rendering: 0, queued: 0, failed: 0, blocked: 0, skipped: 0, stale: 0 } },
+        renders: { male: null, female: null, pet: null },
       }]
     : [];
   return { factId, isActive, review, frozenOutsideReview: false, gags, maxGags: 3 };

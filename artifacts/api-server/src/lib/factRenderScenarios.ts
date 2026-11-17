@@ -43,8 +43,6 @@ import type { ImagePromptAttempt } from "@workspace/db/schema";
  *  v2: dropped overhypeFit / adultSuitability from the render-input hash (they
  *  are quality/gating signals that never reach the compiled prompt). */
 export const SCENARIO_CONFIG_VERSION = "2";
-/** Bump when the required-scenario set or approval gate semantics change. */
-export const REQUIRED_SCENARIO_POLICY_VERSION = "1";
 /**
  * Version of the default reference assets, per identity type. Bump the relevant
  * entry when an asset is swapped so prior i2i attempts using it go stale.
@@ -274,34 +272,6 @@ export function resolveNonHumanScenarioApplicability(
  */
 export function nonHumanScenarioKeyForApplicability(app: NonHumanApplicability): RenderScenarioKey {
   return app.subtype === "animal" ? "i2i_nonhuman_animal" : "i2i_nonhuman_object_vehicle";
-}
-
-// ─── Required-scenario approval problems ─────────────────────────────────────
-
-export interface ScenarioProblem {
-  scenarioKey: RenderScenarioKey;
-  status: RenderScenarioStatus | "stale";
-}
-
-/**
- * Given the derived state of each required scenario, list the ones that block a
- * clean approval (anything not a fresh, successful render). The approval route
- * requires the moderator's waiver to name exactly these.
- */
-export function requiredScenarioProblems(
-  states: Array<{ scenarioKey: RenderScenarioKey; status: RenderScenarioStatus; stale: boolean }>,
-): ScenarioProblem[] {
-  const required = new Set<RenderScenarioKey>(REQUIRED_RENDER_SCENARIO_KEYS);
-  const problems: ScenarioProblem[] = [];
-  for (const s of states) {
-    if (!required.has(s.scenarioKey)) continue;
-    if (s.stale) {
-      problems.push({ scenarioKey: s.scenarioKey, status: "stale" });
-    } else if (s.status !== "done") {
-      problems.push({ scenarioKey: s.scenarioKey, status: s.status });
-    }
-  }
-  return problems;
 }
 
 export { RENDER_SCENARIO_DESCRIPTORS };

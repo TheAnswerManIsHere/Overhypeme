@@ -105,18 +105,19 @@ export async function driveCaptures(base: string, opts: { doc: CaptureDoc; out: 
       log("pr229: the mailman bubble saved; approving the concept");
 
       await admin.json("pr229", "POST", `/api/admin/reviews/${reviewId}/approve-visual-concept`, {});
-      // Approval starts the review render grid. Let it settle first, so its
-      // reservations are released before the test render asks the allowance.
+      // Approval draws the gag's male iteration render (plan PLAN_GAG_EXAMPLES.md).
+      // Let it settle first, so its reservation is released before the test
+      // render asks the allowance.
       try {
-        const grid = await poll(
+        const male = await poll(
           "pr229",
-          "the review render grid",
-          () => admin.json<any>("pr229", "GET", `/api/admin/reviews/${reviewId}/render-scenarios`),
-          (r) => settledBaselineRenders(r.cards as any[]) !== null,
+          "the gag's male iteration render",
+          async () => ((await admin.json<any>("pr229", "GET", `/api/admin/facts/${stagingFactId}/gags`)).gags[0]?.renders ?? {}),
+          (r) => settledBaselineRenders(r, ["male"]) !== null,
           () => null,
           20 * 60_000,
         );
-        pr229.grid = (grid.cards as any[]).map((c) => ({ key: c.key, status: c.status }));
+        pr229.grid = [{ key: "male", status: male.male?.status }];
       } catch (err) {
         pr229.gridNote = `did not settle: ${(err as Error).message.slice(0, 300)}; the test render runs anyway`;
       }

@@ -15,7 +15,6 @@ import {
   generationModeForSubjectRenderMode,
   isAttemptStale,
   nonHumanScenarioKeyForApplicability,
-  requiredScenarioProblems,
   resolveNonHumanScenarioApplicability,
   type ScenarioHashInputs,
 } from "../lib/factRenderScenarios.js";
@@ -215,34 +214,6 @@ describe("resolveNonHumanScenarioApplicability", () => {
     assert.equal(nonHumanScenarioKeyForApplicability({ subtype: "animal" } as never), "i2i_nonhuman_animal");
     assert.equal(nonHumanScenarioKeyForApplicability({ subtype: "object_vehicle" } as never), "i2i_nonhuman_object_vehicle");
     assert.equal(nonHumanScenarioKeyForApplicability({ subtype: "none" } as never), "i2i_nonhuman_object_vehicle");
-  });
-});
-
-describe("requiredScenarioProblems", () => {
-  it("flags missing/failed/stale required scenarios; ignores optional + done", () => {
-    const problems = requiredScenarioProblems([
-      { scenarioKey: "generic_t2i", status: "done", stale: false },
-      { scenarioKey: "i2i_male_default", status: "failed", stale: false },
-      { scenarioKey: "i2i_female_default", status: "done", stale: true },
-      { scenarioKey: "i2i_nonhuman_animal", status: "missing", stale: false }, // optional — ignored
-    ]);
-    const byKey = Object.fromEntries(problems.map((p) => [p.scenarioKey, p.status]));
-    assert.equal(problems.length, 2);
-    assert.equal(byKey["i2i_male_default"], "failed");
-    assert.equal(byKey["i2i_female_default"], "stale"); // stale wins over done
-    assert.equal(byKey["generic_t2i"], undefined);
-    assert.equal(byKey["i2i_nonhuman_animal"], undefined);
-  });
-
-  it("clean when all required are fresh + done", () => {
-    assert.equal(
-      requiredScenarioProblems([
-        { scenarioKey: "generic_t2i", status: "done", stale: false },
-        { scenarioKey: "i2i_male_default", status: "done", stale: false },
-        { scenarioKey: "i2i_female_default", status: "done", stale: false },
-      ]).length,
-      0,
-    );
   });
 });
 

@@ -122,11 +122,11 @@ export function operations(photoSha256: string): Operation[] {
     { key: "enrichment", journey: "3", description: "the fact enrichment classifier", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You are the fact enrichment classifier"), usable: parsesAsObject, min: 1, required: always },
     // The gag writer (PR #936): the locked prompt's opening line.
     { key: "visual-concepts", journey: "3", description: "the gag writer", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("You write visual gags for Overhype.me."), usable: parsesAsObject, min: 1, required: always },
-    { key: "image-prompts", journey: "3", description: "the image-prompt generator (two review renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 2, required: always },
+    { key: "image-prompts", journey: "3", description: "the image-prompt generator (the gag's male, female and pet renders)", kind: "openai.chat", target: /./, matches: (r) => systemText(r).includes("render-time image-prompt generator"), usable: parsesAsObject, min: 3, required: always },
     {
       key: "image-renders",
       journey: "3",
-      description: "image generation (two review renders, each from a photo)",
+      description: "image generation (the gag's male, female and pet renders)",
       kind: "fal.subscribe",
       // The engine a render with no look is routed to (compiler review, Phase 1),
       // and every picture starts from a photo (Phase 2): GPT Image 2.6's edit.

@@ -128,7 +128,7 @@ export function VisualConceptCard({
           </p>
         ) : (
           <p className="text-[11px] text-muted-foreground">
-            Saved with this gag — its test renders flag stale automatically.
+            Saved with this gag — saving draws a new male test render of it.
           </p>
         )}
         <p className="text-[10px] text-muted-foreground shrink-0">

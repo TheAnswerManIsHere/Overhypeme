@@ -2,28 +2,33 @@
  * The gag lifecycle through its routes (plan docs/plans/PLAN_THREE_GAGS.md,
  * Testing Plan items 5, 6, 7, 9 and 10):
  *
- *   - a saved change is hidden: users keep the approved version until a test
- *     render of the change is approved as its example;
+ *   - a saved change is hidden: users keep the approved version until its
+ *     male, female and pet renders are approved as its examples (plan
+ *     PLAN_GAG_EXAMPLES.md);
  *   - approval refuses another gag's render, an unfinished or failed one, a
  *     styled one and one drawn from other content, and accepts the rest;
  *   - every slot follows the same rules;
  *   - discard and remove, and the last approved gag of a live fact kept;
  *   - during a refresh, gags change only inside its review, and its pick or
  *     removal lands at promotion or is dropped on decline;
- *   - saving, discarding and removing enqueue nothing.
+ *   - saving, adding and discarding enqueue one iteration render job each;
+ *     removing enqueues nothing.
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import request from "supertest";
-import { db, factsTable, usersTable, factGagsTable } from "@workspace/db";
+import { db, factsTable, usersTable, factGagsTable, factGagExamplesTable } from "@workspace/db";
 import { insertLiveFact } from "@workspace/db/live-fact-fixture";
 import { asyncJobsTable, factEnrichmentVersionsTable, imagePromptAttemptsTable, pendingReviewsTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray } from "drizzle-orm";
 import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   buildPlaceholderFactEnrichment,
+  GAG_EXAMPLE_KINDS,
+  SCENARIO_FOR_KIND,
+  type GagExampleKind,
   type VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 
@@ -32,7 +37,7 @@ import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { availableGags, normaliseGagContent, primaryGag } from "../lib/gags/resolver.js";
 import { applyReviewGagOps, cancelReviewGagOps, gagContentEqual } from "../lib/gags/gagStore.js";
-import { loadGagRenderTarget, ensureDefaultReviewRenders, reviewRenderStates } from "../lib/reviewRenderScenarios.js";
+import { loadGagRenderTarget, ensureReviewIterationRenders, reviewRenderStates } from "../lib/reviewRenderScenarios.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,11 +59,13 @@ async function liveFact(): Promise<{ factId: number; gagId: number }> {
   return { factId: f.id, gagId: f.gags[0]!.id };
 }
 
-/** A test render of `gagId` that drew `content`; finished unless told otherwise. */
-async function render(factId: number, gagId: number, content: VisualPromptStrategyOverride, opts: { unfinished?: boolean; failed?: boolean; styled?: boolean } = {}): Promise<number> {
+/** A test render of `gagId` that drew `content`, for a kind (male by default); finished unless told otherwise. */
+async function render(factId: number, gagId: number, content: VisualPromptStrategyOverride, opts: { unfinished?: boolean; failed?: boolean; styled?: boolean; kind?: GagExampleKind | null } = {}): Promise<number> {
+  const kind = opts.kind === undefined ? "male" : opts.kind;
   const [row] = await db.insert(imagePromptAttemptsTable).values({
     factId,
     gagId,
+    reviewRenderScenarioKey: kind ? SCENARIO_FOR_KIND[kind] : "generic_t2i",
     renderJobId: randomUUID(),
     generationMode: "t2i",
     subjectRenderMode: "t2i_fallback",
@@ -75,9 +82,23 @@ async function render(factId: number, gagId: number, content: VisualPromptStrate
 }
 
 const url = (factId: number, rest = "") => `/api/admin/facts/${factId}/gags${rest}`;
+
+/** Approve a male, female and pet render of `content` as the gag's examples; returns the last response. */
+async function approveSet(factId: number, gagId: number, content: VisualPromptStrategyOverride, reviewId?: number) {
+  let last: request.Response | null = null;
+  for (const kind of GAG_EXAMPLE_KINDS) {
+    last = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, content, { kind }), ...(reviewId ? { reviewId } : {}) });
+    assert.equal(last.status, 200, `${kind}: ${JSON.stringify(last.body)}`);
+  }
+  return last!;
+}
+const examplesOf = async (gagId: number, stage: "approved" | "pending") =>
+  (await db.select().from(factGagExamplesTable).where(and(eq(factGagExamplesTable.gagId, gagId), eq(factGagExamplesTable.stage, stage)))).length;
 const gagRow = async (gagId: number) => (await db.select().from(factGagsTable).where(eq(factGagsTable.id, gagId)))[0]!;
 const offeredScenes = async (factId: number) => (await availableGags(factId)).map((g) => g.content.coreSceneOverride);
 const jobsSinceStart = async () => (await db.select({ id: asyncJobsTable.id }).from(asyncJobsTable).where(gte(asyncJobsTable.createdAt, START))).length;
+const jobsForGag = async (gagId: number) => (await db.select({ payload: asyncJobsTable.payload }).from(asyncJobsTable).where(gte(asyncJobsTable.createdAt, START)))
+  .filter((j) => (j.payload as { gagId?: number } | null)?.gagId === gagId).length;
 
 before(async () => {
   adminId = `t-gags-${RUN}`;
@@ -102,9 +123,9 @@ after(async () => {
 });
 
 describe("gag routes: a change is hidden until its example is approved", () => {
-  it("a saved change leaves users on the approved version, and enqueues nothing", async () => {
+  it("a saved change leaves users on the approved version, and enqueues its one iteration render", async () => {
     const { factId, gagId } = await liveFact();
-    const jobsBefore = await jobsSinceStart();
+    const jobsBefore = await jobsForGag(gagId);
     const res = await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} lifts the sun (change).") });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     const view = res.body.gags.find((g: { id: number }) => g.id === gagId);
@@ -112,7 +133,7 @@ describe("gag routes: a change is hidden until its example is approved", () => {
     assert.equal(view.availableToUsers, true, "the approved version is still offered");
     assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "users still get the approved version");
     assert.equal((await primaryGag(factId))!.content.coreSceneOverride, A.coreSceneOverride);
-    assert.equal(await jobsSinceStart(), jobsBefore, "saving spends nothing");
+    assert.equal(await jobsForGag(gagId), jobsBefore + 1, "saving enqueues one iteration render job");
   });
 
   it("approval refuses another gag's render, an unfinished, a failed or a styled render, and one of other content", async () => {
@@ -129,6 +150,7 @@ describe("gag routes: a change is hidden until its example is approved", () => {
       ["a failed render", await render(factId, gagId, change, { failed: true }), 409, "RENDER_NOT_APPROVABLE"],
       ["a styled render", await render(factId, gagId, change, { styled: true }), 409, "RENDER_NOT_APPROVABLE"],
       ["a render of other content", await render(factId, gagId, scene("{NAME} something else.")), 409, "CONTENT_CHANGED"],
+      ["a render of a retired scenario", await render(factId, gagId, change, { kind: null }), 409, "RENDER_NOT_APPROVABLE"],
     ];
     for (const [name, attemptId, status, code] of cases) {
       const r = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId });
@@ -137,12 +159,19 @@ describe("gag routes: a change is hidden until its example is approved", () => {
     }
     assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "nothing refused changed what users get");
 
-    const good = await render(factId, gagId, change);
-    const ok = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: good });
+    // One and two picks change nothing users get; the third applies the change.
+    for (const kind of ["male", "female"] as const) {
+      const pick = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change, { kind }) });
+      assert.equal(pick.status, 200, JSON.stringify(pick.body));
+      assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], `after the ${kind} pick users keep the approved version`);
+    }
+    const ok = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change, { kind: "pet" }) });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
     const row = await gagRow(gagId);
-    assert.equal(row.approvedExampleAttemptId, good, "the approved render is the gag's example");
+    assert.equal(await examplesOf(gagId, "approved"), 3, "the three picks are the gag's examples");
+    assert.equal(await examplesOf(gagId, "pending"), 0);
     assert.equal(row.approvedCarriedOver, false);
+    assert.equal(row.approvedBeforeExampleSets, false);
     assert.equal(row.pendingContent, null);
     assert.deepEqual(await offeredScenes(factId), [change.coreSceneOverride], "users now get the approved change");
   });
@@ -164,8 +193,9 @@ describe("gag routes: every slot follows the same rules", () => {
       assert.equal(created.availableToUsers, false);
       assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "a new gag is hidden");
 
-      const ok = await request(app).post(url(factId, `/${created.id}/approve`)).send({ attemptId: await render(factId, created.id, content) });
-      assert.equal(ok.status, 200, JSON.stringify(ok.body));
+      await request(app).post(url(factId, `/${created.id}/approve`)).send({ attemptId: await render(factId, created.id, content) });
+      assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "a new gag with one example is still hidden");
+      await approveSet(factId, created.id, content);
       const offered = await offeredScenes(factId);
       assert.equal(offered[0], A.coreSceneOverride, "slot 1 stays the default");
       assert.equal(offered.at(-1), content.coreSceneOverride, "the approved gag is offered, in slot order");
@@ -187,7 +217,7 @@ describe("the default gag: approved first, across every slot", () => {
     const content = scene("{NAME} the approved slot-2 gag.");
     const added = await request(app).post(url(factId)).send({ content });
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await request(app).post(url(factId, `/${secondId}/approve`)).send({ attemptId: await render(factId, secondId, content) });
+    await approveSet(factId, secondId, content);
     assert.equal((await request(app).post(url(factId, `/${gagId}/remove`)).send({})).status, 200);
     // A new gag takes the freed slot 1, pending.
     const fresh = await request(app).post(url(factId)).send({ content: scene("{NAME} pending in slot 1.") });
@@ -222,7 +252,7 @@ describe("a gag the migration carried over can be approved (Codex, PR #956 round
     assert.ok(loaded.ok, JSON.stringify(loaded));
     const drew = (loaded as { target: { enrichment: { visualPromptStrategyOverride: unknown } } }).target.enrichment.visualPromptStrategyOverride;
     const [real] = await db.insert(imagePromptAttemptsTable).values({
-      factId: f.id, gagId, renderJobId: randomUUID(), generationMode: "t2i", subjectRenderMode: "t2i_fallback", targetEngine: "nano_banana_2",
+      factId: f.id, gagId, reviewRenderScenarioKey: "i2i_male_default", renderJobId: randomUUID(), generationMode: "t2i", subjectRenderMode: "t2i_fallback", targetEngine: "nano_banana_2",
       sourceImageAnalysis: {} as never, identityPolicy: {} as never, renderControls: {} as never,
       factEnrichmentSnapshot: (loaded as { target: { enrichment: unknown } }).target.enrichment as never,
       archetypeStrategyVersion: "v2", generatedImageObjectPath: `/objects/ai-bg-v2/${f.id}/${randomUUID()}.png`,
@@ -233,7 +263,9 @@ describe("a gag the migration carried over can be approved (Codex, PR #956 round
     assert.equal(other.body.code, "CONTENT_CHANGED", "a render of other content is still refused");
     const ok = await request(app).post(url(f.id, `/${gagId}/approve`)).send({ attemptId: real!.id });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
-    assert.equal((await gagRow(gagId)).approvedExampleAttemptId, real!.id, "the render is the gag's example");
+    const [ex] = await db.select().from(factGagExamplesTable).where(and(eq(factGagExamplesTable.gagId, gagId), eq(factGagExamplesTable.stage, "approved")));
+    assert.equal(ex?.attemptId, real!.id, "the render is the gag's male example");
+    assert.equal((await gagRow(gagId)).approvedCarriedOver, true, "one example leaves the carried-over gag grandfathered");
   });
 
   it("every schema-valid gag in the legacy fixture is equal to its own normalised form", () => {
@@ -294,16 +326,16 @@ describe("a gag the migration carried over can be approved (Codex, PR #956 round
 });
 
 describe("gag routes: discard and remove", () => {
-  it("discarding a change returns the gag to its approved version, and spends nothing", async () => {
+  it("discarding a change returns the gag to its approved version, and enqueues its iteration render", async () => {
     const { factId, gagId } = await liveFact();
     await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} a change.") });
-    const jobsBefore = await jobsSinceStart();
+    const jobsBefore = await jobsForGag(gagId);
     const res = await request(app).post(url(factId, `/${gagId}/discard`)).send({});
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal((await gagRow(gagId)).pendingContent, null);
     const again = await request(app).post(url(factId, `/${gagId}/discard`)).send({});
     assert.equal(again.body.code, "NOTHING_PENDING");
-    assert.equal(await jobsSinceStart(), jobsBefore);
+    assert.equal(await jobsForGag(gagId), jobsBefore + 1, "one job: the render is reused when it already exists");
   });
 
   it("refuses removing a live fact's last approved gag, and removes one with another left", async () => {
@@ -315,7 +347,7 @@ describe("gag routes: discard and remove", () => {
     const content = scene("{NAME} a second approved gag.");
     const added = await request(app).post(url(factId)).send({ content });
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await request(app).post(url(factId, `/${secondId}/approve`)).send({ attemptId: await render(factId, secondId, content) });
+    await approveSet(factId, secondId, content);
     const jobsBefore = await jobsSinceStart();
     const removed = await request(app).post(url(factId, `/${gagId}/remove`)).send({});
     assert.equal(removed.status, 200, JSON.stringify(removed.body));
@@ -348,11 +380,10 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
     assert.equal(outside.body.code, "REFRESH_IN_REVIEW");
 
     assert.equal((await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId })).status, 200);
-    const picked = await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change), reviewId });
-    assert.equal(picked.status, 200, JSON.stringify(picked.body));
+    await approveSet(factId, gagId, change, reviewId);
     const row = await gagRow(gagId);
-    assert.equal(row.pendingReviewId, reviewId, "the pick belongs to the review");
-    assert.notEqual(row.pendingExampleAttemptId, null);
+    assert.equal(row.pendingReviewId, reviewId, "the picks belong to the review");
+    assert.equal(await examplesOf(gagId, "pending"), 3, "all three picks wait for promotion");
     assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "users keep the approved version until promotion");
 
     await db.transaction((tx) => applyReviewGagOps(tx, factId, reviewId, adminId));
@@ -364,7 +395,7 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
     const content = scene("{NAME} a second approved gag.");
     const added = await request(app).post(url(factId)).send({ content });
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await request(app).post(url(factId, `/${secondId}/approve`)).send({ attemptId: await render(factId, secondId, content) });
+    await approveSet(factId, secondId, content);
 
     const reviewId = await openRefresh(factId);
     const removed = await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
@@ -379,31 +410,36 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
     assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride, content.coreSceneOverride]);
   });
 
-  it("advancing to Test Renders starts no paid batch for a gag the review marked for removal (Codex, PR #956 round 2)", async () => {
+  it("advancing to Test Renders draws only changed gags' male renders: none for an unchanged or removed gag (plan PLAN_GAG_EXAMPLES.md)", async () => {
     const { factId, gagId } = await liveFact();
     const content = scene("{NAME} a second approved gag.");
     const added = await request(app).post(url(factId)).send({ content });
     const secondId = added.body.gags.find((g: { slot: number }) => g.slot === 2).id as number;
-    await request(app).post(url(factId, `/${secondId}/approve`)).send({ attemptId: await render(factId, secondId, content) });
+    await approveSet(factId, secondId, content);
+    const added3 = await request(app).post(url(factId)).send({ content: scene("{NAME} a third gag.") });
+    const thirdId = added3.body.gags.find((g: { slot: number }) => g.slot === 3).id as number;
 
     const reviewId = await openRefresh(factId);
-    // A change saved to gag 2, then gag 2 removed: the draft stays (a decline keeps it).
+    // Gag 2: a change, then removed. Gag 3: a change kept. Gag 1: unchanged.
     assert.equal((await request(app).put(url(factId, `/${secondId}`)).send({ content: scene("{NAME} a change, then removed."), reviewId })).status, 200);
     assert.equal((await request(app).post(url(factId, `/${secondId}/remove`)).send({ reviewId })).status, 200);
-    const before = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, secondId));
+    assert.equal((await request(app).put(url(factId, `/${thirdId}`)).send({ content: scene("{NAME} the third, changed."), reviewId })).status, 200);
+    const count = async (gid: number) => (await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, gid))).length;
+    const before = { first: await count(gagId), second: await count(secondId), third: await count(thirdId) };
 
     // No vendor call: the i2i reference upload is stubbed, as the render tests do.
     __setReferenceFalUploadForTest(async () => "https://fal.test/ref.jpg");
     try {
-      await ensureDefaultReviewRenders(reviewId, { force: true });
+      await ensureReviewIterationRenders(reviewId, { adminUserId: adminId });
+      await ensureReviewIterationRenders(reviewId, { adminUserId: adminId });
     } finally {
       __setReferenceFalUploadForTest(null);
     }
-    const after = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, secondId));
-    assert.equal(after.length, before.length, "no attempt for the gag being removed");
-    const gate = await db.select({ id: imagePromptAttemptsTable.id }).from(imagePromptAttemptsTable)
-      .where(and(eq(imagePromptAttemptsTable.gagId, gagId), eq(imagePromptAttemptsTable.reviewId, reviewId)));
-    assert.ok(gate.length > 0, "the surviving gate gag gets its batch");
+    assert.equal(await count(gagId), before.first, "an unchanged gag gets no render");
+    assert.equal(await count(secondId), before.second, "a gag the review removes gets no render");
+    assert.equal(await count(thirdId), before.third + 1, "the changed gag gets one male render, once");
+    const [drawn] = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.gagId, thirdId));
+    assert.equal(drawn!.reviewRenderScenarioKey, "i2i_male_default");
   });
 
   it("the list's render state counts each surviving gag: one finishing never hides another (Codex, PR #956 round 2)", async () => {
@@ -443,9 +479,9 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
     const change = scene("{NAME} picked.");
     await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId });
     await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change), reviewId });
-    assert.notEqual((await gagRow(gagId)).pendingExampleAttemptId, null);
+    assert.equal(await examplesOf(gagId, "pending"), 1);
     await request(app).put(url(factId, `/${gagId}`)).send({ content: scene("{NAME} edited after the pick."), reviewId });
-    assert.equal((await gagRow(gagId)).pendingExampleAttemptId, null, "the pick was for content the gag no longer holds");
+    assert.equal(await examplesOf(gagId, "pending"), 0, "the pick was for content the gag no longer holds");
     await db.transaction((tx) => applyReviewGagOps(tx, factId, reviewId, adminId));
     assert.deepEqual(await offeredScenes(factId), [A.coreSceneOverride], "with no pick, promotion approves nothing");
   });
@@ -457,12 +493,12 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
       const second = await request(app).post(url(factId)).send({ content: scene("{NAME} a second gag.") });
       const secondId = (second.body.gags as Array<{ id: number; slot: number }>).find((g) => g.slot === 2)!.id;
       const content = scene("{NAME} a second gag.");
-      await request(app).post(url(factId, `/${secondId}/approve`)).send({ attemptId: await render(factId, secondId, content) });
+      await approveSet(factId, secondId, content);
       return { factId, gagId, secondId };
     }
     const snapshot = async (gagId: number) => {
       const g = await gagRow(gagId);
-      return { approvedContent: g.approvedContent, pendingContent: g.pendingContent, pendingExampleAttemptId: g.pendingExampleAttemptId, pendingReviewId: g.pendingReviewId, removedAt: g.removedAt };
+      return { approvedContent: g.approvedContent, pendingContent: g.pendingContent, pendingExamples: await examplesOf(gagId, "pending"), pendingReviewId: g.pendingReviewId, removedAt: g.removedAt };
     };
 
     it("an approved gag with no change: Keep restores it exactly", async () => {
@@ -485,7 +521,7 @@ describe("gag routes: during a refresh, gags change only inside its review", () 
       await request(app).put(url(factId, `/${gagId}`)).send({ content: change, reviewId });
       await request(app).post(url(factId, `/${gagId}/approve`)).send({ attemptId: await render(factId, gagId, change), reviewId });
       const before = await snapshot(gagId);
-      assert.notEqual(before.pendingExampleAttemptId, null);
+      assert.equal(before.pendingExamples, 1);
       await request(app).post(url(factId, `/${gagId}/remove`)).send({ reviewId });
       await request(app).post(url(factId, `/${gagId}/keep`)).send({ reviewId });
       assert.deepEqual(await snapshot(gagId), before, "the change and its pick survive");

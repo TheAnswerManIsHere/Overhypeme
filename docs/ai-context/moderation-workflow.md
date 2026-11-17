@@ -7,7 +7,7 @@
 >
 > **Reconciliation note:** some older/spec notes call the AI-prep stages
 > `enrichment_pending` / `enrichment_failed`. The **current repo enum uses
-> `prep_pending` / `prep_failed`** (prep = enrichment + render prep). Use
+> `prep_pending` / `prep_failed`** (prep = enrichment + visual-idea drafting). Use
 > the repo names below.
 
 ## Why staged moderation exists
@@ -32,7 +32,7 @@ prep_pending ──prep abandon──> prep_failed ──retry──> prep_pendi
       ▼
 concept_review                                        ← Step 2: Gags gate
       │  approve the gags              ↑ back to gags
-      │  (a saved gag + ideas OK → force-enqueue the default render batch)
+      │  (a saved gag + ideas OK → one male render per new or changed gag)
       ▼
 production_review                                     ← Step 3: Test Renders gate
       │ production approve
@@ -61,10 +61,13 @@ Test Renders** (the Gags step was called Visual Concept until plan
 **Three gates, not two.** Enrichment success now lands at `concept_review`
 (Step 2), NOT `production_review`, and enqueues **no renders**. The moderator
 must evaluate/approve the **Visual Concept** — the core description of how the
-gag works visually — on every fact before any render spend. "Approve the visual
+gag works visually — on every fact before the full render spend. "Approve the visual
 gag" advances `concept_review → production_review` via an atomic compare-and-set
-and force-enqueues a fresh default render batch (no dedupe key). Renders only
-ever fire in Step 3.
+and enqueues the male iteration render of each new or changed gag, keeping
+any render already drawn for the same content. Saving a gag draws its male
+render too, so iterating at Step 2 costs one render per saved version; its
+female and pet renders are drawn at Step 3 on the moderator's ask
+([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 
 ## The ingestion funnel — one entrance
 
@@ -90,8 +93,9 @@ A fact can only become `is_active = true` through `activateFact`
 re-validates, atomically with the flip:
 
 - the fact has an approved gag (`fact_gags`, migration 0139: a gag is
-  approved when a moderator approves one of its test renders as its example),
-  and
+  approved when a moderator approves its male, female and pet test renders as
+  its examples, `fact_gag_examples`, migration 0143; a gag approved before
+  then is grandfathered), and
 - its wording is still the wording the production gate validated (a
   compare-and-set on `facts.text`).
 
@@ -169,8 +173,8 @@ Locking should be the very first thing that happens as part of step 1."*).
 
 `prep_pending` runs the async prep jobs against the staging fact: **enrichment**
 (AI classification/taxonomy — see
-[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)) and render-scenario
-preparation. On terminal failure the review moves to
+[`taxonomy-and-enrichment.md`](./taxonomy-and-enrichment.md)) and the
+visual-idea drafting; no render runs in prep. On terminal failure the review moves to
 `prep_failed` — retryable only; a first-time submission is never rejected here,
 it stays pending until the retry succeeds.
 
@@ -179,7 +183,8 @@ it stays pending until the retry succeeds.
 The mandatory human gate on the fact's **gags** — each one a
 [Visual Concept](./glossary.md#visual-concept), the authoritative scene
 description of one way the joke works (see [`visual-pipeline.md`](./visual-pipeline.md))
-— **before any render spend**. A fact has one to three gags (plan
+— before the full render spend: here each saved gag version draws only one
+male render to judge it by ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)). A fact has one to three gags (plan
 `docs/plans/PLAN_THREE_GAGS.md`); the second and third are optional. In
 `concept_review` the moderator, in the **Gags panel**:
 
@@ -188,7 +193,8 @@ description of one way the joke works (see [`visual-pipeline.md`](./visual-pipel
   gag N** — each saved as that gag's pending change,
 - tunes the enrichment via the embedded **Enrichment Editor** (Advanced Options),
 - inspects the **Runtime Compiled Prompt** preview,
-- then **approves the gags** (advances to Step 3, force-firing renders)
+- then **approves the gags** (advances to Step 3, drawing one male render per
+  new or changed gag)
   or sends it back to prep. (A first-time submission is never rejected here —
   see **Rejection paths** below.)
 
@@ -206,38 +212,47 @@ cards, is the approved artifact). Re-prep/regenerate is blocked while ideas are
 
 ## Test Renders review ("Step 3", `production_review`)
 
-The expensive render review. Renders **auto-fire** on arrival (a forced,
-no-dedupe-key batch). All taxonomy/enrichment knobs stay exposed for render
-tweaking. The moderator:
+The render review, per gag (plan `docs/plans/PLAN_GAG_EXAMPLES.md`;
+[decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)). Approving
+the Gags step draws **one male render** of each new or changed gag, and nothing
+for an unchanged gag; every save of a gag does the same. A render is matched to
+its input, so the same content reuses its render and a change draws a new one.
+All taxonomy/enrichment knobs stay exposed. The moderator:
 
-- inspects the **test-render** meme grid and the **Runtime Compiled Prompt**,
-- tweaks enrichment and gags and re-runs renders as needed; each gag in the
-  Gags panel has its own renders, and **Approve this render** makes a finished,
-  current render that gag's **example**, which approves it,
-- then **production-approves** (existing render/waiver gate; a first-time fact
-  also needs at least one gag with an example, `CONCEPT_MISSING` otherwise),
-  or **sends the fact back to Gags** (Step 3 → Step 2), which supersedes the
-  in-flight renders; re-approval force-creates a fresh batch. (A first-time
+- sets the **Final hashtags** (their own section) and reads the **Runtime
+  Compiled Prompt**;
+- iterates on each gag against its male render, editing and saving until the
+  gag works; then **Render female and pet** draws its other two renders, and
+  any single render can be drawn again;
+- approves each gag's **male, female and pet** renders as its **examples**
+  (**Approve this render** on each tile). Outside a refresh the third approval
+  applies the gag's change; inside one the picks land at promotion;
+- then **production-approves**: every gag that will be offered must have its
+  three examples, or be grandfathered, and the refusal (`CONCEPT_MISSING`)
+  names each gag's missing kinds ("Gag 1 needs female and pet examples."); or
+  **sends the fact back to Gags** (Step 3 → Step 2). Renders already drawn are
+  kept, and re-approval draws only what a change needs. (A first-time
   submission is never rejected here — a render that isn't working is the
   admin's job to fix, per **Rejection paths** below.)
 
+The review-wide render grid, its scenario checkboxes, the render waiver, the
+Generic (text-to-image) and object/vehicle renders, and the "How the AI read
+this fact" panel are gone (2026-11-15).
+
 ## Test renders, the hero gate, and Pexels
 
-**Today:** test renders are **review tools, not hard gates**. A moderator may
-approve despite missing/stale required render scenarios, and doing so records
-a `visualRenderApprovalWaiver` on the review (an auditable override, not a
-silent skip). No render scenario is designated "hero" in the code.
-
-**Decided, not yet shipped (David, 2026-10-06,
-[launch definition](./launch-definition.md)):** a fact's
-[hero renders](./glossary.md#hero-render) — its moderation-approved renders,
-published as its own image assets — are a **hard gate on going live**. A
-successful moderation is one that ends with confirmed, approved hero renders;
-there is no "no-hero fallback", and the waiver will not cover them. The
-[product strategy](./product-strategy.md#gags-and-examples) (2026-11-11) sets
-the minimum: a fact may have up to three approved gags, and one unstyled
-example per approved gag is required; styled examples are optional. The PR
-that builds it replaces this paragraph with the shipped behaviour. Every other render scenario stays waivable.
+**Shipped (2026-11-15, plan `docs/plans/PLAN_GAG_EXAMPLES.md`;
+[decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)):** a gag's
+approved examples are a **hard gate on going live**, per gag. Every gag
+offered to users carries a male, a female and a pet example, approved by a
+moderator from that gag's own unstyled renders; the database refuses approved
+content without them at commit. There is no waiver and no "no-hero fallback".
+The one exception is a gag approved before example sets (carried over by 0139
+or approved with one example): it stays offered, **grandfathered**, until it
+first completes a set; giving each its three examples is a launch-readiness
+item ([launch definition](./launch-definition.md)). Styled examples per look
+are later. `pending_reviews.visual_render_approval_waiver` is kept as history
+of past waivers and is no longer written.
 
 Pexels stock images were a second review aid and the source of user-facing
 stock backgrounds; Pexels was deleted entirely in launch Phase 4, removal 6
@@ -265,9 +280,10 @@ future refresh is promoted. See
 **Gags in a refresh** (plan `docs/plans/PLAN_THREE_GAGS.md`): gags are written
 as the last step of a refresh, inside its review — while a refresh is open, a
 fact's gags can't be changed from the Facts editor. The live fact's approved
-gags stay offered to users throughout. A change saved in the review, a render
-picked as its example, or a removal is owned by the review and lands when the
-refresh is promoted; declining the refresh discards them. A refresh can be
+gags stay offered to users throughout. A change saved in the review, the
+renders picked as its examples, or a removal is owned by the review and lands
+when the refresh is promoted (a change only with its three picks); declining
+the refresh discards the picks and the removal. A refresh can be
 promoted only if the fact keeps at least one approved gag afterwards.
 
 ## Rejection paths

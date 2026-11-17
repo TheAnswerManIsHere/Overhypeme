@@ -838,7 +838,9 @@ KITT work a launch phase needs and a second app would need identically;
   Answered 2026-10-06: approved hero images are a hard gate; other scenarios
   stay waivable. See [`decisions.md`](./decisions.md). Reshaped 2026-11-11 to
   one required example per approved gag, up to three gags per fact
-  ([product strategy](./product-strategy.md#gags-and-examples)).
+  ([product strategy](./product-strategy.md#gags-and-examples)); since
+  2026-11-15, three examples per gag (male, female, pet) and no waiver
+  ([decision](./decisions.md#2026-11-15--a-gag-carries-a-male-a-female-and-a-pet-example-renders-are-drawn-as-the-moderator-iterates)).
 - Should any subset of a refresh (e.g. one where only non-render-affecting
   inputs moved) ever skip a human gate? Explicitly NOT decided by PR4 — bulk
   send-back only initiates; see the PR #168/#205 entry in

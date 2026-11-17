@@ -7,8 +7,58 @@
  */
 import { z } from "zod";
 import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
-import type { RenderScenarioGrid } from "./renderScenarios";
-import { renderScenarioKeySchema } from "./renderScenarios";
+import type { RenderScenarioCard, RenderScenarioKey } from "./renderScenarios";
+
+/**
+ * The subject kinds a gag is shown with, one committed reference photo each
+ * (plan docs/plans/PLAN_GAG_EXAMPLES.md; David, 2026-11-15, Q8): a gag needs
+ * an approved example of each before it is offered.
+ */
+export const GAG_EXAMPLE_KINDS = ["male", "female", "pet"] as const;
+export type GagExampleKind = (typeof GAG_EXAMPLE_KINDS)[number];
+export const gagExampleKindSchema = z.enum(GAG_EXAMPLE_KINDS);
+
+/** The render scenario that draws each kind. */
+export const SCENARIO_FOR_KIND: Record<GagExampleKind, RenderScenarioKey> = {
+  male: "i2i_male_default",
+  female: "i2i_female_default",
+  pet: "i2i_nonhuman_animal",
+};
+
+/** The kind a render scenario draws, or null for a scenario that is not a kind. */
+export function kindForScenario(key: string | null | undefined): GagExampleKind | null {
+  for (const kind of GAG_EXAMPLE_KINDS) if (SCENARIO_FOR_KIND[kind] === key) return kind;
+  return null;
+}
+
+/** The iteration render: the one kind drawn when a gag's content changes. */
+export const ITERATION_KIND: GagExampleKind = "male";
+
+/** The kinds drawn once the gag works ("Render female and pet"). */
+export const REST_KINDS: readonly GagExampleKind[] = GAG_EXAMPLE_KINDS.filter((k) => k !== ITERATION_KIND);
+
+/** Each kind in words, capitalised. */
+export const KIND_LABEL: Record<GagExampleKind, string> = { male: "Male", female: "Female", pet: "Pet" };
+
+/** One value per kind, built from the kind list so a new kind is added in one place. */
+export function mapKinds<T>(fn: (kind: GagExampleKind) => T): Record<GagExampleKind, T> {
+  return Object.fromEntries(GAG_EXAMPLE_KINDS.map((k) => [k, fn(k)])) as Record<GagExampleKind, T>;
+}
+
+/** Whether a set holds every kind. */
+export function isCompleteSet(set: Record<GagExampleKind, unknown | null>): boolean {
+  return GAG_EXAMPLE_KINDS.every((k) => set[k] != null);
+}
+
+/** The kinds a set still lacks, in display order. */
+export function missingKinds(set: Record<GagExampleKind, unknown | null>): GagExampleKind[] {
+  return GAG_EXAMPLE_KINDS.filter((k) => set[k] == null);
+}
+
+/** "a", "a and b", "a, b and c". */
+export function joinWithAnd(words: readonly string[]): string {
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
 
 /** The most gags a fact can have. */
 export const MAX_GAGS_PER_FACT = 3;
@@ -30,8 +80,13 @@ export const gagScopeBodySchema = z.object(reviewScope).strict();
 export type GagScopeBody = z.infer<typeof gagScopeBodySchema>;
 
 export const gagRendersBodySchema = z.object({
-  /** Named scenarios to rerun; omitted runs the default batch. */
-  scenarios: z.array(renderScenarioKeySchema).min(1).optional(),
+  /** The kinds to draw for the gag's current content. */
+  kinds: z.array(gagExampleKindSchema).min(1),
+  /**
+   * Draw again even when a render of this content already exists for a kind:
+   * the moderator's explicit redraw. Without it, an existing render is reused.
+   */
+  redraw: z.boolean().optional(),
   ...reviewScope,
 }).strict();
 export type GagRendersBody = z.infer<typeof gagRendersBodySchema>;
@@ -53,6 +108,9 @@ export interface GagExample {
   imageUrl: string | null;
 }
 
+/** One value per subject kind. */
+export type PerKind<T> = Record<GagExampleKind, T>;
+
 export interface GagView {
   id: number;
   slot: number;
@@ -62,21 +120,32 @@ export interface GagView {
   /** The lowest-slot available gag: what users get with no picker. */
   isDefault: boolean;
   approvedContent: VisualPromptStrategyOverride | null;
-  approvedExample: GagExample | null;
-  /** An approved version carried over by migration 0139 with no example on record. */
-  carriedOver: boolean;
+  /** The approved version's examples, per kind (all three unless grandfathered). */
+  approvedExamples: PerKind<GagExample | null>;
+  /**
+   * Approved before example sets (migration 0143, Q11): offered with fewer than
+   * three examples until it first completes a set.
+   */
+  grandfathered: boolean;
   approvedAt: string | null;
   pendingContent: VisualPromptStrategyOverride | null;
-  /** Inside a refresh: the review that owns the pending pick or removal. */
+  /** Inside a refresh: the review that owns the pending picks or removal. */
   pendingReviewId: number | null;
-  /** Inside a refresh: the render picked as the change's example, landing at promotion. */
-  pendingExample: GagExample | null;
+  /**
+   * Picks for the content being worked on, per kind. Outside a refresh the
+   * third pick applies the change; inside one, the picks apply at promotion.
+   */
+  pendingExamples: PerKind<GagExample | null>;
   /** Inside a refresh: removal requested, landing at promotion. */
   pendingRemove: boolean;
   /** The approved version predates the fact's latest refresh (shown as a note; never hides the gag). */
   refreshedSinceApproval: boolean;
-  /** This gag's test renders (latest per scenario). */
-  renders: RenderScenarioGrid;
+  /**
+   * This gag's render of its current content, per kind: the attempt the
+   * scheduler reused or drew for that content (null when none was drawn).
+   * Renders of other content are history and are not listed.
+   */
+  renders: PerKind<RenderScenarioCard | null>;
 }
 
 export interface FactGagsView {

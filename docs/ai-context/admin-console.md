@@ -200,11 +200,11 @@ background enrichment-backfill job for previously unenriched facts.
 
 **Memes:** **there is no dedicated "all memes" browse/edit admin page.**
 The only meme-facing admin surfaces are the Gags panel (a fact's one to three
-gags, each with its example, editor and test renders; on the moderation
+gags, each with its male, female and pet examples, editor and test renders; on the moderation
 review's Gags and Test Renders steps and in the Facts editor's Visual Taxonomy
 Enrichment section, where a live fact with no open review also gets **Draft
 more gags**, the gag writer's ideas outside a review; plan
-`docs/plans/PLAN_THREE_GAGS.md`, covered in
+`docs/plans/PLAN_THREE_GAGS.md` and `PLAN_GAG_EXAMPLES.md`, covered in
 [`visual-pipeline.md`](./visual-pipeline.md)) and the legal/safety quarantine path, which currently has no
 purpose-built UI of its own — access is config-only, through the generic
 `admin_config` editor above.
